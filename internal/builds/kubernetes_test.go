@@ -231,9 +231,10 @@ func TestKubernetesAdapterAdoptsOnlyAllowlistedAPIServerDefaults(t *testing.T) {
 			if probe, ok := container["startupProbe"].(map[string]any); ok {
 				probe["successThreshold"] = int64(1)
 			}
-			container["resources"].(map[string]any)["limits"].(map[string]any)["cpu"] = "1"
 		}
 	}
+	checkout := podSpec["initContainers"].([]any)[0].(map[string]any)
+	checkout["resources"].(map[string]any)["limits"].(map[string]any)["cpu"] = "1000m"
 	if _, err := adapter.ensure(context.Background(), workload, sourceTokenTwo()); err != nil {
 		t.Fatalf("safe Kubernetes defaults were not adopted: %v", err)
 	}

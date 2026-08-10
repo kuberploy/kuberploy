@@ -54,7 +54,7 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 	buildOwner := workerLeaseOwner(processIdentity, "builds")
 	releaseOwner := workerLeaseOwner(processIdentity, "release-projection")
 	const lease = 30 * time.Second
-	deliveries := &builds.WebhookService{Provider: provider, Store: store, Owner: deliveryOwner, LeaseDuration: lease}
+	deliveries := &builds.WebhookService{Provider: provider, Store: store, Owner: deliveryOwner, LeaseDuration: lease, Runtime: config}
 	controller := &builds.BuildController{Store: store, Provider: provider, Kubernetes: kubernetes, Owner: buildOwner, LeaseDuration: lease}
 	releases := &builds.ReleaseProjector{Store: store, Registry: registry, Owner: releaseOwner, LeaseDuration: lease}
 	runner := &builds.WorkerRunner{

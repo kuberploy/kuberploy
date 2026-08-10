@@ -27,7 +27,7 @@ type Store interface {
 	RetryDelivery(context.Context, string, string, string, time.Time, time.Time) error
 	FinishDelivery(context.Context, string, string, DeliveryState, string, time.Time) error
 	AuthorizePush(context.Context, int64, int64, githubapp.RepositoryIdentity, string) (AuthorizedPush, error)
-	EnqueuePushBuilds(context.Context, EnqueuePush, string, []BuildDefinition, time.Time) ([]BuildAttempt, error)
+	EnqueuePushBuilds(context.Context, EnqueuePush, string, []AttemptDefinition, time.Time) ([]BuildAttempt, error)
 
 	Attempt(context.Context, string) (BuildAttempt, error)
 	AttemptAuthorization(context.Context, string) (Installation, Repository, error)

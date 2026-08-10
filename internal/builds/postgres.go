@@ -423,7 +423,7 @@ func (s *PostgreSQLStore) AuthorizePush(ctx context.Context, appID, providerInst
 	return AuthorizedPush{Installation: installation, Repository: repository, Definitions: definitions}, nil
 }
 
-func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePush, owner string, definitions []BuildDefinition, now time.Time) ([]BuildAttempt, error) {
+func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePush, owner string, definitions []AttemptDefinition, now time.Time) ([]BuildAttempt, error) {
 	if !commitRE.MatchString(input.CommitSHA) || !validGitRef(input.GitRef) || input.ResolvedAt.IsZero() || owner == "" || len(definitions) == 0 {
 		return nil, ErrInvalid
 	}
@@ -445,11 +445,11 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 	}
 	staged := make([]BuildAttempt, 0, len(definitions))
 	for _, requested := range definitions {
-		current, getErr := definitionByIDQuery(ctx, tx, requested.ID, true)
+		current, getErr := definitionByIDQuery(ctx, tx, requested.Definition.ID, true)
 		if getErr != nil {
 			return nil, getErr
 		}
-		if !sameDefinition(current, requested) || !current.Enabled {
+		if !sameDefinition(current, requested.Definition) || !current.Enabled {
 			return nil, ErrUnauthorized
 		}
 		var installationLifecycle InstallationLifecycle
@@ -482,7 +482,7 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 		if importErr != nil {
 			return nil, importErr
 		}
-		attempt, createErr := newAttempt(current, repository, input, generation, imports, now)
+		attempt, createErr := newAttemptWithExecution(current, requested.Execution, repository, input, generation, imports, now)
 		if createErr != nil {
 			return nil, createErr
 		}

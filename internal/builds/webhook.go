@@ -8,6 +8,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/githubapp"
@@ -31,6 +33,7 @@ type WebhookService struct {
 	Owner         string
 	LeaseDuration time.Duration
 	Now           func() time.Time
+	Runtime       WorkerRuntimeConfig
 	PushWaker     interface {
 		Wake(context.Context, gitprojection.GitHubPushWake) (gitprojection.GitHubPushWakeResult, error)
 	}
@@ -231,7 +234,11 @@ func (s *WebhookService) processDelivery(ctx context.Context, claimKey string, e
 		if resolved.Ref != typed.Ref || !commitRE.MatchString(resolved.CommitSHA) || resolved.ResolvedAt.IsZero() {
 			return s.finishDeliveryError(ctx, outcome, ErrUnauthorized)
 		}
-		attempts, enqueueErr := s.Store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: resolved.CommitSHA, GitRef: resolved.Ref, ResolvedAt: resolved.ResolvedAt}, s.Owner, authorized.Definitions, s.now())
+		definitions, executionErr := attemptDefinitions(authorized.Definitions, s.Runtime)
+		if executionErr != nil {
+			return s.finishDeliveryError(ctx, outcome, executionErr)
+		}
+		attempts, enqueueErr := s.Store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: resolved.CommitSHA, GitRef: resolved.Ref, ResolvedAt: resolved.ResolvedAt}, s.Owner, definitions, s.now())
 		if enqueueErr != nil {
 			if errors.Is(enqueueErr, ErrUnauthorized) {
 				return s.finishDeliveryError(ctx, outcome, enqueueErr)
@@ -247,6 +254,32 @@ func (s *WebhookService) processDelivery(ctx context.Context, claimKey string, e
 	default:
 		return WebhookOutcome{}, githubapp.ErrInvalidWebhook
 	}
+}
+
+func attemptDefinitions(definitions []BuildDefinition, runtime WorkerRuntimeConfig) ([]AttemptDefinition, error) {
+	if _, err := RuntimeIdentity(runtime); err != nil {
+		return nil, ErrInfrastructure
+	}
+	result := make([]AttemptDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		endpoint, err := url.Parse("https://" + definition.Spec.Registry.Server)
+		if err != nil || endpoint.Host != definition.Spec.Registry.Server || endpoint.Hostname() == "" {
+			return nil, ErrInfrastructure
+		}
+		port := 443
+		if raw := endpoint.Port(); raw != "" {
+			port, err = strconv.Atoi(raw)
+			if err != nil || port < 1 || port > 65535 {
+				return nil, ErrInfrastructure
+			}
+		}
+		execution, err := runtime.ExecutionSettings(port)
+		if err != nil {
+			return nil, ErrInfrastructure
+		}
+		result = append(result, AttemptDefinition{Definition: definition, Execution: execution})
+	}
+	return result, nil
 }
 
 func decodeTypedEvent(name string, encoded []byte) (githubapp.Event, error) {

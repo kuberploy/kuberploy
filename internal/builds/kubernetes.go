@@ -239,7 +239,7 @@ func (a *KubernetesAdapter) ensure(ctx context.Context, workload BuildWorkload, 
 	}
 	if jobFound {
 		if err = validateLiveJob(liveJob, desired.job); err != nil {
-			return WorkloadObservation{}, ErrInfrastructure
+			return WorkloadObservation{}, err
 		}
 		if jobDeletionInProgress(liveJob) {
 			if workload.Attempt.ExecutionAttempts > 1 && isTerminalJob(liveJob) && (workload.Attempt.State == AttemptPreparing || workload.Attempt.State == AttemptRunning) {
@@ -295,10 +295,10 @@ func (a *KubernetesAdapter) ensure(ctx context.Context, workload BuildWorkload, 
 
 	pods, err := a.buildPods(ctx, desired, liveJob)
 	if err != nil {
-		return WorkloadObservation{}, err
+		return WorkloadObservation{}, fmt.Errorf("build Pod validation: %w", err)
 	}
 	if err = a.validateAuxiliaries(ctx, desired, liveJob, pods); err != nil {
-		return WorkloadObservation{}, err
+		return WorkloadObservation{}, fmt.Errorf("build auxiliary validation: %w", err)
 	}
 	observation := observeBuild(workload.Attempt, liveJob, pods)
 	observation.Job = cloneMap(workload.Plan.Job)
@@ -547,8 +547,8 @@ func (a *KubernetesAdapter) createOrAdoptJob(ctx context.Context, desired map[st
 	if err != nil {
 		return nil, fmt.Errorf("%w: create or adopt Job: %v", ErrInfrastructure, err)
 	}
-	if validateLiveJob(live, desired) != nil {
-		return nil, fmt.Errorf("%w: stored Job did not match the canonical planned object", ErrInfrastructure)
+	if validationErr := validateLiveJob(live, desired); validationErr != nil {
+		return nil, fmt.Errorf("%w: stored Job did not match the canonical planned object: %v", ErrInfrastructure, validationErr)
 	}
 	return live, nil
 }
@@ -754,22 +754,22 @@ func validateExactNetworkPolicy(live, desired map[string]any) error {
 
 func validateLiveJob(live, desired map[string]any) error {
 	if err := validateJobIdentityMetadata(live, desired); err != nil {
-		return err
+		return fmt.Errorf("identity: %w", err)
 	}
 	normalized := normalizeGoIntegers(cloneMap(live)).(map[string]any)
 	expected := normalizeGoIntegers(cloneMap(desired)).(map[string]any)
 	metadata := normalized["metadata"].(map[string]any)
 	uid, _ := metadata["uid"].(string)
 	if uid == "" {
-		return ErrInfrastructure
+		return fmt.Errorf("uid: %w", ErrInfrastructure)
 	}
 	spec, ok := normalized["spec"].(map[string]any)
 	if !ok {
-		return ErrInfrastructure
+		return fmt.Errorf("spec: %w", ErrInfrastructure)
 	}
 	selector, _ := spec["selector"].(map[string]any)
 	if selector == nil || !validJobSelector(selector, uid) {
-		return ErrInfrastructure
+		return fmt.Errorf("selector: %w", ErrInfrastructure)
 	}
 	delete(spec, "selector")
 	template, _ := spec["template"].(map[string]any)
@@ -777,15 +777,15 @@ func validateLiveJob(live, desired map[string]any) error {
 	desiredTemplate := expected["spec"].(map[string]any)["template"].(map[string]any)
 	desiredTemplateMetadata := desiredTemplate["metadata"].(map[string]any)
 	if !validTemplateLabels(templateMetadata, desiredTemplateMetadata, uid, objectName(desired)) {
-		return ErrInfrastructure
+		return fmt.Errorf("template labels: %w", ErrInfrastructure)
 	}
 	template["metadata"] = cloneMap(desiredTemplateMetadata)
 	podSpec, _ := template["spec"].(map[string]any)
 	if podSpec == nil || stripExactPodDefaults(podSpec, desiredTemplate["spec"].(map[string]any)) != nil {
-		return ErrInfrastructure
+		return fmt.Errorf("pod defaults: %w", ErrInfrastructure)
 	}
 	if !reflect.DeepEqual(spec, expected["spec"]) {
-		return ErrInfrastructure
+		return fmt.Errorf("normalized Job spec: %w", ErrInfrastructure)
 	}
 	return nil
 }

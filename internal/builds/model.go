@@ -153,6 +153,15 @@ type BuildDefinition struct {
 	UpdatedAt            time.Time
 }
 
+// AttemptDefinition keeps the authorized immutable user definition separate
+// from the current operator-owned execution settings snapshotted by a new
+// attempt. This prevents platform upgrades from replaying stale runtime images
+// or placement policy while preserving historical attempts exactly.
+type AttemptDefinition struct {
+	Definition BuildDefinition
+	Execution  ExecutionSettings
+}
+
 type DeliveryState string
 
 const (

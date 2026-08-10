@@ -159,14 +159,14 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.ApplyInstallationEvent(ctx, appID, lifecycleEvent, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: strings.Repeat("b", 40), GitRef: event.Ref, ResolvedAt: now}, "postgres-contract", authorized.Definitions, now); !errors.Is(err, ErrUnauthorized) {
+	if _, err = store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: strings.Repeat("b", 40), GitRef: event.Ref, ResolvedAt: now}, "postgres-contract", storedAttemptDefinitions(authorized.Definitions), now); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("suspended installation enqueued: %v", err)
 	}
 	lifecycleEvent.Action = "unsuspend"
 	if err = store.ApplyInstallationEvent(ctx, appID, lifecycleEvent, now.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	attempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: strings.Repeat("b", 40), GitRef: event.Ref, ResolvedAt: now}, "postgres-contract", authorized.Definitions, now)
+	attempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: claimKey, CommitSHA: strings.Repeat("b", 40), GitRef: event.Ref, ResolvedAt: now}, "postgres-contract", storedAttemptDefinitions(authorized.Definitions), now)
 	if err != nil || len(attempts) != 1 {
 		t.Fatalf("attempts=%#v err=%v", attempts, err)
 	}
@@ -321,7 +321,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || len(retryAuthorized.Definitions) != 1 {
 		t.Fatalf("retry authorized=%#v err=%v", retryAuthorized, err)
 	}
-	retryAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: retryClaim.ClaimKey, CommitSHA: strings.Repeat("c", 40), GitRef: event.Ref, ResolvedAt: retryNow}, "postgres-contract", retryAuthorized.Definitions, retryNow)
+	retryAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: retryClaim.ClaimKey, CommitSHA: strings.Repeat("c", 40), GitRef: event.Ref, ResolvedAt: retryNow}, "postgres-contract", storedAttemptDefinitions(retryAuthorized.Definitions), retryNow)
 	if err != nil || len(retryAttempts) != 1 {
 		t.Fatalf("retry attempts=%#v err=%v", retryAttempts, err)
 	}
@@ -403,7 +403,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || len(externalAuthorized.Definitions) != 2 {
 		t.Fatalf("external authorized=%#v err=%v", externalAuthorized, err)
 	}
-	externalAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: externalClaim.ClaimKey, CommitSHA: strings.Repeat("d", 40), GitRef: event.Ref, ResolvedAt: externalNow}, "postgres-contract", externalAuthorized.Definitions, externalNow)
+	externalAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: externalClaim.ClaimKey, CommitSHA: strings.Repeat("d", 40), GitRef: event.Ref, ResolvedAt: externalNow}, "postgres-contract", storedAttemptDefinitions(externalAuthorized.Definitions), externalNow)
 	if err != nil || len(externalAttempts) != 2 {
 		t.Fatalf("external attempts=%#v err=%v", externalAttempts, err)
 	}

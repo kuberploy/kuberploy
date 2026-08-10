@@ -468,7 +468,7 @@ func (s *MemoryStore) AuthorizePush(_ context.Context, appID, providerInstallati
 	return AuthorizedPush{Installation: cloneInstallation(installation), Repository: cloneRepository(repository), Definitions: definitions}, nil
 }
 
-func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, owner string, definitions []BuildDefinition, now time.Time) ([]BuildAttempt, error) {
+func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, owner string, definitions []AttemptDefinition, now time.Time) ([]BuildAttempt, error) {
 	if !commitRE.MatchString(input.CommitSHA) || !validGitRef(input.GitRef) || input.ResolvedAt.IsZero() || owner == "" {
 		return nil, ErrInvalid
 	}
@@ -490,8 +490,8 @@ func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, ow
 	staged := make([]BuildAttempt, 0, len(definitions))
 	stagedGenerations := make(map[string]int64)
 	for _, requested := range definitions {
-		current, ok := s.definitions[requested.ID]
-		if !ok || !sameDefinition(current, requested) || !current.Enabled {
+		current, ok := s.definitions[requested.Definition.ID]
+		if !ok || !sameDefinition(current, requested.Definition) || !current.Enabled {
 			return nil, ErrUnauthorized
 		}
 		installation, ok := s.installations[current.InstallationID]
@@ -513,7 +513,7 @@ func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, ow
 		}
 		generation++
 		imports := s.cacheImportsLocked(current, generation)
-		attempt, err := newAttempt(current, repository, input, generation, imports, now)
+		attempt, err := newAttemptWithExecution(current, requested.Execution, repository, input, generation, imports, now)
 		if err != nil {
 			return nil, err
 		}

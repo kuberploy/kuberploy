@@ -174,7 +174,28 @@ func (p *fakeProvider) ResolveEventRef(_ context.Context, _ githubapp.Installati
 }
 
 func webhookService(store Store, provider *fakeProvider, envelope githubapp.WebhookEnvelope, clock *time.Time) *WebhookService {
-	return &WebhookService{Verifier: staticVerifier{envelope}, Provider: provider, Store: store, Owner: "webhook-worker", LeaseDuration: time.Minute, Now: func() time.Time { return *clock }}
+	return &WebhookService{Verifier: staticVerifier{envelope}, Provider: provider, Store: store, Owner: "webhook-worker", LeaseDuration: time.Minute, Runtime: testWorkerRuntimeConfig(), Now: func() time.Time { return *clock }}
+}
+
+func testWorkerRuntimeConfig() WorkerRuntimeConfig {
+	config, err := WorkerRuntimeConfigFromLookup(mapLookup(map[string]string{
+		GitHubBuildsEnabledEnv: "true", GitHubAppIDEnv: "99", GitHubAppClientIDEnv: "Iv1_TestClient",
+		BuilderNamespaceEnv: "kuberploy-build-dind", BuilderPodServiceAccountEnv: "kuberploy-build-pod",
+		BuilderAgentImageEnv:        "registry.test/system/builder-agent@sha256:" + strings.Repeat("2", 64),
+		BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", BuilderRegistryEgressCIDRsEnv: "198.51.100.10/32",
+	}))
+	if err != nil {
+		panic(err)
+	}
+	return config
+}
+
+func storedAttemptDefinitions(definitions []BuildDefinition) []AttemptDefinition {
+	result := make([]AttemptDefinition, len(definitions))
+	for index := range definitions {
+		result[index] = AttemptDefinition{Definition: definitions[index], Execution: definitions[index].Spec.Execution}
+	}
+	return result
 }
 
 type fakeKubernetes struct {

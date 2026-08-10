@@ -16,7 +16,7 @@ import (
 func TestWebhookUsesAuthoritativeCommitAndExactlyOnceOutbox(t *testing.T) {
 	for _, mode := range []RegistryMode{RegistryManaged, RegistryExternal} {
 		t.Run(string(mode), func(t *testing.T) {
-			store, _ := seedMemory(t, mode)
+			store, definition := seedMemory(t, mode)
 			clock := testNow
 			provider := &fakeProvider{resolvedCommit: strings.Repeat("b", 40), now: clock}
 			envelope := testEnvelope(t, "11111111-2222-4333-8444-555555555555", strings.Repeat("a", 40), clock)
@@ -37,6 +37,9 @@ func TestWebhookUsesAuthoritativeCommitAndExactlyOnceOutbox(t *testing.T) {
 			}
 			if attempt.RegistryMode != mode || attempt.PlanRequest.Build.Cache.CandidateExport == "" || !strings.Contains(attempt.PlanRequest.Build.Cache.CandidateExport, "/cache/v1/trusted/") {
 				t.Fatalf("registry/cache input=%#v", attempt.PlanRequest.Build)
+			}
+			if attempt.PlanRequest.AgentImage != service.Runtime.BuilderAgentImage || attempt.PlanRequest.AgentImage == definition.Spec.Execution.BuilderAgentImage {
+				t.Fatalf("new attempt did not snapshot the current operator runtime image: %q", attempt.PlanRequest.AgentImage)
 			}
 			second, err := service.Handle(context.Background(), http.Header{}, strings.NewReader("ignored"))
 			if err != nil {

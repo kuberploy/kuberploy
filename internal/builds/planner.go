@@ -102,6 +102,11 @@ func newAttempt(definition BuildDefinition, repository Repository, delivery Enqu
 	}, nil
 }
 
+func newAttemptWithExecution(definition BuildDefinition, execution ExecutionSettings, repository Repository, delivery EnqueuePush, generation int64, imports []string, now time.Time) (BuildAttempt, error) {
+	definition.Spec.Execution = execution
+	return newAttempt(definition, repository, delivery, generation, imports, now)
+}
+
 func attemptInputDigest(plan builder.JobPlanRequest, checkout builder.CheckoutRequest) (string, error) {
 	encoded, err := json.Marshal(struct {
 		Plan     builder.JobPlanRequest  `json:"plan"`
