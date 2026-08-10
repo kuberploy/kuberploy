@@ -130,8 +130,10 @@ entry path. Enabling it requires the control-plane and builder components plus
 the public HTTPS endpoint. Supply only the GitHub App ID, client ID, slug,
 cluster UUID, the name of a pre-created `kuberploy-system` Secret, and exact
 egress host CIDRs. The installer enables GitHub setup/webhooks, Git projection,
-the stage-one platform Git binding, and the hardened builder together; it
-rejects partial combinations. The Secret must contain the private key, webhook
+the stage-one platform Git binding, and the hardened builder together; the
+builder boundary is embedded in the control-plane Application so Argo never
+assigns the same cluster-scoped admission resources to two Applications. The
+installer rejects partial combinations. The Secret must contain the private key, webhook
 secret, state-signing secret, and OAuth client secret under the control-plane
 chart's fixed keys. No credential bytes enter Helm values or Argo Applications.
 

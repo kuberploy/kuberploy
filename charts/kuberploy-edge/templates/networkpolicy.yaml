@@ -48,6 +48,15 @@ spec:
               acme.cert-manager.io/http01-solver: "true"
       ports:
         - {port: 8089, protocol: TCP}
+    # The optional managed OCI registry shares the platform namespace. Permit
+    # only its exact server-owned labels and Distribution port.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberploy-registry
+              app.kubernetes.io/component: registry
+      ports:
+        - {port: 5000, protocol: TCP}
     - to:
         - namespaceSelector:
             matchLabels:
