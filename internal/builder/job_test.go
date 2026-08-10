@@ -261,7 +261,8 @@ func assertMount(t *testing.T, mounts []any, name string, readOnly bool) {
 	for _, raw := range mounts {
 		mount := raw.(map[string]any)
 		if mount["name"] == name {
-			if mount["readOnly"] != readOnly {
+			actual, _ := mount["readOnly"].(bool)
+			if actual != readOnly {
 				t.Fatalf("mount %s readOnly=%v", name, mount["readOnly"])
 			}
 			return

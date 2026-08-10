@@ -917,6 +917,12 @@ func validTemplateLabels(liveMetadata, desiredMetadata map[string]any, uid, jobN
 }
 
 func stripExactPodDefaults(live, desired map[string]any) error {
+	if account, exists := live["serviceAccount"]; exists {
+		if account != desired["serviceAccountName"] {
+			return ErrInfrastructure
+		}
+		delete(live, "serviceAccount")
+	}
 	for key, value := range map[string]any{
 		"dnsPolicy": "ClusterFirst", "schedulerName": "default-scheduler", "terminationGracePeriodSeconds": int64(30),
 	} {
@@ -952,6 +958,15 @@ func stripExactPodDefaults(live, desired map[string]any) error {
 						return ErrInfrastructure
 					}
 					delete(actual, key)
+				}
+			}
+			if probe, exists := actual["startupProbe"].(map[string]any); exists {
+				expectedProbe, _ := expected["startupProbe"].(map[string]any)
+				if threshold, defaulted := probe["successThreshold"]; defaulted {
+					if threshold != int64(1) || expectedProbe != nil && expectedProbe["successThreshold"] != nil {
+						return ErrInfrastructure
+					}
+					delete(probe, "successThreshold")
 				}
 			}
 			if !equivalentResourceQuantities(actual["resources"], expected["resources"]) {

@@ -22,7 +22,11 @@ func newManagedRegistryAPI(config registry.RuntimeConfig, database managedRegist
 	if database == nil || config.Validate() != nil {
 		return nil, fmt.Errorf("invalid managed registry API configuration")
 	}
-	result := &managedRegistryAPI{management: registry.NewManagement(database, registry.DurableCleanupDispatcher{})}
+	options := []registry.ManagementOption{}
+	if config.Enabled {
+		options = append(options, registry.WithManagedTargetID(config.TargetID))
+	}
+	result := &managedRegistryAPI{management: registry.NewManagement(database, registry.DurableCleanupDispatcher{}, options...)}
 	if !config.Enabled {
 		return result, nil
 	}

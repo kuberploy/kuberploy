@@ -220,12 +220,16 @@ func TestKubernetesAdapterAdoptsOnlyAllowlistedAPIServerDefaults(t *testing.T) {
 	podSpec["dnsPolicy"] = "ClusterFirst"
 	podSpec["schedulerName"] = "default-scheduler"
 	podSpec["terminationGracePeriodSeconds"] = int64(30)
+	podSpec["serviceAccount"] = attempt.PlanRequest.PodServiceAccount
 	for _, field := range []string{"initContainers", "containers"} {
 		for _, raw := range podSpec[field].([]any) {
 			container := raw.(map[string]any)
 			if container["name"] != "agent" {
 				container["terminationMessagePath"] = "/dev/termination-log"
 				container["terminationMessagePolicy"] = "File"
+			}
+			if probe, ok := container["startupProbe"].(map[string]any); ok {
+				probe["successThreshold"] = int64(1)
 			}
 			container["resources"].(map[string]any)["limits"].(map[string]any)["cpu"] = "1"
 		}

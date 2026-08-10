@@ -39,6 +39,7 @@ type Management struct {
 	executor          CleanupPlanExecutor
 	now               func() time.Time
 	newID             func() string
+	managedTargetID   string
 	maxObservationAge time.Duration
 }
 
@@ -50,6 +51,13 @@ func WithManagementClock(now func() time.Time) ManagementOption {
 
 func WithManagementIDGenerator(newID func() string) ManagementOption {
 	return func(service *Management) { service.newID = newID }
+}
+
+// WithManagedTargetID binds the single operator-managed registry profile to
+// the exact durable target identity supplied by runtime configuration. Other
+// (external) targets continue to receive independently generated identities.
+func WithManagedTargetID(targetID string) ManagementOption {
+	return func(service *Management) { service.managedTargetID = strings.TrimSpace(targetID) }
 }
 
 func WithManagementObservationAge(max time.Duration) ManagementOption {
@@ -91,7 +99,11 @@ func (s *Management) CreateTarget(ctx context.Context, actor, key, fingerprint, 
 	if s == nil || s.store == nil || s.newID == nil {
 		return store.Result[domain.RegistryTarget]{}, ErrRegistryManagementInvalid
 	}
-	target := registryTargetFromInput(s.newID(), input)
+	targetID := s.newID()
+	if input.Mode == domain.RegistryTargetManaged && s.managedTargetID != "" {
+		targetID = s.managedTargetID
+	}
+	target := registryTargetFromInput(targetID, input)
 	if err := ValidateTarget(target); err != nil {
 		return store.Result[domain.RegistryTarget]{}, err
 	}

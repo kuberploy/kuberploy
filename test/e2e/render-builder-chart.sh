@@ -55,21 +55,29 @@ for kp_required in \
   "object.spec.parallelism == 1" \
   "object.spec.podReplacementPolicy == 'Failed'" \
   "object.spec.template.spec.restartPolicy == 'Never'" \
+  "!has(object.spec.template.spec.hostNetwork)" \
+  "!has(object.spec.template.spec.hostPID)" \
+  "!has(object.spec.template.spec.hostIPC)" \
   "c.terminationMessagePath == '/result/result.json'" \
   "object.metadata.annotations['kuberploy.io/build-input-digest']" \
   "v.name in ['workspace', 'docker-socket', 'docker-data', 'result']" \
+  "v.name in ['source-credentials', 'registry-push-credentials', 'registry-cache-credentials', 'build-secrets', 'ssh-secrets']" \
+  "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
+  "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
+  "!has(v.readOnly) || v.readOnly == false" \
   "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.15'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
+  "!has(c.env[0].value)" \
   '!has(c.lifecycle)' \
   'c.securityContext.privileged == true' \
   "c.restartPolicy == 'Always'" \
   "v.name == 'workspace' && v.readOnly == true" \
   "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
   "cidr.endsWith('/32')" \
-  "object.data['username'] == b'x-access-token'" \
-  "object.data['token'].size() <= 2048" \
+  "string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4='" \
+  "object.data['token'].size() <= 2732" \
   "object.metadata.name.startsWith('source-credentials-')" \
   "object.metadata.name == 'default-deny'" \
   "'system:masters' in request.userInfo.groups"; do
@@ -78,6 +86,11 @@ for kp_required in \
     exit 1
   }
 done
+
+if rg -F "v.name == 'registry-credentials'" "${kp_render}" >/dev/null; then
+  printf 'builder admission still accepts the obsolete shared registry credential volume\n' >&2
+  exit 1
+fi
 
 kp_secret_verbs="$(yq eval-all 'select(.kind == "Role") | .rules[] | select(.resources[] == "secrets") | .verbs | sort | join(",")' "${kp_render}")"
 [[ "${kp_secret_verbs}" == "create,delete,get" ]] || {

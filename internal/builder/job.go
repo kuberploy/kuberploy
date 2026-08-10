@@ -150,9 +150,6 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 					"automountServiceAccountToken": false,
 					"restartPolicy":                "Never",
 					"enableServiceLinks":           false,
-					"hostNetwork":                  false,
-					"hostPID":                      false,
-					"hostIPC":                      false,
 					"securityContext": map[string]any{
 						"runAsGroup": int64(65532), "fsGroup": int64(65532), "fsGroupChangePolicy": "OnRootMismatch",
 					},
@@ -178,7 +175,7 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 							"restartPolicy":   "Always",
 							"command":         []any{"/usr/local/bin/docker-init", "--", "/usr/local/bin/dockerd"},
 							"args":            []any{"--host=" + DefaultDockerSocket, "--group=65532", "--tls=false"},
-							"env":             []any{map[string]any{"name": "DOCKER_TLS_CERTDIR", "value": ""}},
+							"env":             []any{map[string]any{"name": "DOCKER_TLS_CERTDIR"}},
 							"securityContext": map[string]any{"privileged": true, "runAsUser": int64(0), "runAsNonRoot": false},
 							"resources":       resources(request.DinDResources),
 							"volumeMounts": []any{
@@ -388,7 +385,11 @@ func CanAdoptNetworkPolicy(policy map[string]any, request JobPlanRequest) bool {
 }
 
 func volumeMount(name, path string, readOnly bool) map[string]any {
-	return map[string]any{"name": name, "mountPath": path, "readOnly": readOnly}
+	mount := map[string]any{"name": name, "mountPath": path}
+	if readOnly {
+		mount["readOnly"] = true
+	}
+	return mount
 }
 
 func stringMapAny(values map[string]string) map[string]any {
