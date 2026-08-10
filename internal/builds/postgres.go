@@ -606,6 +606,20 @@ func (s *PostgreSQLStore) MarkAttemptRunning(ctx context.Context, attemptID, own
 	return nil
 }
 
+func (s *PostgreSQLStore) DeferAttempt(ctx context.Context, attemptID, owner, code string, now, availableAt time.Time) error {
+	if validateFailureCode(code) != nil || availableAt.Before(now.UTC()) {
+		return ErrInvalid
+	}
+	command, err := s.pool.Exec(ctx, `UPDATE build_attempts SET failure_code=$3,available_at=$5,lease_owner=NULL,lease_until=NULL,updated_at=$4 WHERE id=$1 AND lease_owner=$2 AND lease_until>$4 AND cancel_requested_at IS NULL AND state IN ('preparing','running')`, attemptID, owner, code, now.UTC(), availableAt.UTC())
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
 func (s *PostgreSQLStore) ScheduleAttemptRetry(ctx context.Context, attemptID, owner, code string, now, availableAt time.Time) (bool, error) {
 	if validateFailureCode(code) != nil || availableAt.Before(now.UTC()) {
 		return false, ErrInvalid

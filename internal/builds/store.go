@@ -34,6 +34,7 @@ type Store interface {
 	ClaimNextAttempt(context.Context, string, time.Time, time.Duration) (BuildAttempt, error)
 	HeartbeatAttempt(context.Context, string, string, time.Time, time.Duration) error
 	MarkAttemptRunning(context.Context, string, string, time.Time) error
+	DeferAttempt(context.Context, string, string, string, time.Time, time.Time) error
 	ScheduleAttemptRetry(context.Context, string, string, string, time.Time, time.Time) (bool, error)
 	FailAttempt(context.Context, string, string, string, time.Time) error
 	CompleteAttempt(context.Context, string, string, BuildCompletion, time.Time) error

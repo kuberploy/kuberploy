@@ -70,7 +70,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4)`, installationID, providerInstall, userID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,push_credential_ref,cache_credential_ref,created_at,updated_at) VALUES($1,$2,'managed','registry.test','kuberploy','registry-credentials','registry-credentials',$3,$3)`, registryID, "registry-"+suffix, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,push_credential_ref,cache_credential_ref,created_at,updated_at) VALUES($1,$2,'managed','registry.test','kuberploy','registry-push','registry-cache',$3,$3)`, registryID, "registry-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
 	installation := Installation{ID: installationID, AppID: appID, GitHubInstallationID: providerInstall, Account: githubapp.AccountIdentity{ID: accountID, Login: "kuberploy", Type: "Organization"}, RepositorySelection: "selected", Permissions: githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead}, Lifecycle: InstallationActive, LastVerifiedAt: now, UpdatedAt: now}
@@ -329,8 +329,16 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || retryAttempt.ID != retryAttempts[0].ID || retryAttempt.ExecutionAttempts != 1 {
 		t.Fatalf("retry attempt=%#v err=%v", retryAttempt, err)
 	}
+	providerRetryAt := retryNow.Add(10 * time.Second)
+	if err = store.DeferAttempt(ctx, retryAttempt.ID, "postgres-retry", "github-provider-retry", retryNow, providerRetryAt); err != nil {
+		t.Fatal(err)
+	}
+	retryAttempt, err = store.ClaimNextAttempt(ctx, "postgres-retry", providerRetryAt, time.Minute)
+	if err != nil || retryAttempt.State != AttemptPreparing || retryAttempt.ExecutionAttempts != 1 || retryAttempt.FailureCode != "github-provider-retry" {
+		t.Fatalf("provider-deferred attempt=%#v err=%v", retryAttempt, err)
+	}
 	retryAt := retryNow.Add(30 * time.Second)
-	if scheduled, scheduleErr := store.ScheduleAttemptRetry(ctx, retryAttempt.ID, "postgres-retry", "kubernetes-ensure-failed", retryNow, retryAt); scheduleErr != nil || !scheduled {
+	if scheduled, scheduleErr := store.ScheduleAttemptRetry(ctx, retryAttempt.ID, "postgres-retry", "kubernetes-ensure-failed", providerRetryAt, retryAt); scheduleErr != nil || !scheduled {
 		t.Fatalf("retry scheduled=%v err=%v", scheduled, scheduleErr)
 	}
 	queued, err := store.Attempt(ctx, retryAttempt.ID)
@@ -380,7 +388,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'External Service',$3,$4)`, externalServiceID, projectID, "external-"+suffix, retryNow); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,push_credential_ref,cache_credential_ref,created_at,updated_at) VALUES($1,$2,'external','registry.test','kuberploy','registry-credentials','registry-credentials',$3,$3)`, externalRegistryID, "external-registry-"+suffix, retryNow); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,push_credential_ref,cache_credential_ref,created_at,updated_at) VALUES($1,$2,'external','registry.test','kuberploy','registry-push','registry-cache',$3,$3)`, externalRegistryID, "external-registry-"+suffix, retryNow); err != nil {
 		t.Fatal(err)
 	}
 	externalDefinition := definitionWithIDs(t, retryNow, RegistryExternal, externalDefinitionID, projectID, externalServiceID, installationID, repositoryID, externalRegistryID)

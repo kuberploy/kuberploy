@@ -100,7 +100,7 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 	required := githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead}
 	if _, err = c.Provider.VerifyInstallation(ctx, installation.GitHubInstallationID, installation.Account, required); err != nil {
 		if _, retryable := providerRetryAt(err, c.now()); retryable {
-			return c.retryInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
+			return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
 		}
 		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
 		return result, err
@@ -121,7 +121,7 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 	})
 	if err != nil {
 		if _, retryable := providerRetryAt(err, c.now()); retryable {
-			return c.retryInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
+			return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
 		}
 		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
 		return result, err
@@ -191,6 +191,18 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "kubernetes-state-invalid", c.now())
 		return result, ErrInfrastructure
 	}
+}
+
+func (c *BuildController) deferInfrastructure(ctx context.Context, attempt BuildAttempt, code string, cause error) (ReconcileResult, error) {
+	retryAt := c.now().Add(retryDelay(attempt.ExecutionAttempts))
+	if err := c.Store.DeferAttempt(ctx, attempt.ID, c.Owner, code, c.now(), retryAt); err != nil {
+		return ReconcileResult{AttemptID: attempt.ID, State: attempt.State}, err
+	}
+	result := ReconcileResult{AttemptID: attempt.ID, State: attempt.State, RetryAt: retryAt}
+	if cause == ErrProviderRetry {
+		return result, ErrProviderRetry
+	}
+	return result, fmt.Errorf("%w: %s: %v", ErrInfrastructure, code, cause)
 }
 
 func (c *BuildController) retryInfrastructure(ctx context.Context, attempt BuildAttempt, code string, cause error) (ReconcileResult, error) {

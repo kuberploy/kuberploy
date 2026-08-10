@@ -72,6 +72,37 @@ func TestControllerRetriesSameImmutableAttemptAndAdopts(t *testing.T) {
 	}
 }
 
+func TestControllerProviderDeferralsNeverConsumeBuildExecutionBudget(t *testing.T) {
+	store, _ := seedMemory(t, RegistryManaged)
+	clock := testNow
+	attempt := createAttempt(t, store, RegistryManaged, &clock)
+	provider := &fakeProvider{resolvedCommit: attempt.CommitSHA, now: clock, transient: 2}
+	kube := &fakeKubernetes{state: WorkloadSucceeded, promoted: true}
+	controller := &BuildController{Store: store, Provider: provider, Kubernetes: kube, Owner: "build-controller", LeaseDuration: time.Minute, Now: func() time.Time { return clock }}
+
+	for deferral := 0; deferral < 2; deferral++ {
+		result, err := controller.ReconcileNext(context.Background())
+		if !errors.Is(err, ErrProviderRetry) || result.State != AttemptPreparing || result.RetryAt.IsZero() {
+			t.Fatalf("deferral %d result=%#v err=%v", deferral, result, err)
+		}
+		stored, getErr := store.Attempt(context.Background(), attempt.ID)
+		if getErr != nil || stored.State != AttemptPreparing || stored.ExecutionAttempts != 1 || stored.FailureCode != "github-provider-retry" {
+			t.Fatalf("deferral %d stored=%#v err=%v", deferral, stored, getErr)
+		}
+		clock = result.RetryAt.Add(time.Second)
+		provider.now = clock
+	}
+
+	result, err := controller.ReconcileNext(context.Background())
+	if err != nil || result.State != AttemptSucceeded {
+		t.Fatalf("success result=%#v err=%v", result, err)
+	}
+	stored, err := store.Attempt(context.Background(), attempt.ID)
+	if err != nil || stored.ExecutionAttempts != 1 || stored.State != AttemptSucceeded || len(kube.workloads) != 1 {
+		t.Fatalf("stored=%#v workloads=%d err=%v", stored, len(kube.workloads), err)
+	}
+}
+
 func TestControllerRejectsAdoptionMismatchPermanently(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow

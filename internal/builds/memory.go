@@ -656,6 +656,25 @@ func (s *MemoryStore) MarkAttemptRunning(_ context.Context, attemptID, owner str
 	return nil
 }
 
+func (s *MemoryStore) DeferAttempt(_ context.Context, attemptID, owner, code string, now, availableAt time.Time) error {
+	if validateFailureCode(code) != nil || availableAt.Before(now.UTC()) {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	attempt, ok := s.attempts[attemptID]
+	if !ok {
+		return ErrNotFound
+	}
+	if attempt.LeaseOwner != owner || !attempt.LeaseUntil.After(now.UTC()) || terminalAttempt(attempt.State) || attempt.CancelRequestedAt != nil {
+		return ErrLeaseLost
+	}
+	attempt.AvailableAt, attempt.FailureCode, attempt.UpdatedAt = availableAt.UTC(), code, now.UTC()
+	attempt.LeaseOwner, attempt.LeaseUntil = "", time.Time{}
+	s.attempts[attempt.ID] = attempt
+	return nil
+}
+
 func (s *MemoryStore) ScheduleAttemptRetry(_ context.Context, attemptID, owner, code string, now, availableAt time.Time) (bool, error) {
 	if validateFailureCode(code) != nil || availableAt.Before(now.UTC()) {
 		return false, ErrInvalid
