@@ -16,7 +16,7 @@ const (
 	ManagedMonitoringOperatorName       = "kuberploy-prometheus-operator"
 	ManagedMonitoringOperatorContainer  = "kube-prometheus-stack"
 	ManagedMonitoringOperatorImage      = "quay.io/prometheus-operator/prometheus-operator:v0.93.0"
-	ManagedMonitoringOperatorArgsSHA256 = "sha256:b27e7e117547a6a57ce23769fa642ecd4d4e663aa37a549aa55a70a4994415ca"
+	ManagedMonitoringOperatorArgsSHA256 = "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6"
 	ManagedMonitoringRuleName           = "monitoring-service-recording-rules"
 	ManagedMonitoringRuleSpecSHA256     = "sha256:dce75aca8d4db27efe9e685fee3b02f1f3fcefb71ff3674f02002f7d700780a5"
 	ManagedMonitoringQueryURL           = "http://prometheus-operated.kuberploy-monitoring.svc:9090"
