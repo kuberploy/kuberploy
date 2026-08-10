@@ -21,9 +21,9 @@ updates:
       web-tooling:
         dependency-type: development
     ignore:
-      # The production toolchain is intentionally the Node 24 LTS line.
+      # Keep types on the explicitly selected Node 26 runtime line.
       - dependency-name: "@types/node"
-        versions: [">=25"]
+        versions: [">=27"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -43,7 +43,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     ignore:
-      # Move the frontend builder only when the selected production LTS line
+      # Move the frontend builder only when the selected production line
       # changes and the complete toolchain matrix has passed.
       - dependency-name: node
-        versions: [">=25"]
+        versions: [">=27"]

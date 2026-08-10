@@ -120,6 +120,7 @@ spec:
       jsonPointers:
         - /spec/volumeClaimTemplates/0/apiVersion
         - /spec/volumeClaimTemplates/0/kind
+        - /spec/volumeClaimTemplates/0/metadata/labels/helm.sh~1chart
         - /spec/volumeClaimTemplates/0/spec/volumeMode
         - /spec/volumeClaimTemplates/0/status
   {{- end }}

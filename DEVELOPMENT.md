@@ -9,7 +9,7 @@ systems; read [LOCAL_TESTING.md](LOCAL_TESTING.md) before running it.
 Exact supported tool versions are declared in [`mise.toml`](mise.toml):
 
 - Go `1.26.5`
-- Node.js `24.19.0`
+- Node.js `26.7.0`
 - pnpm `11.20.0`
 - Helm `4.2.3`
 - kubectl `1.36.3`
