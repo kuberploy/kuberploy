@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { RegistryTarget } from "../api/types";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
+import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { Icon } from "../components/Icon";
 import {
   hasRegistryApplicationCapability,
@@ -51,6 +52,7 @@ export function ApplicationOverviewPage() {
     retry: false,
   });
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  const humanSession = me.data?.authentication?.kind === "session";
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
   const project = projects.data?.items.find(
     (item) => item.id === application.data?.projectId,
@@ -61,6 +63,17 @@ export function ApplicationOverviewPage() {
     hasRegistryApplicationCapability(
       effectiveCapabilities,
       "registry:read",
+      application.data,
+      project,
+    ),
+  );
+  const canManageApplicationRegistry = Boolean(
+    application.data &&
+    project &&
+    humanSession &&
+    hasRegistryApplicationCapability(
+      effectiveCapabilities,
+      "registry-policies:write",
       application.data,
       project,
     ),
@@ -100,7 +113,6 @@ export function ApplicationOverviewPage() {
       (item) => item.applicationId === applicationId,
     ) ?? [];
   const features = capabilities.data?.features;
-  const humanSession = me.data?.authentication?.kind === "session";
   const loadError = application.error ?? projects.error ?? environments.error;
 
   if (loadError) {
@@ -170,6 +182,13 @@ export function ApplicationOverviewPage() {
           </button>
         </div>
       </Card>
+
+      <RegistryPullCredentialsPanel
+        application={application.data}
+        project={project}
+        enabled={features?.registry === true}
+        canManage={canManageApplicationRegistry}
+      />
 
       {source === "build" ? (
         <Card>

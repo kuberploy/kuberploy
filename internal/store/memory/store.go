@@ -91,26 +91,28 @@ type Store struct {
 		owner string
 		until time.Time
 	}
-	registryTargets          map[string]domain.RegistryTarget
-	registryPolicies         map[string]domain.ServiceRegistryPolicy
-	registryInventories      map[string]domain.RegistryInventoryObservation
-	registryCatalogs         map[string]domain.RegistryCatalogSnapshot
-	registryAuthorities      map[string]domain.RegistryProtectionSnapshot
-	registryPins             map[string]domain.RegistryArtifactReference
-	registryReleases         map[string]domain.RegistryRelease
-	registryCaches           map[string]domain.RegistryCacheGeneration
-	registryPlans            map[string]domain.RegistryCleanupPlan
-	registryPlanDigests      map[string]string
-	registryLeases           map[string]registryCleanupLease
-	registryRuntimeReadiness map[string]registry.RuntimeReadinessLease
-	externalDNSIntegrations  map[string]domain.ExternalDNSIntegration
-	gitBindings              map[string]gitprojection.Binding
-	platformGitBindings      map[string]gitprojection.Binding
-	buildAttemptAuditCatalog base.BuildLogAttemptCatalog
-	autoDeployPolicies       map[string]autodeploy.Policy
-	autoDeployRevisions      map[string]map[int64]autodeploy.Revision
-	autoDeployCommands       map[string]autoDeployCommandRecord
-	autoDeployRuns           map[string][]autodeploy.Run
+	registryTargets                   map[string]domain.RegistryTarget
+	registryPolicies                  map[string]domain.ServiceRegistryPolicy
+	projectRegistryPullCredentials    map[string]domain.ProjectRegistryPullCredential
+	applicationRegistryPullSelections map[string]domain.ApplicationRegistryPullSelection
+	registryInventories               map[string]domain.RegistryInventoryObservation
+	registryCatalogs                  map[string]domain.RegistryCatalogSnapshot
+	registryAuthorities               map[string]domain.RegistryProtectionSnapshot
+	registryPins                      map[string]domain.RegistryArtifactReference
+	registryReleases                  map[string]domain.RegistryRelease
+	registryCaches                    map[string]domain.RegistryCacheGeneration
+	registryPlans                     map[string]domain.RegistryCleanupPlan
+	registryPlanDigests               map[string]string
+	registryLeases                    map[string]registryCleanupLease
+	registryRuntimeReadiness          map[string]registry.RuntimeReadinessLease
+	externalDNSIntegrations           map[string]domain.ExternalDNSIntegration
+	gitBindings                       map[string]gitprojection.Binding
+	platformGitBindings               map[string]gitprojection.Binding
+	buildAttemptAuditCatalog          base.BuildLogAttemptCatalog
+	autoDeployPolicies                map[string]autodeploy.Policy
+	autoDeployRevisions               map[string]map[int64]autodeploy.Revision
+	autoDeployCommands                map[string]autoDeployCommandRecord
+	autoDeployRuns                    map[string][]autodeploy.Run
 }
 
 type registryCleanupLease struct {

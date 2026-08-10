@@ -67,6 +67,7 @@ describe("shared AppConfig draft", () => {
     const guided = guidedConfigFromYaml(source);
     expect(guided).toMatchObject({
       replicas: 1,
+      strategyType: "RollingUpdate",
       ports: [{ name: "http", containerPort: 3000, protocol: "TCP" }],
       cpuRequest: "50m",
       memoryRequest: "100Mi",
@@ -89,6 +90,18 @@ describe("shared AppConfig draft", () => {
           version: 3,
         },
       ],
+    });
+  });
+
+  it("round-trips the Kubernetes deployment strategy", () => {
+    const guided = guidedConfigFromYaml(source);
+    const updated = applyGuidedConfig(source, {
+      ...guided,
+      strategyType: "Recreate",
+    });
+    expect(guidedConfigFromYaml(updated).strategyType).toBe("Recreate");
+    expect(parse(updated)).toMatchObject({
+      spec: { runtime: { strategy: { type: "Recreate" } } },
     });
   });
 

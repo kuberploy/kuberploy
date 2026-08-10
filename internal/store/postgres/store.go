@@ -368,7 +368,7 @@ func classify(err error) error {
 	}
 	var pgerr *pgconn.PgError
 	if errors.As(err, &pgerr) {
-		if pgerr.Code == "23505" || pgerr.Code == "23503" || pgerr.Code == "23514" {
+		if pgerr.Code == "23505" || pgerr.Code == "23503" || pgerr.Code == "23514" || pgerr.Code == "23001" {
 			return fmt.Errorf("%w: %s", base.ErrConflict, pgerr.ConstraintName)
 		}
 	}

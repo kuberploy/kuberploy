@@ -246,7 +246,7 @@ components:
   api:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.6
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.7
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -255,7 +255,7 @@ components:
   worker:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.6
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.7
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 50m, memory: 64Mi}
@@ -263,7 +263,7 @@ components:
   web:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.6
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.7
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -340,7 +340,7 @@ networkPolicy:
 
 upgrade:
   image:
-    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.6
+    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.7
     pullPolicy: IfNotPresent
   runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
   job:

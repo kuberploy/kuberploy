@@ -28,7 +28,7 @@ const (
 )
 
 var EditablePointers = []string{
-	"/spec/runtime/replicas", "/spec/runtime/ports", "/spec/runtime/env",
+	"/spec/runtime/replicas", "/spec/runtime/strategy", "/spec/runtime/ports", "/spec/runtime/env",
 	"/spec/runtime/resources", "/spec/runtime/schedulingProfile",
 	"/spec/runtime/probes",
 	"/spec/runtime/command", "/spec/runtime/args", "/spec/runtime/terminationGracePeriodSeconds",

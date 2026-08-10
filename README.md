@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.6` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.7` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 
 ## Highlights
@@ -45,6 +45,12 @@ The builder never deploys workloads and never receives runtime environment
 values. Docker build arguments belong to the immutable build definition;
 runtime environment values belong to the GitOps application configuration.
 
+Each project can keep multiple named image pull credentials backed by
+operator-managed registry profiles. A service selects public/no credential or
+one project credential; that runtime choice is independent from GitHub builds,
+webhooks, build cache/push credentials, and auto-deploy. Service configuration
+also supports explicit Kubernetes `RollingUpdate` and `Recreate` strategies.
+
 Secrets are referenced by identity and are never committed to Git. The DinD
 builder is an explicit privileged boundary on selected builder nodes and never
 mounts the host Docker socket. Optional integrations remain unavailable until
@@ -67,11 +73,11 @@ kubeconfig and context it may change:
 
 ```bash
 curl -fsSLo kuberploy-install.sh \
-  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.6/scripts/install.sh
+  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.7/scripts/install.sh
 chmod +x kuberploy-install.sh
 
 ./kuberploy-install.sh \
-  --version 0.1.0-rc.6 \
+  --version 0.1.0-rc.7 \
   --kubeconfig /absolute/path/to/kubeconfig \
   --context exact-context
 ```

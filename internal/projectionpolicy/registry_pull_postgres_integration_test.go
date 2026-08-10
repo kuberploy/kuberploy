@@ -37,6 +37,7 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 
 	userID, teamID, projectID := id.New(), id.New(), id.New()
 	environmentID, applicationID, bindingID, targetID, ambiguousTargetID := id.New(), id.New(), id.New(), id.New(), id.New()
+	pullCredentialID := id.New()
 	suffix := strings.ReplaceAll(projectID, "-", "")[:12]
 	namespace := "pull-policy-" + suffix
 	repository := "tenant/" + projectID + "/" + applicationID
@@ -50,6 +51,8 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_safety_poll_cursors WHERE binding_id=$1`, bindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_verified_head_observations WHERE binding_id=$1`, bindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=$1`, bindingID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM application_registry_pull_selections WHERE application_id=$1`, applicationID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM project_registry_pull_credentials WHERE id=$1`, pullCredentialID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM service_registry_policies WHERE registry_target_id=$1`, targetID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM service_registry_policies WHERE registry_target_id=$1`, ambiguousTargetID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM registry_targets WHERE id=$1`, targetID)
@@ -131,6 +134,40 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		t.Fatalf("disabled private resolver error=%v", resolveErr)
 	}
 	if err = resolverTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO project_registry_pull_credentials(id,project_id,registry_target_id,name,created_by,created_at,updated_at)
+		VALUES($1,$2,$3,'Production pull',$4,$5,$5)`, pullCredentialID, projectID, targetID, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO application_registry_pull_selections(application_id,mode,project_credential_id,updated_by,updated_at)
+		VALUES($1,'public',NULL,$2,$3)`, applicationID, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	publicSelectionTx, beginErr := pool.Begin(ctx)
+	if beginErr != nil {
+		t.Fatal(beginErr)
+	}
+	if resolved, present, resolveErr = projectionpolicy.ResolveRegistryPullTx(ctx, publicSelectionTx, config, applicationID, environmentID, server+"/"+repository); resolveErr != nil || present || resolved != (projectionpolicy.RegistryPullReference{}) {
+		publicSelectionTx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("explicit public resolve=%#v present=%t err=%v", resolved, present, resolveErr)
+	}
+	if err = publicSelectionTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE application_registry_pull_selections
+		SET mode='project-credential',project_credential_id=$2,updated_at=$3 WHERE application_id=$1`, applicationID, pullCredentialID, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	selectedTx, beginErr := pool.Begin(ctx)
+	if beginErr != nil {
+		t.Fatal(beginErr)
+	}
+	if resolved, present, resolveErr = projectionpolicy.ResolveRegistryPullTx(ctx, selectedTx, config, applicationID, environmentID, server+"/"+repository); resolveErr != nil || !present || resolved != (projectionpolicy.RegistryPullReference{TargetID: targetID, ProfileName: "external-main", ProfileRevision: 1}) {
+		selectedTx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("selected resolve=%#v present=%t err=%v", resolved, present, resolveErr)
+	}
+	if err = selectedTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,pull_credential_ref,created_at,updated_at)

@@ -2,6 +2,7 @@ package imagepull
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"time"
@@ -46,6 +47,30 @@ func ExactRegistryPolicyTx(ctx context.Context, tx pgx.Tx, targetID, application
 		!strings.HasPrefix(policy.Repository, target.RepositoryPrefix+"/") || !validRegistryRepository(policy.Repository) {
 		return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", ErrConflict
 	}
+	var mode, selectedCredentialID, selectedTargetID string
+	selectionErr := tx.QueryRow(ctx, `SELECT mode,COALESCE(project_credential_id::text,'')
+		FROM application_registry_pull_selections WHERE application_id=$1 FOR SHARE`, applicationID).
+		Scan(&mode, &selectedCredentialID)
+	if selectionErr != nil && !errors.Is(selectionErr, pgx.ErrNoRows) {
+		return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", selectionErr
+	}
+	if selectionErr == nil {
+		if domain.ApplicationRegistryPullMode(mode) != domain.ApplicationRegistryPullCredential || !uuidPattern.MatchString(selectedCredentialID) {
+			return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", ErrConflict
+		}
+		if err = tx.QueryRow(ctx, `SELECT c.registry_target_id::text
+			FROM project_registry_pull_credentials c
+			JOIN applications a ON a.project_id=c.project_id
+			WHERE c.id=$1 AND a.id=$2 FOR SHARE OF c,a`, selectedCredentialID, applicationID).Scan(&selectedTargetID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", ErrConflict
+			}
+			return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", err
+		}
+		if selectedTargetID != targetID {
+			return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", ErrConflict
+		}
+	}
 	return target, policy, server, nil
 }
 
@@ -62,7 +87,7 @@ func ResolveReferenceTx(
 		!uuidPattern.MatchString(environmentID) || !validReleaseRepository(releaseRepository) {
 		return Reference{}, false, ErrInvalid
 	}
-	var namespace string
+	var namespace, projectID string
 	if err = tx.QueryRow(ctx, `SELECT e.namespace
 		FROM environments e
 		JOIN applications a ON a.project_id=e.project_id
@@ -70,8 +95,42 @@ func ResolveReferenceTx(
 		FOR SHARE OF e,a`, environmentID, applicationID).Scan(&namespace); err != nil {
 		return Reference{}, false, err
 	}
+	if err = tx.QueryRow(ctx, `SELECT project_id::text FROM applications WHERE id=$1 FOR SHARE`, applicationID).Scan(&projectID); err != nil {
+		return Reference{}, false, err
+	}
 	if !dnsLabelPattern.MatchString(namespace) {
 		return Reference{}, false, ErrConflict
+	}
+	var selectionMode, selectedCredentialID, selectedTargetID string
+	selectionErr := tx.QueryRow(ctx, `SELECT mode,COALESCE(project_credential_id::text,'')
+		FROM application_registry_pull_selections WHERE application_id=$1 FOR SHARE`, applicationID).
+		Scan(&selectionMode, &selectedCredentialID)
+	explicitSelection := selectionErr == nil
+	if selectionErr != nil && !errors.Is(selectionErr, pgx.ErrNoRows) {
+		return Reference{}, false, selectionErr
+	}
+	if explicitSelection {
+		switch domain.ApplicationRegistryPullMode(selectionMode) {
+		case domain.ApplicationRegistryPullPublic:
+			if selectedCredentialID != "" || selectedTargetID != "" {
+				return Reference{}, false, ErrConflict
+			}
+			return Reference{}, false, nil
+		case domain.ApplicationRegistryPullCredential:
+			if !uuidPattern.MatchString(selectedCredentialID) {
+				return Reference{}, false, ErrConflict
+			}
+			selectionErr = tx.QueryRow(ctx, `SELECT registry_target_id::text FROM project_registry_pull_credentials
+				WHERE id=$1 AND project_id=$2 FOR SHARE`, selectedCredentialID, projectID).Scan(&selectedTargetID)
+			if selectionErr != nil {
+				if errors.Is(selectionErr, pgx.ErrNoRows) {
+					return Reference{}, false, ErrConflict
+				}
+				return Reference{}, false, selectionErr
+			}
+		default:
+			return Reference{}, false, ErrConflict
+		}
 	}
 	rows, err := tx.Query(ctx, `SELECT
 		t.id::text,t.name,t.mode,t.endpoint,t.repository_prefix,t.pull_credential_ref,
@@ -119,9 +178,15 @@ func ResolveReferenceTx(
 		return Reference{}, false, ErrConflict
 	}
 	if len(matches) == 0 || matches[0].target.PullCredentialRef == "" {
+		if explicitSelection {
+			return Reference{}, false, ErrConflict
+		}
 		return Reference{}, false, nil
 	}
 	match := matches[0]
+	if explicitSelection && match.target.ID != selectedTargetID {
+		return Reference{}, false, ErrConflict
+	}
 	if !config.Enabled || !config.AllowsNamespace(namespace) {
 		return Reference{}, false, ErrUnavailable
 	}

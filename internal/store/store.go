@@ -152,6 +152,12 @@ type Store interface {
 	UpdateRegistryTargetForActor(context.Context, string, string, string, string, domain.RegistryTarget) (Result[domain.RegistryTarget], error)
 	RegistryLifecycleSnapshotsForActor(context.Context, string, string, time.Time) ([]domain.RegistryLifecycleSnapshot, error)
 	PutServiceRegistryPolicyForActor(context.Context, string, string, string, string, string, domain.ServiceRegistryPolicy) (Result[domain.ServiceRegistryPolicy], error)
+	ListProjectRegistryPullCredentialsForActor(context.Context, string, string) ([]domain.ProjectRegistryPullCredential, error)
+	ListRegistryPullTargetsForActor(context.Context, string, string) ([]domain.RegistryTarget, error)
+	CreateProjectRegistryPullCredentialForActor(context.Context, string, string, string, string, domain.ProjectRegistryPullCredential) (Result[domain.ProjectRegistryPullCredential], error)
+	DeleteProjectRegistryPullCredentialForActor(context.Context, string, string, string) error
+	ApplicationRegistryPullSelectionForActor(context.Context, string, string) (domain.ApplicationRegistryPullSelection, error)
+	PutApplicationRegistryPullSelectionForActor(context.Context, string, string, string, string, domain.ApplicationRegistryPullSelection) (Result[domain.ApplicationRegistryPullSelection], error)
 	SaveRegistryCleanupPreviewForActor(context.Context, string, string, string, string, string, domain.RegistryCleanupPlan) (Result[domain.RegistryCleanupPlan], error)
 	RegistryCleanupPlanForActor(context.Context, string, string) (domain.RegistryCleanupPlan, error)
 	PrepareRegistryCleanupExecutionForActor(context.Context, string, string, string, string, string, string) (Result[domain.RegistryCleanupPlan], error)

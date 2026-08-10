@@ -513,6 +513,15 @@ export function GuidedConfigForm({
               })}
             />
           </Field>
+          <Field
+            label="Deployment strategy"
+            hint="Rolling update keeps capacity available; recreate stops old Pods first."
+          >
+            <select {...form.register("strategyType", { onChange: commit })}>
+              <option value="RollingUpdate">Rolling update</option>
+              <option value="Recreate">Recreate</option>
+            </select>
+          </Field>
           <Field label="CPU request" hint="Default 50m">
             <input
               placeholder="50m"

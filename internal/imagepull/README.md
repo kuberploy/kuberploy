@@ -33,6 +33,15 @@ stores credential bytes, base64 values, or hashes of credential bytes.
   garbage collector may delete old artifacts only after desired Git, observed
   workloads and retained rollback releases all prove absence.
 
+Projects may bind multiple operator-owned pull targets to human-readable
+credential names. Applications select either public/no credential or one entry
+from their own project. The public API never returns the target credential
+reference, projected Secret name, username, password, or token. A database
+constraint rejects cross-project selections, and pull resolution independently
+requires the selected target to match the application's exact repository
+policy and current operator runtime profile. Applications without a saved
+selection retain legacy exact-policy resolution until a human chooses a mode.
+
 ## Durability and readiness
 
 Migration `025_runtime_registry_pulls` provides one active artifact per

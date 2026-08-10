@@ -266,7 +266,7 @@ type registryCacheGenerationView struct {
 }
 
 type registryApplicationTargetView struct {
-	Target                    registryTargetView                `json:"target"`
+	Target                    registryApplicationTargetMetadata `json:"target"`
 	Policy                    registryPolicyView                `json:"policy"`
 	Inventory                 *registryInventoryObservationView `json:"inventory,omitempty"`
 	CatalogObservations       []registryCatalogObservationView  `json:"catalogObservations"`
@@ -278,9 +278,29 @@ type registryApplicationTargetView struct {
 	ObservedAt                time.Time                         `json:"observedAt"`
 }
 
+// registryApplicationTargetMetadata deliberately excludes operator-owned
+// credential reference names. Application users need the registry identity
+// and repository boundary, but Secret coordinates remain platform-private.
+type registryApplicationTargetMetadata struct {
+	ID               string                    `json:"id"`
+	Name             string                    `json:"name"`
+	Mode             domain.RegistryTargetMode `json:"mode"`
+	Endpoint         string                    `json:"endpoint"`
+	RepositoryPrefix string                    `json:"repositoryPrefix"`
+	CreatedAt        time.Time                 `json:"createdAt"`
+	UpdatedAt        time.Time                 `json:"updatedAt"`
+}
+
+func safeRegistryApplicationTargetMetadata(target domain.RegistryTarget) registryApplicationTargetMetadata {
+	return registryApplicationTargetMetadata{
+		ID: target.ID, Name: target.Name, Mode: target.Mode, Endpoint: target.Endpoint,
+		RepositoryPrefix: target.RepositoryPrefix, CreatedAt: target.CreatedAt, UpdatedAt: target.UpdatedAt,
+	}
+}
+
 func safeRegistryApplicationTarget(snapshot domain.RegistryLifecycleSnapshot, limit int) registryApplicationTargetView {
 	view := registryApplicationTargetView{
-		Target: safeRegistryTarget(snapshot.Target), Policy: safeRegistryPolicy(snapshot.Policy),
+		Target: safeRegistryApplicationTargetMetadata(snapshot.Target), Policy: safeRegistryPolicy(snapshot.Policy),
 		CatalogObservations: make([]registryCatalogObservationView, 0), Releases: make([]registryReleaseView, 0),
 		CacheGenerations: make([]registryCacheGenerationView, 0), ObservedAt: snapshot.AsOf,
 	}

@@ -272,4 +272,48 @@ describe("registry API client", () => {
       confirmation: "plan/id",
     });
   });
+
+  it("projects project pull credentials without provider or Secret metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              projectId: "22222222-2222-4222-8222-222222222222",
+              registryTargetId: "33333333-3333-4333-8333-333333333333",
+              name: "Production",
+              registryName: "Primary",
+              registryServer: "registry.example.test",
+              repositoryPrefix: "team",
+              createdAt: "2026-08-10T00:00:00Z",
+              updatedAt: "2026-08-10T00:00:00Z",
+              pullCredentialRef: "must-not-survive",
+              password: "must-not-survive",
+            },
+          ],
+          availableTargets: [
+            {
+              id: "33333333-3333-4333-8333-333333333333",
+              name: "Primary",
+              server: "registry.example.test",
+              repositoryPrefix: "team",
+              sourceSecretRef: "must-not-survive",
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await api.projectRegistryPullCredentials("project/id");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/projects/project%2Fid/registry-pull-credentials",
+      expect.anything(),
+    );
+    expect(JSON.stringify(result)).not.toMatch(
+      /pullCredentialRef|sourceSecretRef|password|must-not-survive/,
+    );
+    expect(result.items[0]?.name).toBe("Production");
+  });
 });

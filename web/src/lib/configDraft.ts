@@ -50,6 +50,7 @@ export type GuidedRuntimeProcess = {
 
 export type GuidedConfig = GuidedRuntimeProcess & {
   replicas: number;
+  strategyType: "RollingUpdate" | "Recreate";
   ports: GuidedPort[];
   cpuRequest: string;
   memoryRequest: string;
@@ -606,6 +607,10 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
 
   return {
     replicas: numberValue(runtime.replicas, 1),
+    strategyType:
+      isObject(runtime.strategy) && runtime.strategy.type === "Recreate"
+        ? "Recreate"
+        : "RollingUpdate",
     commandYaml: yamlFragment(runtime.command, "[]"),
     argsYaml: yamlFragment(runtime.args, "[]"),
     terminationGracePeriodSeconds:
@@ -720,6 +725,7 @@ export function applyGuidedConfig(
   }
 
   document.setIn(["spec", "runtime", "replicas"], values.replicas);
+  document.setIn(["spec", "runtime", "strategy", "type"], values.strategyType);
   if (process.command)
     document.setIn(["spec", "runtime", "command"], process.command);
   else document.deleteIn(["spec", "runtime", "command"]);

@@ -19,6 +19,7 @@ const (
 
 type WorkloadRuntime struct {
 	Replicas                      int                        `json:"replicas"`
+	Strategy                      WorkloadDeploymentStrategy `json:"strategy"`
 	Command                       []string                   `json:"command,omitempty"`
 	Args                          []string                   `json:"args,omitempty"`
 	TerminationGracePeriodSeconds *int                       `json:"terminationGracePeriodSeconds,omitempty"`
@@ -32,6 +33,10 @@ type WorkloadRuntime struct {
 	Tolerations                   []WorkloadToleration       `json:"tolerations,omitempty"`
 	PriorityClassName             string                     `json:"priorityClassName,omitempty"`
 	Probes                        *WorkloadProbes            `json:"probes,omitempty"`
+}
+
+type WorkloadDeploymentStrategy struct {
+	Type string `json:"type"`
 }
 
 // SchedulingProfileRef is the immutable, non-secret scheduling authority
@@ -268,6 +273,7 @@ func DefaultWorkloadRuntime(port int, ordinary map[string]string) WorkloadRuntim
 	}
 	return WorkloadRuntime{
 		Replicas:  1,
+		Strategy:  WorkloadDeploymentStrategy{Type: "RollingUpdate"},
 		Ports:     []WorkloadPort{{Name: "http", ContainerPort: port}},
 		Env:       env,
 		Resources: WorkloadResources{Requests: ResourceList{CPU: DefaultCPURequest, Memory: DefaultMemoryRequest}},
@@ -300,6 +306,9 @@ func LegacyWorkloadFields(runtime WorkloadRuntime) (int, int, map[string]string)
 func NormalizeWorkloadRuntime(runtime WorkloadRuntime) WorkloadRuntime {
 	if runtime.Replicas == 0 {
 		runtime.Replicas = 1
+	}
+	if runtime.Strategy.Type == "" {
+		runtime.Strategy.Type = "RollingUpdate"
 	}
 	if runtime.Resources.Requests.CPU == "" {
 		runtime.Resources.Requests.CPU = DefaultCPURequest
@@ -343,6 +352,15 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 	}
 	if runtime.Replicas < 1 || runtime.Replicas > 100 {
 		add("/runtime/replicas", "OutOfRange", "replicas must be between 1 and 100")
+	}
+	strategyType := runtime.Strategy.Type
+	if strategyType == "" {
+		// Empty is the legacy wire/storage form and remains equivalent to the
+		// Deployment default. Normalized output always writes RollingUpdate.
+		strategyType = "RollingUpdate"
+	}
+	if strategyType != "RollingUpdate" && strategyType != "Recreate" {
+		add("/runtime/strategy/type", "InvalidDeploymentStrategy", "strategy type must be RollingUpdate or Recreate")
 	}
 	commandBytes := validateRuntimeCommandVector(runtime.Command, 64, "/runtime/command", add)
 	argumentBytes := validateRuntimeCommandVector(runtime.Args, 128, "/runtime/args", add)

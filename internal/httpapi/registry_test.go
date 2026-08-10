@@ -107,6 +107,57 @@ func registryTargetPayload(name, mode string) map[string]any {
 	}
 }
 
+func TestProjectRegistryPullCredentialCatalogAndServiceSelection(t *testing.T) {
+	fixture := newRegistryAPI(t, true)
+	response := fixture.request(http.MethodPost, "/v1/registry-targets", "pull-target", registryTargetPayload("private", "external"))
+	target := decode[domain.RegistryTarget](t, response)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("target status=%d", response.StatusCode)
+	}
+	path := "/v1/projects/" + fixture.project.ID + "/registry-pull-credentials"
+	response = fixture.request(http.MethodPost, path, "pull-credential", map[string]any{"name": "Production", "registryTargetId": target.ID})
+	credential := decode[domain.ProjectRegistryPullCredential](t, response)
+	if response.StatusCode != http.StatusCreated || credential.RegistryServer != target.Endpoint || credential.Name != "Production" {
+		t.Fatalf("credential=%#v status=%d", credential, response.StatusCode)
+	}
+	response = fixture.request(http.MethodGet, path, "", nil)
+	var catalog struct {
+		Items            []domain.ProjectRegistryPullCredential `json:"items"`
+		AvailableTargets []map[string]any                       `json:"availableTargets"`
+	}
+	catalog = decode[struct {
+		Items            []domain.ProjectRegistryPullCredential `json:"items"`
+		AvailableTargets []map[string]any                       `json:"availableTargets"`
+	}](t, response)
+	if response.StatusCode != http.StatusOK || len(catalog.Items) != 1 || len(catalog.AvailableTargets) != 1 {
+		t.Fatalf("catalog=%#v status=%d", catalog, response.StatusCode)
+	}
+	body, _ := json.Marshal(catalog)
+	for _, forbidden := range []string{"pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "credentials/registry"} {
+		if bytes.Contains(body, []byte(forbidden)) {
+			t.Fatalf("catalog leaked %q: %s", forbidden, body)
+		}
+	}
+	selectionPath := "/v1/applications/" + fixture.application.ID + "/registry-pull-selection"
+	response = fixture.request(http.MethodPut, selectionPath, "select-pull", map[string]any{"type": "project-credential", "projectCredentialId": credential.ID})
+	selection := decode[map[string]any](t, response)
+	if response.StatusCode != http.StatusOK || selection["projectCredentialId"] != credential.ID {
+		t.Fatalf("selection=%#v status=%d", selection, response.StatusCode)
+	}
+	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "", nil)
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("selected delete status=%d", response.StatusCode)
+	}
+	response = fixture.request(http.MethodPut, selectionPath, "select-public", map[string]any{"type": "public"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("public status=%d", response.StatusCode)
+	}
+	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "", nil)
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete status=%d", response.StatusCode)
+	}
+}
+
 func readRegistryBody(t *testing.T, response *http.Response, status int, forbidden ...string) []byte {
 	t.Helper()
 	body, err := io.ReadAll(response.Body)
@@ -250,7 +301,9 @@ func TestRegistryHTTPManagedLifecycleIsMetadataOnlyBoundedAndReplaySafe(t *testi
 	f.seedManagedInventory(target)
 
 	response = f.request(http.MethodGet, "/v1/applications/"+f.application.ID+"/registry?limit=1", "", nil)
-	inventoryBody := readRegistryBody(t, response, http.StatusOK, `"manifests"`, `"blobs"`, `"references"`, `"snapshotToken"`, `"authorityToken"`)
+	inventoryBody := readRegistryBody(t, response, http.StatusOK,
+		`"manifests"`, `"blobs"`, `"references"`, `"snapshotToken"`, `"authorityToken"`,
+		`"pullCredentialRef"`, `"pushCredentialRef"`, `"cacheCredentialRef"`, `credentials/registry-`)
 	var inventory struct {
 		Items []struct {
 			Releases          []json.RawMessage `json:"releases"`

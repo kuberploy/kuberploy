@@ -765,6 +765,7 @@ export type WorkloadProbes = {
 };
 export type WorkloadRuntime = {
   replicas: number;
+  strategy?: { type: "RollingUpdate" | "Recreate" };
   command?: string[];
   args?: string[];
   terminationGracePeriodSeconds?: number;
@@ -1551,6 +1552,36 @@ export type RegistryTargetInput = {
   pullCredentialRef?: string;
   pushCredentialRef?: string;
   cacheCredentialRef?: string;
+};
+
+export type RegistryPullTargetOption = {
+  id: string;
+  name: string;
+  server: string;
+  repositoryPrefix: string;
+};
+
+export type ProjectRegistryPullCredential = {
+  id: string;
+  projectId: string;
+  registryTargetId: string;
+  name: string;
+  registryName: string;
+  registryServer: string;
+  repositoryPrefix: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectRegistryPullCredentialCatalog = {
+  items: ProjectRegistryPullCredential[];
+  availableTargets: RegistryPullTargetOption[];
+};
+
+export type ApplicationRegistryPullSelection = {
+  applicationId: string;
+  type: "public" | "project-credential";
+  projectCredentialId?: string;
 };
 
 export type RegistryPolicy = {

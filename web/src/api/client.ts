@@ -82,6 +82,9 @@ import type {
   RegistryRelease,
   RegistryTarget,
   RegistryTargetInput,
+  ProjectRegistryPullCredential,
+  ProjectRegistryPullCredentialCatalog,
+  ApplicationRegistryPullSelection,
   CreateRuntimeSecretBinding,
   RotateRuntimeSecretBinding,
   RotateCertificateBinding,
@@ -1271,6 +1274,22 @@ function safeRegistryTarget(target: RegistryTarget): RegistryTarget {
     cacheCredentialRef: target.cacheCredentialRef,
     createdAt: target.createdAt,
     updatedAt: target.updatedAt,
+  };
+}
+
+function safeProjectRegistryPullCredential(
+  value: ProjectRegistryPullCredential,
+): ProjectRegistryPullCredential {
+  return {
+    id: value.id,
+    projectId: value.projectId,
+    registryTargetId: value.registryTargetId,
+    name: value.name,
+    registryName: value.registryName,
+    registryServer: value.registryServer,
+    repositoryPrefix: value.repositoryPrefix,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
   };
 }
 
@@ -2660,6 +2679,69 @@ export const api = {
         response.truncated === true || (response.items ?? []).length > limit,
     }));
   },
+  projectRegistryPullCredentials: (projectId: string) =>
+    request<ProjectRegistryPullCredentialCatalog>(
+      `/v1/projects/${encodeURIComponent(projectId)}/registry-pull-credentials`,
+    ).then((response) => ({
+      items: (response.items ?? [])
+        .slice(0, 64)
+        .map(safeProjectRegistryPullCredential),
+      availableTargets: (response.availableTargets ?? [])
+        .slice(0, 64)
+        .map((target) => ({
+          id: target.id,
+          name: target.name,
+          server: target.server,
+          repositoryPrefix: target.repositoryPrefix,
+        })),
+    })),
+  createProjectRegistryPullCredential: (
+    projectId: string,
+    input: { name: string; registryTargetId: string },
+    idempotencyKey: string,
+  ) =>
+    request<ProjectRegistryPullCredential>(
+      `/v1/projects/${encodeURIComponent(projectId)}/registry-pull-credentials`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
+    ).then(safeProjectRegistryPullCredential),
+  deleteProjectRegistryPullCredential: (
+    projectId: string,
+    credentialId: string,
+  ) =>
+    request<void>(
+      `/v1/projects/${encodeURIComponent(projectId)}/registry-pull-credentials/${encodeURIComponent(credentialId)}`,
+      { method: "DELETE" },
+    ),
+  applicationRegistryPullSelection: (applicationId: string) =>
+    request<ApplicationRegistryPullSelection>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/registry-pull-selection`,
+    ).then((value) => ({
+      applicationId: value.applicationId,
+      type: value.type,
+      ...(value.type === "project-credential"
+        ? { projectCredentialId: value.projectCredentialId }
+        : {}),
+    })),
+  putApplicationRegistryPullSelection: (
+    applicationId: string,
+    input: Pick<
+      ApplicationRegistryPullSelection,
+      "type" | "projectCredentialId"
+    >,
+    idempotencyKey: string,
+  ) =>
+    request<ApplicationRegistryPullSelection>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/registry-pull-selection`,
+      {
+        method: "PUT",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
+    ),
   createRegistryTarget: (input: RegistryTargetInput, idempotencyKey: string) =>
     request<RegistryTarget>("/v1/registry-targets", {
       method: "POST",

@@ -81,6 +81,36 @@ type Application struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// ProjectRegistryPullCredential is a safe project-scoped catalog entry. It
+// names an operator-owned registry target but never exposes Secret coordinates.
+type ProjectRegistryPullCredential struct {
+	ID               string    `json:"id"`
+	ProjectID        string    `json:"projectId"`
+	RegistryTargetID string    `json:"registryTargetId"`
+	Name             string    `json:"name"`
+	RegistryName     string    `json:"registryName"`
+	RegistryServer   string    `json:"registryServer"`
+	RepositoryPrefix string    `json:"repositoryPrefix"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type ApplicationRegistryPullMode string
+
+const (
+	ApplicationRegistryPullPublic     ApplicationRegistryPullMode = "public"
+	ApplicationRegistryPullCredential ApplicationRegistryPullMode = "project-credential"
+)
+
+// ApplicationRegistryPullSelection is the service-level choice. An absent row
+// means a legacy application has not explicitly selected a mode yet.
+type ApplicationRegistryPullSelection struct {
+	ApplicationID       string                      `json:"applicationId"`
+	Mode                ApplicationRegistryPullMode `json:"mode"`
+	ProjectCredentialID string                      `json:"projectCredentialId,omitempty"`
+	UpdatedAt           time.Time                   `json:"updatedAt"`
+}
+
 type Deployment struct {
 	ID               string                 `json:"id"`
 	EnvironmentID    string                 `json:"environmentId"`

@@ -5898,3 +5898,26 @@ textarea:disabled {
     grid-column: 2 / -1;
   }
 }
+.field--actions {
+  align-self: end;
+}
+
+.compact-list {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.compact-list__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.compact-list__item p {
+  margin: 0.25rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.875rem;
+}

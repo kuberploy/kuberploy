@@ -9,11 +9,29 @@ func TestWorkloadDefaultsAreExplicitAndValid(t *testing.T) {
 	runtime := NormalizeWorkloadRuntime(WorkloadRuntime{
 		Ports: []WorkloadPort{{Name: "http", ContainerPort: 8080}},
 	})
-	if runtime.Replicas != 1 || runtime.Resources.Requests.CPU != "50m" || runtime.Resources.Requests.Memory != "100Mi" || runtime.Ports[0].Protocol != "TCP" {
+	if runtime.Replicas != 1 || runtime.Strategy.Type != "RollingUpdate" || runtime.Resources.Requests.CPU != "50m" || runtime.Resources.Requests.Memory != "100Mi" || runtime.Ports[0].Protocol != "TCP" {
 		t.Fatalf("unexpected defaults: %#v", runtime)
 	}
 	if problems := ValidateWorkloadRuntime(runtime); len(problems) != 0 {
 		t.Fatalf("default runtime is invalid: %#v", problems)
+	}
+}
+
+func TestWorkloadDeploymentStrategyIsClosed(t *testing.T) {
+	legacy := WorkloadRuntime{Replicas: 1, Ports: []WorkloadPort{{Name: "http", ContainerPort: 8080, Protocol: "TCP"}}, Resources: WorkloadResources{Requests: ResourceList{CPU: DefaultCPURequest, Memory: DefaultMemoryRequest}}}
+	if problems := ValidateWorkloadRuntime(legacy); len(problems) != 0 {
+		t.Fatalf("legacy omitted strategy must remain RollingUpdate-compatible: %#v", problems)
+	}
+	for _, strategy := range []string{"RollingUpdate", "Recreate"} {
+		runtime := NormalizeWorkloadRuntime(WorkloadRuntime{Strategy: WorkloadDeploymentStrategy{Type: strategy}, Ports: []WorkloadPort{{Name: "http", ContainerPort: 8080}}})
+		if problems := ValidateWorkloadRuntime(runtime); len(problems) != 0 {
+			t.Fatalf("%s: %#v", strategy, problems)
+		}
+	}
+	runtime := NormalizeWorkloadRuntime(WorkloadRuntime{Strategy: WorkloadDeploymentStrategy{Type: "OnDelete"}, Ports: []WorkloadPort{{Name: "http", ContainerPort: 8080}}})
+	problems := ValidateWorkloadRuntime(runtime)
+	if len(problems) == 0 || problems[0].Pointer != "/runtime/strategy/type" {
+		t.Fatalf("invalid strategy problems=%#v", problems)
 	}
 }
 
