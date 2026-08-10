@@ -13,6 +13,8 @@ Exact supported tool versions are declared in [`mise.toml`](mise.toml):
 - pnpm `11.20.0`
 - Helm `4.2.3`
 - kubectl `1.36.3`
+- yq `4.53.3` for chart assertions
+- ripgrep and jq for repository/render checks
 
 Install them and the web dependencies:
 
