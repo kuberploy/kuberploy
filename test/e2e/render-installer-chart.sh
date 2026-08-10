@@ -138,7 +138,7 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.secretRevision' "${kp_tmp}/all-components.yaml")" == "v1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.endpoint' "${kp_tmp}/all-components.yaml")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.clusterIssuerName' "${kp_tmp}/all-components.yaml")" == "kuberploy-letsencrypt-production" ]]
-[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.networkPolicy.allowedNamespaces' "${kp_tmp}/all-components.yaml" | tail -1)" == $'- kuberploy-build-dind\n- kuberploy-system' ]]
+[[ "$(yq eval-all -o=json 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.networkPolicy.allowedNamespaces' "${kp_tmp}/all-components.yaml" | jq -c .)" == '["kuberploy-build-dind","kuberploy-system"]' ]]
 
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system \
   -f "${kp_managed}" \
