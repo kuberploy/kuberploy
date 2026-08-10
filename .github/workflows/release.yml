@@ -710,7 +710,7 @@ jobs:
           jq -e \
             --arg tag "${RELEASE_TAG}" \
             --arg commit "${kp_tag_commit}" \
-            '.schemaVersion == "kuberploy.release/v1" and
+            '.schemaVersion == "1.0.0" and
              .release.tag == $tag and
              .source.commit == $commit and
              (.artifacts.images | length == 5)' \
