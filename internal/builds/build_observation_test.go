@@ -20,11 +20,16 @@ func TestBuildLogObservationVerifierReusesExactControllerIdentity(t *testing.T) 
 	if err != nil || job.UID == "" || job.Name != attempt.JobName || job.Namespace != attempt.JobNamespace {
 		t.Fatalf("job=%#v err=%v", job, err)
 	}
+	podLabels := cloneMap(liveJob["spec"].(map[string]any)["template"].(map[string]any)["metadata"].(map[string]any)["labels"].(map[string]any))
+	podLabels["batch.kubernetes.io/controller-uid"] = job.UID
+	podLabels["batch.kubernetes.io/job-name"] = attempt.JobName
+	podLabels["controller-uid"] = job.UID
+	podLabels["job-name"] = attempt.JobName
 	pod := map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{
 			"name": "build-pod-aaaaaaaa", "namespace": attempt.JobNamespace, "uid": "55555555-5555-4555-8555-555555555555",
-			"labels":          cloneMap(liveJob["spec"].(map[string]any)["template"].(map[string]any)["metadata"].(map[string]any)["labels"].(map[string]any)),
+			"labels":          podLabels,
 			"ownerReferences": []any{map[string]any{"apiVersion": "batch/v1", "kind": "Job", "name": attempt.JobName, "uid": job.UID, "controller": true, "blockOwnerDeletion": true}},
 		},
 		"spec": map[string]any{"containers": []any{map[string]any{"name": "agent"}}, "initContainers": []any{map[string]any{"name": "checkout"}, map[string]any{"name": "dind"}}},

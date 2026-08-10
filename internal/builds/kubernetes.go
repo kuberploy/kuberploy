@@ -1052,16 +1052,15 @@ func validateBuildPod(pod, job map[string]any) error {
 	if pod["apiVersion"] != "v1" || pod["kind"] != "Pod" || objectNamespace(pod) != objectNamespace(job) || !kubeNameRE.MatchString(objectName(pod)) {
 		return ErrInfrastructure
 	}
-	podLabels := metadataLabels(pod)
 	jobSpec, _ := job["spec"].(map[string]any)
 	jobTemplate, _ := jobSpec["template"].(map[string]any)
-	expectedPodLabels := metadataLabels(jobTemplate)
-	if !reflect.DeepEqual(podLabels, expectedPodLabels) {
-		return ErrInfrastructure
-	}
 	podMetadata, _ := pod["metadata"].(map[string]any)
 	jobMetadata, _ := job["metadata"].(map[string]any)
 	jobUID, _ := jobMetadata["uid"].(string)
+	jobTemplateMetadata, _ := jobTemplate["metadata"].(map[string]any)
+	if podMetadata == nil || jobTemplateMetadata == nil || !validTemplateLabels(podMetadata, jobTemplateMetadata, jobUID, objectName(job)) {
+		return ErrInfrastructure
+	}
 	owners, _ := podMetadata["ownerReferences"].([]any)
 	if len(owners) != 1 {
 		return ErrInfrastructure

@@ -625,6 +625,10 @@ func buildPodFixture(resources *fakeBuildResources, attempt BuildAttempt, phase 
 	jobMetadata := job["metadata"].(map[string]any)
 	template := job["spec"].(map[string]any)["template"].(map[string]any)
 	labels := cloneMap(template["metadata"].(map[string]any)["labels"].(map[string]any))
+	labels["batch.kubernetes.io/controller-uid"] = jobMetadata["uid"]
+	labels["batch.kubernetes.io/job-name"] = attempt.JobName
+	labels["controller-uid"] = jobMetadata["uid"]
+	labels["job-name"] = attempt.JobName
 	status := map[string]any{"phase": phase}
 	if checkoutDone {
 		status["initContainerStatuses"] = []any{map[string]any{"name": "checkout", "state": map[string]any{"terminated": map[string]any{"exitCode": int64(0)}}}}
