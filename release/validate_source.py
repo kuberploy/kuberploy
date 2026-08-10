@@ -120,6 +120,11 @@ def main() -> None:
         "Package and validate release artifacts",
         "Publish or verify immutable chart set",
         "cmp --silent",
+        'if [[ "${VERSION}" == *-* ]]',
+        "kp_release_args+=(--prerelease)",
+        'if [[ "${kp_expected_prerelease}" == "false" ]]',
+        "kp_publish_args+=(--latest)",
+        'false,${kp_expected_prerelease},true',
     )
     missing_controls = [control for control in required_release_controls if control not in workflow_text]
     if missing_controls:

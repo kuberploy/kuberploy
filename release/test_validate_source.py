@@ -85,6 +85,11 @@ def main() -> None:
                 "missing fail-closed controls",
             ),
             (
+                "release candidates published as stable",
+                workflow.replace("            kp_release_args+=(--prerelease)\n", "", 1),
+                "missing fail-closed controls",
+            ),
+            (
                 "emulated arm build",
                 workflow.replace("runner: ubuntu-26.04-arm\n", "runner: ubuntu-26.04\n", 1),
                 "five amd64 and five arm64",

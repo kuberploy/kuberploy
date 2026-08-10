@@ -592,19 +592,28 @@ jobs:
             release-dist/*.tgz
             release-dist/SHA256SUMS
           )
+          kp_expected_prerelease="false"
+          if [[ "${VERSION}" == *-* ]]; then
+            kp_release_args+=(--prerelease)
+            kp_expected_prerelease="true"
+          fi
           gh release create "${kp_release_args[@]}"
           [[ "$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" == "true" ]]
-          gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+          kp_publish_args=("${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false)
+          if [[ "${kp_expected_prerelease}" == "false" ]]; then
+            kp_publish_args+=(--latest)
+          fi
+          gh release edit "${kp_publish_args[@]}"
           kp_release_state=""
           for kp_attempt in {1..12}; do
             kp_release_state="$(gh api \
               -H "X-GitHub-Api-Version: 2026-03-10" \
               "/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
               --jq '[.draft, .prerelease, (.immutable == true)] | join(",")')"
-            [[ "${kp_release_state}" == "false,false,true" ]] && break
+            [[ "${kp_release_state}" == "false,${kp_expected_prerelease},true" ]] && break
             sleep 5
           done
-          [[ "${kp_release_state}" == "false,false,true" ]] || {
+          [[ "${kp_release_state}" == "false,${kp_expected_prerelease},true" ]] || {
             echo "Published release did not become immutable: ${kp_release_state}" >&2
             exit 1
           }
