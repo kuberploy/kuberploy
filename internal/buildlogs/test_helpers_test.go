@@ -94,9 +94,9 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 	templateLabels := template["metadata"].(map[string]any)["labels"].(map[string]any)
 	templateLabels["batch.kubernetes.io/controller-uid"] = jobMetadata["uid"]
 	templateLabels["batch.kubernetes.io/job-name"] = jobName
+	templateLabels["controller-uid"] = jobMetadata["uid"]
+	templateLabels["job-name"] = jobName
 	podLabels := cloneObject(templateLabels)
-	podLabels["controller-uid"] = jobMetadata["uid"]
-	podLabels["job-name"] = jobName
 	pod := map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{

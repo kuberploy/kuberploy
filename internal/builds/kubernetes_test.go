@@ -70,6 +70,8 @@ func (f *fakeBuildResources) Create(_ context.Context, resource kubernetesResour
 		labels := template["metadata"].(map[string]any)["labels"].(map[string]any)
 		labels["batch.kubernetes.io/controller-uid"] = uid
 		labels["batch.kubernetes.io/job-name"] = objectName(stored)
+		labels["controller-uid"] = uid
+		labels["job-name"] = objectName(stored)
 	}
 	f.nextUID++
 	f.objects[key] = stored

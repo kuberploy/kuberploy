@@ -904,9 +904,6 @@ func validTemplateLabels(liveMetadata, desiredMetadata map[string]any, uid, jobN
 	}
 	controllerFound, jobFound := false, false
 	for key, value := range liveLabels {
-		if _, desired := desiredLabels[key]; desired {
-			continue
-		}
 		switch key {
 		case "batch.kubernetes.io/controller-uid", "controller-uid":
 			if value != uid {
@@ -919,7 +916,9 @@ func validTemplateLabels(liveMetadata, desiredMetadata map[string]any, uid, jobN
 			}
 			jobFound = true
 		default:
-			return false
+			if desiredLabels[key] != value {
+				return false
+			}
 		}
 	}
 	annotations, _ := liveMetadata["annotations"].(map[string]any)
