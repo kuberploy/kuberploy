@@ -254,23 +254,30 @@ func (a *KubernetesAdapter) ensure(ctx context.Context, workload BuildWorkload, 
 			if err = a.deleteValidated(ctx, resourceJobs, liveJob, desired.job, validateLiveJob, "Foreground"); err != nil {
 				return WorkloadObservation{}, err
 			}
-			liveJob, jobFound, err = a.get(ctx, resourceJobs, desired.namespace, desired.jobName)
-			if err != nil {
+			if err = a.deleteSourceSecretIfOwned(ctx, desired.sourceSecret); err != nil {
 				return WorkloadObservation{}, err
 			}
-			if jobFound {
-				if validateLiveJob(liveJob, desired.job) != nil || !jobDeletionInProgress(liveJob) || !isTerminalJob(liveJob) {
-					return WorkloadObservation{}, ErrInfrastructure
-				}
-				if err = a.deleteSourceSecretIfOwned(ctx, desired.sourceSecret); err != nil {
-					return WorkloadObservation{}, err
-				}
-				return pendingWorkloadObservation(workload), nil
-			}
+			// Foreground deletion may make the Job GET return NotFound before its
+			// controlled Pod has disappeared. Never create the replacement in the
+			// same reconciliation; the no-Job path below independently fences on
+			// zero remaining Pods for this exact operation and generation.
+			return pendingWorkloadObservation(workload), nil
 		}
 	}
 
 	if !jobFound {
+		if workload.Attempt.ExecutionAttempts > 1 {
+			labels := metadataLabels(desired.job)
+			operation, _ := labels["kuberploy.io/build-operation"].(string)
+			generation, _ := labels["kuberploy.io/build-generation"].(string)
+			remaining, listErr := a.resources.ListBuildPods(ctx, desired.namespace, operation, generation, 2)
+			if listErr != nil {
+				return WorkloadObservation{}, listErr
+			}
+			if len(remaining) != 0 {
+				return pendingWorkloadObservation(workload), nil
+			}
+		}
 		if _, err = a.ensureObject(ctx, resourceConfigMaps, desired.configMap, validateExactConfigMap); err != nil {
 			return WorkloadObservation{}, err
 		}

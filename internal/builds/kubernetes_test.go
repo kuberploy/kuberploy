@@ -438,12 +438,23 @@ func TestKubernetesAdapterRetriesFailedJobWithSameImmutablePlan(t *testing.T) {
 		t.Fatalf("failed observation=%#v err=%v", observation, err)
 	}
 	oldUID := resources.objects[jobKey]["metadata"].(map[string]any)["uid"]
-	resources.pods = nil
 	workload.Attempt.State = AttemptPreparing
 	workload.Attempt.ExecutionAttempts = 2
 	observation, err = adapter.ensure(context.Background(), workload, sourceTokenTwo())
 	if err != nil || observation.State != WorkloadPending {
 		t.Fatalf("retry observation=%#v err=%v", observation, err)
+	}
+	if resources.objects[jobKey] != nil {
+		t.Fatal("replacement Job was created in the same reconciliation as foreground deletion")
+	}
+	observation, err = adapter.ensure(context.Background(), workload, sourceTokenTwo())
+	if err != nil || observation.State != WorkloadPending || resources.objects[jobKey] != nil {
+		t.Fatalf("stale controlled Pod did not fence replacement observation=%#v err=%v", observation, err)
+	}
+	resources.pods = nil
+	observation, err = adapter.ensure(context.Background(), workload, sourceTokenTwo())
+	if err != nil || observation.State != WorkloadPending {
+		t.Fatalf("clean retry observation=%#v err=%v", observation, err)
 	}
 	newUID := resources.objects[jobKey]["metadata"].(map[string]any)["uid"]
 	if oldUID == newUID || !builder.CanAdoptJob(observation.Job, attempt.PlanRequest) {
