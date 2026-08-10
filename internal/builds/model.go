@@ -370,6 +370,19 @@ func (d BuildDefinition) validate() error {
 		d.DefinitionGeneration < 1 || d.CreatedAt.IsZero() || d.UpdatedAt.IsZero() {
 		return ErrInvalid
 	}
+	if d.Spec.Execution.BuildKitImage == "" {
+		digest, err := legacyDefinitionDigestWithoutBuildKit(d.Spec)
+		if err != nil || d.DefinitionDigest != digest {
+			return ErrInvalid
+		}
+		// Definitions accepted before BuildKit became an explicit execution
+		// setting retain their original immutable digest. Every new attempt
+		// already replaces the complete operator-owned Execution snapshot from
+		// the current validated runtime, including BuildKitImage.
+		upgraded := d.Spec
+		upgraded.Execution.BuildKitImage = builder.DefaultBuildKitImage
+		return validateDefinitionSpec(d.ProjectID, d.ServiceID, upgraded)
+	}
 	digest, err := definitionDigest(d.Spec)
 	if err != nil || d.DefinitionDigest != digest {
 		return ErrInvalid
@@ -406,6 +419,66 @@ func validateDefinitionSpec(projectID, serviceID string, spec DefinitionSpec) er
 
 func definitionDigest(spec DefinitionSpec) (string, error) {
 	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// legacyDefinitionDigestWithoutBuildKit reconstructs the exact JSON shape
+// used before ExecutionSettings gained buildKitImage. PostgreSQL stores the
+// specification as jsonb, so recomputing this from the closed typed model is
+// safer than trusting jsonb's reordered textual representation.
+func legacyDefinitionDigestWithoutBuildKit(spec DefinitionSpec) (string, error) {
+	type legacyExecutionSettings struct {
+		Namespace               string                     `json:"namespace"`
+		PodServiceAccount       string                     `json:"podServiceAccount"`
+		BuilderAgentImage       string                     `json:"builderAgentImage"`
+		BuildSecret             string                     `json:"buildSecret,omitempty"`
+		SSHSecret               string                     `json:"sshSecret,omitempty"`
+		NodeSelector            map[string]string          `json:"nodeSelector"`
+		Toleration              builder.TaintToleration    `json:"toleration"`
+		CheckoutResources       builder.ContainerResources `json:"checkoutResources"`
+		DinDResources           builder.ContainerResources `json:"dindResources"`
+		AgentResources          builder.ContainerResources `json:"agentResources"`
+		WorkspaceSizeLimit      string                     `json:"workspaceSizeLimit"`
+		SocketSizeLimit         string                     `json:"socketSizeLimit"`
+		ResultSizeLimit         string                     `json:"resultSizeLimit"`
+		DockerDataSizeLimit     string                     `json:"dockerDataSizeLimit"`
+		ActiveDeadlineSeconds   int64                      `json:"activeDeadlineSeconds"`
+		TTLSecondsAfterFinished int64                      `json:"ttlSecondsAfterFinished"`
+		Egress                  []builder.EgressEndpoint   `json:"egress"`
+	}
+	type legacyDefinitionSpec struct {
+		ContextPath    string                  `json:"contextPath"`
+		DockerfilePath string                  `json:"dockerfilePath"`
+		Platforms      []string                `json:"platforms"`
+		Registry       RegistryBinding         `json:"registry"`
+		BuildArgs      []builder.BuildArg      `json:"buildArgs,omitempty"`
+		SecretFiles    []builder.FileReference `json:"secretFiles,omitempty"`
+		SSHFiles       []builder.FileReference `json:"sshFiles,omitempty"`
+		CacheTrustLane string                  `json:"cacheTrustLane"`
+		CacheImports   int                     `json:"cacheImports"`
+		Profile        builder.BuildProfile    `json:"profile"`
+		Execution      legacyExecutionSettings `json:"execution"`
+		MaxAttempts    int                     `json:"maxAttempts"`
+	}
+	execution := spec.Execution
+	encoded, err := json.Marshal(legacyDefinitionSpec{
+		ContextPath: spec.ContextPath, DockerfilePath: spec.DockerfilePath, Platforms: spec.Platforms,
+		Registry: spec.Registry, BuildArgs: spec.BuildArgs, SecretFiles: spec.SecretFiles, SSHFiles: spec.SSHFiles,
+		CacheTrustLane: spec.CacheTrustLane, CacheImports: spec.CacheImports, Profile: spec.Profile,
+		Execution: legacyExecutionSettings{
+			Namespace: execution.Namespace, PodServiceAccount: execution.PodServiceAccount, BuilderAgentImage: execution.BuilderAgentImage,
+			BuildSecret: execution.BuildSecret, SSHSecret: execution.SSHSecret, NodeSelector: execution.NodeSelector, Toleration: execution.Toleration,
+			CheckoutResources: execution.CheckoutResources, DinDResources: execution.DinDResources, AgentResources: execution.AgentResources,
+			WorkspaceSizeLimit: execution.WorkspaceSizeLimit, SocketSizeLimit: execution.SocketSizeLimit, ResultSizeLimit: execution.ResultSizeLimit,
+			DockerDataSizeLimit: execution.DockerDataSizeLimit, ActiveDeadlineSeconds: execution.ActiveDeadlineSeconds,
+			TTLSecondsAfterFinished: execution.TTLSecondsAfterFinished, Egress: execution.Egress,
+		},
+		MaxAttempts: spec.MaxAttempts,
+	})
 	if err != nil {
 		return "", err
 	}
