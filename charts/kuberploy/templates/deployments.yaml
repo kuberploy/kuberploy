@@ -636,7 +636,7 @@ spec:
         - name: monitoring-token
           secret:
             secretName: {{ $.Values.config.monitoring.bearerTokenSecret.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.monitoring.bearerTokenSecret.key }}
                 path: token
@@ -645,7 +645,7 @@ spec:
         - name: github-app-api-runtime
           secret:
             secretName: {{ $.Values.config.githubApp.secretRef.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.githubApp.secretRef.privateKeyKey }}
                 path: runtime/private-key.pem
@@ -660,7 +660,7 @@ spec:
         - name: runtime-secret-fingerprint
           secret:
             secretName: {{ $.Values.config.runtimeSecrets.fingerprintSecret.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.runtimeSecrets.fingerprintSecret.key }}
                 path: runtime-secret-fingerprint.key
@@ -669,7 +669,7 @@ spec:
         - name: runtime-secret-sealing-certificate
           secret:
             secretName: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.key }}
                 path: tls.crt
@@ -677,7 +677,7 @@ spec:
         {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.helmApplications.ociCredentialProfiles }}
         - name: helm-oci-credentials
           projected:
-            defaultMode: 0440
+            defaultMode: 288
             sources:
               {{- range $profile := $.Values.config.helmApplications.ociCredentialProfiles }}
               - secret:
@@ -697,7 +697,7 @@ spec:
         {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
         - name: runtime-registry-pull-credentials
           projected:
-            defaultMode: 0440
+            defaultMode: 288
             sources:
               {{- range $profile := $.Values.config.runtimeRegistryPulls.profiles }}
               - secret:
@@ -714,7 +714,7 @@ spec:
         - name: git-credentials
           secret:
             secretName: {{ . }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.git.credentialsSecret.usernameKey }}
                 path: username
@@ -725,7 +725,7 @@ spec:
         - name: github-app-private-key
           secret:
             secretName: {{ $.Values.config.githubApp.secretRef.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.githubApp.secretRef.privateKeyKey }}
                 path: runtime/private-key.pem
@@ -734,7 +734,7 @@ spec:
         - name: managed-registry-credentials
           secret:
             secretName: {{ $.Values.config.managedRegistry.credentialSecret.name }}
-            defaultMode: 0440
+            defaultMode: 288
             items:
               - key: {{ $.Values.config.managedRegistry.credentialSecret.usernameKey }}
                 path: username

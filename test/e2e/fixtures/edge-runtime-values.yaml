@@ -5,7 +5,7 @@ config:
       traefik:
         revision: 7
         mode: managed
-        namespace: kuberploy-edge
+        namespace: kuberploy-system
         version: v3.7.10
         deployment:
           name: traefik
