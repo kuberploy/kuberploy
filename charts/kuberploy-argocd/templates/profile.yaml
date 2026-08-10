@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-argocd-profile
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.argoFoundation.argoCD.managed | quote }}
+  expectedVersion: "3.5.0"
+  applicationAPI: "argoproj.io/v1alpha1"
+  adminEnabled: "false"
+  directDefaultRole: "none"
+  cacheMode: "external-valkey"
+  cacheDatabase: "1"
+  cacheCredentialSecret: {{ .Values.argoFoundation.prerequisites.valkeySecretName | quote }}
+  serverExposure: "ClusterIP"
+  rootBootstrapEnabled: {{ .Values.argoFoundation.bootstrap.enabled | quote }}
+  {{- if .Values.argoFoundation.bootstrap.enabled }}
+  rootRepositorySecret: {{ include "kuberploy-argocd.bootstrapRepositorySecretName" . | quote }}
+  {{- end }}

@@ -1,0 +1,14 @@
+enabled: true
+builderAgentImage: ghcr.io/kuberploy/kuberploy-builder-agent@sha256:6ea889526b057a390136a2eb91646c6500a63dea479dc07715d3ddcc95c21e1b
+namespace:
+  create: true
+  name: kuberploy-build-dind
+controllerServiceAccount:
+  namespace: kuberploy-system
+  name: kuberploy-worker
+podServiceAccount:
+  name: kuberploy-build-pod
+admissionPolicy:
+  enabled: true
+networkPolicy:
+  enabled: true

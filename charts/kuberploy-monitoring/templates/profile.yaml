@@ -1,0 +1,34 @@
+{{- if .Values.monitoring.managed }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" . }}-monitoring-profile
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+immutable: true
+data:
+  contract: kuberploy-managed-monitoring/v1
+  management: managed
+  chartName: kuberploy-monitoring
+  chartVersion: {{ .Chart.Version | quote }}
+  upstreamChartSHA256: sha256:{{ index .Chart.Annotations "kuberploy.io/kube-prometheus-stack-chart-sha256" }}
+  releaseName: {{ .Release.Name | quote }}
+  namespace: kuberploy-monitoring
+  queryURL: http://prometheus-operated.kuberploy-monitoring.svc:9090
+  operatorDeploymentName: kuberploy-prometheus-operator
+  operatorContainerName: kube-prometheus-stack
+  operatorImage: quay.io/prometheus-operator/prometheus-operator:v0.93.0@sha256:a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39
+  operatorArgumentsSHA256: sha256:b27e7e117547a6a57ce23769fa642ecd4d4e663aa37a549aa55a70a4994415ca
+  recordingRuleName: monitoring-service-recording-rules
+  recordingRuleSpecSHA256: sha256:dce75aca8d4db27efe9e685fee3b02f1f3fcefb71ff3674f02002f7d700780a5
+  readinessContract: profile+operator+rule-spec+prometheus-rules
+  queryClientNamespaceLabel: kuberploy.io/control-plane-namespace=true
+  queryClientPodLabels: app.kubernetes.io/name=kuberploy,app.kubernetes.io/component=api
+  monitorNamespaceLabel: kuberploy.io/monitoring-namespace=true
+  monitorSelectorLabel: kuberploy.io/monitoring-source=protected
+  ruleSelectorLabel: kuberploy.io/monitoring-rule=protected
+  ignoreNamespaceSelectors: "true"
+  grafanaEnabled: "false"
+  metricSeries: kuberploy:service:cpu_usage_cores,kuberploy:service:memory_working_set_bytes,kuberploy:service:replicas_ready,kuberploy:service:container_restarts_total,kuberploy:service:http_requests_per_second,kuberploy:service:http_5xx_ratio,kuberploy:service:http_latency_seconds:p95
+{{- end }}

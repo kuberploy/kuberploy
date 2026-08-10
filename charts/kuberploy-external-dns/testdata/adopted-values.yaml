@@ -1,0 +1,17 @@
+foundation:
+  enabled: true
+  externalDNS:
+    managed: false
+    adoptExisting: true
+    filtersConfirmed: true
+    identity:
+      providerKind: cloudflare
+      credentialSecretRef: ""
+      providerConfigRef: ""
+      egressConfigRef: ""
+externaldns:
+  txtOwnerId: adopted-cloudflare-primary
+  domainFilters: [example.test]
+  labelFilter: kuberploy.io/dns-integration=cloudflare-primary
+  provider:
+    name: cloudflare

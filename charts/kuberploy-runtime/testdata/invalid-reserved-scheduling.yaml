@@ -1,0 +1,4 @@
+spec:
+  runtime:
+    nodeSelector:
+      kuberploy.io/node-class: builder

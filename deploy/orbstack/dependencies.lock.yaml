@@ -1,0 +1,151 @@
+apiVersion: config.kuberploy.io/v1alpha1
+kind: LocalDependencyLock
+metadata:
+  generatedAt: "2026-08-06"
+spec:
+  kubernetes:
+    supported: ">=1.34.0 <1.37.0"
+    testedPatches:
+      - v1.34.10
+      - v1.35.7
+      - v1.36.3
+    orbStackObserved: v1.35.6+orb1
+  helm:
+    version: 4.2.3
+  charts:
+    argoCd:
+      repository: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      chartVersion: 10.3.0
+      appVersion: 3.5.0
+      kubeVersion: ">=1.25.0-0"
+      artifact: https://github.com/argoproj/argo-helm/releases/download/argo-cd-10.3.0/argo-cd-10.3.0.tgz
+      sha256: d08882d22d0c76e3174e005cc09abe300c70ba556aec76725a4410d172b9c1f3
+    traefik:
+      repository: https://traefik.github.io/charts
+      chart: traefik
+      chartVersion: 41.1.1
+      appVersion: 3.7.9
+      kubeVersion: ">=1.25.0-0"
+      artifact: https://traefik.github.io/charts/traefik/traefik-41.1.1.tgz
+      sha256: 42cf5c2a30a3630adb7cefa1ec5b84dfef0105599cd217c7574bd77c6ad369ee
+      imageOverrideVersion: 3.7.10
+      image: docker.io/library/traefik:v3.7.10@sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac
+    certManager:
+      repository: https://charts.jetstack.io
+      chart: cert-manager
+      chartVersion: v1.21.1
+      appVersion: v1.21.1
+      kubeVersion: ">=1.22.0-0"
+      artifact: https://charts.jetstack.io/charts/cert-manager-v1.21.1.tgz
+      sha256: c27101f3f3e2349fb4a9e704316105bf7b52ad73b8c8257d3498ef7f2f6a4adc
+    externalDns:
+      repository: https://kubernetes-sigs.github.io/external-dns
+      chart: external-dns
+      chartVersion: 1.21.1
+      appVersion: 0.21.0
+      artifact: https://github.com/kubernetes-sigs/external-dns/releases/download/external-dns-helm-chart-1.21.1/external-dns-1.21.1.tgz
+      sha256: 5dd033a4b872bf641860695705ee460031d0bc695f114bf8926fee6736814e19
+    valkey:
+      repository: https://valkey-io.github.io/valkey-helm
+      chart: valkey
+      chartVersion: 0.11.0
+      appVersion: 9.1.1
+      artifact: https://github.com/valkey-io/valkey-helm/releases/download/valkey-0.11.0/valkey-0.11.0.tgz
+      sha256: 6aa9f2e423642cae84ed6a9798cdfd0faf2e347290ce7b3e4c393333a79743f8
+    externalSecrets:
+      repository: https://charts.external-secrets.io
+      chart: external-secrets
+      chartVersion: 2.8.0
+      appVersion: v2.8.0
+      kubeVersion: ">=1.19.0-0"
+      artifact: https://github.com/external-secrets/external-secrets/releases/download/helm-chart-2.8.0/external-secrets-2.8.0.tgz
+      sha256: 251e4615013c6d2f9ade5cedf1cd8615613f286bfc381e44fb005f197e611ecd
+    sealedSecrets:
+      repository: https://github.com/bitnami-labs/sealed-secrets/releases
+      chart: sealed-secrets
+      chartVersion: 2.19.1
+      appVersion: 0.38.4
+      kubeVersion: ">=1.16.0-0"
+      artifact: https://github.com/bitnami-labs/sealed-secrets/releases/download/helm-v2.19.1/sealed-secrets-2.19.1.tgz
+      sha256: f2a3aa61638f1e23ef963be311e8d5ea75878d8e01ae3846285965b6dd985337
+    kubePrometheusStack:
+      repository: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      chartVersion: 88.1.5
+      appVersion: v0.93.0
+      kubeVersion: ">=1.25.0-0"
+      artifact: https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-88.1.5/kube-prometheus-stack-88.1.5.tgz
+      sha256: b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90
+      bundled:
+        prometheus: 3.13.2
+        alertmanager: 0.33.1
+        prometheusOperator: 0.93.0
+        grafanaChart: 12.10.3
+        grafana: 13.1.2
+    loki:
+      repository: https://grafana-community.github.io/helm-charts
+      chart: loki
+      chartVersion: 18.7.3
+      appVersion: 3.7.5
+      kubeVersion: ">=1.25.0-0"
+      artifact: https://github.com/grafana-community/helm-charts/releases/download/loki-18.7.3/loki-18.7.3.tgz
+      sha256: e592bd9eb4a51d8a34c2f4b9f2d68601da9753968f10619970da2e181db8cccb
+  services:
+    postgresql:
+      version: 18.4
+      image: docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+      arm64Digest: sha256:122c9942437efcbbb8d595fc578dee7d26ee1543c2a8634d183adfa4a1e55b4d
+    valkey:
+      version: 9.1.1
+      image: docker.io/valkey/valkey:9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd
+      arm64Digest: sha256:7295255fcb711fd8b77e489e247be018940eeda917eb3a430cabd089355b293e
+  builder:
+    docker:
+      version: 29.7.1
+      image: docker.io/library/docker:29.7.1-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c
+      arm64Digest: sha256:2c3d2ec83b21eb5c7d856b7ef8dc3e4d5642e73cc09bd35a4149bd6d3d16916d
+    buildx:
+      version: 0.36.1
+    buildkit:
+      version: 0.32.2
+      image: docker.io/moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+  baseImages:
+    alpine:
+      image: docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    golang:
+      image: docker.io/library/golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2
+    node:
+      image: docker.io/library/node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
+    nginx:
+      image: docker.io/library/nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46
+    distrolessStatic:
+      image: gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+    gitRuntime:
+      version: 2.55.0
+      image: cgr.dev/chainguard/git@sha256:9e0818dd94a49dbe025951b02ab90603ba5aa3dbf2b2a300cfac3d84121b5ccc
+      arm64Digest: sha256:dbd8d81ff32130eee2ff4e8c7bce56dc45a7c12f139481eaddb3d61a4032898c
+      amd64Digest: sha256:06f64974d87f285ea27e0dbf64c38ee4ec2efa771f6ccb5538b4d9185b757270
+      source: https://github.com/chainguard-images/images/tree/main/images/git
+      provenance: https://images.chainguard.dev/directory/image/git/overview
+    helmUpgrader:
+      version: 4.2.3
+      image: docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b
+      source: https://github.com/alpine-docker/helm
+  toolchain:
+    go: 1.26.5
+    node: 24.19.0
+    pnpm: 11.20.0
+    typescript: 7.0.2
+    react: 19.2.8
+    vite: 8.2.0
+    swaggerUi: 5.32.12
+    git: 2.55.0
+  testImages:
+    git:
+      version: 2.54.0-r0
+      buildFile: build/package/local-git.Dockerfile
+      baseImage: docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+    hello:
+      version: "2.53"
+      image: registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85

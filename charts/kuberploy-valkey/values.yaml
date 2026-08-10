@@ -1,0 +1,192 @@
+global: {}
+
+valkeyFoundation:
+  managed: false
+  adoptExisting: true
+  namespace:
+    create: true
+  networkPolicy:
+    enabled: true
+    controlPlaneNamespace: kuberploy-system
+    argoCDNamespace: argocd
+
+valkey:
+  global:
+    imageRegistry: ""
+    imagePullSecrets: []
+  image:
+    registry: docker.io
+    repository: valkey/valkey
+    pullPolicy: IfNotPresent
+    tag: "9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd"
+  imagePullSecrets: []
+  nameOverride: valkey
+  fullnameOverride: kuberploy-valkey
+  clusterDomain: cluster.local
+  serviceAccount:
+    create: true
+    automount: false
+    annotations: {}
+    name: ""
+  podAnnotations: {}
+  podLabels: {}
+  workloadAnnotations: {}
+  commonLabels: {}
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  priorityClassName: ""
+  runtimeClassName: ""
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+  service:
+    type: ClusterIP
+    port: 6379
+    annotations: {}
+    nodePort: 0
+    clusterIP: ""
+    loadBalancerClass: ""
+    loadBalancerSourceRanges: []
+    appProtocol: ""
+  networkPolicy: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  initResources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
+    customProbe: {}
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+    customProbe: {}
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+    customProbe: {}
+  extraInitContainers: []
+  extraContainers: []
+  dataStorage:
+    enabled: true
+    persistentVolumeClaimName: ""
+    subPath: ""
+    volumeName: valkey-data
+    requestedSize: 2Gi
+    className: ""
+    accessModes: [ReadWriteOnce]
+    keepPvc: true
+    annotations: {}
+    labels: {}
+    hostPath: ""
+  extraValkeySecrets: []
+  extraValkeyConfigs: []
+  extraSecretValkeyConfigs: false
+  extraVolumes: []
+  extraVolumeMounts: []
+  valkeyConfig: |
+    maxmemory 384mb
+    maxmemory-policy noeviction
+    appendonly yes
+    appendfsync everysec
+    aof-use-rdb-preamble yes
+    save 900 1
+    save 300 10
+    save 60 10000
+  auth:
+    enabled: true
+    usersExistingSecret: kuberploy-valkey-auth
+    aclUsers:
+      default:
+        # The upstream chart uses default only for authenticated health probes.
+        permissions: "resetkeys resetchannels -@all +ping"
+        password: ""
+        passwordKey: health-password
+      api-cache:
+        permissions: "~kp:v1:cache:* +get +set +del +ping"
+        password: ""
+        passwordKey: api-cache-password
+      api-limiter:
+        permissions: "~kp:v1:limit:* +evalsha +eval +script|load +incrby +pttl +pexpire +ping"
+        password: ""
+        passwordKey: api-limiter-password
+      outbox-publisher:
+        permissions: "~kp:v1:work:git-write ~kp:v1:work:dataset-id +xadd +get +set +ping"
+        password: ""
+        passwordKey: outbox-publisher-password
+      worker-consumer:
+        permissions: "~kp:v1:work:* +xgroup +xreadgroup +xautoclaim +xack +ping"
+        password: ""
+        passwordKey: worker-consumer-password
+      argocd:
+        # Argo CD uses database 1 with an independently delivered credential.
+        permissions: "~* &* +@all -@dangerous"
+        password: ""
+        passwordKey: argocd-password
+    aclConfig: ""
+  replica:
+    enabled: false
+    replicas: 2
+    replicationUser: worker-consumer
+    disklessSync: false
+    minReplicasToWrite: 0
+    minReplicasMaxLag: 10
+    service:
+      enabled: false
+      type: ClusterIP
+      port: 6379
+    persistence:
+      size: ""
+      storageClass: ""
+      accessModes: [ReadWriteOnce]
+    persistentVolumeClaimRetentionPolicy: {}
+  tls:
+    enabled: false
+    existingSecret: ""
+    serverPublicKey: server.crt
+    serverKey: server.key
+    caPublicKey: ca.crt
+    dhParamKey: ""
+    requireClientCertificate: false
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  deploymentStrategy: Recreate
+  topologySpreadConstraints: []
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: null
+    maxUnavailable: 1
+    unhealthyPodEvictionPolicy: ""
+  valkeyLogLevel: notice
+  env: {}
+  metrics:
+    enabled: false

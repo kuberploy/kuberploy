@@ -1,0 +1,149 @@
+{{- if .Values.postgresqlFoundation.managed }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kuberploy-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-postgresql.labels" . | nindent 4 }}
+spec:
+  serviceName: kuberploy-postgresql
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      {{- include "kuberploy-postgresql.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-postgresql.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: kuberploy-postgresql
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 70
+        runAsGroup: 70
+        fsGroup: 70
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        {{- toYaml .Values.postgresqlFoundation.scheduling.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.postgresqlFoundation.scheduling.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.postgresqlFoundation.scheduling.affinity | nindent 8 }}
+      containers:
+        - name: postgresql
+          image: {{ .Values.postgresqlFoundation.image.reference | quote }}
+          imagePullPolicy: {{ .Values.postgresqlFoundation.image.pullPolicy }}
+          args:
+            - postgres
+            - -c
+            - password_encryption=scram-sha-256
+            - -c
+            - max_connections={{ .Values.postgresqlFoundation.database.maxConnections }}
+            - -c
+            - shared_buffers={{ .Values.postgresqlFoundation.database.sharedBuffers }}
+            - -c
+            - effective_cache_size={{ .Values.postgresqlFoundation.database.effectiveCacheSize }}
+            - -c
+            - maintenance_work_mem={{ .Values.postgresqlFoundation.database.maintenanceWorkMem }}
+            - -c
+            - checkpoint_completion_target={{ .Values.postgresqlFoundation.database.checkpointCompletionTarget }}
+            - -c
+            - wal_compression={{ .Values.postgresqlFoundation.database.walCompression }}
+            - -c
+            - log_connections=on
+            - -c
+            - log_disconnections=on
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresqlFoundation.auth.existingSecret }}
+                  key: {{ .Values.postgresqlFoundation.auth.usernameKey }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresqlFoundation.auth.existingSecret }}
+                  key: {{ .Values.postgresqlFoundation.auth.passwordKey }}
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresqlFoundation.auth.existingSecret }}
+                  key: {{ .Values.postgresqlFoundation.auth.databaseKey }}
+            - name: POSTGRES_INITDB_ARGS
+              value: --data-checksums --auth-host=scram-sha-256
+            - name: PGDATA
+              value: /var/lib/postgresql/18/docker
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          startupProbe:
+            exec:
+              command: [sh, -ec, 'pg_isready --quiet --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [sh, -ec, 'pg_isready --quiet --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"']
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: postgresql
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.postgresqlFoundation.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 70
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+            - name: runtime
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: runtime
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        annotations:
+          helm.sh/resource-policy: keep
+        labels:
+          {{- include "kuberploy-postgresql.labels" . | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.postgresqlFoundation.storage.accessModes | nindent 10 }}
+        {{- with .Values.postgresqlFoundation.storage.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresqlFoundation.storage.requestedSize }}
+{{- end }}

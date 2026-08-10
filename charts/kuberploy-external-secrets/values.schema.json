@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["secretFoundation", "externalSecrets"],
+  "properties": {
+    "global": {"type": "object"},
+    "secretFoundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator", "namespace", "networkPolicy"],
+      "properties": {
+        "operator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["managed", "adoptExisting", "capabilitiesConfirmed"],
+          "properties": {
+            "managed": {"type": "boolean"},
+            "adoptExisting": {"type": "boolean"},
+            "capabilitiesConfirmed": {"type": "boolean"}
+          }
+        },
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create"],
+          "properties": {"create": {"type": "boolean"}}
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "kubeAPIServerCIDRs", "providerHTTPSCIDRs", "monitoringNamespace"],
+          "properties": {
+            "enabled": {"const": true},
+            "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrs"},
+            "providerHTTPSCIDRs": {"$ref": "#/$defs/cidrs"},
+            "monitoringNamespace": {"const": "kuberploy-monitoring"}
+          }
+        }
+      }
+    },
+    "externalSecrets": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "cidrs": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"}
+    }
+  }
+}

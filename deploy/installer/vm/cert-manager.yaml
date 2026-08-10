@@ -1,0 +1,42 @@
+foundation:
+  enabled: true
+  namespace:
+    create: true
+  certManager:
+    managed: true
+    adoptExisting: false
+  issuers:
+    ingressClassName: traefik
+    production:
+      enabled: true
+      name: kuberploy-letsencrypt-production
+      email: acme@adminchatmate.com
+      server: https://acme-v02.api.letsencrypt.org/directory
+      privateKeySecretName: kuberploy-letsencrypt-production-account
+      dns01Profiles:
+        - name: adminchatmate-cloudflare
+          provider: cloudflare
+          dnsZones: [adminchatmate.com]
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-dns01
+              key: api-token
+    staging:
+      enabled: true
+      name: kuberploy-letsencrypt-staging
+      email: acme@adminchatmate.com
+      server: https://acme-staging-v02.api.letsencrypt.org/directory
+      privateKeySecretName: kuberploy-letsencrypt-staging-account
+      dns01Profiles:
+        - name: adminchatmate-cloudflare
+          provider: cloudflare
+          dnsZones: [adminchatmate.com]
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-dns01
+              key: api-token
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32
+      - 10.72.252.250/32

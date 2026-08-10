@@ -1,0 +1,181 @@
+foundation:
+  enabled: false
+  namespace:
+    create: true
+  certManager:
+    managed: false
+    adoptExisting: false
+    crdsConfirmed: false
+  issuers:
+    ingressClassName: traefik
+    production:
+      enabled: false
+      name: kuberploy-letsencrypt-production
+      email: ""
+      server: https://acme-v02.api.letsencrypt.org/directory
+      privateKeySecretName: kuberploy-letsencrypt-production-account
+      dns01Profiles: []
+    staging:
+      enabled: false
+      name: kuberploy-letsencrypt-staging
+      email: ""
+      server: https://acme-staging-v02.api.letsencrypt.org/directory
+      privateKeySecretName: kuberploy-letsencrypt-staging-account
+      dns01Profiles: []
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: []
+
+certmanager:
+  # Keep the dependency alias and upstream resource names lowercase so every
+  # rendered Kubernetes object and container name is RFC 1123 compliant.
+  # mixed-case Kubernetes object names on a real install.
+  nameOverride: cert-manager
+  namespace: ""
+  clusterResourceNamespace: ""
+  installCRDs: false
+  crds:
+    enabled: true
+    keep: true
+  imageRegistry: quay.io
+  imageNamespace: jetstack
+  image:
+    name: cert-manager-controller
+    repository: quay.io/jetstack/cert-manager-controller
+    tag: v1.21.1
+    pullPolicy: IfNotPresent
+  global:
+    commonLabels: {}
+    rbac:
+      create: true
+      aggregateClusterRoles: false
+    podSecurityPolicy:
+      enabled: false
+  replicaCount: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  serviceAccount:
+    create: true
+    automountServiceAccountToken: true
+    annotations: {}
+  automountServiceAccountToken: true
+  extraArgs: []
+  extraContainers: []
+  extraEnv: []
+  volumes: []
+  volumeMounts: []
+  podLabels: {}
+  podAnnotations: {}
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  networkPolicy:
+    enabled: false
+  prometheus:
+    enabled: true
+    servicemonitor:
+      enabled: false
+  webhook:
+    replicaCount: 2
+    image:
+      name: cert-manager-webhook
+      repository: quay.io/jetstack/cert-manager-webhook
+      tag: v1.21.1
+      pullPolicy: IfNotPresent
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    serviceAccount:
+      create: true
+      automountServiceAccountToken: true
+      annotations: {}
+    automountServiceAccountToken: true
+    extraArgs: []
+    extraEnv: []
+    volumes: []
+    volumeMounts: []
+    podLabels: {}
+    podAnnotations: {}
+    hostNetwork: false
+    serviceType: ClusterIP
+    url: {}
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+      readOnlyRootFilesystem: true
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    networkPolicy:
+      enabled: false
+  cainjector:
+    enabled: true
+    replicaCount: 2
+    image:
+      name: cert-manager-cainjector
+      repository: quay.io/jetstack/cert-manager-cainjector
+      tag: v1.21.1
+      pullPolicy: IfNotPresent
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    serviceAccount:
+      create: true
+      automountServiceAccountToken: true
+      annotations: {}
+    automountServiceAccountToken: true
+    extraArgs: []
+    extraEnv: []
+    volumes: []
+    volumeMounts: []
+    podLabels: {}
+    podAnnotations: {}
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+      readOnlyRootFilesystem: true
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    networkPolicy:
+      enabled: false
+  acmesolver:
+    image:
+      name: cert-manager-acmesolver
+      repository: quay.io/jetstack/cert-manager-acmesolver
+      tag: v1.21.1
+      pullPolicy: IfNotPresent
+  startupapicheck:
+    enabled: false

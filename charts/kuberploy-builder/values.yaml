@@ -1,0 +1,31 @@
+enabled: false
+
+# Required as an immutable image@sha256 reference before enabled=true.
+builderAgentImage: ""
+
+namespace:
+  create: true
+  name: kuberploy-build-dind
+
+controllerServiceAccount:
+  namespace: kuberploy-system
+  name: kuberploy-controller
+
+podServiceAccount:
+  name: kuberploy-build-pod
+
+admissionPolicy:
+  enabled: true
+
+networkPolicy:
+  enabled: true
+
+resourceQuota:
+  hard:
+    pods: "20"
+    requestsCpu: "20"
+    requestsMemory: 40Gi
+    requestsEphemeralStorage: 100Gi
+    limitsCpu: "40"
+    limitsMemory: 80Gi
+    limitsEphemeralStorage: 200Gi

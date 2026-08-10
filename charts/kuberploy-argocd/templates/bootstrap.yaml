@@ -1,0 +1,55 @@
+{{- if .Values.argoFoundation.bootstrap.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: kuberploy-platform-bootstrap
+  namespace: argocd
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+spec:
+  sourceRepos:
+    - {{ include "kuberploy-argocd.bootstrapRepositoryURL" . | quote }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - {group: "*", kind: "*"}
+  namespaceResourceWhitelist:
+    - {group: "*", kind: "*"}
+  orphanedResources:
+    warn: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kuberploy-platform-root
+  namespace: argocd
+  annotations:
+    helm.sh/resource-policy: keep
+    kuberploy.io/repository-secret: {{ include "kuberploy-argocd.bootstrapRepositorySecretName" . | quote }}
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+spec:
+  project: kuberploy-platform-bootstrap
+  source:
+    repoURL: {{ include "kuberploy-argocd.bootstrapRepositoryURL" . | quote }}
+    targetRevision: {{ .Values.argoFoundation.bootstrap.targetRevision | quote }}
+    path: {{ include "kuberploy-argocd.bootstrapPath" . | quote }}
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      allowEmpty: false
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - ServerSideApply=true
+{{- end }}

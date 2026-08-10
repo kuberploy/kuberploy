@@ -1,0 +1,26 @@
+{{- if .Values.monitoring.managed }}
+{{- $budgets := list
+  (dict "name" "prometheus" "selector" (dict "app.kubernetes.io/name" "prometheus"))
+  (dict "name" "alertmanager" "selector" (dict "app.kubernetes.io/name" "alertmanager"))
+  (dict "name" "operator" "selector" (dict "app.kubernetes.io/component" "prometheus-operator"))
+  (dict "name" "kube-state-metrics" "selector" (dict "app.kubernetes.io/name" "kube-state-metrics"))
+-}}
+{{- range $index, $budget := $budgets }}
+{{- if gt $index 0 }}
+---
+{{- end }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" $ }}-{{ $budget.name }}
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" $ | nindent 4 }}
+spec:
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- toYaml $budget.selector | nindent 6 }}
+{{- end }}
+{{- end }}

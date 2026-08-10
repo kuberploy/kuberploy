@@ -1,0 +1,285 @@
+{{- include "kuberploy.validateNetworkPolicy" . -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-default-deny
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-dns
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-web
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "web") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.edgeNamespace }}
+      ports:
+        - {port: {{ .Values.components.web.port }}, protocol: TCP}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "kuberploy.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: api
+      ports:
+        - {port: {{ .Values.components.api.port }}, protocol: TCP}
+{{- range $component := list "api" "worker" "upgrade" }}
+{{- $externalPorts := dict -}}
+{{- if eq $component "worker" -}}
+  {{- $_ := set $externalPorts "22" true -}}
+  {{- $_ := set $externalPorts "9418" true -}}
+{{- end -}}
+{{- $_ := set $externalPorts "443" true -}}
+{{- if and $.Values.config.helmApplications.enabled (or (eq $component "api") (eq $component "worker")) -}}
+  {{- range $host := concat $.Values.config.helmApplications.ociRegistryHosts $.Values.config.helmApplications.ociAuthHosts -}}
+    {{- $parts := splitList ":" $host -}}
+    {{- $port := "443" -}}
+    {{- if eq (len $parts) 2 -}}
+      {{- $port = index $parts 1 -}}
+    {{- end -}}
+    {{- $_ := set $externalPorts $port true -}}
+  {{- end -}}
+{{- end }}
+{{- if eq $component "api" -}}
+  {{- range $profile := $.Values.config.runtimeRegistryPulls.profiles -}}
+    {{- $parts := splitList ":" $profile.registryServer -}}
+    {{- $port := "443" -}}
+    {{- if eq (len $parts) 2 -}}
+      {{- $port = index $parts 1 -}}
+    {{- end -}}
+    {{- $_ := set $externalPorts $port true -}}
+  {{- end -}}
+  {{- range $authority := $.Values.config.imageTagResolution.tokenAuthorities -}}
+    {{- $origin := regexFind `^https://[^/]+` $authority.realmUrl | trimPrefix "https://" -}}
+    {{- $parts := splitList ":" $origin -}}
+    {{- $port := "443" -}}
+    {{- if eq (len $parts) 2 -}}
+      {{- $port = index $parts 1 -}}
+    {{- end -}}
+    {{- $_ := set $externalPorts $port true -}}
+  {{- end -}}
+{{- end -}}
+{{ printf "\n" }}---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  policyTypes: ["Ingress", "Egress"]
+  {{- if eq $component "api" }}
+  ingress:
+    - from:
+        - podSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.edgeNamespace }}
+      ports:
+        - {port: {{ $.Values.components.api.port }}, protocol: TCP}
+  {{- else }}
+  ingress: []
+  {{- end }}
+  {{- if and (eq $component "upgrade") (empty $.Values.networkPolicy.kubeAPIServerCIDRs) (empty $.Values.networkPolicy.externalEgressCIDRs) }}
+  egress: []
+  {{- else }}
+  egress:
+    {{- if and (eq $component "api") (eq $.Values.config.monitoring.mode "managed") }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kuberploy-monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {port: 9090, protocol: TCP}
+    {{- end }}
+    {{- if or (eq $component "api") (eq $component "worker") }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.managedPostgreSQLNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberploy-postgresql
+      ports:
+        - {port: 5432, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.networkPolicy.managedValkeyNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - {port: 6379, protocol: TCP}
+    {{- range $.Values.networkPolicy.externalPostgreSQLEgressCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - {port: 5432, protocol: TCP}
+    {{- end }}
+    {{- range $.Values.networkPolicy.externalValkeyEgressCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - {port: 6379, protocol: TCP}
+    {{- end }}
+    {{- end }}
+    {{- if and (eq $component "worker") $.Values.config.managedRegistry.enabled }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $.Values.config.managedRegistry.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberploy-registry
+              app.kubernetes.io/instance: {{ $.Values.config.managedRegistry.deployment }}
+              app.kubernetes.io/component: registry
+      ports:
+        - {port: {{ $.Values.config.managedRegistry.servicePort }}, protocol: TCP}
+    {{- end }}
+    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (eq $component "upgrade") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
+    - to:
+        {{- range $.Values.networkPolicy.kubeAPIServerCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+    {{- end }}
+    {{- range $.Values.networkPolicy.externalEgressCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        {{- range $port := sortAlpha (keys $externalPorts) }}
+        - {port: {{ atoi $port }}, protocol: TCP}
+        {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- if .Values.upgrade.migrationJob.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-migration
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "migration") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: migration
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.managedPostgreSQLNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberploy-postgresql
+      ports:
+        - {port: 5432, protocol: TCP}
+    {{- range .Values.networkPolicy.externalPostgreSQLEgressCIDRs }}
+    - to:
+        - ipBlock:
+            cidr: {{ . | quote }}
+      ports:
+        - {port: 5432, protocol: TCP}
+    {{- end }}
+{{- end }}
+{{- if .Values.config.managedRegistry.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-registry-maintenance-deny-network
+  namespace: {{ .Values.config.managedRegistry.namespace }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-maintenance
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kuberploy
+      app.kubernetes.io/component: registry-maintenance
+      kuberploy.io/registry-target: {{ .Values.config.managedRegistry.targetID | quote }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress: []
+{{- end }}
+{{- if .Values.config.helmApplications.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-helm-renderer-default-deny
+  namespace: {{ .Values.config.helmApplications.rendererNamespace }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: helm-renderer
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kuberploy-worker
+      app.kubernetes.io/component: helm-renderer
+      app.kubernetes.io/managed-by: kuberploy
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress: []
+{{- end }}
+{{- end }}

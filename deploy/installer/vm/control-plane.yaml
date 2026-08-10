@@ -1,0 +1,122 @@
+global:
+  testRun: vm-rc1
+  requireImageDigest: false
+config:
+  publicURL: https://kuberploy-test.adminchatmate.com
+  logLevel: info
+  postgresql:
+    secretRef:
+      name: kuberploy-postgresql
+      urlKey: url
+  valkey:
+    mode: managed
+    secretRef:
+      name: kuberploy-valkey
+      addressesKey: addresses
+      usernameKey: username
+      passwordKey: password
+      apiCacheUsernameKey: api-cache-username
+      apiCachePasswordKey: api-cache-password
+      apiLimiterUsernameKey: api-limiter-username
+      apiLimiterPasswordKey: api-limiter-password
+      publisherUsernameKey: outbox-publisher-username
+      publisherPasswordKey: outbox-publisher-password
+      consumerUsernameKey: worker-consumer-username
+      consumerPasswordKey: worker-consumer-password
+  git:
+    remoteURL: https://github.com/kuberploy/kuberploy-gitops-test.git
+    branch: main
+    credentialsSecret:
+      name: kuberploy-git-credentials
+      usernameKey: username
+      passwordKey: password
+  githubApp:
+    enabled: true
+    appID: 4543722
+    clientID: Iv23liuwUJXB6lYoGl3q
+    appSlug: kuberploy-integration-test
+    secretRef:
+      name: kuberploy-github-app
+  gitProjection:
+    enabled: true
+    cacheMaxBytes: 536870912
+    pollIntervalSeconds: 30
+    webhookWakeEnabled: true
+    chartDigest: sha256:759b26ee607918f80c6657074d859087d79a1ade4d39e6d74974575780fbf3ef
+    policyVersion: appconfig-v1alpha1
+  platformGitBinding:
+    enabled: true
+    clusterID: 8702e38c-1603-49bd-883e-2cd9684f96ce
+  bootstrapSecret:
+    name: kuberploy-bootstrap
+    tokenKey: token
+    generate: true
+components:
+  api:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+  worker:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+  web:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+ingress:
+  enabled: true
+  className: traefik
+  host: kuberploy-test.adminchatmate.com
+  tls:
+    enabled: true
+    secretName: kuberploy-public-tls
+rbac:
+  observedNamespaces: [kuberploy-system]
+  buildNamespaces: [kuberploy-build-dind]
+  argoNamespace: argocd
+builder:
+  enabled: true
+  builderAgentImage: ghcr.io/kuberploy/kuberploy-builder-agent@sha256:6ea889526b057a390136a2eb91646c6500a63dea479dc07715d3ddcc95c21e1b
+  namespace:
+    create: true
+    name: kuberploy-build-dind
+  controllerServiceAccount:
+    namespace: kuberploy-system
+    name: kuberploy-worker
+  podServiceAccount:
+    name: kuberploy-build-pod
+  networkPolicy:
+    enabled: true
+    sourceEgressCIDRs:
+      - 20.205.243.166/32
+      - 20.205.243.168/32
+    registryEgressCIDRs:
+      - 10.43.197.116/32
+networkPolicy:
+  enabled: true
+  edgeNamespace: kuberploy-system
+  managedPostgreSQLNamespace: kuberploy-system
+  managedValkeyNamespace: kuberploy-system
+  kubeAPIServerCIDRs:
+    - 10.43.0.1/32
+    - 10.72.252.250/32
+  externalEgressCIDRs:
+    - 20.205.243.166/32
+    - 20.205.243.168/32
+  externalPostgreSQLEgressCIDRs: []
+  externalValkeyEgressCIDRs: []
+upgrade:
+  image:
+    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.1
+    pullPolicy: IfNotPresent
+  runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
+  job:
+    activeDeadlineSeconds: 900
+  migrationJob:
+    enabled: false
+    command: []
+    activeDeadlineSeconds: 300

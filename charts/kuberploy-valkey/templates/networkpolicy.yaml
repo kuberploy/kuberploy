@@ -1,0 +1,36 @@
+{{- if .Values.valkeyFoundation.managed }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-valkey.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-client-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-valkey.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.valkeyFoundation.networkPolicy.controlPlaneNamespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.valkeyFoundation.networkPolicy.argoCDNamespace }}
+      ports:
+        - {port: 6379, protocol: TCP}
+{{- end }}

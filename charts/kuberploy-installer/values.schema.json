@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bootstrap", "source", "applications", "components", "argoCD", "bootstrapvalkey"],
+  "properties": {
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valkey", "argoCD", "controlPlaneToken"],
+      "properties": {
+        "valkey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {"enabled": {"type": "boolean"}}
+        },
+        "argoCD": { "$ref": "#/$defs/argoInstallationMode" },
+        "controlPlaneToken": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "kubeAPIServerCIDRs"],
+          "properties": {
+            "mode": { "enum": ["disabled", "generated", "precreated"] },
+            "kubeAPIServerCIDRs": {
+              "type": "array", "maxItems": 16, "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32|[0-9A-Fa-f:]+/128)$" }
+            }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repoURL", "targetRevision", "chartRoot"],
+      "properties": {
+        "repoURL": { "type": "string", "maxLength": 240 },
+        "targetRevision": { "type": "string", "maxLength": 40 },
+        "chartRoot": { "const": "charts" }
+      }
+    },
+    "applications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automated", "prune", "selfHeal"],
+      "properties": {
+        "automated": { "type": "boolean" },
+        "prune": { "type": "boolean" },
+        "selfHeal": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "automated": { "const": false } }, "required": ["automated"] },
+          "then": { "properties": { "prune": { "const": false }, "selfHeal": { "const": false } } }
+        }
+      ]
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["controlPlane", "postgresql", "valkey", "edge", "certManager", "externalDNS", "externalSecrets", "sealedSecrets", "monitoring", "builder", "registry"],
+      "properties": {
+        "controlPlane": { "$ref": "#/$defs/managedOnlyComponent" },
+        "postgresql": { "$ref": "#/$defs/adoptableComponent" },
+        "valkey": { "$ref": "#/$defs/adoptableComponent" },
+        "edge": { "$ref": "#/$defs/adoptableComponent" },
+        "certManager": { "$ref": "#/$defs/adoptableComponent" },
+        "externalDNS": { "$ref": "#/$defs/adoptableComponent" },
+        "externalSecrets": { "$ref": "#/$defs/adoptableComponent" },
+        "sealedSecrets": { "$ref": "#/$defs/adoptableComponent" },
+        "monitoring": { "$ref": "#/$defs/managedOnlyComponent" },
+        "builder": { "$ref": "#/$defs/managedOnlyComponent" },
+        "registry": { "$ref": "#/$defs/managedOnlyComponent" }
+      }
+    },
+    "argoCD": {
+      "type": "object",
+      "description": "Values passed unchanged to the pinned kuberploy-argocd bootstrap dependency. Its own strict schema remains authoritative."
+    },
+    "bootstrapvalkey": {
+      "type": "object",
+      "description": "Values passed to the pinned installer-owned Valkey bootstrap dependency."
+    }
+  },
+  "$defs": {
+    "argoInstallationMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "mode", "managedPrerequisitesConfirmed"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "enum": ["disabled", "managed", "adopted"] },
+        "managedPrerequisitesConfirmed": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "mode": { "const": "disabled" },
+              "managedPrerequisitesConfirmed": { "const": false }
+            }
+          },
+          "else": { "properties": { "mode": { "enum": ["managed", "adopted"] } } }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
+          "then": { "properties": { "managedPrerequisitesConfirmed": { "const": true } } },
+          "else": { "properties": { "managedPrerequisitesConfirmed": { "const": false } } }
+        }
+      ]
+    },
+    "componentBase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "mode", "adoptionConfirmed", "expectedPackageDigest", "valueFiles"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "enum": ["disabled", "managed", "adopted"] },
+        "adoptionConfirmed": { "type": "boolean" },
+        "expectedPackageDigest": { "type": "string", "maxLength": 71 },
+        "valueFiles": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\.\\./\\.\\./deploy/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$"
+          }
+        }
+      }
+    },
+    "managedOnlyComponent": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBase" },
+        {
+          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "mode": { "const": "disabled" },
+              "adoptionConfirmed": { "const": false },
+              "expectedPackageDigest": { "const": "" },
+              "valueFiles": { "maxItems": 0 }
+            }
+          },
+          "else": {
+            "properties": {
+              "mode": { "const": "managed" },
+              "adoptionConfirmed": { "const": false },
+              "expectedPackageDigest": { "pattern": "^sha256:[a-f0-9]{64}$" }
+            }
+          }
+        }
+      ]
+    },
+    "adoptableComponent": {
+      "allOf": [
+        { "$ref": "#/$defs/componentBase" },
+        {
+          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "then": {
+            "properties": {
+              "mode": { "const": "disabled" },
+              "adoptionConfirmed": { "const": false },
+              "expectedPackageDigest": { "const": "" },
+              "valueFiles": { "maxItems": 0 }
+            }
+          },
+          "else": {
+            "properties": {
+              "expectedPackageDigest": { "pattern": "^sha256:[a-f0-9]{64}$" }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "mode": { "const": "adopted" } }, "required": ["mode"] },
+                "then": { "properties": { "adoptionConfirmed": { "const": true } } },
+                "else": {
+                  "properties": {
+                    "mode": { "const": "managed" },
+                    "adoptionConfirmed": { "const": false }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

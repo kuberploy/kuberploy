@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-edge-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-edge.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.edge.traefik.managed | quote }}
+  ingressClassName: {{ .Values.traefik.ingressClass.name | quote }}
+  httpRoutesSupported: "true"
+  letsEncryptRoutesRequireApprovedIssuer: "true"
+  customTLSSecretRoutesSupported: "true"
+  runtimeNamespaceSelector: "kuberploy.io/runtime-namespace=true"
+  {{- if hasKey .Values.edge.traefik "sslip" }}
+  {{- $sslip := get .Values.edge.traefik "sslip" }}
+  sslipMode: {{ $sslip.mode | quote }}
+  sslipStaticPublicIPv4: {{ default "" $sslip.staticPublicIPv4 | quote }}
+  {{- end }}

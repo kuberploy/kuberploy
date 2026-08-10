@@ -1,0 +1,21 @@
+{{- include "kuberploy-external-dns.validate" . -}}
+{{- if .Values.foundation.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-dns-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-external-dns.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.foundation.externalDNS.managed | quote }}
+  labelFilter: {{ .Values.externaldns.labelFilter | quote }}
+  annotationFilter: {{ .Values.externaldns.annotationFilter | quote }}
+  providerKind: {{ .Values.foundation.externalDNS.identity.providerKind | quote }}
+  credentialSecretRef: {{ .Values.foundation.externalDNS.identity.credentialSecretRef | quote }}
+  providerConfigRef: {{ .Values.foundation.externalDNS.identity.providerConfigRef | quote }}
+  egressConfigRef: {{ .Values.foundation.externalDNS.identity.egressConfigRef | quote }}
+  txtOwnerId: {{ .Values.externaldns.txtOwnerId | quote }}
+  policy: {{ .Values.externaldns.policy | quote }}
+  domainFilters: {{ join "," .Values.externaldns.domainFilters | quote }}
+{{- end }}

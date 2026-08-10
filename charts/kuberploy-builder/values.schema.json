@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["enabled", "builderAgentImage", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "builderAgentImage": {
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$"
+    },
+    "namespace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create", "name"],
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "$ref": "#/$defs/dnsLabel" }
+      }
+    },
+    "controllerServiceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "name"],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "name": { "$ref": "#/$defs/dnsLabel" }
+      }
+    },
+    "podServiceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": { "name": { "$ref": "#/$defs/dnsLabel" } }
+    },
+    "admissionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": { "enabled": { "const": true } }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "const": true },
+        "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
+        "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
+      }
+    },
+    "resourceQuota": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hard"],
+      "properties": {
+        "hard": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pods", "requestsCpu", "requestsMemory", "requestsEphemeralStorage", "limitsCpu", "limitsMemory", "limitsEphemeralStorage"],
+          "properties": {
+            "pods": { "$ref": "#/$defs/quantity" },
+            "requestsCpu": { "$ref": "#/$defs/quantity" },
+            "requestsMemory": { "$ref": "#/$defs/quantity" },
+            "requestsEphemeralStorage": { "$ref": "#/$defs/quantity" },
+            "limitsCpu": { "$ref": "#/$defs/quantity" },
+            "limitsMemory": { "$ref": "#/$defs/quantity" },
+            "limitsEphemeralStorage": { "$ref": "#/$defs/quantity" }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+      "then": { "properties": { "builderAgentImage": { "minLength": 80 } } }
+    }
+  ],
+  "$defs": {
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "quantity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[1-9][0-9]*(?:m|Ki|Mi|Gi|Ti)?$"
+    },
+    "hostCIDRs": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 7,
+        "maxLength": 64,
+        "pattern": "^(?:[0-9]{1,3}(?:\\.[0-9]{1,3}){3}/32|[0-9a-fA-F:]+/128)$"
+      }
+    }
+  }
+}

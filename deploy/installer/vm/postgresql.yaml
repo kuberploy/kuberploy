@@ -1,0 +1,12 @@
+postgresqlFoundation:
+  managed: true
+  adoptExisting: false
+  namespace:
+    create: false
+  storage:
+    requestedSize: 8Gi
+    storageClassName: local-path
+    keepPVC: true
+  networkPolicy:
+    enabled: true
+    controlPlaneNamespace: kuberploy-system

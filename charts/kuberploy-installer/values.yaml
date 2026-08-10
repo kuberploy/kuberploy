@@ -1,0 +1,91 @@
+bootstrap:
+  valkey:
+    enabled: false
+  argoCD:
+    enabled: false
+    mode: disabled
+    # Managed Argo uses the separately owned Valkey service. This attests that
+    # the service and exact Argo credential Secret exist before Helm starts.
+    managedPrerequisitesConfirmed: false
+  controlPlaneToken:
+    # generated creates the one-time token in-cluster; precreated uses an
+    # operator-owned kuberploy-bootstrap Secret. Disabled is valid only while
+    # the control-plane Application is disabled.
+    mode: disabled
+    kubeAPIServerCIDRs: []
+
+source:
+  # Child charts are read from one immutable Git commit. Argo CD's native Helm
+  # source supports a Git commit as an enforceable content identity; an OCI
+  # package digest is recorded separately for audit because Argo CD does not
+  # accept an OCI digest as a Helm targetRevision.
+  repoURL: ""
+  targetRevision: ""
+  chartRoot: charts
+
+applications:
+  automated: true
+  prune: true
+  selfHeal: true
+
+components:
+  controlPlane: &disabledComponent
+    enabled: false
+    mode: disabled
+    adoptionConfirmed: false
+    expectedPackageDigest: ""
+    valueFiles: []
+  postgresql: *disabledComponent
+  valkey: *disabledComponent
+  edge: *disabledComponent
+  certManager: *disabledComponent
+  externalDNS: *disabledComponent
+  externalSecrets: *disabledComponent
+  sealedSecrets: *disabledComponent
+  monitoring: *disabledComponent
+  builder: *disabledComponent
+  registry: *disabledComponent
+
+# Values for the direct, same-namespace Argo CD bootstrap dependency. The
+# installer never rewrites these. They must satisfy kuberploy-argocd's own
+# managed/adopted validation and remain independently explicit.
+argoCD:
+  argoFoundation:
+    namespace:
+      create: true
+    argoCD:
+      managed: true
+      adoptExisting: false
+      capabilitiesConfirmed: false
+    prerequisites:
+      argoSecretName: argocd-secret
+      valkeySecretName: kuberploy-argocd-valkey-auth
+    networkPolicy:
+      enabled: true
+      kubeAPIServerCIDRs: []
+      repositoryEgressCIDRs: []
+      valkeyNamespace: kuberploy-system
+      controlPlaneNamespace: kuberploy-system
+      edgeNamespace: kuberploy-system
+      monitoringNamespace: kuberploy-monitoring
+    bootstrap:
+      enabled: false
+      clusterID: ""
+      bindingID: ""
+      repositoryOwner: ""
+      repositoryName: ""
+      targetRevision: ""
+
+# Direct blank-cluster bootstrap dependency. It remains owned by the installer
+# release in kuberploy-system so Argo CD never depends on a child Application
+# before its own controller can start.
+bootstrapvalkey:
+  valkeyFoundation:
+    managed: true
+    adoptExisting: false
+    namespace:
+      create: false
+    networkPolicy:
+      enabled: true
+      controlPlaneNamespace: kuberploy-system
+      argoCDNamespace: argocd

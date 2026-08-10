@@ -1,0 +1,64 @@
+global:
+  testRun: @@RUN_ID@@
+  requireImageDigest: false
+config:
+  publicURL: http://kuberploy.k8s.orb.local
+  logLevel: debug
+  postgresql:
+    secretRef: {name: kuberploy-postgresql, urlKey: url}
+  valkey:
+    secretRef:
+      name: kuberploy-valkey
+      addressesKey: addresses
+      usernameKey: username
+      passwordKey: password
+  git:
+    remoteURL: git://kuberploy-git.@@RUN_NAMESPACE@@.svc.cluster.local/kuberploy-environments.git
+    branch: main
+    credentialsSecret: {name: "", usernameKey: username, passwordKey: password}
+  bootstrapSecret: {name: kuberploy-bootstrap, tokenKey: token}
+components:
+  api:
+    replicas: 1
+    image: {reference: kuberploy-api:e2e-@@RUN_ID@@, pullPolicy: Never}
+    port: 8080
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  worker:
+    replicas: 1
+    image: {reference: kuberploy-worker:e2e-@@RUN_ID@@, pullPolicy: Never}
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: "1", memory: 512Mi}
+  web:
+    replicas: 1
+    image: {reference: kuberploy-web:e2e-@@RUN_ID@@, pullPolicy: Never}
+    port: 8080
+    resources:
+      requests: {cpu: 25m, memory: 32Mi}
+      limits: {cpu: 250m, memory: 128Mi}
+ingress:
+  enabled: true
+  className: kp-e2e-@@RUN_ID@@
+  host: kuberploy.k8s.orb.local
+  tls: {enabled: false, secretName: ""}
+rbac:
+  observedNamespaces: [@@RUN_NAMESPACE@@]
+  buildNamespaces: []
+  argoNamespace: @@RUN_NAMESPACE@@
+networkPolicy:
+  enabled: true
+  edgeNamespace: @@RUN_NAMESPACE@@
+  externalEgressCIDRs: [0.0.0.0/0, "::/0"]
+upgrade:
+  image:
+    reference: kuberploy-upgrader:e2e-@@RUN_ID@@
+    pullPolicy: Never
+  runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
+  job:
+    activeDeadlineSeconds: 900
+  migrationJob:
+    enabled: false
+    command: []
+    activeDeadlineSeconds: 300

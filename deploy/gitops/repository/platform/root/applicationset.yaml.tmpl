@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kp-apps-@@RUN_ID@@
+  namespace: @@RUN_NAMESPACE@@
+  labels:
+    kuberploy.io/test-run: @@RUN_ID@@
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: @@GIT_URL@@
+        revision: main
+        directories:
+          - path: environments/*/apps/*
+  template:
+    metadata:
+      name: 'kp-{{ printf "%s:%s" (index .path.segments 1) .path.basename | sha256sum | trunc 20 }}'
+      namespace: @@RUN_NAMESPACE@@
+      labels:
+        kuberploy.io/test-run: @@RUN_ID@@
+      annotations:
+        kuberploy.io/environment-id: '{{ index .path.segments 1 }}'
+        kuberploy.io/application-id: '{{ .path.basename }}'
+    spec:
+      project: kp-e2e-@@RUN_ID@@
+      sources:
+        - repoURL: @@GIT_URL@@
+          targetRevision: main
+          path: charts/kuberploy-runtime
+          helm:
+            releaseName: 'kp-{{ .path.basename | sha256sum | trunc 20 }}'
+            valueFiles:
+              - '$values/{{ .path.path }}/app.yaml'
+        - repoURL: @@GIT_URL@@
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: @@RUN_NAMESPACE@@
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+          - CreateNamespace=false
+          - ApplyOutOfSyncOnly=true
+          - PruneLast=true

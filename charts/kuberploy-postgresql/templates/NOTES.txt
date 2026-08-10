@@ -1,0 +1,3 @@
+PostgreSQL is {{ ternary "managed" "adopted" .Values.postgresqlFoundation.managed }} for Kuberploy.
+The managed profile is a small single-instance control-plane database with a retained PVC; it is not an HA or backup solution.
+Production operators requiring HA, encrypted transport, PITR, or managed backups should adopt a compatible external PostgreSQL service.

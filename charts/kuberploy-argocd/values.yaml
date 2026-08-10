@@ -1,0 +1,333 @@
+argoFoundation:
+  namespace:
+    create: true
+  argoCD:
+    managed: true
+    adoptExisting: false
+    # Adoption is accepted only after the installer has checked Argo CD 3.5.x,
+    # the v1alpha1 CRDs, in-cluster destination, and required cache behavior.
+    capabilitiesConfirmed: false
+  prerequisites:
+    argoSecretName: argocd-secret
+    valkeySecretName: kuberploy-argocd-valkey-auth
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: []
+    # HTTPS-only Git and OCI access. Operators may use provider IP ranges or an
+    # explicit egress proxy CIDR; there is deliberately no implicit open route.
+    repositoryEgressCIDRs: []
+    valkeyNamespace: kuberploy-system
+    controlPlaneNamespace: kuberploy-system
+    edgeNamespace: kuberploy-system
+    monitoringNamespace: kuberploy-monitoring
+  bootstrap:
+    enabled: false
+    # These values must be copied from the verified platform Git binding. The
+    # chart derives the canonical GitHub remote, fixed cluster path, and
+    # deterministic repository credential name; none are caller-selectable.
+    clusterID: ""
+    bindingID: ""
+    repositoryOwner: ""
+    repositoryName: ""
+    targetRevision: ""
+
+argo-cd:
+  nameOverride: argocd
+  fullnameOverride: argocd
+  namespaceOverride: argocd
+  kubeVersionOverride: ""
+  apiVersionOverrides: {}
+  createAggregateRoles: false
+  createClusterRoles: true
+  openshift:
+    enabled: false
+  crds:
+    install: true
+    keep: true
+    annotations:
+      argocd.argoproj.io/sync-options: ServerSideApply=true
+    additionalLabels: {}
+  global:
+    domain: argocd.invalid
+    runtimeClassName: ""
+    additionalLabels: {}
+    revisionHistoryLimit: 3
+    image:
+      repository: quay.io/argoproj/argocd
+      tag: v3.5.0@sha256:c298cedbaeb31532ba8d4e9904eba9e4987e067293fbd86400c5194e78f743d5
+      imagePullPolicy: IfNotPresent
+    imagePullSecrets: []
+    logging:
+      format: json
+      level: info
+    statefulsetAnnotations: {}
+    statefulsetLabels: {}
+    deploymentAnnotations: {}
+    deploymentLabels: {}
+    podAnnotations: {}
+    podLabels: {}
+    addPrometheusAnnotations: false
+    securityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    hostAliases: []
+    dualStack:
+      ipFamilyPolicy: ""
+      ipFamilies: []
+    networkPolicy:
+      create: false
+      defaultDenyIngress: false
+    priorityClassName: ""
+    nodeSelector:
+      kubernetes.io/os: linux
+    tolerations: []
+    affinity:
+      podAntiAffinity: soft
+      nodeAffinity:
+        type: hard
+        matchExpressions: []
+    topologySpreadConstraints: []
+    deploymentStrategy: {}
+    env: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    certificateAnnotations: {}
+  configs:
+    cm:
+      create: true
+      annotations: {}
+      application.instanceLabelKey: argocd.argoproj.io/instance
+      application.sync.impersonation.enabled: false
+      exec.enabled: false
+      admin.enabled: false
+      timeout.reconciliation: 120s
+      timeout.reconciliation.jitter: 60s
+      timeout.hard.reconciliation: 0s
+      statusbadge.enabled: false
+    params:
+      create: true
+      annotations: {}
+      redis.db: "1"
+      server.insecure: "false"
+      server.disable.auth: "false"
+      reposerver.disable.tls: "false"
+    rbac:
+      create: true
+      annotations: {}
+      policy.default: ""
+      policy.csv: ""
+      scopes: "[groups]"
+      policy.matchMode: glob
+    gpg:
+      annotations: {}
+      keys: {}
+    ssh:
+      create: true
+      annotations: {}
+      extraHosts: ""
+    tls:
+      create: true
+      annotations: {}
+      certificates: {}
+    cmp:
+      create: false
+      annotations: {}
+      plugins: {}
+    clusterCredentials: {}
+    credentialTemplates: {}
+    credentialTemplatesAnnotations: {}
+    repositories: {}
+    repositoriesAnnotations: {}
+    secret:
+      createSecret: false
+      labels: {}
+      annotations: {}
+      githubSecret: ""
+      gitlabSecret: ""
+      bitbucketServerSecret: ""
+      bitbucketUUID: ""
+      gogsSecret: ""
+      azureDevops:
+        username: ""
+        password: ""
+      extra: {}
+      argocdServerAdminPassword: ""
+      argocdServerAdminPasswordMtime: ""
+    styles: ""
+  extraObjects: []
+  controller:
+    replicas: 1
+    dynamicClusterDistribution: false
+    image: {repository: "", tag: "", imagePullPolicy: ""}
+    imagePullSecrets: []
+    extraArgs: []
+    env: []
+    envFrom: []
+    extraContainers: []
+    initContainers: []
+    volumeMounts: []
+    volumes: []
+    podAnnotations: {}
+    podLabels: {}
+    hostNetwork: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    containerSecurityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfile: {type: RuntimeDefault}
+      capabilities: {drop: [ALL]}
+    automountServiceAccountToken: true
+    serviceAccount:
+      create: true
+      name: argocd-application-controller
+      annotations: {}
+      labels: {}
+      automountServiceAccountToken: true
+    metrics:
+      enabled: true
+      serviceMonitor: {enabled: false}
+      rules: {enabled: false}
+    clusterRoleRules: {enabled: false, rules: []}
+    roleRules: []
+    networkPolicy: {create: false}
+  dex:
+    enabled: false
+  redis:
+    enabled: false
+  redis-ha:
+    enabled: false
+  externalRedis:
+    host: kuberploy-valkey.kuberploy-system.svc.cluster.local
+    username: ""
+    password: ""
+    port: 6379
+    existingSecret: kuberploy-argocd-valkey-auth
+    secretAnnotations: {}
+  redisSecretInit:
+    enabled: false
+  server:
+    replicas: 1
+    image: {repository: "", tag: "", imagePullPolicy: ""}
+    imagePullSecrets: []
+    extraArgs: []
+    env: []
+    envFrom: []
+    lifecycle: {}
+    extensions: {enabled: false}
+    extraContainers: []
+    initContainers: []
+    volumeMounts: []
+    volumes: []
+    podAnnotations: {}
+    podLabels: {}
+    hostNetwork: false
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    containerSecurityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfile: {type: RuntimeDefault}
+      capabilities: {drop: [ALL]}
+    service:
+      type: ClusterIP
+      annotations: {}
+    metrics:
+      enabled: true
+      serviceMonitor: {enabled: false}
+    automountServiceAccountToken: true
+    serviceAccount:
+      create: true
+      name: argocd-server
+      annotations: {}
+      labels: {}
+      automountServiceAccountToken: true
+    ingress: {enabled: false}
+    ingressGrpc: {enabled: false}
+    route: {enabled: false}
+    httproute: {enabled: false}
+    grpcroute: {enabled: false}
+    backendTLSPolicy: {enabled: false}
+    listenerset: {enabled: false}
+    networkPolicy: {create: false}
+  repoServer:
+    replicas: 1
+    image: {repository: "", tag: "", imagePullPolicy: ""}
+    imagePullSecrets: []
+    extraArgs: []
+    env: []
+    envFrom: []
+    lifecycle: {}
+    extraContainers: []
+    initContainers: []
+    volumeMounts: []
+    volumes: []
+    existingVolumes: {}
+    podAnnotations: {}
+    podLabels: {}
+    hostNetwork: false
+    resources:
+      requests: {cpu: 100m, memory: 256Mi}
+      limits: {cpu: "1", memory: 1Gi}
+    containerSecurityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfile: {type: RuntimeDefault}
+      capabilities: {drop: [ALL]}
+    automountServiceAccountToken: true
+    serviceAccount:
+      create: true
+      name: argocd-repo-server
+      annotations: {}
+      labels: {}
+      automountServiceAccountToken: true
+    metrics:
+      enabled: true
+      serviceMonitor: {enabled: false}
+    networkPolicy: {create: false}
+  applicationSet:
+    enabled: true
+    replicas: 1
+    image: {repository: "", tag: "", imagePullPolicy: ""}
+    imagePullSecrets: []
+    extraArgs: []
+    extraEnv: []
+    extraEnvFrom: []
+    extraContainers: []
+    initContainers: []
+    extraVolumeMounts: []
+    extraVolumes: []
+    podAnnotations: {}
+    podLabels: {}
+    resources:
+      requests: {cpu: 50m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 512Mi}
+    containerSecurityContext:
+      runAsNonRoot: true
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      seccompProfile: {type: RuntimeDefault}
+      capabilities: {drop: [ALL]}
+    automountServiceAccountToken: true
+    serviceAccount:
+      create: true
+      name: argocd-applicationset-controller
+      annotations: {}
+      labels: {}
+      automountServiceAccountToken: true
+    metrics:
+      enabled: true
+      serviceMonitor: {enabled: false}
+    ingress: {enabled: false}
+    httproute: {enabled: false}
+    networkPolicy: {create: false}
+  notifications:
+    enabled: false
+  commitServer:
+    enabled: false

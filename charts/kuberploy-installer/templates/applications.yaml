@@ -1,0 +1,123 @@
+{{- include "kuberploy-installer.validate" . -}}
+{{- $root := . -}}
+{{- $catalog := list
+  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20")
+  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0")
+  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0")
+  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5")
+  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10")
+  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0")
+  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0")
+  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10")
+  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10")
+  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10")
+-}}
+{{- range $item := $catalog -}}
+{{- $component := get $root.Values.components $item.key -}}
+{{- if $component.enabled -}}
+{{- $existing := lookup "argoproj.io/v1alpha1" "Application" "argocd" $item.application -}}
+{{- if $existing -}}
+  {{- $existingMode := dig "metadata" "annotations" "kuberploy.io/installation-mode" "" $existing -}}
+  {{- if and (ne $existingMode "") (ne $existingMode $component.mode) -}}
+    {{- fail (printf "%s installation mode is immutable; decommission or migrate the existing Application explicitly" $item.application) -}}
+  {{- end -}}
+{{- end -}}
+{{- $childValues := include "kuberploy-installer.modeFence" (list $item.key $component.mode) | fromYaml -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.components.valkey.enabled (eq $root.Values.components.valkey.mode "managed") -}}
+  {{- $managedValkey := dict "config" (dict "valkey" (dict
+    "mode" "managed"
+    "secretRef" (dict
+      "name" "kuberploy-valkey"
+      "addressesKey" "addresses"
+      "usernameKey" "username"
+      "passwordKey" "password"
+      "apiCacheUsernameKey" "api-cache-username"
+      "apiCachePasswordKey" "api-cache-password"
+      "apiLimiterUsernameKey" "api-limiter-username"
+      "apiLimiterPasswordKey" "api-limiter-password"
+      "publisherUsernameKey" "outbox-publisher-username"
+      "publisherPasswordKey" "outbox-publisher-password"
+      "consumerUsernameKey" "worker-consumer-username"
+      "consumerPasswordKey" "worker-consumer-password"
+    ))) -}}
+  {{- $childValues = mergeOverwrite $childValues $managedValkey -}}
+{{- end -}}
+{{- if eq $item.key "controlPlane" -}}
+  {{- $token := $root.Values.bootstrap.controlPlaneToken -}}
+  {{- $bootstrapValues := dict "config" (dict "bootstrapSecret" (dict "generate" (eq $token.mode "generated"))) -}}
+  {{- if eq $token.mode "generated" -}}
+    {{- $_ := set $bootstrapValues "networkPolicy" (dict "kubeAPIServerCIDRs" $token.kubeAPIServerCIDRs) -}}
+  {{- end -}}
+  {{- $childValues = mergeOverwrite $childValues $bootstrapValues -}}
+{{- end -}}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ $item.application }}
+  namespace: argocd
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "kuberploy-installer.labels" $root | nindent 4 }}
+spec:
+  sourceRepos:
+    - {{ $root.Values.source.repoURL | quote }}
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: {{ $item.namespace }}
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  orphanedResources:
+    warn: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ $item.application }}
+  namespace: argocd
+  annotations:
+    helm.sh/resource-policy: keep
+    argocd.argoproj.io/sync-wave: {{ $item.wave | quote }}
+    kuberploy.io/installation-mode: {{ $component.mode | quote }}
+    kuberploy.io/expected-package-digest: {{ $component.expectedPackageDigest | quote }}
+    kuberploy.io/readiness-contract: application-health-is-not-runtime-readiness
+  labels:
+    {{- include "kuberploy-installer.labels" $root | nindent 4 }}
+    kuberploy.io/component: {{ $item.key | quote }}
+spec:
+  project: {{ $item.application }}
+  source:
+    repoURL: {{ $root.Values.source.repoURL | quote }}
+    targetRevision: {{ $root.Values.source.targetRevision | quote }}
+    path: {{ printf "%s/%s" $root.Values.source.chartRoot $item.chart | quote }}
+    helm:
+      releaseName: {{ $item.release | quote }}
+      ignoreMissingValueFiles: false
+      {{- with $component.valueFiles }}
+      valueFiles:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      valuesObject:
+        {{- toYaml $childValues | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $item.namespace }}
+  syncPolicy:
+    {{- if $root.Values.applications.automated }}
+    automated:
+      allowEmpty: false
+      prune: {{ $root.Values.applications.prune }}
+      selfHeal: {{ $root.Values.applications.selfHeal }}
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - ServerSideApply=true
+---
+{{- end -}}
+{{- end -}}

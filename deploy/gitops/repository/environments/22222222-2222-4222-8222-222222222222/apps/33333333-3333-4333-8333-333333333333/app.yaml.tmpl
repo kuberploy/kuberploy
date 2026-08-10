@@ -1,0 +1,50 @@
+apiVersion: config.kuberploy.io/v1alpha1
+kind: AppConfig
+metadata:
+  id: 33333333-3333-4333-8333-333333333333
+  name: hello
+spec:
+  projectId: 11111111-1111-4111-8111-111111111111
+  applicationId: 33333333-3333-4333-8333-333333333333
+  environmentId: 22222222-2222-4222-8222-222222222222
+  delivery:
+    mode: image
+    release:
+      repository: registry.k8s.io/e2e-test-images/agnhost
+      digest: sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
+  runtime:
+    replicas: 1
+    configRevision: local-bootstrap-v1
+    args: [netexec, --http-port=8080]
+    env:
+      - name: GREETING
+        value: hello-from-kuberploy
+    ports:
+      - name: http
+        containerPort: 8080
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+    probes:
+      readiness:
+        httpGet:
+          path: /
+          port: http
+        periodSeconds: 5
+      liveness:
+        httpGet:
+          path: /
+          port: http
+        periodSeconds: 10
+  routes:
+    - id: route-5555555555
+      host: hello.e2e.k8s.orb.local
+      path: /
+      port: http
+      ingressClassName: @@INGRESS_CLASS@@
+      tls:
+        mode: httpOnly

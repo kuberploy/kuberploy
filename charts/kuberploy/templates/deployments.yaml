@@ -1,0 +1,757 @@
+{{- range $component, $config := .Values.components }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kuberploy.componentName" (dict "root" $ "component" $component) }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" $component) | nindent 4 }}
+  annotations:
+    kuberploy.io/migrations: startup-postgresql-advisory-lock
+    kuberploy.io/control-plane-release: {{ $.Release.Name | quote }}
+    kuberploy.io/control-plane-namespace: {{ $.Release.Namespace | quote }}
+spec:
+  replicas: {{ $config.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy.componentLabels" (dict "root" $ "component" $component) | nindent 8 }}
+      annotations:
+        kuberploy.io/config-map: {{ include "kuberploy.configName" $ | quote }}
+        kuberploy.io/control-plane-release: {{ $.Release.Name | quote }}
+    spec:
+      serviceAccountName: {{ include "kuberploy.componentName" (dict "root" $ "component" $component) }}
+      automountServiceAccountToken: {{ if eq $component "web" }}false{{ else }}true{{ end }}
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ if eq $component "web" }}101{{ else }}65532{{ end }}
+        runAsGroup: {{ if eq $component "web" }}101{{ else }}65532{{ end }}
+        fsGroup: {{ if eq $component "web" }}101{{ else }}65532{{ end }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $component }}
+          image: {{ include "kuberploy.image" (dict "root" $ "component" $component "config" $config) | quote }}
+          imagePullPolicy: {{ $config.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          env:
+            - name: KUBERPLOY_LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_LOG_LEVEL
+            {{- if or (eq $component "api") (eq $component "worker") }}
+            - name: KUBERPLOY_RUNTIME_SECRETS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_RUNTIME_SECRETS_ENABLED
+            {{- if $.Values.config.runtimeSecrets.enabled }}
+            {{- range $name := list "KUBERPLOY_RUNTIME_SECRET_NAMESPACES" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY" "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID" "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF" "KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY" "KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS" "KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS" "KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_CERTIFICATE_OBSERVATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_CERTIFICATE_OBSERVATION_ENABLED
+            {{- if $.Values.config.certificateObservation.enabled }}
+            {{- range $name := list "KUBERPLOY_CERTIFICATE_OBSERVATION_POLL_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_WORK_LEASE_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_HEARTBEAT_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_IDLE_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_MAXIMUM_BACKOFF_SECONDS" "KUBERPLOY_CERTIFICATE_OBSERVATION_MAXIMUM_AGE_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED
+            {{- if $.Values.config.certificateIssuerObserver.enabled }}
+            {{- range $name := list "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_CLUSTER_ID" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_REQUEST_TIMEOUT_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_MAXIMUM_AGE_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_READINESS_LEASE_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_RUNTIME_REGISTRY_PULLS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_RUNTIME_REGISTRY_PULLS_ENABLED
+            {{- if $.Values.config.runtimeRegistryPulls.enabled }}
+            {{- range $name := list "KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACES" "KUBERPLOY_RUNTIME_REGISTRY_PULL_PROFILES" "KUBERPLOY_RUNTIME_REGISTRY_PULL_POLL_SECONDS" "KUBERPLOY_RUNTIME_REGISTRY_PULL_WORK_LEASE_SECONDS" "KUBERPLOY_RUNTIME_REGISTRY_PULL_HEARTBEAT_SECONDS" "KUBERPLOY_RUNTIME_REGISTRY_PULL_READINESS_SECONDS" "KUBERPLOY_RUNTIME_REGISTRY_PULL_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_RUNTIME_REGISTRY_PULL_MAXIMUM_BACKOFF_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            {{- if eq $component "api" }}
+            - name: KUBERPLOY_IMAGE_TAG_RESOLUTION_PLATFORM
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_IMAGE_TAG_RESOLUTION_PLATFORM
+            {{- if $.Values.config.imageTagResolution.anonymousTargetIds }}
+            - name: KUBERPLOY_IMAGE_TAG_RESOLUTION_ANONYMOUS_TARGET_IDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_IMAGE_TAG_RESOLUTION_ANONYMOUS_TARGET_IDS
+            {{- end }}
+            {{- if $.Values.config.imageTagResolution.tokenAuthorities }}
+            - name: KUBERPLOY_IMAGE_TAG_RESOLUTION_TOKEN_AUTHORITIES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_IMAGE_TAG_RESOLUTION_TOKEN_AUTHORITIES
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_EDGE_RUNTIME_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_EDGE_RUNTIME_ENABLED
+            {{- if $.Values.config.edgeRuntime.enabled }}
+            {{- range $name := list "KUBERPLOY_EDGE_RUNTIME_PROFILES_JSON" "KUBERPLOY_EDGE_RUNTIME_POLL_SECONDS" "KUBERPLOY_EDGE_RUNTIME_WORK_LEASE_SECONDS" "KUBERPLOY_EDGE_RUNTIME_HEARTBEAT_SECONDS" "KUBERPLOY_EDGE_RUNTIME_READINESS_SECONDS" "KUBERPLOY_EDGE_RUNTIME_MINIMUM_BACKOFF_SECONDS" "KUBERPLOY_EDGE_RUNTIME_MAXIMUM_BACKOFF_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED
+            {{- if $.Values.config.externalDNSOperational.enabled }}
+            {{- range $name := list "KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID" "KUBERPLOY_EXTERNAL_DNS_CLUSTER_ID" "KUBERPLOY_EXTERNAL_DNS_NAMESPACE" "KUBERPLOY_EXTERNAL_DNS_VERSION" "KUBERPLOY_EXTERNAL_DNS_IMAGE" "KUBERPLOY_EXTERNAL_DNS_SERVICE_ACCOUNT" "KUBERPLOY_EXTERNAL_DNS_POLL_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_ARGO_DESIRED_STATE_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_ARGO_DESIRED_STATE_ENABLED
+            {{- if and (eq $component "api") $.Values.config.platformGitBinding.enabled }}
+            - name: KUBERPLOY_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_CLUSTER_ID
+            {{- else if and (eq $component "worker") (or $.Values.config.environmentFoundation.enabled $.Values.config.argoDesiredState.enabled) }}
+            - name: KUBERPLOY_CLUSTER_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_CLUSTER_ID
+            {{- end }}
+            - name: KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED
+            {{- if $.Values.config.environmentFoundation.enabled }}
+            {{- range $name := list "KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID" "KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION" "KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            {{- if $.Values.config.argoDesiredState.enabled }}
+            - name: KUBERPLOY_ARGO_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_ARGO_NAMESPACE
+            {{- range $name := list "KUBERPLOY_ARGO_PLATFORM_BINDING_ID" "KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY" "KUBERPLOY_ARGO_RUNTIME_CHART_VERSION" "KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST" "KUBERPLOY_ARGO_RENDERER_IMAGE" "KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS" "KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_HELM_APPLICATIONS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_HELM_APPLICATIONS_ENABLED
+            {{- if $.Values.config.helmApplications.enabled }}
+            {{- range $name := list "KUBERPLOY_HELM_RENDERER_NAMESPACE" "KUBERPLOY_HELM_RENDERER_SERVICE_ACCOUNT" "KUBERPLOY_HELM_RENDERER_POLL_MILLISECONDS" "KUBERPLOY_HELM_WORK_POLL_MILLISECONDS" "KUBERPLOY_HELM_RENDER_LEASE_SECONDS" "KUBERPLOY_HELM_PUBLISH_LEASE_SECONDS" "KUBERPLOY_HELM_READINESS_LEASE_SECONDS" "KUBERPLOY_HELM_OCI_REQUEST_SECONDS" "KUBERPLOY_HELM_OCI_REGISTRY_HOSTS" "KUBERPLOY_HELM_PACKAGE_CACHE_BYTES" "KUBERPLOY_HELM_ARGO_NAMESPACE" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- if $.Values.config.helmApplications.ociAuthHosts }}
+            - name: KUBERPLOY_HELM_OCI_AUTH_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_HELM_OCI_AUTH_HOSTS
+            {{- end }}
+            {{- if $.Values.config.helmApplications.ociCredentialProfiles }}
+            - name: KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if eq $component "api" }}
+            - name: KUBERPLOY_LISTEN_ADDR
+              value: ":{{ $config.port }}"
+            - name: KUBERPLOY_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_PUBLIC_URL
+            - name: KUBERPLOY_MONITORING_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_MONITORING_MODE
+            - name: KUBERPLOY_PROMETHEUS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_PROMETHEUS_URL
+            - name: KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED
+            - name: KUBERPLOY_RUNTIME_VIEW_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_RUNTIME_VIEW_ENABLED
+            - name: KUBERPLOY_GITHUB_BUILDS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_BUILDS_ENABLED
+            - name: KUBERPLOY_BUILD_LOGS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_BUILD_LOGS_ENABLED
+            - name: KUBERPLOY_GITHUB_APP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_APP_ID
+            - name: KUBERPLOY_GITHUB_APP_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_APP_CLIENT_ID
+            {{- range $name := list "KUBERPLOY_GIT_PROJECTION_ENABLED" "KUBERPLOY_GIT_PROJECTION_AUTH_MODE" "KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES" "KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS" "KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED" "KUBERPLOY_GIT_PROJECTION_CHART_DIGEST" "KUBERPLOY_GIT_PROJECTION_POLICY_VERSION" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            - name: KUBERPLOY_GITHUB_APP_SLUG
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_APP_SLUG
+            - name: KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED
+            {{- if $.Values.config.managedRegistry.enabled }}
+            {{- range $name := list "KUBERPLOY_MANAGED_REGISTRY_TARGET_ID" "KUBERPLOY_MANAGED_REGISTRY_ENDPOINT" "KUBERPLOY_MANAGED_REGISTRY_REPOSITORY_PREFIX" "KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF" "KUBERPLOY_MANAGED_REGISTRY_ALLOW_PLAIN_HTTP" "KUBERPLOY_MANAGED_REGISTRY_NAMESPACE" "KUBERPLOY_MANAGED_REGISTRY_DEPLOYMENT" "KUBERPLOY_MANAGED_REGISTRY_PVC" "KUBERPLOY_MANAGED_REGISTRY_CONFIG_MAP" "KUBERPLOY_MANAGED_REGISTRY_HELPER_SERVICE_ACCOUNT" "KUBERPLOY_MANAGED_REGISTRY_HELPER_IMAGE" "KUBERPLOY_MANAGED_REGISTRY_OBSERVATION_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            {{- range $name := list "KUBERPLOY_BUILDER_NAMESPACE" "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            - name: KUBERPLOY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.postgresql.secretRef.name }}
+                  key: {{ $.Values.config.postgresql.secretRef.urlKey }}
+            - name: KUBERPLOY_VALKEY_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.addressesKey }}
+            {{- if eq $.Values.config.valkey.mode "managed" }}
+            - name: KUBERPLOY_VALKEY_CACHE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.apiCacheUsernameKey }}
+            - name: KUBERPLOY_VALKEY_CACHE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.apiCachePasswordKey }}
+            - name: KUBERPLOY_VALKEY_LIMITER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.apiLimiterUsernameKey }}
+            - name: KUBERPLOY_VALKEY_LIMITER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.apiLimiterPasswordKey }}
+            {{- else }}
+            - name: KUBERPLOY_VALKEY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.usernameKey }}
+                  optional: true
+            - name: KUBERPLOY_VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.passwordKey }}
+                  optional: true
+            {{- end }}
+            {{- with $.Values.config.bootstrapSecret.name }}
+            - name: KUBERPLOY_BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.config.bootstrapSecret.tokenKey }}
+                  optional: true
+            {{- end }}
+            {{- else if eq $component "worker" }}
+            - name: KUBERPLOY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.postgresql.secretRef.name }}
+                  key: {{ $.Values.config.postgresql.secretRef.urlKey }}
+            - name: KUBERPLOY_VALKEY_ADDRESSES
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.addressesKey }}
+            {{- if eq $.Values.config.valkey.mode "managed" }}
+            - name: KUBERPLOY_VALKEY_PUBLISHER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.publisherUsernameKey }}
+            - name: KUBERPLOY_VALKEY_PUBLISHER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.publisherPasswordKey }}
+            - name: KUBERPLOY_VALKEY_CONSUMER_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.consumerUsernameKey }}
+            - name: KUBERPLOY_VALKEY_CONSUMER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.consumerPasswordKey }}
+            {{- else }}
+            - name: KUBERPLOY_VALKEY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.usernameKey }}
+                  optional: true
+            - name: KUBERPLOY_VALKEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.valkey.secretRef.name }}
+                  key: {{ $.Values.config.valkey.secretRef.passwordKey }}
+                  optional: true
+            {{- end }}
+            - name: KUBERPLOY_GIT_REMOTE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_REMOTE
+            - name: KUBERPLOY_GIT_BRANCH
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_BRANCH
+            - name: KUBERPLOY_GIT_AUTH_MODE
+              value: {{ if $.Values.config.git.credentialsSecret.name }}secret{{ else }}none{{ end }}
+            - name: KUBERPLOY_GIT_WORKTREE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_WORKTREE
+            - name: KUBERPLOY_INGRESS_CLASS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_INGRESS_CLASS
+            - name: KUBERPLOY_GITHUB_BUILDS_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_BUILDS_ENABLED
+            - name: KUBERPLOY_GITHUB_APP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_APP_ID
+            - name: KUBERPLOY_GITHUB_APP_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GITHUB_APP_CLIENT_ID
+            - name: KUBERPLOY_GIT_PROJECTION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_ENABLED
+            - name: KUBERPLOY_GIT_PROJECTION_AUTH_MODE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_AUTH_MODE
+            - name: KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES
+            - name: KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS
+            - name: KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED
+            - name: KUBERPLOY_GIT_PROJECTION_CHART_DIGEST
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_CHART_DIGEST
+            - name: KUBERPLOY_GIT_PROJECTION_POLICY_VERSION
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_GIT_PROJECTION_POLICY_VERSION
+            {{- range $name := list "KUBERPLOY_ARGO_OBSERVATION_ENABLED" "KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- if not $.Values.config.argoDesiredState.enabled }}
+            - name: KUBERPLOY_ARGO_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_ARGO_NAMESPACE
+            {{- end }}
+            - name: KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED
+            {{- if $.Values.config.managedRegistry.enabled }}
+            {{- range $name := list "KUBERPLOY_MANAGED_REGISTRY_TARGET_ID" "KUBERPLOY_MANAGED_REGISTRY_ENDPOINT" "KUBERPLOY_MANAGED_REGISTRY_REPOSITORY_PREFIX" "KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF" "KUBERPLOY_MANAGED_REGISTRY_ALLOW_PLAIN_HTTP" "KUBERPLOY_MANAGED_REGISTRY_NAMESPACE" "KUBERPLOY_MANAGED_REGISTRY_DEPLOYMENT" "KUBERPLOY_MANAGED_REGISTRY_PVC" "KUBERPLOY_MANAGED_REGISTRY_CONFIG_MAP" "KUBERPLOY_MANAGED_REGISTRY_HELPER_SERVICE_ACCOUNT" "KUBERPLOY_MANAGED_REGISTRY_HELPER_IMAGE" "KUBERPLOY_MANAGED_REGISTRY_OBSERVATION_SECONDS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- end }}
+            - name: KUBERPLOY_BUILDER_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_BUILDER_NAMESPACE
+            {{- range $name := list "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: {{ $name }}
+            {{- end }}
+            - name: KUBERPLOY_UPGRADER_EXECUTABLE
+              value: {{ $.Values.upgrade.runnerExecutable | quote }}
+            - name: KUBERPLOY_UPGRADER_IMAGE
+              value: {{ include "kuberploy.image" (dict "root" $ "component" "upgrader" "config" $.Values.upgrade) | quote }}
+            - name: KUBERPLOY_UPGRADER_SERVICE_ACCOUNT
+              value: {{ printf "%s-upgrade" (include "kuberploy.fullname" $) | quote }}
+            - name: KUBERPLOY_UPGRADER_RELEASE_NAME
+              value: {{ $.Release.Name | quote }}
+            - name: KUBERPLOY_UPGRADER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KUBERPLOY_UPGRADER_ACTIVE_DEADLINE_SECONDS
+              value: {{ $.Values.upgrade.job.activeDeadlineSeconds | quote }}
+            {{- else }}
+            - name: KUBERPLOY_API_UPSTREAM
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_API_UPSTREAM
+            {{- end }}
+          {{- if or (eq $component "api") (eq $component "web") }}
+          ports:
+            - name: http
+              containerPort: {{ $config.port }}
+          readinessProbe:
+            httpGet:
+              path: {{ if eq $component "api" }}/readyz{{ else }}/healthz{{ end }}
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          {{- end }}
+          resources:
+            {{- toYaml $config.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if and (eq $component "api") $.Values.config.monitoring.bearerTokenSecret.name }}
+            - name: monitoring-token
+              mountPath: /var/run/secrets/kuberploy/monitoring
+              readOnly: true
+            {{- end }}
+            {{- if and (eq $component "api") $.Values.config.githubApp.enabled }}
+            - name: github-app-api-runtime
+              mountPath: /var/run/secrets/kuberploy/github-app
+              readOnly: true
+            {{- end }}
+            {{- if and (eq $component "api") $.Values.config.runtimeSecrets.enabled }}
+            - name: runtime-secret-fingerprint
+              mountPath: /var/run/secrets/kuberploy-system
+              readOnly: true
+            {{- end }}
+            {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeSecrets.enabled }}
+            - name: runtime-secret-sealing-certificate
+              mountPath: /var/run/secrets/kuberploy-system/sealed-secrets
+              readOnly: true
+            {{- end }}
+            {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.helmApplications.ociCredentialProfiles }}
+            - name: helm-oci-credentials
+              mountPath: /var/run/secrets/kuberploy/helm-oci
+              readOnly: true
+            {{- end }}
+            {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
+            - name: runtime-registry-pull-credentials
+              mountPath: /var/run/secrets/kuberploy/registry-pulls
+              readOnly: true
+            {{- end }}
+            {{- if eq $component "worker" }}
+            - name: git-worktree
+              mountPath: /var/lib/kuberploy/git
+            {{- with $.Values.config.git.credentialsSecret.name }}
+            - name: git-credentials
+              mountPath: /var/run/secrets/kuberploy/git
+              readOnly: true
+            {{- end }}
+            {{- if $.Values.config.githubApp.enabled }}
+            - name: github-app-private-key
+              mountPath: /var/run/secrets/kuberploy/github-app
+              readOnly: true
+            {{- end }}
+            {{- if $.Values.config.managedRegistry.enabled }}
+            - name: managed-registry-credentials
+              mountPath: /var/run/secrets/kuberploy/managed-registry
+              readOnly: true
+            {{- end }}
+            {{- if $.Values.config.gitProjection.enabled }}
+            - name: git-projection-cache
+              mountPath: /var/lib/kuberploy/git-projection
+            {{- end }}
+            {{- else if eq $component "web" }}
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and (eq $component "api") $.Values.config.monitoring.bearerTokenSecret.name }}
+        - name: monitoring-token
+          secret:
+            secretName: {{ $.Values.config.monitoring.bearerTokenSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.monitoring.bearerTokenSecret.key }}
+                path: token
+        {{- end }}
+        {{- if and (eq $component "api") $.Values.config.githubApp.enabled }}
+        - name: github-app-api-runtime
+          secret:
+            secretName: {{ $.Values.config.githubApp.secretRef.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.githubApp.secretRef.privateKeyKey }}
+                path: runtime/private-key.pem
+              - key: {{ $.Values.config.githubApp.secretRef.webhookSecretKey }}
+                path: runtime/webhook-secret
+              - key: {{ $.Values.config.githubApp.secretRef.stateSigningSecretKey }}
+                path: runtime/state-signing-secret
+              - key: {{ $.Values.config.githubApp.secretRef.oauthClientSecretKey }}
+                path: runtime/oauth-client-secret
+        {{- end }}
+        {{- if and (eq $component "api") $.Values.config.runtimeSecrets.enabled }}
+        - name: runtime-secret-fingerprint
+          secret:
+            secretName: {{ $.Values.config.runtimeSecrets.fingerprintSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.runtimeSecrets.fingerprintSecret.key }}
+                path: runtime-secret-fingerprint.key
+        {{- end }}
+        {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeSecrets.enabled }}
+        - name: runtime-secret-sealing-certificate
+          secret:
+            secretName: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.key }}
+                path: tls.crt
+        {{- end }}
+        {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.helmApplications.ociCredentialProfiles }}
+        - name: helm-oci-credentials
+          projected:
+            defaultMode: 0440
+            sources:
+              {{- range $profile := $.Values.config.helmApplications.ociCredentialProfiles }}
+              - secret:
+                  name: {{ $profile.secretRef.name }}
+                  items:
+                    {{- if eq $profile.mode "basic" }}
+                    - key: {{ $profile.secretRef.usernameKey }}
+                      path: {{ printf "%s/username" $profile.name | quote }}
+                    - key: {{ $profile.secretRef.passwordKey }}
+                      path: {{ printf "%s/password" $profile.name | quote }}
+                    {{- else }}
+                    - key: {{ $profile.secretRef.tokenKey }}
+                      path: {{ printf "%s/token" $profile.name | quote }}
+                    {{- end }}
+              {{- end }}
+        {{- end }}
+        {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
+        - name: runtime-registry-pull-credentials
+          projected:
+            defaultMode: 0440
+            sources:
+              {{- range $profile := $.Values.config.runtimeRegistryPulls.profiles }}
+              - secret:
+                  name: {{ $profile.sourceSecretRef }}
+                  items:
+                    - key: {{ $profile.sourceSecretKey }}
+                      path: {{ printf "%s/dockerconfigjson" $profile.name | quote }}
+              {{- end }}
+        {{- end }}
+        {{- if eq $component "worker" }}
+        - name: git-worktree
+          emptyDir: {}
+        {{- with $.Values.config.git.credentialsSecret.name }}
+        - name: git-credentials
+          secret:
+            secretName: {{ . }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.git.credentialsSecret.usernameKey }}
+                path: username
+              - key: {{ $.Values.config.git.credentialsSecret.passwordKey }}
+                path: password
+        {{- end }}
+        {{- if $.Values.config.githubApp.enabled }}
+        - name: github-app-private-key
+          secret:
+            secretName: {{ $.Values.config.githubApp.secretRef.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.githubApp.secretRef.privateKeyKey }}
+                path: runtime/private-key.pem
+        {{- end }}
+        {{- if $.Values.config.managedRegistry.enabled }}
+        - name: managed-registry-credentials
+          secret:
+            secretName: {{ $.Values.config.managedRegistry.credentialSecret.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $.Values.config.managedRegistry.credentialSecret.usernameKey }}
+                path: username
+              - key: {{ $.Values.config.managedRegistry.credentialSecret.passwordKey }}
+                path: password
+        {{- end }}
+        {{- if $.Values.config.gitProjection.enabled }}
+        - name: git-projection-cache
+          emptyDir:
+            sizeLimit: {{ $.Values.config.gitProjection.cacheMaxBytes | int64 | quote }}
+        {{- end }}
+        {{- else if eq $component "web" }}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
+        - name: nginx-conf
+          emptyDir: {}
+        {{- end }}
+{{- end }}

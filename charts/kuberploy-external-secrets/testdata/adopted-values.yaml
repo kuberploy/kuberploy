@@ -1,0 +1,5 @@
+secretFoundation:
+  operator:
+    managed: false
+    adoptExisting: true
+    capabilitiesConfirmed: true

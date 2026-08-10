@@ -1,0 +1,67 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.fleet/
+*.swp
+*.swo
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+.secrets/
+.direnv/
+.mise.local.toml
+
+# Go
+bin/
+coverage/
+coverage.out
+*.coverprofile
+*.test
+*.prof
+
+# Python
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Web
+node_modules/
+web/node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+.pnpm-store/
+.eslintcache
+.turbo/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Helm and Kubernetes test output
+charts/**/charts/
+charts/**/*.tgz
+.helm-cache/
+.e2e/
+artifacts/
+release-dist/
+output/
+
+# Local runtime data
+.local/
+tmp/
+*.log

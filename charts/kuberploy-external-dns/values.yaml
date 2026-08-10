@@ -1,0 +1,90 @@
+foundation:
+  enabled: false
+  externalDNS:
+    managed: false
+    adoptExisting: false
+    filtersConfirmed: false
+    identity:
+      providerKind: ""
+      credentialSecretRef: ""
+      providerConfigRef: ""
+      egressConfigRef: ""
+  allowDestructiveSync: false
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: []
+    providerEgressCIDRs: []
+    providerEgressPorts: [443]
+
+externaldns:
+  image:
+    repository: registry.k8s.io/external-dns/external-dns
+    tag: v0.21.0
+    pullPolicy: IfNotPresent
+  nameOverride: kuberploy-external-dns
+  fullnameOverride: ""
+  namespaceOverride: ""
+  commonLabels: {}
+  serviceAccount:
+    create: true
+    annotations: {}
+    name: ""
+    automountServiceAccountToken: true
+  rbac:
+    create: true
+    additionalPermissions: []
+  automountServiceAccountToken: true
+  deploymentStrategy:
+    type: Recreate
+  deploymentAnnotations: {}
+  podLabels: {}
+  podAnnotations: {}
+  shareProcessNamespace: false
+  podSecurityContext:
+    runAsNonRoot: true
+    fsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    privileged: false
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    capabilities:
+      drop: [ALL]
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  logLevel: info
+  logFormat: json
+  interval: 1m
+  triggerLoopOnEvent: true
+  namespaced: false
+  sources: [ingress]
+  policy: upsert-only
+  registry: txt
+  txtOwnerId: ""
+  domainFilters: []
+  excludeDomains: []
+  labelFilter: ""
+  annotationFilter: external-dns.alpha.kubernetes.io/hostname
+  annotationPrefix:
+  provider:
+    name: aws
+  env: []
+  extraArgs: {}
+  extraContainers: []
+  initContainers: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  secretConfiguration:
+    enabled: false
+    data: {}
+  serviceMonitor:
+    enabled: false

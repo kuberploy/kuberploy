@@ -1,0 +1,8 @@
+valkeyFoundation:
+  managed: true
+  adoptExisting: false
+valkey:
+  auth:
+    usersExistingSecret: kuberploy-valkey-auth
+  dataStorage:
+    requestedSize: 2Gi

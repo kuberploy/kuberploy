@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: kp-e2e-@@RUN_ID@@
+  namespace: @@RUN_NAMESPACE@@
+  labels:
+    kuberploy.io/test-run: @@RUN_ID@@
+spec:
+  description: Run-scoped Kuberploy OrbStack project
+  sourceRepos:
+    - @@GIT_URL@@
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: @@RUN_NAMESPACE@@
+  clusterResourceBlacklist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: ConfigMap
+    - group: ''
+      kind: Service
+    - group: ''
+      kind: ServiceAccount
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: traefik.io
+      kind: Middleware
+    - group: argoproj.io
+      kind: ApplicationSet
+  orphanedResources:
+    warn: true

@@ -1,0 +1,12 @@
+monitoring:
+  managed: true
+  namespace:
+    create: true
+  networkPolicy:
+    enabled: true
+    queryClient:
+      namespaceLabel:
+        kuberploy.io/control-plane-namespace: "true"
+      podLabels:
+        app.kubernetes.io/name: kuberploy
+        app.kubernetes.io/component: api

@@ -1,0 +1,27 @@
+foundation:
+  enabled: true
+  certManager:
+    managed: false
+    adoptExisting: true
+    crdsConfirmed: true
+  issuers:
+    production:
+      enabled: true
+      email: platform@example.test
+      dns01Profiles:
+        - name: cloudflare-secondary
+          provider: cloudflare
+          dnsZones:
+            - secondary.example.test
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-secondary-dns01
+              key: api-token
+        - name: cloudflare-primary
+          provider: cloudflare
+          dnsZones:
+            - example.test
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-primary-dns01
+              key: api-token

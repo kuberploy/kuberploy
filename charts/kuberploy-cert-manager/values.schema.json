@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["foundation", "certmanager"],
+  "properties": {
+    "global": {"type": "object"},
+    "foundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "namespace", "certManager", "issuers", "networkPolicy"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create"],
+          "properties": {"create": {"type": "boolean"}}
+        },
+        "certManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["managed", "adoptExisting", "crdsConfirmed"],
+          "properties": {
+            "managed": {"type": "boolean"},
+            "adoptExisting": {"type": "boolean"},
+            "crdsConfirmed": {"type": "boolean"}
+          }
+        },
+        "issuers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ingressClassName", "production", "staging"],
+          "properties": {
+            "ingressClassName": {"$ref": "#/$defs/dnsLabel"},
+            "production": {
+              "$ref": "#/$defs/issuer",
+              "properties": {"server": {"const": "https://acme-v02.api.letsencrypt.org/directory"}}
+            },
+            "staging": {
+              "$ref": "#/$defs/issuer",
+              "properties": {"server": {"const": "https://acme-staging-v02.api.letsencrypt.org/directory"}}
+            }
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "kubeAPIServerCIDRs"],
+          "properties": {
+            "enabled": {"const": true},
+            "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrList"}
+          }
+        }
+      }
+    },
+    "certmanager": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "emailOrEmpty": {
+      "type": "string",
+      "maxLength": 254,
+      "anyOf": [{"const": ""}, {"format": "email"}]
+    },
+    "issuer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "name", "email", "server", "privateKeySecretName", "dns01Profiles"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "name": {"$ref": "#/$defs/dnsLabel"},
+        "email": {"$ref": "#/$defs/emailOrEmpty"},
+        "server": {"type": "string", "format": "uri", "maxLength": 256},
+        "privateKeySecretName": {"$ref": "#/$defs/dnsLabel"},
+        "dns01Profiles": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/cloudflareDNS01Profile"}
+        }
+      }
+    },
+    "dnsName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\\.)*[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "secretKeyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "key"],
+      "properties": {
+        "name": {"$ref": "#/$defs/dnsLabel"},
+        "key": {"$ref": "#/$defs/dnsLabel"}
+      }
+    },
+    "cloudflareDNS01Profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "provider", "dnsZones", "cloudflare"],
+      "properties": {
+        "name": {"$ref": "#/$defs/dnsLabel"},
+        "provider": {"const": "cloudflare"},
+        "dnsZones": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/dnsName"}
+        },
+        "cloudflare": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["apiTokenSecretRef"],
+          "properties": {"apiTokenSecretRef": {"$ref": "#/$defs/secretKeyRef"}}
+        }
+      }
+    },
+    "cidrList": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"}
+    }
+  }
+}

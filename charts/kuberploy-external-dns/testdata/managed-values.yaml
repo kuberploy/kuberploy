@@ -1,0 +1,28 @@
+foundation:
+  enabled: true
+  externalDNS:
+    managed: true
+    adoptExisting: false
+    identity:
+      providerKind: cloudflare
+      credentialSecretRef: external-dns-cloudflare-primary
+      providerConfigRef: cloudflare-provider
+      egressConfigRef: cloudflare-egress
+  networkPolicy:
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32
+    providerEgressCIDRs:
+      - 192.0.2.10/32
+externaldns:
+  txtOwnerId: kuberploy-cloudflare-primary-fixture
+  domainFilters: [example.test]
+  labelFilter: kuberploy.io/dns-integration=cloudflare-primary
+  provider:
+    name: cloudflare
+  env:
+    - name: CF_API_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: external-dns-cloudflare-primary
+          key: apiToken
+          optional: false

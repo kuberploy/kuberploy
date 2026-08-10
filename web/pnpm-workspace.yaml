@@ -1,0 +1,8 @@
+allowBuilds:
+  "@scarf/scarf": false
+# The reviewed dependency baseline intentionally selects these just-published exact
+# stable versions; pnpm's supply-chain age gate otherwise rejects the frozen lock.
+minimumReleaseAgeExclude:
+  - "@tanstack/react-router@1.170.20"
+  - "@tanstack/router-core@1.171.17"
+  - lucide-react@1.31.0

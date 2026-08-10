@@ -1,0 +1,37 @@
+image:
+  registry: docker.io
+  repository: library/traefik
+  tag: v3.7.10
+  digest: sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac
+  pullPolicy: IfNotPresent
+versionOverride: v3.7.10
+deployment:
+  replicas: 1
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+providers:
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: false
+    allowExternalNameServices: false
+  kubernetesIngress:
+    enabled: true
+    allowExternalNameServices: false
+rbac:
+  # IngressClass is cluster-scoped. The provider remains constrained to the
+  # exact test namespace by install-traefik.sh, while cluster RBAC lets this
+  # realistic test exercise spec.ingressClassName instead of a legacy-only
+  # annotation path.
+  namespaced: false
+service:
+  spec:
+    type: LoadBalancer
+api:
+  dashboard: false
+  insecure: false
+log:
+  format: json
+accessLog:
+  enabled: true
+  format: json

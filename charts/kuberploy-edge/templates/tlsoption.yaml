@@ -1,0 +1,12 @@
+{{- if .Values.edge.traefik.managed }}
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: default
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-edge.labels" . | nindent 4 }}
+spec:
+  minVersion: VersionTLS12
+  sniStrict: true
+{{- end }}

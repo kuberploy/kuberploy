@@ -1,0 +1,15 @@
+foundation:
+  enabled: true
+  certManager:
+    managed: true
+    adoptExisting: false
+  issuers:
+    production:
+      enabled: true
+      email: platform@example.test
+    staging:
+      enabled: true
+      email: platform@example.test
+  networkPolicy:
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32

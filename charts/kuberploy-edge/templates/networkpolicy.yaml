@@ -1,0 +1,50 @@
+{{- if and .Values.edge.networkPolicy.enabled .Values.edge.traefik.managed }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-traefik
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-edge.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        {{- range .Values.edge.networkPolicy.publicIngressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {port: 8000, protocol: TCP}
+        - {port: 8443, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kuberploy.io/monitoring-namespace: "true"
+      ports:
+        - {port: 9100, protocol: TCP}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kuberploy.io/runtime-namespace: "true"
+          podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        {{- range .Values.edge.networkPolicy.kubeAPIServerCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+{{- end }}

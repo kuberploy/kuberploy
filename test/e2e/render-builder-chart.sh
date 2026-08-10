@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+kp_chart="${kp_root}/charts/kuberploy-builder"
+kp_values="${kp_chart}/testdata/enabled-values.yaml"
+kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-builder-render.XXXXXX")"
+
+kp_cleanup() {
+  if [[ -n "${kp_tmp:-}" && "${kp_tmp}" == *"/kuberploy-builder-render."* ]]; then
+    rm -rf -- "${kp_tmp}"
+  fi
+}
+trap kp_cleanup EXIT
+
+for kp_tool in helm rg yq; do
+  command -v "${kp_tool}" >/dev/null 2>&1 || {
+    printf 'missing tool: %s\n' "${kp_tool}" >&2
+    exit 1
+  }
+done
+
+helm lint "${kp_chart}"
+helm lint "${kp_chart}" -f "${kp_values}"
+
+kp_disabled="$(helm template disabled "${kp_chart}")"
+[[ -z "${kp_disabled}" ]] || {
+  printf 'disabled builder chart rendered resources\n' >&2
+  exit 1
+}
+
+kp_render="${kp_tmp}/enabled.yaml"
+helm template boundary "${kp_chart}" -f "${kp_values}" >"${kp_render}"
+yq eval-all 'true' "${kp_render}" >/dev/null
+
+[[ "$(yq eval-all 'select(.kind == "Namespace") | .metadata.labels."pod-security.kubernetes.io/enforce"' "${kp_render}")" == "privileged" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceAccount") | .automountServiceAccountToken' "${kp_render}")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].namespace' "${kp_render}")" == "kuberploy-system" ]]
+[[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].name' "${kp_render}")" == "kuberploy-controller" ]]
+[[ "$(yq eval-all '[select(.kind == "RoleBinding") | .subjects[] | select(.name == "kuberploy-build-pod")] | length' "${kp_render}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.ingress | length' "${kp_render}")" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_render}")" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy")] | length' "${kp_render}" | tail -1)" == "6" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail")] | length' "${kp_render}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "6" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.validationActions[0] != "Deny")] | length' "${kp_render}" | tail -1)" == "0" ]]
+
+for kp_required in \
+  'request.userInfo.username' \
+  'automountServiceAccountToken == false' \
+  "object.spec.parallelism == 1" \
+  "object.spec.podReplacementPolicy == 'Failed'" \
+  "object.spec.template.spec.restartPolicy == 'Never'" \
+  "c.terminationMessagePath == '/result/result.json'" \
+  "object.metadata.annotations['kuberploy.io/build-input-digest']" \
+  "v.name in ['workspace', 'docker-socket', 'docker-data', 'result']" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent@sha256:1111111111111111111111111111111111111111111111111111111111111111'" \
+  "c.name == 'checkout'" \
+  "c.name == 'dind'" \
+  "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
+  '!has(c.lifecycle)' \
+  'c.securityContext.privileged == true' \
+  "c.restartPolicy == 'Always'" \
+  "v.name == 'workspace' && v.readOnly == true" \
+  "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
+  "cidr.endsWith('/32')" \
+  "object.data['username'] == b'x-access-token'" \
+  "object.data['token'].size() <= 2048" \
+  "object.metadata.name.startsWith('source-credentials-')" \
+  "object.metadata.name == 'default-deny'" \
+  "'system:masters' in request.userInfo.groups"; do
+  rg -F "${kp_required}" "${kp_render}" >/dev/null || {
+    printf 'admission render lacks required invariant: %s\n' "${kp_required}" >&2
+    exit 1
+  }
+done
+
+kp_secret_verbs="$(yq eval-all 'select(.kind == "Role") | .rules[] | select(.resources[] == "secrets") | .verbs | sort | join(",")' "${kp_render}")"
+[[ "${kp_secret_verbs}" == "create,delete,get" ]] || {
+  printf 'builder controller Secret RBAC is not exact: %s\n' "${kp_secret_verbs}" >&2
+  exit 1
+}
+
+if yq eval-all 'select(.kind == "Secret" or .kind == "Pod" or .kind == "Job" or .kind == "DaemonSet" or .kind == "Deployment") | .kind' "${kp_render}" | grep -q .; then
+  printf 'builder boundary chart rendered credentials or a workload\n' >&2
+  exit 1
+fi
+if rg -n '/var/run/docker\.sock|NodePort|LoadBalancer|0\.0\.0\.0/0' "${kp_render}"; then
+  printf 'builder boundary render contains a forbidden host or public capability\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=false >/dev/null 2>&1; then
+  printf 'builder chart allowed admission enforcement to be disabled\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" --set enabled=true >/dev/null 2>&1; then
+  printf 'enabled builder chart accepted an empty trusted agent digest\n' >&2
+  exit 1
+fi
+# A different administrator-selected digest is valid chart configuration, but
+# the rendered Job policy must bind controllers to that exact value.
+kp_alt="${kp_tmp}/alternate-image.yaml"
+helm template alternate "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent@sha256:2222222222222222222222222222222222222222222222222222222222222222 >"${kp_alt}"
+rg -F "c.image == 'attacker.test/agent@sha256:2222222222222222222222222222222222222222222222222222222222222222'" "${kp_alt}" >/dev/null
+if helm template invalid "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent:latest >/dev/null 2>&1; then
+  printf 'builder chart accepted a floating agent image\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" --set unsupportedField=true >/dev/null 2>&1; then
+  printf 'builder values schema accepted an unknown field\n' >&2
+  exit 1
+fi
+if ! helm template parent-alias "${kp_chart}" -f "${kp_values}" \
+  --set-string networkPolicy.sourceEgressCIDRs[0]=192.0.2.30/32 \
+  --set-string networkPolicy.registryEgressCIDRs[0]=192.0.2.31/32 >/dev/null; then
+  printf 'builder chart rejected the parent alias egress contract\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" \
+  --set-string networkPolicy.sourceEgressCIDRs[0]=192.0.2.0/24 >/dev/null 2>&1; then
+  printf 'builder chart accepted a non-host source egress CIDR\n' >&2
+  exit 1
+fi
+
+printf 'Builder boundary chart lint, admission, RBAC, quota, and default-deny checks passed.\n'

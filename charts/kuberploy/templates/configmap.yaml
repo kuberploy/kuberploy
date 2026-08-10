@@ -1,0 +1,816 @@
+{{- define "kuberploy.edgeSSLIPValidatePublicIPv4" -}}
+{{- $value := . -}}
+{{- if not (kindIs "string" $value) -}}
+  {{- fail "edge Traefik sslip.staticPublicIPv4 must be one canonical public IPv4 string" -}}
+{{- end -}}
+{{- if not (regexMatch "^(0|[1-9][0-9]{0,2})[.](0|[1-9][0-9]{0,2})[.](0|[1-9][0-9]{0,2})[.](0|[1-9][0-9]{0,2})$" $value) -}}
+  {{- fail "edge Traefik sslip.staticPublicIPv4 must be one canonical public IPv4 string" -}}
+{{- end -}}
+{{- $parts := splitList "." $value -}}
+{{- $a := int (index $parts 0) -}}
+{{- $b := int (index $parts 1) -}}
+{{- $c := int (index $parts 2) -}}
+{{- $d := int (index $parts 3) -}}
+{{- if or (gt $a 255) (gt $b 255) (gt $c 255) (gt $d 255) -}}
+  {{- fail "edge Traefik sslip.staticPublicIPv4 must be one canonical public IPv4 string" -}}
+{{- end -}}
+{{- $forbidden192 := and (eq $a 192) (or (and (eq $b 0) (or (eq $c 0) (eq $c 2))) (and (eq $b 88) (eq $c 99)) (eq $b 168)) -}}
+{{- $forbidden198 := and (eq $a 198) (or (eq $b 18) (eq $b 19) (and (eq $b 51) (eq $c 100))) -}}
+{{- if or (eq $a 0) (eq $a 10) (eq $a 127) (and (eq $a 100) (ge $b 64) (le $b 127)) (and (eq $a 169) (eq $b 254)) (and (eq $a 172) (ge $b 16) (le $b 31)) $forbidden192 $forbidden198 (and (eq $a 203) (eq $b 0) (eq $c 113)) (ge $a 224) -}}
+  {{- fail "edge Traefik sslip.staticPublicIPv4 must be globally routable and outside reserved, private, documentation, and benchmark ranges" -}}
+{{- end -}}
+{{- end -}}
+
+{{- if and .Values.config.githubApp.enabled (not .Values.builder.enabled) -}}
+{{- fail "config.githubApp.enabled requires builder.enabled" -}}
+{{- end -}}
+{{- if eq .Values.config.monitoring.mode "managed" -}}
+  {{- if ne .Values.config.monitoring.prometheusURL "http://prometheus-operated.kuberploy-monitoring.svc:9090" -}}
+  {{- fail "managed monitoring requires the exact protected Prometheus Service URL" -}}
+  {{- end -}}
+  {{- if .Values.config.monitoring.bearerTokenSecret.name -}}
+  {{- fail "managed monitoring uses its namespace and NetworkPolicy boundary and rejects an unrelated bearer token" -}}
+  {{- end -}}
+  {{- if or (not .Values.networkPolicy.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) -}}
+  {{- fail "managed monitoring attestation requires NetworkPolicy and explicit Kubernetes API CIDRs" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.buildLogs.enabled -}}
+  {{- if or (not .Values.config.githubApp.enabled) (not .Values.builder.enabled) -}}
+  {{- fail "config.buildLogs.enabled requires config.githubApp.enabled and builder.enabled" -}}
+  {{- end -}}
+  {{- if not .Values.networkPolicy.enabled -}}
+  {{- fail "source-build logs require networkPolicy.enabled" -}}
+  {{- end -}}
+  {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference) -}}
+  {{- fail "source-build logs require a digest-pinned API image" -}}
+  {{- end -}}
+{{- end -}}
+{{- if and .Values.config.gitProjection.enabled (not .Values.config.githubApp.enabled) -}}
+{{- fail "config.gitProjection.enabled requires config.githubApp.enabled" -}}
+{{- end -}}
+{{- if not .Values.config.runtimeSecrets.enabled -}}
+  {{- if or (not (empty .Values.config.runtimeSecrets.namespaces)) .Values.config.runtimeSecrets.fingerprintSecret.name .Values.config.runtimeSecrets.sealingCertificateSecret.name -}}
+  {{- fail "disabled runtime secrets reject dormant namespaces and Secret references" -}}
+  {{- end -}}
+  {{- if or (ne (int64 .Values.config.runtimeSecrets.pollIntervalSeconds) 5) (ne (int64 .Values.config.runtimeSecrets.workLeaseSeconds) 45) (ne (int64 .Values.config.runtimeSecrets.heartbeatSeconds) 10) (ne (int64 .Values.config.runtimeSecrets.idleSeconds) 1) (ne (int64 .Values.config.runtimeSecrets.minimumBackoffSeconds) 2) (ne (int64 .Values.config.runtimeSecrets.maximumBackoffSeconds) 300) -}}
+  {{- fail "disabled runtime secrets reject dormant timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.runtimeSecrets.enabled -}}
+  {{- if not .Values.config.gitProjection.enabled -}}
+  {{- fail "config.runtimeSecrets.enabled requires config.gitProjection.enabled" -}}
+  {{- end -}}
+  {{- if not .Values.networkPolicy.enabled -}}
+  {{- fail "runtime secrets require networkPolicy.enabled" -}}
+  {{- end -}}
+  {{- if empty .Values.config.runtimeSecrets.namespaces -}}
+  {{- fail "runtime secrets require at least one explicit namespace" -}}
+  {{- end -}}
+  {{- if ne (join "," .Values.config.runtimeSecrets.namespaces) (join "," (sortAlpha .Values.config.runtimeSecrets.namespaces)) -}}
+  {{- fail "runtime-secret namespaces must be sorted and unique" -}}
+  {{- end -}}
+  {{- if ne (len .Values.config.runtimeSecrets.namespaces) (len (uniq .Values.config.runtimeSecrets.namespaces)) -}}
+  {{- fail "runtime-secret namespaces must be sorted and unique" -}}
+  {{- end -}}
+  {{- if or (not .Values.config.runtimeSecrets.fingerprintSecret.name) (not .Values.config.runtimeSecrets.sealingCertificateSecret.name) -}}
+  {{- fail "runtime secrets require existing HMAC and Sealed Secrets certificate Secret names" -}}
+  {{- end -}}
+  {{- if and (eq .Values.config.runtimeSecrets.fingerprintSecret.name .Values.config.runtimeSecrets.sealingCertificateSecret.name) (eq .Values.config.runtimeSecrets.fingerprintSecret.key .Values.config.runtimeSecrets.sealingCertificateSecret.key) -}}
+  {{- fail "runtime-secret HMAC and certificate projections must not select the same Secret data key" -}}
+  {{- end -}}
+  {{- if ge (mul (int64 .Values.config.runtimeSecrets.heartbeatSeconds) 2) (int64 .Values.config.runtimeSecrets.workLeaseSeconds) -}}
+  {{- fail "runtime-secret heartbeat must be less than half the work lease" -}}
+  {{- end -}}
+  {{- if lt (int64 .Values.config.runtimeSecrets.maximumBackoffSeconds) (int64 .Values.config.runtimeSecrets.minimumBackoffSeconds) -}}
+  {{- fail "runtime-secret maximum backoff must be greater than or equal to minimum backoff" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "runtime secrets require digest-pinned API and worker images" -}}
+  {{- end -}}
+{{- end -}}
+{{- if not .Values.config.certificateObservation.enabled -}}
+  {{- if or (ne (int64 .Values.config.certificateObservation.pollIntervalSeconds) 30) (ne (int64 .Values.config.certificateObservation.workLeaseSeconds) 45) (ne (int64 .Values.config.certificateObservation.heartbeatSeconds) 10) (ne (int64 .Values.config.certificateObservation.idleSeconds) 1) (ne (int64 .Values.config.certificateObservation.minimumBackoffSeconds) 2) (ne (int64 .Values.config.certificateObservation.maximumBackoffSeconds) 300) (ne (int64 .Values.config.certificateObservation.maximumAgeSeconds) 90) -}}
+  {{- fail "disabled certificate observation rejects dormant timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.certificateObservation.enabled -}}
+  {{- if or (not .Values.config.runtimeSecrets.enabled) (not .Values.config.gitProjection.enabled) -}}
+  {{- fail "certificate observation requires runtime secrets and Git projection" -}}
+  {{- end -}}
+  {{- if or (not .Values.networkPolicy.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) -}}
+  {{- fail "certificate observation requires NetworkPolicy and explicit Kubernetes API CIDRs" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "certificate observation requires digest-pinned API and worker images" -}}
+  {{- end -}}
+  {{- $certificatePoll := int64 .Values.config.certificateObservation.pollIntervalSeconds -}}
+  {{- $certificateLease := int64 .Values.config.certificateObservation.workLeaseSeconds -}}
+  {{- $certificateHeartbeat := int64 .Values.config.certificateObservation.heartbeatSeconds -}}
+  {{- $certificateIdle := int64 .Values.config.certificateObservation.idleSeconds -}}
+  {{- $certificateMinimumBackoff := int64 .Values.config.certificateObservation.minimumBackoffSeconds -}}
+  {{- $certificateMaximumBackoff := int64 .Values.config.certificateObservation.maximumBackoffSeconds -}}
+  {{- $certificateMaximumAge := int64 .Values.config.certificateObservation.maximumAgeSeconds -}}
+  {{- if or (lt $certificatePoll 5) (gt $certificatePoll 600) (lt $certificateLease 20) (gt $certificateLease 3600) (lt $certificateHeartbeat 1) (gt $certificateHeartbeat 22) (lt $certificateIdle 1) (gt $certificateIdle 60) (lt $certificateMinimumBackoff 1) (gt $certificateMaximumBackoff 3600) (lt $certificateMaximumAge 10) (gt $certificateMaximumAge 1800) -}}
+  {{- fail "certificate observation timing is outside the strict bounded contract" -}}
+  {{- end -}}
+  {{- if ge (mul $certificateHeartbeat 2) $certificateLease -}}
+  {{- fail "certificate observation heartbeat must be less than half the work lease" -}}
+  {{- end -}}
+  {{- if lt $certificateMaximumBackoff $certificateMinimumBackoff -}}
+  {{- fail "certificate observation maximum backoff must be greater than or equal to minimum backoff" -}}
+  {{- end -}}
+  {{- if lt $certificateMaximumAge (mul $certificatePoll 2) -}}
+  {{- fail "certificate observation maximum age must cover at least two poll intervals" -}}
+  {{- end -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.certificateIssuerObserver))) "clusterID,enabled,maximumAgeSeconds,platformBindingID,pollIntervalSeconds,readinessLeaseSeconds,requestTimeoutSeconds" -}}
+{{- fail "config.certificateIssuerObserver accepts only the closed production runtime contract" -}}
+{{- end -}}
+{{- if not .Values.config.certificateIssuerObserver.enabled -}}
+  {{- if or .Values.config.certificateIssuerObserver.platformBindingID .Values.config.certificateIssuerObserver.clusterID (ne (int64 .Values.config.certificateIssuerObserver.pollIntervalSeconds) 30) (ne (int64 .Values.config.certificateIssuerObserver.requestTimeoutSeconds) 10) (ne (int64 .Values.config.certificateIssuerObserver.maximumAgeSeconds) 120) (ne (int64 .Values.config.certificateIssuerObserver.readinessLeaseSeconds) 180) -}}
+  {{- fail "disabled certificate issuer observer rejects dormant identity and timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.certificateIssuerObserver.enabled -}}
+  {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled) -}}
+  {{- fail "certificate issuer observer requires Git projection, protected Argo desired state, and environment foundation" -}}
+  {{- end -}}
+  {{- if or (not .Values.config.edgeRuntime.enabled) (not .Values.config.edgeRuntime.profiles.certManager) -}}
+  {{- fail "certificate issuer observer requires the exact cert-manager edge runtime profile" -}}
+  {{- end -}}
+  {{- if or (not .Values.networkPolicy.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) -}}
+  {{- fail "certificate issuer observer requires NetworkPolicy and explicit Kubernetes API CIDRs" -}}
+  {{- end -}}
+  {{- if or (ne .Values.config.certificateIssuerObserver.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.certificateIssuerObserver.platformBindingID .Values.config.environmentFoundation.platformBindingID) -}}
+  {{- fail "certificate issuer observer platform binding must equal protected Argo and foundation" -}}
+  {{- end -}}
+  {{- if or (ne .Values.config.certificateIssuerObserver.clusterID .Values.config.argoDesiredState.clusterID) (ne .Values.config.certificateIssuerObserver.clusterID .Values.config.environmentFoundation.clusterID) -}}
+  {{- fail "certificate issuer observer cluster must equal protected Argo and foundation" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.certificateIssuerObserver.platformBindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.certificateIssuerObserver.clusterID)) -}}
+  {{- fail "certificate issuer observer requires canonical binding and cluster UUIDs" -}}
+  {{- end -}}
+  {{- $issuerPoll := int64 .Values.config.certificateIssuerObserver.pollIntervalSeconds -}}
+  {{- $issuerTimeout := int64 .Values.config.certificateIssuerObserver.requestTimeoutSeconds -}}
+  {{- $issuerMaximumAge := int64 .Values.config.certificateIssuerObserver.maximumAgeSeconds -}}
+  {{- $issuerReadinessLease := int64 .Values.config.certificateIssuerObserver.readinessLeaseSeconds -}}
+  {{- if or (lt $issuerPoll 5) (gt $issuerPoll 3600) (lt $issuerTimeout 1) (gt $issuerTimeout 30) (ge $issuerTimeout $issuerPoll) (lt $issuerMaximumAge (mul $issuerPoll 2)) (gt $issuerMaximumAge 900) (lt $issuerReadinessLease $issuerMaximumAge) (lt $issuerReadinessLease 30) (gt $issuerReadinessLease 900) -}}
+  {{- fail "certificate issuer observer timing is outside the strict bounded contract" -}}
+  {{- end -}}
+{{- end -}}
+{{- if not .Values.config.runtimeRegistryPulls.enabled -}}
+  {{- if or (not (empty .Values.config.runtimeRegistryPulls.namespaces)) (not (empty .Values.config.runtimeRegistryPulls.profiles)) -}}
+  {{- fail "disabled runtime registry pulls reject dormant namespaces and profiles" -}}
+  {{- end -}}
+  {{- if or (ne (int64 .Values.config.runtimeRegistryPulls.pollIntervalSeconds) 30) (ne (int64 .Values.config.runtimeRegistryPulls.workLeaseSeconds) 120) (ne (int64 .Values.config.runtimeRegistryPulls.heartbeatSeconds) 20) (ne (int64 .Values.config.runtimeRegistryPulls.readinessSeconds) 90) (ne (int64 .Values.config.runtimeRegistryPulls.minimumBackoffSeconds) 5) (ne (int64 .Values.config.runtimeRegistryPulls.maximumBackoffSeconds) 300) -}}
+  {{- fail "disabled runtime registry pulls reject dormant timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.runtimeRegistryPulls.enabled -}}
+  {{- if not .Values.config.gitProjection.enabled -}}
+  {{- fail "runtime registry pulls require config.gitProjection.enabled" -}}
+  {{- end -}}
+  {{- if not .Values.networkPolicy.enabled -}}
+  {{- fail "runtime registry pulls require networkPolicy.enabled" -}}
+  {{- end -}}
+  {{- if or (empty .Values.config.runtimeRegistryPulls.namespaces) (empty .Values.config.runtimeRegistryPulls.profiles) -}}
+  {{- fail "runtime registry pulls require explicit namespaces and profiles" -}}
+  {{- end -}}
+  {{- if or (ne (join "," .Values.config.runtimeRegistryPulls.namespaces) (join "," (sortAlpha .Values.config.runtimeRegistryPulls.namespaces))) (ne (len .Values.config.runtimeRegistryPulls.namespaces) (len (uniq .Values.config.runtimeRegistryPulls.namespaces))) -}}
+  {{- fail "runtime registry pull namespaces must be sorted and unique" -}}
+  {{- end -}}
+  {{- $seenTargets := dict -}}
+  {{- $seenNames := dict -}}
+  {{- $seenCredentials := dict -}}
+  {{- $seenSources := dict -}}
+  {{- $previousTarget := "" -}}
+  {{- $previousName := "" -}}
+  {{- range $profile := .Values.config.runtimeRegistryPulls.profiles -}}
+    {{- if or (hasKey $seenTargets $profile.targetId) (hasKey $seenNames $profile.name) (hasKey $seenCredentials $profile.credentialRef) (hasKey $seenSources $profile.sourceSecretRef) -}}
+    {{- fail "runtime registry pull profile identities and source Secret names must be unique" -}}
+    {{- end -}}
+    {{- if and $previousTarget (or (gt $previousTarget $profile.targetId) (and (eq $previousTarget $profile.targetId) (ge $previousName $profile.name))) -}}
+    {{- fail "runtime registry pull profiles must be canonically sorted by targetId then name" -}}
+    {{- end -}}
+    {{- $_ := set $seenTargets $profile.targetId true -}}
+    {{- $_ := set $seenNames $profile.name true -}}
+    {{- $_ := set $seenCredentials $profile.credentialRef true -}}
+    {{- $_ := set $seenSources $profile.sourceSecretRef true -}}
+    {{- $previousTarget = $profile.targetId -}}
+    {{- $previousName = $profile.name -}}
+  {{- end -}}
+  {{- if ge (mul (int64 .Values.config.runtimeRegistryPulls.heartbeatSeconds) 2) (int64 .Values.config.runtimeRegistryPulls.workLeaseSeconds) -}}
+  {{- fail "runtime registry pull heartbeat must be less than half the work lease" -}}
+  {{- end -}}
+  {{- if lt (int64 .Values.config.runtimeRegistryPulls.readinessSeconds) (mul (int64 .Values.config.runtimeRegistryPulls.heartbeatSeconds) 2) -}}
+  {{- fail "runtime registry pull readiness must cover at least two heartbeats" -}}
+  {{- end -}}
+  {{- if lt (int64 .Values.config.runtimeRegistryPulls.maximumBackoffSeconds) (int64 .Values.config.runtimeRegistryPulls.minimumBackoffSeconds) -}}
+  {{- fail "runtime registry pull maximum backoff must be greater than or equal to minimum backoff" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "runtime registry pulls require digest-pinned API and worker images" -}}
+  {{- end -}}
+{{- end -}}
+{{- range $key := keys .Values.config.imageTagResolution -}}
+  {{- if not (has $key (list "anonymousTargetIds" "tokenAuthorities" "platform")) -}}
+  {{- fail (printf "image tag resolution contains unsupported field %s" $key) -}}
+  {{- end -}}
+{{- end -}}
+{{- $imageAnonymousTargets := .Values.config.imageTagResolution.anonymousTargetIds -}}
+{{- if or (ne (join "," $imageAnonymousTargets) (join "," (sortAlpha $imageAnonymousTargets))) (ne (len $imageAnonymousTargets) (len (uniq $imageAnonymousTargets))) -}}
+{{- fail "image tag resolution anonymous target IDs must be sorted and unique" -}}
+{{- end -}}
+{{- if not (has .Values.config.imageTagResolution.platform (list "linux/amd64" "linux/arm64" "linux/arm64/v8" "linux/arm64/v9")) -}}
+{{- fail "image tag resolution platform is unsupported" -}}
+{{- end -}}
+{{- $imageKnownTargets := dict -}}
+{{- range $profile := .Values.config.runtimeRegistryPulls.profiles -}}
+  {{- $_ := set $imageKnownTargets $profile.targetId true -}}
+{{- end -}}
+{{- range $targetID := $imageAnonymousTargets -}}
+  {{- $_ := set $imageKnownTargets $targetID true -}}
+{{- end -}}
+{{- $seenImageTokenTargets := dict -}}
+{{- $previousImageTokenTarget := "" -}}
+{{- range $authority := .Values.config.imageTagResolution.tokenAuthorities -}}
+  {{- range $key := keys $authority -}}
+    {{- if not (has $key (list "targetId" "realmUrl" "service")) -}}
+    {{- fail (printf "image tag resolution token authority contains unsupported field %s" $key) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if or (hasKey $seenImageTokenTargets $authority.targetId) (and $previousImageTokenTarget (ge $previousImageTokenTarget $authority.targetId)) -}}
+  {{- fail "image tag resolution token authorities must be uniquely sorted by targetId" -}}
+  {{- end -}}
+  {{- if not (hasKey $imageKnownTargets $authority.targetId) -}}
+  {{- fail "image tag resolution token authority targetId must match an exact pull profile or anonymous target" -}}
+  {{- end -}}
+  {{- if not (regexMatch `^https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::[1-9][0-9]{0,4})?/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$` $authority.realmUrl) -}}
+  {{- fail "image tag resolution token realm must be a canonical HTTPS URL without query, fragment, or credentials" -}}
+  {{- end -}}
+  {{- $origin := regexFind `^https://[^/]+` $authority.realmUrl | trimPrefix "https://" -}}
+  {{- $originParts := splitList ":" $origin -}}
+  {{- if and (eq (len $originParts) 2) (gt (atoi (index $originParts 1)) 65535) -}}
+  {{- fail "image tag resolution token realm port is invalid" -}}
+  {{- end -}}
+  {{- $_ := set $seenImageTokenTargets $authority.targetId true -}}
+  {{- $previousImageTokenTarget = $authority.targetId -}}
+{{- end -}}
+{{- $edgeTraefik := .Values.config.edgeRuntime.profiles.traefik -}}
+{{- $edgeCertManager := .Values.config.edgeRuntime.profiles.certManager -}}
+{{- $edgeExternalDNS := .Values.config.edgeRuntime.profiles.externalDNS -}}
+{{- if not .Values.config.edgeRuntime.enabled -}}
+  {{- if or $edgeTraefik $edgeCertManager (not (empty $edgeExternalDNS)) -}}
+  {{- fail "disabled edge runtime rejects dormant controller profiles" -}}
+  {{- end -}}
+  {{- if or (ne (int64 .Values.config.edgeRuntime.pollIntervalSeconds) 30) (ne (int64 .Values.config.edgeRuntime.workLeaseSeconds) 120) (ne (int64 .Values.config.edgeRuntime.heartbeatSeconds) 20) (ne (int64 .Values.config.edgeRuntime.readinessSeconds) 90) (ne (int64 .Values.config.edgeRuntime.minimumBackoffSeconds) 5) (ne (int64 .Values.config.edgeRuntime.maximumBackoffSeconds) 300) -}}
+  {{- fail "disabled edge runtime rejects dormant timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.edgeRuntime.enabled -}}
+  {{- if not .Values.networkPolicy.enabled -}}
+  {{- fail "edge runtime requires networkPolicy.enabled" -}}
+  {{- end -}}
+  {{- if and (not $edgeTraefik) (not $edgeCertManager) (empty $edgeExternalDNS) -}}
+  {{- fail "edge runtime requires at least one exact controller profile" -}}
+  {{- end -}}
+  {{- if gt (len (toJson .Values.config.edgeRuntime.profiles)) 131072 -}}
+  {{- fail "edge runtime profile JSON exceeds the 128 KiB runtime contract" -}}
+  {{- end -}}
+  {{- $poll := int64 .Values.config.edgeRuntime.pollIntervalSeconds -}}
+  {{- $lease := int64 .Values.config.edgeRuntime.workLeaseSeconds -}}
+  {{- $heartbeat := int64 .Values.config.edgeRuntime.heartbeatSeconds -}}
+  {{- $readiness := int64 .Values.config.edgeRuntime.readinessSeconds -}}
+  {{- $minimumBackoff := int64 .Values.config.edgeRuntime.minimumBackoffSeconds -}}
+  {{- $maximumBackoff := int64 .Values.config.edgeRuntime.maximumBackoffSeconds -}}
+  {{- if or (lt $poll 5) (gt $poll 3600) (lt $lease 30) (gt $lease 900) (lt $heartbeat 5) (gt $heartbeat 300) (lt $readiness 30) (gt $readiness 900) (lt $minimumBackoff 1) (gt $minimumBackoff 300) (lt $maximumBackoff 1) (gt $maximumBackoff 3600) -}}
+  {{- fail "edge runtime timings are outside the closed runtime bounds" -}}
+  {{- end -}}
+  {{- if ge (mul $heartbeat 2) $lease -}}
+  {{- fail "edge runtime heartbeat must be less than half the work lease" -}}
+  {{- end -}}
+  {{- if or (lt $readiness (mul $poll 2)) (lt $readiness (mul $heartbeat 2)) -}}
+  {{- fail "edge runtime readiness must cover at least two polls and two heartbeats" -}}
+  {{- end -}}
+  {{- if lt $maximumBackoff $minimumBackoff -}}
+  {{- fail "edge runtime maximum backoff must be greater than or equal to minimum backoff" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "edge runtime requires digest-pinned API and worker images" -}}
+  {{- end -}}
+  {{- $requiredTraefikCRDs := list "ingressroutes.traefik.io" "ingressroutetcps.traefik.io" "ingressrouteudps.traefik.io" "middlewares.traefik.io" "middlewaretcps.traefik.io" "serverstransports.traefik.io" "serverstransporttcps.traefik.io" "tlsoptions.traefik.io" "tlsstores.traefik.io" "traefikservices.traefik.io" -}}
+  {{- if $edgeTraefik -}}
+    {{- if hasKey $edgeTraefik "sslip" -}}
+      {{- $sslip := get $edgeTraefik "sslip" -}}
+      {{- if not (kindIs "map" $sslip) -}}
+        {{- fail "edge Traefik sslip must be omitted or one exact mode object" -}}
+      {{- end -}}
+      {{- $mode := get $sslip "mode" -}}
+      {{- $keys := join "," (sortAlpha (keys $sslip)) -}}
+      {{- if eq $mode "auto-first-ip" -}}
+        {{- if ne $keys "mode" -}}
+          {{- fail "edge Traefik auto-first-ip accepts only mode" -}}
+        {{- end -}}
+      {{- else if eq $mode "verified-static-ip" -}}
+        {{- if ne $keys "mode,staticPublicIPv4" -}}
+          {{- fail "edge Traefik verified-static-ip requires exactly mode and staticPublicIPv4" -}}
+        {{- end -}}
+        {{- include "kuberploy.edgeSSLIPValidatePublicIPv4" (get $sslip "staticPublicIPv4") -}}
+      {{- else -}}
+        {{- fail "edge Traefik sslip.mode must be auto-first-ip or verified-static-ip" -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $edgeTraefik.deployment.image) -}}
+    {{- fail "edge Traefik observation requires a digest-pinned Deployment image" -}}
+    {{- end -}}
+    {{- $actualTraefikCRDs := list -}}
+    {{- range $crd := $edgeTraefik.crds -}}
+      {{- $actualTraefikCRDs = append $actualTraefikCRDs $crd.name -}}
+    {{- end -}}
+    {{- if ne (join "," $actualTraefikCRDs) (join "," $requiredTraefikCRDs) -}}
+    {{- fail "edge Traefik profile requires the exact ordered CRD set" -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $requiredCertManagerCRDs := list "certificaterequests.cert-manager.io" "certificates.cert-manager.io" "challenges.acme.cert-manager.io" "clusterissuers.cert-manager.io" "issuers.cert-manager.io" "orders.acme.cert-manager.io" -}}
+  {{- if $edgeCertManager -}}
+    {{- $actualCertManagerCRDs := list -}}
+    {{- range $crd := $edgeCertManager.crds -}}
+      {{- $actualCertManagerCRDs = append $actualCertManagerCRDs $crd.name -}}
+    {{- end -}}
+    {{- if ne (join "," $actualCertManagerCRDs) (join "," $requiredCertManagerCRDs) -}}
+    {{- fail "edge cert-manager profile requires the exact ordered CRD set" -}}
+    {{- end -}}
+    {{- if and (not $edgeCertManager.productionIssuer) (not $edgeCertManager.stagingIssuer) -}}
+    {{- fail "edge cert-manager profile requires at least one approved ClusterIssuer" -}}
+    {{- end -}}
+    {{- if and $edgeCertManager.productionIssuer (eq $edgeCertManager.productionIssuer $edgeCertManager.stagingIssuer) -}}
+    {{- fail "edge cert-manager production and staging issuers must be distinct" -}}
+    {{- end -}}
+    {{- range $issuer := list
+      (dict "name" $edgeCertManager.productionIssuer "serverClass" $edgeCertManager.productionServerClass "expectedServerClass" "letsencrypt-production" "solverTypes" $edgeCertManager.productionSolverTypes "dnsProfiles" $edgeCertManager.productionDNS01Profiles)
+      (dict "name" $edgeCertManager.stagingIssuer "serverClass" $edgeCertManager.stagingServerClass "expectedServerClass" "letsencrypt-staging" "solverTypes" $edgeCertManager.stagingSolverTypes "dnsProfiles" $edgeCertManager.stagingDNS01Profiles) -}}
+      {{- if not $issuer.name -}}
+        {{- if or $issuer.serverClass (not (empty $issuer.solverTypes)) (not (empty $issuer.dnsProfiles)) -}}
+        {{- fail "disabled edge cert-manager issuer cannot retain server, solver, or DNS profile metadata" -}}
+        {{- end -}}
+      {{- else -}}
+        {{- if ne $issuer.serverClass $issuer.expectedServerClass -}}
+        {{- fail "edge cert-manager issuer server classification must match its fixed Let's Encrypt environment" -}}
+        {{- end -}}
+        {{- $httpOnly := deepEqual $issuer.solverTypes (list "http01") -}}
+        {{- $dnsAndHTTP := deepEqual $issuer.solverTypes (list "dns01" "http01") -}}
+        {{- if not (or $httpOnly $dnsAndHTTP) -}}
+        {{- fail "edge cert-manager issuer solvers must be exactly http01 or dns01,http01" -}}
+        {{- end -}}
+        {{- if and $httpOnly (not (empty $issuer.dnsProfiles)) -}}
+        {{- fail "HTTP-only edge cert-manager issuer cannot retain DNS-01 profiles" -}}
+        {{- end -}}
+        {{- if and $dnsAndHTTP (empty $issuer.dnsProfiles) -}}
+        {{- fail "DNS-01 edge cert-manager issuer requires at least one profile" -}}
+        {{- end -}}
+        {{- $previousProfile := "" -}}
+        {{- range $profile := $issuer.dnsProfiles -}}
+          {{- if and $previousProfile (ge $previousProfile $profile) -}}
+          {{- fail "edge cert-manager DNS-01 profile names must be uniquely sorted" -}}
+          {{- end -}}
+          {{- $previousProfile = $profile -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $previousDeployment := "" -}}
+    {{- range $deployment := $edgeCertManager.deployments -}}
+      {{- if and $previousDeployment (ge $previousDeployment $deployment.name) -}}
+      {{- fail "edge cert-manager Deployments must be uniquely sorted by name" -}}
+      {{- end -}}
+      {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $deployment.image) -}}
+      {{- fail "edge cert-manager observation requires digest-pinned Deployment images" -}}
+      {{- end -}}
+      {{- $previousDeployment = $deployment.name -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $previousIntegration := "" -}}
+  {{- range $profile := $edgeExternalDNS -}}
+    {{- if and $previousIntegration (ge $previousIntegration $profile.integrationId) -}}
+    {{- fail "edge external-DNS profiles must be uniquely sorted by integrationId" -}}
+    {{- end -}}
+    {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $profile.deployment.image) -}}
+    {{- fail "edge external-DNS observation requires digest-pinned Deployment images" -}}
+    {{- end -}}
+    {{- if not (has $profile.providerKind (list "aws" "azure" "cloudflare" "google" "rfc2136")) -}}
+    {{- fail "edge external-DNS provider kind is unsupported" -}}
+    {{- end -}}
+    {{- if eq $profile.mode "managed" -}}
+      {{- if or (not (regexMatch "^[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?$" $profile.credentialSecretRef)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?$" $profile.providerConfigRef)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?$" $profile.egressConfigRef)) -}}
+      {{- fail "managed edge external-DNS requires exact credential, provider-config, and egress references" -}}
+      {{- end -}}
+    {{- else if eq $profile.mode "adopted" -}}
+      {{- if or $profile.credentialSecretRef $profile.providerConfigRef $profile.egressConfigRef -}}
+      {{- fail "adopted edge external-DNS rejects managed reference identities" -}}
+      {{- end -}}
+    {{- else -}}
+      {{- fail "edge external-DNS mode must be managed or adopted" -}}
+    {{- end -}}
+    {{- if or (ne (join "," $profile.domainFilters) (join "," (sortAlpha $profile.domainFilters))) (ne (len $profile.domainFilters) (len (uniq $profile.domainFilters))) -}}
+    {{- fail "edge external-DNS domain filters must be sorted and unique" -}}
+    {{- end -}}
+    {{- $previousIntegration = $profile.integrationId -}}
+  {{- end -}}
+{{- end -}}
+{{- if and .Values.config.argoObservation.enabled (ne .Values.config.argoObservation.namespace .Values.rbac.argoNamespace) -}}
+{{- fail "config.argoObservation.namespace must equal rbac.argoNamespace when Argo observation is enabled" -}}
+{{- end -}}
+{{- if .Values.config.externalDNSOperational.enabled -}}
+  {{- if or (not .Values.config.edgeRuntime.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled) -}}{{- fail "operational ExternalDNS requires edge runtime, protected Git, Argo desired state, and environment foundation" -}}{{- end -}}
+  {{- if or (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.externalDNSOperational.clusterID .Values.config.argoDesiredState.clusterID) (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.environmentFoundation.platformBindingID) (ne .Values.config.externalDNSOperational.clusterID .Values.config.environmentFoundation.clusterID) -}}{{- fail "operational ExternalDNS identities must equal the protected platform Git identities" -}}{{- end -}}
+  {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.config.externalDNSOperational.image) -}}{{- fail "operational ExternalDNS requires a digest-pinned image" -}}{{- end -}}
+{{- end -}}
+{{- if and .Values.config.argoObservation.enabled (not .Values.rbac.argoNamespace) -}}
+{{- fail "Argo observation requires one explicit Argo namespace" -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.platformGitBinding))) "clusterID,enabled" -}}
+{{- fail "config.platformGitBinding accepts only enabled and clusterID" -}}
+{{- end -}}
+{{- if not .Values.config.platformGitBinding.enabled -}}
+  {{- if .Values.config.platformGitBinding.clusterID -}}
+  {{- fail "disabled platform Git binding rejects a dormant cluster identity" -}}
+  {{- end -}}
+{{- else -}}
+  {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) -}}
+  {{- fail "platform Git binding bootstrap requires Git projection and GitHub App" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.clusterID) -}}
+  {{- fail "platform Git binding bootstrap requires one canonical cluster UUID" -}}
+  {{- end -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.environmentFoundation))) "clusterID,enabled,platformBindingID,pollIntervalSeconds,psaVersion" -}}
+{{- fail "config.environmentFoundation accepts only the closed production runtime contract" -}}
+{{- end -}}
+{{- if not .Values.config.environmentFoundation.enabled -}}
+  {{- if or .Values.config.environmentFoundation.platformBindingID .Values.config.environmentFoundation.clusterID .Values.config.environmentFoundation.psaVersion (ne (int64 .Values.config.environmentFoundation.pollIntervalSeconds) 1) -}}
+  {{- fail "disabled environment foundation rejects dormant authority and timing settings" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.environmentFoundation.enabled -}}
+  {{- if or (not .Values.config.argoDesiredState.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.platformGitBinding.enabled) -}}
+  {{- fail "environment foundation requires platform Git binding, protected Argo desired state, Git projection, and GitHub App" -}}
+  {{- end -}}
+  {{- if or (ne .Values.config.environmentFoundation.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.environmentFoundation.clusterID .Values.config.argoDesiredState.clusterID) -}}
+  {{- fail "environment foundation and protected Argo desired state require one exact platform authority" -}}
+  {{- end -}}
+  {{- if ne .Values.config.environmentFoundation.clusterID .Values.config.platformGitBinding.clusterID -}}
+  {{- fail "environment foundation and platform Git binding require one exact cluster identity" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^v1[.](?:2[5-9]|[3-9][0-9])$" .Values.config.environmentFoundation.psaVersion) -}}
+  {{- fail "environment foundation requires a pinned supported Pod Security version" -}}
+  {{- end -}}
+  {{- $foundationPoll := int64 .Values.config.environmentFoundation.pollIntervalSeconds -}}
+  {{- if or (lt $foundationPoll 1) (gt $foundationPoll 60) -}}
+  {{- fail "environment foundation poll interval is outside the runtime contract" -}}
+  {{- end -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.argoDesiredState))) "catalogMaxAgeSeconds,clusterID,enabled,namespace,platformBindingID,pollIntervalSeconds,runtimeChartDigest,runtimeChartRepository,runtimeChartVersion" -}}
+{{- fail "config.argoDesiredState accepts only the closed production runtime contract" -}}
+{{- end -}}
+{{- if not .Values.config.argoDesiredState.enabled -}}
+  {{- if or .Values.config.argoDesiredState.platformBindingID .Values.config.argoDesiredState.clusterID .Values.config.argoDesiredState.namespace .Values.config.argoDesiredState.runtimeChartRepository .Values.config.argoDesiredState.runtimeChartVersion .Values.config.argoDesiredState.runtimeChartDigest -}}
+  {{- fail "disabled protected Argo desired state rejects dormant identity and runtime chart settings" -}}
+  {{- end -}}
+  {{- if or (ne (int64 .Values.config.argoDesiredState.pollIntervalSeconds) 1) (ne (int64 .Values.config.argoDesiredState.catalogMaxAgeSeconds) 900) -}}
+  {{- fail "disabled protected Argo desired state rejects dormant timing overrides" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.argoDesiredState.enabled -}}
+  {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.platformGitBinding.enabled) (not .Values.config.argoObservation.enabled) (not .Values.config.environmentFoundation.enabled) -}}
+  {{- fail "protected Argo desired state requires platform Git binding, Git projection, GitHub App, Argo observation, and environment foundation" -}}
+  {{- end -}}
+  {{- if ne .Values.config.argoDesiredState.clusterID .Values.config.platformGitBinding.clusterID -}}
+  {{- fail "protected Argo desired state and platform Git binding require one exact cluster identity" -}}
+  {{- end -}}
+  {{- if or (not .Values.networkPolicy.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) -}}
+  {{- fail "protected Argo desired state requires NetworkPolicy and exact Kubernetes API hosts" -}}
+  {{- end -}}
+  {{- range .Values.networkPolicy.kubeAPIServerCIDRs -}}
+    {{- if not (regexMatch `(?:/32|/128)$` .) -}}
+    {{- fail "protected Argo desired state requires only exact /32 or /128 Kubernetes API hosts" -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if or (ne .Values.config.argoDesiredState.namespace .Values.config.argoObservation.namespace) (ne .Values.config.argoDesiredState.namespace .Values.rbac.argoNamespace) (not .Values.config.argoDesiredState.namespace) -}}
+  {{- fail "protected Argo desired state, Argo observation, and RBAC must use one exact namespace" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.argoDesiredState.platformBindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.argoDesiredState.clusterID)) -}}
+  {{- fail "protected Argo desired state requires canonical platform binding and cluster UUIDs" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^oci://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[1-9][0-9]{0,4})?/[A-Za-z0-9][A-Za-z0-9._/-]{0,500}$" .Values.config.argoDesiredState.runtimeChartRepository) -}}
+  {{- fail "protected Argo desired state requires an exact OCI runtime chart repository" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^[0-9]+[.][0-9]+[.][0-9]+(?:-[0-9A-Za-z.-]+)?(?:[+][0-9A-Za-z.-]+)?$" .Values.config.argoDesiredState.runtimeChartVersion) -}}
+  {{- fail "protected Argo desired state requires a canonical runtime chart version" -}}
+  {{- end -}}
+  {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.config.argoDesiredState.runtimeChartDigest) -}}
+  {{- fail "protected Argo desired state requires a digest-pinned runtime chart" -}}
+  {{- end -}}
+  {{- if ne .Values.config.argoDesiredState.runtimeChartDigest .Values.config.gitProjection.chartDigest -}}
+  {{- fail "protected Argo desired state and Git projection must use the same runtime chart digest" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "protected Argo desired state requires digest-pinned API and worker images" -}}
+  {{- end -}}
+  {{- $desiredPoll := int64 .Values.config.argoDesiredState.pollIntervalSeconds -}}
+  {{- $catalogAge := int64 .Values.config.argoDesiredState.catalogMaxAgeSeconds -}}
+  {{- if or (lt $desiredPoll 1) (gt $desiredPoll 60) (lt $catalogAge 60) (gt $catalogAge 3600) -}}
+  {{- fail "protected Argo desired-state timings are outside the runtime contract" -}}
+  {{- end -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.autoDeploy))) "enabled" -}}
+{{- fail "config.autoDeploy accepts only enabled; its runtime identity is derived from authoritative subsystem contracts" -}}
+{{- end -}}
+{{- if and .Values.config.autoDeploy.enabled (or (not .Values.config.githubApp.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled)) -}}
+{{- fail "auto-deploy requires source builds, Git projection, protected Argo desired state, and environment foundations" -}}
+{{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.helmApplications))) "enabled,ociAuthHosts,ociCredentialProfiles,ociRegistryHosts,ociRequestSeconds,packageCacheBytes,publishLeaseSeconds,readinessLeaseSeconds,renderLeaseSeconds,rendererNamespace,rendererPollMilliseconds,workPollMilliseconds" -}}
+{{- fail "config.helmApplications accepts only the closed production runtime contract" -}}
+{{- end -}}
+{{- if not .Values.config.helmApplications.enabled -}}
+  {{- if or .Values.config.helmApplications.rendererNamespace (not (empty .Values.config.helmApplications.ociRegistryHosts)) (not (empty .Values.config.helmApplications.ociAuthHosts)) (not (empty .Values.config.helmApplications.ociCredentialProfiles)) (ne (int64 .Values.config.helmApplications.rendererPollMilliseconds) 250) (ne (int64 .Values.config.helmApplications.workPollMilliseconds) 1000) (ne (int64 .Values.config.helmApplications.renderLeaseSeconds) 60) (ne (int64 .Values.config.helmApplications.publishLeaseSeconds) 90) (ne (int64 .Values.config.helmApplications.readinessLeaseSeconds) 30) (ne (int64 .Values.config.helmApplications.ociRequestSeconds) 15) (ne (int64 .Values.config.helmApplications.packageCacheBytes) 67108864) -}}
+  {{- fail "disabled approved Helm applications reject dormant identity, hosts, timing, and cache settings" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.helmApplications.enabled -}}
+  {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled) -}}
+  {{- fail "approved Helm applications require Git projection, GitHub App, protected Argo desired state, and environment foundations" -}}
+  {{- end -}}
+  {{- if or (not .Values.networkPolicy.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) (empty .Values.networkPolicy.externalEgressCIDRs) -}}
+  {{- fail "approved Helm applications require NetworkPolicy plus exact Kubernetes API and OCI egress hosts" -}}
+  {{- end -}}
+  {{- if or (not .Values.config.helmApplications.rendererNamespace) (eq .Values.config.helmApplications.rendererNamespace .Release.Namespace) -}}
+  {{- fail "approved Helm rendering requires one dedicated namespace distinct from the control plane" -}}
+  {{- end -}}
+  {{- if empty .Values.config.helmApplications.ociRegistryHosts -}}
+  {{- fail "approved Helm applications require at least one exact OCI registry host" -}}
+  {{- end -}}
+  {{- range $hosts := list .Values.config.helmApplications.ociRegistryHosts .Values.config.helmApplications.ociAuthHosts -}}
+    {{- if or (ne (join "," $hosts) (join "," (sortAlpha $hosts))) (ne (len $hosts) (len (uniq $hosts))) -}}
+    {{- fail "approved Helm OCI registry and auth hosts must be sorted and unique" -}}
+    {{- end -}}
+    {{- range $host := $hosts -}}
+      {{- $parts := splitList ":" $host -}}
+      {{- if or (lt (len $parts) 1) (gt (len $parts) 2) (gt (len $host) 255) (not (regexMatch `^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$` (index $parts 0))) -}}
+      {{- fail "approved Helm OCI hosts must be canonical lowercase DNS hosts with an optional port" -}}
+      {{- end -}}
+      {{- if eq (len $parts) 2 -}}
+        {{- $port := index $parts 1 -}}
+        {{- if or (not (regexMatch `^[1-9][0-9]{0,4}$` $port)) (gt (atoi $port) 65535) -}}
+        {{- fail "approved Helm OCI host ports must be canonical integers from 1 through 65535" -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $credentialRegistryHosts := list -}}
+  {{- $credentialProfileNames := list -}}
+  {{- range $profile := .Values.config.helmApplications.ociCredentialProfiles -}}
+    {{- if ne (join "," (sortAlpha (keys $profile))) "authHost,mode,name,registryHost,secretRef" -}}
+    {{- fail "approved Helm OCI credential profiles accept only host, name, mode, and Secret projection identity" -}}
+    {{- end -}}
+    {{- if ne (join "," (sortAlpha (keys $profile.secretRef))) "name,passwordKey,tokenKey,usernameKey" -}}
+    {{- fail "approved Helm OCI credential Secret references accept only exact projected keys" -}}
+    {{- end -}}
+    {{- if or (not (has $profile.registryHost $.Values.config.helmApplications.ociRegistryHosts)) (not (has $profile.authHost $.Values.config.helmApplications.ociAuthHosts)) -}}
+    {{- fail "approved Helm OCI credential profile hosts must belong to the exact registry and auth allowlists" -}}
+    {{- end -}}
+    {{- if or (not (regexMatch `^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$` $profile.name)) (not (regexMatch `^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$` $profile.secretRef.name)) -}}
+    {{- fail "approved Helm OCI credential profile and Secret names must be canonical DNS labels" -}}
+    {{- end -}}
+    {{- if eq $profile.mode "basic" -}}
+      {{- if or (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.usernameKey)) (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.passwordKey)) $profile.secretRef.tokenKey -}}
+      {{- fail "basic Helm OCI profiles require only canonical username and password keys" -}}
+      {{- end -}}
+    {{- else if eq $profile.mode "bearer" -}}
+      {{- if or $profile.secretRef.usernameKey $profile.secretRef.passwordKey (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.tokenKey)) -}}
+      {{- fail "bearer Helm OCI profiles require only one canonical token key" -}}
+      {{- end -}}
+    {{- else -}}
+    {{- fail "approved Helm OCI credential profile mode must be basic or bearer" -}}
+    {{- end -}}
+    {{- $credentialRegistryHosts = append $credentialRegistryHosts $profile.registryHost -}}
+    {{- $credentialProfileNames = append $credentialProfileNames $profile.name -}}
+  {{- end -}}
+  {{- if or (ne (join "," $credentialRegistryHosts) (join "," (sortAlpha $credentialRegistryHosts))) (ne (len $credentialRegistryHosts) (len (uniq $credentialRegistryHosts))) (ne (len $credentialProfileNames) (len (uniq (sortAlpha $credentialProfileNames)))) -}}
+  {{- fail "approved Helm OCI credential profiles must be registry-host sorted with unique hosts and names" -}}
+  {{- end -}}
+  {{- range .Values.networkPolicy.externalEgressCIDRs -}}
+    {{- if not (regexMatch `(?:/32|/128)$` .) -}}
+    {{- fail "approved Helm OCI egress permits only exact /32 or /128 hosts" -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $rendererPoll := int64 .Values.config.helmApplications.rendererPollMilliseconds -}}
+  {{- $workPoll := int64 .Values.config.helmApplications.workPollMilliseconds -}}
+  {{- $renderLease := int64 .Values.config.helmApplications.renderLeaseSeconds -}}
+  {{- $publishLease := int64 .Values.config.helmApplications.publishLeaseSeconds -}}
+  {{- $readinessLeaseMillis := mul (int64 .Values.config.helmApplications.readinessLeaseSeconds) 1000 -}}
+  {{- $ociRequest := int64 .Values.config.helmApplications.ociRequestSeconds -}}
+  {{- $cacheBytes := int64 .Values.config.helmApplications.packageCacheBytes -}}
+  {{- if or (lt $rendererPoll 10) (gt $rendererPoll 2000) (lt $workPoll 100) (gt $workPoll 30000) (lt $renderLease 35) (gt $renderLease 900) (lt $publishLease 15) (gt $publishLease 300) (lt $readinessLeaseMillis 5000) (gt $readinessLeaseMillis 300000) (gt (mul $workPoll 2) $readinessLeaseMillis) (lt $ociRequest 1) (gt $ociRequest 60) (lt $cacheBytes 8388608) (gt $cacheBytes 1073741824) -}}
+  {{- fail "approved Helm application timings or cache bounds are outside the production contract" -}}
+  {{- end -}}
+  {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
+  {{- fail "approved Helm applications require digest-pinned API and worker images" -}}
+  {{- end -}}
+{{- end -}}
+{{- if and .Values.config.githubApp.enabled (ne .Values.builder.controllerServiceAccount.name (include "kuberploy.componentName" (dict "root" . "component" "worker"))) -}}
+{{- fail "builder.controllerServiceAccount.name must be the generated worker ServiceAccount when GitHub builds are enabled" -}}
+{{- end -}}
+{{- if and .Values.config.githubApp.enabled (ne .Values.builder.controllerServiceAccount.namespace .Release.Namespace) -}}
+{{- fail "builder.controllerServiceAccount.namespace must equal the release namespace when GitHub builds are enabled" -}}
+{{- end -}}
+{{- if and .Values.config.githubApp.enabled (not (hasPrefix "https://" .Values.config.publicURL)) -}}
+{{- fail "config.publicURL must use HTTPS when GitHub builds are enabled" -}}
+{{- end -}}
+{{- if .Values.config.githubApp.enabled -}}
+  {{- $githubKeys := list .Values.config.githubApp.secretRef.privateKeyKey .Values.config.githubApp.secretRef.webhookSecretKey .Values.config.githubApp.secretRef.stateSigningSecretKey .Values.config.githubApp.secretRef.oauthClientSecretKey -}}
+  {{- if ne (len (uniq $githubKeys)) 4 -}}
+  {{- fail "GitHub App private key, webhook, state, and OAuth client secret keys must be distinct" -}}
+  {{- end -}}
+{{- end -}}
+{{- if .Values.config.managedRegistry.enabled -}}
+  {{- if not .Values.networkPolicy.enabled -}}
+  {{- fail "managed registry maintenance requires networkPolicy.enabled" -}}
+  {{- end -}}
+  {{- if eq .Values.config.managedRegistry.credentialSecret.usernameKey .Values.config.managedRegistry.credentialSecret.passwordKey -}}
+  {{- fail "managed registry username and password Secret keys must be distinct" -}}
+  {{- end -}}
+  {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference) -}}
+  {{- fail "managed registry maintenance requires a digest-pinned worker image" -}}
+  {{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kuberploy.configName" . }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+immutable: true
+data:
+  KUBERPLOY_PUBLIC_URL: {{ .Values.config.publicURL | quote }}
+  KUBERPLOY_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  KUBERPLOY_MONITORING_MODE: {{ .Values.config.monitoring.mode | quote }}
+  KUBERPLOY_PROMETHEUS_URL: {{ .Values.config.monitoring.prometheusURL | quote }}
+  KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED: {{ if .Values.config.monitoring.bearerTokenSecret.name }}"true"{{ else }}"false"{{ end }}
+  KUBERPLOY_RUNTIME_VIEW_ENABLED: {{ if .Values.rbac.observedNamespaces }}"true"{{ else }}"false"{{ end }}
+  KUBERPLOY_GIT_REMOTE: {{ .Values.config.git.remoteURL | quote }}
+  KUBERPLOY_GIT_BRANCH: {{ .Values.config.git.branch | quote }}
+  KUBERPLOY_GIT_WORKTREE: /var/lib/kuberploy/git
+  KUBERPLOY_INGRESS_CLASS: {{ .Values.ingress.className | quote }}
+  KUBERPLOY_GITHUB_BUILDS_ENABLED: {{ .Values.config.githubApp.enabled | quote }}
+  KUBERPLOY_BUILD_LOGS_ENABLED: {{ .Values.config.buildLogs.enabled | quote }}
+  KUBERPLOY_GITHUB_APP_ID: {{ .Values.config.githubApp.appID | int64 | quote }}
+  KUBERPLOY_GITHUB_APP_CLIENT_ID: {{ .Values.config.githubApp.clientID | quote }}
+  KUBERPLOY_GITHUB_APP_SLUG: {{ .Values.config.githubApp.appSlug | quote }}
+  KUBERPLOY_GIT_PROJECTION_ENABLED: {{ .Values.config.gitProjection.enabled | quote }}
+  KUBERPLOY_GIT_PROJECTION_AUTH_MODE: {{ ternary "github-app" "disabled" .Values.config.gitProjection.enabled | quote }}
+  KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES: {{ .Values.config.gitProjection.cacheMaxBytes | int64 | quote }}
+  KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS: {{ .Values.config.gitProjection.pollIntervalSeconds | quote }}
+  KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED: {{ .Values.config.gitProjection.webhookWakeEnabled | quote }}
+  KUBERPLOY_GIT_PROJECTION_CHART_DIGEST: {{ .Values.config.gitProjection.chartDigest | quote }}
+  KUBERPLOY_GIT_PROJECTION_POLICY_VERSION: {{ .Values.config.gitProjection.policyVersion | quote }}
+  KUBERPLOY_AUTO_DEPLOY_ENABLED: {{ .Values.config.autoDeploy.enabled | quote }}
+  {{- if .Values.config.platformGitBinding.enabled }}
+  KUBERPLOY_CLUSTER_ID: {{ .Values.config.platformGitBinding.clusterID | quote }}
+  {{- end }}
+  KUBERPLOY_RUNTIME_SECRETS_ENABLED: {{ .Values.config.runtimeSecrets.enabled | quote }}
+  {{- if .Values.config.runtimeSecrets.enabled }}
+  KUBERPLOY_RUNTIME_SECRET_NAMESPACES: {{ join "," .Values.config.runtimeSecrets.namespaces | quote }}
+  KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF: {{ .Values.config.runtimeSecrets.fingerprintSecret.name | quote }}
+  KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY: {{ .Values.config.runtimeSecrets.fingerprintSecret.key | quote }}
+  KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID: {{ .Values.config.runtimeSecrets.fingerprintKeyID | quote }}
+  KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_REF: {{ .Values.config.runtimeSecrets.sealingCertificateSecret.name | quote }}
+  KUBERPLOY_RUNTIME_SECRET_SEALING_CERTIFICATE_SECRET_KEY: {{ .Values.config.runtimeSecrets.sealingCertificateSecret.key | quote }}
+  KUBERPLOY_RUNTIME_SECRET_POLL_SECONDS: {{ .Values.config.runtimeSecrets.pollIntervalSeconds | quote }}
+  KUBERPLOY_RUNTIME_SECRET_WORK_LEASE_SECONDS: {{ .Values.config.runtimeSecrets.workLeaseSeconds | quote }}
+  KUBERPLOY_RUNTIME_SECRET_HEARTBEAT_SECONDS: {{ .Values.config.runtimeSecrets.heartbeatSeconds | quote }}
+  KUBERPLOY_RUNTIME_SECRET_IDLE_SECONDS: {{ .Values.config.runtimeSecrets.idleSeconds | quote }}
+  KUBERPLOY_RUNTIME_SECRET_MINIMUM_BACKOFF_SECONDS: {{ .Values.config.runtimeSecrets.minimumBackoffSeconds | quote }}
+  KUBERPLOY_RUNTIME_SECRET_MAXIMUM_BACKOFF_SECONDS: {{ .Values.config.runtimeSecrets.maximumBackoffSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_ENABLED: {{ .Values.config.certificateObservation.enabled | quote }}
+  {{- if .Values.config.certificateObservation.enabled }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_POLL_SECONDS: {{ .Values.config.certificateObservation.pollIntervalSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_WORK_LEASE_SECONDS: {{ .Values.config.certificateObservation.workLeaseSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_HEARTBEAT_SECONDS: {{ .Values.config.certificateObservation.heartbeatSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_IDLE_SECONDS: {{ .Values.config.certificateObservation.idleSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_MINIMUM_BACKOFF_SECONDS: {{ .Values.config.certificateObservation.minimumBackoffSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_MAXIMUM_BACKOFF_SECONDS: {{ .Values.config.certificateObservation.maximumBackoffSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_OBSERVATION_MAXIMUM_AGE_SECONDS: {{ .Values.config.certificateObservation.maximumAgeSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED: {{ .Values.config.certificateIssuerObserver.enabled | quote }}
+  {{- if .Values.config.certificateIssuerObserver.enabled }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID: {{ .Values.config.certificateIssuerObserver.platformBindingID | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_CLUSTER_ID: {{ .Values.config.certificateIssuerObserver.clusterID | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE: {{ .Release.Namespace | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS: {{ .Values.config.certificateIssuerObserver.pollIntervalSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_REQUEST_TIMEOUT_SECONDS: {{ .Values.config.certificateIssuerObserver.requestTimeoutSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_MAXIMUM_AGE_SECONDS: {{ .Values.config.certificateIssuerObserver.maximumAgeSeconds | quote }}
+  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_READINESS_LEASE_SECONDS: {{ .Values.config.certificateIssuerObserver.readinessLeaseSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULLS_ENABLED: {{ .Values.config.runtimeRegistryPulls.enabled | quote }}
+  {{- if .Values.config.runtimeRegistryPulls.enabled }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACES: {{ join "," .Values.config.runtimeRegistryPulls.namespaces | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_PROFILES: {{ toJson .Values.config.runtimeRegistryPulls.profiles | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_POLL_SECONDS: {{ .Values.config.runtimeRegistryPulls.pollIntervalSeconds | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_WORK_LEASE_SECONDS: {{ .Values.config.runtimeRegistryPulls.workLeaseSeconds | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_HEARTBEAT_SECONDS: {{ .Values.config.runtimeRegistryPulls.heartbeatSeconds | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_READINESS_SECONDS: {{ .Values.config.runtimeRegistryPulls.readinessSeconds | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_MINIMUM_BACKOFF_SECONDS: {{ .Values.config.runtimeRegistryPulls.minimumBackoffSeconds | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_MAXIMUM_BACKOFF_SECONDS: {{ .Values.config.runtimeRegistryPulls.maximumBackoffSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_IMAGE_TAG_RESOLUTION_PLATFORM: {{ .Values.config.imageTagResolution.platform | quote }}
+  {{- if .Values.config.imageTagResolution.anonymousTargetIds }}
+  KUBERPLOY_IMAGE_TAG_RESOLUTION_ANONYMOUS_TARGET_IDS: {{ join "," .Values.config.imageTagResolution.anonymousTargetIds | quote }}
+  {{- end }}
+  {{- if .Values.config.imageTagResolution.tokenAuthorities }}
+  KUBERPLOY_IMAGE_TAG_RESOLUTION_TOKEN_AUTHORITIES: {{ toJson .Values.config.imageTagResolution.tokenAuthorities | quote }}
+  {{- end }}
+  KUBERPLOY_EDGE_RUNTIME_ENABLED: {{ .Values.config.edgeRuntime.enabled | quote }}
+  {{- if .Values.config.edgeRuntime.enabled }}
+  KUBERPLOY_EDGE_RUNTIME_PROFILES_JSON: {{ toJson .Values.config.edgeRuntime.profiles | quote }}
+  KUBERPLOY_EDGE_RUNTIME_POLL_SECONDS: {{ .Values.config.edgeRuntime.pollIntervalSeconds | quote }}
+  KUBERPLOY_EDGE_RUNTIME_WORK_LEASE_SECONDS: {{ .Values.config.edgeRuntime.workLeaseSeconds | quote }}
+  KUBERPLOY_EDGE_RUNTIME_HEARTBEAT_SECONDS: {{ .Values.config.edgeRuntime.heartbeatSeconds | quote }}
+  KUBERPLOY_EDGE_RUNTIME_READINESS_SECONDS: {{ .Values.config.edgeRuntime.readinessSeconds | quote }}
+  KUBERPLOY_EDGE_RUNTIME_MINIMUM_BACKOFF_SECONDS: {{ .Values.config.edgeRuntime.minimumBackoffSeconds | quote }}
+  KUBERPLOY_EDGE_RUNTIME_MAXIMUM_BACKOFF_SECONDS: {{ .Values.config.edgeRuntime.maximumBackoffSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED: {{ .Values.config.externalDNSOperational.enabled | quote }}
+  {{- if .Values.config.externalDNSOperational.enabled }}
+  KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID: {{ .Values.config.externalDNSOperational.platformBindingID | quote }}
+  KUBERPLOY_EXTERNAL_DNS_CLUSTER_ID: {{ .Values.config.externalDNSOperational.clusterID | quote }}
+  KUBERPLOY_EXTERNAL_DNS_NAMESPACE: {{ .Values.config.externalDNSOperational.namespace | quote }}
+  KUBERPLOY_EXTERNAL_DNS_VERSION: {{ .Values.config.externalDNSOperational.version | quote }}
+  KUBERPLOY_EXTERNAL_DNS_IMAGE: {{ .Values.config.externalDNSOperational.image | quote }}
+  KUBERPLOY_EXTERNAL_DNS_SERVICE_ACCOUNT: {{ .Values.config.externalDNSOperational.serviceAccount | quote }}
+  KUBERPLOY_EXTERNAL_DNS_POLL_SECONDS: {{ .Values.config.externalDNSOperational.pollIntervalSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_ARGO_OBSERVATION_ENABLED: {{ .Values.config.argoObservation.enabled | quote }}
+  KUBERPLOY_ARGO_NAMESPACE: {{ ternary .Values.config.argoDesiredState.namespace .Values.config.argoObservation.namespace .Values.config.argoDesiredState.enabled | quote }}
+  KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS: {{ .Values.config.argoObservation.pollIntervalSeconds | quote }}
+  KUBERPLOY_ARGO_DESIRED_STATE_ENABLED: {{ .Values.config.argoDesiredState.enabled | quote }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED: {{ .Values.config.environmentFoundation.enabled | quote }}
+  KUBERPLOY_HELM_APPLICATIONS_ENABLED: {{ .Values.config.helmApplications.enabled | quote }}
+  {{- if .Values.config.helmApplications.enabled }}
+  KUBERPLOY_HELM_RENDERER_NAMESPACE: {{ .Values.config.helmApplications.rendererNamespace | quote }}
+  KUBERPLOY_HELM_RENDERER_SERVICE_ACCOUNT: {{ include "kuberploy.helmRendererServiceAccount" . | quote }}
+  KUBERPLOY_HELM_RENDERER_POLL_MILLISECONDS: {{ .Values.config.helmApplications.rendererPollMilliseconds | quote }}
+  KUBERPLOY_HELM_WORK_POLL_MILLISECONDS: {{ .Values.config.helmApplications.workPollMilliseconds | quote }}
+  KUBERPLOY_HELM_RENDER_LEASE_SECONDS: {{ .Values.config.helmApplications.renderLeaseSeconds | quote }}
+  KUBERPLOY_HELM_PUBLISH_LEASE_SECONDS: {{ .Values.config.helmApplications.publishLeaseSeconds | quote }}
+  KUBERPLOY_HELM_READINESS_LEASE_SECONDS: {{ .Values.config.helmApplications.readinessLeaseSeconds | quote }}
+  KUBERPLOY_HELM_OCI_REQUEST_SECONDS: {{ .Values.config.helmApplications.ociRequestSeconds | quote }}
+  KUBERPLOY_HELM_OCI_REGISTRY_HOSTS: {{ join "," .Values.config.helmApplications.ociRegistryHosts | quote }}
+  {{- if .Values.config.helmApplications.ociAuthHosts }}
+  KUBERPLOY_HELM_OCI_AUTH_HOSTS: {{ join "," .Values.config.helmApplications.ociAuthHosts | quote }}
+  {{- end }}
+  {{- if .Values.config.helmApplications.ociCredentialProfiles }}
+  {{- $runtimeCredentialProfiles := list -}}
+  {{- range $profile := .Values.config.helmApplications.ociCredentialProfiles -}}
+    {{- $projectionIdentity := printf "helm-oci-projection.v1%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s" 0 $profile.registryHost 0 $profile.authHost 0 $profile.name 0 $profile.mode 0 $profile.secretRef.name 0 $profile.secretRef.usernameKey 0 $profile.secretRef.passwordKey 0 $profile.secretRef.tokenKey -}}
+    {{- $runtimeCredentialProfiles = append $runtimeCredentialProfiles (dict "registryHost" $profile.registryHost "authHost" $profile.authHost "name" $profile.name "mode" $profile.mode "projectionDigest" (printf "sha256:%s" (sha256sum $projectionIdentity))) -}}
+  {{- end }}
+  KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON: {{ toJson $runtimeCredentialProfiles | quote }}
+  {{- end }}
+  KUBERPLOY_HELM_PACKAGE_CACHE_BYTES: {{ .Values.config.helmApplications.packageCacheBytes | quote }}
+  KUBERPLOY_HELM_ARGO_NAMESPACE: {{ .Values.config.argoDesiredState.namespace | quote }}
+  {{- end }}
+  {{- if .Values.config.environmentFoundation.enabled }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID: {{ .Values.config.environmentFoundation.platformBindingID | quote }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION: {{ .Values.config.environmentFoundation.psaVersion | quote }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS: {{ .Values.config.environmentFoundation.pollIntervalSeconds | quote }}
+  {{- end }}
+  {{- if .Values.config.argoDesiredState.enabled }}
+  KUBERPLOY_ARGO_PLATFORM_BINDING_ID: {{ .Values.config.argoDesiredState.platformBindingID | quote }}
+  KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY: {{ .Values.config.argoDesiredState.runtimeChartRepository | quote }}
+  KUBERPLOY_ARGO_RUNTIME_CHART_VERSION: {{ .Values.config.argoDesiredState.runtimeChartVersion | quote }}
+  KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST: {{ .Values.config.argoDesiredState.runtimeChartDigest | quote }}
+  KUBERPLOY_ARGO_RENDERER_IMAGE: {{ .Values.components.worker.image.reference | quote }}
+  KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS: {{ .Values.config.argoDesiredState.pollIntervalSeconds | quote }}
+  KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS: {{ .Values.config.argoDesiredState.catalogMaxAgeSeconds | quote }}
+  {{- end }}
+  KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED: {{ .Values.config.managedRegistry.enabled | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_TARGET_ID: {{ .Values.config.managedRegistry.targetID | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_ENDPOINT: {{ .Values.config.managedRegistry.endpoint | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_REPOSITORY_PREFIX: {{ .Values.config.managedRegistry.repositoryPrefix | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF: {{ .Values.config.managedRegistry.lifecycleCredentialRef | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_ALLOW_PLAIN_HTTP: {{ .Values.config.managedRegistry.allowPlainHTTP | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_NAMESPACE: {{ .Values.config.managedRegistry.namespace | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_DEPLOYMENT: {{ .Values.config.managedRegistry.deployment | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_PVC: {{ .Values.config.managedRegistry.persistentVolumeClaim | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_CONFIG_MAP: {{ .Values.config.managedRegistry.registryConfigMap | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_HELPER_SERVICE_ACCOUNT: {{ include "kuberploy.registryMaintenanceServiceAccount" . | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_HELPER_IMAGE: {{ .Values.components.worker.image.reference | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_OBSERVATION_SECONDS: {{ .Values.config.managedRegistry.observationIntervalSeconds | quote }}
+  KUBERPLOY_BUILDER_NAMESPACE: {{ .Values.builder.namespace.name | quote }}
+  KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT: {{ .Values.builder.podServiceAccount.name | quote }}
+  KUBERPLOY_BUILDER_AGENT_IMAGE: {{ .Values.builder.builderAgentImage | quote }}
+  KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS: {{ join "," .Values.builder.networkPolicy.sourceEgressCIDRs | quote }}
+  KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS: {{ join "," .Values.builder.networkPolicy.registryEgressCIDRs | quote }}
+  KUBERPLOY_API_UPSTREAM: {{ printf "http://%s-api:%v" (include "kuberploy.fullname" .) .Values.components.api.port | quote }}

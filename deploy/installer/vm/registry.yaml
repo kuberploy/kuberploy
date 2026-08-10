@@ -1,0 +1,20 @@
+enabled: true
+global:
+  testRun: vm-rc1
+auth:
+  mode: htpasswd
+  existingSecret: registry-auth
+  realm: kuberploy-registry
+  secretRevision: vm-rc1-v1
+persistence:
+  storageClass: local-path
+  size: 8Gi
+  accessMode: ReadWriteOnce
+  retainOnDelete: true
+service:
+  clusterIP: 10.43.197.116
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - kuberploy-system
+    - kuberploy-build-dind

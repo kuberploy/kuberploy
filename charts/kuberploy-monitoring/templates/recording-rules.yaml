@@ -1,0 +1,232 @@
+{{- if .Values.monitoring.managed }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" . }}-service-recording-rules
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+    kuberploy.io/monitoring-rule: protected
+spec:
+  groups:
+    - name: kuberploy.service.metrics
+      interval: 30s
+      rules:
+        - record: kuberploy:service:cpu_usage_cores
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              sum by (namespace, pod) (
+                rate(container_cpu_usage_seconds_total{container!="", image!="", namespace!="", pod!=""}[5m])
+              )
+              * on (namespace, pod)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, pod, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(
+                    label_replace(
+                      label_replace(
+                        label_replace(
+                          kube_pod_labels{
+                            label_kuberploy_io_project!="",
+                            label_kuberploy_io_environment!="",
+                            label_kuberploy_io_application!="",
+                            label_kuberploy_io_service!=""
+                          },
+                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                        ),
+                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                      ),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                    ),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                  )
+                )
+            )
+        - record: kuberploy:service:memory_working_set_bytes
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              sum by (namespace, pod) (
+                container_memory_working_set_bytes{container!="", image!="", namespace!="", pod!=""}
+              )
+              * on (namespace, pod)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, pod, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(
+                    label_replace(
+                      label_replace(
+                        label_replace(
+                          kube_pod_labels{
+                            label_kuberploy_io_project!="",
+                            label_kuberploy_io_environment!="",
+                            label_kuberploy_io_application!="",
+                            label_kuberploy_io_service!=""
+                          },
+                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                        ),
+                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                      ),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                    ),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                  )
+                )
+            )
+        - record: kuberploy:service:replicas_ready
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              max by (namespace, deployment) (
+                kube_deployment_status_replicas_available{namespace!=""}
+              )
+              * on (namespace, deployment)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, deployment, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(
+                    label_replace(
+                      label_replace(
+                        label_replace(
+                          kube_deployment_labels{
+                            label_kuberploy_io_project!="",
+                            label_kuberploy_io_environment!="",
+                            label_kuberploy_io_application!="",
+                            label_kuberploy_io_service!=""
+                          },
+                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                        ),
+                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                      ),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                    ),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                  )
+                )
+            )
+        - record: kuberploy:service:container_restarts_total
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              max by (namespace, pod, container) (
+                kube_pod_container_status_restarts_total{container!="", namespace!="", pod!=""}
+              )
+              * on (namespace, pod)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, pod, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(
+                    label_replace(
+                      label_replace(
+                        label_replace(
+                          kube_pod_labels{
+                            label_kuberploy_io_project!="",
+                            label_kuberploy_io_environment!="",
+                            label_kuberploy_io_application!="",
+                            label_kuberploy_io_service!=""
+                          },
+                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                        ),
+                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                      ),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                    ),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                  )
+                )
+            )
+        - record: kuberploy:service:http_requests_per_second
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              label_replace(
+                label_replace(
+                  rate(traefik_service_requests_total{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                  "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                ),
+                "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+              )
+              * on (namespace, service)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(
+                    label_replace(
+                      label_replace(
+                        label_replace(
+                          kube_service_labels{
+                            label_kuberploy_io_project!="",
+                            label_kuberploy_io_environment!="",
+                            label_kuberploy_io_application!="",
+                            label_kuberploy_io_service!=""
+                          },
+                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                        ),
+                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                      ),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                    ),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                  )
+                )
+            )
+        - record: kuberploy:service:http_5xx_ratio
+          expr: |
+            sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+              label_replace(
+                label_replace(
+                  rate(traefik_service_requests_total{code=~"5..", service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                  "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                ),
+                "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+              )
+              * on (namespace, service)
+                group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                  label_replace(label_replace(label_replace(label_replace(
+                    kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
+                    "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
+                    "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
+                    "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                )
+            )
+            /
+            clamp_min(
+              sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                label_replace(
+                  label_replace(
+                    rate(traefik_service_requests_total{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                    "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  ),
+                  "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                )
+                * on (namespace, service)
+                  group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                  max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                    label_replace(label_replace(label_replace(label_replace(
+                      kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
+                      "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
+                      "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
+                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                  )
+              ),
+              0.000000001
+            )
+        - record: kuberploy:service:http_latency_seconds:p95
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le, namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                label_replace(
+                  label_replace(
+                    rate(traefik_service_request_duration_seconds_bucket{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                    "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  ),
+                  "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                )
+                * on (namespace, service)
+                  group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
+                  max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
+                    label_replace(label_replace(label_replace(label_replace(
+                      kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
+                      "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
+                      "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
+                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
+                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                  )
+              )
+            )
+{{- end }}

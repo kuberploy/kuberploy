@@ -1,0 +1,154 @@
+secretFoundation:
+  controller:
+    managed: false
+    adoptExisting: true
+    capabilitiesConfirmed: false
+  namespace:
+    create: true
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: []
+    controlPlaneNamespace: kuberploy-system
+    monitoringNamespace: kuberploy-monitoring
+  keyRecovery:
+    required: true
+    keyPrefix: kuberploy-sealed-secrets-key
+
+sealedSecrets:
+  kubeVersion: ""
+  nameOverride: sealed-secrets
+  fullnameOverride: kuberploy-sealed-secrets
+  namespace: ""
+  extraDeploy: []
+  commonAnnotations: {}
+  commonLabels: {}
+  image:
+    registry: docker.io
+    repository: bitnami/sealed-secrets-controller
+    tag: 0.38.4@sha256:ab8e4687a97fb097f30ca2f028222f779f231c224555ba05f43d172c61f84497
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  revisionHistoryLimit: 3
+  createController: true
+  secretName: kuberploy-sealed-secrets-key
+  updateStatus: true
+  skipRecreate: false
+  keyrenewperiod: 720h
+  keyttl: 87600h
+  keycutofftime: ""
+  rateLimit: "10"
+  rateLimitBurst: "20"
+  additionalNamespaces: []
+  privateKeyAnnotations:
+    kuberploy.io/recovery-required: "true"
+  privateKeyLabels:
+    kuberploy.io/sealing-key: "true"
+  logInfoStdout: true
+  logLevel: INFO
+  logFormat: json
+  maxRetries: "5"
+  watchForSecrets: false
+  kubeClientQPS: "20"
+  kubeClientBurst: "40"
+  command: []
+  args: []
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
+  startupProbe:
+    enabled: true
+    initialDelaySeconds: 0
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 30
+    successThreshold: 1
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+  customStartupProbe: {}
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  podSecurityContext:
+    enabled: true
+    fsGroup: 65534
+    seccompProfile: {type: RuntimeDefault}
+  containerSecurityContext:
+    enabled: true
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1001
+    allowPrivilegeEscalation: false
+    capabilities: {drop: [ALL]}
+  podLabels: {}
+  podAnnotations: {}
+  priorityClassName: ""
+  runtimeClassName: ""
+  affinity: {}
+  nodeSelector: {kubernetes.io/os: linux}
+  tolerations: []
+  additionalVolumes: []
+  additionalVolumeMounts: []
+  hostNetwork: false
+  containerPorts: {http: 8080, metrics: 8081}
+  hostPorts: {http: "", metrics: ""}
+  dnsPolicy: ClusterFirst
+  service:
+    type: ClusterIP
+    loadBalancerClass: ""
+    port: 8080
+    nodePort: ""
+    annotations: {}
+  ingress:
+    enabled: false
+    pathType: ImplementationSpecific
+    apiVersion: ""
+    ingressClassName: ""
+    hostname: sealed-secrets.invalid
+    path: /v1/cert.pem
+    annotations: {}
+    tls: false
+    selfSigned: false
+    extraHosts: []
+    extraPaths: []
+    extraTls: []
+    secrets: []
+  networkPolicy:
+    enabled: false
+    egress: {enabled: false, kubeapiCidr: "", kubeapiPort: ""}
+  serviceAccount:
+    annotations: {}
+    create: true
+    labels: {}
+    name: kuberploy-sealed-secrets
+  rbac:
+    create: true
+    clusterRole: true
+    clusterRoleName: kuberploy-sealed-secrets
+    namespacedRoles: false
+    namespacedRolesName: kuberploy-sealed-secrets
+    labels: {}
+    pspEnabled: false
+    serviceProxier:
+      create: false
+      bind: false
+      subjects: "[]"
+  metrics:
+    prometheusRule: {enabled: false, namespace: "", labels: {}, annotations: {}, groups: []}
+    serviceMonitor: {enabled: false, namespace: "", labels: {}, annotations: {}, interval: "", scrapeTimeout: "", honorLabels: true, metricRelabelings: [], relabelings: []}
+    dashboards: {create: false, labels: {}, annotations: {}, namespace: ""}
+    service: {type: ClusterIP, loadBalancerClass: "", port: 8081, nodePort: "", annotations: {}}
+  pdb:
+    create: false
+    minAvailable: 1
+    maxUnavailable: ""

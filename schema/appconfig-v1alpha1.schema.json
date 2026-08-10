@@ -1,0 +1,750 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuberploy.io/schemas/app-config-v1alpha1.json",
+  "title": "Kuberploy AppConfig v1alpha1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "properties": {
+    "apiVersion": { "const": "config.kuberploy.io/v1alpha1" },
+    "kind": { "const": "AppConfig" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 63,
+          "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "applicationId", "environmentId", "delivery", "runtime"],
+      "properties": {
+        "projectId": { "$ref": "#/$defs/uuid" },
+        "applicationId": { "$ref": "#/$defs/uuid" },
+        "environmentId": { "$ref": "#/$defs/uuid" },
+        "delivery": { "$ref": "#/$defs/delivery" },
+        "runtime": { "$ref": "#/$defs/runtime" },
+        "routes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/route" }
+        },
+        "middlewares": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/middleware" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "secretBindingIdentity": {
+      "type": "object",
+      "description": "Server-resolved runtime-secret identity. Kubernetes Secret names and provider credential references are never accepted.",
+      "additionalProperties": false,
+      "required": ["bindingId", "name", "version"],
+      "properties": {
+        "bindingId": { "$ref": "#/$defs/uuid" },
+        "name": { "$ref": "#/$defs/dnsLabel" },
+        "version": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "release"],
+      "properties": {
+        "mode": { "enum": ["image", "build"] },
+        "release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "pattern": "^[^@\\s]+$"
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$"
+            },
+            "sourceRevision": { "type": "string", "maxLength": 128 }
+          }
+        },
+        "registryPull": {
+          "type": "object",
+          "description": "Server-derived private-image pull metadata. Operators map the target to a credential profile; callers never provide a Kubernetes Secret name or credential reference.",
+          "additionalProperties": false,
+          "required": ["targetId", "profileName", "profileRevision"],
+          "properties": {
+            "targetId": { "$ref": "#/$defs/uuid" },
+            "profileName": { "$ref": "#/$defs/dnsLabel" },
+            "profileRevision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "ports", "resources"],
+      "allOf": [
+        {
+          "if": {
+            "anyOf": [
+              { "required": ["nodeSelector"] },
+              { "required": ["affinity"] },
+              { "required": ["topologySpreadConstraints"] },
+              { "required": ["tolerations"] },
+              { "required": ["priorityClassName"] }
+            ]
+          },
+          "then": { "required": ["schedulingProfile"] }
+        }
+      ],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "configRevision": { "type": "string", "maxLength": 128 },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "args": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "terminationGracePeriodSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "containerPort"],
+            "properties": {
+              "name": { "$ref": "#/$defs/portName" },
+              "containerPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "servicePort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "protocol": { "enum": ["TCP", "UDP"] }
+            }
+          }
+        },
+        "env": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "value"],
+                "properties": {
+                  "name": { "$ref": "#/$defs/envName" },
+                  "value": { "type": "string", "maxLength": 4096 }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "valueFrom"],
+                "properties": {
+                  "name": { "$ref": "#/$defs/envName" },
+                  "valueFrom": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["secretBindingRef"],
+                    "properties": {
+                      "secretBindingRef": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["bindingId", "name", "key", "version"],
+                        "properties": {
+                          "bindingId": { "$ref": "#/$defs/uuid" },
+                          "name": { "$ref": "#/$defs/dnsLabel" },
+                          "key": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,253}$" },
+                          "version": { "type": "integer", "minimum": 1 }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requests"],
+          "properties": {
+            "requests": { "$ref": "#/$defs/resourceRequests" },
+            "limits": { "$ref": "#/$defs/resourceLimits" }
+          }
+        },
+        "schedulingProfile": {
+          "type": "object",
+          "description": "Exact platform-admin scheduling profile revision. Effective placement fields are server-derived and locked.",
+          "additionalProperties": false,
+          "required": ["profileId", "revision", "specDigest", "assignmentsDigest"],
+          "properties": {
+            "profileId": { "$ref": "#/$defs/uuid" },
+            "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+            "specDigest": { "$ref": "#/$defs/sha256Digest" },
+            "assignmentsDigest": { "$ref": "#/$defs/sha256Digest" }
+          }
+        },
+        "nodeSelector": {
+          "type": "object",
+          "maxProperties": 32,
+          "propertyNames": { "$ref": "#/$defs/schedulingLabelKey" },
+          "additionalProperties": { "$ref": "#/$defs/labelValue" }
+        },
+        "affinity": { "$ref": "#/$defs/affinity" },
+        "topologySpreadConstraints": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/topologySpreadConstraint" }
+        },
+        "tolerations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/toleration" }
+        },
+        "priorityClassName": { "$ref": "#/$defs/dnsLabel" },
+        "probes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "startup": { "$ref": "#/$defs/probe" },
+            "readiness": { "$ref": "#/$defs/probe" },
+            "liveness": { "$ref": "#/$defs/probe" }
+          }
+        }
+      }
+    },
+    "resourceRequests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": { "type": "string", "maxLength": 8, "pattern": "^(?:[1-9][0-9]{0,6}m|(?:[1-9][0-9]{0,3}(?:\\.[0-9]{1,3})?|0\\.[0-9]{1,3}))$" },
+        "memory": { "type": "string", "maxLength": 14, "pattern": "^[1-9][0-9]{0,11}(?:Ki|Mi|Gi|Ti)$" }
+      }
+    },
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "resourceLimits": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "cpu": { "type": "string", "maxLength": 8, "pattern": "^(?:[1-9][0-9]{0,6}m|(?:[1-9][0-9]{0,3}(?:\\.[0-9]{1,3})?|0\\.[0-9]{1,3}))$" },
+        "memory": { "type": "string", "maxLength": 14, "pattern": "^[1-9][0-9]{0,11}(?:Ki|Mi|Gi|Ti)$" }
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "nodeAffinity": { "$ref": "#/$defs/nodeAffinity" },
+        "podAntiAffinity": { "$ref": "#/$defs/sameApplicationPodAntiAffinity" }
+      }
+    },
+    "nodeAffinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nodeSelectorTerms"],
+          "properties": {
+            "nodeSelectorTerms": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "items": { "$ref": "#/$defs/nodeSelectorTerm" }
+            }
+          }
+        },
+        "preferredDuringSchedulingIgnoredDuringExecution": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["weight", "preference"],
+            "properties": {
+              "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "preference": { "$ref": "#/$defs/nodeSelectorTerm" }
+            }
+          }
+        }
+      }
+    },
+    "nodeSelectorTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["matchExpressions"],
+      "properties": {
+        "matchExpressions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/nodeSelectorRequirement" }
+        }
+      }
+    },
+    "nodeSelectorRequirement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "values"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "enum": ["In", "NotIn"] },
+            "values": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/labelValueNonEmpty" } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "enum": ["Exists", "DoesNotExist"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "values"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "enum": ["Gt", "Lt"] },
+            "values": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "type": "string", "pattern": "^-?[0-9]+$", "maxLength": 20 } }
+          }
+        }
+      ]
+    },
+    "sameApplicationPodAntiAffinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "requiredDuringSchedulingIgnoredDuringExecution": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/sameApplicationPodAffinityTerm" }
+        },
+        "preferredDuringSchedulingIgnoredDuringExecution": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["weight", "podAffinityTerm"],
+            "properties": {
+              "weight": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "podAffinityTerm": { "$ref": "#/$defs/sameApplicationPodAffinityTerm" }
+            }
+          }
+        }
+      }
+    },
+    "sameApplicationPodAffinityTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["labelSelector", "topologyKey"],
+      "properties": {
+        "labelSelector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["matchLabels"],
+          "properties": {
+            "matchLabels": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kuberploy.io/application"],
+              "properties": {
+                "kuberploy.io/application": { "$ref": "#/$defs/uuid" }
+              }
+            }
+          }
+        },
+        "topologyKey": { "$ref": "#/$defs/schedulingLabelKey" }
+      }
+    },
+    "labelSelector": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "matchLabels": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 32,
+          "propertyNames": { "$ref": "#/$defs/labelKey" },
+          "additionalProperties": { "$ref": "#/$defs/labelValue" }
+        },
+        "matchExpressions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": { "$ref": "#/$defs/labelSelectorRequirement" }
+        }
+      }
+    },
+    "labelSelectorRequirement": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "values"],
+          "properties": {
+            "key": { "$ref": "#/$defs/labelKey" },
+            "operator": { "enum": ["In", "NotIn"] },
+            "values": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/labelValue" } }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator"],
+          "properties": {
+            "key": { "$ref": "#/$defs/labelKey" },
+            "operator": { "enum": ["Exists", "DoesNotExist"] }
+          }
+        }
+      ]
+    },
+    "topologySpreadConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxSkew", "topologyKey", "whenUnsatisfiable", "labelSelector"],
+      "properties": {
+        "maxSkew": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "topologyKey": { "$ref": "#/$defs/schedulingLabelKey" },
+        "whenUnsatisfiable": { "enum": ["DoNotSchedule", "ScheduleAnyway"] },
+        "labelSelector": { "$ref": "#/$defs/labelSelector" },
+        "minDomains": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "nodeAffinityPolicy": { "enum": ["Honor", "Ignore"] },
+        "nodeTaintsPolicy": { "enum": ["Honor", "Ignore"] }
+      }
+    },
+    "toleration": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "effect"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "const": "Exists" },
+            "effect": { "enum": ["NoSchedule", "PreferNoSchedule"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "effect"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "const": "Exists" },
+            "effect": { "const": "NoExecute" },
+            "tolerationSeconds": { "type": "integer", "minimum": 0, "maximum": 604800 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "effect"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "const": "Equal" },
+            "value": { "$ref": "#/$defs/labelValue" },
+            "effect": { "enum": ["NoSchedule", "PreferNoSchedule"] }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["key", "operator", "effect"],
+          "properties": {
+            "key": { "$ref": "#/$defs/schedulingLabelKey" },
+            "operator": { "const": "Equal" },
+            "value": { "$ref": "#/$defs/labelValue" },
+            "effect": { "const": "NoExecute" },
+            "tolerationSeconds": { "type": "integer", "minimum": 0, "maximum": 604800 }
+          }
+        }
+      ]
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "httpGet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "port"],
+          "properties": {
+            "path": { "type": "string", "pattern": "^/", "maxLength": 2048 },
+            "port": { "oneOf": [{ "type": "integer", "minimum": 1, "maximum": 65535 }, { "$ref": "#/$defs/dnsLabel" }] },
+            "scheme": { "enum": ["HTTP", "HTTPS"] }
+          }
+        },
+        "tcpSocket": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port"],
+          "properties": {
+            "port": { "oneOf": [{ "type": "integer", "minimum": 1, "maximum": 65535 }, { "$ref": "#/$defs/dnsLabel" }] }
+          }
+        },
+        "exec": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": { "type": "string", "maxLength": 4096 }
+            }
+          }
+        },
+        "initialDelaySeconds": { "type": "integer", "minimum": 0, "maximum": 3600 },
+        "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "successThreshold": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "failureThreshold": { "type": "integer", "minimum": 1, "maximum": 100 }
+      },
+      "oneOf": [
+        { "required": ["httpGet"] },
+        { "required": ["tcpSocket"] },
+        { "required": ["exec"] }
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "path", "port", "tls"],
+      "properties": {
+        "id": { "$ref": "#/$defs/dnsLabel" },
+        "host": {
+          "type": "string",
+          "maxLength": 253,
+          "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"
+        },
+        "path": { "type": "string", "pattern": "^/", "maxLength": 2048 },
+        "port": { "$ref": "#/$defs/portName" },
+        "ingressClassName": { "$ref": "#/$defs/dnsLabel" },
+        "middlewareRefs": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/dnsLabel" }
+        },
+        "dns": { "$ref": "#/$defs/dns" },
+        "tls": { "$ref": "#/$defs/tls" }
+      }
+    },
+    "dns": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "manual" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "sslip" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "integrationRef"],
+          "properties": {
+            "mode": { "const": "externalDns" },
+            "integrationRef": { "$ref": "#/$defs/dnsLabel" },
+            "ttl": { "type": "integer", "minimum": 30, "maximum": 86400 }
+          }
+        }
+      ]
+    },
+    "tls": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "httpOnly" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "issuerRef"],
+          "properties": {
+            "mode": { "const": "letsencrypt" },
+            "issuerRef": { "$ref": "#/$defs/dnsLabel" },
+            "redirectHttp": { "type": "boolean" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "secretRef"],
+          "properties": {
+            "mode": { "const": "customCertificate" },
+            "secretRef": { "$ref": "#/$defs/secretBindingIdentity" },
+            "redirectHttp": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "middleware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "spec"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuid" },
+        "name": { "$ref": "#/$defs/dnsLabel" },
+        "profileRef": {
+          "type": "object",
+          "description": "Server-resolved immutable reusable profile identity; Kubernetes names are never accepted.",
+          "additionalProperties": false,
+          "required": ["profileId", "revision", "specDigest", "assignmentsDigest"],
+          "properties": {
+            "profileId": { "$ref": "#/$defs/uuid" },
+            "revision": { "type": "integer", "minimum": 1 },
+            "specDigest": { "$ref": "#/$defs/sha256Digest" },
+            "assignmentsDigest": { "$ref": "#/$defs/sha256Digest" }
+          }
+        },
+        "spec": { "$ref": "#/$defs/middlewareSpec" }
+      }
+    },
+    "middlewareSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "redirectScheme": { "$ref": "#/$defs/mwRedirectScheme" },
+        "redirectRegex": { "$ref": "#/$defs/mwRedirectRegex" },
+        "addPrefix": { "$ref": "#/$defs/mwAddPrefix" },
+        "stripPrefix": { "$ref": "#/$defs/mwStripPrefix" },
+        "stripPrefixRegex": { "$ref": "#/$defs/mwStripPrefixRegex" },
+        "replacePath": { "$ref": "#/$defs/mwReplacePath" },
+        "replacePathRegex": { "$ref": "#/$defs/mwReplacePathRegex" },
+        "headers": { "$ref": "#/$defs/mwHeaders" },
+        "rateLimit": { "$ref": "#/$defs/mwRateLimit" },
+        "inFlightReq": { "$ref": "#/$defs/mwInFlightReq" },
+        "ipAllowList": { "$ref": "#/$defs/mwIPAllowList" },
+        "compress": { "$ref": "#/$defs/mwCompress" },
+        "buffering": { "$ref": "#/$defs/mwBuffering" },
+        "retry": { "$ref": "#/$defs/mwRetry" },
+        "basicAuth": { "$ref": "#/$defs/mwBasicAuth" }
+      }
+    },
+    "mwSingleLine": { "type": "string", "minLength": 1, "maxLength": 2048, "pattern": "^[^\u0000-\u001f\u007f\u2028\u2029]+$" },
+    "mwPath": { "allOf": [{ "$ref": "#/$defs/mwSingleLine" }, { "pattern": "^/" }] },
+    "mwStringList": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/mwSingleLine" } },
+    "mwRequiredStringList": { "allOf": [{ "$ref": "#/$defs/mwStringList" }, { "minItems": 1 }] },
+    "mwRedirectScheme": { "type": "object", "additionalProperties": false, "required": ["scheme"], "properties": { "scheme": { "enum": ["http", "https"] }, "port": { "type": "string", "pattern": "^[1-9][0-9]{0,4}$" }, "permanent": { "type": "boolean" } } },
+    "mwRedirectRegex": { "type": "object", "additionalProperties": false, "required": ["regex", "replacement"], "properties": { "regex": { "$ref": "#/$defs/mwSingleLine" }, "replacement": { "$ref": "#/$defs/mwSingleLine" }, "permanent": { "type": "boolean" } } },
+    "mwAddPrefix": { "type": "object", "additionalProperties": false, "required": ["prefix"], "properties": { "prefix": { "$ref": "#/$defs/mwPath" } } },
+    "mwStripPrefix": { "type": "object", "additionalProperties": false, "required": ["prefixes"], "properties": { "prefixes": { "$ref": "#/$defs/mwRequiredStringList" }, "forceSlash": { "type": "boolean" } } },
+    "mwStripPrefixRegex": { "type": "object", "additionalProperties": false, "required": ["regex"], "properties": { "regex": { "$ref": "#/$defs/mwRequiredStringList" } } },
+    "mwReplacePath": { "type": "object", "additionalProperties": false, "required": ["path"], "properties": { "path": { "$ref": "#/$defs/mwPath" } } },
+    "mwReplacePathRegex": { "type": "object", "additionalProperties": false, "required": ["regex", "replacement"], "properties": { "regex": { "$ref": "#/$defs/mwSingleLine" }, "replacement": { "$ref": "#/$defs/mwSingleLine" } } },
+    "mwHeaderMap": { "type": "object", "maxProperties": 64, "propertyNames": { "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$" }, "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 8192 } },
+    "mwHeaders": { "type": "object", "additionalProperties": false, "properties": {
+      "customRequestHeaders": { "$ref": "#/$defs/mwHeaderMap" }, "customResponseHeaders": { "$ref": "#/$defs/mwHeaderMap" },
+      "accessControlAllowCredentials": { "type": "boolean" }, "accessControlAllowHeaders": { "$ref": "#/$defs/mwStringList" }, "accessControlAllowMethods": { "$ref": "#/$defs/mwStringList" }, "accessControlAllowOriginList": { "$ref": "#/$defs/mwStringList" }, "accessControlAllowOriginListRegex": { "$ref": "#/$defs/mwStringList" }, "accessControlExposeHeaders": { "$ref": "#/$defs/mwStringList" }, "accessControlMaxAge": { "type": "integer", "minimum": 0, "maximum": 86400 }, "addVaryHeader": { "type": "boolean" }, "allowedHosts": { "$ref": "#/$defs/mwStringList" }, "stsSeconds": { "type": "integer", "minimum": 0, "maximum": 63072000 }, "stsIncludeSubdomains": { "type": "boolean" }, "stsPreload": { "type": "boolean" }, "forceSTSHeader": { "type": "boolean" }, "frameDeny": { "type": "boolean" }, "customFrameOptionsValue": { "$ref": "#/$defs/mwSingleLine" }, "contentTypeNosniff": { "type": "boolean" }, "browserXssFilter": { "type": "boolean" }, "customBrowserXSSValue": { "$ref": "#/$defs/mwSingleLine" }, "contentSecurityPolicy": { "type": "string", "minLength": 1, "maxLength": 8192 }, "contentSecurityPolicyReportOnly": { "type": "string", "minLength": 1, "maxLength": 8192 }, "referrerPolicy": { "$ref": "#/$defs/mwSingleLine" }, "permissionsPolicy": { "type": "string", "minLength": 1, "maxLength": 8192 }, "isDevelopment": { "type": "boolean" }
+    } },
+    "mwRateLimit": { "type": "object", "additionalProperties": false, "required": ["average"], "properties": { "average": { "type": "integer", "minimum": 0, "maximum": 1000000 }, "period": { "type": "string", "minLength": 1, "maxLength": 64 }, "burst": { "type": "integer", "minimum": 0, "maximum": 1000000 } } },
+    "mwInFlightReq": { "type": "object", "additionalProperties": false, "required": ["amount"], "properties": { "amount": { "type": "integer", "minimum": 1, "maximum": 1000000 } } },
+    "mwIPStrategy": { "type": "object", "additionalProperties": false, "properties": { "depth": { "type": "integer", "minimum": 0, "maximum": 100 }, "excludedIPs": { "$ref": "#/$defs/mwStringList" }, "ipv6Subnet": { "type": "integer", "minimum": 0, "maximum": 128 } } },
+    "mwIPAllowList": { "type": "object", "additionalProperties": false, "required": ["sourceRange"], "properties": { "sourceRange": { "$ref": "#/$defs/mwRequiredStringList" }, "ipStrategy": { "$ref": "#/$defs/mwIPStrategy" } } },
+    "mwCompress": { "type": "object", "additionalProperties": false, "properties": { "excludedContentTypes": { "$ref": "#/$defs/mwStringList" }, "includedContentTypes": { "$ref": "#/$defs/mwStringList" }, "minResponseBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "defaultEncoding": { "type": "string", "minLength": 1, "maxLength": 32 }, "encodings": { "$ref": "#/$defs/mwStringList" } } },
+    "mwBuffering": { "type": "object", "additionalProperties": false, "properties": { "maxRequestBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "memRequestBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "maxResponseBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "memResponseBodyBytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 }, "retryExpression": { "$ref": "#/$defs/mwSingleLine" } } },
+    "mwRetry": { "type": "object", "additionalProperties": false, "required": ["attempts"], "properties": { "attempts": { "type": "integer", "minimum": 1, "maximum": 100 }, "initialInterval": { "type": "string", "minLength": 1, "maxLength": 64 } } },
+    "mwBasicAuth": { "type": "object", "additionalProperties": false, "required": ["secretBindingRef"], "properties": { "secretBindingRef": { "type": "object", "additionalProperties": false, "required": ["bindingId", "name", "key", "version"], "properties": { "bindingId": { "$ref": "#/$defs/uuid" }, "name": { "$ref": "#/$defs/dnsLabel" }, "key": { "const": "users" }, "version": { "type": "integer", "minimum": 1 } } }, "removeHeader": { "type": "boolean" }, "headerField": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$" } } },
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "portName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 15,
+      "pattern": "^[a-z](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "envName": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "labelKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$"
+    },
+    "schedulingLabelKey": {
+      "allOf": [
+        { "$ref": "#/$defs/labelKey" },
+        { "not": { "enum": ["node-role.kubernetes.io/control-plane", "node-role.kubernetes.io/master"] } },
+        { "not": { "pattern": "^kuberploy\\.io/" } }
+      ]
+    },
+    "labelValue": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^(?:[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?)?$"
+    },
+    "labelValueNonEmpty": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{{- include "kuberploy-monitoring.validate" . -}}
+{{- if .Values.monitoring.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+    kuberploy.io/monitoring-namespace: "true"
+    # node-exporter needs read-only host /proc and /sys mounts. Host namespaces,
+    # privilege escalation, added capabilities, and host networking stay off.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

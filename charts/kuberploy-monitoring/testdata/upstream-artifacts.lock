@@ -1,0 +1,2 @@
+# sha256 filename canonical-https-url
+b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90 kube-prometheus-stack-88.1.5.tgz https://github.com/prometheus-community/helm-charts/releases/download/kube-prometheus-stack-88.1.5/kube-prometheus-stack-88.1.5.tgz

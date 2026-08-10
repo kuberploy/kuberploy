@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kuberploy-git
+  labels:
+    kuberploy.io/test-run: {{ .Values.testRun | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kuberploy-local-git
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector: {}
+      ports:
+        - port: 9418
+          protocol: TCP
+  egress: []

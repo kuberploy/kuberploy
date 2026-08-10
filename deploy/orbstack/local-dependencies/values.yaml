@@ -1,0 +1,11 @@
+testRun: ""
+
+postgresql:
+  image: docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+  storage: 1Gi
+  secretName: kuberploy-postgresql
+
+valkey:
+  image: docker.io/valkey/valkey:9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd
+  storage: 512Mi
+  secretName: kuberploy-valkey

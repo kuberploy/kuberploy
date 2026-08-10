@@ -1,0 +1,6 @@
+{{- if .Values.foundation.enabled }}
+external-dns integration {{ .Release.Name }} is {{ ternary "managed" "adopted" .Values.foundation.externalDNS.managed }}.
+Only Ingresses matching {{ .Values.externaldns.labelFilter }} and the explicit hostname annotation are eligible.
+{{- else }}
+The external-dns integration is disabled.
+{{- end }}

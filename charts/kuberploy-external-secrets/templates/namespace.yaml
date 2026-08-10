@@ -1,0 +1,13 @@
+{{- include "kuberploy-external-secrets.validate" . -}}
+{{- if and .Values.secretFoundation.namespace.create .Values.secretFoundation.operator.managed }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-external-secrets.labels" . | nindent 4 }}
+    kuberploy.io/external-secrets-namespace: "true"
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

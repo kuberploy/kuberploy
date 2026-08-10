@@ -1,0 +1,45 @@
+foundation:
+  enabled: true
+  externalDNS:
+    managed: true
+    adoptExisting: false
+    identity:
+      providerKind: cloudflare
+      credentialSecretRef: external-dns-cloudflare-primary
+      providerConfigRef: adminchatmate-cloudflare
+      egressConfigRef: cloudflare-public-api
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32
+      - 10.72.252.250/32
+    providerEgressCIDRs:
+      - 173.245.48.0/20
+      - 103.21.244.0/22
+      - 103.22.200.0/22
+      - 103.31.4.0/22
+      - 141.101.64.0/18
+      - 108.162.192.0/18
+      - 190.93.240.0/20
+      - 188.114.96.0/20
+      - 197.234.240.0/22
+      - 198.41.128.0/17
+      - 162.158.0.0/15
+      - 104.16.0.0/13
+      - 104.24.0.0/14
+      - 172.64.0.0/13
+      - 131.0.72.0/22
+    providerEgressPorts: [443]
+externaldns:
+  txtOwnerId: kuberploy-adminchatmate-vm
+  domainFilters: [adminchatmate.com]
+  labelFilter: kuberploy.io/dns-integration=adminchatmate-cloudflare
+  provider:
+    name: cloudflare
+  env:
+    - name: CF_API_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: external-dns-cloudflare-primary
+          key: apiToken
+          optional: false

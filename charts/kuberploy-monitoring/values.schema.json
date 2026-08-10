@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["monitoring", "kube-prometheus-stack"],
+  "properties": {
+    "global": {"type": "object"},
+    "monitoring": {
+      "const": {
+        "managed": true,
+        "namespace": {"create": true},
+        "networkPolicy": {
+          "enabled": true,
+          "queryClient": {
+            "namespaceLabel": {"kuberploy.io/control-plane-namespace": "true"},
+            "podLabels": {
+              "app.kubernetes.io/name": "kuberploy",
+              "app.kubernetes.io/component": "api"
+            }
+          }
+        }
+      }
+    },
+    "kube-prometheus-stack": {
+      "type": "object",
+      "required": ["prometheus"],
+      "properties": {
+        "prometheus": {
+          "type": "object",
+          "required": ["prometheusSpec"],
+          "properties": {
+            "prometheusSpec": {
+              "type": "object",
+              "required": ["retention", "retentionSize", "resources", "storageSpec"],
+              "properties": {
+                "retention": {
+                  "type": "string",
+                  "pattern": "^(?:[1-9]|[1-8][0-9]|90)d$"
+                },
+                "retentionSize": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]{0,3}(?:MB|GB)$"
+                },
+                "resources": {"$ref": "#/$defs/resources"},
+                "storageSpec": {"$ref": "#/$defs/storageSpec"}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {"$ref": "#/$defs/resourcePair"},
+        "limits": {"$ref": "#/$defs/resourcePair"}
+      }
+    },
+    "resourcePair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]{0,3}m|[1-9][0-9]?)$"
+        },
+        "memory": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,4}(?:Mi|Gi)$"
+        }
+      }
+    },
+    "storageSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["volumeClaimTemplate"],
+      "properties": {
+        "volumeClaimTemplate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["spec"],
+          "properties": {
+            "spec": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["accessModes", "resources"],
+              "properties": {
+                "storageClassName": {
+                  "anyOf": [
+                    {"type": "null"},
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 63,
+                      "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$"
+                    }
+                  ]
+                },
+                "accessModes": {"const": ["ReadWriteOnce"]},
+                "resources": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["requests"],
+                  "properties": {
+                    "requests": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["storage"],
+                      "properties": {
+                        "storage": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,3}(?:Gi|Ti)$"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

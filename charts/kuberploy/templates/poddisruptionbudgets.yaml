@@ -1,0 +1,15 @@
+{{- range $component, $config := .Values.components }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "kuberploy.componentName" (dict "root" $ "component" $component) }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "kuberploy.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
+{{- end }}

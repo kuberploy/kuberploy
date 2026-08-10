@@ -1,0 +1,41 @@
+{{- if .Values.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberploy-build-controller
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberploy-build-controller
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberploy-build-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controllerServiceAccount.name }}
+    namespace: {{ .Values.controllerServiceAccount.namespace }}
+{{- end }}

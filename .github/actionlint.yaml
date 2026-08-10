@@ -1,0 +1,6 @@
+# actionlint v1.7.12 predates GitHub's Ubuntu 26.04 public-preview labels.
+# These are GitHub-hosted labels, listed here only so actionlint recognizes them.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
+    - ubuntu-26.04-arm

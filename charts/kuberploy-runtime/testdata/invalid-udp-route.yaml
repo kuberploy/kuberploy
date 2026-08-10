@@ -1,0 +1,12 @@
+spec:
+  runtime:
+    ports:
+      - name: http
+        containerPort: 5353
+        protocol: UDP
+  routes:
+    - host: udp.example.test
+      path: /
+      port: http
+      tls:
+        mode: httpOnly

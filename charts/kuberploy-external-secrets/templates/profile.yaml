@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-external-secrets-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-external-secrets.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.secretFoundation.operator.managed | quote }}
+  expectedVersion: "2.8.0"
+  controllerClass: "kuberploy"
+  namespacedSecretStoreOnly: "true"
+  plaintextInGit: "false"

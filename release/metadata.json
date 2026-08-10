@@ -1,0 +1,6 @@
+{
+  "breakingChanges": false,
+  "summary": "Initial Kuberploy development slice with existing-image GitOps delivery, team-scoped GitHub installation metadata, Traefik ingress, and namespaced self-upgrade.",
+  "supportedUpgradeFrom": ">=0.1.0-rc.1 <0.2.0",
+  "version": "0.1.0-rc.1"
+}

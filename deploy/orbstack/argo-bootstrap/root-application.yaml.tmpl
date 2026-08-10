@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kp-root-@@RUN_ID@@
+  namespace: @@RUN_NAMESPACE@@
+  labels:
+    kuberploy.io/test-run: @@RUN_ID@@
+spec:
+  project: kp-e2e-@@RUN_ID@@
+  source:
+    repoURL: @@GIT_URL@@
+    targetRevision: main
+    path: platform/root
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: @@RUN_NAMESPACE@@
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=false
+      - ApplyOutOfSyncOnly=true

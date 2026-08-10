@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["testRun", "postgresql", "valkey"],
+  "properties": {
+    "testRun": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,19}$"
+    },
+    "postgresql": {"$ref": "#/$defs/dependency"},
+    "valkey": {"$ref": "#/$defs/dependency"}
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "storage", "secretName"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@sha256:[a-f0-9]{64}$"
+        },
+        "storage": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*(?:Mi|Gi)$"
+        },
+        "secretName": {
+          "type": "string",
+          "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+        }
+      }
+    }
+  }
+}

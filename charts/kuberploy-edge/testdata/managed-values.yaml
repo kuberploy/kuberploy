@@ -1,0 +1,7 @@
+edge:
+  traefik:
+    sslip:
+      mode: auto-first-ip
+  networkPolicy:
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32

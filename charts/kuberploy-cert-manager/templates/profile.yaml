@@ -1,0 +1,20 @@
+{{- if .Values.foundation.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-certificate-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-cert-manager.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.foundation.certManager.managed | quote }}
+  ingressClassName: {{ .Values.foundation.issuers.ingressClassName | quote }}
+  productionIssuer: {{ ternary .Values.foundation.issuers.production.name "" .Values.foundation.issuers.production.enabled | quote }}
+  productionServerClass: {{ ternary "letsencrypt-production" "" .Values.foundation.issuers.production.enabled | quote }}
+  productionSolverTypes: {{ ternary (ternary "dns01,http01" "http01" (gt (len .Values.foundation.issuers.production.dns01Profiles) 0)) "" .Values.foundation.issuers.production.enabled | quote }}
+  productionDNS01Profiles: {{ include "kuberploy-cert-manager.dns01ProfileNames" .Values.foundation.issuers.production.dns01Profiles | quote }}
+  stagingIssuer: {{ ternary .Values.foundation.issuers.staging.name "" .Values.foundation.issuers.staging.enabled | quote }}
+  stagingServerClass: {{ ternary "letsencrypt-staging" "" .Values.foundation.issuers.staging.enabled | quote }}
+  stagingSolverTypes: {{ ternary (ternary "dns01,http01" "http01" (gt (len .Values.foundation.issuers.staging.dns01Profiles) 0)) "" .Values.foundation.issuers.staging.enabled | quote }}
+  stagingDNS01Profiles: {{ include "kuberploy-cert-manager.dns01ProfileNames" .Values.foundation.issuers.staging.dns01Profiles | quote }}
+{{- end }}

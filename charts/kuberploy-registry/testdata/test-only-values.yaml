@@ -1,0 +1,19 @@
+enabled: true
+
+global:
+  testRun: render
+
+auth:
+  mode: testOnlyUnauthenticated
+  existingSecret: ""
+  realm: kuberploy-registry
+  secretRevision: ""
+
+persistence:
+  size: 128Mi
+  retainOnDelete: false
+
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - kuberploy-e2e-render

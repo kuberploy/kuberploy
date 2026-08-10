@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "enabled",
+    "global",
+    "nameOverride",
+    "fullnameOverride",
+    "image",
+    "auth",
+    "service",
+    "persistence",
+    "deployment",
+    "resources",
+    "probes",
+    "networkPolicy"
+  ],
+  "properties": {
+    "enabled": { "type": "boolean" },
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testRun"],
+      "properties": {
+        "testRun": {
+          "type": "string",
+          "maxLength": 20,
+          "pattern": "^(?:|[a-z0-9][a-z0-9-]{0,19})$"
+        }
+      }
+    },
+    "nameOverride": { "$ref": "#/$defs/optionalDnsLabel" },
+    "fullnameOverride": { "$ref": "#/$defs/optionalDnsLabel" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "pullPolicy"],
+      "properties": {
+        "reference": {
+          "type": "string",
+          "minLength": 80,
+          "maxLength": 512,
+          "pattern": "^[^\\s]+@sha256:[a-f0-9]{64}$"
+        },
+        "pullPolicy": { "enum": ["IfNotPresent", "Never"] }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "existingSecret", "realm", "secretRevision"],
+      "properties": {
+        "mode": { "enum": ["htpasswd", "testOnlyUnauthenticated"] },
+        "existingSecret": { "$ref": "#/$defs/optionalDnsSubdomain" },
+        "realm": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$"
+        },
+        "secretRevision": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9._-]*$"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "port", "clusterIP"],
+      "properties": {
+        "type": { "const": "ClusterIP" },
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "clusterIP": {
+          "type": "string",
+          "pattern": "^(?:|(?:10|172|192)\\.[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3})$"
+        }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["existingClaim", "storageClass", "size", "accessMode", "retainOnDelete"],
+      "properties": {
+        "existingClaim": { "$ref": "#/$defs/optionalDnsSubdomain" },
+        "storageClass": { "$ref": "#/$defs/optionalDnsSubdomain" },
+        "size": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32,
+          "pattern": "^[1-9][0-9]*(?:\\.[0-9]+)?(?:[EPTGMK]i?|m)?$"
+        },
+        "accessMode": {
+          "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"]
+        },
+        "retainOnDelete": { "type": "boolean" }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revisionHistoryLimit", "terminationGracePeriodSeconds"],
+      "properties": {
+        "revisionHistoryLimit": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 10, "maximum": 600 }
+      }
+    },
+    "resources": { "$ref": "#/$defs/resources" },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startup", "readiness", "liveness"],
+      "properties": {
+        "startup": { "$ref": "#/$defs/startupProbe" },
+        "readiness": { "$ref": "#/$defs/steadyProbe" },
+        "liveness": { "$ref": "#/$defs/steadyProbe" }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "allowedNamespaces"],
+      "properties": {
+        "enabled": { "const": true },
+        "allowedNamespaces": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/dnsLabel" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "enabled": { "const": true },
+          "auth": {
+            "properties": { "mode": { "const": "htpasswd" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["enabled", "auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "properties": { "existingSecret": { "$ref": "#/$defs/dnsSubdomain" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "enabled": { "const": true },
+          "auth": {
+            "properties": { "mode": { "const": "testOnlyUnauthenticated" } },
+            "required": ["mode"]
+          }
+        },
+        "required": ["enabled", "auth"]
+      },
+      "then": {
+        "properties": {
+          "auth": {
+            "properties": { "existingSecret": { "const": "" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "enabled": { "const": true },
+          "networkPolicy": {
+            "properties": { "enabled": { "const": true } },
+            "required": ["enabled"]
+          }
+        },
+        "required": ["enabled", "networkPolicy"]
+      },
+      "then": {
+        "properties": {
+          "networkPolicy": {
+            "properties": { "allowedNamespaces": { "minItems": 1 } }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "dnsSubdomain": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?$"
+    },
+    "optionalDnsLabel": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$"
+    },
+    "optionalDnsSubdomain": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?)$"
+    },
+    "quantity": {
+      "type": ["string", "number"],
+      "pattern": "^(?:[0-9]+(?:\\.[0-9]+)?(?:[EPTGMK]i?|m)?|[0-9]+m)$"
+    },
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": { "$ref": "#/$defs/quantity" },
+        "memory": { "$ref": "#/$defs/quantity" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": { "$ref": "#/$defs/resourceList" },
+        "limits": { "$ref": "#/$defs/resourceList" }
+      }
+    },
+    "startupProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["failureThreshold", "periodSeconds"],
+      "properties": {
+        "failureThreshold": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 60 }
+      }
+    },
+    "steadyProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["periodSeconds", "timeoutSeconds", "failureThreshold"],
+      "properties": {
+        "periodSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
+        "failureThreshold": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    }
+  }
+}

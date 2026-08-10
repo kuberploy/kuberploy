@@ -1,0 +1,7 @@
+Argo CD is {{ ternary "managed" "adopted" .Values.argoFoundation.argoCD.managed }} in the protected argocd namespace.
+Local admin and direct default permissions are disabled; Kuberploy remains the authorization surface.
+{{- if .Values.argoFoundation.bootstrap.enabled }}
+The retained kuberploy-platform-root Application now owns subsequent platform Git reconciliation.
+{{- else }}
+Root bootstrap is disabled. The installer must create it only after the protected platform repository is ready.
+{{- end }}

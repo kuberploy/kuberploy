@@ -1,0 +1,3 @@
+Kuberploy application {{ .Values.metadata.name }} renders with stable identity
+{{ include "kuberploy-runtime.appName" . }} from metadata.id={{ .Values.metadata.id }}.
+The deployed image is immutable: {{ include "kuberploy-runtime.image" . }}.

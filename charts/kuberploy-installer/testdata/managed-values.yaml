@@ -1,0 +1,28 @@
+bootstrap:
+  valkey:
+    enabled: true
+  argoCD:
+    enabled: true
+    mode: managed
+    managedPrerequisitesConfirmed: true
+
+source:
+  repoURL: https://github.com/kuberploy/kuberploy.git
+  targetRevision: "1111111111111111111111111111111111111111"
+
+components:
+  postgresql:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    valueFiles:
+      - ../../deploy/installer/example/postgresql.yaml
+
+argoCD:
+  argoFoundation:
+    networkPolicy:
+      kubeAPIServerCIDRs:
+        - 10.43.0.1/32
+      repositoryEgressCIDRs:
+        - 203.0.113.10/32

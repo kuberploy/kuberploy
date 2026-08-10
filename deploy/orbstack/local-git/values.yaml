@@ -1,0 +1,8 @@
+image:
+  reference: kuberploy-local-git:e2e-2.54.0
+  pullPolicy: Never
+testRun: render
+repositoryName: kuberploy-environments.git
+persistence:
+  storageClassName: local-path
+  size: 1Gi

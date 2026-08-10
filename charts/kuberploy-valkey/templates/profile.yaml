@@ -1,0 +1,22 @@
+{{- include "kuberploy-valkey.validate" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-valkey-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-valkey.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.valkeyFoundation.managed | quote }}
+  address: {{ printf "%s.%s.svc.cluster.local:6379" .Values.valkey.fullnameOverride .Release.Namespace | quote }}
+  authSecretName: {{ .Values.valkey.auth.usersExistingSecret | quote }}
+  apiCacheUsername: "api-cache"
+  apiCachePasswordKey: {{ (index .Values.valkey.auth.aclUsers "api-cache").passwordKey | quote }}
+  apiLimiterUsername: "api-limiter"
+  apiLimiterPasswordKey: {{ (index .Values.valkey.auth.aclUsers "api-limiter").passwordKey | quote }}
+  outboxPublisherUsername: "outbox-publisher"
+  outboxPublisherPasswordKey: {{ (index .Values.valkey.auth.aclUsers "outbox-publisher").passwordKey | quote }}
+  workerConsumerUsername: "worker-consumer"
+  workerConsumerPasswordKey: {{ (index .Values.valkey.auth.aclUsers "worker-consumer").passwordKey | quote }}
+  evictionPolicy: "noeviction"
+  durableAuthority: "false"

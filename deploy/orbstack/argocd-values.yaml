@@ -1,0 +1,22 @@
+crds:
+  install: true
+global:
+  logging:
+    format: json
+configs:
+  params:
+    server.insecure: true
+controller:
+  replicas: 1
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+repoServer:
+  replicas: 1
+applicationSet:
+  replicas: 1
+dex:
+  enabled: false
+notifications:
+  enabled: false

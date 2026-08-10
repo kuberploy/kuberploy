@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-postgresql-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-postgresql.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.postgresqlFoundation.managed | quote }}
+  expectedMajor: "18"
+  connectionSecretRequired: {{ .Values.postgresqlFoundation.auth.existingSecret | quote }}
+  backupsIncluded: "false"
+  pvcRetention: "Retain"
+  tlsMode: {{ ternary "network-policy-isolated-in-cluster" "operator-validated" .Values.postgresqlFoundation.managed | quote }}
