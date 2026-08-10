@@ -202,6 +202,7 @@ yq eval-all 'true' "${kp_tmp}/cert.yaml" >/dev/null
 [[ "$(kp_count_kind Certificate "${kp_tmp}/cert.yaml")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "cert-controller") | .spec.egress[].to[].ipBlock.cidr | select(. == "0.0.0.0/0")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "cert-controller") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0") | .ports' "${kp_tmp}/cert.yaml")" == '[{"port":80,"protocol":"TCP"},{"port":443,"protocol":"TCP"}]' ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name == "cert-webhook" or .metadata.name == "cert-cainjector")) | .spec.egress[].to[].ipBlock.cidr | select(. == "0.0.0.0/0" or . == "::/0")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.server] | sort | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == 'https://acme-staging-v02.api.letsencrypt.org/directory,https://acme-v02.api.letsencrypt.org/directory' ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressClassName] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "traefik" ]]

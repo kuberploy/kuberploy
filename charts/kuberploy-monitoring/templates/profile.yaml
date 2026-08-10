@@ -4,6 +4,10 @@ kind: ConfigMap
 metadata:
   name: {{ include "kuberploy-monitoring.fullname" . }}-monitoring-profile
   namespace: kuberploy-monitoring
+  annotations:
+    # The release identity is intentionally immutable. Argo must recreate this
+    # one ConfigMap when that identity changes during a chart upgrade.
+    argocd.argoproj.io/sync-options: Force=true,Replace=true
   labels:
     {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
 immutable: true
