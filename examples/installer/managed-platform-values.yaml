@@ -33,6 +33,18 @@ publicEndpoint:
     # Required when TLS is enabled; for example, platform-ops@example.com.
     accountEmail: ""
 
+integrations:
+  github:
+    enabled: false
+    appID: 0
+    clientID: ""
+    appSlug: ""
+    secretName: ""
+    clusterID: ""
+    controlPlaneEgressCIDRs: []
+    sourceEgressCIDRs: []
+    registryEgressCIDRs: []
+
 components:
   controlPlane:
     enabled: true

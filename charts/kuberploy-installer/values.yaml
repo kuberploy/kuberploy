@@ -47,6 +47,21 @@ publicEndpoint:
     # Required when TLS is enabled; used for the ACME account registration.
     accountEmail: ""
 
+# Closed, credential-free control-plane integration inputs. Secret bytes are
+# pre-created in kuberploy-system and are never copied into Helm values.
+integrations:
+  github:
+    enabled: false
+    appID: 0
+    clientID: ""
+    appSlug: ""
+    secretName: ""
+    clusterID: ""
+    # Exact current GitHub/API endpoints or stable operator egress proxies.
+    controlPlaneEgressCIDRs: []
+    sourceEgressCIDRs: []
+    registryEgressCIDRs: []
+
 components:
   controlPlane: &disabledComponent
     enabled: false

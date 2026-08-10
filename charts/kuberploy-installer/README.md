@@ -123,6 +123,22 @@ published GitHub `git` ranges for the pinned values source and `packages`
 ranges for `ghcr.io` OCI charts. A Git-only allowlist cannot pull release
 charts; the installer never substitutes an all-address egress rule.
 
+## GitHub App and builder
+
+`integrations.github` is the Helm-native switch for the complete source-build
+entry path. Enabling it requires the control-plane and builder components plus
+the public HTTPS endpoint. Supply only the GitHub App ID, client ID, slug,
+cluster UUID, the name of a pre-created `kuberploy-system` Secret, and exact
+egress host CIDRs. The installer enables GitHub setup/webhooks, Git projection,
+the stage-one platform Git binding, and the hardened builder together; it
+rejects partial combinations. The Secret must contain the private key, webhook
+secret, state-signing secret, and OAuth client secret under the control-plane
+chart's fixed keys. No credential bytes enter Helm values or Argo Applications.
+
+Use stable egress proxies when GitHub or registry destinations do not have
+stable host routes. The control-plane, source checkout, and registry lanes are
+separate arrays so a registry route cannot silently become GitHub API access.
+
 `helm --wait` proves only that bootstrap objects and the direct Argo workload
 were accepted. It does not prove child Application health or Kuberploy runtime
 readiness. Admission of users or traffic requires every selected Application to

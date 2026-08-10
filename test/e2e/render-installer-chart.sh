@@ -171,6 +171,44 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
   -f "${kp_tmp}/platform-tls-control-values.yaml" >"${kp_tmp}/platform-tls-control.yaml"
 [[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy") | .metadata.annotations."cert-manager.io/cluster-issuer"' "${kp_tmp}/platform-tls-control.yaml")" == "kuberploy-letsencrypt-production" ]]
 
+kp_github_args=(
+  --set components.builder.enabled=true
+  --set components.builder.mode=managed
+  --set-string components.builder.expectedPackageVersion=0.1.0-rc.12
+  --set integrations.github.enabled=true
+  --set integrations.github.appID=123456
+  --set-string integrations.github.clientID=Iv1_KuberployClient
+  --set-string integrations.github.appSlug=kuberploy-test
+  --set-string integrations.github.secretName=kuberploy-github-app
+  --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222
+  --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32
+  --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32
+  --set-string integrations.github.registryEgressCIDRs[0]=192.0.2.12/32
+)
+helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
+  --set publicEndpoint.tls.enabled=true \
+  --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \
+  --set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production \
+  --set-string publicEndpoint.tls.accountEmail=platform@example.com \
+  "${kp_github_args[@]}" >"${kp_tmp}/github-platform.yaml"
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.secretRef.name' "${kp_tmp}/github-platform.yaml")" == "kuberploy-github-app" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.12" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.platformGitBinding.clusterID' "${kp_tmp}/github-platform.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.networkPolicy.registryEgressCIDRs[0]' "${kp_tmp}/github-platform.yaml")" == "192.0.2.12/32" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].targetRevision' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.12" ]]
+yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject' \
+  "${kp_tmp}/github-platform.yaml" >"${kp_tmp}/github-control-values.yaml"
+# Source tests supply the readable RC reference; release packaging replaces
+# the OCI chart default with the immutable multi-platform image identity.
+helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
+  -f "${kp_tmp}/github-control-values.yaml" \
+  --set-string builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.12 \
+  >"${kp_tmp}/github-control.yaml"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GITHUB_BUILDS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
+
 for kp_entry in \
   'kuberploy-edge|edge|kuberploy-system|kuberploy-edge' \
   'kuberploy-cert-manager|cert|cert-manager|kuberploy-cert-manager' \
@@ -222,6 +260,8 @@ kp_expect_reject "public endpoint without edge" --set publicEndpoint.enabled=tru
 kp_expect_reject "disabled public endpoint with dormant hostname" --set-string publicEndpoint.hostname=kuberploy.example.com
 kp_expect_reject "public TLS without Secret" "${kp_platform_args[@]}" --set publicEndpoint.tls.enabled=true
 kp_expect_reject "broad cluster API CIDR" --set-string cluster.kubeAPIServerCIDRs[0]=0.0.0.0/0
+kp_expect_reject "dormant GitHub identity" --set integrations.github.appID=123456
+kp_expect_reject "GitHub without builder component" "${kp_platform_args[@]}" --set publicEndpoint.tls.enabled=true --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls --set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production --set-string publicEndpoint.tls.accountEmail=platform@example.com --set integrations.github.enabled=true --set integrations.github.appID=123456 --set-string integrations.github.clientID=Iv1_KuberployClient --set-string integrations.github.appSlug=kuberploy-test --set-string integrations.github.secretName=kuberploy-github-app --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222 --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32 --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32 --set-string integrations.github.registryEgressCIDRs[0]=192.0.2.12/32
 
 if helm template kuberploy-installer "${kp_chart}" --namespace argocd -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'installer accepted the wrong bootstrap namespace\n' >&2

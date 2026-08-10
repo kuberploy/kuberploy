@@ -95,6 +95,19 @@
   -}}
   {{- $childValues = mergeOverwrite $childValues $monitoringValues -}}
 {{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.integrations.github.enabled -}}
+  {{- $github := $root.Values.integrations.github -}}
+  {{- $githubValues := dict
+    "config" (dict
+      "githubApp" (dict "enabled" true "appID" $github.appID "clientID" $github.clientID "appSlug" $github.appSlug "secretRef" (dict "name" $github.secretName))
+      "gitProjection" (dict "enabled" true "chartVersion" $component.expectedPackageVersion)
+      "platformGitBinding" (dict "enabled" true "clusterID" $github.clusterID)
+    )
+    "builder" (dict "enabled" true "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
+    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
+  -}}
+  {{- $childValues = mergeOverwrite $childValues $githubValues -}}
+{{- end -}}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
