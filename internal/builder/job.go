@@ -432,7 +432,6 @@ func plannedNetworkPolicy(request JobPlanRequest, name string, labels map[string
 				"kuberploy.io/build-generation": strconv.FormatInt(request.Build.Generation, 10),
 			}},
 			"policyTypes": []any{"Ingress", "Egress"},
-			"ingress":     []any{},
 			"egress":      egress,
 		},
 	}

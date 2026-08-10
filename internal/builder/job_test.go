@@ -65,6 +65,13 @@ func TestJobPlanIsDeterministicAndHasNoForbiddenPodFields(t *testing.T) {
 	if strings.Contains(text, "0.0.0.0/0") || strings.Contains(text, "::/0") {
 		t.Fatal("world-open egress rendered")
 	}
+	policySpec := one.NetworkPolicy["spec"].(map[string]any)
+	if _, present := policySpec["ingress"]; present {
+		t.Fatal("empty ingress must be omitted because the Kubernetes API prunes it")
+	}
+	if !reflect.DeepEqual(policySpec["policyTypes"], []any{"Ingress", "Egress"}) {
+		t.Fatal("omitted ingress did not retain the ingress deny policy type")
+	}
 	changed := validJobPlanRequest()
 	changed.Build.Generation++
 	changed.Build.Destination.Reference = strings.Replace(changed.Build.Destination.Reference, "-g2-", "-g3-", 1)
