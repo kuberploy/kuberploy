@@ -7,7 +7,7 @@ appVersion: "0.1.0-rc.1"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   kuberploy.io/argo-cd-chart-sha256: d08882d22d0c76e3174e005cc09abe300c70ba556aec76725a4410d172b9c1f3
-  kuberploy.io/argo-cd-image: quay.io/argoproj/argocd:v3.5.0@sha256:c298cedbaeb31532ba8d4e9904eba9e4987e067293fbd86400c5194e78f743d5
+  kuberploy.io/argo-cd-image: quay.io/argoproj/argocd:v3.5.0
 dependencies:
   - name: argo-cd
     version: 10.3.0

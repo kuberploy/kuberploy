@@ -264,13 +264,19 @@ def main() -> None:
         args.root / "build/package/worker.Dockerfile",
         args.root / "build/package/upgrader.Dockerfile",
         args.root / "build/package/builder-agent.Dockerfile",
+        args.root / "build/package/rfc2136-test-provider.Dockerfile",
         args.root / "web/Dockerfile",
     ]
+    readable_image_version = re.compile(
+        r"^[^\s@]+:v?\d+\.\d+(?:\.\d+)?(?:[-.][A-Za-z0-9][A-Za-z0-9.-]*)?$"
+    )
     for dockerfile_path in dockerfiles:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         from_lines = re.findall(r"(?m)^FROM\s+([^\s]+)", dockerfile)
-        if not from_lines or any("@sha256:" not in reference for reference in from_lines):
-            raise SystemExit(f"release image base is not digest pinned: {dockerfile_path}")
+        if not from_lines or any(not readable_image_version.fullmatch(reference) for reference in from_lines):
+            raise SystemExit(f"release image base lacks an explicit readable version: {dockerfile_path}")
+        if any("@sha256:" in reference for reference in from_lines):
+            raise SystemExit(f"release image base uses an opaque digest selector: {dockerfile_path}")
         if ":latest" in dockerfile.lower():
             raise SystemExit(f"release Dockerfile contains a latest reference: {dockerfile_path}")
     worker_dockerfile = (args.root / "build/package/worker.Dockerfile").read_text(encoding="utf-8")

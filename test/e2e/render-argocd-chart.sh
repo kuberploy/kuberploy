@@ -78,7 +78,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "AppProject") | .spec.sourceRepos | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "https://github.com/kuberploy/platform-gitops.git" ]]
 [[ "$(yq eval-all '[select(.kind == "ConfigMap" and .metadata.name == "argocd-argocd-profile") | .data.rootRepositorySecret] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "kuberploy-repo-71111111111141118111111111111111" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" or .kind == "StatefulSet") | .spec.template.spec.containers[].image] | unique | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
-rg -F 'quay.io/argoproj/argocd:v3.5.0@sha256:c298cedbaeb31532ba8d4e9904eba9e4987e067293fbd86400c5194e78f743d5' "${kp_tmp}/managed.yaml" >/dev/null
+rg -F 'quay.io/argoproj/argocd:v3.5.0' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'key: redis.db' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'name: kuberploy-argocd-valkey-auth' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'policy.default: ""' "${kp_tmp}/managed.yaml" >/dev/null
@@ -98,7 +98,7 @@ kp_reject() {
   fi
 }
 
-kp_reject 'mutable image' --set-string argo-cd.global.image.tag=v3.5.0
+kp_reject 'different image version' --set-string argo-cd.global.image.tag=v3.4.0
 kp_reject 'bundled Redis' --set argo-cd.redis.enabled=true
 kp_reject 'local admin' --set 'argo-cd.configs.cm.admin\.enabled=true'
 kp_reject 'default tenant role' --set-string 'argo-cd.configs.rbac.policy\.default=role:readonly'

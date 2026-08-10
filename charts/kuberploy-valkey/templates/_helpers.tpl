@@ -14,7 +14,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- if .Values.valkeyFoundation.managed -}}
   {{- if ne .Values.valkey.image.registry "docker.io" -}}{{ fail "Valkey image registry is locked" }}{{- end -}}
   {{- if ne .Values.valkey.image.repository "valkey/valkey" -}}{{ fail "Valkey image repository is locked" }}{{- end -}}
-  {{- if ne .Values.valkey.image.tag "9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd" -}}{{ fail "Valkey image digest is locked" }}{{- end -}}
+  {{- if ne .Values.valkey.image.tag "9.1.1" -}}{{ fail "Valkey image version is locked to 9.1.1" }}{{- end -}}
   {{- if or (not (empty .Values.valkey.global.imageRegistry)) (not (empty .Values.valkey.global.imagePullSecrets)) (not (empty .Values.valkey.imagePullSecrets)) -}}{{ fail "Valkey image registry and pull credentials cannot be overridden" }}{{- end -}}
   {{- if or (ne .Values.valkey.nameOverride "valkey") (ne .Values.valkey.fullnameOverride "kuberploy-valkey") -}}{{ fail "Valkey policy identity names are locked" }}{{- end -}}
   {{- if or (not .Values.valkey.serviceAccount.create) .Values.valkey.serviceAccount.automount (not (empty .Values.valkey.serviceAccount.annotations)) (not (empty .Values.valkey.serviceAccount.name)) -}}{{ fail "Valkey requires its exact tokenless ServiceAccount" }}{{- end -}}

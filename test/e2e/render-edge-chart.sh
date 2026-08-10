@@ -113,7 +113,7 @@ helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_value
 diff -u "${kp_tmp}/edge.yaml" "${kp_tmp}/edge-again.yaml"
 yq eval-all 'true' "${kp_tmp}/edge.yaml" >/dev/null
 
-kp_traefik_image='docker.io/library/traefik@sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac'
+kp_traefik_image='docker.io/library/traefik:v3.7.10'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_tmp}/edge.yaml")" == "${kp_traefik_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_tmp}/edge.yaml")" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .spec.type == "LoadBalancer") | .spec.type' "${kp_tmp}/edge.yaml")" == "LoadBalancer" ]]

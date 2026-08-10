@@ -20,7 +20,7 @@ CREATE TABLE helm_chart_approvals (
     package_digest text NOT NULL CHECK (package_digest ~ '^sha256:[0-9a-f]{64}$'),
     values_schema_digest text NOT NULL CHECK (values_schema_digest ~ '^sha256:[0-9a-f]{64}$'),
     renderer_image text NOT NULL CHECK (
-        renderer_image='docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b'
+        renderer_image='docker.io/alpine/helm:4.2.3'
     ),
     renderer_version text NOT NULL CHECK (renderer_version='4.2.3'),
     policy_version text NOT NULL CHECK (policy_version='external-helm-p0.v1'),
@@ -91,7 +91,7 @@ CREATE TABLE helm_render_commands (
     worker_contract text CHECK (worker_contract IS NULL OR worker_contract='external-helm-renderer.v1'),
     worker_renderer_image text CHECK (
         worker_renderer_image IS NULL OR
-        worker_renderer_image='docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b'
+        worker_renderer_image='docker.io/alpine/helm:4.2.3'
     ),
     worker_renderer_version text CHECK (worker_renderer_version IS NULL OR worker_renderer_version='4.2.3'),
     worker_policy_version text CHECK (worker_policy_version IS NULL OR worker_policy_version='external-helm-p0.v1'),
@@ -116,7 +116,7 @@ CREATE TABLE helm_render_commands (
          worker_policy_version IS NULL AND worker_limits_digest IS NULL) OR
         (lease_owner IS NOT NULL AND lease_until IS NOT NULL AND
          worker_contract='external-helm-renderer.v1' AND
-         worker_renderer_image='docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b' AND
+         worker_renderer_image='docker.io/alpine/helm:4.2.3' AND
          worker_renderer_version='4.2.3' AND worker_policy_version='external-helm-p0.v1' AND
          worker_limits_digest IS NOT NULL AND lease_epoch>0 AND lease_until>updated_at)
     ),
@@ -231,7 +231,7 @@ CREATE TABLE helm_render_results (
         output_bytes=octet_length(rendered_manifests)
     ),
     renderer_image text NOT NULL CHECK (
-        renderer_image='docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b'
+        renderer_image='docker.io/alpine/helm:4.2.3'
     ),
     renderer_version text NOT NULL CHECK (renderer_version='4.2.3'),
     policy_version text NOT NULL CHECK (policy_version='external-helm-p0.v1'),
@@ -274,7 +274,7 @@ CREATE TABLE helm_renderer_readiness (
     worker_epoch bigint NOT NULL CHECK (worker_epoch>0),
     contract_version text NOT NULL CHECK (contract_version='external-helm-renderer.v1'),
     renderer_image text NOT NULL CHECK (
-        renderer_image='docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b'
+        renderer_image='docker.io/alpine/helm:4.2.3'
     ),
     renderer_version text NOT NULL CHECK (renderer_version='4.2.3'),
     policy_version text NOT NULL CHECK (policy_version='external-helm-p0.v1'),

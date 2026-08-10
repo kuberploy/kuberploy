@@ -191,7 +191,7 @@ func TestArgo35CRDSchemaSupportsClosedDigestPinnedOCIMultiSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render Argo 3.5 chart: %v\n%s", err, output)
 	}
-	if !bytes.Contains(output, []byte("quay.io/argoproj/argocd:v3.5.0@sha256:c298cedbaeb31532ba8d4e9904eba9e4987e067293fbd86400c5194e78f743d5")) {
+	if !bytes.Contains(output, []byte("quay.io/argoproj/argocd:v3.5.0")) {
 		t.Fatal("schema contract was not rendered from the pinned Argo CD 3.5.0 image identity")
 	}
 

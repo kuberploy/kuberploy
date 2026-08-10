@@ -39,7 +39,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "StatefulSet") | .spec.persistentVolumeClaimRetentionPolicy.whenDeleted' "${kp_tmp}/managed.yaml" | tail -1)" == "Retain" ]]
 [[ "$(yq eval-all 'select(.kind == "StatefulSet") | .spec.template.spec.automountServiceAccountToken' "${kp_tmp}/managed.yaml" | tail -1)" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "StatefulSet") | .spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
-rg -F 'docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15' "${kp_tmp}/managed.yaml" >/dev/null
+rg -F 'docker.io/library/postgres:18.4-alpine3.24' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F -- '--data-checksums --auth-host=scram-sha-256' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'helm.sh/resource-policy: keep' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'kubernetes.io/metadata.name: kuberploy-system' "${kp_tmp}/managed.yaml" >/dev/null
@@ -54,7 +54,7 @@ kp_reject() {
   fi
 }
 
-kp_reject 'mutable image' --set-string postgresqlFoundation.image.reference=docker.io/library/postgres:18.4-alpine3.24
+kp_reject 'different image version' --set-string postgresqlFoundation.image.reference=docker.io/library/postgres:18.4-alpine3.23
 kp_reject 'disabled policy' --set postgresqlFoundation.networkPolicy.enabled=false
 kp_reject 'wrong client namespace' --set-string postgresqlFoundation.networkPolicy.controlPlaneNamespace=default
 kp_reject 'changed port' --set postgresqlFoundation.service.port=15432

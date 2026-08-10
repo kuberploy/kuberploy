@@ -23,7 +23,7 @@ const (
 	HelmVersion           = "4.2.3"
 	RendererContract      = "external-helm-renderer.v1"
 	PolicyVersion         = "external-helm-p0.v1"
-	RendererImage         = "docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b"
+	RendererImage         = "docker.io/alpine/helm:4.2.3"
 	MaximumAttempts       = 10
 	MaximumDescriptorSize = 32 << 10
 	MaximumValuesSize     = 256 << 10

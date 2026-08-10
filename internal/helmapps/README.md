@@ -16,7 +16,7 @@ An administrator approval pins all of the following as one immutable revision:
 - the OCI manifest digest, fetched chart-package digest, and
   `values.schema.json` digest, all `sha256`;
 - Helm `4.2.3`, policy `external-helm-p0.v1`, and
-  `docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b`;
+  `docker.io/alpine/helm:4.2.3`;
 - a digest of that complete approval identity.
 
 The server constructs `app.yaml` from the approval plus durable project,

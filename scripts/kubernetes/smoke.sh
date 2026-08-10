@@ -39,8 +39,8 @@ metadata:
 EOF
 kp_created_namespace="true"
 
-readonly KP_SERVER_IMAGE="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
-readonly KP_CLIENT_IMAGE="docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+readonly KP_SERVER_IMAGE="registry.k8s.io/e2e-test-images/agnhost:2.53"
+readonly KP_CLIENT_IMAGE="docker.io/library/alpine:3.24.1"
 
 kp_kubectl create -f - >/dev/null <<EOF
 apiVersion: v1

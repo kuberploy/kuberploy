@@ -115,13 +115,13 @@ kp_count_kind() {
 [[ "$(yq eval-all '[select(.kind == "Service") | .spec.externalIPs[]?] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "PodDisruptionBudget" and (.spec.minAvailable != null or .spec.maxUnavailable != 1))] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 
-kp_operator_image='quay.io/prometheus-operator/prometheus-operator:v0.93.0@sha256:a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39'
-kp_ksm_image='registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1@sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1'
-kp_node_image='quay.io/prometheus/node-exporter:v1.12.1-distroless@sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106'
-kp_prometheus_image='quay.io/prometheus/prometheus:v3.13.2-distroless@sha256:64f71bb84e03c855948418b0fc5dea53e9543d8e3fc9931598f583805507f05e'
-kp_alertmanager_image='quay.io/prometheus/alertmanager:v0.33.1@sha256:9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d'
-kp_reloader_image='quay.io/prometheus-operator/prometheus-config-reloader:v0.93.0@sha256:0ccb22ca9f3f6fd9f76ce95585d18bd2e363d421c534dde710be4bd13caa551d'
-kp_thanos_image='quay.io/thanos/thanos:v0.42.4@sha256:b567818fe608067eb0f1d7c2c4fe361e7ad83c8a256234c97685f1d0bf670cc8'
+kp_operator_image='quay.io/prometheus-operator/prometheus-operator:v0.93.0'
+kp_ksm_image='registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1'
+kp_node_image='quay.io/prometheus/node-exporter:v1.12.1-distroless'
+kp_prometheus_image='quay.io/prometheus/prometheus:v3.13.2-distroless'
+kp_alertmanager_image='quay.io/prometheus/alertmanager:v0.33.1'
+kp_reloader_image='quay.io/prometheus-operator/prometheus-config-reloader:v0.93.0'
+kp_thanos_image='quay.io/thanos/thanos:v0.42.4'
 
 kp_workload_images="$(yq eval-all 'select(.kind == "Deployment" or .kind == "DaemonSet") | .spec.template.spec.containers[].image' "${kp_tmp}/managed.yaml" | rg -v '^---$' | sort -u)"
 for kp_image in "${kp_operator_image}" "${kp_ksm_image}" "${kp_node_image}"; do

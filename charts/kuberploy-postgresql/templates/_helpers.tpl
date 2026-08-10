@@ -18,7 +18,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not $pg.networkPolicy.enabled -}}{{ fail "PostgreSQL NetworkPolicy cannot be disabled" }}{{- end -}}
 {{- if ne $pg.networkPolicy.controlPlaneNamespace "kuberploy-system" -}}{{ fail "PostgreSQL control-plane namespace is locked" }}{{- end -}}
 {{- if $pg.managed -}}
-  {{- if ne $pg.image.reference "docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15" -}}{{ fail "PostgreSQL image is locked by multi-platform digest" }}{{- end -}}
+  {{- if ne $pg.image.reference "docker.io/library/postgres:18.4-alpine3.24" -}}{{ fail "PostgreSQL image version is locked to 18.4-alpine3.24" }}{{- end -}}
   {{- if or (empty $pg.auth.existingSecret) (ne $pg.auth.usernameKey "username") (ne $pg.auth.passwordKey "password") (ne $pg.auth.databaseKey "database") -}}{{ fail "PostgreSQL requires the exact existing Secret key contract" }}{{- end -}}
   {{- if ne (int $pg.service.port) 5432 -}}{{ fail "PostgreSQL service port is locked to 5432" }}{{- end -}}
   {{- if or (not $pg.storage.keepPVC) (not (deepEqual $pg.storage.accessModes (list "ReadWriteOnce"))) (empty $pg.storage.requestedSize) -}}{{ fail "PostgreSQL requires a retained RWO PVC" }}{{- end -}}

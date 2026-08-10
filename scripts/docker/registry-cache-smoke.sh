@@ -2,9 +2,9 @@
 
 set -Eeuo pipefail
 
-readonly KP_REGISTRY_IMAGE="docker.io/library/registry:3.1.1@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33"
-readonly KP_BUILDKIT_IMAGE="docker.io/moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
-readonly KP_BASE_IMAGE="docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+readonly KP_REGISTRY_IMAGE="docker.io/library/registry:3.1.1"
+readonly KP_BUILDKIT_IMAGE="docker.io/moby/buildkit:v0.32.2"
+readonly KP_BASE_IMAGE="docker.io/library/alpine:3.24.1"
 
 kp_die() {
   printf 'error: %s\n' "$*" >&2

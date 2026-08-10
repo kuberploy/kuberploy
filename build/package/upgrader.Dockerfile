@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b
+FROM docker.io/alpine/helm:4.2.3
 
 ARG VERSION=dev
 ARG REVISION=unknown

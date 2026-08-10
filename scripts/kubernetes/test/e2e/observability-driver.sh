@@ -138,7 +138,7 @@ if [[ "${kp_obs_mode}" == "managed" ]]; then
     .generation == .observedGeneration and .desiredReplicas == 1 and
     .availableReplicas == 1 and
     ([.containers[] | select(.name == "kube-prometheus-stack" and
-      .image == "quay.io/prometheus-operator/prometheus-operator:v0.93.0@sha256:a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39")] | length) == 1
+      .image == "quay.io/prometheus-operator/prometheus-operator:v0.93.0")] | length) == 1
   ' "${kp_obs_dir}/managed-operator.json" >/dev/null || kp_obs_die "managed operator identity is not ready"
   jq -e '
     .generation >= 1 and

@@ -32,7 +32,7 @@ externalSecrets:
   image:
     repository: ghcr.io/external-secrets/external-secrets
     pullPolicy: IfNotPresent
-    tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+    tag: v2.8.0
     flavour: ""
   installCRDs: true
   crds:
@@ -192,7 +192,7 @@ externalSecrets:
     image:
       repository: ghcr.io/external-secrets/external-secrets
       pullPolicy: IfNotPresent
-      tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+      tag: v2.8.0
       flavour: ""
     imagePullSecrets: []
     port: 10250
@@ -254,7 +254,7 @@ externalSecrets:
     image:
       repository: ghcr.io/external-secrets/external-secrets
       pullPolicy: IfNotPresent
-      tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+      tag: v2.8.0
       flavour: ""
     imagePullSecrets: []
     rbac: {create: true}

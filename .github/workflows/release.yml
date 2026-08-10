@@ -257,7 +257,7 @@ jobs:
             '{component: $component, platform: $platform, architecture: $architecture, image: $image, digest: $digest}' \
             >"${RUNNER_TEMP}/image-digests/${COMPONENT}-${ARCHITECTURE}.json"
       - name: Upload platform digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-digest-${{ matrix.component }}-${{ matrix.architecture }}
           path: ${{ runner.temp }}/image-digests/${{ matrix.component }}-${{ matrix.architecture }}.json
@@ -280,7 +280,7 @@ jobs:
       builder_agent_digest: ${{ steps.assemble.outputs.builder_agent_digest }}
     steps:
       - name: Download platform digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: image-digest-*
           path: ${{ runner.temp }}/image-digests

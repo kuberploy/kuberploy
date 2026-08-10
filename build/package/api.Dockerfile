@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/library/golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS build
+FROM docker.io/library/golang:1.26.5-alpine3.24 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -29,9 +29,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-bootstrap-token ./cmd/kuberploy-bootstrap-token
 
-FROM docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b AS helm-runtime
+FROM docker.io/alpine/helm:4.2.3 AS helm-runtime
 
-FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM docker.io/library/alpine:3.24.1
 
 RUN apk add --no-cache ca-certificates=20260611-r0
 

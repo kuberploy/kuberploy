@@ -18,7 +18,7 @@ data:
   queryURL: http://prometheus-operated.kuberploy-monitoring.svc:9090
   operatorDeploymentName: kuberploy-prometheus-operator
   operatorContainerName: kube-prometheus-stack
-  operatorImage: quay.io/prometheus-operator/prometheus-operator:v0.93.0@sha256:a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39
+  operatorImage: quay.io/prometheus-operator/prometheus-operator:v0.93.0
   operatorArgumentsSHA256: sha256:b27e7e117547a6a57ce23769fa642ecd4d4e663aa37a549aa55a70a4994415ca
   recordingRuleName: monitoring-service-recording-rules
   recordingRuleSpecSHA256: sha256:dce75aca8d4db27efe9e685fee3b02f1f3fcefb71ff3674f02002f7d700780a5

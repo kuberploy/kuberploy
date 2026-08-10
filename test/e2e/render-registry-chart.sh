@@ -42,7 +42,7 @@ helm template authenticated "${kp_chart}" \
   -f "${kp_auth_values}" >"${kp_auth_render}"
 yq eval-all 'true' "${kp_auth_render}" >/dev/null
 
-kp_expected_image='docker.io/library/registry:3.1.1@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33'
+kp_expected_image='docker.io/library/registry:3.1.1'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_auth_render}")" == "${kp_expected_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_auth_render}")" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.strategy.type' "${kp_auth_render}")" == "Recreate" ]]

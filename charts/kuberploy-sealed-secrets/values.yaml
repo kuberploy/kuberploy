@@ -25,7 +25,7 @@ sealedSecrets:
   image:
     registry: docker.io
     repository: bitnami/sealed-secrets-controller
-    tag: 0.38.4@sha256:ab8e4687a97fb097f30ca2f028222f779f231c224555ba05f43d172c61f84497
+    tag: 0.38.4
     pullPolicy: IfNotPresent
     pullSecrets: []
   revisionHistoryLimit: 3

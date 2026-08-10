@@ -46,7 +46,7 @@ func TestApprovalRejectsFloatingOrNonCanonicalIdentity(t *testing.T) {
 		func(value *Approval) { value.OCIRepository = "https://registry.example.com/platform/sample" },
 		func(value *Approval) { value.ChartVersion = "latest" },
 		func(value *Approval) { value.ManifestDigest = strings.Repeat("a", 64) },
-		func(value *Approval) { value.RendererImage = "docker.io/alpine/helm:4.2.3" },
+		func(value *Approval) { value.RendererImage = "docker.io/alpine/helm:4.2.4" },
 		func(value *Approval) { value.RendererVersion = "4.2.4" },
 		func(value *Approval) { value.PolicyVersion = "external-helm-p0.v2" },
 	}

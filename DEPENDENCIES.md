@@ -21,7 +21,7 @@ An upstream chart or application bundle is treated as one tested dependency unit
 | cert-manager | [1.21.1](https://github.com/cert-manager/cert-manager/releases/tag/v1.21.1) | Official chart `v1.21.1`; CRDs and controller upgrade together. |
 | external-dns | [0.21.0](https://github.com/kubernetes-sigs/external-dns/releases/tag/v0.21.0) | Official chart `1.21.1`; provider and annotation migrations are tested because the application remains pre-1.0. |
 | Valkey | [9.1.1](https://github.com/valkey-io/valkey/releases/tag/9.1.1) | Official chart [0.11.0](https://github.com/valkey-io/valkey-helm/releases/tag/valkey-0.11.0), `appVersion: 9.1.1`; hardened Kuberploy values replace development-oriented chart defaults. |
-| PostgreSQL | [18.4](https://www.postgresql.org/docs/release/18.4/) | Server/image is pinned by digest. A lightweight managed profile is for small installations; production can adopt a compatible managed service with tested backup/restore. |
+| PostgreSQL | [18.4](https://www.postgresql.org/docs/release/18.4/) | Server/image uses the explicit `18.4-alpine3.24` version. A lightweight managed profile is for small installations; production can adopt a compatible managed service with tested backup/restore. |
 | OCI Distribution registry | [3.1.1](https://github.com/distribution/distribution/releases/tag/v3.1.1) | Lightweight bundled managed-registry data plane. Kuberploy owns its hardened manifests, TLS/auth wiring, persistent storage and lifecycle controller instead of depending on an unmaintained third-party chart. External-registry mode does not install it. |
 | External Secrets Operator | [2.8.0](https://github.com/external-secrets/external-secrets/releases/tag/v2.8.0) | Official chart [2.8.0](https://github.com/external-secrets/external-secrets/releases/tag/helm-chart-2.8.0); default production secret backend. |
 | Sealed Secrets | [0.38.4](https://github.com/bitnami-labs/sealed-secrets/releases/tag/v0.38.4) | Official chart [2.19.1](https://github.com/bitnami-labs/sealed-secrets/releases/tag/helm-v2.19.1); self-contained alternative with strict namespace/name scope. |
@@ -60,7 +60,7 @@ production DNS use their own domain and the external-dns integration.
 
 The official Docker 29.7.1 image bundles Buildx 0.36.0 and the engine embeds BuildKit 0.32.0. Kuberploy deliberately supplies Buildx 0.36.1 and launches BuildKit 0.32.2 as the separately pinned builder. Rootless DinD still requires a privileged Kubernetes container in the documented Docker/ARC pattern; rootless UID mapping does not turn that Pod into an unprivileged workload.
 
-The selected builder image is `docker.io/library/docker:29.7.1-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c`; its OCI index includes an `arm64/linux` manifest. The separately selected BuildKit image is `docker.io/moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8`.
+The selected builder image is `docker.io/library/docker:29.7.1-dind`; its OCI index includes an `arm64/linux` manifest. The separately selected BuildKit image is `docker.io/moby/buildkit:v0.32.2`.
 
 ## Product implementation and API toolchain
 
@@ -76,9 +76,9 @@ The selected builder image is `docker.io/library/docker:29.7.1-dind@sha256:e8faa
 | pnpm | [11.20.0](https://github.com/pnpm/pnpm/releases/tag/v11.20.0) | Frontend package manager with a committed frozen lockfile. |
 | TypeScript | [7.0.2](https://www.npmjs.com/package/typescript/v/7.0.2) | Strict UI and generated API-client types. |
 | React / React DOM | [19.2.8](https://github.com/facebook/react/releases/tag/v19.2.8) | Web UI. Both packages stay on the same exact version. |
-| Vite | [8.2.0](https://github.com/vitejs/vite/releases/tag/v8.2.0) | Web UI build/dev tooling. |
+| Vite | [8.2.1](https://github.com/vitejs/vite/releases/tag/v8.2.1) | Web UI build/dev tooling. |
 | TanStack React Query | [5.101.4](https://github.com/TanStack/query/releases/tag/%40tanstack/react-query%405.101.4) | Server-state requests and bounded polling. |
-| TanStack React Router | [1.170.20](https://github.com/TanStack/router/releases/tag/%40tanstack/react-router%401.170.20) | Typed client routing. |
+| TanStack React Router | [1.170.21](https://github.com/TanStack/router/releases/tag/%40tanstack/react-router%401.170.21) | Typed client routing. |
 | React Hook Form | [7.84.0](https://github.com/react-hook-form/react-hook-form/releases/tag/v7.84.0) | Guided configuration forms. |
 | Monaco Editor | [0.56.0](https://github.com/microsoft/monaco-editor/releases/tag/v0.56.0) | Advanced YAML editor. |
 | Tailwind CSS | [4.3.3](https://github.com/tailwindlabs/tailwindcss/releases/tag/v4.3.3) | UI styling; `@tailwindcss/vite` stays on the identical version. |
@@ -115,27 +115,28 @@ The chart-declared Kubernetes constraints are compatible with Kuberploy's 1.34-1
 
 ## Verified service and build images
 
-All references below are multi-architecture OCI indexes and include both
-`linux/amd64` and `linux/arm64`, matching Kuberploy's release platform contract.
+The image selectors below use readable version tags. Their published indexes
+include both `linux/amd64` and `linux/arm64`, matching Kuberploy's release
+platform contract.
 
-| Purpose | Immutable image |
+| Purpose | Versioned image |
 |---|---|
-| Argo CD | `quay.io/argoproj/argocd:v3.5.0@sha256:c298cedbaeb31532ba8d4e9904eba9e4987e067293fbd86400c5194e78f743d5` |
-| External Secrets Operator | `ghcr.io/external-secrets/external-secrets:v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679` |
-| Sealed Secrets | `docker.io/bitnami/sealed-secrets-controller:0.38.4@sha256:ab8e4687a97fb097f30ca2f028222f779f231c224555ba05f43d172c61f84497` |
-| PostgreSQL | `docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15` |
-| Valkey | `docker.io/valkey/valkey:9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd` |
-| Managed OCI registry | `docker.io/library/registry:3.1.1@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33` |
-| Alpine runtime | `docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b` |
-| Go builder | `docker.io/library/golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2` |
-| Node builder | `docker.io/library/node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43` |
-| nginx stable runtime | `docker.io/library/nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46` |
+| Argo CD | `quay.io/argoproj/argocd:v3.5.0` |
+| External Secrets Operator | `ghcr.io/external-secrets/external-secrets:v2.8.0` |
+| Sealed Secrets | `docker.io/bitnami/sealed-secrets-controller:0.38.4` |
+| PostgreSQL | `docker.io/library/postgres:18.4-alpine3.24` |
+| Valkey | `docker.io/valkey/valkey:9.1.1` |
+| Managed OCI registry | `docker.io/library/registry:3.1.1` |
+| Alpine runtime | `docker.io/library/alpine:3.24.1` |
+| Go builder | `docker.io/library/golang:1.26.5-alpine3.24` |
+| Node builder | `docker.io/library/node:24.19.0-alpine` |
+| nginx stable runtime | `docker.io/library/nginx:1.31.3-alpine` |
 | API, worker and builder-agent runtime | Alpine `3.24.1`, with CA certificates `20260611-r0` and Git `2.54.0-r0` where required |
-| Helm 4.2.3 upgrader runtime | `docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b` |
+| Helm 4.2.3 upgrader runtime | `docker.io/alpine/helm:4.2.3` |
 
-Every runtime base has a readable version tag. Dockerfiles additionally retain
-the reviewed OCI digest as an integrity check; that digest is not the product or
-dependency version shown to operators.
+Every runtime base uses a readable version tag. Generated Kuberploy application
+releases still record content digests as deployment integrity, but dependency
+versions are never represented by opaque hashes.
 
 ## GitHub Actions
 
@@ -149,8 +150,8 @@ dependency version shown to operators.
 | `docker/setup-buildx-action` | 4 |
 | `docker/login-action` | 4 |
 | `docker/build-push-action` | 7 |
-| `actions/upload-artifact` | 4 |
-| `actions/download-artifact` | 4 |
+| `actions/upload-artifact` | 7 |
+| `actions/download-artifact` | 8 |
 
 Workflow policy accepts only the exact `@vN` major-tag form from approved action owners. Minor, patch, branch, floating, and unversioned selectors are rejected by the release source validator.
 

@@ -73,7 +73,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- if ne .Values.traefik.image.registry "docker.io" -}}{{ fail "Traefik image registry is locked" }}{{- end -}}
   {{- if ne .Values.traefik.image.repository "library/traefik" -}}{{ fail "Traefik image repository is locked" }}{{- end -}}
   {{- if ne .Values.traefik.image.tag "v3.7.10" -}}{{ fail "Traefik image tag is locked to v3.7.10" }}{{- end -}}
-  {{- if ne .Values.traefik.image.digest "sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac" -}}{{ fail "Traefik image digest is locked" }}{{- end -}}
+  {{- if not (empty .Values.traefik.image.digest) -}}{{ fail "Traefik uses the explicit v3.7.10 image version without a digest selector" }}{{- end -}}
   {{- if ne .Values.traefik.versionOverride "v3.7.10" -}}{{ fail "Traefik versionOverride is locked to v3.7.10" }}{{- end -}}
   {{- if or (ne .Values.traefik.nameOverride "traefik") (not (empty .Values.traefik.namespaceOverride)) (not (empty .Values.traefik.instanceLabelOverride)) (not (empty .Values.traefik.fullnameOverride)) (not (empty .Values.traefik.commonLabels)) -}}{{ fail "Traefik namespace and policy identity labels are locked" }}{{- end -}}
   {{- if or (not .Values.traefik.deployment.enabled) (ne .Values.traefik.deployment.kind "Deployment") (lt (int .Values.traefik.deployment.replicas) 2) -}}{{ fail "managed Traefik requires at least two Deployment replicas" }}{{- end -}}

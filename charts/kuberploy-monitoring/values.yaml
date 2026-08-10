@@ -91,7 +91,7 @@ kube-prometheus-stack:
       registry: registry.k8s.io
       repository: kube-state-metrics/kube-state-metrics
       tag: v2.19.1
-      sha: sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1
+      sha: ""
       pullPolicy: IfNotPresent
     replicas: 1
     automountServiceAccountToken: true
@@ -184,7 +184,7 @@ kube-prometheus-stack:
       tag: v1.12.1
       distroless: true
       pullPolicy: IfNotPresent
-      digest: sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106
+      digest: ""
     service:
       enabled: true
       type: ClusterIP
@@ -305,7 +305,7 @@ kube-prometheus-stack:
         registry: quay.io
         repository: prometheus/alertmanager
         tag: v0.33.1
-        sha: 9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+        sha: ""
         pullPolicy: IfNotPresent
       resources:
         requests:
@@ -365,14 +365,14 @@ kube-prometheus-stack:
       registry: quay.io
       repository: prometheus-operator/prometheus-operator
       tag: v0.93.0
-      sha: a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39
+      sha: ""
       pullPolicy: IfNotPresent
     prometheusConfigReloader:
       image:
         registry: quay.io
         repository: prometheus-operator/prometheus-config-reloader
         tag: v0.93.0
-        sha: 0ccb22ca9f3f6fd9f76ce95585d18bd2e363d421c534dde710be4bd13caa551d
+        sha: ""
       enableProbe: true
       resources:
         requests:
@@ -385,7 +385,7 @@ kube-prometheus-stack:
       registry: quay.io
       repository: thanos/thanos
       tag: v0.42.4
-      sha: b567818fe608067eb0f1d7c2c4fe361e7ad83c8a256234c97685f1d0bf670cc8
+      sha: ""
     prometheusInstanceNamespaces: [kuberploy-monitoring]
     alertmanagerInstanceNamespaces: [kuberploy-monitoring]
     thanosRulerInstanceNamespaces: [kuberploy-monitoring]
@@ -489,7 +489,7 @@ kube-prometheus-stack:
         registry: quay.io
         repository: prometheus/prometheus
         tag: v3.13.2-distroless
-        sha: 64f71bb84e03c855948418b0fc5dea53e9543d8e3fc9931598f583805507f05e
+        sha: ""
         pullPolicy: IfNotPresent
       resources:
         requests:

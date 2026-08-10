@@ -3,8 +3,8 @@
 # Stage-90 helpers. This file is sourced by builtin-driver.sh after its
 # inventory and HTTP helpers are defined; sourcing it performs no I/O.
 
-readonly KP_QUALIFICATION_NETWORK_SERVER_IMAGE="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
-readonly KP_QUALIFICATION_NETWORK_CLIENT_IMAGE="docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
+readonly KP_QUALIFICATION_NETWORK_SERVER_IMAGE="registry.k8s.io/e2e-test-images/agnhost:2.53"
+readonly KP_QUALIFICATION_NETWORK_CLIENT_IMAGE="docker.io/library/alpine:3.24.1"
 
 kp_security_resource_for_kind() {
   case "${1:?kind required}" in

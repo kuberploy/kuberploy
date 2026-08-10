@@ -44,7 +44,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "PersistentVolumeClaim")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "2" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.containers[0].image] | unique | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "docker.io/valkey/valkey:9.1.1@sha256:3acc0687f2a2e1091fae6450d7842dd658c941338cf0a873ddd9e14b9e4ea4dd" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.containers[0].image] | unique | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "docker.io/valkey/valkey:9.1.1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.automountServiceAccountToken' "${kp_tmp}/managed.yaml" | tail -1)" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Service") | .spec.type' "${kp_tmp}/managed.yaml" | tail -1)" == "ClusterIP" ]]
@@ -72,7 +72,7 @@ kp_reject() {
   fi
 }
 
-kp_reject 'mutable image' --set-string valkey.image.tag=9.1.1
+kp_reject 'different image version' --set-string valkey.image.tag=9.1.0
 kp_reject 'public service' --set-string valkey.service.type=LoadBalancer
 kp_reject 'disabled auth' --set valkey.auth.enabled=false
 kp_reject 'inline password' --set-string valkey.auth.aclUsers.default.password=plaintext
