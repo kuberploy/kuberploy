@@ -256,7 +256,7 @@ jobs:
             '{component: $component, platform: $platform, architecture: $architecture, image: $image, digest: $digest}' \
             >"${RUNNER_TEMP}/image-digests/${COMPONENT}-${ARCHITECTURE}.json"
       - name: Upload platform digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-digest-${{ matrix.component }}-${{ matrix.architecture }}
           path: ${{ runner.temp }}/image-digests/${{ matrix.component }}-${{ matrix.architecture }}.json
