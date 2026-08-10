@@ -1058,8 +1058,17 @@ func parseQuantity(resource, value string) (*big.Int, bool) {
 }
 
 func validateBuildPod(pod, job map[string]any) error {
-	if pod["apiVersion"] != "v1" || pod["kind"] != "Pod" || objectNamespace(pod) != objectNamespace(job) || !kubeNameRE.MatchString(objectName(pod)) {
-		return fmt.Errorf("object metadata: %w", ErrInfrastructure)
+	if pod["apiVersion"] != "v1" {
+		return fmt.Errorf("api version: %w", ErrInfrastructure)
+	}
+	if pod["kind"] != "Pod" {
+		return fmt.Errorf("kind: %w", ErrInfrastructure)
+	}
+	if objectNamespace(pod) != objectNamespace(job) {
+		return fmt.Errorf("namespace: %w", ErrInfrastructure)
+	}
+	if !kubeNameRE.MatchString(objectName(pod)) {
+		return fmt.Errorf("name: %w", ErrInfrastructure)
 	}
 	jobSpec, _ := job["spec"].(map[string]any)
 	jobTemplate, _ := jobSpec["template"].(map[string]any)
