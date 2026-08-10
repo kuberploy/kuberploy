@@ -1,0 +1,82 @@
+# Kuberploy managed platform installer values.
+#
+# Fill both CIDR lists before use. They must contain exact /32 or /128 hosts:
+# the Kubernetes Service/API endpoints and the HTTPS endpoints Argo needs to
+# fetch this repository plus the enabled child-chart repositories.
+bootstrap:
+  valkey:
+    enabled: true
+  argoCD:
+    enabled: true
+    mode: managed
+    managedPrerequisitesConfirmed: true
+  controlPlaneToken:
+    mode: generated
+    kubeAPIServerCIDRs: []
+
+cluster:
+  kubeAPIServerCIDRs: []
+
+source:
+  repoURL: https://github.com/kuberploy/kuberploy.git
+  targetRevision: v0.1.0-rc.8
+
+publicEndpoint:
+  enabled: false
+  hostname: ""
+  tls:
+    enabled: false
+    secretName: ""
+    clusterIssuerName: ""
+    accountEmail: ""
+
+components:
+  controlPlane:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+  postgresql:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles:
+      - ../../examples/installer/postgresql.yaml
+  valkey:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+  edge:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+  certManager:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+  sealedSecrets:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+  monitoring:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.8
+    valueFiles: []
+
+argoCD:
+  argoFoundation:
+    networkPolicy:
+      kubeAPIServerCIDRs: []
+      repositoryEgressCIDRs: []

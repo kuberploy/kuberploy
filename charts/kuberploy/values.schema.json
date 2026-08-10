@@ -809,10 +809,11 @@
         "tls": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "secretName"],
+          "required": ["enabled", "secretName", "issuerName"],
           "properties": {
             "enabled": { "type": "boolean" },
-            "secretName": { "type": "string", "maxLength": 63 }
+            "secretName": { "type": "string", "maxLength": 63 },
+            "issuerName": { "type": "string", "maxLength": 63, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$" }
           }
         }
       }

@@ -14,13 +14,12 @@ cluster credential is created.
 
 ## Required inputs
 
-The supported minimal path is the repository's `scripts/install.sh`. It pulls
-this chart from public GHCR at one explicit version, derives the exact
-Kubernetes API service CIDR and GitHub repository CIDRs, and enables only Argo
-CD, PostgreSQL, Valkey, and the Kuberploy control plane. Provider integrations
-remain disabled. Advanced installations may start from
-`testdata/managed-values.yaml` or `testdata/adopted-values.yaml` and replace
-every placeholder with operator-owned values. The irreducible inputs are:
+Installation is intentionally Helm-native. Operators provide one reviewed
+values file to the public OCI installer chart; there is no shell installer that
+discovers or mutates cluster configuration on their behalf. Start from
+[`examples/installer/managed-platform-values.yaml`](../../examples/installer/managed-platform-values.yaml)
+and replace every empty cluster-specific field with operator-owned values. The
+irreducible inputs are:
 
 - a canonical HTTPS GitHub source URL and explicit semantic release tag;
 - a release-manifest package version for every enabled component (recorded on
@@ -31,6 +30,9 @@ every placeholder with operator-owned values. The irreducible inputs are:
   provider settings and public URL required by each selected wrapper;
 - explicit `managed` or `adopted` mode. Adoption still requires each wrapper's
   compatibility attestation and never creates the adopted controller.
+- exact `cluster.kubeAPIServerCIDRs` for any enabled controller that reads the
+  Kubernetes API, plus an optional closed `publicEndpoint` hostname/TLS Secret
+  reference for the control-plane Ingress.
 
 Managed Argo CD uses the installer-owned direct Valkey dependency, closing the
 former empty-cluster bootstrap cycle. The installer generates only the exact
@@ -56,7 +58,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.7 \
+  --version 0.1.0-rc.8 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml --wait
 ```
@@ -69,8 +71,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.7.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.7.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.8.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.8.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.

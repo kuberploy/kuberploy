@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.7` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.8` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 
 ## Highlights
@@ -65,33 +65,38 @@ Requirements:
 
 - Kubernetes `1.34`–`1.36`
 - Helm `4.2.3`
-- `kubectl`, `curl`, and `jq`
+- `kubectl`
 - a default StorageClass
 
-Download the installer from the explicit release tag, then name the exact
-kubeconfig and context it may change:
+Create an operator-owned values file from the installer contract, then install
+the public OCI chart at one explicit version:
 
 ```bash
-curl -fsSLo kuberploy-install.sh \
-  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.7/scripts/install.sh
-chmod +x kuberploy-install.sh
-
-./kuberploy-install.sh \
-  --version 0.1.0-rc.7 \
-  --kubeconfig /absolute/path/to/kubeconfig \
-  --context exact-context
+cp examples/installer/managed-platform-values.yaml installer-values.yaml
+# Edit the exact API/repository CIDRs, component choices and public endpoint.
 ```
 
-The script installs the public OCI chart and the minimal managed control plane:
-Argo CD, PostgreSQL, Valkey, API, worker, and web. It derives only the exact
-Kubernetes API and GitHub repository CIDRs needed by the default NetworkPolicy.
-DNS, ACME, GitHub App, registry, builder, and monitoring integrations remain
-off until an administrator configures them.
+```bash
+helm upgrade --install kuberploy-installer \
+  oci://ghcr.io/kuberploy/charts/kuberploy-installer \
+  --version 0.1.0-rc.8 \
+  --namespace kuberploy-system --create-namespace \
+  --kubeconfig /absolute/path/to/kubeconfig \
+  --kube-context exact-context \
+  --values installer-values.yaml \
+  --wait
+```
+
+The values file explicitly selects every managed or adopted component, exact
+Kubernetes API and provider egress CIDRs, public endpoint, and pre-existing
+Secret references. Traefik, PostgreSQL, Valkey, cert-manager, monitoring and
+the control plane can be selected in the same installer release; integrations
+that require third-party credentials remain off until their values and Secrets
+are supplied by an administrator.
 
 `helm --wait` confirms bootstrap acceptance, not full platform readiness. The
-script prints the Argo health, one-time bootstrap-token, and local UI commands.
-See the [installer guide](charts/kuberploy-installer/README.md) for manual OCI
-installation, managed/adopted modes, required Secrets, and ownership boundaries.
+[installer guide](charts/kuberploy-installer/README.md) documents the values
+contract, managed/adopted modes, required Secrets, and ownership boundaries.
 
 ## Documentation
 

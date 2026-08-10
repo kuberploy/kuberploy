@@ -27,6 +27,19 @@ spec:
       ports:
         - {port: 9100, protocol: TCP}
   egress:
+    # The public Kuberploy Ingress lives in this shared namespace. Permit only
+    # the exact web/API backends and port; do not grant arbitrary same-namespace
+    # access.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberploy
+            matchExpressions:
+              - key: app.kubernetes.io/component
+                operator: In
+                values: [api, web]
+      ports:
+        - {port: 8080, protocol: TCP}
     - to:
         - namespaceSelector:
             matchLabels:

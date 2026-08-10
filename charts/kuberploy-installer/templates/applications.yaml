@@ -1,16 +1,16 @@
 {{- include "kuberploy-installer.validate" . -}}
 {{- $root := . -}}
 {{- $catalog := list
-  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20")
-  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0")
-  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0")
-  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5")
-  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10")
-  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0")
-  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0")
-  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10")
-  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10")
-  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10")
+  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20" "dependencyRepo" "")
+  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0" "dependencyRepo" "")
+  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0" "dependencyRepo" "https://traefik.github.io/charts")
+  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5" "dependencyRepo" "https://charts.jetstack.io")
+  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "https://kubernetes-sigs.github.io/external-dns")
+  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0" "dependencyRepo" "https://charts.external-secrets.io")
+  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0" "dependencyRepo" "https://bitnami.github.io/sealed-secrets")
+  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10" "dependencyRepo" "https://prometheus-community.github.io/helm-charts")
+  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "")
+  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "")
 -}}
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
@@ -52,6 +52,49 @@
   {{- end -}}
   {{- $childValues = mergeOverwrite $childValues $bootstrapValues -}}
 {{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.publicEndpoint.enabled -}}
+  {{- $public := $root.Values.publicEndpoint -}}
+  {{- $scheme := ternary "https" "http" $public.tls.enabled -}}
+  {{- $endpointValues := dict
+    "config" (dict "publicURL" (printf "%s://%s" $scheme $public.hostname))
+    "ingress" (dict
+      "enabled" true
+      "className" "traefik"
+      "host" $public.hostname
+      "tls" (dict "enabled" $public.tls.enabled "secretName" $public.tls.secretName "issuerName" $public.tls.clusterIssuerName)
+    )
+  -}}
+  {{- $childValues = mergeOverwrite $childValues $endpointValues -}}
+{{- end -}}
+{{- if eq $item.key "edge" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "edge" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+{{- else if eq $item.key "certManager" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- if $root.Values.publicEndpoint.tls.enabled -}}
+    {{- $issuer := dict
+      "enabled" true
+      "name" $root.Values.publicEndpoint.tls.clusterIssuerName
+      "email" $root.Values.publicEndpoint.tls.accountEmail
+      "server" "https://acme-v02.api.letsencrypt.org/directory"
+      "privateKeySecretName" (printf "%s-account" $root.Values.publicEndpoint.tls.clusterIssuerName)
+      "dns01Profiles" (list)
+    -}}
+    {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "issuers" (dict "production" $issuer))) -}}
+  {{- end -}}
+{{- else if eq $item.key "externalDNS" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+{{- else if eq $item.key "externalSecrets" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+{{- else if eq $item.key "sealedSecrets" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+{{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.components.monitoring.enabled -}}
+  {{- $monitoringValues := dict
+    "config" (dict "monitoring" (dict "mode" "managed" "prometheusURL" "http://prometheus-operated.kuberploy-monitoring.svc:9090" "bearerTokenSecret" (dict "name" "" "key" "token")))
+    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs)
+  -}}
+  {{- $childValues = mergeOverwrite $childValues $monitoringValues -}}
+{{- end -}}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -64,9 +107,27 @@ metadata:
 spec:
   sourceRepos:
     - {{ $root.Values.source.repoURL | quote }}
+    {{- if $item.dependencyRepo }}
+    - {{ $item.dependencyRepo | quote }}
+    {{- end }}
   destinations:
     - server: https://kubernetes.default.svc
       namespace: {{ $item.namespace }}
+    {{- if eq $item.key "certManager" }}
+    # cert-manager's upstream leader-election Roles live in kube-system.
+    - server: https://kubernetes.default.svc
+      namespace: kube-system
+    {{- end }}
+    {{- if and (eq $item.key "controlPlane") $root.Values.components.monitoring.enabled }}
+    # Managed monitoring attestation uses exact read-only Roles in its fixed
+    # namespace; the control-plane Project must permit those named objects.
+    - server: https://kubernetes.default.svc
+      namespace: kuberploy-monitoring
+    {{- end }}
+    {{- if eq $item.key "builder" }}
+    - server: https://kubernetes.default.svc
+      namespace: kuberploy-build-dind
+    {{- end }}
   clusterResourceWhitelist:
     - group: "*"
       kind: "*"
@@ -74,7 +135,10 @@ spec:
     - group: "*"
       kind: "*"
   orphanedResources:
-    warn: true
+    # Multiple independently reconciled releases intentionally share the
+    # protected control-plane namespace. Per-project orphan warnings there are
+    # false positives for sibling resources; dedicated namespaces keep them.
+    warn: {{ ne $item.namespace "kuberploy-system" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

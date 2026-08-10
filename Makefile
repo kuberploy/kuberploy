@@ -47,7 +47,6 @@ platform-chart-test:
 
 installer-chart-test:
 	@./test/e2e/render-installer-chart.sh
-	@./test/e2e/test-install-script.sh
 
 builder-chart-test:
 	@./test/e2e/render-builder-chart.sh

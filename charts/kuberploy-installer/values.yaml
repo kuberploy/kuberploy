@@ -27,6 +27,24 @@ applications:
   prune: true
   selfHeal: true
 
+# Cluster facts are supplied explicitly in the installer Helm values and are
+# injected only into selected child charts that need direct Kubernetes API
+# access. They are not credentials and cannot be broad all-address ranges.
+cluster:
+  kubeAPIServerCIDRs: []
+
+# Optional public control-plane endpoint. Enabling it also requires the
+# control-plane and edge components. TLS refers only to a pre-existing Secret;
+# cert-manager may populate that Secret independently.
+publicEndpoint:
+  enabled: false
+  hostname: ""
+  tls:
+    enabled: false
+    secretName: ""
+    clusterIssuerName: ""
+    accountEmail: ""
+
 components:
   controlPlane: &disabledComponent
     enabled: false

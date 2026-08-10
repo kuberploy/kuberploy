@@ -5,6 +5,10 @@ metadata:
   name: {{ include "kuberploy.fullname" . }}
   labels:
     {{- include "kuberploy.labels" . | nindent 4 }}
+  {{- with .Values.ingress.tls.issuerName }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ . | quote }}
+  {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls.enabled }}

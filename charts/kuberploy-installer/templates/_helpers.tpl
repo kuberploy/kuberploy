@@ -90,6 +90,35 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- fail "the control-plane Application requires explicit PostgreSQL and Valkey managed/adopted Applications" -}}
 {{- end -}}
 
+{{- $apiConsumers := or
+  (and .Values.components.edge.enabled (eq .Values.components.edge.mode "managed"))
+  (and .Values.components.certManager.enabled (eq .Values.components.certManager.mode "managed"))
+  (and .Values.components.externalDNS.enabled (eq .Values.components.externalDNS.mode "managed"))
+  (and .Values.components.externalSecrets.enabled (eq .Values.components.externalSecrets.mode "managed"))
+  (and .Values.components.sealedSecrets.enabled (eq .Values.components.sealedSecrets.mode "managed"))
+  .Values.components.monitoring.enabled
+-}}
+{{- if and $apiConsumers (empty .Values.cluster.kubeAPIServerCIDRs) -}}
+  {{- fail "enabled cluster-integrated components require exact cluster.kubeAPIServerCIDRs" -}}
+{{- end -}}
+{{- range .Values.cluster.kubeAPIServerCIDRs -}}
+  {{- if has . (list "0.0.0.0/0" "::/0") -}}{{ fail "cluster.kubeAPIServerCIDRs cannot contain all-address ranges" }}{{- end -}}
+{{- end -}}
+
+{{- $public := .Values.publicEndpoint -}}
+{{- if $public.enabled -}}
+  {{- if or (not .Values.components.controlPlane.enabled) (not .Values.components.edge.enabled) -}}{{ fail "publicEndpoint requires enabled controlPlane and edge components" }}{{- end -}}
+  {{- if empty $public.hostname -}}{{ fail "publicEndpoint requires one exact hostname" }}{{- end -}}
+  {{- if $public.tls.enabled -}}
+    {{- if or (empty $public.tls.secretName) (empty $public.tls.clusterIssuerName) (empty $public.tls.accountEmail) -}}{{ fail "publicEndpoint TLS requires exact Secret, ClusterIssuer, and account email values" }}{{- end -}}
+    {{- if or (not .Values.components.certManager.enabled) (ne .Values.components.certManager.mode "managed") -}}{{ fail "publicEndpoint managed TLS requires the managed certManager component" }}{{- end -}}
+  {{- else if or (not (empty $public.tls.secretName)) (not (empty $public.tls.clusterIssuerName)) (not (empty $public.tls.accountEmail)) -}}
+    {{- fail "disabled publicEndpoint TLS rejects dormant certificate configuration" }}
+  {{- end -}}
+{{- else if or (not (empty $public.hostname)) $public.tls.enabled (not (empty $public.tls.secretName)) (not (empty $public.tls.clusterIssuerName)) (not (empty $public.tls.accountEmail)) -}}
+  {{- fail "disabled publicEndpoint rejects dormant hostname and TLS configuration" -}}
+{{- end -}}
+
 {{- if and $anyChild (not $argo.enabled) -}}{{ fail "enabled child Applications require the explicit Argo CD bootstrap/adoption boundary" }}{{- end -}}
 {{- if $anyChild -}}
   {{- if not (regexMatch "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$" .Values.source.repoURL) -}}{{ fail "source.repoURL must be a canonical HTTPS GitHub repository URL without credentials" }}{{- end -}}
@@ -120,6 +149,10 @@ valkeyFoundation:
   adoptExisting: {{ eq $mode "adopted" }}
 {{- else if eq $name "edge" -}}
 edge:
+  namespace:
+    # kuberploy-system is created once by the installer/PostgreSQL foundation;
+    # the edge Application must not compete for Namespace ownership.
+    create: false
   traefik:
     managed: {{ eq $mode "managed" }}
     adoptExisting: {{ eq $mode "adopted" }}

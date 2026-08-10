@@ -43,7 +43,7 @@ ingress:
   enabled: true
   className: kp-e2e-render
   host: kuberploy.k8s.orb.local
-  tls: {enabled: false, secretName: ""}
+  tls: {enabled: false, secretName: "", issuerName: ""}
 rbac:
   observedNamespaces: [kuberploy-e2e-render]
   buildNamespaces: [kuberploy-e2e-render-build]
