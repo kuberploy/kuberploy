@@ -94,11 +94,14 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 	templateLabels := template["metadata"].(map[string]any)["labels"].(map[string]any)
 	templateLabels["batch.kubernetes.io/controller-uid"] = jobMetadata["uid"]
 	templateLabels["batch.kubernetes.io/job-name"] = jobName
+	podLabels := cloneObject(templateLabels)
+	podLabels["controller-uid"] = jobMetadata["uid"]
+	podLabels["job-name"] = jobName
 	pod := map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{
 			"name": "build-pod-aaaaaaaa", "namespace": planRequest.Namespace,
-			"uid": "55555555-5555-4555-8555-555555555555", "labels": cloneObject(templateLabels),
+			"uid": "55555555-5555-4555-8555-555555555555", "labels": podLabels,
 			"ownerReferences": []any{map[string]any{"apiVersion": "batch/v1", "kind": "Job", "name": jobName, "uid": jobMetadata["uid"], "controller": true, "blockOwnerDeletion": true}},
 		},
 		"spec": map[string]any{"containers": []any{map[string]any{"name": "agent"}}, "initContainers": []any{map[string]any{"name": "checkout"}, map[string]any{"name": "dind"}}},
