@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Release candidate with verified blank-cluster bootstrap and RC-to-RC PostgreSQL upgrade, public single-command installation, GitHub builds and GitOps delivery, managed platform foundations, project-selectable runtime pull credentials, Deployment rollout strategy controls, operational previews, and explicit build-time versus runtime environment controls.",
   "supportedUpgradeFrom": ">=0.1.0-rc.1 <0.2.0",
-  "version": "0.1.0-rc.8"
+  "version": "0.1.0-rc.9"
 }

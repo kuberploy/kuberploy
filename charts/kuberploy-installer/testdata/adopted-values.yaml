@@ -5,14 +5,14 @@ bootstrap:
 
 source:
   repoURL: https://github.com/kuberploy/kuberploy.git
-  targetRevision: "v0.1.0-rc.8"
+  targetRevision: "v0.1.0-rc.9"
 
 components:
   edge:
     enabled: true
     mode: adopted
     adoptionConfirmed: true
-    expectedPackageVersion: 0.1.0-rc.8
+    expectedPackageVersion: 0.1.0-rc.9
     valueFiles: []
 
 argoCD:
