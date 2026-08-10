@@ -1,0 +1,752 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-api-observer
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-api-observer
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "api") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-api-observer
+{{- if eq .Values.config.monitoring.mode "managed" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-managed-monitoring-observer
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["monitoring-monitoring-profile"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: ["kuberploy-prometheus-operator"]
+    verbs: ["get"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["prometheusrules"]
+    resourceNames: ["monitoring-service-recording-rules"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-managed-monitoring-observer
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "api") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-managed-monitoring-observer
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-worker-leases
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-worker-leases
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-worker-leases
+{{- if .Values.config.helmApplications.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-helm-renderer
+  namespace: {{ .Values.config.helmApplications.rendererNamespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-helm-renderer
+  namespace: {{ .Values.config.helmApplications.rendererNamespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-helm-renderer
+{{- end }}
+---
+# Kubernetes RBAC cannot constrain Secret creation by label or name prefix.
+# This Role is therefore intentionally confined to the dedicated Kuberploy
+# installation namespace; it has no tenant or cluster-wide binding.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-upgrade
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "services", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-upgrade
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.fullname" . }}-upgrade
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-upgrade
+{{- range $namespace := .Values.rbac.observedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-observe
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-observe
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "api") }}
+    namespace: {{ $.Release.Namespace }}
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-observe
+{{- end }}
+{{- if .Values.config.buildLogs.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-build-logs
+  namespace: {{ .Values.builder.namespace.name }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-build-logs
+  namespace: {{ .Values.builder.namespace.name }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "api") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-build-logs
+{{- end }}
+{{- range $namespace := .Values.rbac.buildNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-builder-jobs
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-builder-jobs
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-builder-jobs
+{{- end }}
+{{- if .Values.config.runtimeSecrets.enabled }}
+{{- range $namespace := .Values.config.runtimeSecrets.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-api
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "api") | nindent 4 }}
+rules:
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-api
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "api") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "api") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-worker
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "worker") | nindent 4 }}
+rules:
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-worker
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "worker") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-worker
+{{- end }}
+{{- end }}
+{{- if .Values.config.runtimeRegistryPulls.enabled }}
+{{- range $namespace := .Values.config.runtimeRegistryPulls.namespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-registry-pulls
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "runtime-registry-pulls") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      {{- range $profile := $.Values.config.runtimeRegistryPulls.profiles }}
+      - {{ include "kuberploy.runtimeRegistryPullSecretName" (dict "namespace" $namespace "profile" $profile) }}
+      {{- end }}
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-runtime-registry-pulls
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "runtime-registry-pulls") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-runtime-registry-pulls
+{{- end }}
+{{- end }}
+{{- if .Values.config.argoObservation.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-argo-observer
+  namespace: {{ .Values.config.argoObservation.namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-argo-observer
+  namespace: {{ .Values.config.argoObservation.namespace }}
+  labels:
+    {{- include "kuberploy.labels" $ | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-argo-observer
+{{- end }}
+{{- if .Values.config.argoDesiredState.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-argo-desired-state
+  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "argo-desired-state") | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    resourceNames: ["kuberploy-platform-root"]
+    verbs: ["get"]
+  # Server-Side Apply is authorized as create for an absent object and patch
+  # for an existing object. Admission below confines all three mutation verbs
+  # to the deterministic repository-credential family; no Secret read exists.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" $ }}-argo-desired-state
+  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "argo-desired-state") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" $ }}-argo-desired-state
+{{- end }}
+{{- if .Values.config.edgeRuntime.enabled }}
+{{- with .Values.config.edgeRuntime.profiles.traefik }}
+{{- $roleName := include "kuberploy.edgeRBACName" (dict "root" $ "kind" "traefik" "namespace" .namespace "identity" .profileConfigMap) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: traefik
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ .deployment.name | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: [{{ .service.name | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .profileConfigMap | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: traefik
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $roleName }}
+{{- end }}
+{{- with .Values.config.edgeRuntime.profiles.certManager }}
+{{- $roleName := include "kuberploy.edgeRBACName" (dict "root" $ "kind" "cert-manager" "namespace" .namespace "identity" .profileConfigMap) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: cert-manager
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+      {{- range .deployments }}
+      - {{ .name | quote }}
+      {{- end }}
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .profileConfigMap | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: cert-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $roleName }}
+{{- end }}
+{{- range $profile := .Values.config.edgeRuntime.profiles.externalDNS }}
+{{- $roleName := include "kuberploy.edgeRBACName" (dict "root" $ "kind" "external-dns" "namespace" $profile.namespace "identity" $profile.integrationId) }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ $profile.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: external-dns
+    kuberploy.io/dns-integration: {{ $profile.integrationId | quote }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ $profile.deployment.name | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ $profile.profileConfigMap | quote }}]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $roleName }}
+  namespace: {{ $profile.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" $ "component" "edge-runtime") | nindent 4 }}
+    kuberploy.io/edge-target: external-dns
+    kuberploy.io/dns-integration: {{ $profile.integrationId | quote }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" $ "component" "worker") }}
+    namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $roleName }}
+{{- end }}
+{{- if .Values.config.externalDNSOperational.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.componentName" (dict "root" . "component" "external-dns-observer") }}
+  namespace: {{ .Values.config.externalDNSOperational.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "edge-runtime") | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.componentName" (dict "root" . "component" "external-dns-observer") }}
+  namespace: {{ .Values.config.externalDNSOperational.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "edge-runtime") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.componentName" (dict "root" . "component" "external-dns-observer") }}
+{{- end }}
+{{- if or .Values.config.edgeRuntime.profiles.traefik .Values.config.edgeRuntime.profiles.certManager }}
+{{- $clusterRoleName := include "kuberploy.edgeRBACName" (dict "root" . "kind" "cluster" "namespace" "cluster" "identity" "edge-runtime-v1") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $clusterRoleName }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "edge-runtime") | nindent 4 }}
+rules:
+  {{- with .Values.config.edgeRuntime.profiles.traefik }}
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    resourceNames: [{{ .ingressClass.name | quote }}]
+    verbs: ["get"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    resourceNames:
+      {{- range .crds }}
+      - {{ .name | quote }}
+      {{- end }}
+    verbs: ["get"]
+  {{- end }}
+  {{- with .Values.config.edgeRuntime.profiles.certManager }}
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    resourceNames:
+      {{- range .crds }}
+      - {{ .name | quote }}
+      {{- end }}
+    verbs: ["get"]
+  - apiGroups: ["cert-manager.io"]
+    resources: ["clusterissuers"]
+    resourceNames:
+      {{- if .productionIssuer }}
+      - {{ .productionIssuer | quote }}
+      {{- end }}
+      {{- if .stagingIssuer }}
+      - {{ .stagingIssuer | quote }}
+      {{- end }}
+    verbs: ["get"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $clusterRoleName }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "edge-runtime") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $clusterRoleName }}
+{{- end }}
+{{- end }}
+{{- if .Values.config.managedRegistry.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "kuberploy.registryMaintenanceServiceAccount" . }}
+  namespace: {{ .Values.config.managedRegistry.namespace }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-maintenance
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-registry-maintenance-controller
+  namespace: {{ .Values.config.managedRegistry.namespace }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-maintenance-controller
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames: [{{ .Values.config.managedRegistry.deployment | quote }}]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    resourceNames: [{{ .Values.config.managedRegistry.deployment | quote }}]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    resourceNames: [{{ .Values.config.managedRegistry.persistentVolumeClaim | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .Values.config.managedRegistry.registryConfigMap | quote }}]
+    verbs: ["get"]
+  # Kubernetes does not authorize create by resourceName. The worker's closed
+  # REST client admits only deterministic, exact maintenance Job specs.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-registry-maintenance-controller
+  namespace: {{ .Values.config.managedRegistry.namespace }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry-maintenance-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "kuberploy.fullname" . }}-registry-maintenance-controller
+{{- end }}

@@ -1,0 +1,71 @@
+{{- if and .Values.foundation.enabled .Values.foundation.issuers.production.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.foundation.issuers.production.name }}
+  labels:
+    {{- include "kuberploy-cert-manager.labels" . | nindent 4 }}
+    kuberploy.io/issuer-environment: production
+spec:
+  acme:
+    email: {{ .Values.foundation.issuers.production.email | quote }}
+    server: {{ .Values.foundation.issuers.production.server | quote }}
+    privateKeySecretRef:
+      name: {{ .Values.foundation.issuers.production.privateKeySecretName }}
+    solvers:
+      {{- range .Values.foundation.issuers.production.dns01Profiles }}
+      - selector:
+          dnsZones:
+            {{- range .dnsZones }}
+            - {{ . | quote }}
+            {{- end }}
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: {{ .cloudflare.apiTokenSecretRef.name }}
+              key: {{ .cloudflare.apiTokenSecretRef.key }}
+      {{- end }}
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.foundation.issuers.ingressClassName }}
+            ingressTemplate:
+              metadata:
+                annotations:
+                  external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only
+{{- end }}
+{{- if and .Values.foundation.enabled .Values.foundation.issuers.staging.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.foundation.issuers.staging.name }}
+  labels:
+    {{- include "kuberploy-cert-manager.labels" . | nindent 4 }}
+    kuberploy.io/issuer-environment: staging
+spec:
+  acme:
+    email: {{ .Values.foundation.issuers.staging.email | quote }}
+    server: {{ .Values.foundation.issuers.staging.server | quote }}
+    privateKeySecretRef:
+      name: {{ .Values.foundation.issuers.staging.privateKeySecretName }}
+    solvers:
+      {{- range .Values.foundation.issuers.staging.dns01Profiles }}
+      - selector:
+          dnsZones:
+            {{- range .dnsZones }}
+            - {{ . | quote }}
+            {{- end }}
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: {{ .cloudflare.apiTokenSecretRef.name }}
+              key: {{ .cloudflare.apiTokenSecretRef.key }}
+      {{- end }}
+      - http01:
+          ingress:
+            ingressClassName: {{ .Values.foundation.issuers.ingressClassName }}
+            ingressTemplate:
+              metadata:
+                annotations:
+                  external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only
+{{- end }}

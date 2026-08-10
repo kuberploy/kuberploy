@@ -1,0 +1,609 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-contract:
+    name: Release contract
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: release/tools/go.sum
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+      - name: Validate source and manifest dry run
+        env:
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          kp_args=(--root .)
+          if [[ "${RELEASE_EVENT}" == "push" ]]; then
+            kp_args+=(--tag "${GITHUB_REF_NAME}")
+          fi
+          python3 release/validate_source.py "${kp_args[@]}"
+          ./release/test-manifest.sh
+
+  chart-lifecycle:
+    name: Chart install, upgrade, and rollback render
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+      - name: Render lifecycle
+        run: ./release/test-chart-lifecycle.sh
+
+  release-gate:
+    name: Verify trusted release tag
+    needs: [release-contract, chart-lifecycle]
+    if: needs.release-contract.result == 'success' && needs.chart-lifecycle.result == 'success' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.repository == 'kuberploy/kuberploy' && github.ref_protected == true
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      created_at: ${{ steps.release.outputs.created_at }}
+      source_date_epoch: ${{ steps.release.outputs.source_date_epoch }}
+      summary: ${{ steps.release.outputs.summary }}
+      breaking_changes: ${{ steps.release.outputs.breaking_changes }}
+      supported_upgrade_from: ${{ steps.release.outputs.supported_upgrade_from }}
+      kubernetes_constraint: ${{ steps.release.outputs.kubernetes_constraint }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve release metadata
+        id: release
+        run: |
+          kp_version="$(python3 release/validate_source.py --root . --tag "${GITHUB_REF_NAME}")"
+          kp_tag_commit="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          [[ "${kp_tag_commit}" == "${GITHUB_SHA}" ]]
+          kp_source_date_epoch="$(git show -s --format=%ct "${GITHUB_SHA}")"
+          kp_created_at="$(date --utc --date="@${kp_source_date_epoch}" '+%Y-%m-%dT%H:%M:%SZ')"
+          kp_summary="$(python3 -c 'import json; print(json.load(open("release/metadata.json", encoding="utf-8"))["summary"])')"
+          kp_breaking="$(python3 -c 'import json; print(str(json.load(open("release/metadata.json", encoding="utf-8"))["breakingChanges"]).lower())')"
+          kp_upgrade_range="$(python3 -c 'import json; print(json.load(open("release/metadata.json", encoding="utf-8"))["supportedUpgradeFrom"])')"
+          kp_kube_constraint="$(PYTHONPATH=release python3 -c 'from pathlib import Path; from validate_semantics import yaml_scalar; print(yaml_scalar(Path("charts/kuberploy/Chart.yaml").read_text(), ("kubeVersion",)))')"
+          {
+            echo "version=${kp_version}"
+            echo "created_at=${kp_created_at}"
+            echo "source_date_epoch=${kp_source_date_epoch}"
+            echo "summary=${kp_summary}"
+            echo "breaking_changes=${kp_breaking}"
+            echo "supported_upgrade_from=${kp_upgrade_range}"
+            echo "kubernetes_constraint=${kp_kube_constraint}"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Reject an existing GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if kp_release_lookup="$(gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" 2>&1)"; then
+            echo "A GitHub release already exists for ${GITHUB_REF_NAME}; refusing to push artifacts." >&2
+            exit 1
+          elif [[ "${kp_release_lookup}" != *"HTTP 404"* ]]; then
+            echo "Could not prove that ${GITHUB_REF_NAME} is unused: ${kp_release_lookup}" >&2
+            exit 1
+          fi
+
+  build-images:
+    name: Build ${{ matrix.component }} (${{ matrix.platform }})
+    needs: release-gate
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - component: api
+            runner: ubuntu-26.04
+            platform: linux/amd64
+            architecture: amd64
+            context: .
+            dockerfile: build/package/api.Dockerfile
+          - component: api
+            runner: ubuntu-26.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            context: .
+            dockerfile: build/package/api.Dockerfile
+          - component: worker
+            runner: ubuntu-26.04
+            platform: linux/amd64
+            architecture: amd64
+            context: .
+            dockerfile: build/package/worker.Dockerfile
+          - component: worker
+            runner: ubuntu-26.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            context: .
+            dockerfile: build/package/worker.Dockerfile
+          - component: web
+            runner: ubuntu-26.04
+            platform: linux/amd64
+            architecture: amd64
+            context: web
+            dockerfile: web/Dockerfile
+          - component: web
+            runner: ubuntu-26.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            context: web
+            dockerfile: web/Dockerfile
+          - component: upgrader
+            runner: ubuntu-26.04
+            platform: linux/amd64
+            architecture: amd64
+            context: .
+            dockerfile: build/package/upgrader.Dockerfile
+          - component: upgrader
+            runner: ubuntu-26.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            context: .
+            dockerfile: build/package/upgrader.Dockerfile
+          - component: builder-agent
+            runner: ubuntu-26.04
+            platform: linux/amd64
+            architecture: amd64
+            context: .
+            dockerfile: build/package/builder-agent.Dockerfile
+          - component: builder-agent
+            runner: ubuntu-26.04-arm
+            platform: linux/arm64
+            architecture: arm64
+            context: .
+            dockerfile: build/package/builder-agent.Dockerfile
+    env:
+      REGISTRY_IMAGE: ghcr.io/kuberploy/kuberploy-${{ matrix.component }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Verify native runner architecture
+        env:
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          case "${EXPECTED_ARCHITECTURE}:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo "Runner architecture does not match ${EXPECTED_ARCHITECTURE}: $(uname -m)" >&2; exit 1 ;;
+          esac
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push native image by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            VERSION=${{ needs.release-gate.outputs.version }}
+            REVISION=${{ github.sha }}
+            BUILD_DATE=${{ needs.release-gate.outputs.created_at }}
+            SOURCE_DATE_EPOCH=${{ needs.release-gate.outputs.source_date_epoch }}
+          labels: |
+            org.opencontainers.image.title=Kuberploy ${{ matrix.component }}
+            org.opencontainers.image.source=https://github.com/kuberploy/kuberploy
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.version=${{ needs.release-gate.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ needs.release-gate.outputs.created_at }}
+      - name: Verify and record platform digest
+        env:
+          COMPONENT: ${{ matrix.component }}
+          PLATFORM: ${{ matrix.platform }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          [[ "${IMAGE_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]
+          kp_image_json="$(docker buildx imagetools inspect \
+            "${REGISTRY_IMAGE}@${IMAGE_DIGEST}" --format '{{json .Image}}')"
+          jq -e --arg architecture "${ARCHITECTURE}" \
+            '.os == "linux" and .architecture == $architecture' <<<"${kp_image_json}" >/dev/null
+          mkdir -p "${RUNNER_TEMP}/image-digests"
+          jq -n \
+            --arg component "${COMPONENT}" \
+            --arg platform "${PLATFORM}" \
+            --arg architecture "${ARCHITECTURE}" \
+            --arg image "${REGISTRY_IMAGE}" \
+            --arg digest "${IMAGE_DIGEST}" \
+            '{component: $component, platform: $platform, architecture: $architecture, image: $image, digest: $digest}' \
+            >"${RUNNER_TEMP}/image-digests/${COMPONENT}-${ARCHITECTURE}.json"
+      - name: Upload platform digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.component }}-${{ matrix.architecture }}
+          path: ${{ runner.temp }}/image-digests/${{ matrix.component }}-${{ matrix.architecture }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  assemble-images:
+    name: Assemble multi-platform image indexes
+    needs: build-images
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      api_digest: ${{ steps.assemble.outputs.api_digest }}
+      worker_digest: ${{ steps.assemble.outputs.worker_digest }}
+      web_digest: ${{ steps.assemble.outputs.web_digest }}
+      upgrader_digest: ${{ steps.assemble.outputs.upgrader_digest }}
+      builder_agent_digest: ${{ steps.assemble.outputs.builder_agent_digest }}
+    steps:
+      - name: Download platform digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: ${{ runner.temp }}/image-digests
+          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble and verify image indexes
+        id: assemble
+        run: |
+          mkdir -p "${RUNNER_TEMP}/image-indexes"
+          for kp_component in api worker web upgrader builder-agent; do
+            kp_image="ghcr.io/kuberploy/kuberploy-${kp_component}"
+            kp_sources=()
+            kp_amd64_digest=""
+            kp_arm64_digest=""
+            for kp_architecture in amd64 arm64; do
+              kp_platform="linux/${kp_architecture}"
+              kp_record="${RUNNER_TEMP}/image-digests/${kp_component}-${kp_architecture}.json"
+              [[ -f "${kp_record}" ]] || {
+                echo "Missing ${kp_component} ${kp_platform} digest record." >&2
+                exit 1
+              }
+              kp_digest="$(jq -er \
+                --arg component "${kp_component}" \
+                --arg platform "${kp_platform}" \
+                --arg architecture "${kp_architecture}" \
+                --arg image "${kp_image}" \
+                'select(.component == $component and .platform == $platform and .architecture == $architecture and .image == $image) | .digest' \
+                "${kp_record}")"
+              [[ "${kp_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+              kp_image_json="$(docker buildx imagetools inspect \
+                "${kp_image}@${kp_digest}" --format '{{json .Image}}')"
+              jq -e --arg architecture "${kp_architecture}" \
+                '.os == "linux" and .architecture == $architecture' <<<"${kp_image_json}" >/dev/null
+              kp_sources+=("${kp_image}@${kp_digest}")
+              if [[ "${kp_architecture}" == "amd64" ]]; then
+                kp_amd64_digest="${kp_digest}"
+              else
+                kp_arm64_digest="${kp_digest}"
+              fi
+            done
+
+            kp_candidate="${kp_image}:candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            if kp_candidate_lookup="$(docker buildx imagetools inspect "${kp_candidate}" 2>&1)"; then
+              echo "Candidate image index already exists; refusing to overwrite ${kp_candidate}." >&2
+              exit 1
+            elif [[ ! "${kp_candidate_lookup,,}" =~ (not[[:space:]]found|manifest[[:space:]_]unknown) ]]; then
+              echo "Could not prove candidate image index is unused: ${kp_candidate_lookup}" >&2
+              exit 1
+            fi
+
+            kp_metadata="${RUNNER_TEMP}/image-indexes/${kp_component}.json"
+            docker buildx imagetools create \
+              --tag "${kp_candidate}" \
+              --metadata-file "${kp_metadata}" \
+              "${kp_sources[@]}"
+            kp_index_digest="$(jq -er '."containerimage.descriptor".digest' "${kp_metadata}")"
+            [[ "${kp_index_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+            kp_index_json="$(docker buildx imagetools inspect \
+              "${kp_image}@${kp_index_digest}" --format '{{json .Manifest}}')"
+            jq -e \
+              --arg amd64 "${kp_amd64_digest}" \
+              --arg arm64 "${kp_arm64_digest}" \
+              '.mediaType == "application/vnd.oci.image.index.v1+json" and
+               (.manifests | length == 2) and
+               any(.manifests[]; .platform.os == "linux" and .platform.architecture == "amd64" and .digest == $amd64) and
+               any(.manifests[]; .platform.os == "linux" and .platform.architecture == "arm64" and .digest == $arm64)' \
+              <<<"${kp_index_json}" >/dev/null
+            kp_output_name="${kp_component//-/_}_digest"
+            echo "${kp_output_name}=${kp_index_digest}" >>"${GITHUB_OUTPUT}"
+          done
+
+  publish:
+    name: Publish immutable release
+    needs: [release-gate, assemble-images]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: release/tools/go.sum
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+      - name: Package and validate release artifacts
+        env:
+          TZ: UTC
+          VERSION: ${{ needs.release-gate.outputs.version }}
+          CREATED_AT: ${{ needs.release-gate.outputs.created_at }}
+          SOURCE_DATE_EPOCH: ${{ needs.release-gate.outputs.source_date_epoch }}
+          SUMMARY: ${{ needs.release-gate.outputs.summary }}
+          BREAKING_CHANGES: ${{ needs.release-gate.outputs.breaking_changes }}
+          SUPPORTED_UPGRADE_FROM: ${{ needs.release-gate.outputs.supported_upgrade_from }}
+          KUBERNETES_CONSTRAINT: ${{ needs.release-gate.outputs.kubernetes_constraint }}
+          API_DIGEST: ${{ needs.assemble-images.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.assemble-images.outputs.worker_digest }}
+          WEB_DIGEST: ${{ needs.assemble-images.outputs.web_digest }}
+          UPGRADER_DIGEST: ${{ needs.assemble-images.outputs.upgrader_digest }}
+          BUILDER_AGENT_DIGEST: ${{ needs.assemble-images.outputs.builder_agent_digest }}
+        run: |
+          mkdir release-dist
+          for kp_digest in "${API_DIGEST}" "${WORKER_DIGEST}" "${WEB_DIGEST}" "${UPGRADER_DIGEST}" "${BUILDER_AGENT_DIGEST}"; do
+            [[ "${kp_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+          done
+          kp_chart_args=(
+            --source charts/kuberploy
+            --builder-chart charts/kuberploy-builder
+            --destination release-dist/chart
+            --version "${VERSION}"
+            --api-image "ghcr.io/kuberploy/kuberploy-api@${API_DIGEST}"
+            --worker-image "ghcr.io/kuberploy/kuberploy-worker@${WORKER_DIGEST}"
+            --web-image "ghcr.io/kuberploy/kuberploy-web@${WEB_DIGEST}"
+            --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${UPGRADER_DIGEST}"
+            --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}"
+          )
+          python3 release/package_chart.py "${kp_chart_args[@]}"
+          helm lint release-dist/chart
+          kp_chart_package="release-dist/kuberploy-${VERSION}.tgz"
+          python3 release/package_chart_archive.py \
+            --source release-dist/chart \
+            --output "${kp_chart_package}" \
+            --source-date-epoch "${SOURCE_DATE_EPOCH}"
+          kp_chart_digest="$(python3 release/chart_oci_digest.py \
+            --chart release-dist/chart/Chart.yaml \
+            --package "${kp_chart_package}" \
+            --created-at "${CREATED_AT}")"
+          [[ "${kp_chart_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+          python3 release/package_component_charts.py \
+            --root . \
+            --destination release-dist/component-charts \
+            --version "${VERSION}" \
+            --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+            --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}"
+          kp_component_chart_args=()
+          kp_component_packages=()
+          for kp_name in \
+            kuberploy-argocd \
+            kuberploy-installer \
+            kuberploy-builder \
+            kuberploy-cert-manager \
+            kuberploy-edge \
+            kuberploy-external-dns \
+            kuberploy-external-secrets \
+            kuberploy-monitoring \
+            kuberploy-postgresql \
+            kuberploy-registry \
+            kuberploy-runtime \
+            kuberploy-sealed-secrets \
+            kuberploy-valkey; do
+            kp_lint_args=()
+            case "${kp_name}" in
+              kuberploy-argocd)
+                kp_namespace=argocd
+                kp_lint_args+=(
+                  --set argoFoundation.argoCD.managed=false
+                  --set argoFoundation.argoCD.adoptExisting=true
+                  --set argoFoundation.argoCD.capabilitiesConfirmed=true
+                )
+                ;;
+              kuberploy-installer)
+                kp_namespace=argocd
+                kp_lint_args+=(--set bootstrap.argoCD.enabled=false --set bootstrap.argoCD.mode=disabled)
+                ;;
+              kuberploy-cert-manager) kp_namespace=cert-manager ;;
+              kuberploy-edge) kp_namespace=kuberploy-edge ;;
+              kuberploy-external-dns) kp_namespace=kuberploy-dns ;;
+              kuberploy-external-secrets)
+                kp_namespace=external-secrets
+                kp_lint_args+=(--set secretFoundation.operator.capabilitiesConfirmed=true)
+                ;;
+              kuberploy-monitoring) kp_namespace=kuberploy-monitoring ;;
+              kuberploy-postgresql) kp_namespace=kuberploy-postgresql ;;
+              kuberploy-registry) kp_namespace=kuberploy-registry ;;
+              kuberploy-sealed-secrets)
+                kp_namespace=sealed-secrets
+                kp_lint_args+=(--set secretFoundation.controller.capabilitiesConfirmed=true)
+                ;;
+              kuberploy-valkey) kp_namespace=kuberploy-valkey ;;
+              *) kp_namespace=kuberploy-system ;;
+            esac
+            helm lint "release-dist/component-charts/${kp_name}" --namespace "${kp_namespace}" "${kp_lint_args[@]}"
+            kp_component_package="release-dist/${kp_name}-${VERSION}.tgz"
+            python3 release/package_chart_archive.py \
+              --source "release-dist/component-charts/${kp_name}" \
+              --output "${kp_component_package}" \
+              --source-date-epoch "${SOURCE_DATE_EPOCH}"
+            kp_component_digest="$(python3 release/chart_oci_digest.py \
+              --chart "release-dist/component-charts/${kp_name}/Chart.yaml" \
+              --package "${kp_component_package}" \
+              --created-at "${CREATED_AT}")"
+            [[ "${kp_component_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+            kp_component_chart_args+=(--component-chart "${kp_name}" "${kp_component_package}" "${kp_component_digest}")
+            kp_component_packages+=("${kp_component_package}")
+          done
+          kp_manifest_args=(
+            --root .
+            --tag "${GITHUB_REF_NAME}"
+            --repository "${GITHUB_REPOSITORY}"
+            --commit "${GITHUB_SHA}"
+            --created-at "${CREATED_AT}"
+            --notes-url "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+            --summary "${SUMMARY}"
+            --supported-upgrade-from "${SUPPORTED_UPGRADE_FROM}"
+            --kubernetes-constraint "${KUBERNETES_CONSTRAINT}"
+            --api-reference ghcr.io/kuberploy/kuberploy-api
+            --api-digest "${API_DIGEST}"
+            --worker-reference ghcr.io/kuberploy/kuberploy-worker
+            --worker-digest "${WORKER_DIGEST}"
+            --web-reference ghcr.io/kuberploy/kuberploy-web
+            --web-digest "${WEB_DIGEST}"
+            --upgrader-reference ghcr.io/kuberploy/kuberploy-upgrader
+            --upgrader-digest "${UPGRADER_DIGEST}"
+            --builder-agent-reference ghcr.io/kuberploy/kuberploy-builder-agent
+            --builder-agent-digest "${BUILDER_AGENT_DIGEST}"
+            --chart-oci-reference "ghcr.io/kuberploy/charts/kuberploy:${VERSION}"
+            --chart-oci-digest "${kp_chart_digest}"
+            --chart-package "${kp_chart_package}"
+            "${kp_component_chart_args[@]}"
+            --output release-dist/release-manifest.json
+          )
+          if [[ "${BREAKING_CHANGES}" == "true" ]]; then
+            kp_manifest_args+=(--breaking-changes)
+          fi
+          python3 release/generate_manifest.py "${kp_manifest_args[@]}"
+          ./release/validate-manifest.sh release-dist/release-manifest.json release-dist "${GITHUB_REF_NAME}" "${GITHUB_SHA}"
+          ./release/create-checksums.sh \
+            release-dist/SHA256SUMS \
+            release-dist/release-manifest.json \
+            "${kp_chart_package}" \
+            "${kp_component_packages[@]}"
+          (
+            cd release-dist
+            sha256sum --check SHA256SUMS
+          )
+      - name: Publish or verify immutable chart set
+        env:
+          TZ: UTC
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-gate.outputs.version }}
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | helm registry login ghcr.io \
+            --username "${GITHUB_ACTOR}" --password-stdin
+          while IFS= read -r kp_record; do
+            kp_name="$(jq -er .name <<<"${kp_record}")"
+            kp_expected_reference="ghcr.io/kuberploy/charts/${kp_name}:${VERSION}"
+            kp_oci_reference="$(jq -er .ociReference <<<"${kp_record}")"
+            [[ "${kp_oci_reference}" == "${kp_expected_reference}" ]]
+            kp_expected_digest="$(jq -er .ociDigest <<<"${kp_record}")"
+            [[ "${kp_expected_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+            kp_package_name="$(jq -er .package <<<"${kp_record}")"
+            [[ "${kp_package_name}" == "${kp_name}-${VERSION}.tgz" ]]
+            kp_chart_package="release-dist/${kp_package_name}"
+            [[ -f "${kp_chart_package}" ]]
+            kp_chart_reference="oci://ghcr.io/kuberploy/charts/${kp_name}"
+            if kp_chart_lookup="$(helm show chart "${kp_chart_reference}" --version "${VERSION}" 2>&1)"; then
+              kp_remote_directory="release-dist/remote-${kp_name}"
+              mkdir "${kp_remote_directory}"
+              kp_pull_output="$(helm pull "${kp_chart_reference}" \
+                --version "${VERSION}" --destination "${kp_remote_directory}" 2>&1)"
+              printf '%s\n' "${kp_pull_output}"
+              kp_published_digest="$(printf '%s\n' "${kp_pull_output}" | sed -n 's/^Digest: //p' | tail -n 1)"
+              cmp --silent "${kp_chart_package}" "${kp_remote_directory}/${kp_package_name}" || {
+                echo "OCI chart ${kp_name} ${VERSION} exists with different package bytes; refusing to overwrite it." >&2
+                exit 1
+              }
+            elif [[ "${kp_chart_lookup,,}" =~ (not[[:space:]]found|manifest[[:space:]_]unknown) ]]; then
+              kp_push_output="$(helm push "${kp_chart_package}" oci://ghcr.io/kuberploy/charts 2>&1)"
+              printf '%s\n' "${kp_push_output}"
+              kp_published_digest="$(printf '%s\n' "${kp_push_output}" | sed -n 's/^Digest: //p' | tail -n 1)"
+            else
+              echo "Could not determine whether OCI chart ${kp_name} ${VERSION} exists: ${kp_chart_lookup}" >&2
+              exit 1
+            fi
+            [[ "${kp_published_digest}" == "${kp_expected_digest}" ]] || {
+              echo "OCI chart ${kp_name} digest mismatch: expected ${kp_expected_digest}, got ${kp_published_digest}" >&2
+              exit 1
+            }
+          done < <(jq -c '.artifacts.chart, .artifacts.componentCharts[]' release-dist/release-manifest.json)
+      - name: Create draft and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-gate.outputs.version }}
+        run: |
+          kp_release_args=(
+            "${GITHUB_REF_NAME}"
+            --repo "${GITHUB_REPOSITORY}"
+            --verify-tag
+            --draft
+            --title "Kuberploy ${VERSION}"
+            --generate-notes
+            release-dist/release-manifest.json
+            release-dist/*.tgz
+            release-dist/SHA256SUMS
+          )
+          gh release create "${kp_release_args[@]}"
+          [[ "$(gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)" == "true" ]]
+          gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+          kp_release_state=""
+          for kp_attempt in {1..12}; do
+            kp_release_state="$(gh api \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+              --jq '[.draft, .prerelease, (.immutable == true)] | join(",")')"
+            [[ "${kp_release_state}" == "false,false,true" ]] && break
+            sleep 5
+          done
+          [[ "${kp_release_state}" == "false,false,true" ]] || {
+            echo "Published release did not become immutable: ${kp_release_state}" >&2
+            exit 1
+          }

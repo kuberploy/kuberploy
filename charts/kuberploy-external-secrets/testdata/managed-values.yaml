@@ -1,0 +1,7 @@
+secretFoundation:
+  operator:
+    managed: true
+    adoptExisting: false
+  networkPolicy:
+    kubeAPIServerCIDRs: [10.43.0.1/32]
+    providerHTTPSCIDRs: [0.0.0.0/0, "::/0"]

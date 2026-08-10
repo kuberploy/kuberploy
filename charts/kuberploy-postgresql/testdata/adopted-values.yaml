@@ -1,0 +1,3 @@
+postgresqlFoundation:
+  managed: false
+  adoptExisting: true

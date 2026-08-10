@@ -1,0 +1,6 @@
+{{- if .Values.foundation.enabled }}
+cert-manager is {{ ternary "managed" "adopted" .Values.foundation.certManager.managed }} as an independent protected release.
+Approved production and staging issuers are separately selectable per route.
+{{- else }}
+The cert-manager foundation is disabled.
+{{- end }}

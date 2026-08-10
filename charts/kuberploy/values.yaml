@@ -1,0 +1,353 @@
+global:
+  testRun: ""
+  # Published release packaging sets this true and injects image@sha256 refs.
+  # Source defaults remain exact development tags because no images exist yet.
+  requireImageDigest: false
+
+config:
+  publicURL: http://kuberploy.k8s.orb.local
+  logLevel: info
+  postgresql:
+    secretRef:
+      name: kuberploy-postgresql
+      urlKey: url
+  valkey:
+    mode: managed
+    secretRef:
+      name: kuberploy-valkey
+      addressesKey: addresses
+      usernameKey: username
+      passwordKey: password
+      apiCacheUsernameKey: api-cache-username
+      apiCachePasswordKey: api-cache-password
+      apiLimiterUsernameKey: api-limiter-username
+      apiLimiterPasswordKey: api-limiter-password
+      publisherUsernameKey: outbox-publisher-username
+      publisherPasswordKey: outbox-publisher-password
+      consumerUsernameKey: worker-consumer-username
+      consumerPasswordKey: worker-consumer-password
+  monitoring:
+    mode: disabled
+    prometheusURL: ""
+    bearerTokenSecret:
+      name: ""
+      key: token
+  git:
+    remoteURL: ""
+    branch: main
+    credentialsSecret:
+      name: ""
+      usernameKey: username
+      passwordKey: password
+  # GitHub-backed worker integrations remain unavailable until this explicit
+  # flag, the hardened builder boundary, and an operator Secret are present.
+  githubApp:
+    enabled: false
+    appID: 0
+    clientID: ""
+    appSlug: ""
+    secretRef:
+      name: ""
+      privateKeyKey: private-key.pem
+      webhookSecretKey: webhook-secret
+      stateSigningSecretKey: state-signing-secret
+      oauthClientSecretKey: oauth-client-secret
+  # Read-only source-build logs. This is independent from deployment runtime
+  # logs and remains closed until the API can verify its in-cluster TLS reader.
+  buildLogs:
+    enabled: false
+  # Rebuildable Git read projection. Its cache is disposable and bounded by
+  # both worker checks and the worker emptyDir quota.
+  gitProjection:
+    enabled: false
+    cacheMaxBytes: 536870912
+    pollIntervalSeconds: 300
+    # Verified webhooks accelerate projection by default. Operators may turn
+    # off only this wake path to exercise or operate through safety polling.
+    webhookWakeEnabled: true
+    # Release packaging/operator configuration supplies the exact immutable
+    # renderer chart digest used in strong AppConfig bundle ETags.
+    chartDigest: ""
+    policyVersion: appconfig-v1alpha1
+  # Immutable image-only deployment automation. Runtime identity is derived
+  # from the exact source-build, Git projection, and protected Argo contracts.
+  autoDeploy:
+    enabled: false
+  # Stage-one authority for creating the one platform Git binding. This may be
+  # enabled before foundation/Argo because the binding UUID does not exist yet.
+  platformGitBinding:
+    enabled: false
+    clusterID: ""
+  # Strict Sealed Secrets runtime. Existing operator Secrets are projected to
+  # fixed files; their bytes never enter values, ConfigMaps, or process env.
+  runtimeSecrets:
+    enabled: false
+    namespaces: []
+    fingerprintKeyID: runtime-secrets-hmac-v1
+    fingerprintSecret:
+      name: ""
+      key: runtime-secret-fingerprint.key
+    sealingCertificateSecret:
+      name: ""
+      key: tls.crt
+    pollIntervalSeconds: 5
+    workLeaseSeconds: 45
+    heartbeatSeconds: 10
+    idleSeconds: 1
+    minimumBackoffSeconds: 2
+    maximumBackoffSeconds: 300
+  # Continuous metadata-only readiness for active custom TLS certificates.
+  # The namespace allowlist is always inherited from runtimeSecrets; the
+  # observer has no independent namespace or credential configuration.
+  certificateObservation:
+    enabled: false
+    pollIntervalSeconds: 30
+    workLeaseSeconds: 45
+    heartbeatSeconds: 10
+    idleSeconds: 1
+    minimumBackoffSeconds: 2
+    maximumBackoffSeconds: 300
+    maximumAgeSeconds: 90
+  # Admin-managed cert-manager ClusterIssuers are materialized through the
+  # protected platform Git binding. The release namespace and exact worker
+  # ServiceAccount are derived by the chart and are not operator-selectable.
+  certificateIssuerObserver:
+    enabled: false
+    platformBindingID: ""
+    clusterID: ""
+    pollIntervalSeconds: 30
+    requestTimeoutSeconds: 10
+    maximumAgeSeconds: 120
+    readinessLeaseSeconds: 180
+  # Operator-owned private registry pull profiles. Credential bytes are
+  # projected only into API and worker; Git contains only target/profile identity.
+  runtimeRegistryPulls:
+    enabled: false
+    namespaces: []
+    profiles: []
+    pollIntervalSeconds: 30
+    workLeaseSeconds: 120
+    heartbeatSeconds: 20
+    readinessSeconds: 90
+    minimumBackoffSeconds: 5
+    maximumBackoffSeconds: 300
+  # Existing-image tags resolve only through the application registry catalog.
+  # Anonymous targets are exact IDs and restricted to canonical HTTPS/443.
+  # Bearer challenge realms and audiences are exact operator-owned bindings.
+  imageTagResolution:
+    anonymousTargetIds: []
+    tokenAuthorities: []
+    platform: linux/amd64
+  # Read-only observation of operator-approved edge controllers. Every enabled
+  # profile must describe exact, digest-pinned Kubernetes objects and the
+  # immutable profile ConfigMap rendered by the corresponding standalone chart.
+  # A Traefik profile may omit sslip (the default), use sslip.mode
+  # auto-first-ip, or use verified-static-ip with one operator-owned
+  # staticPublicIPv4. Tenant input never supplies the address.
+  edgeRuntime:
+    enabled: false
+    profiles:
+      traefik: null
+      certManager: null
+      externalDNS: []
+    pollIntervalSeconds: 30
+    workLeaseSeconds: 120
+    heartbeatSeconds: 20
+    readinessSeconds: 90
+    minimumBackoffSeconds: 5
+    maximumBackoffSeconds: 300
+  # UI-managed ExternalDNS integrations are materialized through the protected
+  # platform Git binding. Provider credentials remain pre-existing Secrets.
+  externalDNSOperational:
+    enabled: false
+    platformBindingID: ""
+    clusterID: ""
+    namespace: ""
+    version: ""
+    image: ""
+    serviceAccount: ""
+    pollIntervalSeconds: 5
+  # Read-only, deployment-scoped Argo Application observation. Enabling it
+  # requires the exact same namespace in rbac.argoNamespace.
+  argoObservation:
+    enabled: false
+    namespace: ""
+    pollIntervalSeconds: 30
+  # Protected namespace foundations are published under the installer-owned
+  # Argo root before environment AppProjects and ApplicationSets.
+  environmentFoundation:
+    enabled: false
+    platformBindingID: ""
+    clusterID: ""
+    psaVersion: ""
+    pollIntervalSeconds: 1
+  # Protected Argo desired-state reconciliation. The worker may materialize
+  # Git only after Git projection, provider protection, repository credentials,
+  # the installer-owned root Application, and the exact observation runtime
+  # have all proved fresh. Root Application and repository Secret names are
+  # derived in the binary and are deliberately not operator-selectable.
+  argoDesiredState:
+    enabled: false
+    platformBindingID: ""
+    clusterID: ""
+    namespace: ""
+    runtimeChartRepository: ""
+    runtimeChartVersion: ""
+    runtimeChartDigest: ""
+    pollIntervalSeconds: 1
+    catalogMaxAgeSeconds: 900
+  # Approved external Helm applications render offline in a dedicated
+  # namespace through a tokenless ServiceAccount and per-Job deny-all policy.
+  helmApplications:
+    enabled: false
+    rendererNamespace: ""
+    rendererPollMilliseconds: 250
+    workPollMilliseconds: 1000
+    renderLeaseSeconds: 60
+    publishLeaseSeconds: 90
+    readinessLeaseSeconds: 30
+    ociRequestSeconds: 15
+    ociRegistryHosts: []
+    ociAuthHosts: []
+    # Optional operator-owned host profiles. Secret names/keys are projected
+    # into API and worker only; callers and renderer Jobs never receive them.
+    ociCredentialProfiles: []
+    packageCacheBytes: 67108864
+  # One operator-owned Distribution registry may be reconciled by the worker.
+  # External registry targets remain observation-only and are never eligible
+  # for manifest deletion or offline garbage collection.
+  managedRegistry:
+    enabled: false
+    targetID: ""
+    endpoint: ""
+    repositoryPrefix: ""
+    # Operator-only lifecycle/maintenance credential identity. This must be
+    # distinct from every target pull, push, and build-cache credential.
+    lifecycleCredentialRef: ""
+    allowPlainHTTP: false
+    namespace: ""
+    deployment: ""
+    persistentVolumeClaim: ""
+    registryConfigMap: ""
+    servicePort: 5000
+    credentialSecret:
+      name: ""
+      usernameKey: username
+      passwordKey: password
+    observationIntervalSeconds: 300
+  bootstrapSecret:
+    name: kuberploy-bootstrap
+    tokenKey: token
+    # Enable for first install after supplying the exact Kubernetes API CIDR.
+    # An existing operator-created Secret always wins without redisclosure.
+    generate: false
+
+components:
+  api:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+    port: 8080
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  worker:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: "1", memory: 512Mi}
+  web:
+    replicas: 1
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.1
+      pullPolicy: IfNotPresent
+    port: 8080
+    resources:
+      requests: {cpu: 25m, memory: 32Mi}
+      limits: {cpu: 250m, memory: 128Mi}
+
+ingress:
+  enabled: false
+  className: traefik
+  host: kuberploy.k8s.orb.local
+  tls:
+    enabled: false
+    secretName: ""
+
+rbac:
+  observedNamespaces: []
+  buildNamespaces: []
+  # Explicit RBAC authorization boundary; must match
+  # config.argoObservation.namespace when that runtime is enabled.
+  argoNamespace: ""
+
+# Release packaging embeds the hardened builder boundary under this alias and
+# injects the immutable builder-agent digest. It remains disabled until a
+# cluster administrator provisions the dedicated tainted builder node pool.
+builder:
+  enabled: false
+  builderAgentImage: ""
+  namespace:
+    create: true
+    name: kuberploy-build-dind
+  controllerServiceAccount:
+    namespace: kuberploy-system
+    name: kuberploy-worker
+  podServiceAccount:
+    name: kuberploy-build-pod
+  admissionPolicy:
+    enabled: true
+  networkPolicy:
+    enabled: true
+    # Per-build policies accept resolved host routes only. Use stable egress
+    # proxy addresses when provider or registry addresses are not static.
+    sourceEgressCIDRs: []
+    registryEgressCIDRs: []
+  resourceQuota:
+    hard:
+      pods: "20"
+      requestsCpu: "20"
+      requestsMemory: 40Gi
+      requestsEphemeralStorage: 100Gi
+      limitsCpu: "40"
+      limitsMemory: 80Gi
+      limitsEphemeralStorage: 200Gi
+
+networkPolicy:
+  enabled: true
+  edgeNamespace: kuberploy-system
+  # Managed dependencies have protected, fixed namespace identities. These
+  # values are schema-locked so a release cannot silently widen the boundary.
+  managedPostgreSQLNamespace: kuberploy-system
+  managedValkeyNamespace: kuberploy-system
+  # Kubernetes API endpoints are cluster-specific. Supply only the API
+  # Service/control-plane CIDRs observed by the CNI; all-address ranges are
+  # rejected. An empty list intentionally leaves Kubernetes API egress closed.
+  kubeAPIServerCIDRs: []
+  # Public/provider access (GitHub, HTTPS Git/OCI, SSH Git, and git://) remains
+  # separate from database and cache access. Ports are fixed in the template,
+  # and there is deliberately no all-address default that could also cover the
+  # Kubernetes API. Supply exact provider ranges or an egress-proxy CIDR.
+  externalEgressCIDRs: []
+  # Adopted PostgreSQL and Valkey endpoints require their own explicit CIDRs.
+  # All-address ranges are rejected for these credential-bearing protocols.
+  externalPostgreSQLEgressCIDRs: []
+  externalValkeyEgressCIDRs: []
+
+upgrade:
+  image:
+    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.1
+    pullPolicy: IfNotPresent
+  runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
+  job:
+    activeDeadlineSeconds: 900
+  migrationJob:
+    # Startup migrations already use a PostgreSQL advisory lock. Enable this
+    # pre-upgrade seam only when the selected API image exposes the command.
+    enabled: false
+    command: []
+    activeDeadlineSeconds: 300

@@ -1,0 +1,3 @@
+Kuberploy External Secrets profile: {{ ternary "managed" "adopted" .Values.secretFoundation.operator.managed }}
+Namespace: {{ .Release.Namespace }}
+Only namespaced SecretStore objects and Kuberploy-owned ExternalSecret resources are supported.

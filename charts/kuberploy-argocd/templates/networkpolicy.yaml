@@ -1,0 +1,78 @@
+{{- if .Values.argoFoundation.argoCD.managed }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-default-deny
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-required-connectivity
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.argoFoundation.networkPolicy.controlPlaneNamespace }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.argoFoundation.networkPolicy.edgeNamespace }}
+      ports:
+        - {port: 8080, protocol: TCP}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.argoFoundation.networkPolicy.monitoringNamespace }}
+      ports:
+        - {port: 8082, protocol: TCP}
+        - {port: 8083, protocol: TCP}
+        - {port: 8084, protocol: TCP}
+        - {port: 8085, protocol: TCP}
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        {{- range .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.argoFoundation.networkPolicy.valkeyNamespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - {port: 6379, protocol: TCP}
+    - to:
+        {{- range .Values.argoFoundation.networkPolicy.repositoryEgressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - {port: 443, protocol: TCP}
+{{- end }}

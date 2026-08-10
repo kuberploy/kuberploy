@@ -1,0 +1,18 @@
+{{- if .Values.postgresqlFoundation.managed }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: kuberploy-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-postgresql.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kuberploy-postgresql.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresqlFoundation.service.port }}
+      targetPort: postgresql
+      protocol: TCP
+{{- end }}

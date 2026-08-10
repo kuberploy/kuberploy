@@ -1,0 +1,294 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kuberploy.io/schemas/release-manifest-v1.json",
+  "title": "Kuberploy release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "release", "source", "versions", "compatibility", "artifacts", "dependencyLock"],
+  "properties": {
+    "$schema": { "type": "string", "format": "uri" },
+    "schemaVersion": { "const": "1.0.0" },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tag", "version", "createdAt", "notesUrl", "summary", "breakingChanges"],
+      "properties": {
+        "tag": { "$ref": "#/$defs/tag" },
+        "version": { "$ref": "#/$defs/version" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "notesUrl": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/[^/]+/[^/]+/releases/tag/v" },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "breakingChanges": { "type": "boolean" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": { "const": "kuberploy/kuberploy" },
+        "commit": { "$ref": "#/$defs/gitSha" }
+      }
+    },
+    "versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kuberploy", "api", "worker", "web", "upgrader", "builderAgent", "chart"],
+      "properties": {
+        "kuberploy": { "$ref": "#/$defs/version" },
+        "api": { "$ref": "#/$defs/version" },
+        "worker": { "$ref": "#/$defs/version" },
+        "web": { "$ref": "#/$defs/version" },
+        "upgrader": { "$ref": "#/$defs/version" },
+        "builderAgent": { "$ref": "#/$defs/version" },
+        "chart": { "$ref": "#/$defs/version" }
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["supportedUpgradeFrom", "kubernetes", "database"],
+      "properties": {
+        "supportedUpgradeFrom": { "$ref": "#/$defs/semverRange" },
+        "kubernetes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["constraint", "testedMinors"],
+          "properties": {
+            "constraint": { "type": "string", "pattern": "^>=1\\.34\\.0-0 <1\\.37\\.0-0$" },
+            "testedMinors": {
+              "type": "array",
+              "const": ["1.34", "1.35", "1.36"]
+            }
+          }
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["engine", "currentSchema", "minimumUpgradeableSchema", "migrationSetSha256", "strategy", "rollbackPolicy"],
+          "properties": {
+            "engine": { "const": "postgresql" },
+            "currentSchema": { "$ref": "#/$defs/schemaName" },
+            "minimumUpgradeableSchema": { "$ref": "#/$defs/schemaName" },
+            "migrationSetSha256": { "$ref": "#/$defs/digest" },
+            "strategy": { "const": "ordered-expand-contract-with-advisory-lock" },
+            "rollbackPolicy": { "type": "string", "minLength": 20, "maxLength": 512 }
+          }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["images", "chart", "componentCharts"],
+      "properties": {
+        "images": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": { "$ref": "#/$defs/image" }
+        },
+        "chart": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "ociReference", "ociDigest", "package", "packageSha256"],
+          "properties": {
+            "name": { "const": "kuberploy" },
+            "version": { "$ref": "#/$defs/version" },
+            "ociReference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+            "ociDigest": { "$ref": "#/$defs/digest" },
+            "package": { "type": "string", "pattern": "^kuberploy-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" },
+            "packageSha256": { "$ref": "#/$defs/digest" }
+          }
+        },
+        "componentCharts": {
+          "type": "array",
+          "minItems": 13,
+          "maxItems": 13,
+          "prefixItems": [
+            { "$ref": "#/$defs/argoCDChart" },
+            { "$ref": "#/$defs/installerChart" },
+            { "$ref": "#/$defs/builderChart" },
+            { "$ref": "#/$defs/certManagerChart" },
+            { "$ref": "#/$defs/edgeChart" },
+            { "$ref": "#/$defs/externalDNSChart" },
+            { "$ref": "#/$defs/externalSecretsChart" },
+            { "$ref": "#/$defs/monitoringChart" },
+            { "$ref": "#/$defs/postgresqlChart" },
+            { "$ref": "#/$defs/registryChart" },
+            { "$ref": "#/$defs/runtimeChart" },
+            { "$ref": "#/$defs/sealedSecretsChart" },
+            { "$ref": "#/$defs/valkeyChart" }
+          ],
+          "items": false
+        }
+      }
+    },
+    "dependencyLock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256"],
+      "properties": {
+        "file": { "const": "DEPENDENCIES.md" },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "argoCDChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-argocd" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-argocd:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-argocd-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "installerChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-installer" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-installer:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-installer-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "tag": {
+      "type": "string",
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "semverRange": {
+      "type": "string",
+      "pattern": "^>=(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*) <(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "schemaName": {
+      "type": "string",
+      "pattern": "^[0-9]{3}_[a-z0-9_]+$"
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component", "reference", "digest", "platforms"],
+      "properties": {
+        "component": { "enum": ["api", "worker", "web", "upgrader", "builder-agent"] },
+        "reference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/kuberploy-(api|worker|web|upgrader|builder-agent)$" },
+        "digest": { "$ref": "#/$defs/digest" },
+        "platforms": {
+          "type": "array",
+          "const": ["linux/amd64", "linux/arm64"]
+        }
+      }
+    },
+    "componentChart": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "ociReference", "ociDigest", "package", "packageSha256"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "$ref": "#/$defs/version" },
+        "ociReference": { "type": "string" },
+        "ociDigest": { "$ref": "#/$defs/digest" },
+        "package": { "type": "string" },
+        "packageSha256": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "builderChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-builder" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-builder:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-builder-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "certManagerChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-cert-manager" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-cert-manager:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-cert-manager-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "edgeChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-edge" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-edge:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-edge-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "externalDNSChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-external-dns" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-dns:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-external-dns-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "externalSecretsChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-external-secrets" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-secrets:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-external-secrets-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "monitoringChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-monitoring" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-monitoring:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-monitoring-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "postgresqlChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-postgresql" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-postgresql:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-postgresql-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "registryChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-registry" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-registry:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-registry-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "runtimeChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-runtime" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-runtime:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-runtime-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "sealedSecretsChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-sealed-secrets" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-sealed-secrets:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-sealed-secrets-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    },
+    "valkeyChart": {
+      "$ref": "#/$defs/componentChart",
+      "properties": {
+        "name": { "const": "kuberploy-valkey" },
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-valkey:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "package": { "pattern": "^kuberploy-valkey-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+      }
+    }
+  }
+}

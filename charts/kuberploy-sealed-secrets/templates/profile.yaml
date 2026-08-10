@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-sealed-secrets-profile
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-sealed-secrets.labels" . | nindent 4 }}
+data:
+  management: {{ ternary "managed" "adopted" .Values.secretFoundation.controller.managed | quote }}
+  expectedVersion: "0.38.4"
+  sealingScope: "strict-namespace-name"
+  keyPrefix: {{ .Values.secretFoundation.keyRecovery.keyPrefix | quote }}
+  keyRecoveryRequired: "true"
+  plaintextInGit: "false"

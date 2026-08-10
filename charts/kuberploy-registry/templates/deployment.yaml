@@ -1,0 +1,122 @@
+{{- if .Values.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kuberploy-registry.fullname" . }}
+  labels:
+    {{- include "kuberploy-registry.labels" . | nindent 4 }}
+  annotations:
+    kuberploy.io/garbage-collection: controller-owned-offline-only
+spec:
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.deployment.revisionHistoryLimit }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "kuberploy-registry.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-registry.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/part-of: kuberploy
+        {{- with .Values.global.testRun }}
+        kuberploy.io/test-run: {{ . | quote }}
+        {{- end }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        kuberploy.io/auth-secret-revision: {{ .Values.auth.secretRevision | quote }}
+        {{- if eq .Values.auth.mode "testOnlyUnauthenticated" }}
+        kuberploy.io/security-warning: test-only-unauthenticated
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kuberploy-registry.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ .Values.deployment.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: {{ include "kuberploy-registry.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - /etc/distribution/config.yml
+          {{- if eq .Values.auth.mode "htpasswd" }}
+          env:
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: httpSecret
+          {{- end }}
+          ports:
+            - name: registry
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          startupProbe:
+            tcpSocket:
+              port: registry
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+          readinessProbe:
+            tcpSocket:
+              port: registry
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          livenessProbe:
+            tcpSocket:
+              port: registry
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/distribution/config.yml
+              subPath: config.yml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/registry
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.auth.mode "htpasswd" }}
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "kuberploy-registry.configName" . }}
+            defaultMode: 0444
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "kuberploy-registry.claimName" . }}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        {{- if eq .Values.auth.mode "htpasswd" }}
+        - name: auth
+          secret:
+            secretName: {{ .Values.auth.existingSecret }}
+            defaultMode: 0440
+            items:
+              - key: htpasswd
+                path: htpasswd
+        {{- end }}
+{{- end }}

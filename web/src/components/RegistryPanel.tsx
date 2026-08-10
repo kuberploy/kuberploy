@@ -1,0 +1,768 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { ApiError, api } from "../api/client";
+import type {
+  Application,
+  ApplicationRegistryTarget,
+  Capability,
+  Project,
+  RegistryCleanupPlan,
+  RegistryPolicy,
+  RegistryPolicyInput,
+  RegistryTarget,
+} from "../api/types";
+import { formatDate, titleCase } from "../lib/format";
+import {
+  hasRegistryApplicationCapability,
+  hasRegistryPlatformCapability,
+} from "../lib/registryAccess";
+import { Icon } from "./Icon";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  Skeleton,
+  StatusPill,
+} from "./ui";
+
+type RegistryPanelProps = {
+  application: Application;
+  project?: Project;
+  capabilities: Capability[];
+  featureEnabled: boolean;
+  managedFeatureEnabled: boolean;
+  humanSession: boolean;
+};
+
+function retryNetworkOnce(failureCount: number, error: unknown) {
+  return error instanceof ApiError && error.status === 0 && failureCount < 1;
+}
+
+function shortDigest(value: string) {
+  if (value.length <= 28) return value;
+  return `${value.slice(0, 19)}…${value.slice(-8)}`;
+}
+
+function formatBytes(value: number) {
+  if (!Number.isFinite(value) || value < 0) return "Not reported";
+  if (value < 1024) return `${value} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let result = value;
+  let unit = -1;
+  do {
+    result /= 1024;
+    unit++;
+  } while (result >= 1024 && unit < units.length - 1);
+  return `${result.toFixed(result >= 10 ? 0 : 1)} ${units[unit]}`;
+}
+
+type PolicyDraft = Required<RegistryPolicyInput>;
+
+const defaultPolicy: PolicyDraft = {
+  repository: "",
+  keepLastSuccessful: 10,
+  minimumSafetyAgeSeconds: 86_400,
+  cacheKeepGenerations: 2,
+  cacheUnusedExpirySeconds: 604_800,
+  cacheByteQuota: 10_737_418_240,
+};
+
+function policyDraft(policy?: RegistryPolicy): PolicyDraft {
+  if (!policy) return { ...defaultPolicy };
+  return {
+    repository: policy.repository,
+    keepLastSuccessful: policy.keepLastSuccessful,
+    minimumSafetyAgeSeconds: policy.minimumSafetyAgeSeconds,
+    cacheKeepGenerations: policy.cacheKeepGenerations,
+    cacheUnusedExpirySeconds: policy.cacheUnusedExpirySeconds,
+    cacheByteQuota: policy.cacheByteQuota,
+  };
+}
+
+function validatePolicy(draft: PolicyDraft) {
+  const errors: Partial<Record<keyof PolicyDraft, string>> = {};
+  if (!draft.repository.trim()) errors.repository = "Enter an OCI repository.";
+  if (
+    !Number.isInteger(draft.keepLastSuccessful) ||
+    draft.keepLastSuccessful < 1 ||
+    draft.keepLastSuccessful > 100
+  )
+    errors.keepLastSuccessful = "Keep between 1 and 100 successful releases.";
+  if (
+    !Number.isInteger(draft.minimumSafetyAgeSeconds) ||
+    draft.minimumSafetyAgeSeconds < 60
+  )
+    errors.minimumSafetyAgeSeconds = "Use at least 60 seconds.";
+  if (
+    !Number.isInteger(draft.cacheKeepGenerations) ||
+    draft.cacheKeepGenerations < 1 ||
+    draft.cacheKeepGenerations > 20
+  )
+    errors.cacheKeepGenerations = "Keep between 1 and 20 cache generations.";
+  if (
+    !Number.isInteger(draft.cacheUnusedExpirySeconds) ||
+    draft.cacheUnusedExpirySeconds < 60
+  )
+    errors.cacheUnusedExpirySeconds = "Use at least 60 seconds.";
+  if (!Number.isInteger(draft.cacheByteQuota) || draft.cacheByteQuota < 1)
+    errors.cacheByteQuota = "Enter a positive byte quota.";
+  return errors;
+}
+
+function PolicyEditor({
+  applicationId,
+  target,
+  policy,
+  onSaved,
+}: {
+  applicationId: string;
+  target: RegistryTarget;
+  policy?: RegistryPolicy;
+  onSaved?: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState(() => policyDraft(policy));
+  const [errors, setErrors] = useState<
+    Partial<Record<keyof PolicyDraft, string>>
+  >({});
+  useEffect(() => {
+    setDraft(policyDraft(policy));
+    setErrors({});
+  }, [policy]);
+  const mutation = useMutation({
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: RegistryPolicyInput;
+      idempotencyKey: string;
+    }) =>
+      api.putRegistryPolicy(applicationId, target.id, input, idempotencyKey),
+    retry: retryNetworkOnce,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["application-registry", applicationId],
+      });
+      onSaved?.();
+    },
+  });
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const nextErrors = validatePolicy(draft);
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+    mutation.mutate({
+      input: { ...draft, repository: draft.repository.trim() },
+      idempotencyKey: crypto.randomUUID(),
+    });
+  };
+  const numberField = (
+    key: Exclude<keyof PolicyDraft, "repository">,
+    label: string,
+    hint: string,
+  ) => (
+    <Field label={label} hint={hint} error={errors[key]} required>
+      <input
+        type="number"
+        min={key === "keepLastSuccessful" ? 1 : 0}
+        value={draft[key]}
+        onChange={(event) =>
+          setDraft((current) => ({
+            ...current,
+            [key]: Number(event.target.value),
+          }))
+        }
+      />
+    </Field>
+  );
+  return (
+    <form className="registry-policy-form" onSubmit={submit}>
+      <Field label="Release repository" error={errors.repository} required>
+        <input
+          value={draft.repository}
+          placeholder={`${target.repositoryPrefix}/service`}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              repository: event.target.value,
+            }))
+          }
+        />
+      </Field>
+      <div className="registry-policy-grid">
+        {numberField(
+          "keepLastSuccessful",
+          "Keep successful releases",
+          "Default: 10; allowed: 1–100.",
+        )}
+        {numberField(
+          "minimumSafetyAgeSeconds",
+          "Minimum safety age (seconds)",
+          "Artifacts newer than this remain protected.",
+        )}
+        {numberField(
+          "cacheKeepGenerations",
+          "Cache generations",
+          target.mode === "external"
+            ? "Operator-managed metadata on this external target."
+            : "Default: 2; allowed: 1–20.",
+        )}
+        {numberField(
+          "cacheUnusedExpirySeconds",
+          "Unused cache expiry (seconds)",
+          target.mode === "external"
+            ? "Operator-managed metadata on this external target."
+            : "Default: 604800 (7 days).",
+        )}
+        {numberField(
+          "cacheByteQuota",
+          "Cache quota (bytes)",
+          target.mode === "external"
+            ? "Operator-managed metadata on this external target."
+            : "Default: 10737418240 (10 GiB).",
+        )}
+      </div>
+      {mutation.error ? <ErrorPanel error={mutation.error} /> : null}
+      <Button type="submit" busy={mutation.isPending}>
+        <Icon name="check" /> {policy ? "Save policy" : "Attach target"}
+      </Button>
+    </form>
+  );
+}
+
+function CleanupPanel({
+  application,
+  target,
+  capabilities,
+  project,
+  humanSession,
+}: {
+  application: Application;
+  target: ApplicationRegistryTarget;
+  capabilities: Capability[];
+  project?: Project;
+  humanSession: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const canPreview = hasRegistryApplicationCapability(
+    capabilities,
+    "registry-cleanup:preview",
+    application,
+    project,
+  );
+  const canExecute = hasRegistryApplicationCapability(
+    capabilities,
+    "registry-cleanup:execute",
+    application,
+    project,
+  );
+  const [planId, setPlanId] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const status = useQuery({
+    queryKey: ["registry-cleanup-plan", planId],
+    queryFn: () => api.registryCleanupPlan(planId),
+    enabled: Boolean(planId),
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.state === "executing" ? 5_000 : false,
+  });
+  const preview = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.previewRegistryCleanup(
+        application.id,
+        target.target.id,
+        idempotencyKey,
+      ),
+    retry: retryNetworkOnce,
+    onSuccess: (plan) => {
+      setPlanId(plan.id);
+      setConfirmation("");
+      queryClient.setQueryData(["registry-cleanup-plan", plan.id], plan);
+    },
+  });
+  const execute = useMutation({
+    mutationFn: ({
+      plan,
+      idempotencyKey,
+    }: {
+      plan: RegistryCleanupPlan;
+      idempotencyKey: string;
+    }) => api.executeRegistryCleanup(plan.id, confirmation, idempotencyKey),
+    retry: retryNetworkOnce,
+    onSuccess: (plan) => {
+      queryClient.setQueryData(["registry-cleanup-plan", plan.id], plan);
+      void queryClient.invalidateQueries({
+        queryKey: ["application-registry", application.id],
+      });
+    },
+  });
+  const plan = status.data ?? preview.data;
+  if (!canPreview || !humanSession) return null;
+  return (
+    <div className="registry-cleanup-panel">
+      <div className="registry-section-heading">
+        <div>
+          <span className="eyebrow">Managed lifecycle</span>
+          <h3>Fail-closed cleanup preview</h3>
+        </div>
+        <Button
+          variant="secondary"
+          busy={preview.isPending}
+          onClick={() => preview.mutate(crypto.randomUUID())}
+        >
+          <Icon name="refresh" /> Create preview
+        </Button>
+      </div>
+      <p className="muted-copy">
+        Preview requires fresh, complete inventory, catalog, Git, runtime, and
+        operation observations. Execution revalidates the same authorities.
+      </p>
+      {preview.error ? <ErrorPanel error={preview.error} /> : null}
+      {status.error ? (
+        <ErrorPanel
+          error={status.error}
+          onRetry={() => void status.refetch()}
+        />
+      ) : null}
+      {plan ? (
+        <div className="registry-plan">
+          <div className="registry-plan__heading">
+            <div>
+              <small>Plan ID</small>
+              <code>{plan.id}</code>
+            </div>
+            <StatusPill value={plan.state} />
+          </div>
+          <dl className="registry-summary-grid">
+            <div>
+              <dt>Protected manifests</dt>
+              <dd>{plan.summary.protectedManifests}</dd>
+            </div>
+            <div>
+              <dt>Eligible manifests</dt>
+              <dd>{plan.summary.deletedManifests}</dd>
+            </div>
+            <div>
+              <dt>Unreachable blobs</dt>
+              <dd>{plan.summary.garbageCollectBlobs}</dd>
+            </div>
+            <div>
+              <dt>Estimated reclaim</dt>
+              <dd>{formatBytes(plan.summary.estimatedBytes)}</dd>
+            </div>
+          </dl>
+          {plan.failure ? (
+            <div className="notice notice--error" role="alert">
+              <div>
+                <strong>Cleanup failed</strong>
+                <p>{plan.failure}</p>
+              </div>
+            </div>
+          ) : null}
+          {plan.state === "preview" && canExecute ? (
+            <form
+              className="registry-confirmation"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (confirmation === plan.id)
+                  execute.mutate({
+                    plan,
+                    idempotencyKey: crypto.randomUUID(),
+                  });
+              }}
+            >
+              <Field
+                label="Confirm exact plan ID"
+                hint="Execution is accepted only when this value exactly matches the preview plan ID."
+                error={
+                  confirmation && confirmation !== plan.id
+                    ? "The confirmation does not match this plan."
+                    : undefined
+                }
+                required
+              >
+                <input
+                  value={confirmation}
+                  autoComplete="off"
+                  onChange={(event) => setConfirmation(event.target.value)}
+                />
+              </Field>
+              {execute.error ? <ErrorPanel error={execute.error} /> : null}
+              <Button
+                type="submit"
+                variant="danger"
+                busy={execute.isPending}
+                disabled={confirmation !== plan.id}
+              >
+                Execute managed cleanup
+              </Button>
+            </form>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
+  return (
+    <>
+      <div className="registry-section-heading">
+        <div>
+          <span className="eyebrow">Release inventory</span>
+          <h3>Availability</h3>
+        </div>
+        {target.releasesTruncated ? (
+          <span className="placeholder-badge">Most recent 50</span>
+        ) : null}
+      </div>
+      {target.releases.length === 0 ? (
+        <EmptyState
+          compact
+          icon="deploy"
+          title="No release inventory"
+          description="No release records have been observed for this service and target."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table registry-table">
+            <thead>
+              <tr>
+                <th>Digest</th>
+                <th>Availability</th>
+                <th>Succeeded</th>
+              </tr>
+            </thead>
+            <tbody>
+              {target.releases.map((release) => (
+                <tr key={release.id}>
+                  <td>
+                    <code title={release.rootDigest}>
+                      {shortDigest(release.rootDigest)}
+                    </code>
+                  </td>
+                  <td>
+                    <StatusPill value={release.availability} />
+                  </td>
+                  <td>
+                    {formatDate(release.succeededAt ?? release.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="registry-section-heading registry-section-heading--spaced">
+        <div>
+          <span className="eyebrow">Build cache</span>
+          <h3>Generation availability</h3>
+        </div>
+        {target.cacheGenerationsTruncated ? (
+          <span className="placeholder-badge">Most recent 50</span>
+        ) : null}
+      </div>
+      {target.cacheGenerations.length === 0 ? (
+        <EmptyState
+          compact
+          icon="code"
+          title="No cache generations"
+          description="No build-cache generation metadata has been observed."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table registry-table">
+            <thead>
+              <tr>
+                <th>Generation</th>
+                <th>Platform / lane</th>
+                <th>Availability</th>
+                <th>Size</th>
+                <th>Last used</th>
+              </tr>
+            </thead>
+            <tbody>
+              {target.cacheGenerations.map((cache) => (
+                <tr key={cache.id}>
+                  <td>{cache.generation}</td>
+                  <td>
+                    {cache.platformSet} · {cache.trustLane}
+                  </td>
+                  <td>
+                    <StatusPill value={cache.state} />
+                  </td>
+                  <td>{formatBytes(cache.sizeBytes)}</td>
+                  <td>{formatDate(cache.lastUsedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function RegistryTargetCard({
+  application,
+  item,
+  project,
+  capabilities,
+  managedFeatureEnabled,
+  humanSession,
+}: {
+  application: Application;
+  item: ApplicationRegistryTarget;
+  project?: Project;
+  capabilities: Capability[];
+  managedFeatureEnabled: boolean;
+  humanSession: boolean;
+}) {
+  const [editingPolicy, setEditingPolicy] = useState(false);
+  const canWritePolicy = hasRegistryApplicationCapability(
+    capabilities,
+    "registry-policies:write",
+    application,
+    project,
+  );
+  return (
+    <Card className="registry-service-card">
+      <div className="card__header card__header--inside">
+        <div>
+          <span className="eyebrow">{item.target.mode} target</span>
+          <h2>{item.target.name}</h2>
+          <p>
+            <code>{item.target.endpoint}</code> · {item.policy.repository}
+          </p>
+        </div>
+        <StatusPill
+          value={item.inventory?.complete ? "observed" : "unavailable"}
+          label={
+            item.inventory?.complete ? "Inventory complete" : "Unavailable"
+          }
+        />
+      </div>
+      <dl className="registry-summary-grid">
+        <div>
+          <dt>Successful releases retained</dt>
+          <dd>{item.policy.keepLastSuccessful}</dd>
+        </div>
+        <div>
+          <dt>Safety age</dt>
+          <dd>{item.policy.minimumSafetyAgeSeconds}s</dd>
+        </div>
+        <div>
+          <dt>Cache generations</dt>
+          <dd>{item.policy.cacheKeepGenerations}</dd>
+        </div>
+        <div>
+          <dt>Cache quota</dt>
+          <dd>{formatBytes(item.policy.cacheByteQuota)}</dd>
+        </div>
+        <div>
+          <dt>Lifecycle owner</dt>
+          <dd>
+            {item.target.mode === "managed"
+              ? "Kuberploy managed"
+              : "Registry operator"}
+          </dd>
+        </div>
+        <div>
+          <dt>Observed</dt>
+          <dd>{formatDate(item.observedAt)}</dd>
+        </div>
+      </dl>
+      {!item.inventory ? (
+        <div className="notice">
+          <div>
+            <strong>Registry inventory unavailable</strong>
+            <p>
+              Artifact counts and availability are not reported as zero while
+              the observer has no complete snapshot.
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {canWritePolicy && humanSession ? (
+        <div className="registry-policy-toggle">
+          <Button
+            variant="secondary"
+            onClick={() => setEditingPolicy((current) => !current)}
+          >
+            <Icon name="settings" />
+            {editingPolicy ? "Close policy editor" : "Edit retention policy"}
+          </Button>
+          {editingPolicy ? (
+            <PolicyEditor
+              applicationId={application.id}
+              target={item.target}
+              policy={item.policy}
+              onSaved={() => setEditingPolicy(false)}
+            />
+          ) : null}
+        </div>
+      ) : null}
+      <InventoryTable target={item} />
+      {item.target.mode === "managed" && managedFeatureEnabled ? (
+        <CleanupPanel
+          application={application}
+          target={item}
+          capabilities={capabilities}
+          project={project}
+          humanSession={humanSession}
+        />
+      ) : null}
+    </Card>
+  );
+}
+
+export function RegistryPanel({
+  application,
+  project,
+  capabilities,
+  featureEnabled,
+  managedFeatureEnabled,
+  humanSession,
+}: RegistryPanelProps) {
+  const canRead = hasRegistryApplicationCapability(
+    capabilities,
+    "registry:read",
+    application,
+    project,
+  );
+  const canWritePolicy = hasRegistryApplicationCapability(
+    capabilities,
+    "registry-policies:write",
+    application,
+    project,
+  );
+  const canReadTargets = hasRegistryPlatformCapability(
+    capabilities,
+    "registry-targets:read",
+  );
+  const inventory = useQuery({
+    queryKey: ["application-registry", application.id, 50],
+    queryFn: () => api.applicationRegistry(application.id, 50),
+    enabled: featureEnabled && canRead,
+    retry: false,
+  });
+  const targets = useQuery({
+    queryKey: ["registry-targets", 100],
+    queryFn: () => api.registryTargets(100),
+    enabled: featureEnabled && canRead && canReadTargets,
+    retry: false,
+  });
+  const [attachTargetID, setAttachTargetID] = useState("");
+  const attachedIDs = useMemo(
+    () => new Set(inventory.data?.items.map((item) => item.target.id) ?? []),
+    [inventory.data?.items],
+  );
+  const attachableTargets =
+    targets.data?.items.filter((target) => !attachedIDs.has(target.id)) ?? [];
+  const attachTarget = attachableTargets.find(
+    (target) => target.id === attachTargetID,
+  );
+
+  if (!featureEnabled) return null;
+  if (!canRead) {
+    return (
+      <Card>
+        <EmptyState
+          icon="settings"
+          title="Registry access required"
+          description="An exact registry:read capability covering this application is required."
+        />
+      </Card>
+    );
+  }
+  if (inventory.isPending) {
+    return (
+      <Card>
+        <Skeleton lines={10} />
+      </Card>
+    );
+  }
+  if (inventory.error) {
+    return (
+      <ErrorPanel
+        error={inventory.error}
+        title="Could not load artifact inventory"
+        onRetry={() => void inventory.refetch()}
+      />
+    );
+  }
+  return (
+    <div className="registry-service-list">
+      {inventory.data?.items.length === 0 ? (
+        <Card>
+          <EmptyState
+            icon="layers"
+            title="No registry policy configured"
+            description="A platform administrator can attach an approved target. Scoped administrators can edit an existing application policy."
+          />
+        </Card>
+      ) : (
+        inventory.data?.items.map((item) => (
+          <RegistryTargetCard
+            key={item.target.id}
+            application={application}
+            item={item}
+            project={project}
+            capabilities={capabilities}
+            managedFeatureEnabled={managedFeatureEnabled}
+            humanSession={humanSession}
+          />
+        ))
+      )}
+
+      {canWritePolicy && canReadTargets && humanSession ? (
+        <Card>
+          <div className="card__header card__header--inside">
+            <div>
+              <span className="eyebrow">Application policy</span>
+              <h2>Attach an approved target</h2>
+            </div>
+          </div>
+          {targets.error ? (
+            <ErrorPanel
+              error={targets.error}
+              onRetry={() => void targets.refetch()}
+            />
+          ) : null}
+          {attachableTargets.length === 0 ? (
+            <p className="muted-copy">
+              Every configured target is already attached to this application.
+            </p>
+          ) : (
+            <>
+              <Field label="Registry target" required>
+                <select
+                  value={attachTargetID}
+                  onChange={(event) => setAttachTargetID(event.target.value)}
+                >
+                  <option value="">Select a target</option>
+                  {attachableTargets.map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.name} · {titleCase(target.mode)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {attachTarget ? (
+                <PolicyEditor
+                  key={attachTarget.id}
+                  applicationId={application.id}
+                  target={attachTarget}
+                  onSaved={() => setAttachTargetID("")}
+                />
+              ) : null}
+            </>
+          )}
+        </Card>
+      ) : null}
+    </div>
+  );
+}

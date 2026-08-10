@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kuberploy-runtime.appName" . }}
+  labels:
+    {{- include "kuberploy-runtime.labels" . | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ .Values.metadata.id | quote }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "kuberploy-runtime.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range .Values.spec.runtime.ports }}
+    - name: {{ .name }}
+      port: {{ .servicePort | default .containerPort }}
+      targetPort: {{ .name }}
+      protocol: {{ .protocol | default "TCP" }}
+    {{- end }}

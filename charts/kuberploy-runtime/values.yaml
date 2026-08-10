@@ -1,0 +1,32 @@
+# Safe, immutable example values keep `helm lint` useful. In normal operation
+# Argo CD applies optional project/environment VariableSet value files before
+# the canonical app.yaml. Their `values` map is merged in parent order while
+# app-level runtime.env remains most specific.
+apiVersion: config.kuberploy.io/v1alpha1
+kind: AppConfig
+kuberployExpectedIdentity:
+  projectId: 00000000-0000-4000-8000-000000000002
+  environmentId: 00000000-0000-4000-8000-000000000003
+  applicationId: 00000000-0000-4000-8000-000000000001
+metadata:
+  id: 00000000-0000-4000-8000-000000000001
+  name: example
+spec:
+  projectId: 00000000-0000-4000-8000-000000000002
+  environmentId: 00000000-0000-4000-8000-000000000003
+  applicationId: 00000000-0000-4000-8000-000000000001
+  delivery:
+    mode: image
+    release:
+      repository: registry.k8s.io/e2e-test-images/agnhost
+      digest: sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
+  runtime:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+        protocol: TCP
+    resources:
+      requests:
+        cpu: 50m
+        memory: 100Mi

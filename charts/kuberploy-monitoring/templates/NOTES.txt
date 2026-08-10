@@ -1,0 +1,7 @@
+This release owns only the managed monitoring boundary in kuberploy-monitoring.
+
+The control-plane API must not enable monitoring until it observes this release,
+the protected seven-series PrometheusRule, and a healthy scoped query endpoint.
+Runtime namespaces and any Traefik metrics namespace must be explicitly labeled
+kuberploy.io/monitoring-namespace=true and may contain only monitors carrying
+kuberploy.io/monitoring-source=protected.

@@ -1,0 +1,50 @@
+{{- range (.Values.spec.middlewares | default (list)) }}
+{{- include "kuberploy-runtime.validateMiddleware" . }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "kuberploy-runtime.middlewareName" (dict "root" $ "middleware" .) }}
+  labels:
+    {{- include "kuberploy-runtime.labels" $ | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ $.Values.metadata.id | quote }}
+    kuberploy.io/logical-name: {{ .name | quote }}
+    kuberploy.io/content-addressed: "true"
+spec:
+  {{- if hasKey .spec "basicAuth" }}
+  {{- $auth := required "basicAuth configuration is required" .spec.basicAuth }}
+  {{- $secretRef := required "basicAuth.secretBindingRef is required" $auth.secretBindingRef }}
+  {{- if ne (required "basicAuth.secretBindingRef.key is required" $secretRef.key) "users" }}
+    {{- fail "basicAuth.secretBindingRef.key must be users" }}
+  {{- end }}
+  basicAuth:
+    secret: {{ include "kuberploy-runtime.secretName" $secretRef }}
+    {{- with $auth.removeHeader }}
+    removeHeader: {{ . }}
+    {{- end }}
+    {{- with $auth.headerField }}
+    headerField: {{ . | quote }}
+    {{- end }}
+  {{- else }}
+  {{- toYaml .spec | nindent 2 }}
+  {{- end }}
+{{- end }}
+{{- range (.Values.spec.routes | default (list)) }}
+{{- if and (ne .tls.mode "httpOnly") (.tls.redirectHttp | default false) }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "kuberploy-runtime.routeName" (dict "root" $ "route" .) }}-https
+  labels:
+    {{- include "kuberploy-runtime.labels" $ | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ $.Values.metadata.id | quote }}
+    kuberploy.io/content-addressed: "true"
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+{{- end }}
+{{- end }}

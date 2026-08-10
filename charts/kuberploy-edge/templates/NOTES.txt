@@ -1,0 +1,2 @@
+Traefik is {{ ternary "managed" "adopted" .Values.edge.traefik.managed }} with IngressClass {{ .Values.traefik.ingressClass.name }}.
+HTTP, Let's Encrypt, and namespace-local custom TLS Secret modes coexist per route.

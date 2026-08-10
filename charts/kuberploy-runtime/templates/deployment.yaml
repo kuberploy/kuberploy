@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kuberploy-runtime.appName" . }}
+  labels:
+    {{- include "kuberploy-runtime.labels" . | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ .Values.metadata.id | quote }}
+spec:
+  replicas: {{ .Values.spec.runtime.replicas }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "kuberploy-runtime.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-runtime.labels" . | nindent 8 }}
+      annotations:
+        kuberploy.io/config-map: {{ include "kuberploy-runtime.configMapName" . | quote }}
+        kuberploy.io/config-revision: {{ .Values.spec.runtime.configRevision | default "unrecorded" | quote }}
+        {{- with .Values.spec.runtime.schedulingProfile }}
+        kuberploy.io/scheduling-profile: {{ printf "%s@%d" .profileId (int64 .revision) | quote }}
+        kuberploy.io/scheduling-spec-digest: {{ .specDigest | quote }}
+        kuberploy.io/scheduling-assignments-digest: {{ .assignmentsDigest | quote }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kuberploy-runtime.appName" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with .Values.spec.delivery.registryPull }}
+      imagePullSecrets:
+        - name: {{ include "kuberploy-runtime.imagePullSecretName" $ }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.spec.runtime.terminationGracePeriodSeconds | default 30 }}
+      {{- with .Values.spec.runtime.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.spec.runtime.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.spec.runtime.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.spec.runtime.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.spec.runtime.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: application
+          image: {{ include "kuberploy-runtime.image" . | quote }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          {{- with .Values.spec.runtime.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.spec.runtime.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            {{- range .Values.spec.runtime.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort }}
+              protocol: {{ .protocol | default "TCP" }}
+            {{- end }}
+          {{- with (include "kuberploy-runtime.effectiveEnv" . | fromJsonArray) }}
+          env:
+            {{- range . }}
+            - name: {{ .name }}
+              valueFrom:
+                {{- if hasKey . "value" }}
+                configMapKeyRef:
+                  name: {{ include "kuberploy-runtime.configMapName" $ }}
+                  key: {{ .name }}
+                  optional: false
+                {{- else }}
+                secretKeyRef:
+                  name: {{ include "kuberploy-runtime.secretName" .valueFrom.secretBindingRef }}
+                  key: {{ .valueFrom.secretBindingRef.key }}
+                  optional: false
+                {{- end }}
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.spec.runtime.resources | nindent 12 }}
+          {{- with .Values.spec.runtime.probes }}
+          {{- with .startup }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .readiness }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .liveness }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,12 @@
+{{- include "kuberploy-cert-manager.validate" . -}}
+{{- if and .Values.foundation.enabled .Values.foundation.namespace.create .Values.foundation.certManager.managed }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-cert-manager.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

@@ -1,0 +1,416 @@
+import { useRef, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../api/client";
+import type {
+  CertificateIssuerAdminEntry,
+  CertificateIssuerMutation,
+} from "../api/types";
+import { formatDate, shortId } from "../lib/format";
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  Skeleton,
+  StatusPill,
+} from "../components/ui";
+
+type Draft = CertificateIssuerMutation & { name: string };
+
+const emptyDraft: Draft = {
+  name: "",
+  environment: "production",
+  email: "",
+  accountPrivateKeySecretName: "",
+  solver: { type: "http01" },
+};
+
+export function CertificateIssuersPage() {
+  const queryClient = useQueryClient();
+  const replayKey = useRef(crypto.randomUUID());
+  const [editing, setEditing] = useState<CertificateIssuerAdminEntry>();
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const principal = useQuery({
+    queryKey: ["me"],
+    queryFn: api.me,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const capabilities = useQuery({
+    queryKey: ["capabilities"],
+    queryFn: api.capabilities,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const allowed =
+    principal.data?.role === "platform-admin" &&
+    principal.data.authentication.kind === "session" &&
+    capabilities.data?.features?.certificateIssuerManagement === true;
+  const catalog = useQuery({
+    queryKey: ["platform-certificate-issuers"],
+    queryFn: api.platformCertificateIssuers,
+    enabled: allowed,
+    retry: false,
+  });
+  const save = useMutation({
+    mutationFn: () => {
+      const { name, ...input } = draft;
+      return editing
+        ? api.revisePlatformCertificateIssuer(
+            editing.id,
+            editing.currentRevision,
+            input,
+            replayKey.current,
+          )
+        : api.createPlatformCertificateIssuer(name, input, replayKey.current);
+    },
+    onSuccess: async () => {
+      setEditing(undefined);
+      setDraft(emptyDraft);
+      replayKey.current = crypto.randomUUID();
+      await queryClient.invalidateQueries({
+        queryKey: ["platform-certificate-issuers"],
+      });
+    },
+  });
+  const deactivate = useMutation({
+    mutationFn: (entry: CertificateIssuerAdminEntry) =>
+      api.deactivatePlatformCertificateIssuer(
+        entry.id,
+        entry.currentRevision,
+        crypto.randomUUID(),
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ["platform-certificate-issuers"],
+      });
+    },
+  });
+
+  const change = (next: Draft) => {
+    setDraft(next);
+    replayKey.current = crypto.randomUUID();
+    save.reset();
+  };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    save.mutate();
+  };
+  const edit = (entry: CertificateIssuerAdminEntry) => {
+    setEditing(entry);
+    setDraft({
+      name: entry.name,
+      environment: entry.revision.environment,
+      email: entry.revision.email,
+      accountPrivateKeySecretName: entry.revision.accountPrivateKeySecretName,
+      solver:
+        entry.revision.solver === "http01"
+          ? { type: "http01" }
+          : {
+              type: "dns01-cloudflare",
+              dnsZones: [...(entry.revision.dnsZones ?? [])],
+              apiTokenSecretName: entry.revision.apiTokenSecretName ?? "",
+              apiTokenSecretKey: entry.revision.apiTokenSecretKey ?? "",
+            },
+    });
+    replayKey.current = crypto.randomUUID();
+  };
+
+  if (principal.isPending || capabilities.isPending)
+    return <Skeleton lines={7} />;
+  if (!allowed)
+    return (
+      <EmptyState
+        title="Certificate issuer management unavailable"
+        description="This page requires a human platform-admin session and a freshly ready protected issuer publisher and observer."
+      />
+    );
+
+  const dnsSolver =
+    draft.solver.type === "dns01-cloudflare" ? draft.solver : undefined;
+
+  return (
+    <div className="settings-page">
+      <div className="page-heading">
+        <div>
+          <span className="eyebrow">Platform settings</span>
+          <h1>Certificate issuers</h1>
+          <p>
+            Manage immutable Let&apos;s Encrypt ClusterIssuer profiles. Tenant
+            workloads can only select a ready approved issuer; they never see
+            ACME email, DNS zones, or Secret references.
+          </p>
+        </div>
+      </div>
+
+      <Card>
+        <div className="card__header card__header--inside">
+          <div>
+            <h2>
+              {editing ? "Append an immutable revision" : "Create an issuer"}
+            </h2>
+            <p>
+              HTTP-01 uses the protected Traefik solver. DNS-01 currently uses a
+              pre-created Cloudflare API-token Secret; credential values are
+              never entered here.
+            </p>
+          </div>
+        </div>
+        <form className="form-grid" onSubmit={submit}>
+          <Field label="Issuer name" required>
+            <input
+              value={draft.name}
+              disabled={Boolean(editing)}
+              required
+              maxLength={63}
+              pattern="[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?"
+              placeholder="tenant-production"
+              onChange={(event) =>
+                change({ ...draft, name: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="Let’s Encrypt environment" required>
+            <select
+              value={draft.environment}
+              onChange={(event) =>
+                change({
+                  ...draft,
+                  environment: event.target.value as "production" | "staging",
+                })
+              }
+            >
+              <option value="staging">Staging (test certificates)</option>
+              <option value="production">Production</option>
+            </select>
+          </Field>
+          <Field label="ACME account email" required>
+            <input
+              type="email"
+              value={draft.email}
+              required
+              maxLength={254}
+              onChange={(event) =>
+                change({ ...draft, email: event.target.value })
+              }
+            />
+          </Field>
+          <Field label="ACME account Secret name" required>
+            <input
+              value={draft.accountPrivateKeySecretName}
+              required
+              maxLength={253}
+              pattern="[a-z0-9](?:[-a-z0-9]{0,251}[a-z0-9])?"
+              onChange={(event) =>
+                change({
+                  ...draft,
+                  accountPrivateKeySecretName: event.target.value,
+                })
+              }
+            />
+          </Field>
+          <Field label="Solver" required>
+            <select
+              value={draft.solver.type}
+              onChange={(event) =>
+                change({
+                  ...draft,
+                  solver:
+                    event.target.value === "http01"
+                      ? { type: "http01" }
+                      : {
+                          type: "dns01-cloudflare",
+                          dnsZones: [],
+                          apiTokenSecretName: "",
+                          apiTokenSecretKey: "api-token",
+                        },
+                })
+              }
+            >
+              <option value="http01">HTTP-01 (Traefik)</option>
+              <option value="dns01-cloudflare">DNS-01 (Cloudflare)</option>
+            </select>
+          </Field>
+          {dnsSolver ? (
+            <>
+              <Field
+                label="Authorized DNS zones"
+                hint="One exact zone per line. Wildcard hosts are allowed only inside these zones."
+                required
+              >
+                <textarea
+                  rows={3}
+                  required
+                  value={dnsSolver.dnsZones.join("\n")}
+                  onChange={(event) =>
+                    change({
+                      ...draft,
+                      solver: {
+                        ...dnsSolver,
+                        dnsZones: event.target.value
+                          .split(/\r?\n/)
+                          .map((zone) => zone.trim().toLowerCase())
+                          .filter(Boolean),
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Cloudflare API-token Secret name" required>
+                <input
+                  required
+                  value={dnsSolver.apiTokenSecretName}
+                  onChange={(event) =>
+                    change({
+                      ...draft,
+                      solver: {
+                        ...dnsSolver,
+                        apiTokenSecretName: event.target.value,
+                      },
+                    })
+                  }
+                />
+              </Field>
+              <Field label="Cloudflare API-token Secret key" required>
+                <input
+                  required
+                  value={dnsSolver.apiTokenSecretKey}
+                  onChange={(event) =>
+                    change({
+                      ...draft,
+                      solver: {
+                        ...dnsSolver,
+                        apiTokenSecretKey: event.target.value,
+                      },
+                    })
+                  }
+                />
+              </Field>
+            </>
+          ) : null}
+          <div className="form-actions">
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending
+                ? "Publishing…"
+                : editing
+                  ? "Publish revision"
+                  : "Create issuer"}
+            </Button>
+            {editing ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setEditing(undefined);
+                  setDraft(emptyDraft);
+                  replayKey.current = crypto.randomUUID();
+                }}
+              >
+                Cancel
+              </Button>
+            ) : null}
+          </div>
+          {save.error ? <ErrorPanel error={save.error} /> : null}
+        </form>
+      </Card>
+
+      {catalog.isPending ? <Skeleton lines={5} /> : null}
+      {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
+      {catalog.data?.items.length === 0 ? (
+        <EmptyState
+          title="No managed issuers"
+          description="Create an HTTP-01 or Cloudflare DNS-01 profile. Bootstrap chart issuers remain separately protected."
+        />
+      ) : null}
+      <div className="card-grid">
+        {catalog.data?.items.map((entry) => (
+          <Card key={entry.id}>
+            <div className="card__header card__header--inside">
+              <div>
+                <h2>{entry.name}</h2>
+                <p>
+                  Revision {entry.currentRevision} · {shortId(entry.id)} ·{" "}
+                  {entry.revision.environment}
+                </p>
+              </div>
+              <StatusPill value={entry.lifecycle} label={entry.lifecycle} />
+            </div>
+            <dl className="detail-list">
+              <div>
+                <dt>Solver</dt>
+                <dd>{entry.revision.solver}</dd>
+              </div>
+              <div>
+                <dt>Materialization</dt>
+                <dd>{entry.observation.state}</dd>
+              </div>
+              <div>
+                <dt>ACME email</dt>
+                <dd>{entry.revision.email}</dd>
+              </div>
+              <div>
+                <dt>Account Secret</dt>
+                <dd>
+                  <code>{entry.revision.accountPrivateKeySecretName}</code>
+                </dd>
+              </div>
+              {entry.revision.solver === "dns01-cloudflare" ? (
+                <>
+                  <div>
+                    <dt>Zones</dt>
+                    <dd>{entry.revision.dnsZones?.join(", ")}</dd>
+                  </div>
+                  <div>
+                    <dt>Token Secret</dt>
+                    <dd>
+                      <code>
+                        {entry.revision.apiTokenSecretName}/
+                        {entry.revision.apiTokenSecretKey}
+                      </code>
+                    </dd>
+                  </div>
+                </>
+              ) : null}
+              <div>
+                <dt>Updated</dt>
+                <dd>{formatDate(entry.observation.updatedAt)}</dd>
+              </div>
+            </dl>
+            {entry.observation.reason ? (
+              <p>{entry.observation.reason}</p>
+            ) : null}
+            {entry.lifecycle === "active" ? (
+              <div className="form-actions">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => edit(entry)}
+                >
+                  Revise
+                </Button>
+                <Button
+                  type="button"
+                  variant="danger"
+                  disabled={deactivate.isPending}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Deactivate ${entry.name}? Existing route references must be removed first.`,
+                      )
+                    ) {
+                      deactivate.mutate(entry);
+                    }
+                  }}
+                >
+                  Deactivate
+                </Button>
+              </div>
+            ) : null}
+          </Card>
+        ))}
+      </div>
+      {deactivate.error ? <ErrorPanel error={deactivate.error} /> : null}
+    </div>
+  );
+}

@@ -1,0 +1,3 @@
+Kuberploy Sealed Secrets profile: {{ ternary "managed" "adopted" .Values.secretFoundation.controller.managed }}
+Namespace: {{ .Release.Namespace }}
+Back up all labelled sealing-key Secrets before enabling runtime secret delivery.

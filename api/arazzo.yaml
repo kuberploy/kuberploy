@@ -1,0 +1,173 @@
+{
+  "arazzo": "1.1.0",
+  "$self": "/arazzo.yaml",
+  "info": {
+    "title": "Kuberploy safe API workflows",
+    "summary": "Bounded workflows backed by currently implemented Kuberploy API operations.",
+    "description": "Workflow runners supply one authentication alternative declared by OpenAPI. Project-scoped service-account bearer tokens are the autonomous path and do not use CSRF. Interactive cookie callers must apply OpenAPI's conditional CSRF rule themselves. A 202 response means durable acceptance only; clients must inspect the returned operation.",
+    "version": "1.0.0"
+  },
+  "sourceDescriptions": [
+    {"name": "kuberploy", "url": "/openapi.json", "type": "openapi"}
+  ],
+  "workflows": [
+    {
+      "workflowId": "deployExistingImage",
+      "summary": "Create a deployment from an existing immutable image digest and inspect its durable operation.",
+      "inputs": {
+        "type": "object",
+        "required": ["deployment", "idempotencyKey"],
+        "properties": {
+          "deployment": {"type": "object"},
+          "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "additionalProperties": false
+      },
+      "steps": [
+        {
+          "stepId": "createDeployment",
+          "operationId": "$sourceDescriptions.kuberploy.createImageDeployment",
+          "parameters": [
+            {"name": "Idempotency-Key", "in": "header", "value": "$inputs.idempotencyKey"}
+          ],
+          "requestBody": {"contentType": "application/json", "payload": "$inputs.deployment"},
+          "successCriteria": [{"condition": "$statusCode == 202"}],
+          "outputs": {"operationId": "$response.body#/id", "deploymentId": "$response.body#/targetId"}
+        },
+        {
+          "stepId": "inspectOperation",
+          "operationId": "$sourceDescriptions.kuberploy.getOperation",
+          "parameters": [{"name": "id", "in": "path", "value": "$steps.createDeployment.outputs.operationId"}],
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"status": "$response.body#/status", "problem": "$response.body#/problem"}
+        },
+        {
+          "stepId": "inspectDeployment",
+          "operationId": "$sourceDescriptions.kuberploy.getDeploymentStatus",
+          "parameters": [{"name": "id", "in": "path", "value": "$steps.createDeployment.outputs.deploymentId"}],
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"desiredState": "$response.body#/state", "operationStatus": "$response.body#/operationStatus"}
+        }
+      ],
+      "outputs": {
+        "operationId": "$steps.createDeployment.outputs.operationId",
+        "deploymentId": "$steps.createDeployment.outputs.deploymentId",
+        "operationStatus": "$steps.inspectOperation.outputs.status"
+      }
+    },
+    {
+      "workflowId": "editDeploymentConfig",
+      "summary": "Read, validate, preview, and save one exact AppConfig candidate using optimistic concurrency.",
+      "inputs": {
+        "type": "object",
+        "required": ["deploymentId", "change", "idempotencyKey"],
+        "properties": {
+          "deploymentId": {"type": "string", "format": "uuid"},
+          "change": {"type": "object"},
+          "idempotencyKey": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "additionalProperties": false
+      },
+      "steps": [
+        {
+          "stepId": "readConfig",
+          "operationId": "$sourceDescriptions.kuberploy.getDeploymentConfig",
+          "parameters": [{"name": "id", "in": "path", "value": "$inputs.deploymentId"}],
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"etag": "$response.header.ETag"}
+        },
+        {
+          "stepId": "validateConfig",
+          "operationId": "$sourceDescriptions.kuberploy.validateDeploymentConfig",
+          "parameters": [
+            {"name": "id", "in": "path", "value": "$inputs.deploymentId"}
+          ],
+          "requestBody": {"contentType": "application/json", "payload": "$inputs.change"},
+          "successCriteria": [
+            {"condition": "$statusCode == 200"},
+            {"condition": "$response.body#/valid == true"}
+          ]
+        },
+        {
+          "stepId": "previewConfig",
+          "operationId": "$sourceDescriptions.kuberploy.previewDeploymentConfig",
+          "parameters": [
+            {"name": "id", "in": "path", "value": "$inputs.deploymentId"},
+            {"name": "If-Match", "in": "header", "value": "$steps.readConfig.outputs.etag"}
+          ],
+          "requestBody": {"contentType": "application/json", "payload": "$inputs.change"},
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"previewToken": "$response.body#/previewToken"}
+        },
+        {
+          "stepId": "saveConfig",
+          "operationId": "$sourceDescriptions.kuberploy.saveDeploymentConfig",
+          "parameters": [
+            {"name": "id", "in": "path", "value": "$inputs.deploymentId"},
+            {"name": "If-Match", "in": "header", "value": "$steps.readConfig.outputs.etag"},
+            {"name": "Preview-Token", "in": "header", "value": "$steps.previewConfig.outputs.previewToken"},
+            {"name": "Idempotency-Key", "in": "header", "value": "$inputs.idempotencyKey"}
+          ],
+          "requestBody": {"contentType": "application/json", "payload": "$inputs.change"},
+          "successCriteria": [{"condition": "$statusCode == 202"}],
+          "outputs": {"operationId": "$response.body#/id"}
+        },
+        {
+          "stepId": "inspectOperation",
+          "operationId": "$sourceDescriptions.kuberploy.getOperation",
+          "parameters": [{"name": "id", "in": "path", "value": "$steps.saveConfig.outputs.operationId"}],
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"status": "$response.body#/status", "problem": "$response.body#/problem"}
+        }
+      ],
+      "outputs": {
+        "operationId": "$steps.saveConfig.outputs.operationId",
+        "operationStatus": "$steps.inspectOperation.outputs.status"
+      }
+    },
+    {
+      "workflowId": "queryServiceMetrics",
+      "summary": "Check monitoring availability and query one catalog metric for an authorized service.",
+      "inputs": {
+        "type": "object",
+        "required": ["deploymentId", "metric", "from", "to", "step"],
+        "properties": {
+          "deploymentId": {"type": "string", "format": "uuid"},
+          "metric": {"type": "string", "enum": ["cpu-usage", "memory-working-set", "replicas-ready", "container-restarts", "http-request-rate", "http-error-ratio", "http-latency-p95"]},
+          "from": {"type": "string", "format": "date-time"},
+          "to": {"type": "string", "format": "date-time"},
+          "step": {"type": "string", "pattern": "^[1-9][0-9]{1,3}s$"}
+        },
+        "additionalProperties": false
+      },
+      "steps": [
+        {
+          "stepId": "checkMonitoring",
+          "operationId": "$sourceDescriptions.kuberploy.getMonitoringStatus",
+          "successCriteria": [
+            {"condition": "$statusCode == 200"},
+            {"condition": "$response.body#/available == true"}
+          ]
+        },
+        {
+          "stepId": "queryMetric",
+          "operationId": "$sourceDescriptions.kuberploy.queryMetricRange",
+          "parameters": [
+            {"name": "scopeType", "in": "query", "value": "service"},
+            {"name": "scopeId", "in": "query", "value": "$inputs.deploymentId"},
+            {"name": "metric", "in": "query", "value": "$inputs.metric"},
+            {"name": "from", "in": "query", "value": "$inputs.from"},
+            {"name": "to", "in": "query", "value": "$inputs.to"},
+            {"name": "step", "in": "query", "value": "$inputs.step"}
+          ],
+          "successCriteria": [{"condition": "$statusCode == 200"}],
+          "outputs": {"series": "$response.body#/series", "observedAt": "$response.body#/observedAt"}
+        }
+      ],
+      "outputs": {
+        "series": "$steps.queryMetric.outputs.series",
+        "observedAt": "$steps.queryMetric.outputs.observedAt"
+      }
+    }
+  ]
+}

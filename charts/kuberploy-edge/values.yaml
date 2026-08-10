@@ -1,0 +1,199 @@
+edge:
+  namespace:
+    create: true
+  traefik:
+    # Exactly one must be true. Managed is the P0 LoadBalancer profile.
+    managed: true
+    adoptExisting: false
+    # Adoption confirms compatible Ingress and traefik.io/v1alpha1 CRD providers.
+    crdProviderConfirmed: false
+    # sslip.io is disabled when this key is absent. To enable it, configure
+    # exactly one mode; staticPublicIPv4 is accepted only by verified-static-ip.
+    # sslip:
+    #   mode: auto-first-ip
+  networkPolicy:
+    enabled: true
+    # The Kubernetes API endpoint CIDRs are cluster-specific and deliberately
+    # have no broad default. 0.0.0.0/0 and ::/0 are rejected here.
+    kubeAPIServerCIDRs: []
+    publicIngressCIDRs:
+      - 0.0.0.0/0
+      - ::/0
+
+traefik:
+  commonLabels: {}
+  namespaceOverride: ""
+  instanceLabelOverride: ""
+  nameOverride: traefik
+  fullnameOverride: ""
+  image:
+    registry: docker.io
+    repository: library/traefik
+    tag: v3.7.10
+    digest: sha256:9c3b91d5fb7770853ca5c1124a23c34bf2d9b47ffaebeab2614cbaf410dcb2ac
+    pullPolicy: IfNotPresent
+  versionOverride: v3.7.10
+  deployment:
+    enabled: true
+    kind: Deployment
+    replicas: 2
+    shareProcessNamespace: false
+    additionalContainers: []
+    additionalVolumes: []
+    initContainers: []
+    podLabels: {}
+    podAnnotations: {}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+  ingressClass:
+    enabled: true
+    isDefaultClass: false
+    name: traefik
+  gateway:
+    enabled: false
+  experimental:
+    plugins: {}
+    localPlugins: {}
+  hub:
+    enabled: false
+    token: ""
+  providers:
+    kubernetesCRD:
+      enabled: true
+      allowCrossNamespace: false
+      allowExternalNameServices: false
+      allowEmptyServices: false
+      crossProviderNamespaces: []
+    kubernetesIngress:
+      enabled: true
+      allowExternalNameServices: false
+      allowEmptyServices: false
+      crossProviderNamespaces: []
+      ingressClass: traefik
+      publishedService:
+        enabled: true
+    kubernetesGateway:
+      enabled: false
+    file:
+      enabled: false
+      content: {}
+    kubernetesIngressNGINX:
+      enabled: false
+  api:
+    dashboard: false
+    insecure: false
+    debug: false
+  ingressRoute:
+    dashboard:
+      enabled: false
+    healthcheck:
+      enabled: false
+  log:
+    format: json
+    level: INFO
+  accessLog:
+    enabled: true
+    format: json
+    fields:
+      names: {}
+      headers:
+        defaultMode: drop
+        names: {}
+      queryParameters:
+        defaultMode: drop
+  ports:
+    traefik:
+      expose:
+        default: false
+    web:
+      port: 8000
+      expose:
+        default: true
+      exposedPort: 80
+      protocol: TCP
+      http:
+        redirections:
+          entryPoint: {}
+      forwardedHeaders:
+        insecure: false
+      proxyProtocol:
+        insecure: false
+    websecure:
+      port: 8443
+      expose:
+        default: true
+      exposedPort: 443
+      protocol: TCP
+      http:
+        middlewares: []
+        tls:
+          enabled: true
+          options: ""
+          certResolver: ""
+          domains: []
+      http3:
+        enabled: false
+      forwardedHeaders:
+        insecure: false
+      proxyProtocol:
+        insecure: false
+    metrics:
+      expose:
+        default: false
+  service:
+    enabled: true
+    single: true
+    annotations: {}
+    spec:
+      type: LoadBalancer
+    additionalServices: {}
+  rbac:
+    enabled: true
+    namespaced: false
+    aggregateTo: []
+  serviceAccount:
+    name: ""
+  serviceAccountAnnotations: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+  podSecurityContext:
+    runAsGroup: 65532
+    runAsNonRoot: true
+    runAsUser: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  hostNetwork: false
+  persistence:
+    enabled: false
+  certificatesResolvers: {}
+  tlsOptions: {}
+  tlsStore: {}
+  volumes: []
+  env: []
+  envFrom: []
+  additionalArguments: []
+  additionalVolumeMounts: []
+  extraObjects: []

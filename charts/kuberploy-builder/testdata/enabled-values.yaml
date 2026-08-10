@@ -1,0 +1,13 @@
+enabled: true
+builderAgentImage: registry.example.test/kuberploy/builder-agent@sha256:1111111111111111111111111111111111111111111111111111111111111111
+
+namespace:
+  create: true
+  name: kuberploy-build-dind
+
+controllerServiceAccount:
+  namespace: kuberploy-system
+  name: kuberploy-controller
+
+podServiceAccount:
+  name: kuberploy-build-pod

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-chart-lifecycle.XXXXXX")"
+trap 'rm -rf -- "${kp_tmp}"' EXIT
+
+kp_version="$(python3 "${kp_root}/release/validate_source.py" --root "${kp_root}")"
+
+kp_stage_chart() {
+  local destination="$1"
+  local digit="$2"
+  local digest
+  digest="sha256:$(printf "${digit}%.0s" {1..64})"
+  local chart_args=(
+    --source "${kp_root}/charts/kuberploy"
+    --builder-chart "${kp_root}/charts/kuberploy-builder"
+    --destination "${destination}"
+    --version "${kp_version}"
+    --api-image "ghcr.io/kuberploy/kuberploy-api@${digest}"
+    --worker-image "ghcr.io/kuberploy/kuberploy-worker@${digest}"
+    --web-image "ghcr.io/kuberploy/kuberploy-web@${digest}"
+    --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${digest}"
+    --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${digest}"
+  )
+  python3 "${kp_root}/release/package_chart.py" "${chart_args[@]}" >/dev/null
+}
+
+kp_stage_chart "${kp_tmp}/install-chart" 6
+kp_stage_chart "${kp_tmp}/upgrade-chart" 7
+
+kp_network_args=(--set-string networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.1/32)
+helm lint "${kp_tmp}/install-chart" "${kp_network_args[@]}" >/dev/null
+helm lint "${kp_tmp}/upgrade-chart" "${kp_network_args[@]}" >/dev/null
+helm template kuberploy "${kp_tmp}/install-chart" --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/install.yaml"
+helm template kuberploy "${kp_tmp}/upgrade-chart" --namespace kuberploy-system --is-upgrade "${kp_network_args[@]}" >"${kp_tmp}/upgrade.yaml"
+helm template kuberploy "${kp_tmp}/install-chart" --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/rollback.yaml"
+helm template kuberploy "${kp_tmp}/install-chart" \
+  --namespace kuberploy-system \
+  "${kp_network_args[@]}" \
+  --set builder.enabled=true >"${kp_tmp}/builder-enabled.yaml"
+helm template kuberploy "${kp_tmp}/install-chart" \
+  --namespace kuberploy-system \
+  "${kp_network_args[@]}" \
+  --set-string networkPolicy.externalEgressCIDRs[0]=192.0.2.1/32 \
+  --set-string builder.networkPolicy.sourceEgressCIDRs[0]=192.0.2.2/32 \
+  --set-string builder.networkPolicy.registryEgressCIDRs[0]=192.0.2.3/32 \
+  --set builder.enabled=true \
+  --set-string config.publicURL=https://kuberploy.example.test \
+  --set config.githubApp.enabled=true \
+  --set config.githubApp.appID=12345 \
+  --set-string config.githubApp.clientID=Iv1_KuberployClient \
+  --set-string config.githubApp.appSlug=kuberploy \
+  --set config.githubApp.secretRef.name=kuberploy-github-app >"${kp_tmp}/github-builder-enabled.yaml"
+diff -u "${kp_tmp}/install.yaml" "${kp_tmp}/rollback.yaml" >/dev/null
+
+[[ "$(grep -c '^kind: Deployment$' "${kp_tmp}/install.yaml")" -eq 3 ]]
+[[ "$(grep -c '^kind: PodDisruptionBudget$' "${kp_tmp}/install.yaml")" -eq 3 ]]
+[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 6 ]]
+[[ "$(grep -Ec '^kind: (ClusterRole|ClusterRoleBinding|Namespace|Application|ApplicationSet|AppProject)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
+[[ "$(grep -Ec '^kind: (Namespace|ResourceQuota|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
+[[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 3 ]]
+grep -q 'KUBERPLOY_UPGRADER_IMAGE' "${kp_tmp}/install.yaml"
+grep -q 'ghcr.io/kuberploy/kuberploy-upgrader@sha256:' "${kp_tmp}/install.yaml"
+grep -q 'name: kuberploy-upgrade' "${kp_tmp}/install.yaml"
+grep -q 'app.kubernetes.io/component: upgrade' "${kp_tmp}/install.yaml"
+grep -q 'jobs' "${kp_tmp}/install.yaml"
+grep -q 'secrets' "${kp_tmp}/install.yaml"
+
+[[ "$(grep -c '^kind: Namespace$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
+[[ "$(grep -c '^kind: ResourceQuota$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
+[[ "$(grep -c '^kind: ValidatingAdmissionPolicy$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
+[[ "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
+[[ "$(grep -c '^kind: Job$' "${kp_tmp}/builder-enabled.yaml")" -eq 0 ]]
+grep -q 'ghcr.io/kuberploy/kuberploy-builder-agent@sha256:' "${kp_tmp}/builder-enabled.yaml"
+grep -q 'KUBERPLOY_GITHUB_BUILDS_ENABLED: "true"' "${kp_tmp}/github-builder-enabled.yaml"
+grep -q 'secretName: kuberploy-github-app' "${kp_tmp}/github-builder-enabled.yaml"
+grep -q 'path: runtime/private-key.pem' "${kp_tmp}/github-builder-enabled.yaml"
+[[ "$(grep -c 'name: github-app-private-key' "${kp_tmp}/github-builder-enabled.yaml")" -eq 2 ]]
+
+helm upgrade --help | grep -q -- '--rollback-on-failure'
+if helm upgrade --help | grep -q -- '--atomic'; then
+  printf 'Helm 4 unexpectedly exposes deprecated --atomic; review release flags\n' >&2
+  exit 1
+fi
+bash -n "${kp_root}/scripts/local-docker-runtime/install-platform.sh"
+grep -q -- '--rollback-on-failure' "${kp_root}/scripts/local-docker-runtime/install-platform.sh"
+if grep -q -- '--atomic' "${kp_root}/scripts/local-docker-runtime/install-platform.sh"; then
+  printf 'local Docker runtime installer still uses Helm 3 --atomic\n' >&2
+  exit 1
+fi
+
+printf 'chart install/upgrade/rollback render validation passed\n'

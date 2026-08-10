@@ -1,0 +1,14 @@
+{{- if .Values.config.bootstrapSecret.generate }}
+The first-administrator token was generated inside the cluster and was not
+stored in Helm values or release manifests. Retrieve its one-time disclosure:
+
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "kuberploy.fullname" . }}-bootstrap-token
+
+Record it before the Job's 24-hour TTL expires, then use it at the Kuberploy
+bootstrap screen. If the Secret already existed, the Job intentionally prints
+no token.
+{{- else }}
+Kuberploy expects the first-administrator token in Secret
+{{ .Release.Namespace }}/{{ .Values.config.bootstrapSecret.name }}, key
+{{ .Values.config.bootstrapSecret.tokenKey }}. Token generation is disabled.
+{{- end }}

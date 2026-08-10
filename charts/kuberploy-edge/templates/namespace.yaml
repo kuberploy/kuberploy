@@ -1,0 +1,12 @@
+{{- include "kuberploy-edge.validate" . -}}
+{{- if and .Values.edge.namespace.create .Values.edge.traefik.managed }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    {{- include "kuberploy-edge.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

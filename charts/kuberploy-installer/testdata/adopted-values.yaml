@@ -1,0 +1,23 @@
+bootstrap:
+  argoCD:
+    enabled: true
+    mode: adopted
+
+source:
+  repoURL: https://github.com/kuberploy/kuberploy.git
+  targetRevision: "2222222222222222222222222222222222222222"
+
+components:
+  edge:
+    enabled: true
+    mode: adopted
+    adoptionConfirmed: true
+    expectedPackageDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    valueFiles: []
+
+argoCD:
+  argoFoundation:
+    argoCD:
+      managed: false
+      adoptExisting: true
+      capabilitiesConfirmed: true

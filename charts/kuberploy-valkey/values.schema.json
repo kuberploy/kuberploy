@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["valkeyFoundation", "valkey"],
+  "properties": {
+    "global": {"type": "object"},
+    "valkeyFoundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managed", "adoptExisting", "namespace", "networkPolicy"],
+      "properties": {
+        "managed": {"type": "boolean"},
+        "adoptExisting": {"type": "boolean"},
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create"],
+          "properties": {"create": {"type": "boolean"}}
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "controlPlaneNamespace", "argoCDNamespace"],
+          "properties": {
+            "enabled": {"const": true},
+            "controlPlaneNamespace": {"const": "kuberploy-system"},
+            "argoCDNamespace": {"const": "argocd"}
+          }
+        }
+      }
+    },
+    "valkey": {"type": "object", "additionalProperties": true}
+  }
+}

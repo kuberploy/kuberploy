@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["postgresqlFoundation"],
+  "properties": {
+    "global": {"type": "object"},
+    "postgresqlFoundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managed", "adoptExisting", "namespace", "auth", "service", "storage", "networkPolicy", "image", "resources", "scheduling", "database"],
+      "properties": {
+        "managed": {"type": "boolean"},
+        "adoptExisting": {"type": "boolean"},
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create"],
+          "properties": {"create": {"type": "boolean"}}
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["existingSecret", "usernameKey", "passwordKey", "databaseKey"],
+          "properties": {
+            "existingSecret": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$", "maxLength": 253},
+            "usernameKey": {"const": "username"},
+            "passwordKey": {"const": "password"},
+            "databaseKey": {"const": "database"}
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port"],
+          "properties": {"port": {"const": 5432}}
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requestedSize", "storageClassName", "accessModes", "keepPVC"],
+          "properties": {
+            "requestedSize": {"type": "string", "pattern": "^[1-9][0-9]*(Mi|Gi|Ti)$"},
+            "storageClassName": {"type": "string", "maxLength": 253},
+            "accessModes": {"const": ["ReadWriteOnce"]},
+            "keepPVC": {"const": true}
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "controlPlaneNamespace"],
+          "properties": {
+            "enabled": {"const": true},
+            "controlPlaneNamespace": {"const": "kuberploy-system"}
+          }
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reference", "pullPolicy"],
+          "properties": {
+            "reference": {"const": "docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"},
+            "pullPolicy": {"enum": ["IfNotPresent", "Never"]}
+          }
+        },
+        "resources": {"$ref": "#/$defs/resources"},
+        "scheduling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nodeSelector", "tolerations", "affinity"],
+          "properties": {
+            "nodeSelector": {"type": "object", "maxProperties": 16, "additionalProperties": {"type": "string", "maxLength": 63}},
+            "tolerations": {"type": "array", "maxItems": 16, "items": {"type": "object"}},
+            "affinity": {"type": "object"}
+          }
+        },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxConnections", "sharedBuffers", "effectiveCacheSize", "maintenanceWorkMem", "checkpointCompletionTarget", "walCompression"],
+          "properties": {
+            "maxConnections": {"type": "integer", "minimum": 20, "maximum": 500},
+            "sharedBuffers": {"type": "string", "pattern": "^[1-9][0-9]*(MB|GB)$"},
+            "effectiveCacheSize": {"type": "string", "pattern": "^[1-9][0-9]*(MB|GB)$"},
+            "maintenanceWorkMem": {"type": "string", "pattern": "^[1-9][0-9]*(MB|GB)$"},
+            "checkpointCompletionTarget": {"const": "0.9"},
+            "walCompression": {"const": "pglz"}
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "quantity": {"type": "string", "pattern": "^[1-9][0-9]*(m|Mi|Gi)?$"},
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpu", "memory"],
+          "properties": {"cpu": {"$ref": "#/$defs/quantity"}, "memory": {"$ref": "#/$defs/quantity"}}
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cpu", "memory"],
+          "properties": {"cpu": {"$ref": "#/$defs/quantity"}, "memory": {"$ref": "#/$defs/quantity"}}
+        }
+      }
+    }
+  }
+}

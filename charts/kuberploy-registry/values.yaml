@@ -1,0 +1,67 @@
+enabled: false
+
+global:
+  testRun: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  reference: docker.io/library/registry:3.1.1@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33
+  pullPolicy: IfNotPresent
+
+auth:
+  # Production mode is fail-closed: the existing Secret must contain bcrypt
+  # htpasswd data in `htpasswd` and a high-entropy value in `httpSecret`.
+  mode: htpasswd
+  existingSecret: ""
+  realm: kuberploy-registry
+  # Non-secret rollout marker changed by the credential controller on rotation.
+  secretRevision: ""
+
+service:
+  # This chart never exposes a node port, load balancer, or ingress. TLS is
+  # terminated by the separately managed Traefik/cert-manager edge layer.
+  type: ClusterIP
+  port: 5000
+  # Optional exact address for an operator-owned test/service network. Empty
+  # delegates allocation to Kubernetes.
+  clusterIP: ""
+
+persistence:
+  existingClaim: ""
+  storageClass: ""
+  size: 20Gi
+  accessMode: ReadWriteOnce
+  retainOnDelete: true
+
+deployment:
+  revisionHistoryLimit: 3
+  terminationGracePeriodSeconds: 60
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+probes:
+  startup:
+    failureThreshold: 30
+    periodSeconds: 2
+  readiness:
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  liveness:
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+networkPolicy:
+  enabled: true
+  # Each client namespace is matched by the immutable Kubernetes namespace
+  # label. Empty access is rejected when this chart is enabled.
+  allowedNamespaces: []

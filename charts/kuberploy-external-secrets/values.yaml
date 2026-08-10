@@ -1,0 +1,309 @@
+secretFoundation:
+  operator:
+    managed: false
+    adoptExisting: true
+    capabilitiesConfirmed: false
+  namespace:
+    create: true
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: []
+    providerHTTPSCIDRs: []
+    monitoringNamespace: kuberploy-monitoring
+
+externalSecrets:
+  global:
+    nodeSelector: {}
+    tolerations: []
+    topologySpreadConstraints: []
+    affinity: {}
+    hostAliases: []
+    podLabels: {}
+    podAnnotations: {}
+    imagePullSecrets: []
+    repository: ""
+    compatibility:
+      openshift:
+        adaptSecurityContext: disabled
+  replicaCount: 2
+  bitwarden-sdk-server:
+    enabled: false
+  revisionHistoryLimit: 3
+  image:
+    repository: ghcr.io/external-secrets/external-secrets
+    pullPolicy: IfNotPresent
+    tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+    flavour: ""
+  installCRDs: true
+  crds:
+    createClusterExternalSecret: false
+    createClusterSecretStore: false
+    createSecretStore: true
+    createClusterGenerator: false
+    createClusterPushSecret: false
+    createPushSecret: false
+    annotations:
+      helm.sh/resource-policy: keep
+    conversion:
+      enabled: false
+    unsafeServeV1Beta1: false
+  imagePullSecrets: []
+  nameOverride: external-secrets
+  fullnameOverride: kuberploy-external-secrets
+  namespaceOverride: ""
+  commonLabels: {}
+  leaderElect: true
+  leaderElectionID: kuberploy-external-secrets-controller
+  leaderElectionLeaseDuration: ""
+  leaderElectionRenewDeadline: ""
+  leaderElectionRetryPeriod: ""
+  controllerClass: kuberploy
+  extendedMetricLabels: false
+  scopedNamespace: ""
+  scopedRBAC: false
+  openshiftFinalizers: false
+  systemAuthDelegator: false
+  processClusterExternalSecret: false
+  processClusterPushSecret: false
+  processClusterStore: false
+  processSecretStore: true
+  storeRequeueInterval: 5m
+  processClusterGenerator: false
+  processPushSecret: false
+  genericTargets:
+    enabled: false
+    resources: []
+  createOperator: true
+  enableHTTP2: false
+  vault:
+    enableTokenCache: false
+    tokenCacheSize: 262144
+  concurrent: 4
+  log:
+    level: info
+    timeEncoding: epoch
+  service:
+    ipFamilyPolicy: ""
+    ipFamilies: []
+  serviceAccount:
+    create: true
+    automount: true
+    annotations: {}
+    extraLabels: {}
+    name: kuberploy-external-secrets
+  rbac:
+    create: true
+    serviceAccountTokenCreate: false
+    servicebindings:
+      create: false
+    aggregateToView: false
+    aggregateToEdit: false
+    aggregateToAdmin: false
+  extraEnv: []
+  extraArgs: {}
+  extraVolumes: []
+  extraObjects: []
+  extraVolumeMounts: []
+  extraInitContainers: []
+  extraContainers: []
+  deploymentAnnotations: {}
+  strategy: {}
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    enabled: true
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    enabled: true
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  serviceMonitor:
+    enabled: false
+    renderMode: skipIfMissing
+    namespace: ""
+    additionalLabels: {}
+    interval: 30s
+    scrapeTimeout: 25s
+    honorLabels: false
+    metricRelabelings: []
+    relabelings: []
+  metrics:
+    listen:
+      port: 8080
+      auth: {enabled: false}
+      secure: {enabled: false, certDir: /etc/tls, certFile: /etc/tls/tls.crt, keyFile: /etc/tls/tls.key}
+    service: {enabled: true, port: 8080, annotations: {}}
+  grafanaDashboard:
+    enabled: false
+  livenessProbe:
+    enabled: true
+    spec:
+      address: ""
+      port: 8082
+      timeoutSeconds: 5
+      failureThreshold: 5
+      periodSeconds: 10
+      successThreshold: 1
+      initialDelaySeconds: 10
+      httpGet: {port: live, path: /healthz}
+  readinessProbe:
+    enabled: true
+    spec:
+      timeoutSeconds: 5
+      failureThreshold: 3
+      periodSeconds: 10
+      successThreshold: 1
+      initialDelaySeconds: 10
+      httpGet: {port: live, path: /readyz}
+  nodeSelector: {kubernetes.io/os: linux}
+  tolerations: []
+  topologySpreadConstraints: []
+  affinity: {}
+  priorityClassName: ""
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+    nameOverride: ""
+  hostNetwork: false
+  networkPolicy:
+    enabled: false
+    ingress: []
+    egress: []
+  webhook:
+    create: true
+    annotations: {}
+    certCheckInterval: 5m
+    lookaheadInterval: ""
+    replicaCount: 2
+    log: {level: info, timeEncoding: epoch}
+    revisionHistoryLimit: 3
+    certDir: /tmp/certs
+    failurePolicy: Fail
+    hostNetwork: false
+    networkPolicy: {enabled: false, ingress: [], egress: []}
+    image:
+      repository: ghcr.io/external-secrets/external-secrets
+      pullPolicy: IfNotPresent
+      tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+      flavour: ""
+    imagePullSecrets: []
+    port: 10250
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      extraLabels: {}
+      name: kuberploy-external-secrets-webhook
+    nodeSelector: {kubernetes.io/os: linux}
+    hostAliases: []
+    certManager:
+      enabled: false
+      addInjectorAnnotations: false
+      cert: {create: false}
+    tolerations: []
+    topologySpreadConstraints: []
+    affinity: {}
+    strategy: {}
+    priorityClassName: ""
+    podDisruptionBudget: {enabled: true, minAvailable: 1, nameOverride: ""}
+    metrics:
+      listen:
+        port: 8080
+        auth: {enabled: false}
+        secure: {enabled: false, certDir: /etc/tls, certFile: /etc/tls/tls.crt, keyFile: /etc/tls/tls.key}
+      service: {enabled: true, port: 8080, annotations: {}}
+    livenessProbe: {enabled: true, port: 8081, timeoutSeconds: 5, failureThreshold: 5, periodSeconds: 10, successThreshold: 1, initialDelaySeconds: 10}
+    readinessProbe: {enabled: true, address: "", port: 8081, timeoutSeconds: 5, failureThreshold: 3, periodSeconds: 5, successThreshold: 1, initialDelaySeconds: 10}
+    startupProbe: {enabled: false, initialDelaySeconds: 10, periodSeconds: 10, failureThreshold: 30}
+    extraEnv: []
+    extraArgs: {}
+    extraInitContainers: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    secretAnnotations: {}
+    deploymentAnnotations: {}
+    podAnnotations: {}
+    podLabels: {}
+    podSecurityContext: {enabled: true}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: [ALL]}
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      seccompProfile: {type: RuntimeDefault}
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+    service: {enabled: true, annotations: {}, labels: {}, type: ClusterIP, loadBalancerIP: ""}
+  certController:
+    create: true
+    requeueInterval: 5m
+    replicaCount: 2
+    log: {level: info, timeEncoding: epoch}
+    revisionHistoryLimit: 3
+    image:
+      repository: ghcr.io/external-secrets/external-secrets
+      pullPolicy: IfNotPresent
+      tag: v2.8.0@sha256:24c0dd3699e0988520afd2218612758cd97d1f702757b5b4fcf89adaa33ef679
+      flavour: ""
+    imagePullSecrets: []
+    rbac: {create: true}
+    serviceAccount:
+      create: true
+      automount: true
+      annotations: {}
+      extraLabels: {}
+      name: kuberploy-external-secrets-cert-controller
+    nodeSelector: {kubernetes.io/os: linux}
+    hostAliases: []
+    tolerations: []
+    topologySpreadConstraints: []
+    affinity: {}
+    strategy: {}
+    hostNetwork: false
+    networkPolicy: {enabled: false, ingress: [], egress: []}
+    priorityClassName: ""
+    podDisruptionBudget: {enabled: true, minAvailable: 1, nameOverride: ""}
+    metrics:
+      listen:
+        port: 8080
+        auth: {enabled: false}
+        secure: {enabled: false, certDir: /etc/tls, certFile: /etc/tls/tls.crt, keyFile: /etc/tls/tls.key}
+      service: {enabled: true, port: 8080, annotations: {}}
+    livenessProbe: {enabled: true, port: 8081, timeoutSeconds: 5, failureThreshold: 5, periodSeconds: 10, successThreshold: 1, initialDelaySeconds: 10}
+    readinessProbe: {enabled: true, address: "", port: 8081, timeoutSeconds: 5, failureThreshold: 3, periodSeconds: 5, successThreshold: 1, initialDelaySeconds: 10}
+    startupProbe: {enabled: false, initialDelaySeconds: 10, periodSeconds: 10, failureThreshold: 30}
+    extraEnv: []
+    extraArgs: {}
+    extraInitContainers: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    deploymentAnnotations: {}
+    podAnnotations: {}
+    podLabels: {}
+    podSecurityContext: {enabled: true}
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities: {drop: [ALL]}
+      enabled: true
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 1000
+      seccompProfile: {type: RuntimeDefault}
+    resources:
+      requests: {cpu: 20m, memory: 64Mi}
+      limits: {cpu: 200m, memory: 256Mi}
+  dnsPolicy: ClusterFirst
+  dnsConfig: {}
+  hostAliases: []
+  podSpecExtra: {}

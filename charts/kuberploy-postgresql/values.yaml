@@ -1,0 +1,41 @@
+postgresqlFoundation:
+  managed: false
+  adoptExisting: true
+  namespace:
+    create: true
+  auth:
+    existingSecret: kuberploy-postgresql-auth
+    usernameKey: username
+    passwordKey: password
+    databaseKey: database
+  service:
+    port: 5432
+  storage:
+    requestedSize: 8Gi
+    storageClassName: ""
+    accessModes: [ReadWriteOnce]
+    keepPVC: true
+  networkPolicy:
+    enabled: true
+    controlPlaneNamespace: kuberploy-system
+  image:
+    reference: docker.io/library/postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  scheduling:
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+  database:
+    maxConnections: 100
+    sharedBuffers: 128MB
+    effectiveCacheSize: 384MB
+    maintenanceWorkMem: 32MB
+    checkpointCompletionTarget: "0.9"
+    walCompression: pglz

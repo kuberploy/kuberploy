@@ -1,0 +1,12 @@
+{{- include "kuberploy-argocd.validate" . -}}
+{{- if and .Values.argoFoundation.namespace.create .Values.argoFoundation.argoCD.managed }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+{{- end }}

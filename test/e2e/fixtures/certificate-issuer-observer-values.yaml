@@ -1,0 +1,12 @@
+# Overlay applied on top of the protected Argo and cert-manager edge fixtures.
+# Namespace and ServiceAccount are deliberately absent: the chart derives the
+# exact release namespace and worker ServiceAccount.
+config:
+  certificateIssuerObserver:
+    enabled: true
+    platformBindingID: 11111111-1111-4111-8111-111111111111
+    clusterID: 22222222-2222-4222-8222-222222222222
+    pollIntervalSeconds: 30
+    requestTimeoutSeconds: 10
+    maximumAgeSeconds: 120
+    readinessLeaseSeconds: 180

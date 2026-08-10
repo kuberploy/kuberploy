@@ -1,0 +1,597 @@
+monitoring:
+  managed: true
+  namespace:
+    create: true
+  networkPolicy:
+    enabled: true
+    queryClient:
+      namespaceLabel:
+        kuberploy.io/control-plane-namespace: "true"
+      podLabels:
+        app.kubernetes.io/name: kuberploy
+        app.kubernetes.io/component: api
+
+kube-prometheus-stack:
+  namespaceOverride: ""
+  nameOverride: ""
+  fullnameOverride: ""
+  commonLabels:
+    kuberploy.io/monitoring-source: protected
+  crds:
+    enabled: true
+  defaultRules:
+    create: false
+  additionalPrometheusRulesMap: {}
+  global:
+    rbac:
+      create: true
+      createAggregateClusterRoles: false
+    imageRegistry: ""
+    imagePullSecrets: []
+  windowsMonitoring:
+    enabled: false
+  grafana:
+    enabled: false
+    forceDeployDatasources: false
+    forceDeployDashboards: false
+    defaultDashboardsEnabled: false
+  kubeApiServer:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubeDns:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+
+  kubelet:
+    enabled: true
+    namespace: kuberploy-monitoring
+    serviceMonitor:
+      enabled: true
+      kubelet: false
+      probes: false
+      resource: false
+      cAdvisor: true
+      cAdvisorInterval: 30s
+      https: true
+      insecureSkipVerify: false
+      honorLabels: false
+      honorTimestamps: false
+      trackTimestampsStaleness: false
+      sampleLimit: 5000
+      targetLimit: 1000
+      labelLimit: 40
+      labelNameLengthLimit: 128
+      labelValueLengthLimit: 512
+      additionalLabels: {}
+      cAdvisorMetricRelabelings:
+        - action: keep
+          sourceLabels: [__name__]
+          regex: container_cpu_usage_seconds_total|container_memory_working_set_bytes
+        - action: drop
+          sourceLabels: [pod]
+          regex: ""
+      cAdvisorRelabelings:
+        - action: replace
+          sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+
+  kubeStateMetrics:
+    enabled: true
+  kube-state-metrics:
+    fullnameOverride: kuberploy-kube-state-metrics
+    image:
+      registry: registry.k8s.io
+      repository: kube-state-metrics/kube-state-metrics
+      tag: v2.19.1
+      sha: sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1
+      pullPolicy: IfNotPresent
+    replicas: 1
+    automountServiceAccountToken: true
+    service:
+      type: ClusterIP
+      annotations: {}
+    rbac:
+      create: true
+      useClusterRole: true
+      extraRules: []
+    serviceAccount:
+      create: true
+      name: ""
+      annotations: {}
+      automountServiceAccountToken: true
+    prometheusScrape: false
+    prometheus:
+      monitor:
+        enabled: true
+        additionalLabels:
+          kuberploy.io/monitoring-source: protected
+        sampleLimit: 5000
+        targetLimit: 10
+        labelLimit: 40
+        labelNameLengthLimit: 128
+        labelValueLengthLimit: 512
+        honorLabels: false
+    collectors:
+      - deployments
+      - ingresses
+      - pods
+      - services
+    metricAllowlist:
+      - kube_deployment_labels
+      - kube_deployment_status_replicas_available
+      - kube_ingress_labels
+      - kube_pod_container_status_restarts_total
+      - kube_pod_labels
+      - kube_service_labels
+    metricDenylist: []
+    metricLabelsAllowlist:
+      - deployments=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]
+      - ingresses=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]
+      - pods=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]
+      - services=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]
+    metricAnnotationsAllowList: []
+    extraArgs: []
+    env: []
+    hostNetwork: false
+    securityContext:
+      enabled: true
+      runAsGroup: 65534
+      runAsUser: 65534
+      fsGroup: 65534
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+    podDisruptionBudget: {}
+    networkPolicy:
+      enabled: false
+    podAnnotations: {}
+    annotations: {}
+
+  nodeExporter:
+    enabled: true
+    operatingSystems:
+      linux:
+        enabled: true
+      aix:
+        enabled: false
+      darwin:
+        enabled: false
+  prometheus-node-exporter:
+    fullnameOverride: kuberploy-node-exporter
+    image:
+      registry: quay.io
+      repository: prometheus/node-exporter
+      tag: v1.12.1
+      distroless: true
+      pullPolicy: IfNotPresent
+      digest: sha256:8c9bac11973b94b59be88d6e11fee4429aa743c8846cdc75d65b18db33f6a106
+    service:
+      enabled: true
+      type: ClusterIP
+      annotations: {}
+      listenOnAllInterfaces: true
+    serviceAccount:
+      create: true
+      name: ""
+      annotations: {}
+      automountServiceAccountToken: false
+    rbac:
+      create: false
+    kubeRBACProxy:
+      enabled: false
+    hostNetwork: false
+    hostPID: false
+    hostIPC: false
+    hostRootFsMount:
+      enabled: false
+      mountPropagation: None
+    hostProcFsMount:
+      mountPropagation: None
+    hostSysFsMount:
+      mountPropagation: None
+    securityContext:
+      fsGroup: 65534
+      runAsGroup: 65534
+      runAsNonRoot: true
+      runAsUser: 65534
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    resources:
+      requests:
+        cpu: 25m
+        memory: 32Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    extraArgs:
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.loadavg
+      - --collector.meminfo
+      - --collector.stat
+      - --collector.time
+      - --no-collector.ipvs
+    extraHostVolumeMounts: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    sidecars: []
+    extraInitContainers: []
+    podAnnotations: {}
+    daemonsetAnnotations: {}
+    prometheus:
+      monitor:
+        enabled: true
+        additionalLabels:
+          kuberploy.io/monitoring-source: protected
+        sampleLimit: 5000
+        targetLimit: 1000
+        labelLimit: 40
+        labelNameLengthLimit: 128
+        labelValueLengthLimit: 512
+
+  alertmanager:
+    enabled: true
+    namespaceOverride: ""
+    forceDeployDashboards: false
+    additionalLabels:
+      kuberploy.io/monitoring-instance: protected
+    service:
+      type: ClusterIP
+      externalIPs: []
+      loadBalancerSourceRanges: []
+      additionalPorts: []
+    ingress:
+      enabled: false
+    route:
+      main:
+        enabled: false
+    ingressPerReplica:
+      enabled: false
+    servicePerReplica:
+      enabled: false
+    podDisruptionBudget:
+      enabled: false
+      unhealthyPodEvictionPolicy: AlwaysAllow
+    networkPolicy:
+      enabled: false
+    serviceAccount:
+      create: true
+      name: ""
+      annotations: {}
+      automountServiceAccountToken: false
+    config:
+      global:
+        resolve_timeout: 5m
+      route:
+        group_by: [namespace, alertname]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 12h
+        receiver: "null"
+      receivers:
+        - name: "null"
+    stringConfig: ""
+    tplConfig: false
+    templateFiles: {}
+    alertmanagerSpec:
+      replicas: 1
+      retention: 120h
+      image:
+        registry: quay.io
+        repository: prometheus/alertmanager
+        tag: v0.33.1
+        sha: 9e082985f56f4c8c9f724e18f2288c6708f472e56a5286b8863d080434ea065d
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      storage: {}
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      useExistingSecret: false
+      secrets: []
+      configMaps: []
+      volumes: []
+      volumeMounts: []
+      containers: []
+      initContainers: []
+      externalUrl: ""
+      routePrefix: /
+      listenLocal: false
+      logLevel: info
+      logFormat: json
+      automountServiceAccountToken: false
+      alertmanagerConfigSelector:
+        matchLabels:
+          kuberploy.io/monitoring-alert-config: protected
+      alertmanagerConfigNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kuberploy-monitoring
+
+  prometheusOperator:
+    enabled: true
+    fullnameOverride: kuberploy-prometheus-operator
+    revisionHistoryLimit: 3
+    admissionWebhooks:
+      enabled: false
+      patch:
+        enabled: false
+    tls:
+      enabled: false
+      tlsMinVersion: VersionTLS13
+      internalPort: 10250
+    service:
+      type: ClusterIP
+      externalIPs: []
+      additionalPorts: []
+    podDisruptionBudget:
+      enabled: false
+      unhealthyPodEvictionPolicy: AlwaysAllow
+    image:
+      registry: quay.io
+      repository: prometheus-operator/prometheus-operator
+      tag: v0.93.0
+      sha: a001ed10a3823bbf2410ea347796d0e35ff8decd24fb98acbe7ab9e98d431c39
+      pullPolicy: IfNotPresent
+    prometheusConfigReloader:
+      image:
+        registry: quay.io
+        repository: prometheus-operator/prometheus-config-reloader
+        tag: v0.93.0
+        sha: 0ccb22ca9f3f6fd9f76ce95585d18bd2e363d421c534dde710be4bd13caa551d
+      enableProbe: true
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 64Mi
+    thanosImage:
+      registry: quay.io
+      repository: thanos/thanos
+      tag: v0.42.4
+      sha: b567818fe608067eb0f1d7c2c4fe361e7ad83c8a256234c97685f1d0bf670cc8
+    prometheusInstanceNamespaces: [kuberploy-monitoring]
+    alertmanagerInstanceNamespaces: [kuberploy-monitoring]
+    thanosRulerInstanceNamespaces: [kuberploy-monitoring]
+    alertmanagerConfigNamespaces: [kuberploy-monitoring]
+    prometheusInstanceSelector: kuberploy.io/monitoring-instance=protected
+    alertmanagerInstanceSelector: kuberploy.io/monitoring-instance=protected
+    thanosRulerInstanceSelector: kuberploy.io/monitoring-instance=disabled
+    secretFieldSelector: type!=kubernetes.io/dockercfg,type!=kubernetes.io/service-account-token,type!=helm.sh/release.v1
+    kubeletService:
+      enabled: true
+      namespace: kuberploy-monitoring
+      selector: ""
+      name: ""
+    kubeletEndpointsEnabled: true
+    kubeletEndpointSliceEnabled: false
+    serviceMonitor:
+      selfMonitor: true
+      additionalLabels: {}
+      sampleLimit: 5000
+      targetLimit: 10
+      labelLimit: 40
+      labelNameLengthLimit: 128
+      labelValueLengthLimit: 512
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+    securityContext:
+      fsGroup: 65534
+      runAsGroup: 65534
+      runAsNonRoot: true
+      runAsUser: 65534
+      seccompProfile:
+        type: RuntimeDefault
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    hostNetwork: false
+    automountServiceAccountToken: true
+    serviceAccount:
+      create: true
+      name: ""
+      annotations: {}
+      automountServiceAccountToken: true
+    extraArgs: []
+    extraVolumes: []
+    extraVolumeMounts: []
+    podAnnotations: {}
+    annotations: {}
+
+  prometheus:
+    enabled: true
+    agentMode: false
+    namespaceOverride: ""
+    additionalLabels:
+      kuberploy.io/monitoring-instance: protected
+    service:
+      enabled: true
+      type: ClusterIP
+      externalIPs: []
+      loadBalancerSourceRanges: []
+      additionalPorts: []
+    ingress:
+      enabled: false
+    route:
+      main:
+        enabled: false
+    ingressPerReplica:
+      enabled: false
+    servicePerReplica:
+      enabled: false
+    thanosService:
+      enabled: false
+    thanosServiceExternal:
+      enabled: false
+    thanosIngress:
+      enabled: false
+    podDisruptionBudget:
+      enabled: false
+      unhealthyPodEvictionPolicy: AlwaysAllow
+    networkPolicy:
+      enabled: false
+    serviceAccount:
+      create: true
+      name: ""
+      annotations: {}
+      automountServiceAccountToken: true
+    serviceMonitor:
+      selfMonitor: false
+    prometheusSpec:
+      replicas: 1
+      shards: 1
+      retention: 15d
+      retentionSize: 18GB
+      image:
+        registry: quay.io
+        repository: prometheus/prometheus
+        tag: v3.13.2-distroless
+        sha: 64f71bb84e03c855948418b0fc5dea53e9543d8e3fc9931598f583805507f05e
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: null
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 20Gi
+      persistentVolumeClaimRetentionPolicy:
+        whenDeleted: Retain
+        whenScaled: Retain
+      scrapeInterval: 30s
+      scrapeTimeout: 15s
+      evaluationInterval: 30s
+      ruleSelectorNilUsesHelmValues: false
+      ruleSelector:
+        matchLabels:
+          kuberploy.io/monitoring-rule: protected
+      ruleNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kuberploy-monitoring
+      serviceMonitorSelectorNilUsesHelmValues: false
+      serviceMonitorSelector:
+        matchLabels:
+          kuberploy.io/monitoring-source: protected
+      serviceMonitorNamespaceSelector:
+        matchLabels:
+          kuberploy.io/monitoring-namespace: "true"
+      podMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelector:
+        matchLabels:
+          kuberploy.io/monitoring-source: protected
+      podMonitorNamespaceSelector:
+        matchLabels:
+          kuberploy.io/monitoring-namespace: "true"
+      probeSelectorNilUsesHelmValues: false
+      probeSelector:
+        matchLabels:
+          kuberploy.io/monitoring-probe: disabled
+      probeNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kuberploy-monitoring
+      scrapeConfigSelectorNilUsesHelmValues: false
+      scrapeConfigSelector:
+        matchLabels:
+          kuberploy.io/monitoring-scrape-config: disabled
+      scrapeConfigNamespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kuberploy-monitoring
+      ignoreNamespaceSelectors: true
+      arbitraryFSAccessThroughSMs:
+        deny: true
+      overrideHonorLabels: true
+      overrideHonorTimestamps: true
+      enforcedSampleLimit: 10000
+      enforcedTargetLimit: 1000
+      enforcedLabelLimit: 40
+      enforcedLabelNameLengthLimit: 128
+      enforcedLabelValueLengthLimit: 512
+      enforcedBodySizeLimit: 50MB
+      enforcedKeepDroppedTargets: 100
+      enableAdminAPI: false
+      enableRemoteWriteReceiver: false
+      enableOTLPReceiver: false
+      remoteRead: []
+      remoteWrite: []
+      additionalRemoteRead: []
+      additionalRemoteWrite: []
+      additionalScrapeConfigs: []
+      additionalScrapeConfigsSecret: {}
+      additionalAlertManagerConfigs: []
+      additionalAlertManagerConfigsSecret: {}
+      additionalArgs: []
+      containers: []
+      initContainers: []
+      volumes: []
+      volumeMounts: []
+      secrets: []
+      configMaps: []
+      thanos: {}
+      web: {}
+      queryLogFile: false
+      logLevel: info
+      logFormat: json
+      listenLocal: false
+      hostNetwork: false
+      automountServiceAccountToken: true
+      securityContext:
+        runAsGroup: 2000
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+
+  thanosRuler:
+    enabled: false

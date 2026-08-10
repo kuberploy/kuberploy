@@ -1,0 +1,2 @@
+Kuberploy Valkey profile: {{ ternary "managed" "adopted" .Values.valkeyFoundation.managed }}.
+Valkey remains an acceleration and delivery layer; PostgreSQL/Git/external authorities retain durable truth.

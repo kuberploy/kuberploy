@@ -1,0 +1,64 @@
+global:
+  testRun: render
+  requireImageDigest: false
+config:
+  publicURL: http://kuberploy.k8s.orb.local
+  logLevel: debug
+  postgresql:
+    secretRef: {name: external-postgresql, urlKey: url}
+  valkey:
+    mode: external
+    secretRef:
+      name: external-valkey
+      addressesKey: addresses
+      usernameKey: username
+      passwordKey: password
+  git:
+    remoteURL: git://kuberploy-git.kuberploy-e2e-render.svc.cluster.local/kuberploy-environments.git
+    branch: main
+    credentialsSecret: {name: "", usernameKey: username, passwordKey: password}
+  bootstrapSecret: {name: kuberploy-bootstrap, tokenKey: token}
+components:
+  api:
+    replicas: 2
+    image: {reference: kuberploy-api:e2e-render, pullPolicy: IfNotPresent}
+    port: 8080
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+  worker:
+    replicas: 1
+    image: {reference: kuberploy-worker:e2e-render, pullPolicy: IfNotPresent}
+    resources:
+      requests: {cpu: 50m, memory: 64Mi}
+      limits: {cpu: "1", memory: 512Mi}
+  web:
+    replicas: 2
+    image: {reference: kuberploy-web:e2e-render, pullPolicy: IfNotPresent}
+    port: 8080
+    resources:
+      requests: {cpu: 25m, memory: 32Mi}
+      limits: {cpu: 250m, memory: 128Mi}
+ingress:
+  enabled: true
+  className: kp-e2e-render
+  host: kuberploy.k8s.orb.local
+  tls: {enabled: false, secretName: ""}
+rbac:
+  observedNamespaces: [kuberploy-e2e-render]
+  buildNamespaces: [kuberploy-e2e-render-build]
+  argoNamespace: kuberploy-e2e-render
+networkPolicy:
+  enabled: true
+  edgeNamespace: kuberploy-e2e-render
+  managedPostgreSQLNamespace: kuberploy-system
+  managedValkeyNamespace: kuberploy-system
+  kubeAPIServerCIDRs: [10.43.0.1/32]
+  externalEgressCIDRs: [192.0.2.10/32]
+  externalPostgreSQLEgressCIDRs: [192.0.2.20/32]
+  externalValkeyEgressCIDRs: [192.0.2.21/32]
+upgrade:
+  migrationJob:
+    enabled: false
+    command: []
+    activeDeadlineSeconds: 300

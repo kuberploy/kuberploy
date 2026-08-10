@@ -1,0 +1,282 @@
+{{- if and .Values.enabled .Values.admissionPolicy.enabled }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE"]
+        resources: ["jobs"]
+        scope: Namespaced
+  validations:
+    - expression: {{ printf "request.userInfo.username == '%s'" (include "kuberploy-builder.controllerUsername" .) | quote }}
+      message: only the configured Kuberploy controller ServiceAccount may create builder Jobs
+    - expression: {{ printf "object.spec.template.spec.serviceAccountName == '%s' && object.spec.template.spec.automountServiceAccountToken == false" .Values.podServiceAccount.name | quote }}
+      message: builder Pods must use the tokenless builder ServiceAccount
+    - expression: "object.metadata.labels['app.kubernetes.io/managed-by'] == 'kuberploy' && object.metadata.labels['kuberploy.io/build-operation'].matches('^[0-9a-f]{32}$') && object.metadata.labels['kuberploy.io/build-generation'].matches('^[1-9][0-9]{0,9}$') && object.metadata.labels['kuberploy.io/build-spec-hash'].matches('^[0-9a-f]{16}$')"
+      message: builder Jobs require exact Kuberploy ownership labels
+    - expression: "object.metadata.annotations.size() == 1 && object.metadata.annotations['kuberploy.io/build-input-digest'].matches('^sha256:[0-9a-f]{64}$')"
+      message: builder Jobs must bind the exact immutable request and checkout digest
+    - expression: "object.spec.backoffLimit == 0 && object.spec.parallelism == 1 && object.spec.completions == 1 && object.spec.suspend == false && object.spec.completionMode == 'NonIndexed' && object.spec.manualSelector == false && object.spec.podReplacementPolicy == 'Failed' && !has(object.spec.managedBy)"
+      message: builder Jobs must run exactly one non-indexed Pod with no whole-Job or overlapping replacement retries
+    - expression: "object.spec.activeDeadlineSeconds >= 720 && object.spec.activeDeadlineSeconds <= 9000 && object.spec.ttlSecondsAfterFinished >= 60 && object.spec.ttlSecondsAfterFinished <= 86400"
+      message: builder Jobs require bounded execution and cleanup without whole-Job retries
+    - expression: "object.spec.template.spec.hostNetwork == false && object.spec.template.spec.hostPID == false && object.spec.template.spec.hostIPC == false"
+      message: builder Pods may not join host namespaces
+    - expression: "object.spec.template.spec.restartPolicy == 'Never'"
+      message: builder Pods must never restart the trusted build agent
+    - expression: "(!has(object.spec.template.spec.shareProcessNamespace) || object.spec.template.spec.shareProcessNamespace == false) && !has(object.spec.template.spec.nodeName)"
+      message: builder Pods may not share process namespaces or bypass dedicated-node scheduling
+    - expression: "object.spec.template.spec.volumes.all(v, (v.name in ['workspace', 'docker-socket', 'docker-data', 'result'] && has(v.emptyDir)) || (v.name == 'request' && has(v.configMap)) || (v.name in ['source-credentials', 'registry-credentials', 'build-secrets', 'ssh-secrets'] && has(v.secret)))"
+      message: builder Pods may use only the exact emptyDir, request ConfigMap, and separated Secret volumes
+    - expression: "object.spec.template.spec.volumes.filter(v, has(v.emptyDir)).all(v, has(v.emptyDir.sizeLimit)) && object.spec.template.spec.volumes.filter(v, has(v.secret)).all(v, v.secret.defaultMode == 288) && object.spec.template.spec.volumes.filter(v, has(v.configMap)).all(v, v.configMap.defaultMode == 288)"
+      message: emptyDirs must be size limited and projected request/credential files must be group-readable 0440
+    - expression: "object.spec.template.spec.securityContext.runAsGroup == 65532 && object.spec.template.spec.securityContext.fsGroup == 65532 && object.spec.template.spec.securityContext.fsGroupChangePolicy == 'OnRootMismatch'"
+      message: builder Pods must make projected credentials readable only to the trusted runtime group
+    - expression: {{ printf "object.spec.template.spec.initContainers.size() == 2 && object.spec.template.spec.containers.size() == 1 && object.spec.template.spec.initContainers.exists_one(c, c.name == 'checkout' && c.image == '%s' && c.args == ['checkout', '--request', '/request/checkout.json', '--result', '/result/checkout.json']) && object.spec.template.spec.initContainers.exists_one(c, c.name == 'dind' && c.image == 'docker.io/library/docker:29.7.1-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c' && c.restartPolicy == 'Always' && c.securityContext.privileged == true) && object.spec.template.spec.containers.exists_one(c, c.name == 'agent' && c.image == '%s' && c.args == ['build', '--request', '/request/build.json', '--result', '/result/result.json'])" .Values.builderAgentImage .Values.builderAgentImage | quote }}
+      message: the only privileged workload must be the pinned restartable DinD init-sidecar
+    - expression: "object.spec.template.spec.containers.filter(c, c.name == 'agent').all(c, c.terminationMessagePath == '/result/result.json' && c.terminationMessagePolicy == 'File')"
+      message: the trusted agent must publish only its bounded typed result through the exact termination-message file
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'dind').all(c, c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd'] && c.args.size() == 3 && c.args.exists_one(a, a == '--host=unix:///run/kuberploy/docker/docker.sock') && c.args.exists_one(a, a == '--group=65532') && c.args.exists_one(a, a == '--tls=false') && c.args.all(a, !a.contains('tcp://')) && c.volumeMounts.size() == 2 && c.volumeMounts.exists_one(v, v.name == 'docker-data' && v.mountPath == '/var/lib/docker') && c.volumeMounts.exists_one(v, v.name == 'docker-socket' && v.mountPath == '/run/kuberploy/docker'))"
+      message: DinD must expose only the private Unix socket and store state on its bounded emptyDir
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'dind').all(c, c.env.size() == 1 && c.env[0].name == 'DOCKER_TLS_CERTDIR' && c.env[0].value == '' && (!has(c.envFrom) || c.envFrom.size() == 0)) && object.spec.template.spec.initContainers.filter(c, c.name == 'checkout').all(c, (!has(c.env) || c.env.size() == 0) && (!has(c.envFrom) || c.envFrom.size() == 0)) && object.spec.template.spec.containers.filter(c, c.name == 'agent').all(c, (!has(c.env) || c.env.size() == 0) && (!has(c.envFrom) || c.envFrom.size() == 0))"
+      message: builder containers may not receive credentials or overrides through environment injection
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'checkout').all(c, (!has(c.command) || c.command.size() == 0) && !has(c.lifecycle) && !has(c.startupProbe) && !has(c.readinessProbe) && !has(c.livenessProbe)) && object.spec.template.spec.containers.filter(c, c.name == 'agent').all(c, (!has(c.command) || c.command.size() == 0) && !has(c.lifecycle) && !has(c.startupProbe) && !has(c.readinessProbe) && !has(c.livenessProbe))"
+      message: checkout and agent may not override entrypoints or execute lifecycle and probe commands
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'dind').all(c, !has(c.lifecycle) && !has(c.readinessProbe) && !has(c.livenessProbe) && c.startupProbe.exec.command == ['docker', '--host', 'unix:///run/kuberploy/docker/docker.sock', 'info'] && c.startupProbe.periodSeconds == 2 && c.startupProbe.failureThreshold == 60 && c.startupProbe.timeoutSeconds == 1)"
+      message: DinD may use only the exact private-socket startup probe
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name != 'dind').all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false) && object.spec.template.spec.containers.all(c, !has(c.securityContext.privileged) || c.securityContext.privileged == false)"
+      message: checkout and build agent containers may not be privileged
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'checkout').all(c, c.securityContext.runAsNonRoot == true && c.securityContext.runAsUser == 65532 && c.securityContext.runAsGroup == 65532 && c.securityContext.allowPrivilegeEscalation == false && c.securityContext.readOnlyRootFilesystem == true && c.securityContext.capabilities.drop == ['ALL'] && c.securityContext.seccompProfile.type == 'RuntimeDefault') && object.spec.template.spec.containers.filter(c, c.name == 'agent').all(c, c.securityContext.runAsNonRoot == true && c.securityContext.runAsUser == 65532 && c.securityContext.runAsGroup == 65532 && c.securityContext.allowPrivilegeEscalation == false && c.securityContext.readOnlyRootFilesystem == true && c.securityContext.capabilities.drop == ['ALL'] && c.securityContext.seccompProfile.type == 'RuntimeDefault')"
+      message: checkout and build agent must use the exact restricted security profile
+    - expression: "object.spec.template.spec.initContainers.filter(c, c.name == 'checkout').all(c, c.volumeMounts.size() >= 3 && c.volumeMounts.size() <= 4 && c.volumeMounts.exists_one(v, v.name == 'workspace' && v.mountPath == '/workspace' && v.readOnly == false) && c.volumeMounts.exists_one(v, v.name == 'request' && v.mountPath == '/request' && v.readOnly == true) && c.volumeMounts.exists_one(v, v.name == 'result' && v.mountPath == '/result' && v.readOnly == false) && c.volumeMounts.all(v, v.name in ['workspace', 'request', 'result', 'source-credentials']) && c.volumeMounts.filter(v, v.name == 'source-credentials').all(v, v.mountPath == '/var/run/secrets/kuberploy/source' && v.readOnly == true)) && object.spec.template.spec.containers.filter(c, c.name == 'agent').all(c, c.volumeMounts.size() >= 5 && c.volumeMounts.size() <= 7 && c.volumeMounts.exists_one(v, v.name == 'workspace' && v.mountPath == '/workspace' && v.readOnly == true) && c.volumeMounts.exists_one(v, v.name == 'docker-socket' && v.mountPath == '/run/kuberploy/docker' && v.readOnly == false) && c.volumeMounts.exists_one(v, v.name == 'request' && v.mountPath == '/request' && v.readOnly == true) && c.volumeMounts.exists_one(v, v.name == 'result' && v.mountPath == '/result' && v.readOnly == false) && c.volumeMounts.exists_one(v, v.name == 'registry-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry' && v.readOnly == true) && c.volumeMounts.all(v, v.name in ['workspace', 'docker-socket', 'request', 'result', 'registry-credentials', 'build-secrets', 'ssh-secrets']) && c.volumeMounts.filter(v, v.name == 'build-secrets').all(v, v.mountPath == '/var/run/secrets/kuberploy/build' && v.readOnly == true) && c.volumeMounts.filter(v, v.name == 'ssh-secrets').all(v, v.mountPath == '/var/run/secrets/kuberploy/ssh' && v.readOnly == true))"
+      message: checkout and agent must use exact mounts with source and build credentials separated
+    - expression: "object.spec.template.spec.containers[0].volumeMounts.exists_one(v, v.name == 'workspace' && v.readOnly == true)"
+      message: build agent workspace must be mounted read-only
+    - expression: "object.spec.template.spec.initContainers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits) && object.spec.template.spec.containers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits)"
+      message: every builder container requires CPU, memory, and ephemeral-storage requests and limits
+    - expression: "object.spec.template.spec.nodeSelector['kuberploy.io/node-class'] == 'dind-builder' && object.spec.template.spec.tolerations.size() == 1 && object.spec.template.spec.tolerations.exists_one(t, t.key == 'kuberploy.io/dind-builder' && t.operator == 'Equal' && t.value == 'true' && t.effect == 'NoSchedule')"
+      message: builder Pods must target and tolerate only the dedicated builder node class
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-egress
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: run-policy-only
+      expression: "object.metadata.name != 'default-deny'"
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["networkpolicies"]
+        scope: Namespaced
+  validations:
+    - expression: {{ printf "request.userInfo.username == '%s'" (include "kuberploy-builder.controllerUsername" .) | quote }}
+      message: only the configured Kuberploy controller ServiceAccount may create build egress policies
+    - expression: "object.metadata.labels['app.kubernetes.io/managed-by'] == 'kuberploy' && object.metadata.labels['kuberploy.io/build-operation'].matches('^[0-9a-f]{32}$') && object.metadata.labels['kuberploy.io/build-generation'].matches('^[1-9][0-9]{0,9}$') && object.metadata.labels['kuberploy.io/build-spec-hash'].matches('^[0-9a-f]{16}$')"
+      message: build egress policies require exact ownership and spec-hash labels
+    - expression: "object.metadata.annotations.size() == 1 && object.metadata.annotations['kuberploy.io/build-input-digest'].matches('^sha256:[0-9a-f]{64}$')"
+      message: build egress policies must bind the exact immutable input digest
+    - expression: "object.spec.podSelector.matchLabels.size() == 2 && (!has(object.spec.podSelector.matchExpressions) || object.spec.podSelector.matchExpressions.size() == 0) && object.spec.podSelector.matchLabels['kuberploy.io/build-operation'] == object.metadata.labels['kuberploy.io/build-operation'] && object.spec.podSelector.matchLabels['kuberploy.io/build-generation'] == object.metadata.labels['kuberploy.io/build-generation']"
+      message: build egress policy must select only its exact operation and generation
+    - expression: "object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && object.spec.ingress.size() == 0 && object.spec.egress.size() >= 2 && object.spec.egress.size() <= 33"
+      message: build policy must deny ingress and contain bounded explicit egress
+    - expression: "object.spec.egress.filter(r, has(r.to[0].namespaceSelector)).size() == 1 && object.spec.egress.exists_one(r, r.to.size() == 1 && has(r.to[0].namespaceSelector) && has(r.to[0].podSelector) && r.to[0].namespaceSelector.matchLabels.size() == 1 && (!has(r.to[0].namespaceSelector.matchExpressions) || r.to[0].namespaceSelector.matchExpressions.size() == 0) && r.to[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name'] == 'kube-system' && r.to[0].podSelector.matchLabels.size() == 1 && (!has(r.to[0].podSelector.matchExpressions) || r.to[0].podSelector.matchExpressions.size() == 0) && r.to[0].podSelector.matchLabels['k8s-app'] == 'kube-dns' && r.ports.size() == 2 && r.ports.exists_one(p, p.protocol == 'UDP' && p.port == 53 && !has(p.endPort)) && r.ports.exists_one(p, p.protocol == 'TCP' && p.port == 53 && !has(p.endPort)))"
+      message: build policy requires one exact cluster-DNS rule
+    - expression: "object.spec.egress.filter(r, has(r.to[0].ipBlock)).size() >= 1 && object.spec.egress.filter(r, has(r.to[0].ipBlock)).all(r, r.to.size() == 1 && (!has(r.to[0].ipBlock.except) || r.to[0].ipBlock.except.size() == 0) && (r.to[0].ipBlock.cidr.endsWith('/32') || r.to[0].ipBlock.cidr.endsWith('/128')) && r.ports.size() >= 1 && r.ports.size() <= 16 && r.ports.all(p, p.protocol == 'TCP' && p.port >= 1 && p.port <= 65535 && !has(p.endPort))) && object.spec.egress.all(r, has(r.to[0].ipBlock) || has(r.to[0].namespaceSelector))"
+      message: non-DNS egress must be explicit single-host IPBlocks with bounded TCP ports
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-egress
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-egress
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-source-secret
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: controller-or-reserved-source-name
+      expression: {{ printf "request.userInfo.username == '%s' || object.metadata.name.startsWith('source-credentials-')" (include "kuberploy-builder.controllerUsername" .) | quote }}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["secrets"]
+        scope: Namespaced
+  validations:
+    - expression: {{ printf "request.userInfo.username == '%s'" (include "kuberploy-builder.controllerUsername" .) | quote }}
+      message: only the configured Kuberploy controller ServiceAccount may write source credential Secrets
+    - expression: "object.metadata.name.matches('^source-credentials-[0-9a-f]{20}$') && object.metadata.name.endsWith(object.metadata.labels['kuberploy.io/build-operation'].substring(0, 20))"
+      message: source credential Secret names must derive from the exact build operation
+    - expression: "object.metadata.labels.size() == 7 && object.metadata.labels['app.kubernetes.io/name'] == 'kuberploy-builder' && object.metadata.labels['app.kubernetes.io/component'] == 'source-build' && object.metadata.labels['app.kubernetes.io/managed-by'] == 'kuberploy' && object.metadata.labels['kuberploy.io/build-operation'].matches('^[0-9a-f]{32}$') && object.metadata.labels['kuberploy.io/build-generation'].matches('^[1-9][0-9]{0,9}$') && object.metadata.labels['kuberploy.io/build-spec-hash'].matches('^[0-9a-f]{16}$') && object.metadata.labels['kuberploy.io/credential-owner'] == 'checkout'"
+      message: source credential Secrets require the exact checkout-only ownership labels
+    - expression: "object.metadata.annotations.size() == 1 && object.metadata.annotations['kuberploy.io/build-input-digest'].matches('^sha256:[0-9a-f]{64}$') && (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.size() == 0) && (!has(object.metadata.finalizers) || object.metadata.finalizers.size() == 0)"
+      message: source credential Secrets must bind one immutable input and no external owner or finalizer
+    - expression: "object.type == 'Opaque' && object.immutable == true && (!has(object.stringData) || object.stringData.size() == 0) && object.data.size() == 2 && object.data['username'] == b'x-access-token' && object.data['token'].size() >= 20 && object.data['token'].size() <= 2048"
+      message: source credential Secrets may contain only one bounded GitHub checkout username/token pair
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-source-secret
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-source-secret
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-source-secret-delete
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: controller-or-reserved-source-name
+      expression: {{ printf "request.userInfo.username == '%s' || oldObject.metadata.name.startsWith('source-credentials-')" (include "kuberploy-builder.controllerUsername" .) | quote }}
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["secrets"]
+        scope: Namespaced
+  validations:
+    - expression: {{ printf "request.userInfo.username == '%s' || 'system:masters' in request.userInfo.groups" (include "kuberploy-builder.controllerUsername" .) | quote }}
+      message: only the configured controller or a break-glass cluster administrator may delete source credential Secrets
+    - expression: "oldObject.metadata.name.matches('^source-credentials-[0-9a-f]{20}$') && oldObject.metadata.name.endsWith(oldObject.metadata.labels['kuberploy.io/build-operation'].substring(0, 20)) && oldObject.metadata.labels['kuberploy.io/credential-owner'] == 'checkout' && oldObject.metadata.annotations['kuberploy.io/build-input-digest'].matches('^sha256:[0-9a-f]{64}$')"
+      message: only an exactly owned source credential Secret may be deleted
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-source-secret-delete
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-source-secret-delete
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-default-deny
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: default-deny-only
+      expression: "object.metadata.name == 'default-deny'"
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["networkpolicies"]
+        scope: Namespaced
+  validations:
+    - expression: "object.spec.podSelector == {} && object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && object.spec.ingress.size() == 0 && object.spec.egress.size() == 0"
+      message: the namespace default-deny policy must remain an exact deny-all policy
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-default-deny
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-default-deny
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-default-deny-delete
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: default-deny-only
+      expression: "oldObject.metadata.name == 'default-deny'"
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["DELETE"]
+        resources: ["networkpolicies"]
+        scope: Namespaced
+  validations:
+    - expression: "'system:masters' in request.userInfo.groups"
+      message: only a cluster administrator may delete the builder namespace default-deny policy
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-default-deny-delete
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-default-deny-delete
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+{{- end }}

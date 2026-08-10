@@ -1,0 +1,126 @@
+config:
+  edgeRuntime:
+    enabled: true
+    profiles:
+      traefik:
+        revision: 7
+        mode: managed
+        namespace: kuberploy-edge
+        version: v3.7.10
+        deployment:
+          name: traefik
+          containerName: traefik
+          image: docker.io/library/traefik@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          specDigest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+        service:
+          name: traefik
+          specDigest: sha256:2222222222222222222222222222222222222222222222222222222222222222
+        ingressClass:
+          name: traefik
+          specDigest: sha256:3333333333333333333333333333333333333333333333333333333333333333
+        crds:
+          - name: ingressroutes.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: ingressroutetcps.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: ingressrouteudps.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: middlewares.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: middlewaretcps.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: serverstransports.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: serverstransporttcps.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: tlsoptions.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: tlsstores.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+          - name: traefikservices.traefik.io
+            specDigest: sha256:4444444444444444444444444444444444444444444444444444444444444444
+        profileConfigMap: edge-foundation-edge-profile
+        requireLoadBalancerReady: true
+        sslip:
+          mode: auto-first-ip
+      certManager:
+        revision: 4
+        mode: managed
+        namespace: cert-manager
+        version: v1.21.1
+        deployments:
+          - name: cert-manager
+            containerName: cert-manager-controller
+            image: quay.io/jetstack/cert-manager-controller@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+            specDigest: sha256:5555555555555555555555555555555555555555555555555555555555555555
+          - name: cert-manager-cainjector
+            containerName: cert-manager-cainjector
+            image: quay.io/jetstack/cert-manager-cainjector@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+            specDigest: sha256:6666666666666666666666666666666666666666666666666666666666666666
+          - name: cert-manager-webhook
+            containerName: cert-manager-webhook
+            image: quay.io/jetstack/cert-manager-webhook@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+            specDigest: sha256:7777777777777777777777777777777777777777777777777777777777777777
+        crds:
+          - name: certificaterequests.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+          - name: certificates.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+          - name: challenges.acme.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+          - name: clusterissuers.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+          - name: issuers.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+          - name: orders.acme.cert-manager.io
+            specDigest: sha256:8888888888888888888888888888888888888888888888888888888888888888
+        profileConfigMap: cert-foundation-certificate-profile
+        ingressClassName: traefik
+        productionIssuer: kuberploy-letsencrypt-production
+        productionServerClass: letsencrypt-production
+        productionSolverTypes: [http01]
+        productionDNS01Profiles: []
+        stagingIssuer: kuberploy-letsencrypt-staging
+        stagingServerClass: letsencrypt-staging
+        stagingSolverTypes: [http01]
+        stagingDNS01Profiles: []
+      externalDNS:
+        - integrationId: 11111111-1111-4111-8111-111111111111
+          revision: 9
+          mode: managed
+          namespace: external-dns
+          version: v0.21.0
+          deployment:
+            name: external-dns
+            containerName: external-dns
+            image: registry.k8s.io/external-dns/external-dns@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+            specDigest: sha256:9999999999999999999999999999999999999999999999999999999999999999
+          profileConfigMap: dns-primary-dns-profile
+          labelFilter: kuberploy.io/dns-integration=primary
+          annotationFilter: external-dns.alpha.kubernetes.io/hostname
+          providerKind: cloudflare
+          credentialSecretRef: external-dns-cloudflare-primary
+          providerConfigRef: cloudflare-provider
+          egressConfigRef: cloudflare-egress
+          txtOwnerId: kuberploy.primary
+          policy: upsert-only
+          domainFilters:
+            - example.com
+            - internal.example.com
+    pollIntervalSeconds: 30
+    workLeaseSeconds: 120
+    heartbeatSeconds: 20
+    readinessSeconds: 90
+    minimumBackoffSeconds: 5
+    maximumBackoffSeconds: 300
+components:
+  api:
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  worker:
+    image:
+      reference: ghcr.io/kuberploy/kuberploy-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+rbac:
+  # Keep the render assertion able to prove that edge observation alone does
+  # not give the API Pod Kubernetes API egress.
+  observedNamespaces: []

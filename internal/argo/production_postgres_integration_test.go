@@ -1,0 +1,271 @@
+package argo
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitops"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
+)
+
+type toggledRegistryEligibility struct {
+	resolved bool
+	calls    int
+}
+
+func (r *toggledRegistryEligibility) ResolveRegistryReferences(_ context.Context, target DesiredStateTarget, approval DesiredStateProjectionApproval, _ time.Time) (bool, error) {
+	r.calls++
+	if target.Validate() != nil || approval.validateFor(target, false) != nil || approval.RegistryReferencesResolved {
+		return false, ErrInvalid
+	}
+	return r.resolved, nil
+}
+
+func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = storepostgres.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+
+	const (
+		userID                    = "81111111-1111-4111-8111-111111111111"
+		projectID                 = "82111111-1111-4111-8111-111111111111"
+		environmentID             = "83111111-1111-4111-8111-111111111111"
+		applicationID             = "84111111-1111-4111-8111-111111111111"
+		deploymentID              = "85111111-1111-4111-8111-111111111111"
+		operationID               = "86111111-1111-4111-8111-111111111111"
+		platformID                = "87111111-1111-4111-8111-111111111111"
+		bindingID                 = "88111111-1111-4111-8111-111111111111"
+		clusterID                 = "89111111-1111-4111-8111-111111111111"
+		installationPlatformID    = "8a111111-1111-4111-8111-111111111111"
+		installationEnvironmentID = "8b111111-1111-4111-8111-111111111111"
+		repositoryPlatformID      = "8c111111-1111-4111-8111-111111111111"
+		repositoryEnvironmentID   = "8d111111-1111-4111-8111-111111111111"
+	)
+	cleanup := func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		for _, statement := range []string{
+			`DELETE FROM argo_desired_state_runtime_readiness WHERE platform_binding_id='` + platformID + `'`,
+			`DELETE FROM argo_desired_state_commands WHERE platform_binding_id='` + platformID + `'`,
+			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,
+			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,
+			`DELETE FROM git_repository_bindings WHERE id IN ('` + bindingID + `','` + platformID + `')`,
+			`DELETE FROM deployments WHERE id='` + deploymentID + `'`,
+			`DELETE FROM operations WHERE id='` + operationID + `'`,
+			`DELETE FROM applications WHERE id='` + applicationID + `'`,
+			`DELETE FROM environments WHERE id='` + environmentID + `'`,
+			`DELETE FROM projects WHERE id='` + projectID + `'`,
+			`DELETE FROM github_repositories WHERE id IN ('` + repositoryPlatformID + `','` + repositoryEnvironmentID + `')`,
+			`DELETE FROM github_installations WHERE id IN ('` + installationPlatformID + `','` + installationEnvironmentID + `')`,
+			`DELETE FROM users WHERE id='` + userID + `'`,
+		} {
+			_, _ = pool.Exec(cleanupCtx, statement)
+		}
+	}
+	cleanup()
+	defer cleanup()
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	project := domain.Project{ID: projectID, Name: "Production Argo", Slug: "production-argo", CreatedAt: now}
+	namespace, argoProject := domain.DeriveEnvironmentDestination(project, "production")
+	environment := domain.Environment{ID: environmentID, ProjectID: projectID, Name: "Production", Slug: "production",
+		Namespace: namespace, ArgoProject: argoProject, CreatedAt: now}
+	application := domain.Application{ID: applicationID, ProjectID: projectID, Name: "API", Slug: "api", CreatedAt: now}
+	runtime := domain.DefaultWorkloadRuntime(8080, nil)
+	deployment := domain.Deployment{ID: deploymentID, EnvironmentID: environmentID, ApplicationID: applicationID,
+		Image: "registry.example.test/api@sha256:" + strings.Repeat("1", 64), Replicas: 1, Port: 8080,
+		Runtime: runtime, State: "pending-git", OperationID: operationID, Generation: 1, CreatedAt: now, UpdatedAt: now}
+	runtimeJSON, _ := json.Marshal(runtime)
+	permissions := `{"metadata":"read","contents":"write"}`
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,'argo-runtime','platform-admin','test','argo-runtime',1,$2)`, []any{userID, now}},
+		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, []any{project.ID, project.Name, project.Slug, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, []any{environment.ID, projectID, environment.Name, environment.Slug, environment.Namespace, environment.ArgoProject, now}},
+		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,$3,$4,$5)`, []any{application.ID, projectID, application.Name, application.Slug, now}},
+		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at) VALUES($1,'deployment.apply','queued','deployment',$2,'argo-runtime-test',1,'[]','',$3,$3)`, []any{operationID, deploymentID, now}},
+		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}',NULL,$5,'pending-git',$6,1,$7,$7)`, []any{deploymentID, environmentID, applicationID, deployment.Image, runtimeJSON, operationID, now}},
+		{`INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at,github_app_id,github_account_id,lifecycle,permissions,last_verified_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4,1001,$5,'active',$6,$4)`, []any{installationPlatformID, int64(501), userID, now, int64(7001), permissions}},
+		{`INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at,github_app_id,github_account_id,lifecycle,permissions,last_verified_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4,1001,$5,'active',$6,$4)`, []any{installationEnvironmentID, int64(502), userID, now, int64(7002), permissions}},
+		{`INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,created_at,updated_at) VALUES($1,$2,$3,$4,'kuberploy','platform','active',$5,$5,$5)`, []any{repositoryPlatformID, installationPlatformID, int64(601), int64(7001), now}},
+		{`INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,created_at,updated_at) VALUES($1,$2,$3,$4,'kuberploy','environment','active',$5,$5,$5)`, []any{repositoryEnvironmentID, installationEnvironmentID, int64(602), int64(7002), now}},
+	}
+	for _, statement := range statements {
+		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	projectionStore, err := gitprojection.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, clusterID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 501, RepositoryID: 601, Owner: "kuberploy", Name: "platform"},
+		"refs/heads/platform", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform.TargetHeadRevision, platform.TargetHeadObservedAt = strings.Repeat("a", 40), now
+	platform.State, platform.UpdatedAt = gitprojection.BindingIndexing, now
+	if err = projectionStore.PutBinding(ctx, platform); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := gitprojection.NewGitHubEnvironmentBinding(bindingID, projectID, environmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 502, RepositoryID: 602, Owner: "kuberploy", Name: "environment"},
+		"refs/heads/main", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := strings.Repeat("b", 40)
+	binding.TargetHeadRevision, binding.IndexedRevision = revision, revision
+	binding.TargetHeadObservedAt, binding.IndexedAt = now, now
+	binding.ProjectionGeneration, binding.State, binding.UpdatedAt = 1, gitprojection.BindingReady, now
+	if err = projectionStore.PutBinding(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+	activatedAt := now.Add(time.Second)
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at) VALUES($1,1,$2,$3,'active',$4,$5)`,
+		binding.ID, revision, binding.ParserVersion, now, activatedAt); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := gitops.RenderAppConfig(project, environment, application, deployment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, diagnostics := appconfig.ParseAndValidate(raw)
+	if len(diagnostics) != 0 {
+		t.Fatalf("invalid AppConfig fixture: %#v", diagnostics)
+	}
+	document, err := gitprojection.NewDocument(binding, 1, applicationID, revision, revision, strings.Repeat("c", 40), raw, parsed, nil, activatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedJSON, _ := json.Marshal(document.Parsed)
+	diagnosticsJSON := []byte(`[]`)
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
+		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,$11,$12,$13)`, binding.ID, document.Path, applicationID,
+		document.SourceRevision, document.ConfigRevision, document.BlobID, document.ContentSHA256, document.Raw, parsedJSON,
+		diagnosticsJSON, document.SchemaVersion, document.ParserVersion, document.IndexedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := &toggledRegistryEligibility{resolved: true}
+	policyDigest := "sha256:" + strings.Repeat("d", 64)
+	gate, err := NewPostgreSQLDesiredStateProjectionGate(pool, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, registry, policyDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialName, _ := RepositoryCredentialName(platform.ID)
+	identity, err := DesiredStateRuntimeIdentityForConfig(DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1001,
+		PlatformBindingID: platform.ID, ClusterID: clusterID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
+		RepositorySecretName: credentialName, Runtime: RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime",
+			ChartVersion: "1.2.3", ChartDigest: "sha256:" + strings.Repeat("e", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("f", 64)},
+		DigestEnforcement: ChartDigestNativeOCI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoStore, err := NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializer, err := NewPostgreSQLDesiredStateMaterializer(pool, argoStore, projectionStore, gate, registry, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	materializer.newID = func() string { return "8e111111-1111-4111-8111-111111111111" }
+	created, err := materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(time.Second))
+	if err != nil || !created {
+		t.Fatalf("created=%v err=%v", created, err)
+	}
+	status, err := argoStore.LatestDesiredState(ctx, projectID, environmentID)
+	if err != nil || status.CatalogDigest == "" || status.EnvironmentRevision != revision {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+	if created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(2*time.Second)); err != nil || created {
+		t.Fatalf("duplicate materialization created=%v err=%v", created, err)
+	}
+	work, err := argoStore.ClaimDesiredState(ctx, "production-argo-worker", identity.DesiredStateWorkerIdentity,
+		activatedAt.Add(3*time.Second), minimumDesiredStateLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); err != nil {
+		t.Fatalf("exact active claim rejected: %v", err)
+	}
+	registry.resolved = false
+	if err = gate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); !errors.Is(err, ErrRegistryReferencesNotReady) {
+		t.Fatalf("unready registry claim accepted: %v", err)
+	}
+	registry.resolved = true
+	tampered := work.Command
+	tampered.CatalogDigest = "sha256:" + strings.Repeat("0", 64)
+	if err = gate.ValidateDesiredStateClaim(ctx, tampered, DesiredStateClaimActive); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("tampered approval receipt accepted: %v", err)
+	}
+	wrongPolicyGate, err := NewPostgreSQLDesiredStateProjectionGate(pool, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, registry,
+		"sha256:"+strings.Repeat("1", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = wrongPolicyGate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("different projection policy accepted claim: %v", err)
+	}
+
+	receiptAt := activatedAt.Add(4 * time.Second)
+	bound, err := argoStore.BindDesiredStateWriteBase(ctx, work.Lease, platform.TargetHeadRevision, receiptAt, receiptAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committedRevision := strings.Repeat("2", 40)
+	committed, err := argoStore.MarkDesiredStateGitCommitted(ctx, *bound.Lease, committedRevision, receiptAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.resolved = false
+	beforeCalls := registry.calls
+	if err = gate.ValidateDesiredStateClaim(ctx, committed, DesiredStateClaimRecovery); err != nil {
+		t.Fatalf("durable operation recovery was stranded: %v", err)
+	}
+	if registry.calls != beforeCalls {
+		t.Fatal("mutable registry freshness was consulted after durable Git commit")
+	}
+
+	catalog, err := NewPostgreSQLRuntimeBindingCatalog(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorities, err := catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now, time.Minute)
+	if err != nil || len(authorities) != 2 || !authorities[0].Authorized || authorities[0].RevocationRequired ||
+		!authorities[1].Authorized || authorities[1].RevocationRequired {
+		t.Fatalf("authorities=%#v err=%v", authorities, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET lifecycle='removed',removed_at=$2,updated_at=$2 WHERE id=$1`, repositoryEnvironmentID, now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now.Add(time.Second), 2*time.Minute)
+	if err != nil || len(authorities) != 2 || authorities[1].Authorized || !authorities[1].RevocationRequired {
+		t.Fatalf("removed repository was not retained for revocation: %#v err=%v", authorities, err)
+	}
+}

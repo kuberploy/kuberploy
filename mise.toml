@@ -1,0 +1,9 @@
+[tools]
+go = "1.26.5"
+node = "24.19.0"
+pnpm = "11.20.0"
+helm = "4.2.3"
+kubectl = "1.36.3"
+
+[env]
+KUBERPLOY_ENV = "development"

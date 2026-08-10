@@ -1,0 +1,18 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: kuberploy-build-boundary
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: {{ .Values.resourceQuota.hard.pods | quote }}
+    requests.cpu: {{ .Values.resourceQuota.hard.requestsCpu | quote }}
+    requests.memory: {{ .Values.resourceQuota.hard.requestsMemory | quote }}
+    requests.ephemeral-storage: {{ .Values.resourceQuota.hard.requestsEphemeralStorage | quote }}
+    limits.cpu: {{ .Values.resourceQuota.hard.limitsCpu | quote }}
+    limits.memory: {{ .Values.resourceQuota.hard.limitsMemory | quote }}
+    limits.ephemeral-storage: {{ .Values.resourceQuota.hard.limitsEphemeralStorage | quote }}
+{{- end }}

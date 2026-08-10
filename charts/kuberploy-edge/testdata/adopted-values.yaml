@@ -1,0 +1,8 @@
+edge:
+  traefik:
+    managed: false
+    adoptExisting: true
+    crdProviderConfirmed: true
+traefik:
+  ingressClass:
+    name: adopted-traefik

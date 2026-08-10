@@ -1,0 +1,10 @@
+foundation:
+  enabled: true
+  certManager:
+    managed: false
+    adoptExisting: true
+    crdsConfirmed: true
+  issuers:
+    staging:
+      enabled: true
+      email: platform@example.test

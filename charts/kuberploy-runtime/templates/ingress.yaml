@@ -1,0 +1,112 @@
+{{- range (.Values.spec.routes | default (list)) }}
+{{- $route := . }}
+{{- $routeName := include "kuberploy-runtime.routeName" (dict "root" $ "route" $route) }}
+{{- $tlsEnabled := ne $route.tls.mode "httpOnly" }}
+{{- $tlsSecretName := printf "%s-tls" $routeName }}
+{{- if eq $route.tls.mode "customCertificate" }}
+  {{- $secretRef := required "customCertificate.secretRef is required" $route.tls.secretRef }}
+  {{- if not (kindIs "map" $secretRef) }}
+    {{- fail "customCertificate.secretRef must be an exact binding identity object" }}
+  {{- end }}
+  {{- if or (ne (len $secretRef) 3) (not (hasKey $secretRef "bindingId")) (not (hasKey $secretRef "name")) (not (hasKey $secretRef "version")) }}
+    {{- fail "customCertificate.secretRef accepts exactly bindingId, name, and version" }}
+  {{- end }}
+  {{- $tlsSecretName = include "kuberploy-runtime.secretName" $secretRef }}
+{{- end }}
+{{- $dns := $route.dns | default (dict) }}
+{{- $dnsMode := get $dns "mode" | default "manual" }}
+{{- if not (has $dnsMode (list "manual" "sslip" "externalDns")) }}
+  {{- fail "route dns.mode must be manual, sslip, or externalDns" }}
+{{- end }}
+{{- if eq $dnsMode "sslip" }}
+  {{- if ne (len $dns) 1 }}
+    {{- fail "sslip dns intent accepts only mode; hostname and IP are server-derived" }}
+  {{- end }}
+  {{- $sslipLabel := printf "kp-%s." (trunc 20 (sha256sum (printf "kuberploy-sslip-host-v1:%s:%s" $.Values.metadata.id $.Values.spec.environmentId))) }}
+  {{- if or (not (hasPrefix $sslipLabel $route.host)) (not (regexMatch "^kp-[0-9a-f]{20}\\.[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}-[0-9]{1,3}\\.sslip\\.io$" $route.host)) }}
+    {{- fail "sslip route host must be the exact server-derived application/environment hostname" }}
+  {{- end }}
+{{- end }}
+{{- $middlewareNames := list }}
+{{- range ($route.middlewareRefs | default (list)) }}
+  {{- $resourceName := include "kuberploy-runtime.middlewareRef" (dict "root" $ "name" .) }}
+  {{- $middlewareNames = append $middlewareNames (printf "%s-%s@kubernetescrd" $.Release.Namespace $resourceName) }}
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $routeName }}
+  labels:
+    {{- include "kuberploy-runtime.labels" $ | nindent 4 }}
+    {{- if eq $dnsMode "externalDns" }}
+    kuberploy.io/dns-integration: {{ get $dns "integrationRef" | quote }}
+    {{- end }}
+    {{- if eq $dnsMode "sslip" }}
+    kuberploy.io/dns-mode: "sslip"
+    {{- end }}
+  annotations:
+    kuberploy.io/application-id: {{ $.Values.metadata.id | quote }}
+    # Keep the legacy annotation aligned for controllers that still filter on
+    # it, while spec.ingressClassName remains the authoritative modern field.
+    kubernetes.io/ingress.class: {{ $route.ingressClassName | default "traefik" | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ ternary "websecure" "web" $tlsEnabled | quote }}
+    {{- if $tlsEnabled }}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- end }}
+    {{- if eq $route.tls.mode "letsencrypt" }}
+    cert-manager.io/cluster-issuer: {{ $route.tls.issuerRef | quote }}
+    {{- end }}
+    {{- if eq $dnsMode "externalDns" }}
+    external-dns.alpha.kubernetes.io/hostname: {{ $route.host | quote }}
+    external-dns.alpha.kubernetes.io/ttl: {{ get $dns "ttl" | default 300 | quote }}
+    {{- end }}
+    {{- if gt (len $middlewareNames) 0 }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ join "," $middlewareNames | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $route.ingressClassName | default "traefik" }}
+  {{- if $tlsEnabled }}
+  tls:
+    - hosts: [{{ $route.host | quote }}]
+      secretName: {{ $tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $route.host | quote }}
+      http:
+        paths:
+          - path: {{ $route.path | default "/" | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kuberploy-runtime.appName" $ }}
+                port:
+                  name: {{ $route.port }}
+{{- if and $tlsEnabled ($route.tls.redirectHttp | default false) }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $routeName }}-redirect
+  labels:
+    {{- include "kuberploy-runtime.labels" $ | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ $.Values.metadata.id | quote }}
+    kubernetes.io/ingress.class: {{ $route.ingressClassName | default "traefik" | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: "web"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd" $.Release.Namespace $routeName | quote }}
+spec:
+  ingressClassName: {{ $route.ingressClassName | default "traefik" }}
+  rules:
+    - host: {{ $route.host | quote }}
+      http:
+        paths:
+          - path: {{ $route.path | default "/" | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kuberploy-runtime.appName" $ }}
+                port:
+                  name: {{ $route.port }}
+{{- end }}
+{{- end }}

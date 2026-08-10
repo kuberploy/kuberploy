@@ -1,0 +1,58 @@
+{{- if and .Values.monitoring.managed .Values.monitoring.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" . }}-default-deny-ingress
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" . }}-prometheus-query
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.monitoring.networkPolicy.queryClient.namespaceLabel | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml .Values.monitoring.networkPolicy.queryClient.podLabels | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy-monitoring.fullname" . }}-prometheus-scrapes
+  namespace: kuberploy-monitoring
+  labels:
+    {{- include "kuberploy-monitoring.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - {protocol: TCP, port: 8080}
+        - {protocol: TCP, port: 8081}
+        - {protocol: TCP, port: 9093}
+        - {protocol: TCP, port: 9100}
+        - {protocol: TCP, port: 10250}
+{{- end }}

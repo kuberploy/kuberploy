@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["argoFoundation", "argo-cd"],
+  "properties": {
+    "global": {"type": "object"},
+    "argoFoundation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "argoCD", "prerequisites", "networkPolicy", "bootstrap"],
+      "properties": {
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create"],
+          "properties": {"create": {"type": "boolean"}}
+        },
+        "argoCD": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["managed", "adoptExisting", "capabilitiesConfirmed"],
+          "properties": {
+            "managed": {"type": "boolean"},
+            "adoptExisting": {"type": "boolean"},
+            "capabilitiesConfirmed": {"type": "boolean"}
+          }
+        },
+        "prerequisites": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["argoSecretName", "valkeySecretName"],
+          "properties": {
+            "argoSecretName": {"const": "argocd-secret"},
+            "valkeySecretName": {"const": "kuberploy-argocd-valkey-auth"}
+          }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "kubeAPIServerCIDRs", "repositoryEgressCIDRs", "valkeyNamespace", "controlPlaneNamespace", "edgeNamespace", "monitoringNamespace"],
+          "properties": {
+            "enabled": {"const": true},
+            "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrs"},
+            "repositoryEgressCIDRs": {"$ref": "#/$defs/cidrs"},
+            "valkeyNamespace": {"const": "kuberploy-system"},
+            "controlPlaneNamespace": {"const": "kuberploy-system"},
+            "edgeNamespace": {"const": "kuberploy-system"},
+            "monitoringNamespace": {"const": "kuberploy-monitoring"}
+          }
+        },
+        "bootstrap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "clusterID", "bindingID", "repositoryOwner", "repositoryName", "targetRevision"],
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "clusterID": {"type": "string", "maxLength": 36},
+            "bindingID": {"type": "string", "maxLength": 36},
+            "repositoryOwner": {"type": "string", "maxLength": 40},
+            "repositoryName": {"type": "string", "maxLength": 100},
+            "targetRevision": {"type": "string", "maxLength": 211}
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "enabled": {"const": false},
+                "clusterID": {"const": ""},
+                "bindingID": {"const": ""},
+                "repositoryOwner": {"const": ""},
+                "repositoryName": {"const": ""},
+                "targetRevision": {"const": ""}
+              }
+            },
+            {
+              "properties": {
+                "enabled": {"const": true},
+                "clusterID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "bindingID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+                "repositoryOwner": {"pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$"},
+                "repositoryName": {"pattern": "^[A-Za-z0-9_.-]{1,100}$"},
+                "targetRevision": {"pattern": "^refs/heads/[A-Za-z0-9]([A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$"}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "argo-cd": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "cidrs": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+      }
+    }
+  }
+}

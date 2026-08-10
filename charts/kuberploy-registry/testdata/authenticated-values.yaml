@@ -1,0 +1,22 @@
+enabled: true
+
+global:
+  testRun: render
+
+auth:
+  mode: htpasswd
+  existingSecret: registry-auth
+  realm: kuberploy-registry
+  secretRevision: fixture-v1
+
+persistence:
+  storageClass: fixture-storage
+  size: 2Gi
+  accessMode: ReadWriteOnce
+  retainOnDelete: true
+
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - kuberploy
+    - kuberploy-build

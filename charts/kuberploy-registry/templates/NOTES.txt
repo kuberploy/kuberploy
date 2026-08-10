@@ -1,0 +1,16 @@
+{{- if .Values.enabled -}}
+Kuberploy managed registry is internal-only (ClusterIP). TLS and public routing
+belong to the separately managed Traefik/cert-manager edge layer.
+
+{{- if eq .Values.auth.mode "testOnlyUnauthenticated" }}
+WARNING: TEST-ONLY UNAUTHENTICATED REGISTRY MODE IS ENABLED.
+Do not use this mode outside an isolated, disposable integration-test namespace.
+{{- else }}
+Authentication uses bcrypt htpasswd data from the existing Secret named in
+auth.existingSecret. Helm never creates or prints registry credentials.
+{{- end }}
+
+Digest deletion is enabled. Blob garbage collection is intentionally not
+scheduled by this chart; Kuberploy's lifecycle controller must run it only while
+the registry is read-only or fully stopped.
+{{- end -}}

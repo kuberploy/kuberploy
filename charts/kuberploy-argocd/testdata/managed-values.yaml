@@ -1,0 +1,14 @@
+argoFoundation:
+  networkPolicy:
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32
+    repositoryEgressCIDRs:
+      - 0.0.0.0/0
+      - ::/0
+  bootstrap:
+    enabled: true
+    clusterID: 71111111-1111-4111-8111-111111111112
+    bindingID: 71111111-1111-4111-8111-111111111111
+    repositoryOwner: kuberploy
+    repositoryName: platform-gitops
+    targetRevision: refs/heads/main

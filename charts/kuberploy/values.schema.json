@@ -1,0 +1,1696 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["global", "config", "components", "ingress", "rbac", "builder", "networkPolicy", "upgrade"],
+  "properties": {
+    "global": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["testRun", "requireImageDigest"],
+      "properties": {
+        "testRun": { "type": "string", "maxLength": 20, "pattern": "^(?:|[a-z0-9][a-z0-9-]{0,19})$" },
+        "requireImageDigest": { "type": "boolean" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["publicURL", "logLevel", "postgresql", "valkey", "monitoring", "git", "githubApp", "buildLogs", "gitProjection", "autoDeploy", "platformGitBinding", "runtimeSecrets", "certificateObservation", "certificateIssuerObserver", "runtimeRegistryPulls", "imageTagResolution", "edgeRuntime", "externalDNSOperational", "argoObservation", "environmentFoundation", "argoDesiredState", "helmApplications", "managedRegistry", "bootstrapSecret"],
+      "properties": {
+        "publicURL": { "type": "string", "pattern": "^https?://[^\\s]+$", "maxLength": 2048 },
+        "logLevel": { "enum": ["debug", "info", "warn", "error"] },
+        "postgresql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["secretRef"],
+          "properties": {
+            "secretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "urlKey"],
+              "properties": {
+                "name": { "$ref": "#/$defs/dnsLabel" },
+                "urlKey": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          }
+        },
+        "valkey": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "secretRef"],
+          "properties": {
+            "mode": { "enum": ["managed", "external"] },
+            "secretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "addressesKey", "usernameKey", "passwordKey", "apiCacheUsernameKey", "apiCachePasswordKey", "apiLimiterUsernameKey", "apiLimiterPasswordKey", "publisherUsernameKey", "publisherPasswordKey", "consumerUsernameKey", "consumerPasswordKey"],
+              "properties": {
+                "name": { "$ref": "#/$defs/dnsLabel" },
+                "addressesKey": { "$ref": "#/$defs/secretKey" },
+                "usernameKey": { "$ref": "#/$defs/secretKey" },
+                "passwordKey": { "$ref": "#/$defs/secretKey" },
+                "apiCacheUsernameKey": { "$ref": "#/$defs/secretKey" },
+                "apiCachePasswordKey": { "$ref": "#/$defs/secretKey" },
+                "apiLimiterUsernameKey": { "$ref": "#/$defs/secretKey" },
+                "apiLimiterPasswordKey": { "$ref": "#/$defs/secretKey" },
+                "publisherUsernameKey": { "$ref": "#/$defs/secretKey" },
+                "publisherPasswordKey": { "$ref": "#/$defs/secretKey" },
+                "consumerUsernameKey": { "$ref": "#/$defs/secretKey" },
+                "consumerPasswordKey": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          },
+          "allOf": [{
+            "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
+            "then": { "properties": { "secretRef": { "properties": {
+              "apiCacheUsernameKey": { "const": "api-cache-username" },
+              "apiCachePasswordKey": { "const": "api-cache-password" },
+              "apiLimiterUsernameKey": { "const": "api-limiter-username" },
+              "apiLimiterPasswordKey": { "const": "api-limiter-password" },
+              "publisherUsernameKey": { "const": "outbox-publisher-username" },
+              "publisherPasswordKey": { "const": "outbox-publisher-password" },
+              "consumerUsernameKey": { "const": "worker-consumer-username" },
+              "consumerPasswordKey": { "const": "worker-consumer-password" }
+            } } } }
+          }]
+        },
+        "monitoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "prometheusURL", "bearerTokenSecret"],
+          "properties": {
+            "mode": { "enum": ["disabled", "managed", "existing"] },
+            "prometheusURL": { "type": "string", "maxLength": 2048 },
+            "bearerTokenSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "key"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "key": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "mode": { "const": "disabled" } }, "required": ["mode"] },
+              "then": {
+                "properties": {
+                  "prometheusURL": { "const": "" },
+                  "bearerTokenSecret": { "properties": { "name": { "const": "" } } }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
+              "then": {
+                "properties": {
+                  "prometheusURL": { "const": "http://prometheus-operated.kuberploy-monitoring.svc:9090" },
+                  "bearerTokenSecret": { "properties": { "name": { "const": "" } } }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "mode": { "const": "existing" } }, "required": ["mode"] },
+              "then": { "properties": { "prometheusURL": { "pattern": "^https://[^\\s]+$", "minLength": 1 } } }
+            }
+          ]
+        },
+        "git": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["remoteURL", "branch", "credentialsSecret"],
+          "properties": {
+            "remoteURL": { "type": "string", "maxLength": 2048 },
+            "branch": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$" },
+            "credentialsSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "usernameKey", "passwordKey"],
+              "properties": {
+                "name": { "type": "string", "maxLength": 63, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$" },
+                "usernameKey": { "$ref": "#/$defs/secretKey" },
+                "passwordKey": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "credentialsSecret": {
+                    "properties": { "name": { "minLength": 1 } },
+                    "required": ["name"]
+                  }
+                },
+                "required": ["credentialsSecret"]
+              },
+              "then": {
+                "properties": {
+                  "remoteURL": { "pattern": "^https://" }
+                }
+              }
+            }
+          ]
+        },
+        "githubApp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "appID", "clientID", "appSlug", "secretRef"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "appID": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+            "clientID": { "type": "string", "maxLength": 128, "pattern": "^(?:|[A-Za-z0-9_-]{3,128})$" },
+            "appSlug": { "type": "string", "maxLength": 100, "pattern": "^(?:|[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?)$" },
+            "secretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "privateKeyKey", "webhookSecretKey", "stateSigningSecretKey", "oauthClientSecretKey"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "privateKeyKey": { "$ref": "#/$defs/secretKey" },
+                "webhookSecretKey": { "$ref": "#/$defs/secretKey" },
+                "stateSigningSecretKey": { "$ref": "#/$defs/secretKey" },
+                "oauthClientSecretKey": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "appID": { "const": 0 },
+                  "clientID": { "const": "" },
+                  "appSlug": { "const": "" },
+                  "secretRef": { "properties": { "name": { "const": "" } } }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "appID": { "minimum": 1 },
+                  "clientID": { "minLength": 3 },
+                  "appSlug": { "minLength": 1 },
+                  "secretRef": { "properties": { "name": { "minLength": 1 } } }
+                }
+              }
+            }
+          ]
+        },
+        "buildLogs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "gitProjection": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "cacheMaxBytes", "pollIntervalSeconds", "webhookWakeEnabled", "chartDigest", "policyVersion"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "cacheMaxBytes": { "type": "integer", "minimum": 67108864, "maximum": 2147483648 },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 86400 },
+            "webhookWakeEnabled": { "type": "boolean" },
+            "chartDigest": { "type": "string", "pattern": "^(?:|sha256:[0-9a-f]{64})$" },
+            "policyVersion": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "chartDigest": { "minLength": 71 } } }
+            }
+          ]
+        },
+        "autoDeploy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "platformGitBinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "clusterID"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "clusterID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": { "properties": { "clusterID": { "const": "" } } }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "clusterID": { "minLength": 36 } } }
+            }
+          ]
+        },
+        "runtimeSecrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "namespaces", "fingerprintKeyID", "fingerprintSecret", "sealingCertificateSecret", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "idleSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespaces": { "$ref": "#/$defs/namespaces" },
+            "fingerprintKeyID": { "const": "runtime-secrets-hmac-v1" },
+            "fingerprintSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "key"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "key": { "const": "runtime-secret-fingerprint.key" }
+              }
+            },
+            "sealingCertificateSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "key"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "key": { "const": "tls.crt" }
+              }
+            },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 600 },
+            "workLeaseSeconds": { "type": "integer", "minimum": 20, "maximum": 3600 },
+            "heartbeatSeconds": { "type": "integer", "minimum": 1, "maximum": 22 },
+            "idleSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+            "minimumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "namespaces": { "maxItems": 0 },
+                  "fingerprintSecret": { "properties": { "name": { "const": "" } } },
+                  "sealingCertificateSecret": { "properties": { "name": { "const": "" } } },
+                  "pollIntervalSeconds": { "const": 5 },
+                  "workLeaseSeconds": { "const": 45 },
+                  "heartbeatSeconds": { "const": 10 },
+                  "idleSeconds": { "const": 1 },
+                  "minimumBackoffSeconds": { "const": 2 },
+                  "maximumBackoffSeconds": { "const": 300 }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "namespaces": { "minItems": 1 },
+                  "fingerprintSecret": { "properties": { "name": { "minLength": 1 } } },
+                  "sealingCertificateSecret": { "properties": { "name": { "minLength": 1 } } }
+                }
+              }
+            }
+          ]
+        },
+        "certificateObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "idleSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds", "maximumAgeSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 5, "maximum": 600 },
+            "workLeaseSeconds": { "type": "integer", "minimum": 20, "maximum": 3600 },
+            "heartbeatSeconds": { "type": "integer", "minimum": 1, "maximum": 22 },
+            "idleSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+            "minimumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "maximumAgeSeconds": { "type": "integer", "minimum": 10, "maximum": 1800 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "pollIntervalSeconds": { "const": 30 },
+                  "workLeaseSeconds": { "const": 45 },
+                  "heartbeatSeconds": { "const": 10 },
+                  "idleSeconds": { "const": 1 },
+                  "minimumBackoffSeconds": { "const": 2 },
+                  "maximumBackoffSeconds": { "const": 300 },
+                  "maximumAgeSeconds": { "const": 90 }
+                }
+              }
+            }
+          ]
+        },
+        "certificateIssuerObserver": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "platformBindingID", "clusterID", "pollIntervalSeconds", "requestTimeoutSeconds", "maximumAgeSeconds", "readinessLeaseSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "platformBindingID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "clusterID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 5, "maximum": 3600 },
+            "requestTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 30 },
+            "maximumAgeSeconds": { "type": "integer", "minimum": 10, "maximum": 900 },
+            "readinessLeaseSeconds": { "type": "integer", "minimum": 30, "maximum": 900 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "platformBindingID": { "const": "" },
+                  "clusterID": { "const": "" },
+                  "pollIntervalSeconds": { "const": 30 },
+                  "requestTimeoutSeconds": { "const": 10 },
+                  "maximumAgeSeconds": { "const": 120 },
+                  "readinessLeaseSeconds": { "const": 180 }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "platformBindingID": { "minLength": 36 },
+                  "clusterID": { "minLength": 36 }
+                }
+              }
+            }
+          ]
+        },
+        "runtimeRegistryPulls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "namespaces", "profiles", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "readinessSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespaces": { "$ref": "#/$defs/namespaces" },
+            "profiles": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "targetId", "registryServer", "credentialRef", "revision", "sourceSecretRef", "sourceSecretKey"],
+                "properties": {
+                  "name": { "$ref": "#/$defs/dnsLabel" },
+                  "targetId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+                  "registryServer": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::[1-9][0-9]{0,4})?$" },
+                  "credentialRef": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$" },
+                  "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+                  "sourceSecretRef": { "$ref": "#/$defs/dnsLabel" },
+                  "sourceSecretKey": { "$ref": "#/$defs/secretKey" }
+                }
+              }
+            },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 5, "maximum": 3600 },
+            "workLeaseSeconds": { "type": "integer", "minimum": 30, "maximum": 900 },
+            "heartbeatSeconds": { "type": "integer", "minimum": 5, "maximum": 449 },
+            "readinessSeconds": { "type": "integer", "minimum": 10, "maximum": 900 },
+            "minimumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+            "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "namespaces": { "maxItems": 0 },
+                  "profiles": { "maxItems": 0 },
+                  "pollIntervalSeconds": { "const": 30 },
+                  "workLeaseSeconds": { "const": 120 },
+                  "heartbeatSeconds": { "const": 20 },
+                  "readinessSeconds": { "const": 90 },
+                  "minimumBackoffSeconds": { "const": 5 },
+                  "maximumBackoffSeconds": { "const": 300 }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "namespaces": { "minItems": 1 }, "profiles": { "minItems": 1 } } }
+            }
+          ]
+        },
+        "imageTagResolution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anonymousTargetIds", "tokenAuthorities", "platform"],
+          "properties": {
+            "anonymousTargetIds": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+            },
+            "tokenAuthorities": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["targetId", "realmUrl", "service"],
+                "properties": {
+                  "targetId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+                  "realmUrl": { "type": "string", "minLength": 10, "maxLength": 2048, "pattern": "^https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::[1-9][0-9]{0,4})?/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$" },
+                  "service": { "type": "string", "minLength": 1, "maxLength": 253, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+-]{0,252}$" }
+                }
+              }
+            },
+            "platform": { "enum": ["linux/amd64", "linux/arm64", "linux/arm64/v8", "linux/arm64/v9"] }
+          }
+        },
+        "edgeRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "profiles", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "readinessSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "profiles": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["externalDNS"],
+              "properties": {
+                "traefik": {
+                  "anyOf": [
+                    { "type": "null" },
+                    { "$ref": "#/$defs/edgeTraefikProfile" }
+                  ]
+                },
+                "certManager": {
+                  "anyOf": [
+                    { "type": "null" },
+                    { "$ref": "#/$defs/edgeCertManagerProfile" }
+                  ]
+                },
+                "externalDNS": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": { "$ref": "#/$defs/edgeExternalDNSProfile" }
+                }
+              }
+            },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 5, "maximum": 3600 },
+            "workLeaseSeconds": { "type": "integer", "minimum": 30, "maximum": 900 },
+            "heartbeatSeconds": { "type": "integer", "minimum": 5, "maximum": 300 },
+            "readinessSeconds": { "type": "integer", "minimum": 30, "maximum": 900 },
+            "minimumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+            "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "profiles": {
+                    "properties": {
+                      "traefik": { "type": "null" },
+                      "certManager": { "type": "null" },
+                      "externalDNS": { "maxItems": 0 }
+                    }
+                  },
+                  "pollIntervalSeconds": { "const": 30 },
+                  "workLeaseSeconds": { "const": 120 },
+                  "heartbeatSeconds": { "const": 20 },
+                  "readinessSeconds": { "const": 90 },
+                  "minimumBackoffSeconds": { "const": 5 },
+                  "maximumBackoffSeconds": { "const": 300 }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "profiles": {
+                    "anyOf": [
+                      { "required": ["traefik"], "properties": { "traefik": { "type": "object" } } },
+                      { "required": ["certManager"], "properties": { "certManager": { "type": "object" } } },
+                      { "required": ["externalDNS"], "properties": { "externalDNS": { "minItems": 1 } } }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "externalDNSOperational": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled","platformBindingID","clusterID","namespace","version","image","serviceAccount","pollIntervalSeconds"],
+          "properties": {
+            "enabled": {"type":"boolean"},
+            "platformBindingID": {"type":"string","pattern":"^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"},
+            "clusterID": {"type":"string","pattern":"^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"},
+            "namespace": {"type":"string","pattern":"^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)$"},
+            "version": {"type":"string","pattern":"^(?:|v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$"},
+            "image": {"type":"string","pattern":"^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$","maxLength":512},
+            "serviceAccount": {"type":"string","pattern":"^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)$"},
+            "pollIntervalSeconds": {"type":"integer","minimum":1,"maximum":60}
+          },
+          "allOf": [{"if":{"properties":{"enabled":{"const":true}},"required":["enabled"]},"then":{"properties":{"platformBindingID":{"minLength":36},"clusterID":{"minLength":36},"namespace":{"minLength":1},"version":{"minLength":1},"image":{"minLength":80},"serviceAccount":{"minLength":1}}}},{"if":{"properties":{"enabled":{"const":false}},"required":["enabled"]},"then":{"properties":{"platformBindingID":{"const":""},"clusterID":{"const":""},"namespace":{"const":""},"version":{"const":""},"image":{"const":""},"serviceAccount":{"const":""},"pollIntervalSeconds":{"const":5}}}}]
+        },
+        "argoObservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "namespace", "pollIntervalSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespace": { "type": "string", "maxLength": 63, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$" },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 900 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": { "properties": { "namespace": { "const": "" } } }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "namespace": { "minLength": 1 } } }
+            }
+          ]
+        },
+        "environmentFoundation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "platformBindingID", "clusterID", "psaVersion", "pollIntervalSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "platformBindingID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "clusterID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "psaVersion": { "type": "string", "maxLength": 6, "pattern": "^(?:|v1\\.(?:2[5-9]|[3-9][0-9]))$" },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 60 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": { "properties": { "platformBindingID": { "const": "" }, "clusterID": { "const": "" }, "psaVersion": { "const": "" }, "pollIntervalSeconds": { "const": 1 } } }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "platformBindingID": { "minLength": 36 }, "clusterID": { "minLength": 36 }, "psaVersion": { "minLength": 5 } } }
+            }
+          ]
+        },
+        "argoDesiredState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "platformBindingID", "clusterID", "namespace", "runtimeChartRepository", "runtimeChartVersion", "runtimeChartDigest", "pollIntervalSeconds", "catalogMaxAgeSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "platformBindingID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "clusterID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "namespace": { "$ref": "#/$defs/optionalDNSLabel" },
+            "runtimeChartRepository": { "type": "string", "maxLength": 512, "pattern": "^(?:|oci://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[1-9][0-9]{0,4})?/[A-Za-z0-9][A-Za-z0-9._/-]{0,500})$" },
+            "runtimeChartVersion": { "type": "string", "maxLength": 64, "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?)$" },
+            "runtimeChartDigest": { "type": "string", "pattern": "^(?:|sha256:[0-9a-f]{64})$" },
+            "pollIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+            "catalogMaxAgeSeconds": { "type": "integer", "minimum": 60, "maximum": 3600 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "platformBindingID": { "const": "" },
+                  "clusterID": { "const": "" },
+                  "namespace": { "const": "" },
+                  "runtimeChartRepository": { "const": "" },
+                  "runtimeChartVersion": { "const": "" },
+                  "runtimeChartDigest": { "const": "" },
+                  "pollIntervalSeconds": { "const": 1 },
+                  "catalogMaxAgeSeconds": { "const": 900 }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "platformBindingID": { "minLength": 36 },
+                  "clusterID": { "minLength": 36 },
+                  "namespace": { "minLength": 1 },
+                  "runtimeChartRepository": { "minLength": 1 },
+                  "runtimeChartVersion": { "minLength": 1 },
+                  "runtimeChartDigest": { "minLength": 71 }
+                }
+              }
+            }
+          ]
+        },
+        "helmApplications": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "rendererNamespace", "rendererPollMilliseconds", "workPollMilliseconds", "renderLeaseSeconds", "publishLeaseSeconds", "readinessLeaseSeconds", "ociRequestSeconds", "ociRegistryHosts", "ociAuthHosts", "ociCredentialProfiles", "packageCacheBytes"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "rendererNamespace": { "$ref": "#/$defs/optionalDNSLabel" },
+            "rendererPollMilliseconds": { "type": "integer", "minimum": 10, "maximum": 2000 },
+            "workPollMilliseconds": { "type": "integer", "minimum": 100, "maximum": 30000 },
+            "renderLeaseSeconds": { "type": "integer", "minimum": 35, "maximum": 900 },
+            "publishLeaseSeconds": { "type": "integer", "minimum": 15, "maximum": 300 },
+            "readinessLeaseSeconds": { "type": "integer", "minimum": 5, "maximum": 300 },
+            "ociRequestSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+            "ociRegistryHosts": {
+              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
+            },
+            "ociAuthHosts": {
+              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
+            },
+            "ociCredentialProfiles": {
+              "type": "array", "maxItems": 64,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["registryHost", "authHost", "name", "mode", "secretRef"],
+                "properties": {
+                  "registryHost": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" },
+                  "authHost": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" },
+                  "name": { "$ref": "#/$defs/dnsLabel" },
+                  "mode": { "type": "string", "enum": ["basic", "bearer"] },
+                  "secretRef": {
+                    "type": "object", "additionalProperties": false,
+                    "required": ["name", "usernameKey", "passwordKey", "tokenKey"],
+                    "properties": {
+                      "name": { "$ref": "#/$defs/dnsLabel" },
+                      "usernameKey": { "type": "string", "maxLength": 253 },
+                      "passwordKey": { "type": "string", "maxLength": 253 },
+                      "tokenKey": { "type": "string", "maxLength": 253 }
+                    }
+                  }
+                },
+                "allOf": [
+                  { "if": { "properties": { "mode": { "const": "basic" } } }, "then": { "properties": { "secretRef": { "properties": { "usernameKey": { "minLength": 1 }, "passwordKey": { "minLength": 1 }, "tokenKey": { "const": "" } } } } } },
+                  { "if": { "properties": { "mode": { "const": "bearer" } } }, "then": { "properties": { "secretRef": { "properties": { "usernameKey": { "const": "" }, "passwordKey": { "const": "" }, "tokenKey": { "minLength": 1 } } } } } }
+                ]
+              }
+            },
+            "packageCacheBytes": { "type": "integer", "minimum": 8388608, "maximum": 1073741824 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": { "properties": {
+                "rendererNamespace": { "const": "" },
+                "rendererPollMilliseconds": { "const": 250 },
+                "workPollMilliseconds": { "const": 1000 },
+                "renderLeaseSeconds": { "const": 60 },
+                "publishLeaseSeconds": { "const": 90 },
+                "readinessLeaseSeconds": { "const": 30 },
+                "ociRequestSeconds": { "const": 15 },
+                "ociRegistryHosts": { "maxItems": 0 },
+                "ociAuthHosts": { "maxItems": 0 },
+                "ociCredentialProfiles": { "maxItems": 0 },
+                "packageCacheBytes": { "const": 67108864 }
+              } }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "rendererNamespace": { "minLength": 1 }, "ociRegistryHosts": { "minItems": 1 } } }
+            }
+          ]
+        },
+        "managedRegistry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "targetID", "endpoint", "repositoryPrefix", "lifecycleCredentialRef", "allowPlainHTTP", "namespace", "deployment", "persistentVolumeClaim", "registryConfigMap", "servicePort", "credentialSecret", "observationIntervalSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "targetID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "endpoint": { "type": "string", "maxLength": 2048, "pattern": "^(?:|https?://[^/\\s?#]+)$" },
+            "repositoryPrefix": { "type": "string", "maxLength": 255, "pattern": "^(?:|[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*)$" },
+            "lifecycleCredentialRef": { "type": "string", "maxLength": 256, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255})$" },
+            "allowPlainHTTP": { "type": "boolean" },
+            "namespace": { "$ref": "#/$defs/optionalDNSLabel" },
+            "deployment": { "$ref": "#/$defs/optionalDNSLabel" },
+            "persistentVolumeClaim": { "$ref": "#/$defs/optionalDNSLabel" },
+            "registryConfigMap": { "$ref": "#/$defs/optionalDNSLabel" },
+            "servicePort": { "const": 5000 },
+            "credentialSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "usernameKey", "passwordKey"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "usernameKey": { "$ref": "#/$defs/secretKey" },
+                "passwordKey": { "$ref": "#/$defs/secretKey" }
+              }
+            },
+            "observationIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 86400 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "targetID": { "const": "" }, "endpoint": { "const": "" }, "repositoryPrefix": { "const": "" },
+                  "lifecycleCredentialRef": { "const": "" }, "allowPlainHTTP": { "const": false }, "namespace": { "const": "" },
+                  "deployment": { "const": "" }, "persistentVolumeClaim": { "const": "" }, "registryConfigMap": { "const": "" },
+                  "credentialSecret": { "properties": { "name": { "const": "" } } }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": {
+                "properties": {
+                  "targetID": { "minLength": 36 }, "endpoint": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 },
+                  "lifecycleCredentialRef": { "minLength": 1 }, "namespace": { "minLength": 1 }, "deployment": { "minLength": 1 },
+                  "persistentVolumeClaim": { "minLength": 1 }, "registryConfigMap": { "minLength": 1 },
+                  "credentialSecret": { "properties": { "name": { "minLength": 1 } } }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "allowPlainHTTP": { "const": false } }, "required": ["allowPlainHTTP"] },
+              "then": { "properties": { "endpoint": { "pattern": "^(?:|https://[^/\\s?#]+)$" } } }
+            }
+          ]
+        },
+        "bootstrapSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "tokenKey", "generate"],
+          "properties": {
+            "name": { "$ref": "#/$defs/dnsLabel" },
+            "tokenKey": { "$ref": "#/$defs/secretKey" },
+            "generate": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "worker", "web"],
+      "properties": {
+        "api": { "$ref": "#/$defs/httpComponent" },
+        "worker": { "$ref": "#/$defs/workerComponent" },
+        "web": { "$ref": "#/$defs/httpComponent" }
+      }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "className", "host", "tls"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "$ref": "#/$defs/dnsLabel" },
+        "host": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "secretName"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string", "maxLength": 63 }
+          }
+        }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observedNamespaces", "buildNamespaces", "argoNamespace"],
+      "properties": {
+        "observedNamespaces": { "$ref": "#/$defs/namespaces" },
+        "buildNamespaces": { "$ref": "#/$defs/namespaces" },
+        "argoNamespace": { "type": "string", "maxLength": 63, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$" }
+      }
+    },
+    "builder": { "$ref": "#/$defs/builder" },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "edgeNamespace",
+        "managedPostgreSQLNamespace",
+        "managedValkeyNamespace",
+        "kubeAPIServerCIDRs",
+        "externalEgressCIDRs",
+        "externalPostgreSQLEgressCIDRs",
+        "externalValkeyEgressCIDRs"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "edgeNamespace": { "$ref": "#/$defs/dnsLabel" },
+        "managedPostgreSQLNamespace": { "const": "kuberploy-system" },
+        "managedValkeyNamespace": { "const": "kuberploy-system" },
+        "kubeAPIServerCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
+        "externalEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
+        "externalPostgreSQLEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
+        "externalValkeyEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" }
+      }
+    },
+    "upgrade": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "runnerExecutable", "job", "migrationJob"],
+      "properties": {
+        "image": { "$ref": "#/$defs/image" },
+        "runnerExecutable": {
+          "const": "/usr/local/bin/kuberploy-upgrade-runner"
+        },
+        "job": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["activeDeadlineSeconds"],
+          "properties": {
+            "activeDeadlineSeconds": { "type": "integer", "minimum": 60, "maximum": 900 }
+          }
+        },
+        "migrationJob": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "command", "activeDeadlineSeconds"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "command": {
+              "type": "array",
+              "maxItems": 32,
+              "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+            },
+            "activeDeadlineSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "config": { "properties": { "autoDeploy": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] } }, "required": ["autoDeploy"] } },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "githubApp": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+            },
+            "required": ["githubApp", "gitProjection", "argoDesiredState", "environmentFoundation"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "platformGitBinding": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["platformGitBinding"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "githubApp": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+            },
+            "required": ["gitProjection", "githubApp"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "githubApp": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["githubApp"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "builder": {
+            "properties": {
+              "enabled": { "const": true },
+              "networkPolicy": {
+                "properties": {
+                  "sourceEgressCIDRs": { "minItems": 1 },
+                  "registryEgressCIDRs": { "minItems": 1 }
+                }
+              }
+            },
+            "required": ["enabled"]
+          },
+          "config": {
+            "properties": { "publicURL": { "pattern": "^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?/?$" } }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "argoDesiredState": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["argoDesiredState"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "githubApp": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "platformGitBinding": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "argoObservation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+            },
+            "required": ["gitProjection", "githubApp", "platformGitBinding", "argoObservation", "environmentFoundation"]
+          },
+          "components": {
+            "properties": {
+              "api": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } },
+              "worker": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": {
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "(?:/32|/128)$" }
+              }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "helmApplications": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["helmApplications"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "githubApp": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+            },
+            "required": ["gitProjection", "githubApp", "argoDesiredState", "environmentFoundation"]
+          },
+          "components": {
+            "properties": {
+              "api": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } },
+              "worker": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": { "minItems": 1, "items": { "type": "string", "pattern": "(?:/32|/128)$" } },
+              "externalEgressCIDRs": { "minItems": 1, "items": { "type": "string", "pattern": "(?:/32|/128)$" } }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs", "externalEgressCIDRs"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "environmentFoundation": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["environmentFoundation"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "platformGitBinding": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+            },
+            "required": ["platformGitBinding", "argoDesiredState"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "certificateIssuerObserver": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["certificateIssuerObserver"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "edgeRuntime": {
+                "properties": {
+                  "enabled": { "const": true },
+                  "profiles": {
+                    "properties": { "certManager": { "type": "object" } },
+                    "required": ["certManager"]
+                  }
+                },
+                "required": ["enabled", "profiles"]
+              }
+            },
+            "required": ["gitProjection", "argoDesiredState", "environmentFoundation", "edgeRuntime"]
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": { "minItems": 1 }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "certificateObservation": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["certificateObservation"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "runtimeSecrets": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              },
+              "gitProjection": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["runtimeSecrets", "gitProjection"]
+          },
+          "components": {
+            "properties": {
+              "api": {
+                "properties": {
+                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
+                }
+              },
+              "worker": {
+                "properties": {
+                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
+                }
+              }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": { "minItems": 1 }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["gitProjection"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "githubApp": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "runtimeSecrets": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["runtimeSecrets"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "gitProjection": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": { "minItems": 1 }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "config": {
+            "properties": {
+              "edgeRuntime": {
+                "properties": { "enabled": { "const": true } },
+                "required": ["enabled"]
+              }
+            },
+            "required": ["edgeRuntime"]
+          }
+        },
+        "required": ["config"]
+      },
+      "then": {
+        "properties": {
+          "components": {
+            "properties": {
+              "api": {
+                "properties": {
+                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
+                }
+              },
+              "worker": {
+                "properties": {
+                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
+                }
+              }
+            }
+          },
+          "networkPolicy": {
+            "properties": {
+              "enabled": { "const": true },
+              "kubeAPIServerCIDRs": { "minItems": 1 }
+            },
+            "required": ["enabled", "kubeAPIServerCIDRs"]
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "edgeDigest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "edgeVersion": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 128,
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "edgeObjectName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)*$"
+    },
+    "edgeOptionalObjectName": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)*)$"
+    },
+    "edgeObjectExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "specDigest"],
+      "properties": {
+        "name": { "$ref": "#/$defs/edgeObjectName" },
+        "specDigest": { "$ref": "#/$defs/edgeDigest" }
+      }
+    },
+    "edgeDeploymentExpectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "containerName", "image", "specDigest"],
+      "properties": {
+        "name": { "$ref": "#/$defs/edgeObjectName" },
+        "containerName": { "$ref": "#/$defs/dnsLabel" },
+        "image": {
+          "type": "string",
+          "minLength": 80,
+          "maxLength": 512,
+          "pattern": "^[^\\s@]+/[^\\s@]+@sha256:[0-9a-f]{64}$"
+        },
+        "specDigest": { "$ref": "#/$defs/edgeDigest" }
+      }
+    },
+    "edgeTraefikProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "mode", "namespace", "version", "deployment", "service", "ingressClass", "crds", "profileConfigMap", "requireLoadBalancerReady"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "mode": { "enum": ["managed", "adopted"] },
+        "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "version": { "$ref": "#/$defs/edgeVersion" },
+        "deployment": { "$ref": "#/$defs/edgeDeploymentExpectation" },
+        "service": { "$ref": "#/$defs/edgeObjectExpectation" },
+        "ingressClass": { "$ref": "#/$defs/edgeObjectExpectation" },
+        "crds": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "ingressroutes.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "ingressroutetcps.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "ingressrouteudps.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "middlewares.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "middlewaretcps.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "serverstransports.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "serverstransporttcps.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "tlsoptions.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "tlsstores.traefik.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "traefikservices.traefik.io" } } }] }
+          ],
+          "items": false
+        },
+        "profileConfigMap": { "$ref": "#/$defs/edgeObjectName" },
+        "requireLoadBalancerReady": { "type": "boolean" },
+        "sslip": { "$ref": "#/$defs/edgeSSLIPProfile" }
+      }
+    },
+    "edgeSSLIPProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": { "enum": ["auto-first-ip", "verified-static-ip"] },
+        "staticPublicIPv4": {
+          "type": "string",
+          "format": "ipv4",
+          "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?|0)\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]?|0)$"
+        }
+      },
+      "oneOf": [
+        {
+          "properties": { "mode": { "const": "auto-first-ip" } },
+          "not": { "required": ["staticPublicIPv4"] }
+        },
+        {
+          "properties": { "mode": { "const": "verified-static-ip" } },
+          "required": ["staticPublicIPv4"]
+        }
+      ]
+    },
+    "edgeCertManagerProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "mode", "namespace", "version", "deployments", "crds", "profileConfigMap", "ingressClassName", "productionIssuer", "productionServerClass", "productionSolverTypes", "productionDNS01Profiles", "stagingIssuer", "stagingServerClass", "stagingSolverTypes", "stagingDNS01Profiles"],
+      "properties": {
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "mode": { "enum": ["managed", "adopted"] },
+        "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "version": { "$ref": "#/$defs/edgeVersion" },
+        "deployments": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/edgeDeploymentExpectation" }
+        },
+        "crds": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "prefixItems": [
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "certificaterequests.cert-manager.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "certificates.cert-manager.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "challenges.acme.cert-manager.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "clusterissuers.cert-manager.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "issuers.cert-manager.io" } } }] },
+            { "allOf": [{ "$ref": "#/$defs/edgeObjectExpectation" }, { "properties": { "name": { "const": "orders.acme.cert-manager.io" } } }] }
+          ],
+          "items": false
+        },
+        "profileConfigMap": { "$ref": "#/$defs/edgeObjectName" },
+        "ingressClassName": { "$ref": "#/$defs/dnsLabel" },
+        "productionIssuer": { "$ref": "#/$defs/edgeOptionalObjectName" },
+        "productionServerClass": { "enum": ["", "letsencrypt-production"] },
+        "productionSolverTypes": { "$ref": "#/$defs/edgeACMESolverTypes" },
+        "productionDNS01Profiles": { "$ref": "#/$defs/edgeDNS01ProfileNames" },
+        "stagingIssuer": { "$ref": "#/$defs/edgeOptionalObjectName" },
+        "stagingServerClass": { "enum": ["", "letsencrypt-staging"] },
+        "stagingSolverTypes": { "$ref": "#/$defs/edgeACMESolverTypes" },
+        "stagingDNS01Profiles": { "$ref": "#/$defs/edgeDNS01ProfileNames" }
+      },
+      "anyOf": [
+        { "properties": { "productionIssuer": { "minLength": 1 } } },
+        { "properties": { "stagingIssuer": { "minLength": 1 } } }
+      ]
+    },
+    "edgeACMESolverTypes": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "oneOf": [
+        { "maxItems": 0 },
+        { "prefixItems": [{ "const": "http01" }], "items": false },
+        { "prefixItems": [{ "const": "dns01" }, { "const": "http01" }], "items": false }
+      ]
+    },
+    "edgeDNS01ProfileNames": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dnsLabel" }
+    },
+    "edgeExternalDNSProfile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["integrationId", "revision", "mode", "namespace", "version", "deployment", "profileConfigMap", "labelFilter", "annotationFilter", "providerKind", "credentialSecretRef", "providerConfigRef", "egressConfigRef", "txtOwnerId", "policy", "domainFilters"],
+      "properties": {
+        "integrationId": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
+        "mode": { "enum": ["managed", "adopted"] },
+        "namespace": { "$ref": "#/$defs/dnsLabel" },
+        "version": { "$ref": "#/$defs/edgeVersion" },
+        "deployment": { "$ref": "#/$defs/edgeDeploymentExpectation" },
+        "profileConfigMap": { "$ref": "#/$defs/edgeObjectName" },
+        "labelFilter": { "type": "string", "maxLength": 512, "pattern": "^(?:|\\S(?:[^\\r\\n\\t]*\\S)?)$" },
+        "annotationFilter": { "type": "string", "maxLength": 512, "pattern": "^(?:|\\S(?:[^\\r\\n\\t]*\\S)?)$" },
+        "providerKind": { "enum": ["aws", "azure", "cloudflare", "google", "rfc2136"] },
+        "credentialSecretRef": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)$" },
+        "providerConfigRef": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)$" },
+        "egressConfigRef": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]{0,251}[a-z0-9])?)$" },
+        "txtOwnerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-z0-9](?:[-a-z0-9._]{0,126}[a-z0-9])?$" },
+        "policy": { "enum": ["upsert-only", "sync"] },
+        "domainFilters": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/edgeObjectName" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
+          "then": { "properties": { "credentialSecretRef": { "minLength": 1 }, "providerConfigRef": { "minLength": 1 }, "egressConfigRef": { "minLength": 1 } } }
+        },
+        {
+          "if": { "properties": { "mode": { "const": "adopted" } }, "required": ["mode"] },
+          "then": { "properties": { "credentialSecretRef": { "const": "" }, "providerConfigRef": { "const": "" }, "egressConfigRef": { "const": "" } } }
+        }
+      ]
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference", "pullPolicy"],
+      "properties": {
+        "reference": { "type": "string", "minLength": 3, "maxLength": 512 },
+        "pullPolicy": { "enum": ["IfNotPresent", "Never"] }
+      }
+    },
+    "builder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "builderAgentImage", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
+      "properties": {
+        "global": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["testRun", "requireImageDigest"],
+          "properties": {
+            "testRun": { "type": "string", "maxLength": 20, "pattern": "^(?:|[a-z0-9][a-z0-9-]{0,19})$" },
+            "requireImageDigest": { "type": "boolean" }
+          }
+        },
+        "enabled": { "type": "boolean" },
+        "builderAgentImage": {
+          "type": "string",
+          "maxLength": 512,
+          "pattern": "^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$"
+        },
+        "namespace": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["create", "name"],
+          "properties": {
+            "create": { "type": "boolean" },
+            "name": { "$ref": "#/$defs/dnsLabel" }
+          }
+        },
+        "controllerServiceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "name"],
+          "properties": {
+            "namespace": { "$ref": "#/$defs/dnsLabel" },
+            "name": { "$ref": "#/$defs/dnsLabel" }
+          }
+        },
+        "podServiceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": { "name": { "$ref": "#/$defs/dnsLabel" } }
+        },
+        "admissionPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "const": true } }
+        },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "sourceEgressCIDRs", "registryEgressCIDRs"],
+          "properties": {
+            "enabled": { "const": true },
+            "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
+            "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
+          }
+        },
+        "resourceQuota": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hard"],
+          "properties": {
+            "hard": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pods", "requestsCpu", "requestsMemory", "requestsEphemeralStorage", "limitsCpu", "limitsMemory", "limitsEphemeralStorage"],
+              "properties": {
+                "pods": { "$ref": "#/$defs/quantity" },
+                "requestsCpu": { "$ref": "#/$defs/quantity" },
+                "requestsMemory": { "$ref": "#/$defs/quantity" },
+                "requestsEphemeralStorage": { "$ref": "#/$defs/quantity" },
+                "limitsCpu": { "$ref": "#/$defs/quantity" },
+                "limitsMemory": { "$ref": "#/$defs/quantity" },
+                "limitsEphemeralStorage": { "$ref": "#/$defs/quantity" }
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": { "properties": { "builderAgentImage": { "minLength": 80 } } }
+        }
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requests", "limits"],
+      "properties": {
+        "requests": { "$ref": "#/$defs/resourceList" },
+        "limits": { "$ref": "#/$defs/resourceList" }
+      }
+    },
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "memory"],
+      "properties": {
+        "cpu": { "type": ["string", "number"] },
+        "memory": { "type": "string" }
+      }
+    },
+    "httpComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "image", "port", "resources"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "image": { "$ref": "#/$defs/image" },
+        "port": { "type": "integer", "minimum": 1024, "maximum": 65535 },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "workerComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replicas", "image", "resources"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "image": { "$ref": "#/$defs/image" },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "namespaces": {
+      "type": "array",
+      "maxItems": 128,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/dnsLabel" }
+    },
+    "cidrs": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 64,
+        "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+      }
+    },
+    "restrictedCIDRs": {
+      "allOf": [
+        { "$ref": "#/$defs/cidrs" },
+        {
+          "items": {
+            "not": { "pattern": "/0+$" }
+          }
+        }
+      ]
+    },
+    "hostCIDRs": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 7,
+        "maxLength": 64,
+        "pattern": "^(?:[0-9]{1,3}(?:\\.[0-9]{1,3}){3}/32|[0-9a-fA-F:]+/128)$"
+      }
+    },
+    "dnsLabel": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
+      "pattern": "^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$"
+    },
+    "optionalDNSLabel": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$"
+    },
+    "secretKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "quantity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[1-9][0-9]*(?:m|Ki|Mi|Gi|Ti)?$"
+    }
+  }
+}
