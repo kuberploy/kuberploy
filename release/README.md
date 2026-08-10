@@ -1,10 +1,13 @@
 # Release engineering
 
-Kuberploy publishes stable tags only (`vMAJOR.MINOR.PATCH`). A trusted tag
+Kuberploy publishes semantic release tags (`vMAJOR.MINOR.PATCH` and explicit
+release-candidate tags such as `vMAJOR.MINOR.PATCH-rc.N`). A trusted tag
 builds each of five images natively on amd64 and arm64 GitHub-hosted runners,
 assembles and verifies one two-platform OCI image index per component, records
 the index digests, packages an immutable Helm chart, validates the release
 manifest twice, and creates a draft GitHub Release before making it public.
+Versions with a prerelease suffix publish as GitHub prereleases; only stable
+versions may become the repository's latest release.
 
 Repository release immutability is an externally verified prerequisite. Before
 a tag is pushed, a repository administrator must enable immutable releases and

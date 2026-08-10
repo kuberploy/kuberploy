@@ -38,7 +38,7 @@
         "repoURL": { "type": "string", "maxLength": 240 },
         "targetRevision": {
           "type": "string",
-          "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$",
+          "pattern": "^(?:|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$",
           "maxLength": 64
         },
         "chartRoot": { "const": "charts" }

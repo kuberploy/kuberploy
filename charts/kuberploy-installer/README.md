@@ -14,9 +14,13 @@ cluster credential is created.
 
 ## Required inputs
 
-Start from `testdata/managed-values.yaml` or `testdata/adopted-values.yaml` and
-replace every placeholder with operator-owned values. The irreducible inputs
-are:
+The supported minimal path is the repository's `scripts/install.sh`. It pulls
+this chart from public GHCR at one explicit version, derives the exact
+Kubernetes API service CIDR and GitHub repository CIDRs, and enables only Argo
+CD, PostgreSQL, Valkey, and the Kuberploy control plane. Provider integrations
+remain disabled. Advanced installations may start from
+`testdata/managed-values.yaml` or `testdata/adopted-values.yaml` and replace
+every placeholder with operator-owned values. The irreducible inputs are:
 
 - a canonical HTTPS GitHub source URL and explicit semantic release tag;
 - a release-manifest package version for every enabled component (recorded on
@@ -47,20 +51,26 @@ fence for the exact `api-cache`, `api-limiter`, `outbox-publisher`, and
 username/password into managed-mode processes; the independent Argo credential
 remains outside the control plane.
 
-Install only with the fixed identity:
+Install the released chart only with the fixed identity and explicit version:
 
 ```sh
-helm upgrade --install kuberploy-installer charts/kuberploy-installer \
+helm upgrade --install kuberploy-installer \
+  oci://ghcr.io/kuberploy/charts/kuberploy-installer \
+  --version 0.1.0-rc.2 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml --wait
 ```
+
+The source checkout form `charts/kuberploy-installer` is for development and
+chart tests. Operators should use the public OCI package so the selected chart
+and its nested bootstrap dependencies share one readable release version.
 
 Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.1.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.1.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.2.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.2.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.

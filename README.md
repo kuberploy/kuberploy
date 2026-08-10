@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.1` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.2` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 
 ## Highlights
@@ -56,26 +56,33 @@ Requirements:
 
 - Kubernetes `1.34`–`1.36`
 - Helm `4.2.3`
-- storage classes and provider credentials required by the components you enable
+- `kubectl`, `curl`, and `jq`
+- a default StorageClass
 
-Copy the managed or adopted installer example, replace every placeholder, and
-keep credentials in pre-created Kubernetes Secrets:
+Download the installer from the explicit release tag, then name the exact
+kubeconfig and context it may change:
 
 ```bash
-cp charts/kuberploy-installer/testdata/managed-values.yaml installer-values.yaml
+curl -fsSLo kuberploy-install.sh \
+  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.2/scripts/install.sh
+chmod +x kuberploy-install.sh
 
-helm upgrade --install kuberploy-installer charts/kuberploy-installer \
-  --namespace kuberploy-system \
-  --create-namespace \
-  --values installer-values.yaml \
-  --wait
+./kuberploy-install.sh \
+  --version 0.1.0-rc.2 \
+  --kubeconfig /absolute/path/to/kubeconfig \
+  --context exact-context
 ```
 
-`helm --wait` confirms the bootstrap resources, not full platform readiness.
-After installation, require every selected Argo CD Application to be `Synced`
-and `Healthy`, then check Kuberploy's **Setup & health** page. See the
-[installer guide](charts/kuberploy-installer/README.md) for managed/adopted
-modes, required Secrets, and ownership boundaries.
+The script installs the public OCI chart and the minimal managed control plane:
+Argo CD, PostgreSQL, Valkey, API, worker, and web. It derives only the exact
+Kubernetes API and GitHub repository CIDRs needed by the default NetworkPolicy.
+DNS, ACME, GitHub App, registry, builder, and monitoring integrations remain
+off until an administrator configures them.
+
+`helm --wait` confirms bootstrap acceptance, not full platform readiness. The
+script prints the Argo health, one-time bootstrap-token, and local UI commands.
+See the [installer guide](charts/kuberploy-installer/README.md) for manual OCI
+installation, managed/adopted modes, required Secrets, and ownership boundaries.
 
 ## Documentation
 

@@ -25,7 +25,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.1` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.2` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then

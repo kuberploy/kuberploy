@@ -78,6 +78,29 @@ def main() -> None:
     if args.tag and args.tag != f"v{version}":
         raise SystemExit(f"tag {args.tag} does not match source version v{version}")
 
+    installer_fixtures = (
+        ("managed-values.yaml", "postgresql"),
+        ("adopted-values.yaml", "edge"),
+    )
+    for fixture_name, component in installer_fixtures:
+        fixture = (
+            args.root / "charts" / "kuberploy-installer" / "testdata" / fixture_name
+        ).read_text(encoding="utf-8")
+        if yaml_scalar(fixture, ("source", "targetRevision")) != f"v{version}":
+            raise SystemExit(
+                f"installer {fixture_name} source tag must match v{version}"
+            )
+        if (
+            yaml_scalar(
+                fixture,
+                ("components", component, "expectedPackageVersion"),
+            )
+            != version
+        ):
+            raise SystemExit(
+                f"installer {fixture_name} package version must match {version}"
+            )
+
     migrations = sorted((args.root / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
     if not migrations or len({path.name[:3] for path in migrations}) != len(migrations):
         raise SystemExit("database migrations must have unique ordered three-digit prefixes")
