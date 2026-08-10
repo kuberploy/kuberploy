@@ -1,9 +1,12 @@
 # Kuberploy managed OCI registry chart
 
 This optional chart deploys one persistent OCI Distribution 3.1.1 replica for
-Kuberploy's managed-registry mode. The image is pinned to its multi-platform OCI
-index digest. The chart creates only a ClusterIP Service; Traefik and
-cert-manager own edge routing and TLS outside this chart.
+Kuberploy's managed-registry mode. The image uses the readable OCI Distribution
+3.1.1 release selector in source and is replaced by the immutable
+multi-platform identity during release packaging. The registry backend always
+remains a ClusterIP Service. Its HTTPS exposure uses the shared Traefik edge and
+cert-manager ClusterIssuer so node kubelets and isolated builders need no
+NodePort, insecure-registry configuration, or custom node CA.
 
 The default `enabled: false` renders no Kubernetes resources. An enabled
 production render is fail-closed and requires:
@@ -15,6 +18,12 @@ auth:
   existingSecret: registry-auth
   realm: kuberploy-registry
   secretRevision: initial
+exposure:
+  mode: ingress
+  endpoint: registry.example.com
+  ingressClassName: traefik
+  secretName: registry-tls
+  clusterIssuerName: kuberploy-letsencrypt-production
 networkPolicy:
   enabled: true
   allowedNamespaces:
@@ -35,7 +44,26 @@ starting. Rotate the Secret out of band and change the non-secret
 `auth.mode: testOnlyUnauthenticated` exists solely for isolated disposable
 integration tests. It requires an empty `auth.existingSecret`, retains the
 ClusterIP-only Service and NetworkPolicy, annotates the workload with a security
-warning, and emits a Helm note.
+warning, emits a Helm note, and requires internal-only exposure.
+
+Kubelet image pulls originate from the node/container-runtime network, so they
+must use the HTTPS Ingress hostname rather than the registry's Kubernetes
+Service DNS name. Workload namespaces select an authorized Kubernetes
+`imagePullSecret`; the registry NetworkPolicy sees the proxied connection from
+Traefik and does not grant broad node-CIDR ingress.
+
+`exposure.mode: loadBalancer` creates a dedicated LoadBalancer Service for the
+same shared Traefik pods while keeping the registry backend private. It supports
+bounded provider annotations, `loadBalancerClass`, a requested IP, and required
+source ranges. This is suitable for a private-network LB and does not install a
+second ingress controller. Both public modes use an exact cert-manager
+Certificate; `endpoint` may be a hostname or IPv4 address supported by the
+selected admin-managed ClusterIssuer.
+
+OCI registry records must be DNS-only when Cloudflare is the DNS provider.
+Kuberploy stamps `external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"`
+on the registry Ingress and dedicated LB Service and rejects attempts to
+override it. Cloudflare-proxied registry uploads are unsupported.
 
 The registry configuration uses the Distribution 3 path
 `/etc/distribution/config.yml`, stores content under `/var/lib/registry`, and

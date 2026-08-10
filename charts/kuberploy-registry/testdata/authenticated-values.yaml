@@ -9,6 +9,13 @@ auth:
   realm: kuberploy-registry
   secretRevision: fixture-v1
 
+exposure:
+  mode: ingress
+  endpoint: registry.example.com
+  ingressClassName: traefik
+  secretName: registry-tls
+  clusterIssuerName: kuberploy-letsencrypt-production
+
 persistence:
   storageClass: fixture-storage
   size: 2Gi

@@ -108,6 +108,15 @@
   -}}
   {{- $childValues = mergeOverwrite $childValues $githubValues -}}
 {{- end -}}
+{{- if and (eq $item.key "registry") $root.Values.integrations.registry.enabled -}}
+  {{- $registry := $root.Values.integrations.registry -}}
+  {{- $registryValues := dict
+    "auth" (dict "mode" "htpasswd" "existingSecret" $registry.authSecretName "secretRevision" $registry.secretRevision)
+    "exposure" (dict "mode" $registry.exposureMode "endpoint" $registry.endpoint "ingressClassName" "traefik" "secretName" $registry.tlsSecretName "clusterIssuerName" $registry.clusterIssuerName "loadBalancer" $registry.loadBalancer)
+    "networkPolicy" (dict "enabled" true "allowedNamespaces" (list "kuberploy-build-dind" "kuberploy-system"))
+  -}}
+  {{- $childValues = mergeOverwrite $childValues $registryValues -}}
+{{- end -}}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:

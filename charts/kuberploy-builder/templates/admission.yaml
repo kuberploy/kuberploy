@@ -105,7 +105,7 @@ spec:
       message: build egress policies must bind the exact immutable input digest
     - expression: "object.spec.podSelector.matchLabels.size() == 2 && (!has(object.spec.podSelector.matchExpressions) || object.spec.podSelector.matchExpressions.size() == 0) && object.spec.podSelector.matchLabels['kuberploy.io/build-operation'] == object.metadata.labels['kuberploy.io/build-operation'] && object.spec.podSelector.matchLabels['kuberploy.io/build-generation'] == object.metadata.labels['kuberploy.io/build-generation']"
       message: build egress policy must select only its exact operation and generation
-    - expression: "object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && object.spec.ingress.size() == 0 && object.spec.egress.size() >= 2 && object.spec.egress.size() <= 33"
+    - expression: "object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && (!has(object.spec.ingress) || object.spec.ingress.size() == 0) && has(object.spec.egress) && object.spec.egress.size() >= 2 && object.spec.egress.size() <= 33"
       message: build policy must deny ingress and contain bounded explicit egress
     - expression: "object.spec.egress.filter(r, has(r.to[0].namespaceSelector)).size() == 1 && object.spec.egress.exists_one(r, r.to.size() == 1 && has(r.to[0].namespaceSelector) && has(r.to[0].podSelector) && r.to[0].namespaceSelector.matchLabels.size() == 1 && (!has(r.to[0].namespaceSelector.matchExpressions) || r.to[0].namespaceSelector.matchExpressions.size() == 0) && r.to[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name'] == 'kube-system' && r.to[0].podSelector.matchLabels.size() == 1 && (!has(r.to[0].podSelector.matchExpressions) || r.to[0].podSelector.matchExpressions.size() == 0) && r.to[0].podSelector.matchLabels['k8s-app'] == 'kube-dns' && r.ports.size() == 2 && r.ports.exists_one(p, p.protocol == 'UDP' && p.port == 53 && !has(p.endPort)) && r.ports.exists_one(p, p.protocol == 'TCP' && p.port == 53 && !has(p.endPort)))"
       message: build policy requires one exact cluster-DNS rule
@@ -227,7 +227,7 @@ spec:
         resources: ["networkpolicies"]
         scope: Namespaced
   validations:
-    - expression: "object.spec.podSelector == {} && object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && object.spec.ingress.size() == 0 && object.spec.egress.size() == 0"
+    - expression: "object.spec.podSelector == {} && object.spec.policyTypes.size() == 2 && 'Ingress' in object.spec.policyTypes && 'Egress' in object.spec.policyTypes && (!has(object.spec.ingress) || object.spec.ingress.size() == 0) && (!has(object.spec.egress) || object.spec.egress.size() == 0)"
       message: the namespace default-deny policy must remain an exact deny-all policy
 ---
 apiVersion: admissionregistration.k8s.io/v1

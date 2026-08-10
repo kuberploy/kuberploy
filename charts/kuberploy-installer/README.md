@@ -139,6 +139,23 @@ Use stable egress proxies when GitHub or registry destinations do not have
 stable host routes. The control-plane, source checkout, and registry lanes are
 separate arrays so a registry route cannot silently become GitHub API access.
 
+`integrations.registry` makes the managed registry component installable from
+the same Helm release without placing registry credentials in an Argo
+Application. Set `authSecretName` to a pre-created Secret in
+`kuberploy-system` containing the registry chart's exact `htpasswd` and
+`httpSecret` keys, and advance the readable `secretRevision` whenever those
+values rotate. Select shared-Ingress or dedicated-LoadBalancer exposure and set
+the registry endpoint and TLS Secret. LoadBalancer mode supports bounded
+provider annotations, an LB class, requested IP, and required source ranges;
+both modes reuse Traefik and the installer-owned cert-manager ClusterIssuer.
+The installer grants
+registry Pod access only to `kuberploy-system` and the isolated
+`kuberploy-build-dind` namespace. Workloads authenticate with their selected
+Kubernetes `imagePullSecrets`; nodes need no insecure-registry or custom-CA
+configuration.
+Cloudflare registry DNS is always forced to DNS-only; proxy mode cannot be
+overridden through installer values.
+
 `helm --wait` proves only that bootstrap objects and the direct Argo workload
 were accepted. It does not prove child Application health or Kuberploy runtime
 readiness. Admission of users or traffic requires every selected Application to

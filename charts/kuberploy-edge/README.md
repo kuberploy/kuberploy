@@ -1,8 +1,10 @@
 # Kuberploy Traefik edge release
 
 This standalone chart is the protected `kuberploy-edge` release. It manages the
-locked Traefik chart in the `kuberploy-edge` namespace by default, or records an
-explicitly confirmed compatible Traefik adoption. It never owns cert-manager,
+locked Traefik chart in its Helm release namespace, or records an explicitly
+confirmed compatible Traefik adoption. The installer places it in the shared
+`kuberploy-system` namespace; standalone operators may choose a dedicated
+namespace. It never owns cert-manager,
 external-dns, tenant Ingresses, or the Kuberploy control plane; those have
 independent Argo Applications and upgrade lifecycles.
 
@@ -11,6 +13,12 @@ LoadBalancer Service, with a PDB, topology spread, restricted Pod Security,
 dedicated upstream RBAC/service account, a non-default IngressClass, disabled
 dashboard, safe Kubernetes providers, JSON access logs, TLS 1.2 minimum, and
 NetworkPolicy. Only ports 80 and 443 are public.
+
+The wrapper passes Traefik's standard scheduling values through, including
+`traefik.nodeSelector`, `traefik.tolerations`, `traefik.affinity`,
+`traefik.topologySpreadConstraints`, and `traefik.priorityClassName`. This
+supports dedicated or tainted ingress nodes without installing another ingress
+controller. The default remains portable and uses hostname spreading.
 
 Traefik backend egress is limited to namespaces carrying the immutable platform
 label `kuberploy.io/runtime-namespace=true`. The environment controller must

@@ -132,6 +132,25 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- fail "disabled GitHub integration rejects dormant configuration" -}}
 {{- end -}}
 
+{{- $registry := .Values.integrations.registry -}}
+{{- if $registry.enabled -}}
+  {{- if or (not .Values.components.registry.enabled) (ne .Values.components.registry.mode "managed") -}}{{ fail "managed registry integration requires the managed registry component" }}{{- end -}}
+  {{- if or (not .Values.components.edge.enabled) (not .Values.publicEndpoint.tls.enabled) -}}{{ fail "managed registry integration requires managed edge and public TLS" }}{{- end -}}
+  {{- if or (not (has $registry.exposureMode (list "ingress" "loadBalancer"))) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.authSecretName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" $registry.secretRevision)) (not (regexMatch "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)+)$" $registry.endpoint)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.tlsSecretName)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.clusterIssuerName)) -}}{{ fail "managed registry integration requires exact auth, endpoint, and TLS identities" }}{{- end -}}
+  {{- if ne $registry.clusterIssuerName .Values.publicEndpoint.tls.clusterIssuerName -}}{{ fail "managed registry must use the installer-owned public ClusterIssuer" }}{{- end -}}
+  {{- if eq $registry.exposureMode "loadBalancer" -}}
+    {{- if eq (len $registry.loadBalancer.sourceRanges) 0 -}}{{ fail "managed registry LoadBalancer requires explicit source ranges" }}{{- end -}}
+    {{- if or (hasKey $registry.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $registry.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "managed registry Cloudflare proxy mode is locked to DNS-only" }}{{- end -}}
+  {{- else if or (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) -}}
+    {{- fail "registry ingress mode rejects dormant LoadBalancer configuration" -}}
+  {{- end -}}
+{{- else if or (ne $registry.authSecretName "") (ne $registry.secretRevision "") (ne $registry.exposureMode "internal") (ne $registry.endpoint "") (ne $registry.tlsSecretName "") (ne $registry.clusterIssuerName "") (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) -}}
+  {{- fail "disabled managed registry integration rejects dormant configuration" -}}
+{{- end -}}
+{{- if and .Values.components.registry.enabled (not $registry.enabled) -}}
+  {{- fail "managed registry component requires integrations.registry" -}}
+{{- end -}}
+
 {{- if and $anyChild (not $argo.enabled) -}}{{ fail "enabled child Applications require the explicit Argo CD bootstrap/adoption boundary" }}{{- end -}}
 {{- if $anyChild -}}
   {{- if ne .Values.source.chartRepository "ghcr.io/kuberploy/charts" -}}{{ fail "source.chartRepository is locked to the public Kuberploy OCI chart repository" }}{{- end -}}

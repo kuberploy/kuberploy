@@ -112,9 +112,37 @@ done
 kp_all_args+=(--set bootstrap.controlPlaneToken.mode=generated)
 kp_all_args+=(--set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32)
 kp_all_args+=(--set-string cluster.kubeAPIServerCIDRs[0]=10.43.0.1/32)
+kp_all_args+=(--set publicEndpoint.enabled=true)
+kp_all_args+=(--set-string publicEndpoint.hostname=kuberploy.example.com)
+kp_all_args+=(--set publicEndpoint.tls.enabled=true)
+kp_all_args+=(--set-string publicEndpoint.tls.secretName=kuberploy-platform-tls)
+kp_all_args+=(--set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production)
+kp_all_args+=(--set-string publicEndpoint.tls.accountEmail=platform@example.com)
+kp_all_args+=(--set integrations.registry.enabled=true)
+kp_all_args+=(--set-string integrations.registry.authSecretName=registry-auth)
+kp_all_args+=(--set-string integrations.registry.secretRevision=v1)
+kp_all_args+=(--set-string integrations.registry.exposureMode=ingress)
+kp_all_args+=(--set-string integrations.registry.endpoint=registry.example.com)
+kp_all_args+=(--set-string integrations.registry.tlsSecretName=registry-tls)
+kp_all_args+=(--set-string integrations.registry.clusterIssuerName=kuberploy-letsencrypt-production)
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_all_args[@]}" >"${kp_tmp}/all-components.yaml"
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "10" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "10" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.mode' "${kp_tmp}/all-components.yaml")" == "htpasswd" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.existingSecret' "${kp_tmp}/all-components.yaml")" == "registry-auth" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.secretRevision' "${kp_tmp}/all-components.yaml")" == "v1" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.endpoint' "${kp_tmp}/all-components.yaml")" == "registry.example.com" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.clusterIssuerName' "${kp_tmp}/all-components.yaml")" == "kuberploy-letsencrypt-production" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.networkPolicy.allowedNamespaces' "${kp_tmp}/all-components.yaml" | tail -1)" == $'- kuberploy-build-dind\n- kuberploy-system' ]]
+
+helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system \
+  -f "${kp_managed}" \
+  -f "${kp_chart}/testdata/registry-loadbalancer-values.yaml" \
+  >"${kp_tmp}/registry-loadbalancer.yaml"
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.mode' "${kp_tmp}/registry-loadbalancer.yaml")" == "loadBalancer" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.loadBalancer.class' "${kp_tmp}/registry-loadbalancer.yaml")" == "example.com/private" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.loadBalancer.annotations."example.com/internal-load-balancer"' "${kp_tmp}/registry-loadbalancer.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.loadBalancer.sourceRanges[0]' "${kp_tmp}/registry-loadbalancer.yaml")" == "10.20.0.0/16" ]]
 
 kp_platform_args=(
   --set bootstrap.controlPlaneToken.mode=generated
@@ -263,6 +291,9 @@ kp_expect_reject "public TLS without Secret" "${kp_platform_args[@]}" --set publ
 kp_expect_reject "broad cluster API CIDR" --set-string cluster.kubeAPIServerCIDRs[0]=0.0.0.0/0
 kp_expect_reject "dormant GitHub identity" --set integrations.github.appID=123456
 kp_expect_reject "GitHub without builder component" "${kp_platform_args[@]}" --set publicEndpoint.tls.enabled=true --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls --set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production --set-string publicEndpoint.tls.accountEmail=platform@example.com --set integrations.github.enabled=true --set integrations.github.appID=123456 --set-string integrations.github.clientID=Iv1_KuberployClient --set-string integrations.github.appSlug=kuberploy-test --set-string integrations.github.secretName=kuberploy-github-app --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222 --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32 --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32 --set-string integrations.github.registryEgressCIDRs[0]=192.0.2.12/32
+kp_expect_reject "dormant registry identity" --set-string integrations.registry.authSecretName=registry-auth
+kp_expect_reject "registry integration without registry component" --set integrations.registry.enabled=true --set-string integrations.registry.authSecretName=registry-auth --set-string integrations.registry.secretRevision=v1 --set-string integrations.registry.exposureMode=ingress --set-string integrations.registry.endpoint=registry.example.com --set-string integrations.registry.tlsSecretName=registry-tls --set-string integrations.registry.clusterIssuerName=kuberploy-letsencrypt-production
+kp_expect_reject "managed registry without registry integration" --set components.registry.enabled=true --set components.registry.mode=managed --set-string components.registry.expectedPackageVersion=0.1.0-rc.13
 
 if helm template kuberploy-installer "${kp_chart}" --namespace argocd -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'installer accepted the wrong bootstrap namespace\n' >&2

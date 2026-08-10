@@ -20,13 +20,25 @@ auth:
   secretRevision: ""
 
 service:
-  # This chart never exposes a node port, load balancer, or ingress. TLS is
-  # terminated by the separately managed Traefik/cert-manager edge layer.
+  # This chart never exposes a node port or load balancer. Optional HTTPS
+  # exposure is routed through the shared Traefik/cert-manager edge layer.
   type: ClusterIP
   port: 5000
   # Optional exact address for an operator-owned test/service network. Empty
   # delegates allocation to Kubernetes.
   clusterIP: ""
+
+exposure:
+  mode: internal
+  endpoint: ""
+  ingressClassName: traefik
+  secretName: ""
+  clusterIssuerName: ""
+  loadBalancer:
+    annotations: {}
+    class: ""
+    ip: ""
+    sourceRanges: []
 
 persistence:
   existingClaim: ""

@@ -44,6 +44,19 @@ integrations:
     controlPlaneEgressCIDRs: []
     sourceEgressCIDRs: []
     registryEgressCIDRs: []
+  registry:
+    enabled: false
+    authSecretName: ""
+    secretRevision: ""
+    exposureMode: internal
+    endpoint: ""
+    tlsSecretName: ""
+    clusterIssuerName: ""
+    loadBalancer:
+      annotations: {}
+      class: ""
+      ip: ""
+      sourceRanges: []
 
 components:
   controlPlane:

@@ -1,0 +1,36 @@
+{{- if and .Values.enabled (eq .Values.exposure.mode "loadBalancer") }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kuberploy-registry.fullname" . }}-edge
+  labels:
+    {{- include "kuberploy-registry.labels" . | nindent 4 }}
+  annotations:
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    {{- if not (regexMatch "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$" .Values.exposure.endpoint) }}
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.exposure.endpoint | quote }}
+    {{- end }}
+    {{- with .Values.exposure.loadBalancer.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  type: LoadBalancer
+  allocateLoadBalancerNodePorts: false
+  externalTrafficPolicy: Local
+  {{- with .Values.exposure.loadBalancer.class }}
+  loadBalancerClass: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.exposure.loadBalancer.ip }}
+  loadBalancerIP: {{ . | quote }}
+  {{- end }}
+  loadBalancerSourceRanges:
+    {{- toYaml .Values.exposure.loadBalancer.sourceRanges | nindent 4 }}
+  selector:
+    app.kubernetes.io/instance: edge-kuberploy-system
+    app.kubernetes.io/name: traefik
+  ports:
+    - name: https
+      port: 443
+      protocol: TCP
+      targetPort: websecure
+{{- end }}

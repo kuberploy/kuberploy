@@ -1,0 +1,10 @@
+exposure:
+  mode: loadBalancer
+  endpoint: registry.internal.example.com
+  loadBalancer:
+    annotations:
+      example.com/internal-load-balancer: "true"
+    class: example.com/private
+    ip: 10.20.30.40
+    sourceRanges:
+      - 10.20.0.0/16

@@ -53,6 +53,18 @@ kuberploy.io/test-run: {{ . | quote }}
   {{- if ne .Values.service.type "ClusterIP" -}}
     {{- fail "service.type must remain ClusterIP; edge exposure belongs to Traefik/cert-manager" -}}
   {{- end -}}
+  {{- $exposure := .Values.exposure -}}
+  {{- if ne $exposure.mode "internal" -}}
+    {{- if ne .Values.auth.mode "htpasswd" -}}{{ fail "registry exposure requires htpasswd authentication" }}{{- end -}}
+    {{- if or (ne $exposure.ingressClassName "traefik") (empty $exposure.endpoint) (empty $exposure.secretName) (empty $exposure.clusterIssuerName) -}}
+      {{- fail "registry exposure requires exact Traefik endpoint and cert-manager TLS identities" -}}
+    {{- end -}}
+  {{- end -}}
+  {{- if eq $exposure.mode "loadBalancer" -}}
+    {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "registry LoadBalancer exposure requires the shared Traefik namespace kuberploy-system" }}{{- end -}}
+    {{- if eq (len $exposure.loadBalancer.sourceRanges) 0 -}}{{ fail "registry LoadBalancer requires explicit source ranges" }}{{- end -}}
+    {{- if or (hasKey $exposure.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $exposure.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "registry LoadBalancer Cloudflare proxy policy is server-owned DNS-only" }}{{- end -}}
+  {{- end -}}
   {{- if eq .Values.auth.mode "htpasswd" -}}
     {{- $_ := required "auth.existingSecret is required when enabled with htpasswd authentication" .Values.auth.existingSecret -}}
   {{- else if eq .Values.auth.mode "testOnlyUnauthenticated" -}}

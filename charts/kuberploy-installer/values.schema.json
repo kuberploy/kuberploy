@@ -106,7 +106,7 @@
     "integrations": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["github"],
+      "required": ["github", "registry"],
       "properties": {
         "github": {
           "type": "object",
@@ -131,6 +131,54 @@
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "controlPlaneEgressCIDRs": { "minItems": 1 }, "sourceEgressCIDRs": { "minItems": 1 }, "registryEgressCIDRs": { "minItems": 1 } } }
+            }
+          ]
+        },
+        "registry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "authSecretName", "secretRevision", "exposureMode", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "authSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "secretRevision": {
+              "type": "string",
+              "maxLength": 128,
+              "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._-]{0,127})$"
+            },
+            "exposureMode": { "enum": ["internal", "ingress", "loadBalancer"] },
+            "endpoint": { "$ref": "#/$defs/optionalDNSSubdomain" },
+            "tlsSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "clusterIssuerName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "loadBalancer": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["annotations", "class", "ip", "sourceRanges"],
+              "properties": {
+                "annotations": {
+                  "type": "object", "maxProperties": 32,
+                  "propertyNames": { "pattern": "^[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?(?:/[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?)?$" },
+                  "additionalProperties": { "type": "string", "maxLength": 512 }
+                },
+                "class": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?:/[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?)?)$" },
+                "ip": { "type": "string", "pattern": "^(?:|(?:[0-9]{1,3}\\.){3}[0-9]{1,3})$" },
+                "sourceRanges": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" } }
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+              "then": { "properties": { "authSecretName": { "const": "" }, "secretRevision": { "const": "" }, "exposureMode": { "const": "internal" }, "endpoint": { "const": "" }, "tlsSecretName": { "const": "" }, "clusterIssuerName": { "const": "" }, "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
+            },
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
+            },
+            {
+              "if": { "properties": { "exposureMode": { "const": "loadBalancer" } }, "required": ["exposureMode"] },
+              "then": { "properties": { "loadBalancer": { "properties": { "sourceRanges": { "minItems": 1 } } } } },
+              "else": { "properties": { "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
             }
           ]
         }
@@ -168,6 +216,11 @@
       "type": "string",
       "maxLength": 63,
       "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)$"
+    },
+    "optionalDNSSubdomain": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)+)$"
     },
     "hostCIDRs": {
       "type": "array",

@@ -1,0 +1,67 @@
+cluster:
+  kubeAPIServerCIDRs:
+    - 10.43.0.1/32
+
+bootstrap:
+  controlPlaneToken:
+    mode: generated
+    kubeAPIServerCIDRs:
+      - 10.43.0.1/32
+
+publicEndpoint:
+  enabled: true
+  hostname: kuberploy.example.com
+  tls:
+    enabled: true
+    secretName: kuberploy-platform-tls
+    clusterIssuerName: kuberploy-letsencrypt-production
+    accountEmail: platform@example.com
+
+integrations:
+  registry:
+    enabled: true
+    authSecretName: registry-auth
+    secretRevision: v1
+    exposureMode: loadBalancer
+    endpoint: registry.internal.example.com
+    tlsSecretName: registry-tls
+    clusterIssuerName: kuberploy-letsencrypt-production
+    loadBalancer:
+      annotations:
+        example.com/internal-load-balancer: "true"
+      class: example.com/private
+      ip: 10.20.30.40
+      sourceRanges:
+        - 10.20.0.0/16
+
+components:
+  controlPlane:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.13
+    valueFiles: []
+  valkey:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.13
+    valueFiles: []
+  edge:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.13
+    valueFiles: []
+  certManager:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.13
+    valueFiles: []
+  registry:
+    enabled: true
+    mode: managed
+    adoptionConfirmed: false
+    expectedPackageVersion: 0.1.0-rc.13
+    valueFiles: []

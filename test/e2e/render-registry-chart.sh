@@ -23,6 +23,7 @@ done
 kp_auth_values="${kp_chart}/testdata/authenticated-values.yaml"
 kp_test_values="${kp_chart}/testdata/test-only-values.yaml"
 kp_existing_values="${kp_chart}/testdata/existing-claim-values.yaml"
+kp_load_balancer_values="${kp_chart}/testdata/loadbalancer-values.yaml"
 kp_auth_render="${kp_tmp}/authenticated.yaml"
 kp_test_render="${kp_tmp}/test-only.yaml"
 kp_existing_render="${kp_tmp}/existing-claim.yaml"
@@ -47,6 +48,14 @@ kp_expected_image='docker.io/library/registry:3.1.1'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_auth_render}")" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.strategy.type' "${kp_auth_render}")" == "Recreate" ]]
 [[ "$(yq eval-all 'select(.kind == "Service") | .spec.type' "${kp_auth_render}")" == "ClusterIP" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.ingressClassName' "${kp_auth_render}")" == "traefik" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.rules[0].host' "${kp_auth_render}")" == "registry.example.com" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.tls[0].secretName' "${kp_auth_render}")" == "registry-tls" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."external-dns.alpha.kubernetes.io/cloudflare-proxied"' "${kp_auth_render}")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.rules[0].http.paths[0].backend.service.port.name' "${kp_auth_render}")" == "registry" ]]
+[[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.secretName' "${kp_auth_render}")" == "registry-tls" ]]
+[[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.issuerRef.name' "${kp_auth_render}")" == "kuberploy-letsencrypt-production" ]]
+[[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.dnsNames[0]' "${kp_auth_render}")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${kp_auth_render}")" == "fixture-storage" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .spec.resources.requests.storage' "${kp_auth_render}")" == "2Gi" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .metadata.annotations."helm.sh/resource-policy"' "${kp_auth_render}")" == "keep" ]]
@@ -74,8 +83,8 @@ grep -F 'addr: :5000' <<<"${kp_config}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_auth_render}")" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_auth_render}")" == "registry" ]]
 
-if yq eval-all 'select(.kind == "Secret" or .kind == "Ingress" or .kind == "Job" or .kind == "CronJob" or (.kind == "Service" and .spec.type != "ClusterIP")) | .kind' "${kp_auth_render}" | grep -q .; then
-  printf 'registry chart rendered a forbidden Secret, exposure, or GC workload\n' >&2
+if yq eval-all 'select(.kind == "Secret" or .kind == "Job" or .kind == "CronJob" or (.kind == "Service" and .spec.type != "ClusterIP")) | .kind' "${kp_auth_render}" | grep -q .; then
+  printf 'registry chart rendered a forbidden Secret, direct exposure, or GC workload\n' >&2
   exit 1
 fi
 if rg -n 'password[[:space:]]*:|(^|[[:space:]])garbage-collect([[:space:]]|$)|NodePort|LoadBalancer' "${kp_auth_render}"; then
@@ -88,6 +97,56 @@ if helm template invalid "${kp_chart}" \
     --set enabled=true \
     --set 'networkPolicy.allowedNamespaces[0]=kuberploy' >/dev/null 2>&1; then
   printf 'enabled production render accepted an empty auth Secret reference\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" \
+    --namespace kuberploy-registry \
+    -f "${kp_auth_values}" \
+    --set exposure.secretName= >/dev/null 2>&1; then
+  printf 'registry ingress accepted missing TLS Secret identity\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" \
+    --namespace kuberploy-registry \
+    -f "${kp_test_values}" \
+    --set exposure.mode=ingress \
+    --set-string exposure.endpoint=registry.example.com \
+    --set-string exposure.secretName=registry-tls \
+    --set-string exposure.clusterIssuerName=kuberploy-letsencrypt-production >/dev/null 2>&1; then
+  printf 'public registry ingress accepted unauthenticated test mode\n' >&2
+  exit 1
+fi
+
+kp_load_balancer_render="${kp_tmp}/load-balancer.yaml"
+helm template registry "${kp_chart}" \
+  --namespace kuberploy-system \
+  -f "${kp_auth_values}" \
+  -f "${kp_load_balancer_values}" >"${kp_load_balancer_render}"
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.type' "${kp_load_balancer_render}")" == "LoadBalancer" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.allocateLoadBalancerNodePorts' "${kp_load_balancer_render}")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.loadBalancerClass' "${kp_load_balancer_render}")" == "example.com/private" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.loadBalancerIP' "${kp_load_balancer_render}")" == "10.20.30.40" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.loadBalancerSourceRanges[0]' "${kp_load_balancer_render}")" == "10.20.0.0/16" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .metadata.annotations."example.com/internal-load-balancer"' "${kp_load_balancer_render}")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .metadata.annotations."external-dns.alpha.kubernetes.io/cloudflare-proxied"' "${kp_load_balancer_render}")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.selector."app.kubernetes.io/instance"' "${kp_load_balancer_render}")" == "edge-kuberploy-system" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | .spec.ports[0].targetPort' "${kp_load_balancer_render}")" == "websecure" ]]
+
+helm template registry "${kp_chart}" \
+  --namespace kuberploy-system \
+  -f "${kp_auth_values}" \
+  -f "${kp_load_balancer_values}" \
+  --set-string exposure.endpoint=10.20.30.40 >"${kp_tmp}/load-balancer-ip.yaml"
+[[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.ipAddresses[0]' "${kp_tmp}/load-balancer-ip.yaml")" == "10.20.30.40" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | has(.spec.rules[0].host)' "${kp_tmp}/load-balancer-ip.yaml")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | has(.metadata.annotations."external-dns.alpha.kubernetes.io/hostname")' "${kp_tmp}/load-balancer-ip.yaml")" == "false" ]]
+
+if helm template invalid "${kp_chart}" --namespace kuberploy-system -f "${kp_auth_values}" -f "${kp_load_balancer_values}" --set-json exposure.loadBalancer.sourceRanges='[]' >/dev/null 2>&1; then
+  printf 'registry LoadBalancer accepted empty source ranges\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" --namespace kuberploy-system -f "${kp_auth_values}" -f "${kp_load_balancer_values}" --set-string exposure.loadBalancer.annotations.external-dns\.alpha\.kubernetes\.io/cloudflare-proxied=true >/dev/null 2>&1; then
+  printf 'registry LoadBalancer accepted caller-controlled Cloudflare proxy mode\n' >&2
   exit 1
 fi
 if helm template invalid "${kp_chart}" \

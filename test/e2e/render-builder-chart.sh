@@ -40,6 +40,9 @@ yq eval-all 'true' "${kp_render}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].name' "${kp_render}")" == "kuberploy-controller" ]]
 [[ "$(yq eval-all '[select(.kind == "RoleBinding") | .subjects[] | select(.name == "kuberploy-build-pod")] | length' "${kp_render}" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.ingress | length' "${kp_render}")" == "0" ]]
+kp_default_deny_expression="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-default-deny$"))) | .spec.validations[0].expression' "${kp_render}")"
+grep -F '!has(object.spec.ingress) || object.spec.ingress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
+grep -F '!has(object.spec.egress) || object.spec.egress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_render}")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy")] | length' "${kp_render}" | tail -1)" == "6" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail")] | length' "${kp_render}" | tail -1)" == "0" ]]
