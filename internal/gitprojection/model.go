@@ -740,7 +740,7 @@ func (p WritePlan) validateIdentity(binding Binding) error {
 	}
 	if p.VariableScope == "" {
 		_, err := ApplicationPath(binding, p.ApplicationID)
-		if err != nil || p.VariablePath != "" || !digestRE.MatchString(p.ChartDigest) {
+		if err != nil || p.VariablePath != "" || !chartIdentityRE.MatchString(p.ChartDigest) {
 			return ErrInvalid
 		}
 		return nil

@@ -284,7 +284,7 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_GITHUB_APP_CLIENT_ID
-            {{- range $name := list "KUBERPLOY_GIT_PROJECTION_ENABLED" "KUBERPLOY_GIT_PROJECTION_AUTH_MODE" "KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES" "KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS" "KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED" "KUBERPLOY_GIT_PROJECTION_CHART_DIGEST" "KUBERPLOY_GIT_PROJECTION_POLICY_VERSION" }}
+            {{- range $name := list "KUBERPLOY_GIT_PROJECTION_ENABLED" "KUBERPLOY_GIT_PROJECTION_AUTH_MODE" "KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES" "KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS" "KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED" "KUBERPLOY_GIT_PROJECTION_CHART_VERSION" "KUBERPLOY_GIT_PROJECTION_POLICY_VERSION" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
@@ -478,11 +478,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED
-            - name: KUBERPLOY_GIT_PROJECTION_CHART_DIGEST
+            - name: KUBERPLOY_GIT_PROJECTION_CHART_VERSION
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_GIT_PROJECTION_CHART_DIGEST
+                  key: KUBERPLOY_GIT_PROJECTION_CHART_VERSION
             - name: KUBERPLOY_GIT_PROJECTION_POLICY_VERSION
               valueFrom:
                 configMapKeyRef:

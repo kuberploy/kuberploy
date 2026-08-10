@@ -31,9 +31,9 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
     {{- fail (printf "components.%s.expectedPackageVersion must be an explicit semantic version" $name) -}}
   {{- end -}}
   {{- range $valueFile := $component.valueFiles -}}
-    {{- $relative := trimPrefix "../../deploy/installer/" $valueFile -}}
-    {{- if or (not (regexMatch "^../../deploy/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$" $valueFile)) (contains ".." $relative) (contains "//" $relative) -}}
-      {{- fail (printf "components.%s.valueFiles must stay below deploy/installer in the same pinned Git revision" $name) -}}
+    {{- $relative := trimPrefix "../../examples/installer/" $valueFile -}}
+    {{- if or (not (regexMatch "^../../examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$" $valueFile)) (contains ".." $relative) (contains "//" $relative) -}}
+      {{- fail (printf "components.%s.valueFiles must stay below examples/installer in the same release tag" $name) -}}
     {{- end -}}
   {{- end -}}
 {{- else if or (ne $component.expectedPackageVersion "") (not (empty $component.valueFiles)) -}}

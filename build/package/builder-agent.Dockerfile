@@ -33,7 +33,11 @@ RUN set -eu; \
 
 FROM docker.io/library/docker:29.7.1-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c AS docker-cli
 
-FROM cgr.dev/chainguard/git@sha256:9e0818dd94a49dbe025951b02ab90603ba5aa3dbf2b2a300cfac3d84121b5ccc
+FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+RUN apk add --no-cache \
+      ca-certificates=20260611-r0 \
+      git=2.54.0-r0
 
 ARG VERSION=dev
 ARG REVISION=unknown

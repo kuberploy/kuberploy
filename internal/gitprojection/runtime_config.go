@@ -21,7 +21,7 @@ const (
 	ProjectionGitAuthModeEnv   = "KUBERPLOY_GIT_PROJECTION_AUTH_MODE"
 	ProjectionGitHubAppIDEnv   = "KUBERPLOY_GITHUB_APP_ID"
 	ProjectionGitHubClientEnv  = "KUBERPLOY_GITHUB_APP_CLIENT_ID"
-	ProjectionChartDigestEnv   = "KUBERPLOY_GIT_PROJECTION_CHART_DIGEST"
+	ProjectionChartVersionEnv  = "KUBERPLOY_GIT_PROJECTION_CHART_VERSION"
 	ProjectionPolicyVersionEnv = "KUBERPLOY_GIT_PROJECTION_POLICY_VERSION"
 
 	ProjectionCacheRoot       = "/var/lib/kuberploy/git-projection"
@@ -95,10 +95,10 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
-	chartDigest := exactProjectionValue(lookup, ProjectionChartDigestEnv)
+	chartDigest := exactProjectionValue(lookup, ProjectionChartVersionEnv)
 	policyVersion := exactProjectionValue(lookup, ProjectionPolicyVersionEnv)
 	if !chartIdentityRE.MatchString(chartDigest) {
-		return RuntimeConfig{}, errors.New(ProjectionChartDigestEnv + " must be an explicit runtime chart version")
+		return RuntimeConfig{}, errors.New(ProjectionChartVersionEnv + " must be an explicit runtime chart version")
 	}
 	if policyVersion == "" || len(policyVersion) > 128 || strings.ContainsAny(policyVersion, "\x00\r\n") {
 		return RuntimeConfig{}, errors.New(ProjectionPolicyVersionEnv + " must be a bounded exact value")
@@ -147,7 +147,7 @@ func (c RuntimeConfig) Validate() error {
 		return nil
 	}
 	if c.CacheMaxBytes < minimumProjectionCache || c.CacheMaxBytes > maximumProjectionCache || c.PollInterval < minimumProjectionPoll || c.PollInterval > maximumProjectionPoll ||
-		!digestRE.MatchString(c.ChartDigest) || c.PolicyVersion == "" || len(c.PolicyVersion) > 128 || strings.ContainsAny(c.PolicyVersion, "\x00\r\n") || c.GitHub.Validate() != nil {
+		!chartIdentityRE.MatchString(c.ChartDigest) || c.PolicyVersion == "" || len(c.PolicyVersion) > 128 || strings.ContainsAny(c.PolicyVersion, "\x00\r\n") || c.GitHub.Validate() != nil {
 		return ErrInvalid
 	}
 	return nil

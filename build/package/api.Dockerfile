@@ -31,7 +31,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b AS helm-runtime
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+RUN apk add --no-cache ca-certificates=20260611-r0
 
 ARG VERSION=dev
 ARG REVISION=unknown

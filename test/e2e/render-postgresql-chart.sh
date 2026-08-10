@@ -23,11 +23,11 @@ done
 python3 -m json.tool "${kp_chart}/values.schema.json" >/dev/null
 kp_managed="${kp_chart}/testdata/managed-values.yaml"
 kp_adopted="${kp_chart}/testdata/adopted-values.yaml"
-helm lint "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_managed}" >/dev/null
-helm lint "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_adopted}" >/dev/null
-helm template postgresql "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
-helm template postgresql "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
-helm template postgresql "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
+helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >/dev/null
+helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >/dev/null
+helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
+helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
+helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
 diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "StatefulSet")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
@@ -48,7 +48,7 @@ rg -F 'kubernetes.io/metadata.name: kuberploy-system' "${kp_tmp}/managed.yaml" >
 kp_reject() {
   local kp_reason="$1"
   shift
-  if helm template invalid "${kp_chart}" --namespace kuberploy-postgresql -f "${kp_managed}" "$@" >/dev/null 2>&1; then
+  if helm template invalid "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "$@" >/dev/null 2>&1; then
     printf 'unsafe PostgreSQL render accepted: %s\n' "${kp_reason}" >&2
     exit 1
   fi

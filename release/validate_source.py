@@ -10,7 +10,7 @@ from pathlib import Path
 
 from validate_semantics import yaml_scalar
 
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 ACTION = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)(?:\s+#\s*(\S+))?\s*$")
 ALLOWED_ACTION_OWNERS = {"actions", "azure", "docker", "pnpm"}
 RELEASE_COMPONENTS = ("api", "worker", "web", "upgrader", "builder-agent")
@@ -41,7 +41,7 @@ def main() -> None:
     version = yaml_scalar(chart, ("version",))
     app_version = yaml_scalar(chart, ("appVersion",))
     if not SEMVER.fullmatch(version) or app_version != version:
-        raise SystemExit("Chart version/appVersion must be one identical stable semver")
+        raise SystemExit("Chart version/appVersion must be one identical semantic version")
     builder_chart = (args.root / "charts/kuberploy-builder/Chart.yaml").read_text(encoding="utf-8")
     if yaml_scalar(builder_chart, ("name",)) != "kuberploy-builder":
         raise SystemExit("builder chart name must remain kuberploy-builder")
@@ -67,12 +67,12 @@ def main() -> None:
         raise SystemExit("release metadata summary must be a single line of 1 to 500 characters")
     if not isinstance(metadata["breakingChanges"], bool):
         raise SystemExit("release metadata breakingChanges must be boolean")
-    semver_part = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    semver_part = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
     range_match = re.fullmatch(rf">=({semver_part}) <({semver_part})", metadata["supportedUpgradeFrom"])
     if not range_match:
         raise SystemExit("release metadata supportedUpgradeFrom has an unsupported range syntax")
-    lower = tuple(int(part) for part in range_match.group(1).split("."))
-    upper = tuple(int(part) for part in range_match.group(2).split("."))
+    lower = tuple(int(part) for part in range_match.group(1).split("-", 1)[0].split("."))
+    upper = tuple(int(part) for part in range_match.group(2).split("-", 1)[0].split("."))
     if lower >= upper:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
     if args.tag and args.tag != f"v{version}":
@@ -287,9 +287,6 @@ def main() -> None:
     if re.search(r"(?m)^dependencies:\s*", chart):
         raise SystemExit("builder dependency must be added only to the immutable release chart")
 
-    install_script = (args.root / "scripts/local-docker-runtime/install-platform.sh").read_text(encoding="utf-8")
-    if "--atomic" in install_script or "--rollback-on-failure" not in install_script:
-        raise SystemExit("local Docker runtime platform upgrade flags are incompatible with Helm 4")
     print(version)
 
 

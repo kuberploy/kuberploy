@@ -22,7 +22,7 @@ are:
 - a release-manifest package version for every enabled component (recorded on
   the Application for audit; the release tag is Argo's human-readable source
   version while provenance and integrity are verified separately);
-- release-tagged, non-secret value files below `deploy/installer/` containing the
+- release-tagged, non-secret example files below `examples/installer/` containing the
   existing Secret references, storage classes, API/provider egress CIDRs, DNS
   provider settings and public URL required by each selected wrapper;
 - explicit `managed` or `adopted` mode. Adoption still requires each wrapper's
@@ -62,8 +62,8 @@ pins the local wrapper metadata digest, and the checked-in
 `charts/kuberploy-argocd-0.1.0-rc.1.tgz` and
 `charts/kuberploy-valkey-0.1.0-rc.1.tgz` make bootstrap rendering
 network-independent.
-`dependencies.lock` and the matching Chart annotation pin that archive's exact
-bytes; the render test verifies both rather than trusting only its filename.
+`dependencies.lock` records package-integrity checks for both archives; the
+render test verifies those bytes independently from their readable filenames.
 Release packaging must rebuild that archive from the reviewed wrapper source
 and verify the lock rather than resolving a newer dependency.
 

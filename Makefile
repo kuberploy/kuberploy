@@ -1,4 +1,4 @@
-.PHONY: help fmt test web-build helm-lint check platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup local-up local-down
+.PHONY: help fmt test web-build helm-lint check platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
 
 help:
 	@echo "Kuberploy development targets"
@@ -23,8 +23,6 @@ help:
 	@echo "  make kubernetes-preflight     Read-only explicit-cluster preflight"
 	@echo "  make kubernetes-smoke         Run and clean a scoped cluster smoke test"
 	@echo "  make kubernetes-cleanup       Delete only the owned smoke namespace"
-	@echo "  make local-up   Deploy the legacy local Docker runtime Kubernetes profile"
-	@echo "  make local-down Remove the exact legacy local test release"
 
 fmt:
 	@if [ -f go.mod ]; then gofmt -w $$(find cmd internal -name '*.go' -type f 2>/dev/null); fi
@@ -92,9 +90,3 @@ kubernetes-smoke:
 
 kubernetes-cleanup:
 	@./scripts/kubernetes/cleanup-run.sh
-
-local-up:
-	@./scripts/local-up.sh
-
-local-down:
-	@./scripts/local-down.sh

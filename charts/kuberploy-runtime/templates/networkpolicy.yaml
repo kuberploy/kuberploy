@@ -20,7 +20,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kuberploy-edge
+              kubernetes.io/metadata.name: kuberploy-system
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik

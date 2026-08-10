@@ -186,7 +186,7 @@ func TestArgo35CRDSchemaSupportsClosedDigestPinnedOCIMultiSource(t *testing.T) {
 	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", ".."))
 	chart := filepath.Join(repositoryRoot, "charts", "kuberploy-argocd")
 	values := filepath.Join(chart, "testdata", "managed-values.yaml")
-	command := exec.Command(helm, "template", "argo-schema-contract", chart, "--namespace", "argocd", "--include-crds", "-f", values)
+	command := exec.Command(helm, "template", "argo-schema-contract", chart, "--namespace", "kuberploy-system", "--include-crds", "-f", values)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("render Argo 3.5 chart: %v\n%s", err, output)

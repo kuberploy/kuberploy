@@ -127,7 +127,7 @@ elif [[ "${1:-}" == "get" && ( "${2:-}" == "namespace" || "${2:-}" == "namespace
   else
     printf '{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"%s","uid":"uid-%s","labels":{"kuberploy.io/test-run":"%s","app.kubernetes.io/managed-by":"kuberploy-e2e-harness"}}}\n' "${3}" "${3}" "${KUBERPLOY_E2E_RUN_ID}"
   fi
-elif [[ "${1:-}" == "get" && "${2:-}" == "services" && " $* " == *' --namespace kuberploy-edge '* ]]; then
+elif [[ "${1:-}" == "get" && "${2:-}" == "services" && " $* " == *' --namespace kuberploy-system '* ]]; then
   printf '%s\n' '{"items":[{"spec":{"type":"LoadBalancer"},"status":{"loadBalancer":{"ingress":[{"ip":"1.1.1.1"},{"ip":"8.8.8.8"}]}}}]}'
 elif [[ "${1:-}" == "get" && "${2:-}" == "configmaps" && " $* " == *'kuberploy.io/application=35353535-3535-4353-8353-353535353531'* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"vars-immutable-25252525"},"immutable":true,"data":{"SHARED_REGION":"ap-southeast-1","RELEASE_LANE":"environment","FEATURE_PROBES":"enabled"}}]}'
@@ -627,7 +627,7 @@ export KUBERPLOY_E2E_REGISTRY_CACHE_USERNAME_FILE="${kp_registry_cache_username}
 export KUBERPLOY_E2E_REGISTRY_CACHE_PASSWORD_FILE="${kp_registry_cache_password}"
 export KUBERPLOY_E2E_REGISTRY_FAULT_PASSWORD_FILE="${kp_registry_fault_password}"
 export KUBERPLOY_E2E_RFC2136_PROVIDER_IMAGE="registry.fixture.test/kuberploy/rfc2136-test-provider@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-export KUBERPLOY_E2E_EXTERNAL_DNS_NAMESPACE="kuberploy-dns"
+export KUBERPLOY_E2E_EXTERNAL_DNS_NAMESPACE="kuberploy-system"
 export KUBERPLOY_E2E_KUBE_API_CIDR="10.43.0.1/32"
 kp_github_webhook_secret="${kp_tmp}/github-webhook-secret"
 printf 'qualification-webhook-secret\n' >"${kp_github_webhook_secret}"
@@ -674,7 +674,7 @@ kp_scenario="$(jq -c --arg digest "${kp_teardown_key_digest}" \
    .workflow.directDeployment.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |
    .workflow.directDeploymentUpdate.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |
    .workflow.tls={customCertificateName:"qualification-custom",localACMEIssuerName:"local-acme"} |
-   .workflow.recovery={postgresql:{namespace:"kuberploy-postgresql",podName:"kuberploy-postgresql-0",controllerName:"kuberploy-postgresql"},valkey:{namespace:"kuberploy-valkey",controllerName:"kuberploy-valkey",persistentVolumeClaimName:"kuberploy-valkey"},worker:{namespace:"kuberploy-system",controllerName:"kuberploy-worker"}} |
+   .workflow.recovery={postgresql:{namespace:"kuberploy-system",podName:"kuberploy-postgresql-0",controllerName:"kuberploy-postgresql"},valkey:{namespace:"kuberploy-system",controllerName:"kuberploy-valkey",persistentVolumeClaimName:"kuberploy-valkey"},worker:{namespace:"kuberploy-system",controllerName:"kuberploy-worker"}} |
    .workflow.observability={workloadId:"abababab-abab-4bab-8bab-abababababab",from:"2026-08-09T10:00:00Z",to:"2026-08-09T10:05:00Z"} |
    .workflow.runtimeSecret={name:"qualification-runtime",key:"password",environmentName:"QUALIFICATION_PASSWORD"} |
    .workflow.sourceBuild.credentials={namespace:"kuberploy-build-dind",pushSecretName:"push-secret",cacheSecretName:"cache-secret"} |
@@ -756,7 +756,7 @@ jq -e '.directGeneration == 7' \
   "${kp_tmp}/kuberploy-qualification-success1/workflow-state.json" >/dev/null
 jq -e '.generation == 8' \
   "${kp_tmp}/kuberploy-qualification-success1/100-upgrade-rollback/evidence/workflow-post-upgrade-rollback-terminal.json" >/dev/null
-grep -F 'helm|upgrade --install kuberploy-qualification /workspace/kuberploy/charts/kuberploy-installer --namespace argocd' \
+grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system" \
   "${KP_COMMAND_LOG}" >/dev/null
 for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/projects' \

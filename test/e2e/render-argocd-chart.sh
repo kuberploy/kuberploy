@@ -37,11 +37,11 @@ python3 -m json.tool "${kp_chart}/values.schema.json" >/dev/null
 
 kp_managed="${kp_source}/testdata/managed-values.yaml"
 kp_adopted="${kp_source}/testdata/adopted-values.yaml"
-helm lint "${kp_chart}" --namespace argocd -f "${kp_managed}" >/dev/null
-helm lint "${kp_chart}" --namespace argocd -f "${kp_adopted}" >/dev/null
-helm template argocd "${kp_chart}" --namespace argocd --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
-helm template argocd "${kp_chart}" --namespace argocd --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
-helm template argocd "${kp_chart}" --namespace argocd --include-crds --skip-tests -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
+helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >/dev/null
+helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >/dev/null
+helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
+helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
+helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
 diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "Namespace")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
@@ -92,7 +92,7 @@ fi
 kp_reject() {
   local kp_reason="$1"
   shift
-  if helm template invalid "${kp_chart}" --namespace argocd --skip-tests -f "${kp_managed}" "$@" >/dev/null 2>&1; then
+  if helm template invalid "${kp_chart}" --namespace kuberploy-system --skip-tests -f "${kp_managed}" "$@" >/dev/null 2>&1; then
     printf 'unsafe Argo CD render accepted: %s\n' "${kp_reason}" >&2
     exit 1
   fi

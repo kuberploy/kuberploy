@@ -95,9 +95,9 @@
           "properties": {
             "name": { "const": "kuberploy" },
             "version": { "$ref": "#/$defs/version" },
-            "ociReference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy:[0-9]+\\.[0-9]+\\.[0-9]+$" },
+            "ociReference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
             "ociDigest": { "$ref": "#/$defs/digest" },
-            "package": { "type": "string", "pattern": "^kuberploy-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" },
+            "package": { "type": "string", "pattern": "^kuberploy-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" },
             "packageSha256": { "$ref": "#/$defs/digest" }
           }
         },
@@ -137,31 +137,31 @@
   "$defs": {
     "version": {
       "type": "string",
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
     },
     "argoCDChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-argocd" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-argocd:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-argocd-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-argocd:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-argocd-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "installerChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-installer" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-installer:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-installer-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-installer:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-installer-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "tag": {
       "type": "string",
-      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      "pattern": "^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
     },
     "semverRange": {
       "type": "string",
-      "pattern": "^>=(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*) <(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+      "pattern": "^>=(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)? <(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$"
     },
     "gitSha": {
       "type": "string",
@@ -206,88 +206,88 @@
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-builder" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-builder:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-builder-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-builder:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-builder-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "certManagerChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-cert-manager" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-cert-manager:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-cert-manager-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-cert-manager:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-cert-manager-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "edgeChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-edge" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-edge:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-edge-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-edge:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-edge-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "externalDNSChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-external-dns" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-dns:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-external-dns-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-dns:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-external-dns-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "externalSecretsChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-external-secrets" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-secrets:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-external-secrets-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-external-secrets:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-external-secrets-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "monitoringChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-monitoring" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-monitoring:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-monitoring-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-monitoring:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-monitoring-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "postgresqlChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-postgresql" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-postgresql:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-postgresql-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-postgresql:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-postgresql-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "registryChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-registry" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-registry:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-registry-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-registry:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-registry-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "runtimeChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-runtime" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-runtime:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-runtime-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-runtime:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-runtime-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "sealedSecretsChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-sealed-secrets" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-sealed-secrets:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-sealed-secrets-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-sealed-secrets:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-sealed-secrets-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     },
     "valkeyChart": {
       "$ref": "#/$defs/componentChart",
       "properties": {
         "name": { "const": "kuberploy-valkey" },
-        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-valkey:[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "package": { "pattern": "^kuberploy-valkey-[0-9]+\\.[0-9]+\\.[0-9]+\\.tgz$" }
+        "ociReference": { "pattern": "^ghcr\\.io/kuberploy/charts/kuberploy-valkey:[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" },
+        "package": { "pattern": "^kuberploy-valkey-[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?\\.tgz$" }
       }
     }
   }

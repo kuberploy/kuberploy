@@ -510,8 +510,8 @@
   {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.config.argoDesiredState.runtimeChartDigest) -}}
   {{- fail "protected Argo desired state requires a digest-pinned runtime chart" -}}
   {{- end -}}
-  {{- if ne .Values.config.argoDesiredState.runtimeChartDigest .Values.config.gitProjection.chartDigest -}}
-  {{- fail "protected Argo desired state and Git projection must use the same runtime chart digest" -}}
+  {{- if ne .Values.config.argoDesiredState.runtimeChartVersion .Values.config.gitProjection.chartVersion -}}
+  {{- fail "protected Argo desired state and Git projection must use the same runtime chart version" -}}
   {{- end -}}
   {{- if or (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.api.image.reference)) (not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference)) -}}
   {{- fail "protected Argo desired state requires digest-pinned API and worker images" -}}
@@ -671,7 +671,7 @@ data:
   KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES: {{ .Values.config.gitProjection.cacheMaxBytes | int64 | quote }}
   KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS: {{ .Values.config.gitProjection.pollIntervalSeconds | quote }}
   KUBERPLOY_GIT_PROJECTION_WEBHOOK_WAKE_ENABLED: {{ .Values.config.gitProjection.webhookWakeEnabled | quote }}
-  KUBERPLOY_GIT_PROJECTION_CHART_DIGEST: {{ .Values.config.gitProjection.chartDigest | quote }}
+  KUBERPLOY_GIT_PROJECTION_CHART_VERSION: {{ .Values.config.gitProjection.chartVersion | quote }}
   KUBERPLOY_GIT_PROJECTION_POLICY_VERSION: {{ .Values.config.gitProjection.policyVersion | quote }}
   KUBERPLOY_AUTO_DEPLOY_ENABLED: {{ .Values.config.autoDeploy.enabled | quote }}
   {{- if .Values.config.platformGitBinding.enabled }}

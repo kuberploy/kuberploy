@@ -98,18 +98,18 @@ python3 -m json.tool "${kp_dns}/values.schema.json" >/dev/null
 [[ "$(yq '.dependencies | length' "${kp_cert}/Chart.yaml")" == "1" ]]
 [[ "$(yq '.dependencies | length' "${kp_dns}/Chart.yaml")" == "1" ]]
 
-helm lint "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_values}"
-helm lint "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_adopted}"
+helm lint "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}"
+helm lint "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_adopted}"
 helm lint "${kp_cert}" --namespace cert-manager
 helm lint "${kp_cert}" --namespace cert-manager -f "${kp_cert_values}"
 helm lint "${kp_cert}" --namespace cert-manager -f "${kp_cert_adopted}"
 helm lint "${kp_cert}" --namespace cert-manager -f "${kp_cert_dns01}"
-helm lint "${kp_dns}" --namespace kuberploy-dns
-helm lint "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_values}"
-helm lint "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_adopted}"
+helm lint "${kp_dns}" --namespace kuberploy-system
+helm lint "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}"
+helm lint "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_adopted}"
 
-helm template edge "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_values}" >"${kp_tmp}/edge.yaml"
-helm template edge "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_values}" >"${kp_tmp}/edge-again.yaml"
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge.yaml"
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge-again.yaml"
 diff -u "${kp_tmp}/edge.yaml" "${kp_tmp}/edge-again.yaml"
 yq eval-all 'true' "${kp_tmp}/edge.yaml" >/dev/null
 
@@ -136,7 +136,7 @@ if rg -n 'hostPort:|kind: TLSStore|cert-manager|external-dns|:latest' "${kp_tmp}
   exit 1
 fi
 
-helm template edge-adopted "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_adopted}" >"${kp_tmp}/edge-adopted.yaml"
+helm template edge-adopted "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_adopted}" >"${kp_tmp}/edge-adopted.yaml"
 [[ "$(kp_count_kind Deployment "${kp_tmp}/edge-adopted.yaml")" == "0" ]]
 [[ "$(kp_count_kind Namespace "${kp_tmp}/edge-adopted.yaml")" == "0" ]]
 [[ "$(kp_count_kind ClusterRole "${kp_tmp}/edge-adopted.yaml")" == "0" ]]
@@ -144,13 +144,13 @@ helm template edge-adopted "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.management' "${kp_tmp}/edge-adopted.yaml")" == "adopted" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data == {"management":"adopted","ingressClassName":"adopted-traefik","httpRoutesSupported":"true","letsEncryptRoutesRequireApprovedIssuer":"true","customTLSSecretRoutesSupported":"true","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true"}' "${kp_tmp}/edge-adopted.yaml")" == "true" ]]
 
-helm template edge-static "${kp_edge}" --namespace kuberploy-edge -f "${kp_edge_values}" \
+helm template edge-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-string edge.traefik.sslip.mode=verified-static-ip \
   --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >"${kp_tmp}/edge-static.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipMode' "${kp_tmp}/edge-static.yaml")" == "verified-static-ip" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-static.yaml")" == "8.8.8.8" ]]
 
-if helm template invalid "${kp_edge}" --namespace kuberploy-edge >/dev/null 2>&1; then
+if helm template invalid "${kp_edge}" --namespace kuberploy-system >/dev/null 2>&1; then
   printf 'managed Traefik accepted missing API-server CIDRs\n' >&2
   exit 1
 fi
@@ -264,8 +264,8 @@ kp_expect_reject 'cert-manager webhook host network' "${kp_cert}" cert-manager "
 kp_expect_reject 'cert-manager startup hook' "${kp_cert}" cert-manager "${kp_cert_values}" --set certmanager.startupapicheck.enabled=true
 kp_expect_reject 'wrong cert-manager namespace' "${kp_cert}" kuberploy-edge "${kp_cert_values}"
 
-helm template dns "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_values}" >"${kp_tmp}/dns.yaml"
-helm template dns "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_values}" >"${kp_tmp}/dns-again.yaml"
+helm template dns "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" >"${kp_tmp}/dns.yaml"
+helm template dns "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" >"${kp_tmp}/dns-again.yaml"
 diff -u "${kp_tmp}/dns.yaml" "${kp_tmp}/dns-again.yaml"
 yq eval-all 'true' "${kp_tmp}/dns.yaml" >/dev/null
 [[ "$(kp_count_kind Deployment "${kp_tmp}/dns.yaml")" == "1" ]]
@@ -300,11 +300,11 @@ if rg -n 'kind: (Ingress|ClusterIssuer|TLSStore)$|library/traefik|cert-manager|:
   exit 1
 fi
 
-helm template dns-adopted "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_adopted}" >"${kp_tmp}/dns-adopted.yaml"
+helm template dns-adopted "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_adopted}" >"${kp_tmp}/dns-adopted.yaml"
 [[ "$(kp_count_kind Deployment "${kp_tmp}/dns-adopted.yaml")" == "0" ]]
 [[ "$(kp_count_kind ClusterRole "${kp_tmp}/dns-adopted.yaml")" == "0" ]]
 [[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/dns-adopted.yaml")" == "0" ]]
-kp_dns_disabled="$(helm template dns-disabled "${kp_dns}" --namespace kuberploy-dns)"
+kp_dns_disabled="$(helm template dns-disabled "${kp_dns}" --namespace kuberploy-system)"
 [[ -z "${kp_dns_disabled}" ]] || { printf 'disabled external-dns chart rendered resources\n' >&2; exit 1; }
 
 kp_expect_reject 'external-dns without API CIDRs' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set 'foundation.networkPolicy.kubeAPIServerCIDRs={}'
@@ -331,14 +331,14 @@ kp_expect_reject 'external-dns pod annotation injection' "${kp_dns}" kuberploy-d
 kp_expect_reject 'floating external-dns image' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.image.tag=latest
 kp_expect_reject 'wrong external-dns namespace' "${kp_dns}" cert-manager "${kp_dns_values}"
 
-helm template dns-sync "${kp_dns}" --namespace kuberploy-dns -f "${kp_dns_values}" \
+helm template dns-sync "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" \
   --set externaldns.policy=sync --set foundation.allowDestructiveSync=true >"${kp_tmp}/dns-sync.yaml"
 rg -F -- '--policy=sync' "${kp_tmp}/dns-sync.yaml" >/dev/null
 
 for kp_kube_version in 1.34.10 1.35.7 1.36.3; do
-  helm template edge-lane "${kp_edge}" --namespace kuberploy-edge --kube-version "${kp_kube_version}" -f "${kp_edge_values}" >/dev/null
+  helm template edge-lane "${kp_edge}" --namespace kuberploy-system --kube-version "${kp_kube_version}" -f "${kp_edge_values}" >/dev/null
   helm template cert-lane "${kp_cert}" --namespace cert-manager --kube-version "${kp_kube_version}" -f "${kp_cert_values}" >/dev/null
-  helm template dns-lane "${kp_dns}" --namespace kuberploy-dns --kube-version "${kp_kube_version}" -f "${kp_dns_values}" >/dev/null
+  helm template dns-lane "${kp_dns}" --namespace kuberploy-system --kube-version "${kp_kube_version}" -f "${kp_dns_values}" >/dev/null
 done
 
 for kp_render in "${kp_tmp}/edge.yaml" "${kp_tmp}/cert.yaml" "${kp_tmp}/dns.yaml"; do

@@ -21,4 +21,4 @@ backup and deletion remains an explicit operator action.
 
 Run `./test/e2e/render-postgresql-chart.sh` for deterministic render and
 mutation checks. A live lifecycle test requires an explicitly selected
-non-production cluster and is not run against local Docker runtime Kubernetes.
+non-production cluster.

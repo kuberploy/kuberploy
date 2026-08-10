@@ -38,7 +38,7 @@ type ControlPlane struct {
 
 func (c *ControlPlane) validate() error {
 	if c == nil || c.Catalog == nil || c.Store == nil ||
-		!digestRE.MatchString(c.ChartDigest) || c.PolicyVersion == "" || len(c.PolicyVersion) > 128 {
+		!chartIdentityRE.MatchString(c.ChartDigest) || c.PolicyVersion == "" || len(c.PolicyVersion) > 128 {
 		return ErrInvalid
 	}
 	return nil

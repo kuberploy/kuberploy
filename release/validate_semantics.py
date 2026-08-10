@@ -169,11 +169,14 @@ def main() -> None:
     created = datetime.fromisoformat(manifest["release"]["createdAt"].replace("Z", "+00:00"))
     require(created.tzinfo is not None, "createdAt must be timezone-aware")
     require(all(value == version for value in manifest["versions"].values()), "component versions are not identical")
+    semver = (
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+        r"(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
+    )
     range_match = re.fullmatch(
-            r">=(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*) "
-            r"<(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
-            manifest["compatibility"]["supportedUpgradeFrom"],
-        )
+        rf">={semver} <{semver}",
+        manifest["compatibility"]["supportedUpgradeFrom"],
+    )
     require(range_match is not None, "supported upgrade range uses an unsupported syntax")
     require(
         manifest["compatibility"]["supportedUpgradeFrom"] == release_metadata["supportedUpgradeFrom"],
@@ -283,25 +286,22 @@ def main() -> None:
         source = args.root / "charts" / name
         lock = source / "testdata" / "upstream-artifacts.lock"
         if name == "kuberploy-installer":
-            dependency_name = f"kuberploy-argocd-{version}.tgz"
-            argo_package = args.asset_dir / dependency_name
-            require(argo_package.is_file(), "standalone Argo CD package is missing for installer verification")
-            expected_dependency_digest = sha256(argo_package).removeprefix("sha256:")
+            expected_dependencies = {}
+            for dependency_component in ("kuberploy-argocd", "kuberploy-valkey"):
+                dependency_name = f"{dependency_component}-{version}.tgz"
+                dependency_package = args.asset_dir / dependency_name
+                require(
+                    dependency_package.is_file(),
+                    f"standalone {dependency_component} package is missing for installer verification",
+                )
+                expected_dependencies[dependency_name] = sha256(dependency_package).removeprefix("sha256:")
             require(
-                dependency_digests == {dependency_name: expected_dependency_digest},
-                "installer nested Argo CD package differs from the standalone release artifact",
-            )
-            annotation = re.search(
-                r'(?m)^  kuberploy\.io/argocd-wrapper-sha256:\s*"?([a-f0-9]{64})"?\s*$',
-                component_metadata,
-            )
-            require(
-                annotation is not None and annotation.group(1) == expected_dependency_digest,
-                "installer nested Argo CD digest annotation mismatch",
+                dependency_digests == expected_dependencies,
+                "installer nested packages differ from standalone release artifacts",
             )
             require(
-                re.search(rf'(?m)^    version:\s*"?{re.escape(version)}"?\s*$', component_metadata) is not None,
-                "installer nested Argo CD dependency version mismatch",
+                len(re.findall(rf'(?m)^    version:\s*"?{re.escape(version)}"?\s*$', component_metadata)) == 2,
+                "installer nested dependency versions mismatch",
             )
         elif lock.exists():
             entries = [line.split() for line in lock.read_text(encoding="utf-8").splitlines() if line.strip() and not line.lstrip().startswith("#")]

@@ -9,7 +9,7 @@ import re
 import shutil
 from pathlib import Path
 
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 DIGEST_REF = re.compile(r"^[^\s@]+@sha256:[a-f0-9]{64}$")
 
 
@@ -130,7 +130,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not SEMVER.fullmatch(args.version):
-        raise SystemExit(f"release version is not stable semver: {args.version}")
+        raise SystemExit(f"release version is not semantic version text: {args.version}")
     images = {name: getattr(args, f"{name}_image") for name in ("api", "worker", "web", "upgrader")}
     images["builder-agent"] = args.builder_agent_image
     for name, reference in images.items():

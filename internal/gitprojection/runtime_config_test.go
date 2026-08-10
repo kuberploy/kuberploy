@@ -132,8 +132,8 @@ func TestRuntimeConfigFailsClosedOnPartialAmbiguousOrUnboundedSettings(t *testin
 	cases["whitespace client"][ProjectionGitHubClientEnv] = " Iv1_KuberployClient"
 	delete(cases["missing auth"], ProjectionGitAuthModeEnv)
 	cases["ambiguous auth"][ProjectionGitAuthModeEnv] = "secret"
-	delete(cases["missing chart"], ProjectionChartDigestEnv)
-	cases["tagged chart"][ProjectionChartDigestEnv] = "kuberploy-runtime:latest"
+	delete(cases["missing chart"], ProjectionChartVersionEnv)
+	cases["tagged chart"][ProjectionChartVersionEnv] = "kuberploy-runtime:latest"
 	delete(cases["missing policy"], ProjectionPolicyVersionEnv)
 	cases["whitespace policy"][ProjectionPolicyVersionEnv] = " runtime-policy-v1 "
 	for name, values := range cases {
@@ -150,7 +150,7 @@ func validProjectionEnvironment() map[string]string {
 		ProjectionEnabledEnv: "true", ProjectionCacheMaxBytesEnv: "536870912", ProjectionPollSecondsEnv: "300",
 		ProjectionWebhookWakeEnv: "true",
 		ProjectionGitHubAppIDEnv: "12345", ProjectionGitHubClientEnv: "Iv1_KuberployClient", ProjectionGitAuthModeEnv: "github-app",
-		ProjectionChartDigestEnv: "sha256:" + strings.Repeat("a", 64), ProjectionPolicyVersionEnv: "runtime-policy-v1",
+		ProjectionChartVersionEnv: "0.1.0-rc.1", ProjectionPolicyVersionEnv: "runtime-policy-v1",
 	}
 }
 

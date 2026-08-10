@@ -246,7 +246,7 @@ kp_run_config_edge_workflow() {
   [[ "${kp_actual}" == 200 ]]
   kp_hostname="$(jq -er '.hostname|select(test("^[^.]+\\.[0-9]+-[0-9]+-[0-9]+-[0-9]+\\.sslip\\.io$"))' "${kp_dir}/sslip-preview.json")"
   kp_ip="$(cut -d. -f2 <<<"${kp_hostname}" | tr - '.')"
-  "${KUBERPLOY_E2E_KUBECTL}" get services --namespace kuberploy-edge -l app.kubernetes.io/name=traefik -o json >"${kp_dir}/edge-services.json"
+  "${KUBERPLOY_E2E_KUBECTL}" get services --namespace kuberploy-system -l app.kubernetes.io/name=traefik -o json >"${kp_dir}/edge-services.json"
   kp_first_ip="$(jq -er '
     def canonical_public_v4:
       . as $raw | split(".") | select(length==4) | map(tonumber)

@@ -25,6 +25,12 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+      - name: Prepare locked Helm dependencies
+        run: ./scripts/helm/prepare-dependencies.sh
       - name: Verify formatting
         run: test -z "$(gofmt -l cmd internal migrations 2>/dev/null)"
       - name: Vet
@@ -64,7 +70,7 @@ jobs:
 
   helm:
     name: Helm
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - name: Check out source
@@ -73,5 +79,7 @@ jobs:
         uses: azure/setup-helm@v5
         with:
           version: v4.2.3
+      - name: Prepare locked Helm dependencies
+        run: ./scripts/helm/prepare-dependencies.sh
       - name: Lint and render charts
         run: make helm-lint

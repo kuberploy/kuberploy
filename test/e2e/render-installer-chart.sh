@@ -38,7 +38,7 @@ diff -u "${kp_tmp}/managed-normalized.yaml" "${kp_tmp}/managed-again-normalized.
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.targetRevision' "${kp_tmp}/managed.yaml")" == "0.1.0-rc.1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject.postgresqlFoundation.managed' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject.postgresqlFoundation.adoptExisting' "${kp_tmp}/managed.yaml")" == "false" ]]
-[[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valueFiles[0]' "${kp_tmp}/managed.yaml")" == "../../deploy/installer/example/postgresql.yaml" ]]
+[[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valueFiles[0]' "${kp_tmp}/managed.yaml")" == "../../examples/installer/postgresql.yaml" ]]
 if yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject' "${kp_tmp}/managed.yaml" | rg -q 'kuberploy-postgresql-auth'; then
   printf 'installer copied child configuration into the Application instead of using a pinned value file\n' >&2
   exit 1
@@ -52,7 +52,7 @@ fi
 
 yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject' "${kp_tmp}/managed.yaml" >"${kp_tmp}/postgresql-values.yaml"
 helm template postgresql "${kp_root}/charts/kuberploy-postgresql" --namespace kuberploy-system \
-  -f "${kp_root}/deploy/installer/example/postgresql.yaml" -f "${kp_tmp}/postgresql-values.yaml" >/dev/null
+  -f "${kp_root}/examples/installer/postgresql.yaml" -f "${kp_tmp}/postgresql-values.yaml" >/dev/null
 
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" \
   --set bootstrap.controlPlaneToken.mode=generated \
@@ -133,7 +133,7 @@ kp_expect_reject "opaque hash source revision" --set-string source.targetRevisio
 kp_expect_reject "missing package version" --set-string components.postgresql.expectedPackageVersion=
 kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.1
 kp_expect_reject "value file outside pinned installer directory" --set-string components.postgresql.valueFiles[0]=../../secrets.yaml
-kp_expect_reject "value file traversal below installer prefix" --set-string components.postgresql.valueFiles[0]=../../deploy/installer/example/../../../secrets.yaml
+kp_expect_reject "value file traversal below installer prefix" --set-string components.postgresql.valueFiles[0]=../../examples/installer/../../../secrets.yaml
 kp_expect_reject "arbitrary inline child values" --set components.postgresql.values.password=do-not-store
 kp_expect_reject "disabled Argo with active child" --set bootstrap.argoCD.enabled=false --set bootstrap.argoCD.mode=disabled
 kp_expect_reject "managed Argo without installer-owned Valkey" --set bootstrap.valkey.enabled=false

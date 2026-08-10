@@ -17,6 +17,14 @@ Thumbs.db
 .secrets/
 .direnv/
 .mise.local.toml
+.codex/
+.agents/
+.checkpoints/
+scratch/
+*.checkpoint
+*.checkpoint.*
+*.local.md
+notes.local.*
 
 # Go
 bin/

@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -trimpath -ldflags="-s -w -buildid=" -o /out/provider ./cmd/kuberploy-rfc2136-test-provider
 
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 COPY --from=build --chown=65532:65532 /out/provider /provider
 USER 65532:65532
 EXPOSE 5353/udp

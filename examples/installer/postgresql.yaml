@@ -1,0 +1,7 @@
+# Non-secret example consumed from the same exact Git commit as the wrapper.
+# Managed/adopted mode is intentionally absent; kuberploy-installer owns it.
+postgresqlFoundation:
+  auth:
+    existingSecret: kuberploy-postgresql-auth
+  storage:
+    requestedSize: 8Gi

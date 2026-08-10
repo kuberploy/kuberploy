@@ -105,8 +105,8 @@ polls remain the correctness/repair path when the default-true
 disable or lengthen the safety poll, and the setting is included in the exact
 Git projection runtime identity. These non-secret settings participate in the
 immutable ConfigMap name. Enabling the
-runtime also requires `chartDigest` to be the exact `sha256:` digest of the
-immutable AppConfig renderer chart and a bounded `policyVersion`; both are
+runtime also requires `chartVersion` to be an explicit semantic version of the
+AppConfig renderer chart and a bounded `policyVersion`; both are
 included in every strong Git bundle ETag and in the exact API/worker runtime
 readiness identity. Protected environments additionally require a fresh exact
 GitHub branch/ruleset attestation in the API before submission and again in the

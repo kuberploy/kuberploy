@@ -211,19 +211,19 @@
         "gitProjection": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "cacheMaxBytes", "pollIntervalSeconds", "webhookWakeEnabled", "chartDigest", "policyVersion"],
+          "required": ["enabled", "cacheMaxBytes", "pollIntervalSeconds", "webhookWakeEnabled", "chartVersion", "policyVersion"],
           "properties": {
             "enabled": { "type": "boolean" },
             "cacheMaxBytes": { "type": "integer", "minimum": 67108864, "maximum": 2147483648 },
             "pollIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 86400 },
             "webhookWakeEnabled": { "type": "boolean" },
-            "chartDigest": { "type": "string", "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?)$" },
+            "chartVersion": { "type": "string", "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?)$" },
             "policyVersion": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
           },
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "chartDigest": { "minLength": 5 } } }
+              "then": { "properties": { "chartVersion": { "minLength": 5 } } }
             }
           ]
         },
@@ -1521,7 +1521,7 @@
         "builderAgentImage": {
           "type": "string",
           "maxLength": 512,
-          "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*)$"
+          "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\\s@]+@sha256:[0-9a-f]{64})$"
         },
         "namespace": {
           "type": "object",

@@ -16,6 +16,9 @@ carefully scoped features.
 
 ## Development environment
 
+Read [DEVELOPMENT.md](DEVELOPMENT.md) for repository layout, exact tool versions,
+local-file policy, verification commands, and the release workflow.
+
 The supported tool versions are pinned in `mise.toml`; dependency versions and
 their review policy are documented in `DEPENDENCIES.md`.
 
@@ -26,12 +29,11 @@ pnpm --dir web install --frozen-lockfile
 make check
 ```
 
-local Docker runtime is the local Docker/Buildx and build-cache lane only. Kubernetes
+An explicitly selected Docker context is the local build-cache lane. Kubernetes
 integration uses an operator-supplied conforming cluster selected through an
 explicit absolute `KUBECONFIG` path and exact `KUBERPLOY_TEST_CONTEXT`; tooling
 must not trust ambient kubectl state. Read `LOCAL_TESTING.md` before running any
-cluster-facing test. The scripts under `scripts/local-docker-runtime/` are legacy local
-Kubernetes helpers, not the generic integration harness.
+cluster-facing test.
 
 ## Pull requests
 
@@ -44,7 +46,8 @@ Kubernetes helpers, not the generic integration harness.
 4. Update an ADR when a trust boundary or durable contract changes.
 5. Do not commit credentials, kubeconfigs, private keys, registry auth, local
    `.env` files, generated cluster state, or mutable image tags.
-6. Use immutable image/chart digests in production-facing fixtures.
+6. Use readable semantic versions for operator-facing releases. Use immutable
+   digests only for content-integrity and OCI immutability checks.
 
 Commit signing is encouraged. A contributor certifies that they are entitled
 to submit their work under Apache-2.0; Kuberploy does not currently require a

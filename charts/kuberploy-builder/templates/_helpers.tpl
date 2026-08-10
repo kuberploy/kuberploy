@@ -16,8 +16,8 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- define "kuberploy-builder.validate" -}}
 {{- if .Values.enabled -}}
   {{- $image := required "builderAgentImage is required when enabled" .Values.builderAgentImage -}}
-  {{- if not (regexMatch "^[^[:space:]@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*$" $image) -}}
-    {{- fail "builderAgentImage must use an explicit text version" -}}
+  {{- if not (or (regexMatch "^[^[:space:]@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*$" $image) (regexMatch "^[^[:space:]@]+@sha256:[a-f0-9]{64}$" $image)) -}}
+    {{- fail "builderAgentImage must use an explicit text version or a release integrity reference" -}}
   {{- end -}}
   {{- if not .Values.admissionPolicy.enabled -}}
     {{- fail "admissionPolicy.enabled must remain true for the privileged DinD namespace" -}}

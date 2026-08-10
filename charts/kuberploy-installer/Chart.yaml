@@ -7,7 +7,6 @@ appVersion: "0.1.0-rc.1"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   kuberploy.io/ownership-boundary: bootstrap-applications-only
-  kuberploy.io/argocd-wrapper-sha256: e7031da07638cb4a1bae66646d5ba9cfc327801a400f9c2d2050d9e5fcecec90
 dependencies:
   - name: kuberploy-valkey
     alias: bootstrapvalkey

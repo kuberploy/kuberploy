@@ -15,12 +15,14 @@
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
 {{- if $component.enabled -}}
+{{- if $root.Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" -}}
 {{- $existing := lookup "argoproj.io/v1alpha1" "Application" "argocd" $item.application -}}
 {{- if $existing -}}
   {{- $existingMode := dig "metadata" "annotations" "kuberploy.io/installation-mode" "" $existing -}}
   {{- if and (ne $existingMode "") (ne $existingMode $component.mode) -}}
     {{- fail (printf "%s installation mode is immutable; decommission or migrate the existing Application explicitly" $item.application) -}}
-  {{- end -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- $childValues := include "kuberploy-installer.modeFence" (list $item.key $component.mode) | fromYaml -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.components.valkey.enabled (eq $root.Values.components.valkey.mode "managed") -}}

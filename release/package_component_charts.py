@@ -17,7 +17,7 @@ from pathlib import Path
 from package_chart_archive import package_chart_archive
 from validate_semantics import yaml_scalar
 
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 DIGEST_REFERENCE = re.compile(r"^[^\s@]+@sha256:[a-f0-9]{64}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SAFE_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,199}\.tgz$")
@@ -121,12 +121,12 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
         raise ValueError(f"upstream chart checksum mismatch for {destination.name}")
 
 
-def stage_installer_dependency(destination_root: Path, destination: Path, version: str, source_date_epoch: int) -> None:
+def stage_installer_dependencies(destination_root: Path, destination: Path, version: str, source_date_epoch: int) -> None:
     chart = destination / "Chart.yaml"
     chart_text = chart.read_text(encoding="utf-8")
     chart_text, count = re.subn(r'(?m)^(    version:)\s*.*$', rf'\1 {version}', chart_text)
-    if count != 1:
-        raise SystemExit("installer must declare exactly one nested dependency version")
+    if count != 2:
+        raise SystemExit("installer must declare exactly two nested dependency versions")
     chart.write_text(chart_text, encoding="utf-8")
 
     # Helm computes the dependency metadata digest. The generated dependency
@@ -145,21 +145,13 @@ def stage_installer_dependency(destination_root: Path, destination: Path, versio
     except subprocess.CalledProcessError as error:
         raise SystemExit(f"could not lock installer dependency: {error.stderr.strip()}") from error
 
-    dependency_name = f"kuberploy-argocd-{version}.tgz"
-    dependency = destination / "charts" / dependency_name
-    dependency.unlink(missing_ok=True)
-    package_chart_archive(destination_root / "kuberploy-argocd", dependency, source_date_epoch)
-    checksum = hashlib.sha256(dependency.read_bytes()).hexdigest()
-
-    chart_text = chart.read_text(encoding="utf-8")
-    chart_text, count = re.subn(
-        r'(?m)^(  kuberploy\.io/argocd-wrapper-sha256:)\s*.*$',
-        rf'\1 {checksum}',
-        chart_text,
-    )
-    if count != 1:
-        raise SystemExit("installer must contain one nested Argo CD package digest annotation")
-    chart.write_text(chart_text, encoding="utf-8")
+    dependencies: list[tuple[str, str]] = []
+    for component in ("kuberploy-argocd", "kuberploy-valkey"):
+        dependency_name = f"{component}-{version}.tgz"
+        dependency = destination / "charts" / dependency_name
+        dependency.unlink(missing_ok=True)
+        package_chart_archive(destination_root / component, dependency, source_date_epoch)
+        dependencies.append((hashlib.sha256(dependency.read_bytes()).hexdigest(), dependency_name))
 
     lock = destination / "Chart.lock"
     lock_text = lock.read_text(encoding="utf-8")
@@ -168,7 +160,10 @@ def stage_installer_dependency(destination_root: Path, destination: Path, versio
     if count != 1:
         raise SystemExit("installer dependency lock lacks one generated timestamp")
     lock.write_text(lock_text, encoding="utf-8")
-    (destination / "dependencies.lock").write_text(f"{checksum}  charts/{dependency_name}\n", encoding="utf-8")
+    (destination / "dependencies.lock").write_text(
+        "".join(f"{checksum}  charts/{name}\n" for checksum, name in dependencies),
+        encoding="utf-8",
+    )
 
 
 def stage_chart(root: Path, destination_root: Path, name: str, version: str, builder_image: str, source_date_epoch: int) -> Path:
@@ -196,7 +191,7 @@ def stage_chart(root: Path, destination_root: Path, name: str, version: str, bui
         values.write_text(text, encoding="utf-8")
 
     if name == "kuberploy-installer":
-        stage_installer_dependency(destination_root, destination, version, source_date_epoch)
+        stage_installer_dependencies(destination_root, destination, version, source_date_epoch)
         return destination
 
     upstreams = locked_upstreams(source)
@@ -221,7 +216,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not SEMVER.fullmatch(args.version):
-        raise SystemExit("component chart release version must be stable semver")
+        raise SystemExit("component chart release version must be semantic version text")
     if not DIGEST_REFERENCE.fullmatch(args.builder_agent_image) or ":latest" in args.builder_agent_image.lower():
         raise SystemExit("builder agent image must be an immutable digest reference")
     if args.source_date_epoch < 0:
@@ -229,7 +224,9 @@ def main() -> None:
     if args.destination.exists():
         raise SystemExit(f"component chart destination already exists: {args.destination}")
     args.destination.mkdir(parents=True)
-    for name in COMPONENT_CHARTS:
+    # Stage the independently published wrappers before the installer so its
+    # nested packages are byte-identical to the standalone release artifacts.
+    for name in tuple(item for item in COMPONENT_CHARTS if item != "kuberploy-installer") + ("kuberploy-installer",):
         stage_chart(args.root, args.destination, name, args.version, args.builder_agent_image, args.source_date_epoch)
     print(args.destination)
 

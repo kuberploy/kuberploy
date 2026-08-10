@@ -251,7 +251,7 @@ kp_probe_helm_install() {
   local kp_manifest="${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-planned-manifest.yaml"
   [[ "${KUBERPLOY_E2E_STAGE_ID}" == "10-one-chart-install" ]]
   "${KUBERPLOY_E2E_HELM}" template kuberploy-qualification \
-    "$(kp_repo_root)/charts/kuberploy-installer" --namespace argocd \
+    "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
     --values "${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE}" \
     >"${kp_manifest}"
   [[ -s "${kp_manifest}" ]]
@@ -264,10 +264,10 @@ kp_probe_helm_install() {
   openssl dgst -sha256 "${kp_manifest}" \
     >"${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-planned-manifest.sha256"
   "${KUBERPLOY_E2E_HELM}" upgrade --install kuberploy-qualification \
-    "$(kp_repo_root)/charts/kuberploy-installer" --namespace argocd \
+    "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
     --values "${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE}" --wait --timeout 15m
   "${KUBERPLOY_E2E_HELM}" status kuberploy-qualification \
-    --namespace argocd -o json >"${kp_out}"
+    --namespace kuberploy-system -o json >"${kp_out}"
   jq -e '.info.status == "deployed"' "${kp_out}" >/dev/null
   local kp_release_objects="${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-release-objects.json"
   local kp_release_namespaced="${kp_release_objects}.namespaced" kp_release_cluster="${kp_release_objects}.cluster"
@@ -992,7 +992,7 @@ kp_run_upgrade_workflow() {
   jq -e --arg target "${kp_target_version}" '.version == $target' \
     "${kp_dir}/workflow-post-upgrade-meta.json" >/dev/null
   "${KUBERPLOY_E2E_HELM}" template kuberploy-qualification \
-    "$(kp_repo_root)/charts/kuberploy-installer" --namespace argocd \
+    "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
     --values "${KUBERPLOY_E2E_INSTALLER_VALUES_FILE}" \
     >"${kp_dir}/workflow-target-installer-manifest.yaml"
   [[ -s "${kp_dir}/workflow-target-installer-manifest.yaml" ]]
@@ -1699,9 +1699,10 @@ kp_run() {
   fi
   if [[ "${KUBERPLOY_E2E_STAGE_ID}" == "10-one-chart-install" ]]; then
     kp_create_owned_namespace "${kp_namespace}"
-    # The installer has a fixed namespace boundary. `create` is intentionally
-    # used instead of apply: any existing argocd namespace fails the disposable
-    # qualification boundary before Helm can update shared state.
+    # The installer and Argo have fixed namespace boundaries. `create` is
+    # intentional: pre-existing shared state fails this disposable qualification
+    # before Helm can mutate it.
+    kp_create_owned_namespace kuberploy-system
     kp_create_owned_namespace argocd
   else
     kp_create_marker
@@ -1870,7 +1871,7 @@ kp_cleanup() {
     fi
     if [[ "${kp_kind}" == "Namespace" ]]; then
       if [[ "${kp_name}" == "argocd" ]]; then
-        "${KUBERPLOY_E2E_HELM}" uninstall kuberploy-qualification --namespace argocd
+        "${KUBERPLOY_E2E_HELM}" uninstall kuberploy-qualification --namespace kuberploy-system
       fi
       "${KUBERPLOY_E2E_KUBECTL}" delete namespace "${kp_name}" --ignore-not-found=true --wait=true >/dev/null
       "${KUBERPLOY_E2E_KUBECTL}" wait --for=delete "namespace/${kp_name}" --timeout=5m >/dev/null

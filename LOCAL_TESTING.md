@@ -2,9 +2,9 @@
 
 Status: development test contract, updated 2026-08-09.
 
-Kuberploy separates local container builds from Kubernetes integration. An
-local Docker runtime Docker engine is useful for fast local Buildx work and registry-cache
-testing, but local Docker runtime Kubernetes is not the project integration cluster.
+Kuberploy separates local container builds from Kubernetes integration. A
+local Docker-compatible engine may be used for Buildx and registry-cache
+testing, but it is not the project integration cluster.
 Kubernetes behavior is exercised against an operator-supplied, non-production
 cluster that conforms to the release's supported Kubernetes and capability
 contract.
@@ -17,23 +17,18 @@ the repository. Operators select a cluster explicitly at invocation time.
 | Lane | Runtime | Purpose |
 |---|---|---|
 | Unit and contract | Local processes | API/schema, authorization, rendering, queue, Git, retention, and UI behavior |
-| Local container build/cache | local Docker runtime Docker engine | Dockerfiles, native development images, Buildx behavior, and registry cache import/export |
+| Local container build/cache | Operator-selected Docker-compatible engine | Dockerfiles, native development images, Buildx behavior, and registry cache import/export |
 | Kubernetes integration | Operator-supplied conforming cluster | Helm, Argo CD, workloads, Traefik, policy, logs, metrics, registry pull, upgrade, and rollback |
 | Provider-facing opt-in | Explicitly approved test accounts/endpoints | GitHub delivery, public DNS, ACME, and registry-provider behavior |
 
 Passing one lane does not imply that another passed. In particular, an image
-present in the local Docker runtime engine is not evidence that a Kubernetes node can pull
+present in a local engine is not evidence that a Kubernetes node can pull
 it from a registry.
 
-## local Docker runtime local Docker and build-cache lane
+## Local Docker and build-cache lane
 
-Use local Docker runtime only as a local Docker-compatible engine. Commands should select
-its Docker context explicitly instead of changing or trusting ambient state:
-
-```bash
-docker --context local-docker-runtime version
-docker --context local-docker-runtime buildx version
-```
+Commands must select an operator-approved Docker context explicitly instead of
+changing or trusting ambient state.
 
 Local source builds may use a run-scoped builder and an ephemeral or dedicated
 development registry. Cache tests exercise the same registry cache contract as
@@ -132,19 +127,6 @@ infrastructure authority key.
 Its hermetic fake-tool tests run as part of
 `make kubernetes-harness-test`. See `scripts/kubernetes/test/e2e/README.md` for
 the scenario contract.
-
-## Legacy local Docker runtime Kubernetes helpers
-
-The scripts under `scripts/local-docker-runtime/` are retained legacy helpers for the
-earlier local Kubernetes walking slice. They deliberately require the exact
-`local-docker-runtime` Kubernetes context and depend on local Docker runtime-only routing and image
-sharing. They are not the generic Kubernetes integration harness, must not be
-pointed at an operator-supplied cluster, and do not satisfy the current
-integration gate. The generic harness under `scripts/kubernetes/` replaces
-their preflight and cluster-smoke responsibility and also owns the full
-qualification orchestration contract. It still performs no live full-stack run
-until an operator supplies the explicit target, declarative scenario, test
-endpoints, credentials, and effect acknowledgements described above.
 
 ## GitHub development target
 

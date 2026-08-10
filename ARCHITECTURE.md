@@ -2106,11 +2106,10 @@ The installer and Argo definitions consume only the lock bundled with the select
 
 ### Local build and conforming-cluster integration profiles
 
-local Docker runtime supplies the local Docker/Buildx engine for fast development-image and
+An operator-selected local Docker/Buildx engine supports development-image and
 registry-cache testing. It is not the Kubernetes integration cluster, and
-locally present images never substitute for a registry push/pull-by-digest test.
-Commands select the local Docker runtime Docker context explicitly so an ambient engine is
-not mutated accidentally.
+locally present images never substitute for a registry push/pull test. Commands
+select the Docker context explicitly so an ambient engine is not mutated.
 
 Kubernetes integration uses an operator-supplied, non-production cluster in the
 locked support window. The harness receives one absolute `KUBECONFIG` path and
@@ -2353,7 +2352,6 @@ Create project and environment
 
 - [Reviewed dependency baseline](DEPENDENCIES.md)
 - [Development and Kubernetes integration contract](LOCAL_TESTING.md)
-- [local Docker runtime Docker engine](https://docs.local-docker-runtime.dev/docker/)
 - [Karpenter scheduling](https://karpenter.sh/docs/concepts/scheduling/)
 - [Karpenter NodePools](https://karpenter.sh/docs/concepts/nodepools/)
 - [OpenAPI Specification 3.2.0](https://spec.openapis.org/oas/v3.2.0.html)

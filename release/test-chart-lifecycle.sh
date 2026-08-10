@@ -84,11 +84,4 @@ if helm upgrade --help | grep -q -- '--atomic'; then
   printf 'Helm 4 unexpectedly exposes deprecated --atomic; review release flags\n' >&2
   exit 1
 fi
-bash -n "${kp_root}/scripts/local-docker-runtime/install-platform.sh"
-grep -q -- '--rollback-on-failure' "${kp_root}/scripts/local-docker-runtime/install-platform.sh"
-if grep -q -- '--atomic' "${kp_root}/scripts/local-docker-runtime/install-platform.sh"; then
-  printf 'local Docker runtime installer still uses Helm 3 --atomic\n' >&2
-  exit 1
-fi
-
 printf 'chart install/upgrade/rollback render validation passed\n'

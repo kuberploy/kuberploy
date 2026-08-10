@@ -26,7 +26,7 @@ commands.
 ```sh
 helm dependency build charts/kuberploy-valkey
 helm upgrade --install kuberploy-valkey charts/kuberploy-valkey \
-  --namespace kuberploy-valkey --create-namespace \
+  --namespace kuberploy-system --create-namespace \
   -f charts/kuberploy-valkey/testdata/managed-values.yaml
 ```
 

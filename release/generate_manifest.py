@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 SHA = re.compile(r"^[a-f0-9]{40}$")
 DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 
@@ -65,7 +65,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.tag.startswith("v") or not SEMVER.fullmatch(args.tag[1:]):
-        raise SystemExit(f"tag must be a stable vMAJOR.MINOR.PATCH release: {args.tag}")
+        raise SystemExit(f"tag must be a semantic vMAJOR.MINOR.PATCH release: {args.tag}")
     version = args.tag[1:]
     if not SHA.fullmatch(args.commit):
         raise SystemExit("source commit must be a lowercase 40-character Git SHA")
@@ -78,12 +78,12 @@ def main() -> None:
 
     if not 1 <= len(args.summary) <= 500:
         raise SystemExit("release summary must contain 1 to 500 characters")
-    semver_part = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
+    semver_part = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
     range_match = re.fullmatch(rf">=({semver_part}) <({semver_part})", args.supported_upgrade_from)
     if not range_match:
-        raise SystemExit("supported-upgrade-from must use exact syntax: >=MAJOR.MINOR.PATCH <MAJOR.MINOR.PATCH")
-    lower = tuple(int(part) for part in range_match.group(1).split("."))
-    upper = tuple(int(part) for part in range_match.group(2).split("."))
+        raise SystemExit("supported-upgrade-from must use exact semantic version range syntax")
+    lower = tuple(int(part) for part in range_match.group(1).split("-", 1)[0].split("."))
+    upper = tuple(int(part) for part in range_match.group(2).split("-", 1)[0].split("."))
     if lower >= upper:
         raise SystemExit("supported-upgrade-from lower bound must be less than its upper bound")
 

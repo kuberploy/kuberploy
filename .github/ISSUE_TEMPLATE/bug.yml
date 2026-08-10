@@ -10,14 +10,14 @@ body:
     id: version
     attributes:
       label: Kuberploy version
-      placeholder: v0.1.0 or commit SHA
+      placeholder: 0.1.0-rc.1
     validations:
       required: true
   - type: input
     id: kubernetes
     attributes:
       label: Kubernetes distribution and version
-      placeholder: local Docker runtime v1.35.6+orb1
+      placeholder: K3s v1.36.3+k3s1
     validations:
       required: true
   - type: textarea

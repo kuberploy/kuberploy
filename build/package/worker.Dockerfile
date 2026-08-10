@@ -35,7 +35,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Job. It is never invoked by the long-running worker process.
 FROM docker.io/library/registry:3.1.1@sha256:1be55279f18a2fe1a74edf2664cac61c1bea305b7b4642dab412e7affdcb3e33 AS registry-cli
 
-FROM cgr.dev/chainguard/git@sha256:9e0818dd94a49dbe025951b02ab90603ba5aa3dbf2b2a300cfac3d84121b5ccc
+FROM docker.io/library/alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+RUN apk add --no-cache \
+      ca-certificates=20260611-r0 \
+      git=2.54.0-r0
 
 ARG VERSION=dev
 ARG REVISION=unknown

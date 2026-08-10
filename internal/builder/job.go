@@ -19,7 +19,7 @@ const DefaultDinDImage = "docker.io/library/docker:29.7.1-dind"
 var (
 	kubernetesNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$`)
 	quantityPattern       = regexp.MustCompile(`^[1-9][0-9]*(?:m|Ki|Mi|Gi|Ti)?$`)
-	versionedImagePattern = regexp.MustCompile(`^[^\s@]+:v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*$`)
+	lockedImagePattern    = regexp.MustCompile(`^(?:[^\s@]+:v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\s@]+@sha256:[0-9a-f]{64})$`)
 )
 
 type JobPlanRequest struct {
@@ -245,8 +245,8 @@ func (r JobPlanRequest) Validate() error {
 	if (len(r.Build.SecretFiles) > 0) != (r.BuildSecret != "") || (len(r.Build.SSHFiles) > 0) != (r.SSHSecret != "") {
 		return errors.New("build and SSH secret mounts must exactly match their request references")
 	}
-	if !versionedImagePattern.MatchString(r.CheckoutImage) || !versionedImagePattern.MatchString(r.AgentImage) {
-		return errors.New("checkout and agent images must use explicit text versions")
+	if !lockedImagePattern.MatchString(r.CheckoutImage) || !lockedImagePattern.MatchString(r.AgentImage) {
+		return errors.New("checkout and agent images must use explicit versions or release integrity references")
 	}
 	if r.CheckoutImage != r.AgentImage {
 		return errors.New("checkout and agent must use the same trusted builder-agent digest")

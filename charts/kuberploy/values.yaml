@@ -65,9 +65,9 @@ config:
     # Verified webhooks accelerate projection by default. Operators may turn
     # off only this wake path to exercise or operate through safety polling.
     webhookWakeEnabled: true
-    # Release packaging/operator configuration supplies the exact immutable
-    # renderer chart digest used in strong AppConfig bundle ETags.
-    chartDigest: ""
+    # Release packaging/operator configuration supplies the explicit renderer
+    # chart version used in strong AppConfig bundle ETags.
+    chartVersion: ""
     policyVersion: appconfig-v1alpha1
   # Immutable image-only deployment automation. Runtime identity is derived
   # from the exact source-build, Git projection, and protected Argo contracts.

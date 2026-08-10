@@ -314,9 +314,9 @@ kp_qualification_validate_scenario() {
     and (.workflow.tls.customCertificateName | type == "string" and test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"))
     and (.workflow.tls.localACMEIssuerName | type == "string" and test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"))
     and (.workflow.recovery == {
-      postgresql:{namespace:"kuberploy-postgresql",podName:"kuberploy-postgresql-0",
+      postgresql:{namespace:"kuberploy-system",podName:"kuberploy-postgresql-0",
         controllerName:"kuberploy-postgresql"},
-      valkey:{namespace:"kuberploy-valkey",controllerName:"kuberploy-valkey",
+      valkey:{namespace:"kuberploy-system",controllerName:"kuberploy-valkey",
         persistentVolumeClaimName:"kuberploy-valkey"},
       worker:{namespace:"kuberploy-system",controllerName:"kuberploy-worker"}
     })

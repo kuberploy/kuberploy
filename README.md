@@ -1,130 +1,99 @@
 # Kuberploy
 
-Kuberploy is a self-hosted, Kubernetes-native PaaS with a simple application
-workflow and a strict GitOps deployment model. It is currently a pre-release
-MVP implementation, not a production release.
+[![CI](https://github.com/kuberploy/kuberploy/actions/workflows/ci.yml/badge.svg)](https://github.com/kuberploy/kuberploy/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/kuberploy/kuberploy?include_prereleases)](https://github.com/kuberploy/kuberploy/releases)
+[![License](https://img.shields.io/github/license/kuberploy/kuberploy)](LICENSE)
 
-The repository contains the security and durability foundations for users,
-teams and scoped projects; verified GitHub App setup and sharing;
-webhook-triggered, multi-platform DinD builds with registry-backed Buildx
-cache; durable image-only push auto-deploy policies with immutable revision and
-run history in the Source Builds UI; managed or external OCI registries with
-managed-only bounded retention; immutable-image application configuration;
-human-managed Git-backed project/environment VariableSets; resource,
-scheduling, route and typed Traefik middleware editors; server-derived
-`sslip.io` convenience hostnames; write-only strict-Sealed runtime-secret and
-custom-certificate lifecycle with metadata-only reads;
-scoped metrics and Kubernetes log/event views; a public OpenAPI/agent contract;
-and namespaced control-plane self-upgrades. Accepted commands, leases,
-idempotency records and recovery state are durable in PostgreSQL; Valkey is a
-required transport, limiter and cache dependency, never desired-state
-authority.
+Kuberploy is an open-source, self-hosted platform for building and deploying
+applications on Kubernetes. It combines a straightforward web experience with
+a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
+workloads, and PostgreSQL holds durable operations and recovery state.
 
-Production enablement remains deliberately fail-closed. Authoritative
-AppConfig Git write/index, strict runtime-secret delivery, private-image pull
-materialization, managed-registry lifecycle, edge observation, protected Argo
-desired-state publication, repository credentials and branch/ruleset
-attestation are wired behind exact runtime identities. Approved external
-Helm/OCI delivery uses its two protected Git publication phases, and ordinary
-deployment rollback creates a new Git intent for an eligible prior immutable
-release, using the environment's immutable direct-or-pull-request publication
-policy. An HMAC-verified GitHub push durably wakes exact matching projection
-bindings while safety polling repairs missed deliveries. Successful verified
-build releases can enter the canonical deployment path only through an enabled,
-revisioned auto-deploy policy and a freshly authorized project service account;
-AppConfig or inherited VariableSet drift pauses image automation. Mutable image
-references are resolved to digests before save; custom-certificate observation,
-reusable middleware profiles and server-derived `sslip.io` endpoint selection
-are also implemented. The running API advertises any of these default-off
-features only while its real service and required fresh worker/controller
-observations are available.
+> **Release status:** `0.1.0-rc.1` is a release candidate. Use a dedicated test
+> cluster until the production qualification matrix is complete.
 
-These completed code paths are no longer the release blockers previously
-listed here. For the implemented paths, the remaining external release proof is
-the full P0 qualification on an operator-selected, non-production conforming
-cluster. No cluster identity or credential is stored in this repository, and no
-live qualification can be claimed until the operator supplies the exact
-`KUBECONFIG`, `KUBERPLOY_TEST_CONTEXT`, `KUBERPLOY_TEST_SERVER`, and
-`KUBERPLOY_E2E_RUN_ID`.
-The generic harness provides the read-only preflight, run-scoped smoke test,
-and a fail-closed full-qualification orchestrator. The first two checks do not
-by themselves satisfy the enabled-stack Git/Argo/Traefik/build/rollback matrix.
-The full orchestrator owns its stage implementations and accepts no executable
-operator driver. It requires a strict declarative scenario containing exact
-external identities, field values and endpoints plus mode-0600 credentials;
-repository code initiates the supported product workflows, collects evidence,
-and enforces the inventory/cleanup or disposable-cluster boundary. See
-[LOCAL_TESTING.md](LOCAL_TESTING.md) and the
-[qualification scenario contract](scripts/kubernetes/test/e2e/README.md).
+## Highlights
 
-## Repository layout
+- Deploy an existing OCI image, build from GitHub, or publish an approved Helm
+  application.
+- Direct Git publication for development and protected pull-request publication
+  for reviewed environments.
+- Immutable image resolution, rollback, scheduling profiles, reusable Traefik
+  middleware, VariableSet inheritance, runtime secrets, TLS, and DNS workflows.
+- Team projects, scoped grants, service accounts, GitHub App installations, and
+  copyable one-time invitation links—no email provider required.
+- Bounded logs, events, metrics, audit history, rendered configuration previews,
+  and release health checks.
+- A single installer chart that bootstraps the required foundations and creates
+  independently reconciled Argo CD Applications.
+
+## Architecture
 
 ```text
-api/                    OpenAPI 3.2 contract
-cmd/                    Go API and worker entry points
-internal/               Control-plane implementation
-migrations/             PostgreSQL migrations
-schema/                 AppConfig and related schemas
-web/                    React/Vite UI
-charts/kuberploy/        Control-plane Helm chart
-charts/kuberploy-installer Safe single-invocation Argo/bootstrap installer chart
-charts/kuberploy-runtime Application runtime Helm chart
-deploy/                 GitOps and local integration assets
-scripts/                Reproducible development/e2e commands
-test/e2e/               End-to-end fixtures and assertions
+Browser / API
+      │
+      ▼
+PostgreSQL ──► Valkey work signal ──► Kuberploy worker
+                                         │
+                                         ▼
+Git desired state ──► Argo CD ──► Kubernetes workloads
+                                         │
+                                         ▼
+                              Traefik / cert-manager / DNS
 ```
 
-## Design contracts
+Secrets are referenced by identity and are never committed to Git. The DinD
+builder is an explicit privileged boundary on selected builder nodes and never
+mounts the host Docker socket. Optional integrations remain unavailable until
+their exact runtime readiness is observed.
 
-- [Architecture](ARCHITECTURE.md)
-- [Dependency baseline](DEPENDENCIES.md)
-- [Development and Kubernetes integration contract](LOCAL_TESTING.md)
+Read the full [architecture](ARCHITECTURE.md) and
+[security policy](SECURITY.md) before operating a production deployment.
 
-## Development
+## Install
 
-Tool versions are pinned in `mise.toml`. local Docker runtime is used as the explicit local
-Docker/Buildx engine for development builds and registry-cache checks, not as
-the Kubernetes integration cluster. Kubernetes tests use an operator-supplied
-conforming cluster and require all four exact inputs shown below; no cluster
-identity is committed to this repository.
+Requirements:
+
+- Kubernetes `1.34`–`1.36`
+- Helm `4.2.3`
+- storage classes and provider credentials required by the components you enable
+
+Copy the managed or adopted installer example, replace every placeholder, and
+keep credentials in pre-created Kubernetes Secrets:
 
 ```bash
-mise install
-make check
+cp charts/kuberploy-installer/testdata/managed-values.yaml installer-values.yaml
 
-# Required only when invoking the Kubernetes integration harness:
-export KUBECONFIG=/absolute/path/to/test-kubeconfig
-export KUBERPLOY_TEST_CONTEXT=<exact-test-context>
-export KUBERPLOY_TEST_SERVER=https://api.test.example:6443
-export KUBERPLOY_E2E_RUN_ID=<unique-run-id>
-make kubernetes-preflight
-make kubernetes-smoke
+helm upgrade --install kuberploy-installer charts/kuberploy-installer \
+  --namespace kuberploy-system \
+  --create-namespace \
+  --values installer-values.yaml \
+  --wait
 ```
 
-The target command path is:
+`helm --wait` confirms the bootstrap resources, not full platform readiness.
+After installation, require every selected Argo CD Application to be `Synced`
+and `Healthy`, then check Kuberploy's **Setup & health** page. See the
+[installer guide](charts/kuberploy-installer/README.md) for managed/adopted
+modes, required Secrets, and ownership boundaries.
 
-```text
-existing image digest or verified source build
-  -> PostgreSQL operation and outbox
-  -> Valkey worker signal
-  -> AppConfig Git commit
-  -> Argo CD sync
-  -> Traefik route on the selected test cluster
-```
+## Documentation
 
-The existing `scripts/local-docker-runtime/` Kubernetes helpers are legacy, local Docker runtime-only
-walking-slice tooling; they are not the environment-neutral integration harness.
-See `LOCAL_TESTING.md` before running any cluster-facing command.
+- [Development guide](DEVELOPMENT.md)
+- [Architecture](ARCHITECTURE.md)
+- [Installation details](charts/kuberploy-installer/README.md)
+- [Kubernetes qualification](LOCAL_TESTING.md)
+- [Dependency policy](DEPENDENCIES.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Support](SUPPORT.md)
 
-## Security posture
+## Contributing
 
-- Git is authoritative for non-secret desired state.
-- Argo CD is the normal workload writer.
-- Plaintext secrets never enter Git, Valkey, logs or ordinary database columns.
-- Mutable image tags are resolved before deployment; Git stores an immutable digest.
-- The DinD builder is isolated as a privileged builder-node trust boundary and never mounts the host Docker socket; its capability stays off unless the exact worker and builder boundary report healthy.
-- The UI, CLI and agents use the same documented API and authorization checks.
+Issues and pull requests are welcome. Start with
+[DEVELOPMENT.md](DEVELOPMENT.md), run `make check`, and keep public examples
+free of credentials, private infrastructure, and workstation-specific data.
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE).
+Kuberploy is licensed under the [Apache License 2.0](LICENSE).

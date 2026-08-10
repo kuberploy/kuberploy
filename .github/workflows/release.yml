@@ -36,6 +36,7 @@ jobs:
         env:
           RELEASE_EVENT: ${{ github.event_name }}
         run: |
+          python3 release/check_public_source.py --root .
           kp_args=(--root .)
           if [[ "${RELEASE_EVENT}" == "push" ]]; then
             kp_args+=(--tag "${GITHUB_REF_NAME}")

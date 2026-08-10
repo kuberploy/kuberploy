@@ -33,8 +33,8 @@ An upstream chart or application bundle is treated as one tested dependency unit
 Kubernetes integration runs against operator-supplied conforming clusters in
 the supported 1.34-1.36 window. The exact kubeconfig and context are explicit
 runtime inputs and no development-cluster identity is part of the dependency
-lock. local Docker runtime supplies a local Docker/Buildx engine for development builds and
-cache checks; its optional Kubernetes feature is not an integration target.
+lock. An operator-selected Docker/Buildx engine may be used for development
+builds and cache checks; it is not an integration target.
 
 P0 uses Kubernetes Pod Security Admission plus native `ValidatingAdmissionPolicy`/CEL. Kyverno is therefore not a required runtime dependency. Its current stable [1.18.2](https://github.com/kyverno/kyverno/releases/tag/v1.18.2) supports Kubernetes only through 1.35, so an optional Kyverno adapter is disabled on Kubernetes 1.36 until a compatible stable release passes Kuberploy's tests.
 
@@ -56,7 +56,7 @@ production DNS use their own domain and the external-dns integration.
 | Docker Engine / DinD | [29.7.1](https://docs.docker.com/engine/release-notes/29/#2971) | Custom Kuberploy builder image starts an isolated DinD daemon in the approved privileged builder namespace; it never mounts the host Docker socket. |
 | Docker Buildx | [0.36.1](https://github.com/docker/buildx/releases/tag/v0.36.1) | Installed as an exact CLI plugin in the builder image. |
 | BuildKit | [0.32.2](https://github.com/moby/buildkit/releases/tag/v0.32.2) | Buildx uses the `docker-container` driver with this exact image digest instead of silently using Docker Engine's older embedded BuildKit. P0 uses its registry cache importer/exporter; the same version is the P1 rootless engine baseline. |
-| Git | [2.55.0](https://git-scm.com/) | Release-image target for Git writer operations and normal fast-forward protocol semantics. Use the digest-pinned Chainguard Git runtime described below; the present Alpine package mismatch remains a pre-release code change. |
+| Git | [2.54.0](https://git-scm.com/) | Alpine package `2.54.0-r0`, installed explicitly in worker and builder-agent images for Git writer operations. |
 
 The official Docker 29.7.1 image bundles Buildx 0.36.0 and the engine embeds BuildKit 0.32.0. Kuberploy deliberately supplies Buildx 0.36.1 and launches BuildKit 0.32.2 as the separately pinned builder. Rootless DinD still requires a privileged Kubernetes container in the documented Docker/ARC pattern; rootless UID mapping does not turn that Pod into an unprivileged workload.
 
@@ -130,11 +130,12 @@ All references below are multi-architecture OCI indexes and include both
 | Go builder | `docker.io/library/golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2` |
 | Node builder | `docker.io/library/node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43` |
 | nginx stable runtime | `docker.io/library/nginx:1.30.4-alpine@sha256:97d490c12ba55b4946b01546d1c3ed324e8d41ab1c9fcb2a616aa470620e5b46` |
-| Distroless static runtime | `gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6` |
-| Git 2.55.0 worker runtime | `cgr.dev/chainguard/git@sha256:9e0818dd94a49dbe025951b02ab90603ba5aa3dbf2b2a300cfac3d84121b5ccc` |
+| API, worker and builder-agent runtime | Alpine `3.24.1`, with CA certificates `20260611-r0` and Git `2.54.0-r0` where required |
 | Helm 4.2.3 upgrader runtime | `docker.io/alpine/helm:4.2.3@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b` |
 
-The Git runtime is Chainguard's public, Alpine/musl-based image, not the unrelated community `alpine/git` repository. The selected OCI index contains only `linux/amd64` (`sha256:06f64974d87f285ea27e0dbf64c38ee4ec2efa771f6ccb5538b4d9185b757270`) and `linux/arm64` (`sha256:dbd8d81ff32130eee2ff4e8c7bce56dc45a7c12f139481eaddb3d61a4032898c`), runs as UID 65532 with `HOME=/home/git`, includes HTTPS and SSH transports plus CA roots, and reports `git version 2.55.0`. Its OCI source label points to [Chainguard's Git image definition](https://github.com/chainguard-images/images/tree/main/images/git); Chainguard publishes [Sigstore signatures, build-time SBOMs and SLSA provenance](https://images.chainguard.dev/directory/image/git/overview). The public registry exposes a moving `latest` tag, but Kuberploy uses the immutable digest-only reference above and never resolves that tag at build or runtime.
+Every runtime base has a readable version tag. Dockerfiles additionally retain
+the reviewed OCI digest as an integrity check; that digest is not the product or
+dependency version shown to operators.
 
 ## GitHub Actions
 
@@ -168,7 +169,9 @@ These are why the release rule says "latest compatible stable set" instead of in
 3. Argo CD 3.5.0 embeds Helm 4.2.1 even though the standalone Helm patch is 4.2.3. Kuberploy accepts the application release's upstream-tested embedded binary and tests the external Helm 4.2.3 renderer for equivalent output.
 4. Docker 29.7.1 embeds older Buildx/BuildKit patches. The builder image and Buildx driver select the current stable versions explicitly.
 5. Node.js 26.7.0 is newer but is the Current line. Production builds use the newest Node 24 LTS patch until the next line becomes LTS and passes the toolchain matrix.
-6. Alpine 3.24 currently packages Git 2.54.0-r0, while upstream stable Git is 2.55.0. The release worker and builder-agent final stages therefore use the digest-pinned Chainguard Git 2.55.0 runtime above. The isolated local Git test server may remain on its explicitly locked 2.54.0-r0 package; it is not a production image. Alpine `edge` is not an acceptable production workaround.
+6. Alpine 3.24 packages Git 2.54.0-r0. Kuberploy uses that reviewed package
+   instead of an unversioned runtime image; upgrading Git requires a new explicit
+   Alpine package version and the normal release qualification.
 
 ## Update and lock workflow
 

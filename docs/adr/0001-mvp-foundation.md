@@ -11,7 +11,7 @@ The architecture is broad enough to support the full product, but implementation
 
 ### Repository
 
-The product is one Go/TypeScript/Helm monorepo with module identity `github.com/kuberploy/kuberploy`. The organization remote begins private while authentication and supply-chain controls are under active construction. The source license is Apache-2.0.
+The product is one public Go/TypeScript/Helm monorepo with module identity `github.com/kuberploy/kuberploy`. The source license is Apache-2.0. Operator-specific deployment values and provider identities never belong in this repository.
 
 ### P0 human identity
 
@@ -41,9 +41,9 @@ The API/auth component may read session/bootstrap material. A credential-broker 
 
 The protected Application/ApplicationSet passes exactly three ordered value-file paths to the pinned `kuberploy-runtime` chart: project variables, environment variables, then the mandatory application document. Missing parent VariableSets are empty scopes. Operator-owned expected-identity Helm parameters ensure that the chart rejects a missing or substituted application document. There is no separately editable generated application values file. Both the API compiler and Argo render the same chart/version and schema.
 
-### Walking slices
+### MVP delivery boundaries
 
-Implementation proceeds in this order:
+The MVP was implemented through these durable boundaries:
 
 1. A minimal AppConfig in Git deploys a public image digest through Argo and `kuberploy-runtime`, exposes HTTP through Traefik on an explicitly selected conforming test cluster, and rolls back by creating a new protected Git intent selecting an eligible prior immutable deployment input.
 2. The API records an idempotent Deployment command, Operation, audit event and PostgreSQL outbox row; the relay signals a Valkey Stream; a worker writes the Git commit; the projection and status APIs converge on Argo health.
