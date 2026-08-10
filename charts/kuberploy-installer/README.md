@@ -3,12 +3,12 @@
 This chart is the single-invocation convergence path for a blank target cluster.
 The installer release runs in `kuberploy-system`, directly bootstraps Valkey and
 Argo CD, and then lets Argo reconcile every selected component from one exact
-Git commit.
+semantic release tag.
 
 One Helm invocation installs or adopts Argo CD through the pinned local
 `kuberploy-argocd` dependency and submits one retained Argo
 `Application` per explicitly enabled component. Each Application renders the
-existing wrapper at an exact Git commit into its fixed namespace and owns that
+existing wrapper at an explicit semantic release tag into its fixed namespace and owns that
 release independently. No privileged in-cluster Helm Job, shell, or reusable
 cluster credential is created.
 
@@ -18,12 +18,11 @@ Start from `testdata/managed-values.yaml` or `testdata/adopted-values.yaml` and
 replace every placeholder with operator-owned values. The irreducible inputs
 are:
 
-- a canonical HTTPS GitHub source URL and exact lowercase 40-character commit;
+- a canonical HTTPS GitHub source URL and explicit semantic release tag;
 - a release-manifest package version for every enabled component (recorded on
-  the Application for audit; the immutable Git commit is Argo's enforced source
-  identity because native Argo Helm sources do not accept OCI digests as
-  `targetRevision`);
-- commit-pinned, non-secret value files below `deploy/installer/` containing the
+  the Application for audit; the release tag is Argo's human-readable source
+  version while provenance and integrity are verified separately);
+- release-tagged, non-secret value files below `deploy/installer/` containing the
   existing Secret references, storage classes, API/provider egress CIDRs, DNS
   provider settings and public URL required by each selected wrapper;
 - explicit `managed` or `adopted` mode. Adoption still requires each wrapper's
@@ -37,7 +36,7 @@ temporary shared cache, or reusable cluster credential.
 
 The installer never accepts arbitrary inline child values. It stores only its
 small server-owned mode fence in each Application; all operator configuration
-comes from the same exact Git commit through bounded `valueFiles`. Credential
+comes from the same explicit release tag through bounded `valueFiles`. Credential
 bytes remain in pre-existing Kubernetes Secrets and must never be committed to
 those files.
 

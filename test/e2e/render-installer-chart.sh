@@ -35,7 +35,7 @@ diff -u "${kp_tmp}/managed-normalized.yaml" "${kp_tmp}/managed-again-normalized.
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .metadata.name' "${kp_tmp}/managed.yaml")" == "kuberploy-postgresql" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.destination.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-system" ]]
-[[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.targetRevision' "${kp_tmp}/managed.yaml")" == "1111111111111111111111111111111111111111" ]]
+[[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.targetRevision' "${kp_tmp}/managed.yaml")" == "0.1.0-rc.1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject.postgresqlFoundation.managed' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valuesObject.postgresqlFoundation.adoptExisting' "${kp_tmp}/managed.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.source.helm.valueFiles[0]' "${kp_tmp}/managed.yaml")" == "../../deploy/installer/example/postgresql.yaml" ]]
@@ -129,6 +129,7 @@ kp_expect_reject() {
 }
 
 kp_expect_reject "mutable source revision" --set-string source.targetRevision=main
+kp_expect_reject "opaque hash source revision" --set-string source.targetRevision=1111111111111111111111111111111111111111
 kp_expect_reject "missing package version" --set-string components.postgresql.expectedPackageVersion=
 kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.1
 kp_expect_reject "value file outside pinned installer directory" --set-string components.postgresql.valueFiles[0]=../../secrets.yaml

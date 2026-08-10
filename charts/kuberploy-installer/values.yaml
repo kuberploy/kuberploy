@@ -15,10 +15,9 @@ bootstrap:
     kubeAPIServerCIDRs: []
 
 source:
-  # Child charts are read from one immutable Git commit. Argo CD's native Helm
-  # source supports a Git commit as an enforceable content identity; an OCI
-  # package version is recorded separately for audit because Argo CD does not
-  # accept an OCI digest as a Helm targetRevision.
+  # Child charts are read from one explicit semantic release tag. The tag is
+  # the human-readable version selector; provenance and integrity are verified
+  # separately and are never presented as versions.
   repoURL: ""
   targetRevision: ""
   chartRoot: charts

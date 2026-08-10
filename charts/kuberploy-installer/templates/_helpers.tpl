@@ -93,7 +93,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- if and $anyChild (not $argo.enabled) -}}{{ fail "enabled child Applications require the explicit Argo CD bootstrap/adoption boundary" }}{{- end -}}
 {{- if $anyChild -}}
   {{- if not (regexMatch "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$" .Values.source.repoURL) -}}{{ fail "source.repoURL must be a canonical HTTPS GitHub repository URL without credentials" }}{{- end -}}
-  {{- if not (regexMatch "^[a-f0-9]{40}$" .Values.source.targetRevision) -}}{{ fail "source.targetRevision must be an exact lowercase 40-character Git commit" }}{{- end -}}
+  {{- if not (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$" .Values.source.targetRevision) -}}{{ fail "source.targetRevision must be an explicit semantic release tag" }}{{- end -}}
   {{- if ne .Values.source.chartRoot "charts" -}}{{ fail "source.chartRoot is locked to charts" }}{{- end -}}
 {{- else if or (ne .Values.source.repoURL "") (ne .Values.source.targetRevision "") (ne .Values.source.chartRoot "charts") -}}
   {{- fail "disabled installer rejects dormant source configuration" -}}

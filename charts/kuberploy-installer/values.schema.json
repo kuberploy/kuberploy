@@ -36,7 +36,11 @@
       "required": ["repoURL", "targetRevision", "chartRoot"],
       "properties": {
         "repoURL": { "type": "string", "maxLength": 240 },
-        "targetRevision": { "type": "string", "maxLength": 40 },
+        "targetRevision": {
+          "type": "string",
+          "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$",
+          "maxLength": 64
+        },
         "chartRoot": { "const": "charts" }
       }
     },
