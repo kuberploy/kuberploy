@@ -2,6 +2,13 @@
 
 set -Eeuo pipefail
 
+kp_report_error() {
+  local kp_status=$?
+  printf 'platform render check failed at line %s: %s\n' "${BASH_LINENO[0]}" "${BASH_COMMAND}" >&2
+  return "${kp_status}"
+}
+trap kp_report_error ERR
+
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-render.XXXXXX")"
 kp_remove_tmp() {
