@@ -50,7 +50,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "2" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Ingress" or .kind == "HTTPRoute" or .kind == "GRPCRoute")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all '[select(.kind == "Service" and .spec.type != "ClusterIP")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Service" and (.spec.type // "ClusterIP") != "ClusterIP")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .metadata.name] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "kuberploy-platform-root" ]]
