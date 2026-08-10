@@ -21,10 +21,11 @@ discovers or mutates cluster configuration on their behalf. Start from
 and replace every empty cluster-specific field with operator-owned values. The
 irreducible inputs are:
 
-- a canonical HTTPS GitHub source URL and explicit semantic release tag;
-- a release-manifest package version for every enabled component (recorded on
-  the Application for audit; the release tag is Argo's human-readable source
-  version while provenance and integrity are verified separately);
+- the fixed public Kuberploy OCI chart repository, a canonical HTTPS GitHub
+  values repository, and an explicit semantic release tag;
+- a release-manifest package version for every enabled component. Argo records
+  that readable OCI chart version on the Application; the matching Git tag
+  selects only reviewed non-secret value files;
 - release-tagged, non-secret example files below `examples/installer/` containing the
   existing Secret references, storage classes, API/provider egress CIDRs, DNS
   provider settings and public URL required by each selected wrapper;
@@ -40,11 +41,13 @@ Valkey, PostgreSQL, and Argo bootstrap Secrets, preserving their values through
 Helm `lookup` on upgrades. It creates no privileged in-cluster Helm Job, shell,
 temporary shared cache, or reusable cluster credential.
 
-The installer never accepts arbitrary inline child values. It stores only its
-small server-owned mode fence in each Application; all operator configuration
-comes from the same explicit release tag through bounded `valueFiles`. Credential
-bytes remain in pre-existing Kubernetes Secrets and must never be committed to
-those files.
+The installer never accepts arbitrary inline child values. Every Application
+executes the release-packaged OCI chart selected by
+`components.<name>.expectedPackageVersion`; it never executes chart templates
+from a Git checkout. Git is a separate, read-only `$values` source pinned to the
+matching explicit release tag and may supply only bounded paths below
+`examples/installer`. Credential bytes remain in pre-existing Kubernetes
+Secrets and must never be committed to those files.
 
 Enabling the control plane also requires explicit PostgreSQL authority and the
 installer-owned Valkey bootstrap. When Valkey is managed, the installer owns the control-plane
@@ -113,6 +116,12 @@ one-time token without putting it in Git, values, or Helm release storage.
 dormant API CIDRs; it never reads or discloses that Secret. There is no implicit
 mode, so enabling the control plane while this authority is `disabled` fails
 before Helm mutation.
+
+Managed Argo repository egress is also explicit. Populate
+`argoCD.argoFoundation.networkPolicy.repositoryEgressCIDRs` with the current
+published GitHub `git` ranges for the pinned values source and `packages`
+ranges for `ghcr.io` OCI charts. A Git-only allowlist cannot pull release
+charts; the installer never substitutes an all-address egress rule.
 
 `helm --wait` proves only that bootstrap objects and the direct Argo workload
 were accepted. It does not prove child Application health or Kuberploy runtime

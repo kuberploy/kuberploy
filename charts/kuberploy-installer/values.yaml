@@ -15,12 +15,12 @@ bootstrap:
     kubeAPIServerCIDRs: []
 
 source:
-  # Child charts are read from one explicit semantic release tag. The tag is
-  # the human-readable version selector; provenance and integrity are verified
-  # separately and are never presented as versions.
-  repoURL: ""
-  targetRevision: ""
-  chartRoot: charts
+  # Every child is installed from its release-packaged OCI chart using the
+  # component's explicit semantic version. Git is used only for optional,
+  # non-secret operator value files pinned to the matching release tag.
+  chartRepository: ghcr.io/kuberploy/charts
+  valuesRepository: ""
+  valuesRevision: ""
 
 applications:
   automated: true
@@ -53,6 +53,8 @@ components:
     mode: disabled
     adoptionConfirmed: false
     expectedPackageVersion: ""
+    # Paths are relative to the values repository root and must stay below
+    # examples/installer. They never change which OCI package is executed.
     valueFiles: []
   postgresql: *disabledComponent
   valkey: *disabledComponent

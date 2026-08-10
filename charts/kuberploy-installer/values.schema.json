@@ -33,15 +33,15 @@
     "source": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repoURL", "targetRevision", "chartRoot"],
+      "required": ["chartRepository", "valuesRepository", "valuesRevision"],
       "properties": {
-        "repoURL": { "type": "string", "maxLength": 240 },
-        "targetRevision": {
+        "chartRepository": { "const": "ghcr.io/kuberploy/charts" },
+        "valuesRepository": { "type": "string", "maxLength": 240 },
+        "valuesRevision": {
           "type": "string",
           "pattern": "^(?:|v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?)$",
           "maxLength": 64
-        },
-        "chartRoot": { "const": "charts" }
+        }
       }
     },
     "applications": {
@@ -173,7 +173,7 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^\\.\\./\\.\\./examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$"
+            "pattern": "^examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$"
           }
         }
       }

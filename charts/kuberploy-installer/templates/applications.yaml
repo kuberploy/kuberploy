@@ -1,16 +1,16 @@
 {{- include "kuberploy-installer.validate" . -}}
 {{- $root := . -}}
 {{- $catalog := list
-  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20" "dependencyRepo" "")
-  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0" "dependencyRepo" "")
-  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0" "dependencyRepo" "https://traefik.github.io/charts")
-  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5" "dependencyRepo" "https://charts.jetstack.io")
-  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "https://kubernetes-sigs.github.io/external-dns")
-  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0" "dependencyRepo" "https://charts.external-secrets.io")
-  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0" "dependencyRepo" "https://bitnami.github.io/sealed-secrets")
-  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10" "dependencyRepo" "https://prometheus-community.github.io/helm-charts")
-  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "")
-  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10" "dependencyRepo" "")
+  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20")
+  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0")
+  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0")
+  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5")
+  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10")
+  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0")
+  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0")
+  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10")
+  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10")
+  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10")
 -}}
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
@@ -106,10 +106,8 @@ metadata:
     {{- include "kuberploy-installer.labels" $root | nindent 4 }}
 spec:
   sourceRepos:
-    - {{ $root.Values.source.repoURL | quote }}
-    {{- if $item.dependencyRepo }}
-    - {{ $item.dependencyRepo | quote }}
-    {{- end }}
+    - {{ $root.Values.source.chartRepository | quote }}
+    - {{ $root.Values.source.valuesRepository | quote }}
   destinations:
     - server: https://kubernetes.default.svc
       namespace: {{ $item.namespace }}
@@ -156,19 +154,24 @@ metadata:
     kuberploy.io/component: {{ $item.key | quote }}
 spec:
   project: {{ $item.application }}
-  source:
-    repoURL: {{ $root.Values.source.repoURL | quote }}
-    targetRevision: {{ $root.Values.source.targetRevision | quote }}
-    path: {{ printf "%s/%s" $root.Values.source.chartRoot $item.chart | quote }}
-    helm:
-      releaseName: {{ $item.release | quote }}
-      ignoreMissingValueFiles: false
-      {{- with $component.valueFiles }}
-      valueFiles:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      valuesObject:
-        {{- toYaml $childValues | nindent 8 }}
+  sources:
+    - repoURL: {{ $root.Values.source.chartRepository | quote }}
+      chart: {{ $item.chart | quote }}
+      targetRevision: {{ $component.expectedPackageVersion | quote }}
+      helm:
+        releaseName: {{ $item.release | quote }}
+        ignoreMissingValueFiles: false
+        {{- with $component.valueFiles }}
+        valueFiles:
+          {{- range . }}
+          - {{ printf "$values/%s" . | quote }}
+          {{- end }}
+        {{- end }}
+        valuesObject:
+          {{- toYaml $childValues | nindent 10 }}
+    - repoURL: {{ $root.Values.source.valuesRepository | quote }}
+      targetRevision: {{ $root.Values.source.valuesRevision | quote }}
+      ref: values
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $item.namespace }}

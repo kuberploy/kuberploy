@@ -7,8 +7,9 @@ bootstrap:
     managedPrerequisitesConfirmed: true
 
 source:
-  repoURL: https://github.com/kuberploy/kuberploy.git
-  targetRevision: "v0.1.0-rc.12"
+  chartRepository: ghcr.io/kuberploy/charts
+  valuesRepository: https://github.com/kuberploy/kuberploy.git
+  valuesRevision: "v0.1.0-rc.12"
 
 components:
   postgresql:
@@ -17,7 +18,7 @@ components:
     adoptionConfirmed: false
     expectedPackageVersion: 0.1.0-rc.12
     valueFiles:
-      - ../../examples/installer/postgresql.yaml
+      - examples/installer/postgresql.yaml
 
 argoCD:
   argoFoundation:

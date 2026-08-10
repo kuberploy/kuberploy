@@ -1,8 +1,9 @@
 # Kuberploy managed platform installer values.
 #
 # Fill both CIDR lists before use. They must contain exact /32 or /128 hosts:
-# the Kubernetes Service/API endpoints and the HTTPS endpoints Argo needs to
-# fetch this repository plus the enabled child-chart repositories.
+# the Kubernetes Service/API endpoints and the HTTPS endpoints Argo needs.
+# repositoryEgressCIDRs must include both the current GitHub `git` ranges for
+# the values source and the current GitHub `packages` ranges for GHCR charts.
 bootstrap:
   valkey:
     enabled: true
@@ -18,8 +19,9 @@ cluster:
   kubeAPIServerCIDRs: []
 
 source:
-  repoURL: https://github.com/kuberploy/kuberploy.git
-  targetRevision: v0.1.0-rc.12
+  chartRepository: ghcr.io/kuberploy/charts
+  valuesRepository: https://github.com/kuberploy/kuberploy.git
+  valuesRevision: v0.1.0-rc.12
 
 publicEndpoint:
   enabled: false
@@ -44,7 +46,7 @@ components:
     adoptionConfirmed: false
     expectedPackageVersion: 0.1.0-rc.12
     valueFiles:
-      - ../../examples/installer/postgresql.yaml
+      - examples/installer/postgresql.yaml
   valkey:
     enabled: true
     mode: managed

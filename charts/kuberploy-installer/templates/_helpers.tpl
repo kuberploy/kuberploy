@@ -31,8 +31,8 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
     {{- fail (printf "components.%s.expectedPackageVersion must be an explicit semantic version" $name) -}}
   {{- end -}}
   {{- range $valueFile := $component.valueFiles -}}
-    {{- $relative := trimPrefix "../../examples/installer/" $valueFile -}}
-    {{- if or (not (regexMatch "^../../examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$" $valueFile)) (contains ".." $relative) (contains "//" $relative) -}}
+    {{- $relative := trimPrefix "examples/installer/" $valueFile -}}
+    {{- if or (not (regexMatch "^examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$" $valueFile)) (contains ".." $relative) (contains "//" $relative) -}}
       {{- fail (printf "components.%s.valueFiles must stay below examples/installer in the same release tag" $name) -}}
     {{- end -}}
   {{- end -}}
@@ -121,10 +121,10 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 
 {{- if and $anyChild (not $argo.enabled) -}}{{ fail "enabled child Applications require the explicit Argo CD bootstrap/adoption boundary" }}{{- end -}}
 {{- if $anyChild -}}
-  {{- if not (regexMatch "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$" .Values.source.repoURL) -}}{{ fail "source.repoURL must be a canonical HTTPS GitHub repository URL without credentials" }}{{- end -}}
-  {{- if not (regexMatch "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$" .Values.source.targetRevision) -}}{{ fail "source.targetRevision must be an explicit v-prefixed semantic release tag" }}{{- end -}}
-  {{- if ne .Values.source.chartRoot "charts" -}}{{ fail "source.chartRoot is locked to charts" }}{{- end -}}
-{{- else if or (ne .Values.source.repoURL "") (ne .Values.source.targetRevision "") (ne .Values.source.chartRoot "charts") -}}
+  {{- if ne .Values.source.chartRepository "ghcr.io/kuberploy/charts" -}}{{ fail "source.chartRepository is locked to the public Kuberploy OCI chart repository" }}{{- end -}}
+  {{- if not (regexMatch "^https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\\.git$" .Values.source.valuesRepository) -}}{{ fail "source.valuesRepository must be a canonical HTTPS GitHub repository URL without credentials" }}{{- end -}}
+  {{- if not (regexMatch "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$" .Values.source.valuesRevision) -}}{{ fail "source.valuesRevision must be an explicit v-prefixed semantic release tag" }}{{- end -}}
+{{- else if or (ne .Values.source.valuesRepository "") (ne .Values.source.valuesRevision "") (ne .Values.source.chartRepository "ghcr.io/kuberploy/charts") -}}
   {{- fail "disabled installer rejects dormant source configuration" -}}
 {{- end -}}
 {{- end -}}

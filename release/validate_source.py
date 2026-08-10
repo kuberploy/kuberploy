@@ -86,9 +86,9 @@ def main() -> None:
         fixture = (
             args.root / "charts" / "kuberploy-installer" / "testdata" / fixture_name
         ).read_text(encoding="utf-8")
-        if yaml_scalar(fixture, ("source", "targetRevision")) != f"v{version}":
+        if yaml_scalar(fixture, ("source", "valuesRevision")) != f"v{version}":
             raise SystemExit(
-                f"installer {fixture_name} source tag must match v{version}"
+                f"installer {fixture_name} values tag must match v{version}"
             )
         if (
             yaml_scalar(
