@@ -13,7 +13,7 @@ Install Kuberploy from the public OCI installer chart.
 
 Usage:
   scripts/install.sh \
-    --version 0.1.0-rc.4 \
+    --version 0.1.0-rc.5 \
     --kubeconfig /absolute/path/to/kubeconfig \
     --context exact-context \
     [--yes]

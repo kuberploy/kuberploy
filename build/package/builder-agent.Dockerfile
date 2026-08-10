@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/library/golang:1.26.5-alpine3.24 AS build
+FROM docker.io/library/golang:1.26-alpine3.24 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -18,7 +18,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-build-agent ./cmd/kuberploy-build-agent
 
-FROM docker.io/library/alpine:3.24.1 AS buildx
+FROM docker.io/library/alpine:3.24 AS buildx
 
 ARG TARGETARCH
 RUN set -eu; \
@@ -31,9 +31,9 @@ RUN set -eu; \
     echo "${checksum}  /docker-buildx" | sha256sum -c -; \
     chmod 0755 /docker-buildx
 
-FROM docker.io/library/docker:29.7.1-dind AS docker-cli
+FROM docker.io/library/docker:29-dind AS docker-cli
 
-FROM docker.io/library/alpine:3.24.1
+FROM docker.io/library/alpine:3.24
 
 RUN apk add --no-cache \
       ca-certificates=20260611-r0 \

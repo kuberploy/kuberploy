@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1.7
-FROM node:26.7.0-alpine AS build
+FROM docker.io/library/node:26-alpine AS build
 WORKDIR /workspace
-RUN corepack enable && corepack prepare pnpm@11.20.0 --activate
+RUN npm install --global pnpm@11.20.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM nginx:1.31.3-alpine
+FROM docker.io/library/nginx:1.31-alpine
 ENV KUBERPLOY_API_UPSTREAM=http://kuberploy-api:8080
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /workspace/dist /usr/share/nginx/html

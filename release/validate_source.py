@@ -322,8 +322,17 @@ def main() -> None:
         args.root / "web/Dockerfile",
     ]
     readable_image_version = re.compile(
-        r"^[^\s@]+:v?\d+\.\d+(?:\.\d+)?(?:[-.][A-Za-z0-9][A-Za-z0-9.-]*)?$"
+        r"^[^\s@]+:v?\d+(?:\.\d+){0,2}(?:[-.][A-Za-z0-9][A-Za-z0-9.-]*)?$"
     )
+    allowed_base_images = {
+        "docker.io/alpine/helm:4.2",
+        "docker.io/library/alpine:3.24",
+        "docker.io/library/docker:29-dind",
+        "docker.io/library/golang:1.26-alpine3.24",
+        "docker.io/library/nginx:1.31-alpine",
+        "docker.io/library/node:26-alpine",
+        "docker.io/library/registry:3",
+    }
     for dockerfile_path in dockerfiles:
         dockerfile = dockerfile_path.read_text(encoding="utf-8")
         from_lines = re.findall(r"(?m)^FROM\s+([^\s]+)", dockerfile)
@@ -331,6 +340,12 @@ def main() -> None:
             raise SystemExit(f"release image base lacks an explicit readable version: {dockerfile_path}")
         if any("@sha256:" in reference for reference in from_lines):
             raise SystemExit(f"release image base uses an opaque digest selector: {dockerfile_path}")
+        unsupported_base_images = sorted(set(from_lines) - allowed_base_images)
+        if unsupported_base_images:
+            raise SystemExit(
+                f"release image base is outside the selected update lines: {dockerfile_path}: "
+                + ", ".join(unsupported_base_images)
+            )
         if ":latest" in dockerfile.lower():
             raise SystemExit(f"release Dockerfile contains a latest reference: {dockerfile_path}")
     worker_dockerfile = (args.root / "build/package/worker.Dockerfile").read_text(encoding="utf-8")

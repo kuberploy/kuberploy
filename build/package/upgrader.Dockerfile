@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/alpine/helm:4.2.3
+FROM docker.io/alpine/helm:4.2
 
 ARG VERSION=dev
 ARG REVISION=unknown

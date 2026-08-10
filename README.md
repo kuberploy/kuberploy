@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.4` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.5` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 
 ## Highlights
@@ -64,11 +64,11 @@ kubeconfig and context it may change:
 
 ```bash
 curl -fsSLo kuberploy-install.sh \
-  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.4/scripts/install.sh
+  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.5/scripts/install.sh
 chmod +x kuberploy-install.sh
 
 ./kuberploy-install.sh \
-  --version 0.1.0-rc.4 \
+  --version 0.1.0-rc.5 \
   --kubeconfig /absolute/path/to/kubeconfig \
   --context exact-context
 ```

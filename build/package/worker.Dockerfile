@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/library/golang:1.26.5-alpine3.24 AS build
+FROM docker.io/library/golang:1.26-alpine3.24 AS build
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -33,9 +33,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 # The exact Distribution binary is used only by the stopped-registry helper
 # Job. It is never invoked by the long-running worker process.
-FROM docker.io/library/registry:3.1.1 AS registry-cli
+FROM docker.io/library/registry:3 AS registry-cli
 
-FROM docker.io/library/alpine:3.24.1
+FROM docker.io/library/alpine:3.24
 
 RUN apk add --no-cache \
       ca-certificates=20260611-r0 \

@@ -115,9 +115,11 @@ The chart-declared Kubernetes constraints are compatible with Kuberploy's 1.34-1
 
 ## Verified service and build images
 
-The image selectors below use readable version tags. Their published indexes
-include both `linux/amd64` and `linux/arm64`, matching Kuberploy's release
-platform contract.
+The image selectors below use readable version tags. Dockerfile base images
+lock the maintained release line (for example Go `1.26`, nginx `1.31`, and
+Node `26`) so rebuilds receive the latest patch on that line. Their published
+indexes include both `linux/amd64` and `linux/arm64`, matching Kuberploy's
+release platform contract.
 
 | Purpose                               | Versioned image                                                                        |
 | ------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -127,12 +129,14 @@ platform contract.
 | PostgreSQL                            | `docker.io/library/postgres:18.4-alpine3.24`                                           |
 | Valkey                                | `docker.io/valkey/valkey:9.1.1`                                                        |
 | Managed OCI registry                  | `docker.io/library/registry:3.1.1`                                                     |
-| Alpine runtime                        | `docker.io/library/alpine:3.24.1`                                                      |
-| Go builder                            | `docker.io/library/golang:1.26.5-alpine3.24`                                           |
-| Node builder                          | `docker.io/library/node:26.7.0-alpine`                                                 |
-| nginx stable runtime                  | `docker.io/library/nginx:1.31.3-alpine`                                                |
+| Alpine runtime base                   | `docker.io/library/alpine:3.24`                                                        |
+| Go builder base                       | `docker.io/library/golang:1.26-alpine3.24`                                             |
+| Node builder base                     | `docker.io/library/node:26-alpine`                                                     |
+| nginx runtime base                    | `docker.io/library/nginx:1.31-alpine`                                                  |
+| Docker CLI base                       | `docker.io/library/docker:29-dind`                                                     |
+| Registry CLI base                     | `docker.io/library/registry:3`                                                         |
 | API, worker and builder-agent runtime | Alpine `3.24.1`, with CA certificates `20260611-r0` and Git `2.54.0-r0` where required |
-| Helm 4.2.3 upgrader runtime           | `docker.io/alpine/helm:4.2.3`                                                          |
+| Helm upgrader base                    | `docker.io/alpine/helm:4.2`                                                            |
 
 Every runtime base uses a readable version tag. Generated Kuberploy application
 releases still record content digests as deployment integrity, but dependency
