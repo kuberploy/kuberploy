@@ -25,6 +25,7 @@ func generatedBuildRequest(operationID string, generation int64, projectID, serv
 		APIVersion: builder.ProtocolVersion, OperationID: operationID, Generation: generation,
 		ProjectID: projectID, ServiceID: serviceID, Commit: commit,
 		ContextPath: spec.ContextPath, DockerfilePath: spec.DockerfilePath, Platforms: platforms,
+		BuildKitImage: spec.Execution.BuildKitImage,
 		Destination: builder.Destination{
 			Repository: spec.Registry.Server + "/" + spec.Registry.RepositoryPrefix + "/projects/" + projectID + "/services/" + serviceID + "/image",
 			Reference:  fmt.Sprintf("candidate-%s-g%d-%s", compactOperation, generation, commit[:12]),

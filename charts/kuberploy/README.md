@@ -76,7 +76,8 @@ receipt/build reconciliation, and post-build registry release/cache projection.
 only exact `/32` or `/128` hosts (or stable egress-proxy hosts); they are copied
 into each immutable build definition and cannot overlap a configured Kubernetes
 API address. `builder` and `builds` remain false in `/v1/capabilities` until a
-worker with the exact matching App ID, namespace, agent digest, and runtime
+worker with the exact matching App ID, namespace, agent digest, explicit
+`builder.buildKitImage` reference, and runtime
 profile has proved its projected App key, configured all three required worker
 loops, and reported a fresh durable heartbeat.
 

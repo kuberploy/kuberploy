@@ -18,26 +18,24 @@ import (
 )
 
 type Agent struct {
-	Executor      CommandExecutor
-	DockerBinary  string
-	DockerSocket  string
-	BuildKitImage string
-	CheckoutRoot  string
-	RuntimeRoot   string
-	WaitInterval  time.Duration
-	Now           func() time.Time
+	Executor     CommandExecutor
+	DockerBinary string
+	DockerSocket string
+	CheckoutRoot string
+	RuntimeRoot  string
+	WaitInterval time.Duration
+	Now          func() time.Time
 }
 
 func NewAgent(executor CommandExecutor) *Agent {
 	return &Agent{
-		Executor:      executor,
-		DockerBinary:  "docker",
-		DockerSocket:  DefaultDockerSocket,
-		BuildKitImage: DefaultBuildKitImage,
-		CheckoutRoot:  DefaultCheckoutRoot,
-		RuntimeRoot:   "/result",
-		WaitInterval:  250 * time.Millisecond,
-		Now:           time.Now,
+		Executor:     executor,
+		DockerBinary: "docker",
+		DockerSocket: DefaultDockerSocket,
+		CheckoutRoot: DefaultCheckoutRoot,
+		RuntimeRoot:  "/result",
+		WaitInterval: 250 * time.Millisecond,
+		Now:          time.Now,
 	}
 }
 
@@ -50,9 +48,6 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	}
 	if err := validateUnixSocket(a.DockerSocket); err != nil {
 		return BuildResult{}, err
-	}
-	if a.BuildKitImage != DefaultBuildKitImage {
-		return BuildResult{}, errors.New("agent must use the locked BuildKit image")
 	}
 	started := a.Now().UTC()
 	runtimeDirectory, err := os.MkdirTemp(a.RuntimeRoot, ".builder-runtime-*")
@@ -85,7 +80,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, err
 	}
 	builderName := deterministicBuilderName(request.OperationID, request.Generation)
-	if err := a.createBuilder(ctx, pushDockerConfig, builderName); err != nil {
+	if err := a.createBuilder(ctx, pushDockerConfig, builderName, request.BuildKitImage); err != nil {
 		return BuildResult{}, err
 	}
 	defer func() {
@@ -186,12 +181,12 @@ func (a *Agent) waitForDaemon(ctx context.Context, configDirectory string) error
 	}
 }
 
-func (a *Agent) createBuilder(ctx context.Context, configDirectory, name string) error {
+func (a *Agent) createBuilder(ctx context.Context, configDirectory, name, buildKitImage string) error {
 	create := Invocation{Argv: a.dockerArgs(configDirectory,
 		"buildx", "create",
 		"--name", name,
 		"--driver", "docker-container",
-		"--driver-opt", "image="+a.BuildKitImage,
+		"--driver-opt", "image="+buildKitImage,
 		"--use",
 	), Env: dockerEnvironment(configDirectory)}
 	if _, err := a.Executor.Execute(ctx, create); err != nil {

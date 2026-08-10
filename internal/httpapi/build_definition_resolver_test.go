@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
@@ -52,6 +53,7 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 			builds.GitHubBuildsEnabledEnv: "true", builds.GitHubAppIDEnv: "12345", builds.GitHubAppClientIDEnv: "Iv1_KuberployClient",
 			builds.BuilderNamespaceEnv: "kuberploy-build-dind", builds.BuilderPodServiceAccountEnv: "kuberploy-build-pod",
 			builds.BuilderAgentImageEnv:        "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
+			builds.BuilderBuildKitImageEnv:     builder.DefaultBuildKitImage,
 			builds.BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
 		}
 		value, ok := values[name]

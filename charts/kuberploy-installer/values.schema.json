@@ -111,7 +111,7 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
+          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "buildKitImage", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
             "enabled": { "type": "boolean" },
             "appID": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
@@ -119,6 +119,7 @@
             "appSlug": { "type": "string", "maxLength": 100 },
             "secretName": { "$ref": "#/$defs/optionalDNSLabel" },
             "clusterID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "buildKitImage": { "type": "string", "maxLength": 512, "pattern": "^(?:|[^\\s@]+:v0\\.32\\.2)$" },
             "controlPlaneEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
             "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
             "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
@@ -126,11 +127,11 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "const": 0 }, "clientID": { "const": "" }, "appSlug": { "const": "" }, "secretName": { "const": "" }, "clusterID": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "sourceEgressCIDRs": { "maxItems": 0 }, "registryEgressCIDRs": { "maxItems": 0 } } }
+              "then": { "properties": { "appID": { "const": 0 }, "clientID": { "const": "" }, "appSlug": { "const": "" }, "secretName": { "const": "" }, "clusterID": { "const": "" }, "buildKitImage": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "sourceEgressCIDRs": { "maxItems": 0 }, "registryEgressCIDRs": { "maxItems": 0 } } }
             },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "controlPlaneEgressCIDRs": { "minItems": 1 }, "sourceEgressCIDRs": { "minItems": 1 }, "registryEgressCIDRs": { "minItems": 1 } } }
+              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "buildKitImage": { "minLength": 12 }, "controlPlaneEgressCIDRs": { "minItems": 1 }, "sourceEgressCIDRs": { "minItems": 1 }, "registryEgressCIDRs": { "minItems": 1 } } }
             }
           ]
         },

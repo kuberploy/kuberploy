@@ -57,6 +57,7 @@ integrations:
     appSlug: ""
     secretName: ""
     clusterID: ""
+    buildKitImage: ""
     # Exact current GitHub/API endpoints or stable operator egress proxies.
     controlPlaneEgressCIDRs: []
     sourceEgressCIDRs: []

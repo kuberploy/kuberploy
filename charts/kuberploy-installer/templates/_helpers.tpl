@@ -123,12 +123,12 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- if $github.enabled -}}
   {{- if or (not .Values.components.controlPlane.enabled) (not .Values.components.builder.enabled) -}}{{ fail "GitHub integration requires enabled controlPlane and builder components" }}{{- end -}}
   {{- if or (not $public.enabled) (not $public.tls.enabled) -}}{{ fail "GitHub integration requires the public HTTPS endpoint" }}{{- end -}}
-  {{- if or (le (int64 $github.appID) 0) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{5,127}$" $github.clientID)) (not (regexMatch "^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$" $github.appSlug)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.secretName)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.clusterID)) -}}{{ fail "GitHub integration identities are invalid" }}{{- end -}}
+  {{- if or (le (int64 $github.appID) 0) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{5,127}$" $github.clientID)) (not (regexMatch "^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$" $github.appSlug)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.secretName)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.clusterID)) (not (regexMatch "^[^\\s@]+:v0\\.32\\.2$" $github.buildKitImage)) -}}{{ fail "GitHub integration identities and BuildKit image are invalid" }}{{- end -}}
   {{- if or (empty $github.controlPlaneEgressCIDRs) (empty $github.sourceEgressCIDRs) (empty $github.registryEgressCIDRs) -}}{{ fail "GitHub integration requires exact control-plane, source, and registry egress CIDRs" }}{{- end -}}
   {{- range concat $github.controlPlaneEgressCIDRs $github.sourceEgressCIDRs $github.registryEgressCIDRs -}}
     {{- if or (has . (list "0.0.0.0/0" "::/0")) (not (regexMatch "(?:/32|/128)$" .)) -}}{{ fail "GitHub integration egress accepts only exact /32 or /128 hosts" }}{{- end -}}
   {{- end -}}
-{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) -}}
+{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (ne $github.buildKitImage "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) -}}
   {{- fail "disabled GitHub integration rejects dormant configuration" -}}
 {{- end -}}
 

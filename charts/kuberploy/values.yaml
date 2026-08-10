@@ -294,6 +294,9 @@ rbac:
 builder:
   enabled: false
   builderAgentImage: ""
+  # Exact BuildKit release used by the isolated docker-container driver. An
+  # operator may mirror this version into a fixed approved registry.
+  buildKitImage: docker.io/moby/buildkit:v0.32.2
   namespace:
     create: true
     name: kuberploy-build-dind

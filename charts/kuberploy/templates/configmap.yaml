@@ -811,6 +811,7 @@ data:
   KUBERPLOY_BUILDER_NAMESPACE: {{ .Values.builder.namespace.name | quote }}
   KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT: {{ .Values.builder.podServiceAccount.name | quote }}
   KUBERPLOY_BUILDER_AGENT_IMAGE: {{ .Values.builder.builderAgentImage | quote }}
+  KUBERPLOY_BUILDER_BUILDKIT_IMAGE: {{ .Values.builder.buildKitImage | quote }}
   KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS: {{ join "," .Values.builder.networkPolicy.sourceEgressCIDRs | quote }}
   KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS: {{ join "," .Values.builder.networkPolicy.registryEgressCIDRs | quote }}
   KUBERPLOY_API_UPSTREAM: {{ printf "http://%s-api:%v" (include "kuberploy.fullname" .) .Values.components.api.port | quote }}

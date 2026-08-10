@@ -16,7 +16,10 @@ import (
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
-var digestImageRE = regexp.MustCompile(`^[^\s@]+@sha256:[0-9a-f]{64}$`)
+var (
+	digestImageRE   = regexp.MustCompile(`^[^\s@]+@sha256:[0-9a-f]{64}$`)
+	buildKitImageRE = regexp.MustCompile(`^[^\s@]+:v0\.32\.2$`)
+)
 
 const (
 	GitHubBuildsEnabledEnv        = "KUBERPLOY_GITHUB_BUILDS_ENABLED"
@@ -25,6 +28,7 @@ const (
 	BuilderNamespaceEnv           = "KUBERPLOY_BUILDER_NAMESPACE"
 	BuilderPodServiceAccountEnv   = "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT"
 	BuilderAgentImageEnv          = "KUBERPLOY_BUILDER_AGENT_IMAGE"
+	BuilderBuildKitImageEnv       = "KUBERPLOY_BUILDER_BUILDKIT_IMAGE"
 	BuilderSourceEgressCIDRsEnv   = "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS"
 	BuilderRegistryEgressCIDRsEnv = "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS"
 )
@@ -37,6 +41,7 @@ type WorkerRuntimeConfig struct {
 	BuilderNamespace         string
 	BuilderPodServiceAccount string
 	BuilderAgentImage        string
+	BuildKitImage            string
 	SourceEgressCIDRs        []string
 	RegistryEgressCIDRs      []string
 	GitHub                   githubapp.Config
@@ -56,10 +61,11 @@ func (c WorkerRuntimeConfig) RuntimeDigest() (string, error) {
 		BuilderNamespace         string
 		BuilderPodServiceAccount string
 		BuilderAgentImage        string
+		BuildKitImage            string
 		SourceEgressCIDRs        []string
 		RegistryEgressCIDRs      []string
 		Execution                ExecutionSettings
-	}{1, "deliveries+builds+release-projection", c.GitHub.AppID, c.GitHub.ClientID, c.BuilderNamespace, c.BuilderPodServiceAccount, c.BuilderAgentImage,
+	}{1, "deliveries+builds+release-projection", c.GitHub.AppID, c.GitHub.ClientID, c.BuilderNamespace, c.BuilderPodServiceAccount, c.BuilderAgentImage, c.BuildKitImage,
 		slices.Clone(c.SourceEgressCIDRs), slices.Clone(c.RegistryEgressCIDRs), c.executionTemplate()}
 	encoded, err := json.Marshal(view)
 	if err != nil {
@@ -104,7 +110,7 @@ func (c WorkerRuntimeConfig) ExecutionSettings(registryPort int) (ExecutionSetti
 
 func (c WorkerRuntimeConfig) executionTemplate() ExecutionSettings {
 	return ExecutionSettings{
-		Namespace: c.BuilderNamespace, PodServiceAccount: c.BuilderPodServiceAccount, BuilderAgentImage: c.BuilderAgentImage,
+		Namespace: c.BuilderNamespace, PodServiceAccount: c.BuilderPodServiceAccount, BuilderAgentImage: c.BuilderAgentImage, BuildKitImage: c.BuildKitImage,
 		NodeSelector:       map[string]string{"kuberploy.io/node-class": "dind-builder"},
 		Toleration:         builder.TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 		CheckoutResources:  builder.ContainerResources{CPURequest: "100m", MemoryRequest: "128Mi", EphemeralStorageRequest: "1Gi", CPULimit: "1", MemoryLimit: "512Mi", EphemeralStorageLimit: "2Gi"},
@@ -117,7 +123,7 @@ func (c WorkerRuntimeConfig) executionTemplate() ExecutionSettings {
 
 func (c WorkerRuntimeConfig) validateEnabled() error {
 	if !c.Enabled || c.GitHub.Validate() != nil || !kubeNameRE.MatchString(c.BuilderNamespace) ||
-		!kubeNameRE.MatchString(c.BuilderPodServiceAccount) || !validRuntimeAgentImage(c.BuilderAgentImage) ||
+		!kubeNameRE.MatchString(c.BuilderPodServiceAccount) || !validRuntimeAgentImage(c.BuilderAgentImage) || !validRuntimeBuildKitImage(c.BuildKitImage) ||
 		len(c.SourceEgressCIDRs) == 0 || len(c.RegistryEgressCIDRs) == 0 {
 		return ErrInvalid
 	}
@@ -148,10 +154,11 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 	namespace := lookupExact(lookup, BuilderNamespaceEnv)
 	podServiceAccount := lookupExact(lookup, BuilderPodServiceAccountEnv)
 	agentImage := lookupExact(lookup, BuilderAgentImageEnv)
+	buildKitImage := lookupExact(lookup, BuilderBuildKitImageEnv)
 	sourceCIDRs, sourceErr := parseHostCIDRs(lookupExact(lookup, BuilderSourceEgressCIDRsEnv))
 	registryCIDRs, registryErr := parseHostCIDRs(lookupExact(lookup, BuilderRegistryEgressCIDRsEnv))
 	if appIDValue == "" || clientID == "" || namespace == "" || !kubeNameRE.MatchString(namespace) ||
-		!kubeNameRE.MatchString(podServiceAccount) || !validRuntimeAgentImage(agentImage) || sourceErr != nil || registryErr != nil {
+		!kubeNameRE.MatchString(podServiceAccount) || !validRuntimeAgentImage(agentImage) || !validRuntimeBuildKitImage(buildKitImage) || sourceErr != nil || registryErr != nil {
 		return WorkerRuntimeConfig{}, errors.New("enabled GitHub builds require exact provider identity, immutable builder runtime, and host egress CIDRs")
 	}
 	appID, err := strconv.ParseInt(appIDValue, 10, 64)
@@ -167,7 +174,7 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 		return WorkerRuntimeConfig{}, err
 	}
 	config := WorkerRuntimeConfig{Enabled: true, BuilderNamespace: namespace, BuilderPodServiceAccount: podServiceAccount,
-		BuilderAgentImage: agentImage, SourceEgressCIDRs: sourceCIDRs, RegistryEgressCIDRs: registryCIDRs, GitHub: githubConfig}
+		BuilderAgentImage: agentImage, BuildKitImage: buildKitImage, SourceEgressCIDRs: sourceCIDRs, RegistryEgressCIDRs: registryCIDRs, GitHub: githubConfig}
 	if err = config.validateEnabled(); err != nil {
 		return WorkerRuntimeConfig{}, err
 	}
@@ -176,6 +183,10 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 
 func validRuntimeAgentImage(value string) bool {
 	return len(value) >= 80 && len(value) <= 512 && digestImageRE.MatchString(value)
+}
+
+func validRuntimeBuildKitImage(value string) bool {
+	return len(value) >= len("a/b:v0.32.2") && len(value) <= 512 && buildKitImageRE.MatchString(value)
 }
 
 func parseHostCIDRs(raw string) ([]string, error) {

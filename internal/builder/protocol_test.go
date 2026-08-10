@@ -25,6 +25,7 @@ func validBuildRequest() BuildRequest {
 		ContextPath:    ".",
 		DockerfilePath: "Dockerfile",
 		Platforms:      []string{"linux/amd64", "linux/arm64"},
+		BuildKitImage:  DefaultBuildKitImage,
 		Destination: Destination{
 			Repository: server + "/" + prefix + "/projects/" + projectID + "/services/" + serviceID + "/image",
 			Reference:  "candidate-11111111111141118111111111111111-g2-bbbbbbbbbbbb",
@@ -83,6 +84,10 @@ func TestBuildRequestRejectsCommitAndPathEscapes(t *testing.T) {
 		{name: "uppercase commit", mutate: func(r *BuildRequest) { r.Commit = strings.ToUpper(r.Commit) }},
 		{name: "context traversal", mutate: func(r *BuildRequest) { r.ContextPath = "../secrets" }},
 		{name: "absolute Dockerfile", mutate: func(r *BuildRequest) { r.DockerfilePath = "/etc/passwd" }},
+		{name: "missing BuildKit image", mutate: func(r *BuildRequest) { r.BuildKitImage = "" }},
+		{name: "mutable BuildKit image", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit:latest" }},
+		{name: "wrong BuildKit version", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit:v0.32.1" }},
+		{name: "BuildKit digest instead of text version", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit@sha256:" + strings.Repeat("a", 64) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

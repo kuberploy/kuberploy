@@ -32,6 +32,7 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 		APIVersion: builder.ProtocolVersion, OperationID: testAttemptID, Generation: 2,
 		ProjectID: testProjectID, ServiceID: testApplicationID, Commit: strings.Repeat("b", 40),
 		ContextPath: ".", DockerfilePath: "Dockerfile", Platforms: []string{"linux/amd64"},
+		BuildKitImage: builder.DefaultBuildKitImage,
 		Destination: builder.Destination{
 			Repository: server + "/" + prefix + "/projects/" + testProjectID + "/services/" + testApplicationID + "/image",
 			Reference:  "candidate-11111111111141118111111111111111-g2-bbbbbbbbbbbb",

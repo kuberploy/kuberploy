@@ -214,6 +214,7 @@ kp_github_args=(
   --set-string integrations.github.appSlug=kuberploy-test
   --set-string integrations.github.secretName=kuberploy-github-app
   --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222
+  --set-string integrations.github.buildKitImage=registry.example.test/platform/buildkit:v0.32.2
   --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32
   --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32
   --set-string integrations.github.registryEgressCIDRs[0]=192.0.2.12/32

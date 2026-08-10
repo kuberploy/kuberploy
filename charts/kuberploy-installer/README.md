@@ -143,6 +143,9 @@ published control-plane chart.
 Use stable egress proxies when GitHub or registry destinations do not have
 stable host routes. The control-plane, source checkout, and registry lanes are
 separate arrays so a registry route cannot silently become GitHub API access.
+Set `integrations.github.buildKitImage` to the explicit `v0.32.2` image in a
+fixed approved mirror when Docker Hub endpoints rotate; the installer passes
+the same reference to both the control plane and builder boundary.
 
 `integrations.registry` makes the managed registry component installable from
 the same Helm release without placing registry credentials in an Argo

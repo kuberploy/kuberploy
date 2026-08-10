@@ -55,6 +55,11 @@ receives the handoff.
    credential. The final image phase receives only the release-push credential
    and has no registry-cache flags. Both phases share the same private BuildKit
    content store, so successful work is reused without sharing Docker auth.
+   The operator-owned `buildKitImage` is copied into the runtime digest,
+   immutable definition, and closed agent request. It must name the explicit
+   `v0.32.2` release. Operators with exact-host egress should mirror that
+   version into an approved fixed registry instead of relying on Docker Hub's
+   rotating endpoints.
    Cache export uses `mode=max`, OCI media types, and an image manifest. A
    confirmed cache promotion becomes `generation-N`; an unavailable candidate
    records `CacheDegraded` and is never advertised.

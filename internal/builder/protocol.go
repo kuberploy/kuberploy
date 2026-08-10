@@ -53,6 +53,7 @@ type BuildRequest struct {
 	ContextPath    string              `json:"contextPath"`
 	DockerfilePath string              `json:"dockerfilePath"`
 	Platforms      []string            `json:"platforms"`
+	BuildKitImage  string              `json:"buildKitImage"`
 	Destination    Destination         `json:"destination"`
 	Registry       RegistryCredentials `json:"registry"`
 	BuildArgs      []BuildArg          `json:"buildArgs"`
@@ -181,6 +182,9 @@ func (r BuildRequest) Validate() error {
 	if !slices.IsSorted(r.Platforms) {
 		return errors.New("platforms must use canonical sorted order")
 	}
+	if err := validateBuildKitImage(r.BuildKitImage); err != nil {
+		return err
+	}
 	seenPlatforms := map[string]struct{}{}
 	for _, platform := range r.Platforms {
 		if platform != "linux/amd64" && platform != "linux/arm64" {
@@ -282,6 +286,17 @@ func (r BuildRequest) Validate() error {
 	}
 	if r.Profile.TimeoutSeconds < 60 || r.Profile.TimeoutSeconds > 7200 {
 		return errors.New("timeoutSeconds must be between 60 and 7200")
+	}
+	return nil
+}
+
+func validateBuildKitImage(value string) error {
+	if len(value) < len("a/b:v0.32.2") || len(value) > 512 || strings.TrimSpace(value) != value || strings.Contains(value, "@") {
+		return errors.New("buildKitImage must be an explicit v0.32.2 image reference")
+	}
+	repository, tag, err := splitTaggedReference(value)
+	if err != nil || repository == "" || tag != "v0.32.2" {
+		return errors.New("buildKitImage must be an explicit v0.32.2 image reference")
 	}
 	return nil
 }

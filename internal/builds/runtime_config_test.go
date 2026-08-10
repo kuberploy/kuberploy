@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
@@ -30,6 +31,7 @@ func TestWorkerRuntimeConfigEnabledUsesFixedProjectedRefsAndNarrowScope(t *testi
 		BuilderNamespaceEnv:           "kuberploy-build-dind",
 		BuilderPodServiceAccountEnv:   "kuberploy-build-pod",
 		BuilderAgentImageEnv:          "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
+		BuilderBuildKitImageEnv:       builder.DefaultBuildKitImage,
 		BuilderSourceEgressCIDRsEnv:   "192.0.2.10/32,2001:db8::10/128",
 		BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
 	}))
@@ -61,7 +63,7 @@ func TestWorkerRuntimeConfigEnabledUsesFixedProjectedRefsAndNarrowScope(t *testi
 func TestWorkerRuntimeConfigFailsClosedOnPartialOrAmbiguousEnablement(t *testing.T) {
 	valid := map[string]string{
 		GitHubBuildsEnabledEnv: "true", GitHubAppIDEnv: "12345", GitHubAppClientIDEnv: "Iv1_KuberployClient", BuilderNamespaceEnv: "kuberploy-build-dind",
-		BuilderPodServiceAccountEnv: "kuberploy-build-pod", BuilderAgentImageEnv: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
+		BuilderPodServiceAccountEnv: "kuberploy-build-pod", BuilderAgentImageEnv: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64), BuilderBuildKitImageEnv: builder.DefaultBuildKitImage,
 		BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
 	}
 	cases := map[string]map[string]string{
@@ -76,6 +78,9 @@ func TestWorkerRuntimeConfigFailsClosedOnPartialOrAmbiguousEnablement(t *testing
 		"whitespace namespace":    cloneStringValues(valid),
 		"mutable agent image":     cloneStringValues(valid),
 		"undersized agent image":  cloneStringValues(valid),
+		"missing BuildKit image":  cloneStringValues(valid),
+		"mutable BuildKit image":  cloneStringValues(valid),
+		"wrong BuildKit version":  cloneStringValues(valid),
 		"broad source egress":     cloneStringValues(valid),
 		"missing registry egress": cloneStringValues(valid),
 	}
@@ -90,6 +95,9 @@ func TestWorkerRuntimeConfigFailsClosedOnPartialOrAmbiguousEnablement(t *testing
 	cases["whitespace namespace"][BuilderNamespaceEnv] = " kuberploy-build-dind"
 	cases["mutable agent image"][BuilderAgentImageEnv] = "ghcr.io/kuberploy/builder:latest"
 	cases["undersized agent image"][BuilderAgentImageEnv] = "a@sha256:" + strings.Repeat("a", 64)
+	delete(cases["missing BuildKit image"], BuilderBuildKitImageEnv)
+	cases["mutable BuildKit image"][BuilderBuildKitImageEnv] = "docker.io/moby/buildkit:latest"
+	cases["wrong BuildKit version"][BuilderBuildKitImageEnv] = "docker.io/moby/buildkit:v0.32.1"
 	cases["broad source egress"][BuilderSourceEgressCIDRsEnv] = "0.0.0.0/0"
 	delete(cases["missing registry egress"], BuilderRegistryEgressCIDRsEnv)
 	for name, values := range cases {
@@ -115,6 +123,7 @@ func TestRuntimeDigestBindsEveryOperatorOwnedWorkerIdentity(t *testing.T) {
 		"agent image": func(c *WorkerRuntimeConfig) {
 			c.BuilderAgentImage = "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("b", 64)
 		},
+		"BuildKit image":  func(c *WorkerRuntimeConfig) { c.BuildKitImage = "registry.example.test/platform/buildkit:v0.32.2" },
 		"source egress":   func(c *WorkerRuntimeConfig) { c.SourceEgressCIDRs = []string{"192.0.2.11/32"} },
 		"registry egress": func(c *WorkerRuntimeConfig) { c.RegistryEgressCIDRs = []string{"192.0.2.21/32"} },
 	}

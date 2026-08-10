@@ -72,6 +72,7 @@ func definitionWithIDs(t *testing.T, now time.Time, mode RegistryMode, definitio
 			Execution: ExecutionSettings{
 				Namespace: "kuberploy-build-dind", PodServiceAccount: "kuberploy-build-pod",
 				BuilderAgentImage: "registry.test/system/builder-agent@sha256:" + strings.Repeat("1", 64),
+				BuildKitImage:     builder.DefaultBuildKitImage,
 				NodeSelector:      map[string]string{"kuberploy.io/node-class": "dind-builder", "kubernetes.io/arch": "amd64"},
 				Toleration:        builder.TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 				CheckoutResources: testResources(), DinDResources: testResources(), AgentResources: testResources(),
@@ -182,6 +183,7 @@ func testWorkerRuntimeConfig() WorkerRuntimeConfig {
 		GitHubBuildsEnabledEnv: "true", GitHubAppIDEnv: "99", GitHubAppClientIDEnv: "Iv1_TestClient",
 		BuilderNamespaceEnv: "kuberploy-build-dind", BuilderPodServiceAccountEnv: "kuberploy-build-pod",
 		BuilderAgentImageEnv:        "registry.test/system/builder-agent@sha256:" + strings.Repeat("2", 64),
+		BuilderBuildKitImageEnv:     builder.DefaultBuildKitImage,
 		BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", BuilderRegistryEgressCIDRsEnv: "198.51.100.10/32",
 	}))
 	if err != nil {

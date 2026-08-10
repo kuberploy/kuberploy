@@ -2,13 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["enabled", "builderAgentImage", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
+  "required": ["enabled", "builderAgentImage", "buildKitImage", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
   "properties": {
     "enabled": { "type": "boolean" },
     "builderAgentImage": {
       "type": "string",
       "maxLength": 512,
       "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\\s@]+@sha256:[0-9a-f]{64})$"
+    },
+    "buildKitImage": {
+      "type": "string",
+      "minLength": 12,
+      "maxLength": 512,
+      "pattern": "^[^\\s@]+:v0\\.32\\.2$"
     },
     "namespace": {
       "type": "object",

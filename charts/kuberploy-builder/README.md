@@ -21,6 +21,11 @@ validates them as exact IPv4 `/32` or IPv6 `/128` hosts but does not render a
 broad static allow rule; the controller binds the resolved hosts to each
 run-scoped policy.
 
+`buildKitImage` is an explicit `v0.32.2` text-version reference. It may point
+to an operator mirror; the control plane binds the exact reference into every
+immutable request. This is the recommended setup when Docker Hub addresses are
+not stable enough for exact-host NetworkPolicy rules.
+
 Before enabling the chart, dedicate a node pool with both:
 
 ```text
