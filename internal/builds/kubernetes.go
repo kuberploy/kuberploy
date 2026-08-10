@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -525,8 +526,11 @@ func (a *KubernetesAdapter) ensureObject(ctx context.Context, resource kubernete
 			}
 		}
 	}
-	if err != nil || validate(live, desired) != nil {
-		return nil, ErrInfrastructure
+	if err != nil {
+		return nil, fmt.Errorf("%w: ensure %s: %v", ErrInfrastructure, resource, err)
+	}
+	if validate(live, desired) != nil {
+		return nil, fmt.Errorf("%w: stored %s did not match the planned object", ErrInfrastructure, resource)
 	}
 	return live, nil
 }
@@ -540,8 +544,11 @@ func (a *KubernetesAdapter) createOrAdoptJob(ctx context.Context, desired map[st
 			err = ErrInfrastructure
 		}
 	}
-	if err != nil || validateLiveJob(live, desired) != nil {
-		return nil, ErrInfrastructure
+	if err != nil {
+		return nil, fmt.Errorf("%w: create or adopt Job: %v", ErrInfrastructure, err)
+	}
+	if validateLiveJob(live, desired) != nil {
+		return nil, fmt.Errorf("%w: stored Job did not match the canonical planned object", ErrInfrastructure)
 	}
 	return live, nil
 }
@@ -562,8 +569,11 @@ func (a *KubernetesAdapter) replaceSourceSecret(ctx context.Context, desired map
 	}
 	live, err = a.resources.Create(ctx, resourceSecrets, objectNamespace(desired), cloneMap(desired))
 	defer clearSecretData(live)
-	if err != nil || validateCreatedSourceSecret(live, desired) != nil {
-		return ErrInfrastructure
+	if err != nil {
+		return fmt.Errorf("%w: create source credential Secret: %v", ErrInfrastructure, err)
+	}
+	if validateCreatedSourceSecret(live, desired) != nil {
+		return fmt.Errorf("%w: stored source credential Secret did not match the planned object", ErrInfrastructure)
 	}
 	return nil
 }

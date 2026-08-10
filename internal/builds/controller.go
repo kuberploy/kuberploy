@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -208,6 +209,9 @@ func (c *BuildController) retryInfrastructure(ctx context.Context, attempt Build
 	}
 	if cause == ErrProviderRetry {
 		return result, ErrProviderRetry
+	}
+	if cause != nil {
+		return result, fmt.Errorf("%w: %s: %v", ErrInfrastructure, code, cause)
 	}
 	return result, ErrInfrastructure
 }
