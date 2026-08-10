@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const managedChartVersionForTest = "0.1.0-rc.14"
+const managedChartVersionForTest = "0.1.0-rc.15"
 
 type fixedManagedObserver struct {
 	snapshot ManagedMonitoringSnapshot
@@ -107,7 +107,7 @@ func TestManagedSnapshotAttestationBindsRunningReleaseVersion(t *testing.T) {
 	if err := validateManagedSnapshot(snapshot, "0.1.0-rc.10"); !errors.Is(err, ErrUnsafeResponse) {
 		t.Fatalf("substituted release version error=%v", err)
 	}
-	for _, invalid := range []string{"", "dev", "v0.1.0-rc.14", "0.1.0+build", "0.1.0-rc.14-extra"} {
+	for _, invalid := range []string{"", "dev", "v0.1.0-rc.15", "0.1.0+build", "0.1.0-rc.15-extra"} {
 		if validManagedChartVersion(invalid) {
 			t.Fatalf("invalid managed chart version accepted: %q", invalid)
 		}

@@ -58,7 +58,7 @@ for kp_required in \
   "c.terminationMessagePath == '/result/result.json'" \
   "object.metadata.annotations['kuberploy.io/build-input-digest']" \
   "v.name in ['workspace', 'docker-socket', 'docker-data', 'result']" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.14'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.15'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
