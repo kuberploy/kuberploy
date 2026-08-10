@@ -40,6 +40,14 @@ spec:
                 values: [api, web]
       ports:
         - {port: 8080, protocol: TCP}
+    # cert-manager creates a short-lived, exactly labelled HTTP-01 solver in
+    # the Ingress namespace. Traefik needs only its fixed solver port.
+    - to:
+        - podSelector:
+            matchLabels:
+              acme.cert-manager.io/http01-solver: "true"
+      ports:
+        - {port: 8089, protocol: TCP}
     - to:
         - namespaceSelector:
             matchLabels:

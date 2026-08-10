@@ -129,10 +129,11 @@ kp_traefik_image='docker.io/library/traefik:v3.7.10'
 [[ "$(kp_count_kind ClusterIssuer "${kp_tmp}/edge.yaml")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector.matchLabels."kuberploy.io/runtime-namespace" == "true")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "edge-traefik") | .spec.egress[] | select(.to[0].podSelector.matchLabels."app.kubernetes.io/name" == "kuberploy")' "${kp_tmp}/edge.yaml" | jq -cS .)" == '{"ports":[{"port":8080,"protocol":"TCP"}],"to":[{"podSelector":{"matchExpressions":[{"key":"app.kubernetes.io/component","operator":"In","values":["api","web"]}],"matchLabels":{"app.kubernetes.io/name":"kuberploy"}}}]}' ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "edge-traefik") | .spec.egress[] | select(.to[0].podSelector.matchLabels."acme.cert-manager.io/http01-solver" == "true")' "${kp_tmp}/edge.yaml" | jq -cS .)" == '{"ports":[{"port":8089,"protocol":"TCP"}],"to":[{"podSelector":{"matchLabels":{"acme.cert-manager.io/http01-solver":"true"}}}]}' ]]
 [[ "$(yq eval-all -o=json '.' "${kp_tmp}/edge.yaml" | jq -s '[.[] | select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector != null and (.namespaceSelector | length) == 0)] | length')" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.ipBlock.cidr == "0.0.0.0/0" or .ipBlock.cidr == "::/0")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[].ipBlock.cidr | select(. == "10.43.0.1/32")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "1" ]]
-if rg -n 'hostPort:|kind: TLSStore|cert-manager|external-dns|:latest' "${kp_tmp}/edge.yaml"; then
+if rg -n 'hostPort:|kind: TLSStore|quay.io/jetstack/cert-manager|registry.k8s.io/external-dns|:latest' "${kp_tmp}/edge.yaml"; then
   printf 'Traefik release rendered cross-owned resources or a forbidden capability\n' >&2
   exit 1
 fi
