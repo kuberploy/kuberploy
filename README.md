@@ -94,6 +94,11 @@ the control plane can be selected in the same installer release; integrations
 that require third-party credentials remain off until their values and Secrets
 are supplied by an administrator.
 
+For installer-managed HTTPS, enable `publicEndpoint.tls` and provide the exact
+TLS Secret name, production ClusterIssuer name, and a real Let's Encrypt account
+email. The installer then configures cert-manager and the control-plane Ingress;
+it rejects incomplete or dormant TLS settings before creating resources.
+
 `helm --wait` confirms bootstrap acceptance, not full platform readiness. The
 [installer guide](charts/kuberploy-installer/README.md) documents the values
 contract, managed/adopted modes, required Secrets, and ownership boundaries.

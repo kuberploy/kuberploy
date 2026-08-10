@@ -63,6 +63,15 @@ helm upgrade --install kuberploy-installer \
   -f installer-values.yaml --wait
 ```
 
+For a public HTTPS endpoint, set `publicEndpoint.enabled`, its exact hostname,
+and `publicEndpoint.tls.enabled`. Managed TLS requires the managed cert-manager
+component plus all three non-empty TLS fields: `secretName`,
+`clusterIssuerName`, and `accountEmail`. The email registers the Let's Encrypt
+ACME account; it is configuration metadata, not a provider credential. The
+installer creates the bounded production ClusterIssuer configuration and adds
+the exact issuer annotation to the control-plane Ingress. It rejects partial
+TLS configuration before Helm writes resources.
+
 The source checkout form `charts/kuberploy-installer` is for development and
 chart tests. Operators should use the public OCI package so the selected chart
 and its nested bootstrap dependencies share one readable release version.

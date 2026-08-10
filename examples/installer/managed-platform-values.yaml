@@ -28,6 +28,7 @@ publicEndpoint:
     enabled: false
     secretName: ""
     clusterIssuerName: ""
+    # Required when TLS is enabled; for example, platform-ops@example.com.
     accountEmail: ""
 
 components:

@@ -34,8 +34,9 @@ cluster:
   kubeAPIServerCIDRs: []
 
 # Optional public control-plane endpoint. Enabling it also requires the
-# control-plane and edge components. TLS refers only to a pre-existing Secret;
-# cert-manager may populate that Secret independently.
+# control-plane and edge components. Installer-managed TLS additionally
+# requires managed cert-manager, an exact ClusterIssuer name, the target
+# Secret name, and a non-empty Let's Encrypt account email.
 publicEndpoint:
   enabled: false
   hostname: ""
@@ -43,6 +44,7 @@ publicEndpoint:
     enabled: false
     secretName: ""
     clusterIssuerName: ""
+    # Required when TLS is enabled; used for the ACME account registration.
     accountEmail: ""
 
 components:
