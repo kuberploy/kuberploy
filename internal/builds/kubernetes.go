@@ -640,12 +640,15 @@ func (a *KubernetesAdapter) buildPods(ctx context.Context, desired desiredKubern
 	operation, _ := labels["kuberploy.io/build-operation"].(string)
 	generation, _ := labels["kuberploy.io/build-generation"].(string)
 	pods, err := a.resources.ListBuildPods(ctx, desired.namespace, operation, generation, 2)
-	if err != nil || len(pods) > 1 {
-		return nil, ErrInfrastructure
+	if err != nil {
+		return nil, fmt.Errorf("%w: list exact operation Pods: %v", ErrInfrastructure, err)
 	}
-	for _, pod := range pods {
-		if validateBuildPod(pod, job) != nil {
-			return nil, ErrInfrastructure
+	if len(pods) > 1 {
+		return nil, fmt.Errorf("%w: exact operation selected %d Pods", ErrInfrastructure, len(pods))
+	}
+	for index, pod := range pods {
+		if validationErr := validateBuildPod(pod, job); validationErr != nil {
+			return nil, fmt.Errorf("%w: Pod %d identity: %v", ErrInfrastructure, index, validationErr)
 		}
 	}
 	return pods, nil
@@ -1056,7 +1059,7 @@ func parseQuantity(resource, value string) (*big.Int, bool) {
 
 func validateBuildPod(pod, job map[string]any) error {
 	if pod["apiVersion"] != "v1" || pod["kind"] != "Pod" || objectNamespace(pod) != objectNamespace(job) || !kubeNameRE.MatchString(objectName(pod)) {
-		return ErrInfrastructure
+		return fmt.Errorf("object metadata: %w", ErrInfrastructure)
 	}
 	jobSpec, _ := job["spec"].(map[string]any)
 	jobTemplate, _ := jobSpec["template"].(map[string]any)
@@ -1065,17 +1068,17 @@ func validateBuildPod(pod, job map[string]any) error {
 	jobUID, _ := jobMetadata["uid"].(string)
 	jobTemplateMetadata, _ := jobTemplate["metadata"].(map[string]any)
 	if podMetadata == nil || jobTemplateMetadata == nil || !validTemplateLabels(podMetadata, jobTemplateMetadata, jobUID, objectName(job)) {
-		return ErrInfrastructure
+		return fmt.Errorf("controller labels: %w", ErrInfrastructure)
 	}
 	owners, _ := podMetadata["ownerReferences"].([]any)
 	if len(owners) != 1 {
-		return ErrInfrastructure
+		return fmt.Errorf("owner count: %w", ErrInfrastructure)
 	}
 	owner, _ := owners[0].(map[string]any)
 	if owner["apiVersion"] == "batch/v1" && owner["kind"] == "Job" && owner["name"] == objectName(job) && owner["uid"] == jobUID && owner["controller"] == true && owner["blockOwnerDeletion"] == true {
 		return nil
 	}
-	return ErrInfrastructure
+	return fmt.Errorf("controller owner: %w", ErrInfrastructure)
 }
 
 func observeBuild(attempt BuildAttempt, job map[string]any, pods []map[string]any) WorkloadObservation {
