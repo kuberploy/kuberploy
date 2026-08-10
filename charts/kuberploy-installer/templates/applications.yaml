@@ -83,7 +83,7 @@ metadata:
     helm.sh/resource-policy: keep
     argocd.argoproj.io/sync-wave: {{ $item.wave | quote }}
     kuberploy.io/installation-mode: {{ $component.mode | quote }}
-    kuberploy.io/expected-package-digest: {{ $component.expectedPackageDigest | quote }}
+    kuberploy.io/expected-package-version: {{ $component.expectedPackageVersion | quote }}
     kuberploy.io/readiness-contract: application-health-is-not-runtime-readiness
   labels:
     {{- include "kuberploy-installer.labels" $root | nindent 4 }}

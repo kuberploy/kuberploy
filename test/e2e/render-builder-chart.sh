@@ -55,7 +55,7 @@ for kp_required in \
   "c.terminationMessagePath == '/result/result.json'" \
   "object.metadata.annotations['kuberploy.io/build-input-digest']" \
   "v.name in ['workspace', 'docker-socket', 'docker-data', 'result']" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent@sha256:1111111111111111111111111111111111111111111111111111111111111111'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.1'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
@@ -101,8 +101,8 @@ fi
 # A different administrator-selected digest is valid chart configuration, but
 # the rendered Job policy must bind controllers to that exact value.
 kp_alt="${kp_tmp}/alternate-image.yaml"
-helm template alternate "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent@sha256:2222222222222222222222222222222222222222222222222222222222222222 >"${kp_alt}"
-rg -F "c.image == 'attacker.test/agent@sha256:2222222222222222222222222222222222222222222222222222222222222222'" "${kp_alt}" >/dev/null
+helm template alternate "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent:2.0.0 >"${kp_alt}"
+rg -F "c.image == 'attacker.test/agent:2.0.0'" "${kp_alt}" >/dev/null
 if helm template invalid "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent:latest >/dev/null 2>&1; then
   printf 'builder chart accepted a floating agent image\n' >&2
   exit 1

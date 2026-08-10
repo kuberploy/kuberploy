@@ -59,10 +59,10 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
   --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 \
   --set components.controlPlane.enabled=true \
   --set components.controlPlane.mode=managed \
-  --set-string components.controlPlane.expectedPackageDigest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd \
+  --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.1 \
   --set components.valkey.enabled=true \
   --set components.valkey.mode=managed \
-  --set-string components.valkey.expectedPackageDigest=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee \
+  --set-string components.valkey.expectedPackageVersion=0.1.0-rc.1 \
   >"${kp_tmp}/control-plane.yaml"
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/control-plane.yaml" | tail -1)" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.source.helm.valuesObject.global.requireImageDigest' "${kp_tmp}/control-plane.yaml")" == "false" ]]
@@ -99,7 +99,7 @@ kp_all_args=()
 for kp_component in controlPlane postgresql valkey edge certManager externalDNS externalSecrets sealedSecrets monitoring builder registry; do
   kp_all_args+=(--set "components.${kp_component}.enabled=true")
   kp_all_args+=(--set "components.${kp_component}.mode=managed")
-  kp_all_args+=(--set-string "components.${kp_component}.expectedPackageDigest=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")
+  kp_all_args+=(--set-string "components.${kp_component}.expectedPackageVersion=0.1.0-rc.1")
 done
 kp_all_args+=(--set bootstrap.controlPlaneToken.mode=generated)
 kp_all_args+=(--set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32)
@@ -129,16 +129,16 @@ kp_expect_reject() {
 }
 
 kp_expect_reject "mutable source revision" --set-string source.targetRevision=main
-kp_expect_reject "missing package digest" --set-string components.postgresql.expectedPackageDigest=
-kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageDigest= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageDigest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+kp_expect_reject "missing package version" --set-string components.postgresql.expectedPackageVersion=
+kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.1
 kp_expect_reject "value file outside pinned installer directory" --set-string components.postgresql.valueFiles[0]=../../secrets.yaml
 kp_expect_reject "value file traversal below installer prefix" --set-string components.postgresql.valueFiles[0]=../../deploy/installer/example/../../../secrets.yaml
 kp_expect_reject "arbitrary inline child values" --set components.postgresql.values.password=do-not-store
 kp_expect_reject "disabled Argo with active child" --set bootstrap.argoCD.enabled=false --set bootstrap.argoCD.mode=disabled
 kp_expect_reject "managed Argo without installer-owned Valkey" --set bootstrap.valkey.enabled=false
-kp_expect_reject "control plane without explicit bootstrap token authority" --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageDigest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageDigest=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kp_expect_reject "generated token without exact API CIDR" --set bootstrap.controlPlaneToken.mode=generated --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageDigest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageDigest=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-kp_expect_reject "precreated token with dormant API CIDR" --set bootstrap.controlPlaneToken.mode=precreated --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageDigest=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageDigest=sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+kp_expect_reject "control plane without explicit bootstrap token authority" --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.1 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.1
+kp_expect_reject "generated token without exact API CIDR" --set bootstrap.controlPlaneToken.mode=generated --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.1 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.1
+kp_expect_reject "precreated token with dormant API CIDR" --set bootstrap.controlPlaneToken.mode=precreated --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.1 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.1
 
 if helm template kuberploy-installer "${kp_chart}" --namespace argocd -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'installer accepted the wrong bootstrap namespace\n' >&2

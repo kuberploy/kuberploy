@@ -12,7 +12,7 @@ components:
     enabled: true
     mode: adopted
     adoptionConfirmed: true
-    expectedPackageDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+    expectedPackageVersion: 0.1.0-rc.1
     valueFiles: []
 
 argoCD:

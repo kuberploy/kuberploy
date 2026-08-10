@@ -17,7 +17,7 @@ bootstrap:
 source:
   # Child charts are read from one immutable Git commit. Argo CD's native Helm
   # source supports a Git commit as an enforceable content identity; an OCI
-  # package digest is recorded separately for audit because Argo CD does not
+  # package version is recorded separately for audit because Argo CD does not
   # accept an OCI digest as a Helm targetRevision.
   repoURL: ""
   targetRevision: ""
@@ -33,7 +33,7 @@ components:
     enabled: false
     mode: disabled
     adoptionConfirmed: false
-    expectedPackageDigest: ""
+    expectedPackageVersion: ""
     valueFiles: []
   postgresql: *disabledComponent
   valkey: *disabledComponent

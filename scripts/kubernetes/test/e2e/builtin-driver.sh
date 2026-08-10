@@ -257,7 +257,7 @@ kp_probe_helm_install() {
   [[ -s "${kp_manifest}" ]]
   kp_application_count="$(awk '$1 == "kind:" && $2 == "Application" {n++} END {print n+0}' "${kp_manifest}")"
   kp_revision_count="$(awk '$1 == "targetRevision:" {gsub(/\"/, "", $2); if ($2 ~ /^[0-9a-f]{40}$/) n++} END {print n+0}' "${kp_manifest}")"
-  kp_digest_count="$(awk '$1 == "kuberploy.io\/expected-package-digest:" {gsub(/\"/, "", $2); if ($2 ~ /^sha256:[0-9a-f]{64}$/) n++} END {print n+0}' "${kp_manifest}")"
+  kp_digest_count="$(awk '$1 == "kuberploy.io\/expected-package-version:" {gsub(/\"/, "", $2); if ($2 ~ /^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$/) n++} END {print n+0}' "${kp_manifest}")"
   (( kp_application_count >= 2 && kp_revision_count == kp_application_count &&
      kp_digest_count == kp_application_count )) ||
     kp_die "installer render lacks independent Applications with exact source revisions/package digests"

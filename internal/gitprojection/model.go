@@ -46,16 +46,17 @@ var (
 	ErrPolicyUnavailable     = errors.New("AppConfig policy validation is unavailable")
 	ErrProtectionUnavailable = errors.New("protected Git branch policy is unavailable")
 
-	uuidRE   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	commitRE = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
-	blobRE   = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
-	digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	refRE    = regexp.MustCompile(`^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$`)
-	nameRE   = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
-	loginRE  = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$`)
-	kubeRE   = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
-	ownerRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$`)
-	errorRE  = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,62}$`)
+	uuidRE          = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	commitRE        = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	blobRE          = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	digestRE        = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	chartIdentityRE = regexp.MustCompile(`^(?:sha256:[0-9a-f]{64}|[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?)$`)
+	refRE           = regexp.MustCompile(`^refs/heads/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$`)
+	nameRE          = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+	loginRE         = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$`)
+	kubeRE          = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
+	ownerRE         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$`)
+	errorRE         = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,62}$`)
 )
 
 type BindingKind string
@@ -570,7 +571,7 @@ func StrongETagWithDependencies(binding Binding, documents []Document, dependenc
 		}
 		byPath[dependency.Path] = dependency
 	}
-	if binding.Validate() != nil || !digestRE.MatchString(chartDigest) || policyVersion == "" || len(policyVersion) > 128 || len(documents)+len(dependencies) > MaxDocumentsBundle {
+	if binding.Validate() != nil || !chartIdentityRE.MatchString(chartDigest) || policyVersion == "" || len(policyVersion) > 128 || len(documents)+len(dependencies) > MaxDocumentsBundle {
 		return "", ErrInvalid
 	}
 	entries := make([]string, 0, len(documents)+len(dependencyPaths))
@@ -602,7 +603,7 @@ func StrongETagWithDependencies(binding Binding, documents []Document, dependenc
 }
 
 func StrongETag(binding Binding, documents, dependencies []Document, chartDigest, policyVersion string) (string, error) {
-	if binding.Validate() != nil || !digestRE.MatchString(chartDigest) || policyVersion == "" || len(policyVersion) > 128 || len(documents) == 0 || len(documents)+len(dependencies) > MaxDocumentsBundle {
+	if binding.Validate() != nil || !chartIdentityRE.MatchString(chartDigest) || policyVersion == "" || len(policyVersion) > 128 || len(documents) == 0 || len(documents)+len(dependencies) > MaxDocumentsBundle {
 		return "", ErrInvalid
 	}
 	entries := make([]string, 0, len(documents)+len(dependencies))

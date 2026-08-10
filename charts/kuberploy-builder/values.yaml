@@ -1,6 +1,6 @@
 enabled: false
 
-# Required as an immutable image@sha256 reference before enabled=true.
+# Required as an explicit text-version image reference before enabled=true.
 builderAgentImage: ""
 
 namespace:

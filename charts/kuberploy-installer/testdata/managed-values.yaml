@@ -15,7 +15,7 @@ components:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageDigest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    expectedPackageVersion: 0.1.0-rc.1
     valueFiles:
       - ../../deploy/installer/example/postgresql.yaml
 

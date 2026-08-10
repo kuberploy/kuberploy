@@ -19,7 +19,7 @@ replace every placeholder with operator-owned values. The irreducible inputs
 are:
 
 - a canonical HTTPS GitHub source URL and exact lowercase 40-character commit;
-- a release-manifest package digest for every enabled component (recorded on
+- a release-manifest package version for every enabled component (recorded on
   the Application for audit; the immutable Git commit is Argo's enforced source
   identity because native Argo Helm sources do not accept OCI digests as
   `targetRevision`);

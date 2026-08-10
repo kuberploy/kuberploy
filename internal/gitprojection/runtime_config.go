@@ -97,8 +97,8 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	chartDigest := exactProjectionValue(lookup, ProjectionChartDigestEnv)
 	policyVersion := exactProjectionValue(lookup, ProjectionPolicyVersionEnv)
-	if !digestRE.MatchString(chartDigest) {
-		return RuntimeConfig{}, errors.New(ProjectionChartDigestEnv + " must be an exact sha256 digest")
+	if !chartIdentityRE.MatchString(chartDigest) {
+		return RuntimeConfig{}, errors.New(ProjectionChartDigestEnv + " must be an explicit runtime chart version")
 	}
 	if policyVersion == "" || len(policyVersion) > 128 || strings.ContainsAny(policyVersion, "\x00\r\n") {
 		return RuntimeConfig{}, errors.New(ProjectionPolicyVersionEnv + " must be a bounded exact value")

@@ -22,8 +22,8 @@ func validJobPlanRequest() JobPlanRequest {
 		RegistryCacheCredentialSecret: "registry-cache-abc",
 		BuildSecret:                   "build-secrets-abc",
 		SSHSecret:                     "ssh-secrets-abc",
-		CheckoutImage:                 "registry.example.test/system/builder-agent@sha256:" + strings.Repeat("1", 64),
-		AgentImage:                    "registry.example.test/system/builder-agent@sha256:" + strings.Repeat("1", 64),
+		CheckoutImage:                 "registry.example.test/system/builder-agent:0.1.0-rc.1",
+		AgentImage:                    "registry.example.test/system/builder-agent:0.1.0-rc.1",
 		NodeSelector:                  map[string]string{"kuberploy.io/node-class": "dind-builder", "kubernetes.io/arch": "amd64"},
 		Toleration:                    TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 		CheckoutResources:             resources,
@@ -95,7 +95,7 @@ func TestAdoptionRejectsPrivilegedShapeAndEgressMutations(t *testing.T) {
 	}{
 		{name: "alternate checkout image", mutate: func(p JobPlan) {
 			pod := p.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-			pod["initContainers"].([]any)[0].(map[string]any)["image"] = "attacker.test/image@sha256:" + strings.Repeat("9", 64)
+			pod["initContainers"].([]any)[0].(map[string]any)["image"] = "attacker.test/image:9.9.9"
 		}},
 		{name: "missing checkout", mutate: func(p JobPlan) {
 			pod := p.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)

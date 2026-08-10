@@ -23,7 +23,7 @@ const (
 	BuildSecretRoot         = "/var/run/secrets/kuberploy/build"
 	SSHSecretRoot           = "/var/run/secrets/kuberploy/ssh"
 	SourceCredentialRoot    = "/var/run/secrets/kuberploy/source"
-	DefaultBuildKitImage    = "docker.io/moby/buildkit:v0.32.2@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8"
+	DefaultBuildKitImage    = "docker.io/moby/buildkit:v0.32.2"
 	DefaultDockerSocket     = "unix:///run/kuberploy/docker/docker.sock"
 	DefaultBuildResult      = "/result/result.json"
 	DefaultCheckoutResult   = "/result/checkout.json"

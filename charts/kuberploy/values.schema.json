@@ -217,13 +217,13 @@
             "cacheMaxBytes": { "type": "integer", "minimum": 67108864, "maximum": 2147483648 },
             "pollIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 86400 },
             "webhookWakeEnabled": { "type": "boolean" },
-            "chartDigest": { "type": "string", "pattern": "^(?:|sha256:[0-9a-f]{64})$" },
+            "chartDigest": { "type": "string", "pattern": "^(?:|[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?)$" },
             "policyVersion": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$" }
           },
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "chartDigest": { "minLength": 71 } } }
+              "then": { "properties": { "chartDigest": { "minLength": 5 } } }
             }
           ]
         },
@@ -1521,7 +1521,7 @@
         "builderAgentImage": {
           "type": "string",
           "maxLength": 512,
-          "pattern": "^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$"
+          "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*)$"
         },
         "namespace": {
           "type": "object",
@@ -1588,7 +1588,7 @@
       "allOf": [
         {
           "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-          "then": { "properties": { "builderAgentImage": { "minLength": 80 } } }
+          "then": { "properties": { "builderAgentImage": { "minLength": 8 } } }
         }
       ]
     },

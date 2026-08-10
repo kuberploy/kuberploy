@@ -27,8 +27,8 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- fail (printf "components.%s.adoptionConfirmed is valid only in adopted mode" $name) -}}
 {{- end -}}
 {{- if $component.enabled -}}
-  {{- if not (regexMatch "^sha256:[a-f0-9]{64}$" $component.expectedPackageDigest) -}}
-    {{- fail (printf "components.%s.expectedPackageDigest must be an immutable sha256 digest" $name) -}}
+  {{- if not (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?$" $component.expectedPackageVersion) -}}
+    {{- fail (printf "components.%s.expectedPackageVersion must be an explicit semantic version" $name) -}}
   {{- end -}}
   {{- range $valueFile := $component.valueFiles -}}
     {{- $relative := trimPrefix "../../deploy/installer/" $valueFile -}}
@@ -36,8 +36,8 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
       {{- fail (printf "components.%s.valueFiles must stay below deploy/installer in the same pinned Git revision" $name) -}}
     {{- end -}}
   {{- end -}}
-{{- else if or (ne $component.expectedPackageDigest "") (not (empty $component.valueFiles)) -}}
-  {{- fail (printf "components.%s rejects dormant digest and value files while disabled" $name) -}}
+{{- else if or (ne $component.expectedPackageVersion "") (not (empty $component.valueFiles)) -}}
+  {{- fail (printf "components.%s rejects dormant version and value files while disabled" $name) -}}
 {{- end -}}
 {{- end -}}
 

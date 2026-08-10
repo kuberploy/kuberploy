@@ -8,7 +8,7 @@
     "builderAgentImage": {
       "type": "string",
       "maxLength": 512,
-      "pattern": "^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$"
+      "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*)$"
     },
     "namespace": {
       "type": "object",
@@ -75,7 +75,7 @@
   "allOf": [
     {
       "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-      "then": { "properties": { "builderAgentImage": { "minLength": 80 } } }
+      "then": { "properties": { "builderAgentImage": { "minLength": 8 } } }
     }
   ],
   "$defs": {

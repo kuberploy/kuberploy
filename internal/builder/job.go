@@ -14,12 +14,12 @@ import (
 	"strings"
 )
 
-const DefaultDinDImage = "docker.io/library/docker:29.7.1-dind@sha256:e8faad5a8dc5279dff929afc5449f2791736912fff9f99351d742db2fad01b4c"
+const DefaultDinDImage = "docker.io/library/docker:29.7.1-dind"
 
 var (
 	kubernetesNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$`)
 	quantityPattern       = regexp.MustCompile(`^[1-9][0-9]*(?:m|Ki|Mi|Gi|Ti)?$`)
-	digestImagePattern    = regexp.MustCompile(`^[^\s@]+@sha256:[0-9a-f]{64}$`)
+	versionedImagePattern = regexp.MustCompile(`^[^\s@]+:v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*$`)
 )
 
 type JobPlanRequest struct {
@@ -245,8 +245,8 @@ func (r JobPlanRequest) Validate() error {
 	if (len(r.Build.SecretFiles) > 0) != (r.BuildSecret != "") || (len(r.Build.SSHFiles) > 0) != (r.SSHSecret != "") {
 		return errors.New("build and SSH secret mounts must exactly match their request references")
 	}
-	if !digestImagePattern.MatchString(r.CheckoutImage) || !digestImagePattern.MatchString(r.AgentImage) {
-		return errors.New("checkout and agent images must be immutable digest references")
+	if !versionedImagePattern.MatchString(r.CheckoutImage) || !versionedImagePattern.MatchString(r.AgentImage) {
+		return errors.New("checkout and agent images must use explicit text versions")
 	}
 	if r.CheckoutImage != r.AgentImage {
 		return errors.New("checkout and agent must use the same trusted builder-agent digest")
