@@ -2,6 +2,11 @@
 
 set -Eeuo pipefail
 
+kp_failure() {
+  printf 'installer chart check failed at line %s: %s\n' "${1}" "${2}" >&2
+}
+trap 'kp_failure "${LINENO}" "${BASH_COMMAND}"' ERR
+
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 kp_chart="${kp_root}/charts/kuberploy-installer"
 kp_managed="${kp_chart}/testdata/managed-values.yaml"
