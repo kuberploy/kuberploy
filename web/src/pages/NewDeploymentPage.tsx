@@ -965,10 +965,11 @@ export function NewDeploymentPage() {
             <div className="form-card__heading form-card__heading--with-action">
               <span>07</span>
               <div>
-                <h2>Ordinary environment values</h2>
+                <h2>Runtime environment values</h2>
                 <p>
-                  Visible in Git and rendered through an immutable ConfigMap.
-                  Never place secrets here.
+                  Used only by the deployed service. Visible in Git and rendered
+                  through an immutable ConfigMap; never passed to the image
+                  builder. Never place secrets here.
                 </p>
               </div>
               <Button

@@ -36,9 +36,6 @@ type StableAttempt = { signature: string; key: string };
 
 const namePattern = /^[a-z][a-z0-9_.-]{0,62}$/;
 const buildArgPattern = /^[A-Z_][A-Z0-9_]{0,127}$/;
-const secretLikeBuildArg =
-  /(secret|password|passwd|token|credential|private|api_?key)/i;
-
 function parseBuildArgs(raw: string): BuildArgument[] {
   const lines = raw
     .split(/\r?\n/)
@@ -53,9 +50,9 @@ function parseBuildArgs(raw: string): BuildArgument[] {
     }
     const name = line.slice(0, separator).trim();
     const value = line.slice(separator + 1);
-    if (!buildArgPattern.test(name) || secretLikeBuildArg.test(name)) {
+    if (!buildArgPattern.test(name)) {
       throw new Error(
-        `Build argument ${name || `line ${index + 1}`} is invalid or secret-like. Secrets are never accepted as build arguments; an operator-owned build-secret profile is required.`,
+        `Build argument ${name || `line ${index + 1}`} has an invalid name.`,
       );
     }
     if (
@@ -352,8 +349,8 @@ export function BuildDefinitionForm({
 
       <div className="build-definition-form__grid">
         <Field
-          label="Non-secret build arguments"
-          hint="One NAME=value per line. Secret-like names are rejected."
+          label="Docker build arguments"
+          hint="Build time only. One NAME=value per line; runtime environment values are never passed to the builder."
         >
           <textarea
             rows={5}
@@ -361,6 +358,17 @@ export function BuildDefinitionForm({
             {...form.register("buildArgs")}
           />
         </Field>
+      </div>
+
+      <div className="notice notice--warning">
+        <div>
+          <strong>Docker build arguments are not secret storage</strong>
+          <p>
+            Values may be retained in image history or build cache. Kuberploy
+            accepts valid argument names without enforcing your team’s naming
+            policy, so review sensitive values before saving.
+          </p>
+        </div>
       </div>
 
       <div className="notice notice--warning">

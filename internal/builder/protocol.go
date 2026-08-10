@@ -30,15 +30,14 @@ const (
 )
 
 var (
-	uuidPattern      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	commitPattern    = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	namePattern      = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,62}$`)
-	buildArgPattern  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
-	registryPattern  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?$`)
-	repositoryPart   = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
-	tagPattern       = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
-	digestPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	secretLikeArgKey = regexp.MustCompile(`(?i)(secret|password|passwd|token|credential|private|api_?key)`)
+	uuidPattern     = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	commitPattern   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	namePattern     = regexp.MustCompile(`^[a-z][a-z0-9_.-]{0,62}$`)
+	buildArgPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
+	registryPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*(?::[0-9]{1,5})?$`)
+	repositoryPart  = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+	tagPattern      = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+	digestPattern   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 // BuildRequest is intentionally closed and bounded. Unknown JSON properties are
@@ -211,8 +210,8 @@ func (r BuildRequest) Validate() error {
 	}
 	seenArgs := map[string]struct{}{}
 	for index, arg := range r.BuildArgs {
-		if !buildArgPattern.MatchString(arg.Name) || secretLikeArgKey.MatchString(arg.Name) {
-			return fmt.Errorf("build argument %q is invalid or secret-like; use secretFiles instead", arg.Name)
+		if !buildArgPattern.MatchString(arg.Name) {
+			return fmt.Errorf("build argument %q has an invalid name", arg.Name)
 		}
 		if len(arg.Value) > 4096 || containsControl(arg.Value) {
 			return fmt.Errorf("build argument %q has an invalid value", arg.Name)

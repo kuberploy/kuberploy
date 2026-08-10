@@ -13,6 +13,18 @@ import { GuidedConfigForm } from "./GuidedConfigForm";
 afterEach(cleanup);
 
 describe("guided runtime controls", () => {
+  it("labels environment values as runtime-only input", () => {
+    const initial = guidedConfigFromYaml(defaultConfigYaml({ name: "api" }));
+    render(<GuidedConfigForm initial={initial} onChange={vi.fn()} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Runtime environment values" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/never passed to image builds/i),
+    ).toBeInTheDocument();
+  });
+
   it("edits literal container argv and termination grace without shell parsing", async () => {
     const user = userEvent.setup();
     const initial = guidedConfigFromYaml(defaultConfigYaml({ name: "api" }));

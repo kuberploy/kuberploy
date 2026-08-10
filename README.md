@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.5` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.6` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 
 ## Highlights
@@ -27,20 +27,23 @@ workloads, and PostgreSQL holds durable operations and recovery state.
 - A single installer chart that bootstraps the required foundations and creates
   independently reconciled Argo CD Applications.
 
-## Architecture
+## How it works
 
-```text
-Browser / API
-      │
-      ▼
-PostgreSQL ──► Valkey work signal ──► Kuberploy worker
-                                         │
-                                         ▼
-Git desired state ──► Argo CD ──► Kubernetes workloads
-                                         │
-                                         ▼
-                              Traefik / cert-manager / DNS
-```
+1. You configure an application in the web UI or API. PostgreSQL keeps users,
+   permissions, operations, and recovery state; Valkey only accelerates queued
+   work and selected status reads.
+2. Kuberploy can deploy an existing image, publish a Helm release, or build a
+   GitHub repository and push the immutable image to your registry.
+3. Kuberploy writes the application’s non-secret desired state to the GitOps
+   repository—directly for development environments or through a pull request
+   for protected environments.
+4. Argo CD reads that Git repository and reconciles the application into
+   Kubernetes. Optional Traefik, cert-manager, ExternalDNS, secrets, and
+   monitoring integrations are used only when an administrator enables them.
+
+The builder never deploys workloads and never receives runtime environment
+values. Docker build arguments belong to the immutable build definition;
+runtime environment values belong to the GitOps application configuration.
 
 Secrets are referenced by identity and are never committed to Git. The DinD
 builder is an explicit privileged boundary on selected builder nodes and never
@@ -64,11 +67,11 @@ kubeconfig and context it may change:
 
 ```bash
 curl -fsSLo kuberploy-install.sh \
-  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.5/scripts/install.sh
+  https://raw.githubusercontent.com/kuberploy/kuberploy/v0.1.0-rc.6/scripts/install.sh
 chmod +x kuberploy-install.sh
 
 ./kuberploy-install.sh \
-  --version 0.1.0-rc.5 \
+  --version 0.1.0-rc.6 \
   --kubeconfig /absolute/path/to/kubeconfig \
   --context exact-context
 ```

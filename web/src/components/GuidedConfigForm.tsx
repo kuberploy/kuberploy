@@ -670,8 +670,11 @@ export function GuidedConfigForm({
             <Icon name="terminal" />
           </span>
           <div>
-            <h3>Ordinary variables</h3>
-            <p>Visible in Git; rendered as explicit ConfigMap references.</p>
+            <h3>Runtime environment values</h3>
+            <p>
+              Used only by the deployed service. Visible in Git and rendered as
+              explicit ConfigMap references; never passed to image builds.
+            </p>
           </div>
           <Button
             type="button"

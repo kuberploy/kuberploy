@@ -8,14 +8,14 @@ bootstrap:
 
 source:
   repoURL: https://github.com/kuberploy/kuberploy.git
-  targetRevision: "v0.1.0-rc.5"
+  targetRevision: "v0.1.0-rc.6"
 
 components:
   postgresql:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.5
+    expectedPackageVersion: 0.1.0-rc.6
     valueFiles:
       - ../../examples/installer/postgresql.yaml
 

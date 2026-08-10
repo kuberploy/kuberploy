@@ -151,10 +151,10 @@ func TestBuildRequestRejectsCredentialAuthoritySubstitution(t *testing.T) {
 	}
 }
 
-func TestBuildRequestRejectsSecretLikeBuildArg(t *testing.T) {
+func TestBuildRequestAcceptsValidBuildArgWithoutEnforcingNamingPolicy(t *testing.T) {
 	request := validBuildRequest()
-	request.BuildArgs = []BuildArg{{Name: "API_TOKEN", Value: "not-allowed"}}
-	if err := request.Validate(); err == nil {
-		t.Fatal("secret-like build argument was accepted")
+	request.BuildArgs = []BuildArg{{Name: "API_TOKEN", Value: "caller-selected-value"}}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("valid Docker build argument was rejected: %v", err)
 	}
 }

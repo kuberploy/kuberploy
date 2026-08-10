@@ -160,9 +160,11 @@ describe("build definition form", () => {
     ).toBeInTheDocument();
   });
 
-  it("rejects secret-like build arguments before they reach a mutation cache or API", async () => {
+  it("accepts valid Docker build arguments without enforcing a naming policy", async () => {
     const user = userEvent.setup();
-    const create = vi.spyOn(api, "createBuildDefinition");
+    const create = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockResolvedValue(definition);
     renderForm();
 
     await screen.findByRole("option", { name: "example" });
@@ -180,17 +182,40 @@ describe("build definition form", () => {
       "target-safe",
     );
     await user.type(
-      screen.getByLabelText(/^Non-secret build arguments/),
-      "API_TOKEN=do-not-send",
+      screen.getByLabelText(/^Docker build arguments/),
+      "API_TOKEN=team-selected-value",
     );
     await user.click(
       screen.getByRole("button", { name: "Create immutable definition" }),
     );
 
     expect(
-      await screen.findByText(/API_TOKEN is invalid or secret-like/),
+      await screen.findByText("Immutable build definition created"),
     ).toBeInTheDocument();
-    expect(create).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create.mock.calls[0]?.[1]).toMatchObject({
+      buildArgs: [{ name: "API_TOKEN", value: "team-selected-value" }],
+    });
+    expect(
+      screen.getByText("Docker build arguments are not secret storage"),
+    ).toBeInTheDocument();
+  });
+
+  it("labels Docker build arguments as build-time-only input", () => {
+    renderForm();
+    expect(
+      screen.getByLabelText(/^Docker build arguments/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /runtime environment values are never passed to the builder/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /values may be retained in image history or build cache/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("hides every mutation control for a non-human principal", () => {
