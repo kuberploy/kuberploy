@@ -135,6 +135,12 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: kuberploy-monitoring
     {{- end }}
+    {{- if and (eq $item.key "controlPlane") $root.Values.integrations.github.enabled }}
+    # The control-plane chart owns only the worker's namespaced build-control
+    # Role/Binding; builder Pods remain owned by the builder Application.
+    - server: https://kubernetes.default.svc
+      namespace: kuberploy-build-dind
+    {{- end }}
     {{- if eq $item.key "builder" }}
     - server: https://kubernetes.default.svc
       namespace: kuberploy-build-dind
