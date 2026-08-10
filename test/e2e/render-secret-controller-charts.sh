@@ -49,7 +49,10 @@ diff -u "${kp_tmp}/eso-managed.yaml" "${kp_tmp}/eso-managed-again.yaml" >/dev/nu
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "PodDisruptionBudget")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
-[[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all 'select(.kind == "Secret") | .metadata.name' "${kp_tmp}/eso-managed.yaml")" == "kuberploy-external-secrets-webhook" ]]
+[[ "$(yq eval-all '[select(.kind == "Secret" and ((.data // {}) | length) != 0)] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Secret" and ((.stringData // {}) | length) != 0)] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.containers[].image] | unique | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
 rg -F 'ghcr.io/external-secrets/external-secrets:v2.8.0' "${kp_tmp}/eso-managed.yaml" >/dev/null
 rg -F -- '--enable-cluster-store-reconciler=false' "${kp_tmp}/eso-managed.yaml" >/dev/null
