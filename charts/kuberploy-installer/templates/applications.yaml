@@ -14,6 +14,7 @@
 -}}
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
+{{- $builderEmbeddedInControlPlane := and (eq $item.key "builder") $root.Values.integrations.github.enabled -}}
 {{- if $component.enabled -}}
 {{- if $root.Capabilities.APIVersions.Has "argoproj.io/v1alpha1/Application" -}}
 {{- $existing := lookup "argoproj.io/v1alpha1" "Application" "argocd" $item.application -}}
@@ -25,6 +26,9 @@
 {{- end -}}
 {{- end -}}
 {{- $childValues := include "kuberploy-installer.modeFence" (list $item.key $component.mode) | fromYaml -}}
+{{- if $builderEmbeddedInControlPlane -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "enabled" false) -}}
+{{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.components.valkey.enabled (eq $root.Values.components.valkey.mode "managed") -}}
   {{- $managedValkey := dict "config" (dict "valkey" (dict
     "mode" "managed"
