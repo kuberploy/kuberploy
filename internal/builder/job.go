@@ -151,7 +151,7 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 					"restartPolicy":                "Never",
 					"enableServiceLinks":           false,
 					"securityContext": map[string]any{
-						"runAsGroup": int64(65532), "fsGroup": int64(65532), "fsGroupChangePolicy": "OnRootMismatch",
+						"runAsUser": int64(65532), "runAsGroup": int64(65532), "fsGroup": int64(65532), "fsGroupChangePolicy": "OnRootMismatch",
 					},
 					"nodeSelector": stringMapAny(request.NodeSelector),
 					"tolerations": []any{map[string]any{

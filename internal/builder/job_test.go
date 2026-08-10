@@ -198,7 +198,7 @@ func TestJobPlanPrivilegedOnlyDinDAndAgentWorkspaceReadOnly(t *testing.T) {
 	assertNoMount(t, checkoutMounts, "registry-cache-credentials")
 	assertMount(t, dind["volumeMounts"].([]any), "docker-data", false)
 	podSecurity := pod["securityContext"].(map[string]any)
-	if podSecurity["fsGroup"] != int64(65532) || podSecurity["runAsGroup"] != int64(65532) || podSecurity["fsGroupChangePolicy"] != "OnRootMismatch" {
+	if podSecurity["runAsUser"] != int64(65532) || podSecurity["fsGroup"] != int64(65532) || podSecurity["runAsGroup"] != int64(65532) || podSecurity["fsGroupChangePolicy"] != "OnRootMismatch" {
 		t.Fatal("Pod does not make projected credentials group-readable to UID/GID 65532")
 	}
 	for _, raw := range pod["volumes"].([]any) {

@@ -55,6 +55,7 @@ for kp_required in \
   "object.spec.parallelism == 1" \
   "object.spec.podReplacementPolicy == 'Failed'" \
   "object.spec.template.spec.restartPolicy == 'Never'" \
+  "object.spec.template.spec.securityContext.runAsUser == 65532" \
   "!has(object.spec.template.spec.hostNetwork)" \
   "!has(object.spec.template.spec.hostPID)" \
   "!has(object.spec.template.spec.hostIPC)" \
