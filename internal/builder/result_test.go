@@ -33,6 +33,9 @@ func TestMaximumValidBuildResultFitsKubernetesTerminationMessage(t *testing.T) {
 		t.Fatalf("maximal typed result is %d bytes, Kubernetes limit is %d", len(encoded), MaxTerminationResultBytes)
 	}
 	path := filepath.Join(t.TempDir(), "result.json")
+	if err = os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err = WriteTerminationResultAtomic(path, result); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +52,9 @@ func TestTerminationResultRejectsTruncationBeforePublish(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "result.json")
+			if err := os.WriteFile(path, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
 			encoded, err := json.Marshal(result)
 			if err != nil {
 				t.Fatal(err)
@@ -59,9 +65,34 @@ func TestTerminationResultRejectsTruncationBeforePublish(t *testing.T) {
 			if err = WriteTerminationResultAtomic(path, result); err == nil {
 				t.Fatal("potentially truncated termination result was published")
 			}
-			if _, err = os.Stat(path); !os.IsNotExist(err) {
-				t.Fatalf("rejected result left a file behind: %v", err)
+			stored, readErr := os.ReadFile(path)
+			if readErr != nil || len(stored) != 0 {
+				t.Fatalf("rejected result changed the pre-created file: %q, %v", stored, readErr)
 			}
 		})
+	}
+}
+
+func TestTerminationResultRequiresPrecreatedRegularFile(t *testing.T) {
+	result := map[string]string{"status": "Failed"}
+	directory := t.TempDir()
+	missing := filepath.Join(directory, "missing.json")
+	if err := WriteTerminationResultAtomic(missing, result); err == nil {
+		t.Fatal("missing runtime termination file was created")
+	}
+	target := filepath.Join(directory, "target.json")
+	if err := os.WriteFile(target, []byte("unchanged"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "result.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTerminationResultAtomic(link, result); err == nil {
+		t.Fatal("symlink termination file was followed")
+	}
+	stored, err := os.ReadFile(target)
+	if err != nil || string(stored) != "unchanged" {
+		t.Fatalf("symlink target changed: %q, %v", stored, err)
 	}
 }

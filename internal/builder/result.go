@@ -61,8 +61,10 @@ func WriteResultAtomic(path string, result any) error {
 }
 
 // WriteTerminationResultAtomic keeps the typed result within Kubernetes'
-// per-container termination-message limit. The adapter rejects truncation, so
-// an oversized value is never interpreted as partial success.
+// per-container termination-message limit. The container runtime bind-mounts
+// the pre-created termination file, so it cannot be replaced with rename(2).
+// A single bounded write is synced instead; the adapter rejects partial or
+// malformed JSON, so interruption can never be interpreted as success.
 func WriteTerminationResultAtomic(path string, result any) error {
 	return writeResultAtomic(path, result, MaxTerminationResultBytes, true)
 }
@@ -77,6 +79,28 @@ func writeResultAtomic(path string, result any, maximum int, exclusive bool) err
 	}
 	if len(encoded) > maximum || exclusive && len(encoded) == maximum {
 		return errors.New("result exceeds maximum size")
+	}
+	if exclusive {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			return errors.New("termination result must be a pre-created regular file")
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0)
+		if err != nil {
+			return fmt.Errorf("open termination result: %w", err)
+		}
+		if _, err = file.Write(encoded); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("write termination result: %w", err)
+		}
+		if err = file.Sync(); err != nil {
+			_ = file.Close()
+			return fmt.Errorf("sync termination result: %w", err)
+		}
+		if err = file.Close(); err != nil {
+			return fmt.Errorf("close termination result: %w", err)
+		}
+		return nil
 	}
 	directory := filepath.Dir(path)
 	temporary, err := os.CreateTemp(directory, ".result-*")
