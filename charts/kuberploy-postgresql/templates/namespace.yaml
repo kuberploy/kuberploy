@@ -6,6 +6,10 @@ metadata:
   name: {{ .Release.Namespace }}
   labels:
     {{- include "kuberploy-postgresql.labels" . | nindent 4 }}
+    # This chart is the single Namespace owner for the shared platform
+    # namespace. Monitoring admits only the exact API Pod selector from a
+    # namespace carrying this fixed control-plane identity.
+    kuberploy.io/control-plane-namespace: "true"
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/audit: restricted
     pod-security.kubernetes.io/warn: restricted

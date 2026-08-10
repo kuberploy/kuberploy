@@ -15,7 +15,7 @@ func TestManagedKubernetesObserverUsesOnlyExactGetsAndDigestsSpecs(t *testing.T)
 	t.Parallel()
 	profile, _ := json.Marshal(map[string]any{
 		"metadata":  map[string]any{"name": ManagedMonitoringProfileName, "namespace": ManagedMonitoringNamespace, "uid": "profile-uid", "resourceVersion": "1"},
-		"immutable": true, "data": expectedManagedProfile(),
+		"immutable": true, "data": expectedManagedProfile(managedChartVersionForTest),
 	})
 	operator, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{"name": ManagedMonitoringOperatorName, "namespace": ManagedMonitoringNamespace, "uid": "operator-uid", "resourceVersion": "2", "generation": 5},

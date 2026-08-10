@@ -105,7 +105,7 @@ func run() error {
 	defer highRiskLimiter.Close()
 	releaseService := releases.NewService(releases.NewGitHubChecker(nil), releaseCache, 30*time.Second)
 	monitoringMode := config.Get("KUBERPLOY_MONITORING_MODE", "disabled")
-	metrics, err := monitoringClient(monitoringMode)
+	metrics, err := monitoringClient(monitoringMode, version)
 	if err != nil {
 		return err
 	}
@@ -487,7 +487,7 @@ func runtimeViewService(db *postgres.Store) (httpapi.RuntimeViewService, httpapi
 	return service, client, nil
 }
 
-func monitoringClient(mode string) (httpapi.MetricsService, error) {
+func monitoringClient(mode, runtimeVersion string) (httpapi.MetricsService, error) {
 	endpoint := config.Get("KUBERPLOY_PROMETHEUS_URL", "")
 	tokenSetting := config.Get("KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED", "false")
 	if tokenSetting != "true" && tokenSetting != "false" {
@@ -524,5 +524,5 @@ func monitoringClient(mode string) (httpapi.MetricsService, error) {
 	if err != nil {
 		return nil, err
 	}
-	return observability.NewManagedService(client, observer)
+	return observability.NewManagedService(client, observer, runtimeVersion)
 }

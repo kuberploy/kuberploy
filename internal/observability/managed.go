@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"regexp"
 )
 
 const (
@@ -63,8 +64,9 @@ type ManagedPrometheusProbe interface {
 // live Prometheus rule health. A generic Prometheus vector probe alone can
 // never make managed monitoring ready.
 type ManagedReadinessProbe struct {
-	Prometheus ManagedPrometheusProbe
-	Observer   ManagedMonitoringObserver
+	Prometheus           ManagedPrometheusProbe
+	Observer             ManagedMonitoringObserver
+	ExpectedChartVersion string
 }
 
 func (p *ManagedReadinessProbe) Probe(ctx context.Context) error {
@@ -75,7 +77,7 @@ func (p *ManagedReadinessProbe) Probe(ctx context.Context) error {
 	if err != nil {
 		return ErrUnavailable
 	}
-	if err = validateManagedSnapshot(snapshot); err != nil {
+	if err = validateManagedSnapshot(snapshot, p.ExpectedChartVersion); err != nil {
 		return err
 	}
 	if err = p.Prometheus.Probe(ctx); err != nil {
@@ -84,8 +86,8 @@ func (p *ManagedReadinessProbe) Probe(ctx context.Context) error {
 	return p.Prometheus.ProbeManagedRules(ctx)
 }
 
-func validateManagedSnapshot(snapshot ManagedMonitoringSnapshot) error {
-	if !snapshot.ProfileImmutable || !reflect.DeepEqual(snapshot.ProfileData, expectedManagedProfile()) {
+func validateManagedSnapshot(snapshot ManagedMonitoringSnapshot, chartVersion string) error {
+	if !validManagedChartVersion(chartVersion) || !snapshot.ProfileImmutable || !reflect.DeepEqual(snapshot.ProfileData, expectedManagedProfile(chartVersion)) {
 		return ErrUnsafeResponse
 	}
 	if snapshot.OperatorName != ManagedMonitoringOperatorName || snapshot.OperatorContainer != ManagedMonitoringOperatorContainer ||
@@ -109,11 +111,11 @@ type ManagedService struct {
 	readiness *ManagedReadinessProbe
 }
 
-func NewManagedService(client *Client, observer ManagedMonitoringObserver) (*ManagedService, error) {
-	if client == nil || observer == nil {
+func NewManagedService(client *Client, observer ManagedMonitoringObserver, chartVersion string) (*ManagedService, error) {
+	if client == nil || observer == nil || !validManagedChartVersion(chartVersion) {
 		return nil, ErrUnavailable
 	}
-	return &ManagedService{client: client, readiness: &ManagedReadinessProbe{Prometheus: client, Observer: observer}}, nil
+	return &ManagedService{client: client, readiness: &ManagedReadinessProbe{Prometheus: client, Observer: observer, ExpectedChartVersion: chartVersion}}, nil
 }
 
 func (s *ManagedService) Probe(ctx context.Context) error {
@@ -130,12 +132,18 @@ func (s *ManagedService) QueryRange(ctx context.Context, scope Scope, metric Met
 	return s.client.QueryRange(ctx, scope, metric, queryRange)
 }
 
-func expectedManagedProfile() map[string]string {
+var managedChartVersionPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[0-9]+)?$`)
+
+func validManagedChartVersion(version string) bool {
+	return managedChartVersionPattern.MatchString(version)
+}
+
+func expectedManagedProfile(chartVersion string) map[string]string {
 	return map[string]string{
 		"contract":                  "kuberploy-managed-monitoring/v1",
 		"management":                "managed",
 		"chartName":                 "kuberploy-monitoring",
-		"chartVersion":              "0.1.0",
+		"chartVersion":              chartVersion,
 		"upstreamChartSHA256":       "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90",
 		"releaseName":               "monitoring",
 		"namespace":                 ManagedMonitoringNamespace,

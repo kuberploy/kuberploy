@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const managedChartVersionForTest = "0.1.0-rc.11"
+
 type fixedManagedObserver struct {
 	snapshot ManagedMonitoringSnapshot
 	err      error
@@ -34,7 +36,7 @@ func (p *fixedManagedPrometheus) ProbeManagedRules(context.Context) error {
 
 func validManagedSnapshotForTest() ManagedMonitoringSnapshot {
 	return ManagedMonitoringSnapshot{
-		ProfileData: expectedManagedProfile(), ProfileImmutable: true,
+		ProfileData: expectedManagedProfile(managedChartVersionForTest), ProfileImmutable: true,
 		OperatorName: ManagedMonitoringOperatorName, OperatorContainer: ManagedMonitoringOperatorContainer,
 		OperatorImage: ManagedMonitoringOperatorImage, OperatorArgumentsSHA256: ManagedMonitoringOperatorArgsSHA256,
 		OperatorGeneration: 4, OperatorObservedGeneration: 4, OperatorDesiredReplicas: 1, OperatorAvailableReplicas: 1,
@@ -45,7 +47,7 @@ func validManagedSnapshotForTest() ManagedMonitoringSnapshot {
 func TestManagedReadinessRequiresAttestationProbeAndRules(t *testing.T) {
 	t.Parallel()
 	prometheus := &fixedManagedPrometheus{}
-	probe := &ManagedReadinessProbe{Prometheus: prometheus, Observer: fixedManagedObserver{snapshot: validManagedSnapshotForTest()}}
+	probe := &ManagedReadinessProbe{Prometheus: prometheus, Observer: fixedManagedObserver{snapshot: validManagedSnapshotForTest()}, ExpectedChartVersion: managedChartVersionForTest}
 	if err := probe.Probe(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -89,9 +91,25 @@ func TestManagedSnapshotAttestationFailsClosedOnEveryProtectedIdentity(t *testin
 			t.Parallel()
 			snapshot := validManagedSnapshotForTest()
 			test.mutate(&snapshot)
-			if err := validateManagedSnapshot(snapshot); !errors.Is(err, ErrUnsafeResponse) {
+			if err := validateManagedSnapshot(snapshot, managedChartVersionForTest); !errors.Is(err, ErrUnsafeResponse) {
 				t.Fatalf("error=%v", err)
 			}
 		})
+	}
+}
+
+func TestManagedSnapshotAttestationBindsRunningReleaseVersion(t *testing.T) {
+	t.Parallel()
+	snapshot := validManagedSnapshotForTest()
+	if err := validateManagedSnapshot(snapshot, managedChartVersionForTest); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedSnapshot(snapshot, "0.1.0-rc.10"); !errors.Is(err, ErrUnsafeResponse) {
+		t.Fatalf("substituted release version error=%v", err)
+	}
+	for _, invalid := range []string{"", "dev", "v0.1.0-rc.11", "0.1.0+build", "0.1.0-rc.11-extra"} {
+		if validManagedChartVersion(invalid) {
+			t.Fatalf("invalid managed chart version accepted: %q", invalid)
+		}
 	}
 }

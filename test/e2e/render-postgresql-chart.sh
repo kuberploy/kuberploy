@@ -26,6 +26,7 @@ kp_adopted="${kp_chart}/testdata/adopted-values.yaml"
 helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >/dev/null
 helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >/dev/null
 helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
+[[ "$(yq eval-all 'select(.kind == "Namespace" and .metadata.name == "kuberploy-system") | .metadata.labels."kuberploy.io/control-plane-namespace"' "${kp_tmp}/managed.yaml")" == "true" ]]
 helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
 helm template postgresql "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
 diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
