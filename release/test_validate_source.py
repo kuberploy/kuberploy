@@ -90,6 +90,15 @@ def main() -> None:
                 "missing fail-closed controls",
             ),
             (
+                "readable image tag can overwrite different content",
+                workflow.replace(
+                    "                echo \"Readable image tag already points to different content: ${kp_tagged_image}.\" >&2\n",
+                    "                echo \"Readable image tag exists.\" >&2\n",
+                    1,
+                ),
+                "readable image publication lacks fail-closed controls",
+            ),
+            (
                 "emulated arm build",
                 workflow.replace("runner: ubuntu-26.04-arm\n", "runner: ubuntu-26.04\n", 1),
                 "five amd64 and five arm64",

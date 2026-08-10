@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      repair_release_tag:
+        description: "Existing immutable release tag whose readable image tags must be repaired"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -382,6 +387,14 @@ jobs:
         uses: azure/setup-helm@v5
         with:
           version: v4.2.3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Package and validate release artifacts
         env:
           TZ: UTC
@@ -532,6 +545,41 @@ jobs:
             cd release-dist
             sha256sum --check SHA256SUMS
           )
+      - name: Publish or verify readable image tags
+        env:
+          VERSION: ${{ needs.release-gate.outputs.version }}
+          API_DIGEST: ${{ needs.assemble-images.outputs.api_digest }}
+          WORKER_DIGEST: ${{ needs.assemble-images.outputs.worker_digest }}
+          WEB_DIGEST: ${{ needs.assemble-images.outputs.web_digest }}
+          UPGRADER_DIGEST: ${{ needs.assemble-images.outputs.upgrader_digest }}
+          BUILDER_AGENT_DIGEST: ${{ needs.assemble-images.outputs.builder_agent_digest }}
+        run: |
+          for kp_record in \
+            "api:${API_DIGEST}" \
+            "worker:${WORKER_DIGEST}" \
+            "web:${WEB_DIGEST}" \
+            "upgrader:${UPGRADER_DIGEST}" \
+            "builder-agent:${BUILDER_AGENT_DIGEST}"; do
+            kp_component="${kp_record%%:*}"
+            kp_digest="${kp_record#*:}"
+            kp_image="ghcr.io/kuberploy/kuberploy-${kp_component}"
+            kp_tagged_image="${kp_image}:${VERSION}"
+            if kp_tag_lookup="$(docker buildx imagetools inspect "${kp_tagged_image}" --format '{{json .Manifest}}' 2>&1)"; then
+              kp_tag_digest="$(jq -er .digest <<<"${kp_tag_lookup}")"
+              [[ "${kp_tag_digest}" == "${kp_digest}" ]] || {
+                echo "Readable image tag already points to different content: ${kp_tagged_image}." >&2
+                exit 1
+              }
+            elif [[ "${kp_tag_lookup,,}" =~ (not[[:space:]]found|manifest[[:space:]_]unknown) ]]; then
+              docker buildx imagetools create --tag "${kp_tagged_image}" "${kp_image}@${kp_digest}"
+            else
+              echo "Could not determine whether readable image tag exists: ${kp_tagged_image}." >&2
+              exit 1
+            fi
+            kp_published_digest="$(docker buildx imagetools inspect \
+              "${kp_tagged_image}" --format '{{json .Manifest}}' | jq -er .digest)"
+            [[ "${kp_published_digest}" == "${kp_digest}" ]]
+          done
       - name: Publish or verify immutable chart set
         env:
           TZ: UTC
@@ -617,3 +665,73 @@ jobs:
             echo "Published release did not become immutable: ${kp_release_state}" >&2
             exit 1
           }
+
+  repair-image-tags:
+    name: Repair readable image tags
+    needs: release-contract
+    if: needs.release-contract.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.repair_release_tag != '' && github.repository == 'kuberploy/kuberploy'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out immutable release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.repair_release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify immutable release and repair tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.repair_release_tag }}
+        run: |
+          [[ "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]
+          kp_release_json="$(gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
+          jq -e --arg tag "${RELEASE_TAG}" \
+            '.tag_name == $tag and .draft == false and .immutable == true' \
+            <<<"${kp_release_json}" >/dev/null
+          kp_tag_commit="$(git rev-parse HEAD)"
+          mkdir release-repair
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern release-manifest.json --dir release-repair
+          jq -e \
+            --arg tag "${RELEASE_TAG}" \
+            --arg commit "${kp_tag_commit}" \
+            '.schemaVersion == "kuberploy.release/v1" and
+             .release.tag == $tag and
+             .source.commit == $commit and
+             (.artifacts.images | length == 5)' \
+            release-repair/release-manifest.json >/dev/null
+          while IFS= read -r kp_record; do
+            kp_component="$(jq -er .component <<<"${kp_record}")"
+            kp_reference="$(jq -er .reference <<<"${kp_record}")"
+            [[ "${kp_reference}" == "ghcr.io/kuberploy/kuberploy-${kp_component}" ]]
+            kp_digest="$(jq -er .digest <<<"${kp_record}")"
+            [[ "${kp_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+            jq -e '.platforms == ["linux/amd64", "linux/arm64"]' <<<"${kp_record}" >/dev/null
+            kp_manifest="$(docker buildx imagetools inspect \
+              "${kp_reference}@${kp_digest}" --format '{{json .Manifest}}')"
+            jq -e '.mediaType == "application/vnd.oci.image.index.v1+json" and
+                   (.manifests | length == 2) and
+                   ([.manifests[].platform | .os + "/" + .architecture] | sort == ["linux/amd64", "linux/arm64"])' \
+              <<<"${kp_manifest}" >/dev/null
+            kp_version="${RELEASE_TAG#v}"
+            docker buildx imagetools create \
+              --tag "${kp_reference}:${kp_version}" "${kp_reference}@${kp_digest}"
+            kp_repaired_digest="$(docker buildx imagetools inspect \
+              "${kp_reference}:${kp_version}" --format '{{json .Manifest}}' | jq -er .digest)"
+            [[ "${kp_repaired_digest}" == "${kp_digest}" ]]
+          done < <(jq -c '.artifacts.images[]' release-repair/release-manifest.json)

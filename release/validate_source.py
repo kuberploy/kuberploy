@@ -118,7 +118,9 @@ def main() -> None:
         "Build and push native image by digest",
         "Assemble and verify image indexes",
         "Package and validate release artifacts",
+        "Publish or verify readable image tags",
         "Publish or verify immutable chart set",
+        "Repair readable image tags",
         "cmp --silent",
         'if [[ "${VERSION}" == *-* ]]',
         "kp_release_args+=(--prerelease)",
@@ -151,6 +153,7 @@ def main() -> None:
     build_job = workflow_job("build-images")
     assembly_job = workflow_job("assemble-images")
     publish_job = workflow_job("publish")
+    repair_job = workflow_job("repair-image-tags")
 
     if "runs-on: ubuntu-26.04" not in contract_job:
         raise SystemExit("Go-heavy release contract must run on the full Ubuntu 26.04 VM")
@@ -176,6 +179,7 @@ def main() -> None:
         "--format '{{json .Image}}'",
         '.os == "linux" and .architecture == $architecture',
         "Upload platform digest",
+        "image-digest-${{ matrix.component }}-${{ matrix.architecture }}",
     )
     missing_build_controls = [control for control in build_controls if control not in build_job]
     if missing_build_controls:
@@ -184,7 +188,6 @@ def main() -> None:
         raise SystemExit("native child images must be pushed without mutable tags")
 
     assembly_controls = (
-        "image-digest-${{ matrix.component }}-${{ matrix.architecture }}",
         "pattern: image-digest-*",
         "candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}",
         "Candidate image index already exists; refusing to overwrite",
@@ -195,7 +198,7 @@ def main() -> None:
         '.platform.architecture == "amd64" and .digest == $amd64',
         '.platform.architecture == "arm64" and .digest == $arm64',
     )
-    missing_assembly_controls = [control for control in assembly_controls if control not in workflow_text]
+    missing_assembly_controls = [control for control in assembly_controls if control not in assembly_job]
     if missing_assembly_controls:
         raise SystemExit(f"image index assembly lacks fail-closed controls: {', '.join(missing_assembly_controls)}")
     if workflow_text.count("candidate-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}") != 1:
@@ -205,10 +208,22 @@ def main() -> None:
         environment_name = component.replace("-", "_").upper()
         output = f"{output_name}_digest: ${{{{ steps.assemble.outputs.{output_name}_digest }}}}"
         consumer = f"{environment_name}_DIGEST: ${{{{ needs.assemble-images.outputs.{output_name}_digest }}}}"
-        if output not in assembly_job or consumer not in publish_job:
+        if output not in assembly_job or publish_job.count(consumer) != 2:
             raise SystemExit(f"release chart and manifest must consume the merged {component} image index digest")
     if 'kp_output_name="${kp_component//-/_}_digest"' not in assembly_job:
         raise SystemExit("image index output names must normalize hyphenated component names")
+    repair_controls = (
+        "inputs.repair_release_tag != ''",
+        "environment: release",
+        ".immutable == true",
+        ".artifacts.images | length == 5",
+        'docker buildx imagetools create',
+        '"${kp_reference}:${kp_version}"',
+        '"${kp_reference}@${kp_digest}"',
+    )
+    missing_repair = [control for control in repair_controls if control not in repair_job]
+    if missing_repair:
+        raise SystemExit(f"image tag repair lacks immutable-release controls: {', '.join(missing_repair)}")
 
     def release_step(name: str) -> tuple[int, str]:
         step = re.search(
@@ -231,9 +246,10 @@ def main() -> None:
     build_position, _ = release_step("Build and push native image by digest")
     assembly_position, _ = release_step("Assemble and verify image indexes")
     local_position, local_body = release_step("Package and validate release artifacts")
+    image_tag_position, image_tag_body = release_step("Publish or verify readable image tags")
     publish_position, publish_body = release_step("Publish or verify immutable chart set")
     github_position, _ = release_step("Create draft and publish GitHub Release")
-    if not preflight_position < build_position < assembly_position < local_position < publish_position < github_position:
+    if not preflight_position < build_position < assembly_position < local_position < image_tag_position < publish_position < github_position:
         raise SystemExit("release gate, native builds, index assembly, local validation, and publication are out of order")
     local_controls = (
         "--builder-chart charts/kuberploy-builder",
@@ -250,6 +266,16 @@ def main() -> None:
     missing_local = [control for control in local_controls if control not in local_body]
     if missing_local or "helm push" in local_body or "helm pull" in local_body:
         raise SystemExit("all fallible local artifact generation and validation must precede OCI chart publication")
+    image_tag_controls = (
+        '"${kp_image}:${VERSION}"',
+        "Readable image tag already points to different content",
+        "docker buildx imagetools create --tag",
+        '"${kp_image}@${kp_digest}"',
+        '"${kp_published_digest}" == "${kp_digest}"',
+    )
+    missing_image_tags = [control for control in image_tag_controls if control not in image_tag_body]
+    if missing_image_tags:
+        raise SystemExit(f"readable image publication lacks fail-closed controls: {', '.join(missing_image_tags)}")
     recovery_controls = (
         "helm show chart",
         "helm pull",
