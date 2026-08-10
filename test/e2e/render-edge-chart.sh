@@ -122,13 +122,13 @@ kp_traefik_image='docker.io/library/traefik:v3.7.10'
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.httpRoutesSupported' "${kp_tmp}/edge.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.customTLSSecretRoutesSupported' "${kp_tmp}/edge.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.letsEncryptRoutesRequireApprovedIssuer' "${kp_tmp}/edge.yaml")" == "true" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data == {"management":"managed","ingressClassName":"traefik","httpRoutesSupported":"true","letsEncryptRoutesRequireApprovedIssuer":"true","customTLSSecretRoutesSupported":"true","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true","sslipMode":"auto-first-ip","sslipStaticPublicIPv4":""}' "${kp_tmp}/edge.yaml")" == "true" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data' "${kp_tmp}/edge.yaml" | jq -cS .)" == '{"customTLSSecretRoutesSupported":"true","httpRoutesSupported":"true","ingressClassName":"traefik","letsEncryptRoutesRequireApprovedIssuer":"true","management":"managed","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true","sslipMode":"auto-first-ip","sslipStaticPublicIPv4":""}' ]]
 [[ "$(kp_count_kind TLSStore "${kp_tmp}/edge.yaml")" == "0" ]]
 [[ "$(kp_count_kind Secret "${kp_tmp}/edge.yaml")" == "0" ]]
 [[ "$(kp_count_kind Certificate "${kp_tmp}/edge.yaml")" == "0" ]]
 [[ "$(kp_count_kind ClusterIssuer "${kp_tmp}/edge.yaml")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector.matchLabels."kuberploy.io/runtime-namespace" == "true")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "1" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector == {})] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all -o=json '.' "${kp_tmp}/edge.yaml" | jq -s '[.[] | select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector != null and (.namespaceSelector | length) == 0)] | length')" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.ipBlock.cidr == "0.0.0.0/0" or .ipBlock.cidr == "::/0")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[].ipBlock.cidr | select(. == "10.43.0.1/32")] | length' "${kp_tmp}/edge.yaml" | tail -1)" == "1" ]]
 if rg -n 'hostPort:|kind: TLSStore|cert-manager|external-dns|:latest' "${kp_tmp}/edge.yaml"; then
@@ -142,7 +142,7 @@ helm template edge-adopted "${kp_edge}" --namespace kuberploy-system -f "${kp_ed
 [[ "$(kp_count_kind ClusterRole "${kp_tmp}/edge-adopted.yaml")" == "0" ]]
 [[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/edge-adopted.yaml")" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.management' "${kp_tmp}/edge-adopted.yaml")" == "adopted" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data == {"management":"adopted","ingressClassName":"adopted-traefik","httpRoutesSupported":"true","letsEncryptRoutesRequireApprovedIssuer":"true","customTLSSecretRoutesSupported":"true","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true"}' "${kp_tmp}/edge-adopted.yaml")" == "true" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ConfigMap") | .data' "${kp_tmp}/edge-adopted.yaml" | jq -cS .)" == '{"customTLSSecretRoutesSupported":"true","httpRoutesSupported":"true","ingressClassName":"adopted-traefik","letsEncryptRoutesRequireApprovedIssuer":"true","management":"adopted","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true"}' ]]
 
 helm template edge-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-string edge.traefik.sslip.mode=verified-static-ip \
@@ -205,7 +205,7 @@ yq eval-all 'true' "${kp_tmp}/cert.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.server] | sort | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == 'https://acme-staging-v02.api.letsencrypt.org/directory,https://acme-v02.api.letsencrypt.org/directory' ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressClassName] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "traefik" ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressTemplate.metadata.annotations."external-dns.alpha.kubernetes.io/ingress-hostname-source"] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "annotation-only" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "cert-certificate-profile") | .data == {"management":"managed","ingressClassName":"traefik","productionIssuer":"kuberploy-letsencrypt-production","productionServerClass":"letsencrypt-production","productionSolverTypes":"http01","productionDNS01Profiles":"","stagingIssuer":"kuberploy-letsencrypt-staging","stagingServerClass":"letsencrypt-staging","stagingSolverTypes":"http01","stagingDNS01Profiles":""}' "${kp_tmp}/cert.yaml")" == "true" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ConfigMap" and .metadata.name == "cert-certificate-profile") | .data' "${kp_tmp}/cert.yaml" | jq -cS .)" == '{"ingressClassName":"traefik","management":"managed","productionDNS01Profiles":"","productionIssuer":"kuberploy-letsencrypt-production","productionServerClass":"letsencrypt-production","productionSolverTypes":"http01","stagingDNS01Profiles":"","stagingIssuer":"kuberploy-letsencrypt-staging","stagingServerClass":"letsencrypt-staging","stagingSolverTypes":"http01"}' ]]
 if yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[].image' "${kp_tmp}/cert.yaml" | rg -v '^(---|quay\.io/jetstack/cert-manager-(controller|webhook|cainjector):v1\.21\.1)$'; then
   printf 'cert-manager rendered an unexpected image\n' >&2
   exit 1
@@ -294,7 +294,7 @@ done
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "dns-dns-profile") | .data.egressConfigRef' "${kp_tmp}/dns.yaml")" == "cloudflare-egress" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[].ipBlock.cidr | select(. == "10.43.0.1/32")] | length' "${kp_tmp}/dns.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[].ipBlock.cidr | select(. == "192.0.2.10/32")] | length' "${kp_tmp}/dns.yaml" | tail -1)" == "1" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector == {})] | length' "${kp_tmp}/dns.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all -o=json '.' "${kp_tmp}/dns.yaml" | jq -s '[.[] | select(.kind == "NetworkPolicy") | .spec.egress[].to[] | select(.namespaceSelector != null and (.namespaceSelector | length) == 0)] | length')" == "0" ]]
 if rg -n 'kind: (Ingress|ClusterIssuer|TLSStore)$|library/traefik|cert-manager|:latest' "${kp_tmp}/dns.yaml"; then
   printf 'external-dns release rendered a route, certificate, or cross-owned workload\n' >&2
   exit 1

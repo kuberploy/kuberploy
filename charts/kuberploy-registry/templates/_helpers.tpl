@@ -36,11 +36,8 @@ kuberploy.io/test-run: {{ . | quote }}
 
 {{- define "kuberploy-registry.image" -}}
 {{- $reference := required "image.reference is required" .Values.image.reference -}}
-{{- if contains ":latest" (lower $reference) -}}
-{{- fail "image.reference must never use latest" -}}
-{{- end -}}
-{{- if not (regexMatch "^[^[:space:]]+@sha256:[a-f0-9]{64}$" $reference) -}}
-{{- fail "image.reference must be pinned as image@sha256:<64hex>" -}}
+{{- if ne $reference "docker.io/library/registry:3.1.1" -}}
+{{- fail "image.reference must use the locked OCI Distribution 3.1.1 release" -}}
 {{- end -}}
 {{- $reference -}}
 {{- end -}}

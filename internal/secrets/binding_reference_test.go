@@ -167,9 +167,11 @@ func TestRuntimeChartSecretNameMatchesTargetSecretName(t *testing.T) {
 		t.Fatal(err)
 	}
 	longName := "database-credentials-for-an-extremely-long-application-binding"
-	longVersion := int64(9223372036854775807)
+	// Helm's YAML values use IEEE-754 numbers. This is the largest integer
+	// represented exactly on every supported architecture.
+	longVersion := int64(9007199254740991)
 	changed := strings.Replace(string(raw), "name: database\n            key:", "name: "+longName+"\n            key:", 1)
-	changed = strings.Replace(changed, "version: 3", "version: 9223372036854775807", 1)
+	changed = strings.Replace(changed, "version: 3", "version: 9007199254740991", 1)
 	values := filepath.Join(t.TempDir(), "app.yaml")
 	if err = os.WriteFile(values, []byte(changed), 0o600); err != nil {
 		t.Fatal(err)
