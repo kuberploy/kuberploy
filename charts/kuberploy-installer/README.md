@@ -136,6 +136,9 @@ assigns the same cluster-scoped admission resources to two Applications. The
 installer rejects partial combinations. The Secret must contain the private key, webhook
 secret, state-signing secret, and OAuth client secret under the control-plane
 chart's fixed keys. No credential bytes enter Helm values or Argo Applications.
+The same switch enables the read-only source-build log boundary; it remains
+scoped to exact build Jobs and uses the digest-pinned API image from the
+published control-plane chart.
 
 Use stable egress proxies when GitHub or registry destinations do not have
 stable host routes. The control-plane, source checkout, and registry lanes are

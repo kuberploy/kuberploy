@@ -104,6 +104,7 @@
   {{- $githubValues := dict
     "config" (dict
       "githubApp" (dict "enabled" true "appID" $github.appID "clientID" $github.clientID "appSlug" $github.appSlug "secretRef" (dict "name" $github.secretName))
+      "buildLogs" (dict "enabled" true)
       "gitProjection" (dict "enabled" true "chartVersion" $component.expectedPackageVersion)
       "platformGitBinding" (dict "enabled" true "clusterID" $github.clusterID)
     )

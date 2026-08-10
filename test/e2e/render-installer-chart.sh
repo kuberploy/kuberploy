@@ -220,6 +220,7 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
   --set-string publicEndpoint.tls.accountEmail=platform@example.com \
   "${kp_github_args[@]}" >"${kp_tmp}/github-platform.yaml"
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.buildLogs.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.secretRef.name' "${kp_tmp}/github-platform.yaml")" == "kuberploy-github-app" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.15" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.platformGitBinding.clusterID' "${kp_tmp}/github-platform.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
@@ -234,9 +235,11 @@ yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-cont
 # the OCI chart default with the immutable multi-platform image identity.
 helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
   -f "${kp_tmp}/github-control-values.yaml" \
+  --set-string components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   --set-string builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.15 \
   >"${kp_tmp}/github-control.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GITHUB_BUILDS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILD_LOGS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
 
 for kp_entry in \
