@@ -63,13 +63,15 @@ func (c *Checkout) Run(ctx context.Context, request CheckoutRequest) (CheckoutRe
 		"GIT_ATTR_NOSYSTEM=1",
 		"HOME=" + home,
 		"XDG_CONFIG_HOME=" + filepath.Join(home, "xdg"),
-		"GIT_CONFIG_COUNT=3",
+		"GIT_CONFIG_COUNT=4",
 		"GIT_CONFIG_KEY_0=credential.helper",
 		"GIT_CONFIG_VALUE_0=",
 		"GIT_CONFIG_KEY_1=http.followRedirects",
 		"GIT_CONFIG_VALUE_1=false",
 		"GIT_CONFIG_KEY_2=protocol.file.allow",
 		"GIT_CONFIG_VALUE_2=never",
+		"GIT_CONFIG_KEY_3=safe.directory",
+		"GIT_CONFIG_VALUE_3=" + c.Workspace,
 	}
 	if request.AccessTokenFile != "" {
 		environment = append(environment,

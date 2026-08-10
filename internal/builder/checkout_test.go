@@ -1,10 +1,39 @@
 package builder
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 )
+
+func TestCheckoutBindsSafeDirectoryToFixedWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	runtimeRoot := t.TempDir()
+	commit := strings.Repeat("a", 40)
+	executor := &sequenceExecutor{results: []CommandResult{{}, {}, {}, {}, {Stdout: commit + "\n"}}}
+	checkout := NewCheckout(executor)
+	checkout.Workspace = workspace
+	checkout.RuntimeRoot = runtimeRoot
+	request := CheckoutRequest{
+		APIVersion: ProtocolVersion, OperationID: "11111111-1111-4111-8111-111111111111", Generation: 1,
+		RepositoryURL: "https://source.example.test/owner/repository.git", ApprovedHost: "source.example.test", Commit: commit,
+	}
+	if _, err := checkout.Run(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.invocations) != 5 {
+		t.Fatalf("invocations=%d", len(executor.invocations))
+	}
+	for _, invocation := range executor.invocations {
+		environment := strings.Join(invocation.Env, "\n")
+		for _, expected := range []string{"GIT_CONFIG_COUNT=4", "GIT_CONFIG_KEY_3=safe.directory", "GIT_CONFIG_VALUE_3=" + workspace} {
+			if !strings.Contains(environment, expected) {
+				t.Fatalf("checkout environment lacks %q: %s", expected, environment)
+			}
+		}
+	}
+}
 
 func TestCheckoutRequestBindsApprovedHost(t *testing.T) {
 	request := CheckoutRequest{
