@@ -13,7 +13,7 @@ Install Kuberploy from the public OCI installer chart.
 
 Usage:
   scripts/install.sh \
-    --version 0.1.0-rc.2 \
+    --version 0.1.0-rc.3 \
     --kubeconfig /absolute/path/to/kubeconfig \
     --context exact-context \
     [--yes]
@@ -103,13 +103,32 @@ kp_server_minor="$(kubectl --kubeconfig "${kp_kubeconfig}" --context "${kp_conte
 kp_service_ip="$(kubectl --kubeconfig "${kp_kubeconfig}" --context "${kp_context}" \
   --namespace default get service kubernetes -o json | jq -er '.spec.clusterIP | select(. != "" and . != "None")')"
 if [[ "${kp_service_ip}" == *:* ]]; then
-  kp_api_cidr="${kp_service_ip}/128"
+  kp_service_cidr="${kp_service_ip}/128"
 elif [[ "${kp_service_ip}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  kp_api_cidr="${kp_service_ip}/32"
+  kp_service_cidr="${kp_service_ip}/32"
 else
   printf 'could not derive an exact Kubernetes API CIDR from service IP: %s\n' "${kp_service_ip}" >&2
   exit 1
 fi
+
+# NetworkPolicy implementations may evaluate Service traffic before or after
+# destination NAT. Bind egress to both the stable Service IP and the exact ready
+# API endpoint addresses so a blank K3s cluster works without broad node CIDRs.
+kp_api_endpoint_cidrs="$(kubectl --kubeconfig "${kp_kubeconfig}" --context "${kp_context}" \
+  --namespace default get endpointslice \
+  --selector kubernetes.io/service-name=kubernetes -o json | jq -ce '
+    [.items[].endpoints[]? |
+      select(.conditions.ready != false) |
+      .addresses[]? |
+      select(type == "string" and length > 0 and (contains(" ") | not)) |
+      if contains(":") then . + "/128" else . + "/32" end] |
+    unique |
+    select(length > 0 and length <= 8)
+  ')"
+kp_api_cidrs_json="$(jq -cn \
+  --arg service "${kp_service_cidr}" \
+  --argjson endpoints "${kp_api_endpoint_cidrs}" \
+  '([$service] + $endpoints) | unique')"
 
 kp_repository_cidrs="$(curl --fail --silent --show-error --location \
   --proto '=https' --tlsv1.2 https://api.github.com/meta | jq -ce '
@@ -123,7 +142,7 @@ kp_repository_cidrs="$(curl --fail --silent --show-error --location \
 printf 'Kuberploy version: %s\n' "${kp_version}"
 printf 'Kubernetes context: %s\n' "${kp_context}"
 printf 'Kubernetes API server: %s\n' "${kp_server}"
-printf 'Kubernetes API service CIDR: %s\n' "${kp_api_cidr}"
+printf 'Kubernetes API policy CIDRs: %s\n' "$(jq -r 'join(", ")' <<<"${kp_api_cidrs_json}")"
 printf 'GitHub repository egress CIDRs: %s entries\n' "$(jq 'length' <<<"${kp_repository_cidrs}")"
 
 if [[ "${kp_yes}" != true ]]; then
@@ -138,19 +157,39 @@ if [[ "${kp_yes}" != true ]]; then
   }
 fi
 
-kp_api_cidrs_json="$(jq -cn --arg cidr "${kp_api_cidr}" '[$cidr]')"
+kp_helm_base=(
+  upgrade --install kuberploy-installer
+  oci://ghcr.io/kuberploy/charts/kuberploy-installer
+  --version "${kp_version}"
+  --namespace kuberploy-system
+  --create-namespace
+  --kubeconfig "${kp_kubeconfig}"
+  --kube-context "${kp_context}"
+  --set bootstrap.valkey.enabled=true
+  --set bootstrap.argoCD.enabled=true
+  --set bootstrap.argoCD.mode=managed
+  --set bootstrap.argoCD.managedPrerequisitesConfirmed=true
+  --set-json "argoCD.argoFoundation.networkPolicy.kubeAPIServerCIDRs=${kp_api_cidrs_json}"
+  --set-json "argoCD.argoFoundation.networkPolicy.repositoryEgressCIDRs=${kp_repository_cidrs}"
+  --wait
+  --timeout 20m
+)
 
-helm upgrade --install kuberploy-installer \
-  "oci://ghcr.io/kuberploy/charts/kuberploy-installer" \
-  --version "${kp_version}" \
-  --namespace kuberploy-system \
-  --create-namespace \
-  --kubeconfig "${kp_kubeconfig}" \
-  --kube-context "${kp_context}" \
-  --set bootstrap.valkey.enabled=true \
-  --set bootstrap.argoCD.enabled=true \
-  --set bootstrap.argoCD.mode=managed \
-  --set bootstrap.argoCD.managedPrerequisitesConfirmed=true \
+kp_argo_crds=(
+  applications.argoproj.io
+  applicationsets.argoproj.io
+  appprojects.argoproj.io
+)
+
+if ! kubectl --kubeconfig "${kp_kubeconfig}" --context "${kp_context}" \
+  get crd "${kp_argo_crds[@]}" >/dev/null 2>&1; then
+  printf '%s\n' 'Bootstrapping Argo CD and its CRDs before creating Applications...'
+  helm "${kp_helm_base[@]}"
+  kubectl --kubeconfig "${kp_kubeconfig}" --context "${kp_context}" \
+    wait --for=condition=Established --timeout=5m crd "${kp_argo_crds[@]}"
+fi
+
+helm "${kp_helm_base[@]}" \
   --set bootstrap.controlPlaneToken.mode=generated \
   --set-json "bootstrap.controlPlaneToken.kubeAPIServerCIDRs=${kp_api_cidrs_json}" \
   --set-string source.repoURL=https://github.com/kuberploy/kuberploy.git \
@@ -164,11 +203,7 @@ helm upgrade --install kuberploy-installer \
   --set-string 'components.postgresql.valueFiles[0]=../../examples/installer/postgresql.yaml' \
   --set components.valkey.enabled=true \
   --set components.valkey.mode=managed \
-  --set-string "components.valkey.expectedPackageVersion=${kp_version}" \
-  --set-json "argoCD.argoFoundation.networkPolicy.kubeAPIServerCIDRs=${kp_api_cidrs_json}" \
-  --set-json "argoCD.argoFoundation.networkPolicy.repositoryEgressCIDRs=${kp_repository_cidrs}" \
-  --wait \
-  --timeout 20m
+  --set-string "components.valkey.expectedPackageVersion=${kp_version}"
 
 cat <<EOF
 
@@ -180,7 +215,7 @@ and Healthy:
 
 After kuberploy-control-plane is Healthy, retrieve the one-time bootstrap token:
 
-  kubectl --kubeconfig ${kp_kubeconfig} --context ${kp_context} -n kuberploy-system logs job/kuberploy-bootstrap-token
+  kubectl --kubeconfig ${kp_kubeconfig} --context ${kp_context} -n kuberploy-system logs job/kuberploy-bootstrap-token | sed -nE 's/^KUBERPLOY_BOOTSTRAP_TOKEN=(kp_bootstrap_[A-Za-z0-9_-]{43})$/\1/p'
 
 Open the UI locally:
 

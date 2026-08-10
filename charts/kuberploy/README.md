@@ -5,12 +5,14 @@
 For a first install, set `config.bootstrapSecret.generate=true` and provide the
 exact Kubernetes API endpoint CIDR in `networkPolicy.kubeAPIServerCIDRs`. A
 pre-install hook runs the API image's fixed `/kuberploy-bootstrap-token`
-command. It creates only the configured Opaque Secret and prints the random
-`kp_bootstrap_`-prefixed token once in the hook Job log; the token is never a Helm value or
-rendered manifest field. Retrieve it before the Job's 24-hour TTL expires:
+command. It creates only the configured Opaque Secret and prints one strict
+`KUBERPLOY_BOOTSTRAP_TOKEN=kp_bootstrap_...` assignment in the hook Job log;
+the token is never a Helm value or rendered manifest field. Extract only the
+token value before the Job's 24-hour TTL expires:
 
 ```sh
-kubectl -n <release-namespace> logs job/<release-name>-bootstrap-token
+kubectl -n <release-namespace> logs job/<release-name>-bootstrap-token \
+  | sed -nE 's/^KUBERPLOY_BOOTSTRAP_TOKEN=(kp_bootstrap_[A-Za-z0-9_-]{43})$/\1/p'
 ```
 
 If the Secret already exists, the hook succeeds without reading or disclosing
@@ -25,7 +27,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.2` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.3` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then

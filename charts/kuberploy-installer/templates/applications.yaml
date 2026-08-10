@@ -108,6 +108,21 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $item.namespace }}
+  {{- if eq $item.key "postgresql" }}
+  # Kubernetes defaults these fields inside the immutable claim template.
+  # Ignore only those defaults; every operator-owned PostgreSQL field remains
+  # drift-enforced by Argo CD.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      name: kuberploy-postgresql
+      namespace: kuberploy-system
+      jsonPointers:
+        - /spec/volumeClaimTemplates/0/apiVersion
+        - /spec/volumeClaimTemplates/0/kind
+        - /spec/volumeClaimTemplates/0/spec/volumeMode
+        - /spec/volumeClaimTemplates/0/status
+  {{- end }}
   syncPolicy:
     {{- if $root.Values.applications.automated }}
     automated:
