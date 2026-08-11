@@ -19,6 +19,7 @@ func TestLoadMigrationFilename(t *testing.T) {
 		{name: "001_initial.sql", load: true},
 		{name: "044_outbox_valkey_dataset_replay.sql", load: true},
 		{name: "045_project_registry_pull_credentials.sql", load: true},
+		{name: "046_git_projection_chart_versions.sql", load: true},
 		{name: "._001_initial.sql"},
 		{name: ".DS_Store"},
 		{name: "README.md"},
