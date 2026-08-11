@@ -101,6 +101,11 @@ func TestBuildPhasesUseDisjointRegistryAuthoritiesAndNoShell(t *testing.T) {
 		!strings.Contains(pushJoined, "/result/push-auth") || strings.Contains(pushJoined, "/result/cache-auth") {
 		t.Fatal("cache and release-push Docker configurations crossed phase boundaries")
 	}
+	cacheBuildxConfig := environmentValue(cacheInvocation.Env, "BUILDX_CONFIG")
+	pushBuildxConfig := environmentValue(pushInvocation.Env, "BUILDX_CONFIG")
+	if cacheBuildxConfig == "" || cacheBuildxConfig != pushBuildxConfig || cacheBuildxConfig != "/result/buildx" {
+		t.Fatalf("phases cannot resolve the same credential-free Buildx state: cache=%q push=%q", cacheBuildxConfig, pushBuildxConfig)
+	}
 	for _, forbidden := range []string{"--push", request.Destination.String(), "/result/push-auth"} {
 		if strings.Contains(cacheJoined, forbidden) {
 			t.Fatalf("cache phase received release-push authority %q: %#v", forbidden, cacheInvocation.Argv)
@@ -118,6 +123,16 @@ func TestBuildPhasesUseDisjointRegistryAuthoritiesAndNoShell(t *testing.T) {
 	if _, err := os.Stat("/tmp/pwned"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("hostile argument was executed")
 	}
+}
+
+func environmentValue(environment []string, key string) string {
+	prefix := key + "="
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 func TestCheckoutPathsRejectEverySymlinkPosition(t *testing.T) {

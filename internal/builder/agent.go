@@ -65,7 +65,12 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, fmt.Errorf("secure private runtime: %w", err)
 	}
 	defer os.RemoveAll(runtimeDirectory)
-	for _, directory := range []string{filepath.Join(runtimeDirectory, "home"), filepath.Join(runtimeDirectory, "tmp"), filepath.Join(runtimeDirectory, "xdg")} {
+	for _, directory := range []string{
+		filepath.Join(runtimeDirectory, "home"),
+		filepath.Join(runtimeDirectory, "tmp"),
+		filepath.Join(runtimeDirectory, "xdg"),
+		filepath.Join(runtimeDirectory, "buildx"),
+	} {
 		if err := os.Mkdir(directory, 0o700); err != nil {
 			return BuildResult{}, errors.New("create private tool runtime")
 		}
@@ -520,6 +525,10 @@ func dockerEnvironment(configDirectory string) []string {
 		"HOME=" + filepath.Join(runtimeDirectory, "home"),
 		"TMPDIR=" + filepath.Join(runtimeDirectory, "tmp"),
 		"XDG_CONFIG_HOME=" + filepath.Join(runtimeDirectory, "xdg"),
+		// Buildx normally stores named-builder metadata below DOCKER_CONFIG.
+		// Push and cache intentionally use different Docker credential configs,
+		// so bind only the credential-free builder metadata to one private path.
+		"BUILDX_CONFIG=" + filepath.Join(runtimeDirectory, "buildx"),
 	}
 }
 

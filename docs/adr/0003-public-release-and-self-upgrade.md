@@ -25,9 +25,9 @@ Kuberploy version to:
 
 - the exact source commit;
 - the control-plane OCI Helm chart reference and digest;
-- an exact twelve-chart component set for Argo CD, builder, cert-manager,
-  Traefik edge, external-dns, External Secrets, monitoring, PostgreSQL,
-  managed registry, runtime, Sealed Secrets, and Valkey releases;
+- an exact thirteen-chart component set for the installer, Argo CD, builder,
+  cert-manager, Traefik edge, external-dns, External Secrets, monitoring,
+  PostgreSQL, managed registry, runtime, Sealed Secrets, and Valkey releases;
 - immutable API, worker, web, upgrader, and builder-agent image digests;
 - supported Kubernetes and source-version ranges;
 - the database schema compatibility window; and
