@@ -64,6 +64,49 @@ func TestRegistryRuntimeObservationLeaseRecoveryAndFencing(t *testing.T) {
 	}
 }
 
+func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := databaseTime(time.Now().UTC())
+	actorID, targetID, planID := id.New(), id.New(), id.New()
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-cleanup-"+actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{
+		ID: targetID, Name: "cleanup-" + targetID, Mode: domain.RegistryTargetManaged,
+		Endpoint: "https://registry-cleanup.integration.test", RepositoryPrefix: "integration",
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at
+	) VALUES($1,$2,'service','snapshot','authority',$3,'preview','{}','{}','{}',$4)`,
+		planID, targetID, postgresRegistryDigest("f"), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO idempotency_keys(
+		actor_id,scope,key,fingerprint,resource_type,resource_id,created_at
+	) VALUES($1,$2,'registry-cleanup-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
+		actorID, "registry-cleanup.execute:"+planID, planID, now); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now)
+	if err != nil || accepted != planID {
+		t.Fatalf("accepted cleanup=%q want=%q err=%v", accepted, planID, err)
+	}
+}
+
 func TestManagedRegistryRuntimeReadinessSQLFencingAndExactMatch(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

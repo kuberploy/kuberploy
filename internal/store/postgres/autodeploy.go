@@ -306,9 +306,11 @@ func insertAutoDeployRevision(ctx context.Context, tx pgx.Tx, revision autodeplo
 }
 
 func insertAutoDeployAudit(ctx context.Context, tx pgx.Tx, actorID, action string, revision autodeploy.Revision, requestID string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO auto_deploy_policy_audit(id,actor_id,action,policy_id,revision,service_actor_id,template_digest,request_id,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id.New(), actorID, action, revision.PolicyID, revision.Revision,
-		revision.ServiceActorID, revision.TemplateDigest, requestID, revision.CreatedAt.UTC())
+	_, err := tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail,created_at)
+		VALUES($1,$2,$3,'auto-deploy-policy',$4,$5,jsonb_build_object(
+			'revision',$6::bigint,'serviceActorId',$7::text,'templateDigest',$8::text),$9)`,
+		id.New(), actorID, "auto-deploy-policy."+action, revision.PolicyID, requestID, revision.Revision,
+		revision.ServiceActorID, revision.TemplateDigest, revision.CreatedAt.UTC())
 	return err
 }
 

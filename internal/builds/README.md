@@ -80,7 +80,7 @@ release projection all preserve two distinct Kubernetes Secret identities.
 
 ## Persisted data boundary
 
-Migration `009_github_build_orchestration.sql` adds immutable GitHub account
+The stable initial schema defines immutable GitHub account
 and repository IDs, suspension/removal state, generic one-time claims,
 permanent delivery tombstones, resumable typed receipts, definitions,
 monotonic service generations, attempts, and a transactional build outbox.
@@ -88,22 +88,21 @@ It stores Kubernetes Secret object names and mounted file paths only. GitHub
 tokens, webhook secrets, App keys, registry passwords, build-secret values,
 raw logs, and raw webhook bodies are absent.
 
-Migration `017_build_release_projection.sql` adds only the recoverable
+The release-projection tables add only the recoverable
 post-success handoff. A database trigger creates one pending projection when an
 attempt first becomes `succeeded`; expiring leases use monotonically increasing
 epochs, and terminal rows retain the deterministic release/cache IDs. It stores
 no registry credential, manifest body, build log, or webhook payload.
 
-Migration `014_github_setup_build_api.sql` holds only setup identities,
-one-time handoff digests and API idempotency metadata. Migration
-`016_source_build_runtime_readiness.sql` records a bounded worker identity,
+The setup tables hold only setup identities, one-time handoff digests and API
+idempotency metadata. Source-build readiness records a bounded worker identity,
 configuration digest and heartbeat timestamps. The digest covers the exact App
 ID, builder namespace, pod ServiceAccount, agent image, three required worker
 loops, resources and source/registry host egress profile; it contains no
 credential bytes or credential references.
 
 The memory and PostgreSQL implementations share the same `Store` contract.
-The PostgreSQL integration test applies the real migration and exercises
+The PostgreSQL integration test applies the stable baseline and exercises
 managed and external targets, terminal payload expiry/replay, immutable retry,
 cancellation backoff, and successful result persistence. Permanent claim
 deletion is also rejected at the database layer.

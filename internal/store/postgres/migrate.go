@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -12,6 +13,8 @@ import (
 )
 
 var migrationFilenamePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$`)
+
+const stableBaseline = "0.1.0"
 
 func loadMigrationFilename(name string) (bool, error) {
 	// macOS archive tools may materialize AppleDouble sidecars next to source
@@ -40,6 +43,22 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext('kuberploy-schema-migrations'))`) //nolint:errcheck
 	if _, err = conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		return fmt.Errorf("initialize migrations: %w", err)
+	}
+	var appliedCount int
+	if err = conn.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&appliedCount); err != nil {
+		return fmt.Errorf("inspect migration history: %w", err)
+	}
+	if appliedCount > 0 {
+		var hasStableIdentity bool
+		if err = conn.QueryRow(ctx, `SELECT EXISTS (
+			SELECT 1 FROM information_schema.columns
+			WHERE table_schema=current_schema() AND table_name='schema_migrations' AND column_name='baseline'
+		)`).Scan(&hasStableIdentity); err != nil {
+			return fmt.Errorf("inspect stable baseline identity: %w", err)
+		}
+		if !hasStableIdentity {
+			return errors.New("pre-stable database history is not upgradeable; install 0.1.0 with a fresh PostgreSQL database")
+		}
 	}
 	entries, err := migrations.FS.ReadDir(".")
 	if err != nil {
@@ -86,6 +105,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		if err = tx.Commit(ctx); err != nil {
 			return fmt.Errorf("commit migration %s: %w", name, err)
 		}
+	}
+	var baseline string
+	if err = conn.QueryRow(ctx, `SELECT baseline FROM schema_migrations WHERE version=$1`, migrations.CurrentSchema+".sql").Scan(&baseline); err != nil {
+		return fmt.Errorf("read stable baseline identity: %w", err)
+	}
+	if baseline != stableBaseline {
+		return fmt.Errorf("unsupported database baseline %q", baseline)
 	}
 	return nil
 }

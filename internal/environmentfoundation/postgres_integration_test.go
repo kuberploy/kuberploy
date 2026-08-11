@@ -26,7 +26,7 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	if err = postgresstore.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	// Prove the ordered migration set remains idempotent through migration 031.
+	// Prove the stable initial schema remains idempotent.
 	if err = postgresstore.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

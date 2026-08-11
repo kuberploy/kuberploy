@@ -29,7 +29,7 @@ boundary.
 
 ## Protected desired-state runtime
 
-Migration 024 and the desired-state worker provide an immutable per-environment
+The stable schema and desired-state worker provide an immutable per-environment
 command log, lease epochs, retry saturation, exact runtime readiness identity,
 and crash recovery through the hardened Git projection mirror/token broker.
 The command persists the exact environment revision, projection generation,

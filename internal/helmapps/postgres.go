@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PostgresStore operates only on migration 027's tables. Keeping it here
+// PostgresStore operates only on the Helm approval and publication tables. Keeping it here
 // avoids widening the platform Store or advertising an API capability before
 // the renderer Job and admission boundary exist.
 type PostgresStore struct {

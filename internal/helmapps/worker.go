@@ -107,7 +107,7 @@ func (w Worker) ProcessOne(ctx context.Context, owner string) (RenderResult, err
 }
 
 // Readiness creates only an exact, leased observation. Consumers still decide
-// capability separately and must never infer it merely from migration 027.
+// capability separately and must never infer it merely from schema presence.
 func (w Worker) Readiness(workerID string, epoch int64, startedAt, observedAt time.Time, duration time.Duration) (Readiness, error) {
 	if w.Validate() != nil || !workerIDRE.MatchString(workerID) || epoch <= 0 ||
 		duration < time.Second || duration > 15*time.Minute {

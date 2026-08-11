@@ -3,11 +3,14 @@ package postgres
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
 	"github.com/kuberploy/kuberploy/internal/externaldns"
@@ -22,7 +25,25 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := context.Background()
-	st, err := Open(ctx, databaseURL)
+	admin, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	schema := "external_dns_" + strings.ReplaceAll(id.New(), "-", "")
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE") //nolint:errcheck
+	scopedURL, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := scopedURL.Query()
+	query.Set("search_path", schema)
+	scopedURL.RawQuery = query.Encode()
+	st, err := Open(ctx, scopedURL.String())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -142,8 +142,9 @@ func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if activated.State != gitprojection.BindingReady || projected.Valid || len(projected.Diagnostics) != 1 ||
-		projected.Diagnostics[0].Code != "ExternalDNSRuntimeUnobserved" {
+	if activated.State != gitprojection.BindingReady || projected.Valid || len(projected.Diagnostics) != 2 ||
+		projected.Diagnostics[0].Code != "ExternalDNSRuntimeUnobserved" ||
+		projected.Diagnostics[1].Code != "EdgeRoutePolicyUnavailable" {
 		t.Fatalf("dynamic policy result was not persisted exactly: binding=%#v document=%#v", activated, projected)
 	}
 }

@@ -44,7 +44,7 @@ selection retain legacy exact-policy resolution until a human chooses a mode.
 
 ## Durability and readiness
 
-Migration `025_runtime_registry_pulls` provides one active artifact per
+The stable schema provides one active artifact per
 environment and target, epoch-fenced work claims with heartbeats, safe
 retry/permanent failure state, and an exact config/contract worker readiness
 lease. Git projection policy can call `EnsureArtifactTx` inside its serializable

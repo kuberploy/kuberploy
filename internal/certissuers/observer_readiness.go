@@ -48,7 +48,7 @@ type ObserverReadinessStore interface {
 
 // MemoryObserverReadinessStore is the non-persistent implementation used by
 // hermetic runtimes. The interface intentionally permits a later PostgreSQL
-// implementation without changing the observer or broadening migration 039.
+// implementation without changing the observer's closed authority boundary.
 type MemoryObserverReadinessStore struct {
 	mu      sync.Mutex
 	records map[string]ObserverReadinessLease

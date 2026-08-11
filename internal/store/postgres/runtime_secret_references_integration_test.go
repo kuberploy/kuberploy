@@ -35,7 +35,7 @@ func (referenceIntegrationSealer) StageStrictSealedSecret(_ context.Context, req
 	return secrets.Artifact{Provider: secrets.ProviderSealedSecrets, Namespace: request.Binding.Scope.Namespace,
 		ObjectName: request.TargetSecretName, TargetSecretName: request.TargetSecretName, ProviderRevision: "store-reference-integration",
 		ManifestDigest: "sha256:" + strings.Repeat("a", 64), SealedKeyFingerprint: "sha256:" + strings.Repeat("b", 64),
-		CiphertextDigest: "sha256:" + strings.Repeat("c", 64)}, nil
+		CiphertextDigest: "sha256:" + strings.Repeat("c", 64), TargetSecretType: request.Version.TargetSecretType}, nil
 }
 
 func (referenceIntegrationSealer) ObserveStrictSealedSecret(_ context.Context, artifact secrets.Artifact) (secrets.ReadinessObservation, error) {

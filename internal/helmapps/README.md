@@ -1,8 +1,8 @@
 # Approved external Helm/OCI application core
 
 This package is the closed P0 contract for deploying a platform-approved OCI
-Helm chart. Migration 027 stores immutable approvals and render work. Migration
-028 adds desired-release history plus the two fenced Git publication phases.
+Helm chart. The stable schema stores immutable approvals, render work,
+desired-release history, and the two fenced Git publication phases.
 The package intentionally exposes no HTTP route or user-visible capability by
 itself: production must still prove the renderer, protected publisher, Argo,
 credential, and root-application observations ready before advertising Helm.
@@ -200,12 +200,11 @@ allowlists, the package-cache bound, and the Argo Application runtime. API and
 worker use the same derivation, so a fresh publisher or Argo receipt from an
 old rolling configuration cannot satisfy the new capability gate.
 
-Migration 032 persists that same operator digest on every queued command,
+The stable schema persists that same operator digest on every queued command,
 worker lease, immutable result, and renderer-readiness row. Claim, heartbeat,
 completion, retry, readiness, and capability evaluation all compare it
 exactly, so overlapping old and new worker Pods can process only commands
-created under their own complete operator policy. Pre-032 queued and leased
-work is terminalized during migration and unknowable readiness is deleted.
+created under their own complete operator policy.
 
 `ProductionProtectedArgoReadiness` is the concrete bridge to the sole
 `argo.ProductionDesiredStateReadinessProbe`. Construction independently

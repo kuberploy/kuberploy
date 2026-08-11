@@ -164,7 +164,10 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_audit(id,actor_id,action,profile_id,revision,request_id,idempotency_key,spec_digest,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, id.New(), c.ActorID, action, pid, rev, c.RequestID, c.IdempotencyKey, sd, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail,created_at)
+		VALUES($1,$2,$3,'certificate-issuer-profile',$4,$5,jsonb_build_object(
+			'revision',$6::bigint,'idempotencyKey',$7::text,'specDigest',$8::text),$9)`,
+		id.New(), c.ActorID, "certificate-issuer-profile."+action, pid, c.RequestID, rev, c.IdempotencyKey, sd, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
@@ -205,7 +208,10 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, ref Ref) (Mut
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_audit(id,actor_id,action,profile_id,revision,request_id,idempotency_key,spec_digest,created_at) VALUES($1,$2,'deactivate',$3,$4,$5,$6,$7,$8)`, id.New(), c.ActorID, ref.ProfileID, ref.Revision, c.RequestID, c.IdempotencyKey, e.Revision.SpecDigest, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail,created_at)
+		VALUES($1,$2,'certificate-issuer-profile.deactivate','certificate-issuer-profile',$3,$4,jsonb_build_object(
+			'revision',$5::bigint,'idempotencyKey',$6::text,'specDigest',$7::text),$8)`,
+		id.New(), c.ActorID, ref.ProfileID, c.RequestID, ref.Revision, c.IdempotencyKey, e.Revision.SpecDigest, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}

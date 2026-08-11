@@ -158,7 +158,7 @@ errors.
 
 ## PostgreSQL
 
-Migration `012_runtime_secrets.sql` adds:
+The stable schema defines:
 
 - `secret_bindings` and immutable `secret_binding_versions`;
 - relational `secret_binding_deliveries` with mutation-rejecting triggers;
@@ -171,7 +171,7 @@ column; `ciphertext_digest` is only a fixed-format SHA-256 integrity identity.
 Version triggers permit only closed lifecycle transitions and the one-time
 staging of typed provider artifact identities.
 
-Migration `023_runtime_secret_runtime.sql` adds:
+The runtime-reconciliation tables add:
 
 - `secret_binding_runtime_reconciliations`, containing only version/binding
   identity, safe scheduling/failure metadata and an epoch-fenced lease;
@@ -180,8 +180,7 @@ Migration `023_runtime_secret_runtime.sql` adds:
 - `runtime_secret_runtime_readiness`, an exact config/contract worker heartbeat
   with restart epochs and freshness checks.
 
-The migration backfills only strict SealedSecret versions already awaiting
-readiness. Database constraints reject an ExternalSecret reconciliation cursor,
+Database constraints reject an ExternalSecret reconciliation cursor,
 lease-epoch skips, identity mutation and terminal-state rewrites.
 
 The optional PostgreSQL contract test requires a fresh, disposable database:

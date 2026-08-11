@@ -115,7 +115,7 @@ func (p *RegistryPullReferencePolicy) ValidateCurrentTx(
 	return nil, nil
 }
 
-// ReconcileDeletedTx is intentionally a metadata-only no-op in schema 025.
+// ReconcileDeletedTx is intentionally a metadata-only no-op in the stable schema.
 // Artifacts are shared by every application using an environment/target pair,
 // and old immutable Secrets are rollback material. Safe deactivation and GC
 // require a later exact desired-reference plus observed-workload retention

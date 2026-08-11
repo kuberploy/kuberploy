@@ -46,7 +46,7 @@ cmd/                       API, worker, and supporting binaries
 docs/adr/                  durable architecture decisions
 examples/                  public, non-secret configuration examples
 internal/                  control-plane implementation
-migrations/                ordered PostgreSQL schema migrations
+migrations/                stable PostgreSQL baseline and future ordered migrations
 release/                   deterministic release packaging and validation
 schema/                    public configuration schemas
 scripts/                   development and qualification commands
@@ -105,6 +105,17 @@ Keep these surfaces synchronized when a contract changes:
 Run `gofmt`, Prettier, `go vet`, focused race tests, and `make check` in
 proportion to the change. Never weaken a fail-closed readiness check merely to
 make a local fixture pass.
+
+## Database schema changes
+
+`migrations/001_initial.sql` is the reviewed `0.1.0` baseline. Do not edit that
+baseline after the first stable release. Add every later schema change as the
+next ordered, immutable migration and bump `migrations.CurrentSchema` in the
+same change. The migration runner rejects pre-baseline RC histories instead of
+guessing an unsafe upgrade path; `0.1.0-rc.53` must start with a fresh database.
+
+Integration tests that set `KUBERPLOY_TEST_DATABASE_URL` must use a disposable
+database and prove both a fresh apply and an idempotent second migration run.
 
 ## Releases
 

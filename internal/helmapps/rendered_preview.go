@@ -74,8 +74,8 @@ func (s *PostgresRenderedManifestPreviewService) Preview(ctx context.Context,
 		FROM helm_release_heads head
 		JOIN helm_release_revisions release ON release.id=head.revision_id
 		WHERE head.environment_id=$1 AND head.application_id=$2 AND
-			release.project_id=$3 AND release.environment_id=$1 AND release.application_id=$2
-		FOR SHARE OF head,release`, target.EnvironmentID, target.ApplicationID,
+			release.project_id=$3 AND release.environment_id=$1 AND release.application_id=$2`,
+		target.EnvironmentID, target.ApplicationID,
 		target.ProjectID).Scan(&revisionID, &generation, &desiredEnabled, &commandID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RenderedManifestPreview{}, ErrNotFound

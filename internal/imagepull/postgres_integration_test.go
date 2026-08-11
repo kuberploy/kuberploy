@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/migrations"
 )
 
 func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
@@ -22,6 +23,13 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
+	baseline, err := migrations.FS.ReadFile("001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, string(baseline)); err != nil {
+		t.Fatal(err)
+	}
 	store, err := NewPostgreSQLStore(pool)
 	if err != nil {
 		t.Fatal(err)

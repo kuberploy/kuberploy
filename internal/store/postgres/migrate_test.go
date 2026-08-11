@@ -17,15 +17,13 @@ func TestLoadMigrationFilename(t *testing.T) {
 		err  bool
 	}{
 		{name: "001_initial.sql", load: true},
-		{name: "044_outbox_valkey_dataset_replay.sql", load: true},
-		{name: "045_project_registry_pull_credentials.sql", load: true},
-		{name: "046_git_projection_chart_versions.sql", load: true},
+		{name: "002_future_change.sql", load: true},
 		{name: "._001_initial.sql"},
 		{name: ".DS_Store"},
 		{name: "README.md"},
 		{name: "1_initial.sql", err: true},
-		{name: "046-UPPER.sql", err: true},
-		{name: "046_bad-name.sql", err: true},
+		{name: "002-UPPER.sql", err: true},
+		{name: "002_bad-name.sql", err: true},
 	}
 	for _, test := range tests {
 		test := test
@@ -64,6 +62,9 @@ func TestEmbeddedMigrationNamesAreCanonicalAndCurrent(t *testing.T) {
 	}
 	if len(names) == 0 {
 		t.Fatal("no embedded migrations")
+	}
+	if len(names) != 1 {
+		t.Fatalf("stable baseline must embed exactly one migration, got %d: %v", len(names), names)
 	}
 	sort.Strings(names)
 	latest := strings.TrimSuffix(names[len(names)-1], ".sql")

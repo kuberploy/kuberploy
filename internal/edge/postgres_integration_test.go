@@ -9,9 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/migrations"
 )
 
@@ -279,120 +277,6 @@ func TestPostgreSQLExternalDNSManagedReferencesAreFenced(t *testing.T) {
 	}
 }
 
-func TestMigration041BackfillsExternalDNSIdentityAndFailsLegacyReadinessClosed(t *testing.T) {
-	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pool.Close()
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Release()
-	schema := "edge041_" + strings.ReplaceAll(id.New(), "-", "")
-	quotedSchema := pgx.Identifier{schema}.Sanitize()
-	if _, err = conn.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_, _ = conn.Exec(context.Background(), "SET search_path TO public")
-		_, _ = conn.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
-	}()
-	if _, err = conn.Exec(ctx, "SET search_path TO "+quotedSchema); err != nil {
-		t.Fatal(err)
-	}
-	applyEdgeMigrationsThrough(t, ctx, conn, "040_cert_manager_issuer_observer_readiness.sql")
-
-	const (
-		userID      = "55555555-5555-4555-8555-555555555555"
-		managedID   = "66666666-6666-4666-8666-666666666666"
-		adoptedID   = "77777777-7777-4777-8777-777777777777"
-		workerID    = "edge-legacy-worker-0001"
-		configValue = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	)
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	if _, err = conn.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
-		VALUES($1,'edge-041-test','platform-admin','edge-041-test','edge-041-test',1,$2)`, userID, now); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = conn.Exec(ctx, `INSERT INTO external_dns_integrations(
-		id,slug,name,mode,provider_kind,txt_owner_id,allowed_domain_suffixes,sync_policy,
-		destructive_sync_confirmed,credential_secret_ref,provider_config_ref,egress_config_ref,
-		operator_profile_ref,created_by,created_at,updated_at
-	) VALUES
-		($1,'legacy-managed','Legacy managed','managed','cloudflare','legacy.managed','["managed.example.com"]',
-		 'upsert-only',false,'legacy-credentials','legacy-provider','legacy-egress',NULL,$3,$4,$4),
-		($2,'legacy-adopted','Legacy adopted','adopted','aws','legacy.adopted','["adopted.example.com"]',
-		 'upsert-only',false,NULL,NULL,NULL,'legacy-adopted-profile',$3,$4,$4)`, managedID, adoptedID, userID, now); err != nil {
-		t.Fatal(err)
-	}
-	insertLegacyTarget := func(integrationID, mode, profile, owner, domains string) {
-		t.Helper()
-		_, insertErr := conn.Exec(ctx, `INSERT INTO edge_runtime_targets(
-			target_key,profile_revision,kind,integration_id,management_mode,namespace,profile_config_map,
-			external_txt_owner_id,external_policy,external_domains,desired_digest,runtime_config_digest,
-			active,runtime_state,next_observation_at,last_observed_at,observed_identity_digest,
-			observed_resource_versions,lease_owner,lease_epoch,lease_until,worker_contract,
-			worker_config_digest,created_at,updated_at
-		) VALUES('external-dns/'||$1::uuid::text,1,'external-dns',$1::uuid,$2,'external-dns',$3,$4,'upsert-only',$5,
-			$6,$6,true,'ready',$7,$7,$6,$6,$8,1,$9,'edge-observer.v1',$6,$7,$7)`,
-			integrationID, mode, profile, owner, domains, configValue, now, workerID, now.Add(time.Minute))
-		if insertErr != nil {
-			t.Fatal(insertErr)
-		}
-	}
-	insertLegacyTarget(managedID, "managed", "legacy-managed-profile", "legacy.managed", "managed.example.com")
-	insertLegacyTarget(adoptedID, "adopted", "legacy-adopted-profile", "legacy.adopted", "adopted.example.com")
-
-	body, err := migrations.FS.ReadFile("041_external_dns_runtime_identity.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = conn.Exec(ctx, string(body)); err != nil {
-		t.Fatal(err)
-	}
-	type migratedIdentity struct {
-		provider, credential, providerConfig, egress, state string
-		active                                              bool
-		leaseOwner, contract, workerDigest                  *string
-	}
-	readIdentity := func(integrationID string) migratedIdentity {
-		t.Helper()
-		var value migratedIdentity
-		if scanErr := conn.QueryRow(ctx, `SELECT external_provider_kind,external_credential_secret_ref,
-			external_provider_config_ref,external_egress_config_ref,active,runtime_state,lease_owner,
-			worker_contract,worker_config_digest FROM edge_runtime_targets WHERE integration_id=$1`, integrationID).
-			Scan(&value.provider, &value.credential, &value.providerConfig, &value.egress, &value.active,
-				&value.state, &value.leaseOwner, &value.contract, &value.workerDigest); scanErr != nil {
-			t.Fatal(scanErr)
-		}
-		return value
-	}
-	managed := readIdentity(managedID)
-	if managed.provider != "cloudflare" || managed.credential != "legacy-credentials" ||
-		managed.providerConfig != "legacy-provider" || managed.egress != "legacy-egress" ||
-		managed.active || managed.state != "awaiting" || managed.leaseOwner != nil ||
-		managed.contract != nil || managed.workerDigest != nil {
-		t.Fatalf("managed migration identity=%#v", managed)
-	}
-	adopted := readIdentity(adoptedID)
-	if adopted.provider != "aws" || adopted.credential != "" || adopted.providerConfig != "" || adopted.egress != "" ||
-		adopted.active || adopted.state != "awaiting" || adopted.leaseOwner != nil ||
-		adopted.contract != nil || adopted.workerDigest != nil {
-		t.Fatalf("adopted migration identity=%#v", adopted)
-	}
-	if _, err = conn.Exec(ctx, `UPDATE edge_runtime_targets SET external_provider_kind='google',updated_at=$2
-		WHERE integration_id=$1`, managedID, now.Add(time.Second)); err == nil {
-		t.Fatal("migration 041 trigger accepted provider identity substitution")
-	}
-}
-
 func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -539,28 +423,4 @@ func migrateEdgeTestDatabase(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 	}
 	return nil
-}
-
-func applyEdgeMigrationsThrough(t *testing.T, ctx context.Context, conn *pgxpool.Conn, through string) {
-	t.Helper()
-	entries, err := migrations.FS.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".sql") && entry.Name() <= through {
-			names = append(names, entry.Name())
-		}
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		body, readErr := migrations.FS.ReadFile(name)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if _, execErr := conn.Exec(ctx, string(body)); execErr != nil {
-			t.Fatalf("apply %s: %v", name, execErr)
-		}
-	}
 }

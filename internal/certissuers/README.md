@@ -66,8 +66,8 @@ Git publication is not certificate readiness. The separately wired, read-only
 cert-manager observer dynamically enumerates at most 128 active database
 profiles, performs exact-name `GET` calls only, and verifies the live
 ClusterIssuer generation, Ready condition, annotations, and reconstructed spec
-digest before calling `RecordObservation(Ready)`. Migration
-`040_cert_manager_issuer_observer_readiness.sql` fences the observer's exact
+digest before calling `RecordObservation(Ready)`. The observer-readiness tables
+fence the observer's exact
 configuration digest, target-set digest/count, worker start, epoch, heartbeat,
 and lease. API management readiness requires that durable observation to be
 fresh, so a newly created or revised profile cannot be advertised as usable
@@ -77,7 +77,7 @@ does not include an imperative Kubernetes writer: an API service account able
 to create, patch, or delete arbitrary ClusterIssuers would turn the admin UI
 into an unbounded cluster-scoped mutation path.
 
-Migration `039_cert_manager_issuer_profiles.sql` additionally rejects command
+The stable schema additionally rejects command
 and audit inserts unless the actor is a PostgreSQL `platform-admin`. Profile
 deactivation is one-way and fails while a materialized application reference
 exists.

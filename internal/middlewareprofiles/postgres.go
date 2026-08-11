@@ -188,7 +188,10 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_audit(id,actor_id,action,profile_id,revision,request_id,idempotency_key,spec_digest,assignments_digest,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, id.New(), c.ActorID, action, pid, resultRev, c.RequestID, c.IdempotencyKey, sd, ad, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail,created_at)
+		VALUES($1,$2,$3,'middleware-profile',$4,$5,jsonb_build_object(
+			'revision',$6::bigint,'idempotencyKey',$7::text,'specDigest',$8::text,'assignmentsDigest',$9::text),$10)`,
+		id.New(), c.ActorID, "middleware-profile."+action, pid, c.RequestID, resultRev, c.IdempotencyKey, sd, ad, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
@@ -253,7 +256,10 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, r Ref) (Mutat
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_audit(id,actor_id,action,profile_id,revision,request_id,idempotency_key,spec_digest,assignments_digest,created_at) VALUES($1,$2,'deactivate',$3,$4,$5,$6,$7,$8,$9)`, id.New(), c.ActorID, p.ID, v.Revision, c.RequestID, c.IdempotencyKey, v.SpecDigest, v.AssignmentsDigest, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail,created_at)
+		VALUES($1,$2,'middleware-profile.deactivate','middleware-profile',$3,$4,jsonb_build_object(
+			'revision',$5::bigint,'idempotencyKey',$6::text,'specDigest',$7::text,'assignmentsDigest',$8::text),$9)`,
+		id.New(), c.ActorID, p.ID, c.RequestID, v.Revision, c.IdempotencyKey, v.SpecDigest, v.AssignmentsDigest, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}

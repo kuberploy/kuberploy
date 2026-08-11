@@ -102,7 +102,7 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if _, err = store.Deactivate(ctx, pgCommand(actor, "pg-deactivate-unreferenced", now.Add(3*time.Second)), profiles.Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if got := storepostgresSchema(t, ctx, pool); got != "035_middleware_profiles.sql" {
+	if got := storepostgresSchema(t, ctx, pool); got != "001_initial.sql" {
 		t.Fatalf("current schema=%q", got)
 	}
 }

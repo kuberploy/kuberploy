@@ -97,13 +97,13 @@ per-blob HTTP delete method. This matches Distribution's documented
 
 ## Production Kubernetes runtime
 
-Migration `018_registry_runtime.sql` persists observation cursors, fenced
+The stable schema persists observation cursors, fenced
 maintenance executions, checkpoint state, and immutable one-sweep receipts.
 Expired observation, cleanup, and maintenance leases are reclaimable; epochs
 prevent a stale worker from publishing, deleting, completing a receipt, or
 restoring another worker's session.
 
-Migration `021_managed_registry_runtime_readiness.sql` separately fences public
+The managed-registry readiness tables separately fence public
 readiness. A worker acquires that lease only after its projected credential is
 readable, the exact managed Deployment/ConfigMap/PVC pass a read-only
 inspection, and the complete observer and cleanup-executor dependency graph

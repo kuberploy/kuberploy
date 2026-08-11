@@ -74,6 +74,27 @@ func TestPostgresRenderedPreviewResolvesExactSuccessfulHeadAndRedacts(t *testing
 	if _, replay, submitErr := store.Submit(ctx, desired, f.now); submitErr != nil || replay {
 		t.Fatalf("submit replay=%v err=%v", replay, submitErr)
 	}
+	revisionID := id.New()
+	releaseTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = insertHelmReleaseErr(ctx, releaseTx, f, helmReleaseInsert{id: revisionID, generation: 1,
+		action: "initial", commandID: desired.ID, values: f.values, valuesDigest: f.valuesDigest},
+		f.now.Add(2*time.Second)); err != nil {
+		_ = releaseTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = releaseTx.Exec(ctx, `INSERT INTO helm_release_heads(
+		project_id,environment_id,application_id,revision_id,generation,updated_at
+	) VALUES($1,$2,$3,$4,1,$5)`, f.projectID, f.environmentID, f.applicationID, revisionID,
+		f.now.Add(2*time.Second)); err != nil {
+		_ = releaseTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = releaseTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
 	lease, err := store.Claim(ctx, "helm-preview-worker-0001",
 		ExpectedRenderWorkerIdentity(helmPGOperatorDigest()), f.now, time.Minute)
 	if err != nil {
@@ -100,23 +121,6 @@ data:
 		t.Fatal(err)
 	}
 	if _, err = store.Complete(ctx, lease, validated, f.now.Add(time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	revisionID := id.New()
-	releaseTx, err := pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	insertHelmRelease(t, ctx, releaseTx, f, helmReleaseInsert{id: revisionID, generation: 1,
-		action: "initial", commandID: desired.ID, values: f.values, valuesDigest: f.valuesDigest},
-		f.now.Add(2*time.Second))
-	if _, err = releaseTx.Exec(ctx, `INSERT INTO helm_release_heads(
-		environment_id,application_id,revision_id,generation,updated_at
-	) VALUES($1,$2,$3,1,$4)`, f.environmentID, f.applicationID, revisionID,
-		f.now.Add(2*time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	if err = releaseTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
 	service, err := NewPostgresRenderedManifestPreviewService(pool)

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
@@ -33,6 +35,46 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	}
 	if err = Migrate(ctx, st.pool); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMigrationsRejectPreStableHistory(t *testing.T) {
+	url := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	admin, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	schema := "legacy_rc_" + strings.ReplaceAll(id.New(), "-", "")
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
+	if _, err = admin.Exec(ctx, "CREATE SCHEMA "+quotedSchema); err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE") //nolint:errcheck
+
+	config, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.AfterConnect = func(connectContext context.Context, conn *pgx.Conn) error {
+		_, connectErr := conn.Exec(connectContext, "SET search_path TO "+quotedSchema)
+		return connectErr
+	}
+	legacy, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer legacy.Close()
+	if _, err = legacy.Exec(ctx, `CREATE TABLE schema_migrations(version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
+		INSERT INTO schema_migrations(version) VALUES ('001_initial.sql'), ('012_runtime_secrets.sql')`); err != nil {
+		t.Fatal(err)
+	}
+	if err = Migrate(ctx, legacy); err == nil || !strings.Contains(err.Error(), "pre-stable database history is not upgradeable") {
+		t.Fatalf("legacy RC history was not rejected: %v", err)
 	}
 }
 
