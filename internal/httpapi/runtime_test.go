@@ -71,7 +71,7 @@ func newRuntimeAPI(t *testing.T, runtime httpapi.RuntimeViewService) *apiFixture
 	return fixture
 }
 
-func TestRuntimeCapabilityAndReadyzRequireLiveKubernetesBoundary(t *testing.T) {
+func TestRuntimeCapabilityFailsClosedWithoutRemovingAPIReadiness(t *testing.T) {
 	probe := &runtimeHTTPReadiness{err: errors.New("Kubernetes API unavailable")}
 	runtime := &fakeRuntimeView{}
 	st := memory.New()
@@ -90,10 +90,10 @@ func TestRuntimeCapabilityAndReadyzRequireLiveKubernetesBoundary(t *testing.T) {
 		t.Fatalf("stale runtime capability status=%d features=%#v", response.StatusCode, capabilities.Features)
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "RuntimeViewUnavailable" {
-		t.Fatalf("stale runtime readyz status=%d problem=%#v", response.StatusCode, problem)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional runtime removed API readiness: status=%d", response.StatusCode)
 	}
+	response.Body.Close()
 }
 
 func createRuntimeDeployment(t *testing.T, fixture *apiFixture) (domain.Application, domain.Deployment) {

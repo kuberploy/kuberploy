@@ -63,8 +63,16 @@ helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
   --version 0.1.0-rc.51 \
   --namespace kuberploy-system --create-namespace \
-  -f installer-values.yaml --wait
+  -f installer-values.yaml \
+  --server-side=true --force-conflicts \
+  --wait
 ```
+
+Keep both server-side flags on every upgrade. Argo CD legitimately records
+managed-field ownership while reconciling its `Application` objects; Helm must
+reclaim the installer-rendered desired fields when their explicit package
+version changes. The flag does not grant ownership of objects outside this
+release.
 
 For a public HTTPS endpoint, set `publicEndpoint.enabled`, its exact hostname,
 and `publicEndpoint.tls.enabled`. Managed TLS requires the managed cert-manager

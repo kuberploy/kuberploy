@@ -413,11 +413,8 @@ func TestRegistryHTTPFeatureFlagsRequireFreshRuntimeAndUnavailableStatesAreSafe(
 	response = f.request(http.MethodGet, "/readyz", "", nil)
 	body, _ = io.ReadAll(response.Body)
 	response.Body.Close()
-	if response.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("stale ready status=%d body=%s", response.StatusCode, body)
-	}
-	if !bytes.Contains(body, []byte(`"code":"RegistryRuntimeUnavailable"`)) {
-		t.Fatalf("stale ready response=%s", body)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional registry runtime removed API readiness: status=%d body=%s", response.StatusCode, body)
 	}
 	response = f.request(http.MethodGet, "/v1/registry-targets", "", nil)
 	readRegistryBody(t, response, http.StatusOK)

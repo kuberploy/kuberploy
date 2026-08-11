@@ -498,60 +498,9 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if s.buildReadiness != nil {
-		if err := s.buildReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "BuildRuntimeUnavailable", "Not ready", "No matching source-build worker has reported a fresh healthy runtime observation.")
-			return
-		}
-	}
-	if s.buildLogReadiness != nil {
-		if err := s.buildLogReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "BuildLogRuntimeUnavailable", "Not ready", "The scoped Kubernetes source-build log boundary is unavailable.")
-			return
-		}
-	}
-	if s.runtimeReadiness != nil {
-		if err := s.runtimeReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "RuntimeViewUnavailable", "Not ready", "The scoped Kubernetes log and event boundary is unavailable.")
-			return
-		}
-	}
-	if s.gitReadiness != nil {
-		if err := s.gitReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "GitProjectionRuntimeUnavailable", "Not ready", "No matching Git projection worker has reported a fresh exact runtime observation.")
-			return
-		}
-	}
-	if s.argoReadiness != nil {
-		if err := s.argoReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "ArgoDesiredStateRuntimeUnavailable", "Not ready", "No matching protected Argo desired-state runtime has reported a fresh exact prerequisite proof.")
-			return
-		}
-	}
-	if s.runtimeSecretReadiness != nil {
-		if err := s.runtimeSecretReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "RuntimeSecretRuntimeUnavailable", "Not ready", "No matching runtime-secret worker has reported a fresh exact strict-Sealed runtime observation.")
-			return
-		}
-	}
-	if s.registryPullReadiness != nil {
-		if err := s.registryPullReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "RegistryPullRuntimeUnavailable", "Not ready", "No matching private-image-pull worker has reported a fresh exact runtime observation.")
-			return
-		}
-	}
-	if s.edgeReadiness != nil {
-		if err := s.edgeReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "EdgeRuntimeUnavailable", "Not ready", "No matching edge-runtime worker has reported fresh exact controller observations.")
-			return
-		}
-	}
-	if s.registryReadiness != nil {
-		if err := s.registryReadiness.Probe(ctx); err != nil {
-			writeProblem(w, r, 503, "RegistryRuntimeUnavailable", "Not ready", "No matching managed-registry worker has reported a fresh healthy runtime observation.")
-			return
-		}
-	}
+	// Optional control-plane runtimes are exposed through /v1/capabilities and
+	// are checked again by each dependent operation. A transient feature outage
+	// must not remove the entire API Pod from Service endpoints.
 	writeJSON(w, 200, map[string]string{"status": "ready"})
 }
 func (s *Server) meta(w http.ResponseWriter, r *http.Request) {

@@ -84,8 +84,15 @@ helm upgrade --install kuberploy-installer \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \
   --values installer-values.yaml \
+  --server-side=true --force-conflicts \
   --wait
 ```
+
+The installer owns the desired `Application.spec` fields while Argo CD also
+updates those objects during reconciliation. Helm 4 upgrades therefore use
+server-side apply with `--force-conflicts` to reclaim only the reviewed fields
+rendered by the new installer version. This is required for repeat upgrades,
+not only the first install.
 
 The values file explicitly selects every managed or adopted component, exact
 Kubernetes API and provider egress CIDRs, public endpoint, and pre-existing

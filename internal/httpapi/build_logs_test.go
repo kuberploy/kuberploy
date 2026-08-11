@@ -174,12 +174,12 @@ func TestBuildLogReadinessFailsClosedWithoutChangingRuntimeLogs(t *testing.T) {
 		t.Fatalf("stale build log runtime advertised: %#v", capabilities.Features)
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "BuildLogRuntimeUnavailable" {
-		t.Fatalf("readyz status=%d problem=%#v", response.StatusCode, problem)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional build-log runtime removed API readiness: status=%d", response.StatusCode)
 	}
+	response.Body.Close()
 	response = fixture.request(http.MethodGet, "/v1/builds/"+attemptID+"/logs", "", nil)
-	problem = decode[httpapi.Problem](t, response)
+	problem := decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "BuildLogRuntimeUnavailable" || service.snapshotRequests != 0 {
 		t.Fatalf("unready request status=%d problem=%#v calls=%d", response.StatusCode, problem, service.snapshotRequests)
 	}

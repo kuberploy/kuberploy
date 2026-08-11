@@ -116,12 +116,14 @@ build-push, cache, or runtime-pull credential references. The
 API revalidates current target metadata. `registry` reports the local,
 credential-free target/policy/inventory management surface, so external-target
 metadata remains usable when the built-in registry is disabled.
-`managedRegistry`, managed inventory responses, cleanup preview/execution, and
-`/readyz` require a fresh matching managed-worker lease; stale or mismatched
-state fails closed. Target configuration and historical cleanup-plan reads
-remain local database operations so administrators can configure or diagnose a
-stopped runtime without granting the API registry credentials. External
-targets never enter the deletion, maintenance, or garbage-collection path.
+`managedRegistry`, managed inventory responses, and cleanup preview/execution
+require a fresh matching managed-worker lease; stale or mismatched state fails
+closed for those feature paths without removing the core API from Service
+endpoints. `/readyz` covers PostgreSQL and configured Valkey only. Target
+configuration and historical cleanup-plan reads remain local database
+operations so administrators can configure or diagnose a stopped runtime
+without granting the API registry credentials. External targets never enter
+the deletion, maintenance, or garbage-collection path.
 
 The production adapter admits only the exact Helm-managed `Recreate`
 Deployment, immutable registry ConfigMap, and bound filesystem PVC named in

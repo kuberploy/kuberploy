@@ -517,15 +517,10 @@ func TestBuildCapabilitiesAndReadyzRequireObservedMatchingWorker(t *testing.T) {
 		t.Fatalf("stale runtime advertised: %#v", capabilities.Features)
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
-	if response.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("stale ready status=%d", response.StatusCode)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional build runtime removed API readiness: status=%d", response.StatusCode)
 	}
-	problem := decode[struct {
-		Code string `json:"code"`
-	}](t, response)
-	if problem.Code != "BuildRuntimeUnavailable" {
-		t.Fatalf("problem=%#v", problem)
-	}
+	response.Body.Close()
 }
 
 func TestGitHubWebhookPreservesRawBodyAndBypassesTransportLimiter(t *testing.T) {

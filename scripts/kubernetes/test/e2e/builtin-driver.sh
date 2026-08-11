@@ -265,7 +265,8 @@ kp_probe_helm_install() {
     >"${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-planned-manifest.sha256"
   "${KUBERPLOY_E2E_HELM}" upgrade --install kuberploy-qualification \
     "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
-    --values "${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE}" --wait --timeout 15m
+    --values "${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE}" \
+    --server-side=true --force-conflicts --wait --timeout 15m
   "${KUBERPLOY_E2E_HELM}" status kuberploy-qualification \
     --namespace kuberploy-system -o json >"${kp_out}"
   jq -e '.info.status == "deployed"' "${kp_out}" >/dev/null

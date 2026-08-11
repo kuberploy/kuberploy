@@ -26,6 +26,7 @@ jq -e . "${kp_chart}/values.schema.json" >/dev/null
 [[ -f "${kp_chart}/Chart.lock" ]]
 [[ -f "${kp_chart}/charts/kuberploy-argocd-0.1.0-rc.51.tgz" ]]
 [[ -f "${kp_chart}/charts/kuberploy-valkey-0.1.0-rc.51.tgz" ]]
+rg -U -- '--server-side=true --force-conflicts' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null
 helm dependency list "${kp_chart}" | rg -F 'ok' >/dev/null
 
 helm lint "${kp_chart}" >/dev/null

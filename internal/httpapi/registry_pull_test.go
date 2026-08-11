@@ -217,8 +217,8 @@ func TestPrivateRegistryPullReadinessAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale private pull worker was advertised: %#v", capabilities.Features)
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "RegistryPullRuntimeUnavailable" {
-		t.Fatalf("stale private pull readiness status=%d problem=%#v", response.StatusCode, problem)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional private-pull runtime removed API readiness: status=%d", response.StatusCode)
 	}
+	response.Body.Close()
 }

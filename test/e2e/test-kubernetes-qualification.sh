@@ -756,7 +756,7 @@ jq -e '.directGeneration == 7' \
   "${kp_tmp}/kuberploy-qualification-success1/workflow-state.json" >/dev/null
 jq -e '.generation == 8' \
   "${kp_tmp}/kuberploy-qualification-success1/100-upgrade-rollback/evidence/workflow-post-upgrade-rollback-terminal.json" >/dev/null
-grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system" \
+grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE} --server-side=true --force-conflicts" \
   "${KP_COMMAND_LOG}" >/dev/null
 for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/projects' \

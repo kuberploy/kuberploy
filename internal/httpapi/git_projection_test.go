@@ -270,10 +270,10 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale projection runtime was advertised: %#v", capabilities.Features)
 	}
 	r = f.request("GET", "/readyz", "", nil)
-	problem = decode[httpapi.Problem](t, r)
-	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "GitProjectionRuntimeUnavailable" {
-		t.Fatalf("stale runtime readiness status=%d problem=%#v", r.StatusCode, problem)
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional Git projection removed API readiness: status=%d", r.StatusCode)
 	}
+	r.Body.Close()
 }
 
 func TestArgoCapabilityRequiresBothGitAndProductionReadiness(t *testing.T) {
@@ -309,10 +309,10 @@ func TestArgoCapabilityRequiresBothGitAndProductionReadiness(t *testing.T) {
 
 	argoReadiness.err = errors.New("Argo stale")
 	response := f.request("GET", "/readyz", "", nil)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "ArgoDesiredStateRuntimeUnavailable" {
-		t.Fatalf("Argo readiness status=%d problem=%#v", response.StatusCode, problem)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional Argo runtime removed API readiness: status=%d", response.StatusCode)
 	}
+	response.Body.Close()
 }
 
 func TestProjectionHTTPRevisionFenceValidationIsBounded(t *testing.T) {

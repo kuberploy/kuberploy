@@ -89,10 +89,10 @@ func TestEdgeCapabilitiesRequireFreshExactProfilesWithoutClaimingArgoServingPath
 		}
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "EdgeRuntimeUnavailable" {
-		t.Fatalf("stale edge readyz status=%d problem=%#v", response.StatusCode, problem)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("stale optional edge runtime removed API readiness: status=%d", response.StatusCode)
 	}
+	response.Body.Close()
 }
 
 func TestExternalDNSCapabilityRequiresManagementService(t *testing.T) {
