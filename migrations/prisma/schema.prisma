@@ -632,38 +632,6 @@ model external_dns_integrations {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model git_deployment_write_commands {
-  operation_id       String    @id @db.Uuid
-  deployment_id      String    @db.Uuid
-  actor_id           String    @db.Uuid
-  binding_id         String    @db.Uuid
-  project_id         String    @db.Uuid
-  environment_id     String    @db.Uuid
-  application_id     String    @db.Uuid
-  target_ref         String
-  path               String
-  base_revision      String
-  precondition       String
-  expected_etag      String    @default("")
-  chart_digest       String
-  policy_version     String
-  content            Bytes
-  content_sha256     String
-  message            String
-  state              String    @default("pending")
-  committed_revision String    @default("")
-  committed_at       DateTime? @db.Timestamptz(6)
-  indexed_generation BigInt    @default(0)
-  indexed_at         DateTime? @db.Timestamptz(6)
-  created_at         DateTime  @db.Timestamptz(6)
-  updated_at         DateTime  @db.Timestamptz(6)
-  publication_mode   String
-
-  @@index([binding_id, state, created_at, operation_id], map: "git_deployment_write_commands_binding_state_idx")
-  @@index([binding_id, committed_revision], map: "git_deployment_write_commands_committed_idx", where: raw("(state = ANY (ARRAY['git-committed'::text, 'indexed'::text]))"))
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model git_path_reservations {
   binding_id         String    @db.Uuid
   target_ref         String
@@ -821,37 +789,6 @@ model git_safety_poll_cursors {
 
   @@index([next_poll_at, binding_id], map: "git_safety_poll_due_idx")
   @@index([lease_until, next_poll_at, binding_id], map: "git_safety_poll_reconcile_due_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model git_variable_write_commands {
-  operation_id       String    @id @db.Uuid
-  actor_id           String    @db.Uuid
-  binding_id         String    @db.Uuid
-  project_id         String    @db.Uuid
-  environment_id     String    @db.Uuid
-  scope              String
-  target_ref         String
-  path               String
-  base_revision      String
-  precondition       String
-  expected_etag      String
-  parser_version     String
-  content            Bytes
-  content_sha256     String
-  message            String
-  publication_mode   String
-  state              String
-  committed_revision String    @default("")
-  committed_at       DateTime? @db.Timestamptz(6)
-  indexed_generation BigInt    @default(0)
-  indexed_at         DateTime? @db.Timestamptz(6)
-  request_digest     String
-  created_at         DateTime  @db.Timestamptz(6)
-  updated_at         DateTime  @db.Timestamptz(6)
-
-  @@index([binding_id, state, created_at, operation_id], map: "git_variable_write_commands_binding_state_idx")
-  @@index([binding_id, committed_revision], map: "git_variable_write_commands_committed_idx", where: raw("(state = ANY (ARRAY['git-committed'::text, 'indexed'::text]))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -2024,4 +1961,39 @@ model preview_authorities {
 
   @@index([deployment_id, actor_id, expires_at(sort: Desc)], map: "preview_authorities_deployment_lookup_idx", where: raw("(preview_kind = 'deployment-config'::text)"))
   @@index([expires_at], map: "preview_authorities_expiry_idx", where: raw("(consumed_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_write_commands {
+  operation_id       String    @id @db.Uuid
+  command_kind       String
+  deployment_id      String?   @db.Uuid
+  actor_id           String    @db.Uuid
+  binding_id         String    @db.Uuid
+  project_id         String    @db.Uuid
+  environment_id     String    @db.Uuid
+  application_id     String?   @db.Uuid
+  variable_scope     String?
+  target_ref         String
+  path               String
+  base_revision      String
+  precondition       String
+  expected_etag      String    @default("")
+  chart_identity     String?
+  policy_version     String
+  content            Bytes
+  content_sha256     String
+  message            String
+  publication_mode   String
+  state              String    @default("pending")
+  committed_revision String    @default("")
+  committed_at       DateTime? @db.Timestamptz(6)
+  indexed_generation BigInt    @default(0)
+  indexed_at         DateTime? @db.Timestamptz(6)
+  request_digest     String?
+  created_at         DateTime  @db.Timestamptz(6)
+  updated_at         DateTime  @db.Timestamptz(6)
+
+  @@index([binding_id, state, created_at, operation_id], map: "git_write_commands_binding_state_idx")
+  @@index([binding_id, committed_revision], map: "git_write_commands_committed_idx", where: raw("(state = ANY (ARRAY['git-committed'::text, 'indexed'::text]))"))
 }

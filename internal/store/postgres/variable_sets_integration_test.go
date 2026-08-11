@@ -130,9 +130,9 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 			t.Fatalf("%s was accepted", label)
 		}
 	}
-	assertRejected("protected pending to git-committed", `UPDATE git_variable_write_commands SET state='git-committed',committed_revision=$2,committed_at=now(),updated_at=now() WHERE operation_id=$1`, accepted.Value.ID, strings.Repeat("b", 40))
-	assertRejected("command authority mutation", `UPDATE git_variable_write_commands SET request_digest=$2 WHERE operation_id=$1`, accepted.Value.ID, "sha256:"+strings.Repeat("6", 64))
-	assertRejected("command deletion", `DELETE FROM git_variable_write_commands WHERE operation_id=$1`, accepted.Value.ID)
+	assertRejected("protected pending to git-committed", `UPDATE git_write_commands SET state='git-committed',committed_revision=$2,committed_at=now(),updated_at=now() WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, strings.Repeat("b", 40))
+	assertRejected("command authority mutation", `UPDATE git_write_commands SET request_digest=$2 WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, "sha256:"+strings.Repeat("6", 64))
+	assertRejected("command deletion", `DELETE FROM git_write_commands WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID)
 	assertRejected("publication provider identity substitution", `UPDATE git_pull_request_publications SET repository_name=$2,updated_at=updated_at+interval '1 second',version=version+1 WHERE operation_id=$1`, accepted.Value.ID, "substituted-repository")
 	assertRejected("publication binding substitution", `UPDATE git_pull_request_publications SET binding_id=$2,updated_at=updated_at+interval '1 second',version=version+1 WHERE operation_id=$1`, accepted.Value.ID, id.New())
 	assertRejected("publication base substitution", `UPDATE git_pull_request_publications SET base_revision=$2,updated_at=updated_at+interval '1 second',version=version+1 WHERE operation_id=$1`, accepted.Value.ID, strings.Repeat("c", 40))
@@ -209,10 +209,10 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 		if initialState != "pending" {
 			committedRevision, committedAt = strings.Repeat("e", 40), createdAt
 		}
-		_, insertErr := tx.Exec(ctx, `INSERT INTO git_variable_write_commands(operation_id,actor_id,binding_id,project_id,environment_id,scope,
-			target_ref,path,base_revision,precondition,expected_etag,parser_version,content,content_sha256,message,publication_mode,state,
+		_, insertErr := tx.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,actor_id,binding_id,project_id,environment_id,variable_scope,
+			target_ref,path,base_revision,precondition,expected_etag,policy_version,content,content_sha256,message,publication_mode,state,
 			committed_revision,committed_at,request_digest,created_at,updated_at)
-			VALUES($1,$2,$3,$4,$5,'project','refs/heads/main',$6,$7,'create-if-absent','',$8,$9,$10,'test command','pull-request',$11,$12,$13,$14,$15,$15)`,
+			VALUES($1,'variable-set',$2,$3,$4,$5,'project','refs/heads/main',$6,$7,'create-if-absent','',$8,$9,$10,'test command','pull-request',$11,$12,$13,$14,$15,$15)`,
 			operationID, actorID, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariablePath, plan.BaseRevision, plan.PolicyVersion,
 			raw, "sha256:"+hex.EncodeToString(candidateHash[:]), initialState, committedRevision, committedAt, fingerprint, createdAt)
 		if insertErr == nil {
@@ -253,9 +253,9 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 	indexedAt := transitionAt.Add(time.Second)
-	if _, err = store.pool.Exec(ctx, `UPDATE git_variable_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
-		indexed_generation=2,indexed_at=$4,updated_at=$4 WHERE operation_id=$1`, accepted.Value.ID, targetRevision, transitionAt, indexedAt); err != nil {
+	if _, err = store.pool.Exec(ctx, `UPDATE git_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
+		indexed_generation=2,indexed_at=$4,updated_at=$4 WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, targetRevision, transitionAt, indexedAt); err != nil {
 		t.Fatalf("verified variable PR could not become indexed: %v", err)
 	}
-	assertRejected("terminal indexed command mutation", `UPDATE git_variable_write_commands SET updated_at=$2 WHERE operation_id=$1`, accepted.Value.ID, indexedAt.Add(time.Second))
+	assertRejected("terminal indexed command mutation", `UPDATE git_write_commands SET updated_at=$2 WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, indexedAt.Add(time.Second))
 }

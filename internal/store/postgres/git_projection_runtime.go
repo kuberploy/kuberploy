@@ -142,10 +142,10 @@ func insertGitWriteCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID,
 	if command.Validate(binding) != nil {
 		return gitprojection.ErrInvalid
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO git_deployment_write_commands(operation_id,deployment_id,actor_id,binding_id,project_id,
-		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_digest,policy_version,
+	_, err = tx.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,deployment_id,actor_id,binding_id,project_id,
+		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_identity,policy_version,
 		content,content_sha256,message,publication_mode,state,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19)`,
+		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19)`,
 		command.OperationID, command.DeploymentID, command.ActorID, command.Plan.BindingID, command.Plan.ProjectID,
 		command.Plan.EnvironmentID, command.Plan.ApplicationID, command.TargetRef, command.Path, command.Plan.BaseRevision,
 		command.Plan.Precondition, command.Plan.ExpectedETag, command.Plan.ChartDigest, command.Plan.PolicyVersion,

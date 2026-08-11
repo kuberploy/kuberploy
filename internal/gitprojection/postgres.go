@@ -600,23 +600,13 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	// visible under the binding lock, including an operation commit followed by
 	// a later normal fast-forward before indexing. Advance only commands linked
 	// to those durable reservations, then release the path fences atomically.
-	if _, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands c SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
+	if _, err = tx.Exec(ctx, `UPDATE git_write_commands c SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
 		FROM git_path_reservations r
 		WHERE r.binding_id=$1 AND r.state='committed-pending-index' AND c.operation_id=r.operation_id
 		AND c.binding_id=r.binding_id AND c.target_ref=r.target_ref AND c.path=r.path AND c.state='git-committed'`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE git_variable_write_commands c SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
-		FROM git_path_reservations r
-		WHERE r.binding_id=$1 AND r.state='committed-pending-index' AND c.operation_id=r.operation_id
-		AND c.binding_id=r.binding_id AND c.target_ref=r.target_ref AND c.path=r.path AND c.state='git-committed'`, binding.ID, generation.Number, now.UTC()); err != nil {
-		return Binding{}, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands SET state='indexed',indexed_generation=$3,indexed_at=$4,updated_at=$4
-		WHERE binding_id=$1 AND state='git-committed' AND committed_revision=$2`, binding.ID, generation.HeadRevision, generation.Number, now.UTC()); err != nil {
-		return Binding{}, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE git_variable_write_commands SET state='indexed',indexed_generation=$3,indexed_at=$4,updated_at=$4
+	if _, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',indexed_generation=$3,indexed_at=$4,updated_at=$4
 		WHERE binding_id=$1 AND state='git-committed' AND committed_revision=$2`, binding.ID, generation.HeadRevision, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
@@ -624,16 +614,7 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	// the provider receipt verified its merge on the authoritative target ref,
 	// and this activated generation contains the exact accepted path bytes.
 	// This also permits later descendants without trusting ancestry guesses.
-	if _, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands c SET state='indexed',committed_revision=p.target_revision,
-		committed_at=p.updated_at,indexed_generation=$2,indexed_at=$3,updated_at=$3
-		FROM git_pull_request_publications p,git_projected_documents d
-		WHERE c.binding_id=$1 AND c.publication_mode='pull-request' AND c.state='pending' AND p.operation_id=c.operation_id
-		AND p.state='merge-verified' AND p.binding_id=c.binding_id AND p.target_ref=c.target_ref
-		AND p.updated_at<=$3 AND d.binding_id=c.binding_id AND d.generation=$2 AND d.path=c.path
-		AND d.valid AND d.content_sha256=c.content_sha256 AND d.raw=c.content`, binding.ID, generation.Number, now.UTC()); err != nil {
-		return Binding{}, err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE git_variable_write_commands c SET state='indexed',committed_revision=p.target_revision,
+	if _, err = tx.Exec(ctx, `UPDATE git_write_commands c SET state='indexed',committed_revision=p.target_revision,
 		committed_at=p.updated_at,indexed_generation=$2,indexed_at=$3,updated_at=$3
 		FROM git_pull_request_publications p,git_projected_documents d
 		WHERE c.binding_id=$1 AND c.publication_mode='pull-request' AND c.state='pending' AND p.operation_id=c.operation_id
@@ -643,8 +624,8 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		return Binding{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=p.target_revision,updated_at=$3
-		FROM git_deployment_write_commands c,git_pull_request_publications p
-		WHERE c.binding_id=$1 AND c.publication_mode='pull-request' AND c.state='indexed' AND c.indexed_generation=$2
+		FROM git_write_commands c,git_pull_request_publications p
+		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.publication_mode='pull-request' AND c.state='indexed' AND c.indexed_generation=$2
 		AND p.operation_id=c.operation_id AND p.state='merge-verified' AND d.id=c.deployment_id
 		AND d.operation_id=c.operation_id AND d.generation=(SELECT generation FROM operations WHERE id=c.operation_id)`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
@@ -934,7 +915,7 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 	if reservation.State == ReservationCommittedPendingIndex && reservation.CommittedRevision != committedRevision {
 		return PathReservation{}, ErrConflict
 	}
-	command, err := scanWriteCommand(tx.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_deployment_write_commands WHERE operation_id=$1 FOR UPDATE`, operationID))
+	command, err := scanWriteCommand(tx.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment' FOR UPDATE`, operationID))
 	if err != nil {
 		return PathReservation{}, err
 	}
@@ -970,12 +951,12 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 		}
 		commandUpdated := false
 		if command.State == WriteCommandPending {
-			result, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
-				indexed_generation=$4,indexed_at=$3,updated_at=$3 WHERE operation_id=$1 AND state='pending'`, operationID, committedRevision, now.UTC(), binding.ProjectionGeneration)
+			result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
+				indexed_generation=$4,indexed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='deployment' AND state='pending'`, operationID, committedRevision, now.UTC(), binding.ProjectionGeneration)
 			commandUpdated = true
 		} else if command.State == WriteCommandGitCommitted {
-			result, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
-				WHERE operation_id=$1 AND state='git-committed'`, operationID, binding.ProjectionGeneration, now.UTC())
+			result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
+				WHERE operation_id=$1 AND command_kind='deployment' AND state='git-committed'`, operationID, binding.ProjectionGeneration, now.UTC())
 			commandUpdated = true
 		}
 		if err != nil {
@@ -994,7 +975,7 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 			return PathReservation{}, ErrLeaseLost
 		}
 		if command.State == WriteCommandPending {
-			if _, err = tx.Exec(ctx, `UPDATE git_deployment_write_commands SET state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND state='pending'`, operationID, committedRevision, now.UTC()); err != nil {
+			if _, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='deployment' AND state='pending'`, operationID, committedRevision, now.UTC()); err != nil {
 				return PathReservation{}, err
 			}
 		}

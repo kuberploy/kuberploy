@@ -46,7 +46,7 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	)
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_path_reservations WHERE binding_id=$1`, pgBinding)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_deployment_write_commands WHERE operation_id=$1`, pgWriteOperation)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment'`, pgWriteOperation)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM deployments WHERE id=$1`, pgDeployment)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM operations WHERE id=$1`, pgWriteOperation)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_verified_head_observations WHERE binding_id=$1`, pgBinding)

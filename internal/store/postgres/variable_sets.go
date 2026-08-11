@@ -181,7 +181,7 @@ func (s *Store) SaveVariableSet(ctx context.Context, actor, key, fingerprint, re
 	if command.Validate(binding) != nil {
 		return base.Result[domain.Operation]{}, gitprojection.ErrInvalid
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO git_variable_write_commands(operation_id,actor_id,binding_id,project_id,environment_id,scope,target_ref,path,base_revision,precondition,expected_etag,parser_version,content,content_sha256,message,publication_mode,state,request_digest,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$18)`, command.OperationID, command.ActorID, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, command.TargetRef, command.Path, plan.BaseRevision, plan.Precondition, plan.ExpectedETag, plan.PolicyVersion, command.Content, command.ContentSHA256, command.Message, mode, command.RequestDigest, now)
+	_, err = tx.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,actor_id,binding_id,project_id,environment_id,variable_scope,target_ref,path,base_revision,precondition,expected_etag,policy_version,content,content_sha256,message,publication_mode,state,request_digest,created_at,updated_at) VALUES($1,'variable-set',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$18)`, command.OperationID, command.ActorID, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, command.TargetRef, command.Path, plan.BaseRevision, plan.Precondition, plan.ExpectedETag, plan.PolicyVersion, command.Content, command.ContentSHA256, command.Message, mode, command.RequestDigest, now)
 	if err != nil {
 		return base.Result[domain.Operation]{}, classify(err)
 	}

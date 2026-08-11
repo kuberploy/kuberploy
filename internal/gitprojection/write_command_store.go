@@ -86,11 +86,11 @@ func (s *MemoryStore) MarkWriteCommandCommitted(_ context.Context, operationID, 
 }
 
 const writeCommandColumns = `operation_id::text,deployment_id::text,actor_id::text,binding_id::text,project_id::text,
-	environment_id::text,application_id::text,target_ref,path,base_revision,precondition,expected_etag,chart_digest,
+	environment_id::text,application_id::text,target_ref,path,base_revision,precondition,expected_etag,chart_identity,
 	policy_version,content,content_sha256,message,publication_mode,state,committed_revision,committed_at,indexed_generation,indexed_at,created_at,updated_at`
 
 const variableWriteCommandColumns = `operation_id::text,actor_id::text,binding_id::text,project_id::text,environment_id::text,
-	scope,target_ref,path,base_revision,precondition,expected_etag,parser_version,content,content_sha256,message,publication_mode,
+	variable_scope,target_ref,path,base_revision,precondition,expected_etag,policy_version,content,content_sha256,message,publication_mode,
 	state,committed_revision,committed_at,indexed_generation,indexed_at,request_digest,created_at,updated_at`
 
 func scanWriteCommand(row rowScanner) (WriteCommand, error) {
@@ -130,18 +130,18 @@ func (s *PostgreSQLStore) PutWriteCommand(ctx context.Context, command WriteComm
 	}
 	var result pgconn.CommandTag
 	if command.Plan.VariableScope != "" {
-		result, err = s.pool.Exec(ctx, `INSERT INTO git_variable_write_commands(operation_id,actor_id,binding_id,project_id,environment_id,
-			scope,target_ref,path,base_revision,precondition,expected_etag,parser_version,content,content_sha256,message,publication_mode,state,request_digest,created_at,updated_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$18) ON CONFLICT DO NOTHING`,
+		result, err = s.pool.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,actor_id,binding_id,project_id,environment_id,
+			variable_scope,target_ref,path,base_revision,precondition,expected_etag,policy_version,content,content_sha256,message,publication_mode,state,request_digest,created_at,updated_at)
+			VALUES($1,'variable-set',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',$17,$18,$18) ON CONFLICT DO NOTHING`,
 			command.OperationID, command.ActorID, command.Plan.BindingID, command.Plan.ProjectID, command.Plan.EnvironmentID,
 			command.Plan.VariableScope, command.TargetRef, command.Path, command.Plan.BaseRevision, command.Plan.Precondition,
 			command.Plan.ExpectedETag, command.Plan.PolicyVersion, command.Content, command.ContentSHA256, command.Message,
 			command.PublicationMode, command.RequestDigest, command.CreatedAt)
 	} else {
-		result, err = s.pool.Exec(ctx, `INSERT INTO git_deployment_write_commands(operation_id,deployment_id,actor_id,binding_id,project_id,
-		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_digest,policy_version,
+		result, err = s.pool.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,deployment_id,actor_id,binding_id,project_id,
+		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_identity,policy_version,
 		content,content_sha256,message,publication_mode,state,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19) ON CONFLICT DO NOTHING`,
+		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19) ON CONFLICT DO NOTHING`,
 			command.OperationID, command.DeploymentID, command.ActorID, command.Plan.BindingID, command.Plan.ProjectID,
 			command.Plan.EnvironmentID, command.Plan.ApplicationID, command.TargetRef, command.Path, command.Plan.BaseRevision,
 			command.Plan.Precondition, command.Plan.ExpectedETag, command.Plan.ChartDigest, command.Plan.PolicyVersion,
@@ -161,9 +161,9 @@ func (s *PostgreSQLStore) PutWriteCommand(ctx context.Context, command WriteComm
 }
 
 func (s *PostgreSQLStore) WriteCommand(ctx context.Context, operationID string) (WriteCommand, error) {
-	command, err := scanWriteCommand(s.pool.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_deployment_write_commands WHERE operation_id=$1`, operationID))
+	command, err := scanWriteCommand(s.pool.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment'`, operationID))
 	if errors.Is(err, ErrNotFound) {
-		command, err = scanVariableWriteCommand(s.pool.QueryRow(ctx, `SELECT `+variableWriteCommandColumns+` FROM git_variable_write_commands WHERE operation_id=$1`, operationID))
+		command, err = scanVariableWriteCommand(s.pool.QueryRow(ctx, `SELECT `+variableWriteCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind='variable-set'`, operationID))
 	}
 	if err != nil {
 		return WriteCommand{}, err
@@ -179,8 +179,8 @@ func (s *PostgreSQLStore) MarkWriteCommandCommitted(ctx context.Context, operati
 	if !commitRE.MatchString(revision) || now.IsZero() {
 		return WriteCommand{}, ErrInvalid
 	}
-	command, err := scanWriteCommand(s.pool.QueryRow(ctx, `UPDATE git_deployment_write_commands SET state='git-committed',
-		committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND state='pending' AND updated_at<=$3
+	command, err := scanWriteCommand(s.pool.QueryRow(ctx, `UPDATE git_write_commands SET state='git-committed',
+		committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='deployment' AND state='pending' AND updated_at<=$3
 		RETURNING `+writeCommandColumns, operationID, revision, now.UTC()))
 	if err == nil {
 		return command, nil
@@ -188,8 +188,8 @@ func (s *PostgreSQLStore) MarkWriteCommandCommitted(ctx context.Context, operati
 	if !errors.Is(err, ErrNotFound) {
 		return WriteCommand{}, err
 	}
-	command, err = scanVariableWriteCommand(s.pool.QueryRow(ctx, `UPDATE git_variable_write_commands SET state='git-committed',
-		committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND state='pending' AND updated_at<=$3
+	command, err = scanVariableWriteCommand(s.pool.QueryRow(ctx, `UPDATE git_write_commands SET state='git-committed',
+		committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='variable-set' AND state='pending' AND updated_at<=$3
 		RETURNING `+variableWriteCommandColumns, operationID, revision, now.UTC()))
 	if err == nil {
 		return command, nil

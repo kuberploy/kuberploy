@@ -585,9 +585,8 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 	var gen int64
 	var leaseUntil *time.Time
 	err = tx.QueryRow(ctx, `SELECT o.target_id,o.target_type,o.status,o.generation,o.request_id,o.kind,COALESCE(o.lease_owner,''),o.lease_until,o.git_revision,
-		COALESCE(c.publication_mode,v.publication_mode,'direct') FROM operations o
-		LEFT JOIN git_deployment_write_commands c ON c.operation_id=o.id
-		LEFT JOIN git_variable_write_commands v ON v.operation_id=o.id
+		COALESCE(c.publication_mode,'direct') FROM operations o
+		LEFT JOIN git_write_commands c ON c.operation_id=o.id
 		WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&targetID, &targetType, &status, &gen, &requestID, &kind, &owner, &leaseUntil, &currentRevision, &publicationMode)
 	if err != nil {
 		return classify(err)

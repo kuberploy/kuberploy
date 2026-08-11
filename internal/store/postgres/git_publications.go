@@ -119,7 +119,7 @@ func (s *Store) CompareAndSwapPublication(ctx context.Context, previous, next gi
 
 func (s *Store) AcceptedGitPublicationMode(ctx context.Context, operationID string) (gitpublication.Mode, error) {
 	var mode gitpublication.Mode
-	if err := s.pool.QueryRow(ctx, `SELECT publication_mode FROM git_deployment_write_commands WHERE operation_id=$1`, operationID).Scan(&mode); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT publication_mode FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment'`, operationID).Scan(&mode); err != nil {
 		return "", classifyGitPublicationError(err)
 	}
 	if mode != gitpublication.ModeDirect && mode != gitpublication.ModePullRequest {
