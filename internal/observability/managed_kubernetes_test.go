@@ -30,7 +30,11 @@ func TestManagedKubernetesObserverUsesOnlyExactGetsAndDigestsSpecs(t *testing.T)
 		"metadata": map[string]any{"name": ManagedMonitoringRuleName, "namespace": ManagedMonitoringNamespace, "uid": "rule-uid", "resourceVersion": "3", "generation": 8},
 		"spec":     ruleSpec,
 	})
-	bodies := map[string][]byte{managedKubernetesPaths[0]: profile, managedKubernetesPaths[1]: operator, managedKubernetesPaths[2]: rule}
+	kubeStateMonitor, _ := json.Marshal(map[string]any{
+		"metadata": map[string]any{"name": ManagedMonitoringKubeStateMonitor, "namespace": ManagedMonitoringNamespace, "uid": "monitor-uid", "resourceVersion": "4", "generation": 2},
+		"spec":     map[string]any{"endpoints": []any{map[string]any{"port": "http", "honorLabels": true}}},
+	})
+	bodies := map[string][]byte{managedKubernetesPaths[0]: profile, managedKubernetesPaths[1]: operator, managedKubernetesPaths[2]: rule, managedKubernetesPaths[3]: kubeStateMonitor}
 	seen := map[string]int{}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer observer-token-123" || r.Header.Get("Accept") != "application/json" {
@@ -64,7 +68,7 @@ func TestManagedKubernetesObserverUsesOnlyExactGetsAndDigestsSpecs(t *testing.T)
 	if snapshot.OperatorArgumentsSHA256 != digestJSON([]string{"--one"}) || snapshot.RuleSpecSHA256 != digestJSON(ruleSpec) {
 		t.Fatalf("unexpected digests operator=%q rule=%q", snapshot.OperatorArgumentsSHA256, snapshot.RuleSpecSHA256)
 	}
-	if !snapshot.ProfileImmutable || snapshot.OperatorGeneration != 5 || snapshot.RuleGeneration != 8 {
+	if !snapshot.ProfileImmutable || snapshot.OperatorGeneration != 5 || snapshot.RuleGeneration != 8 || snapshot.KubeStateMonitorGeneration != 2 || !snapshot.KubeStateMonitorHonorLabels {
 		t.Fatalf("snapshot=%#v", snapshot)
 	}
 }

@@ -196,11 +196,6 @@ export function ProjectPage() {
               const appDeployments = projectDeployments.filter(
                 (deployment) => deployment.applicationId === application.id,
               );
-              const healthy = appDeployments.filter((deployment) =>
-                ["healthy", "succeeded", "active"].includes(
-                  deployment.status ?? "",
-                ),
-              ).length;
               return (
                 <Link
                   key={application.id}
@@ -227,7 +222,10 @@ export function ProjectPage() {
                     </p>
                   </div>
                   <div className="service-card__footer">
-                    <span>{healthy} healthy</span>
+                    <span>
+                      {appDeployments.length} deployment
+                      {appDeployments.length === 1 ? "" : "s"}
+                    </span>
                     <span>
                       Open service <Icon name="arrow" />
                     </span>

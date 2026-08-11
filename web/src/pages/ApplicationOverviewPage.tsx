@@ -6,6 +6,8 @@ import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { Icon } from "../components/Icon";
+import { hasBuildApplicationCapability } from "../lib/buildAccess";
+import { gitRefLabel } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
   Card,
@@ -79,6 +81,23 @@ export function ApplicationOverviewPage() {
       project,
     ),
   );
+  const canReadBuildDefinitions = Boolean(
+    application.data &&
+    project &&
+    hasBuildApplicationCapability(
+      effectiveCapabilities,
+      "build-definitions:read",
+      application.data,
+      project,
+    ),
+  );
+  const buildDefinitions = useQuery({
+    queryKey: ["build-definitions", applicationId],
+    queryFn: () => api.buildDefinitions(applicationId),
+    enabled:
+      capabilities.data?.features?.builds === true && canReadBuildDefinitions,
+    retry: false,
+  });
   const registry = useQuery({
     queryKey: ["application-registry", applicationId],
     queryFn: () => api.applicationRegistry(applicationId, 100),
@@ -103,6 +122,16 @@ export function ApplicationOverviewPage() {
       (item) => item.applicationId === applicationId,
     ) ?? [];
   const features = capabilities.data?.features;
+  const activeBuildDefinition = useMemo(
+    () =>
+      (buildDefinitions.data?.items ?? [])
+        .filter((definition) => definition.enabled)
+        .sort(
+          (left, right) =>
+            right.definitionGeneration - left.definitionGeneration,
+        )[0],
+    [buildDefinitions.data?.items],
+  );
   const loadError = application.error ?? projects.error ?? environments.error;
 
   if (loadError) {
@@ -166,9 +195,14 @@ export function ApplicationOverviewPage() {
               </span>
               <div>
                 <small>Source</small>
-                <strong>Choose Git, image, or Helm</strong>
+                <strong>
+                  {activeBuildDefinition
+                    ? `GitHub / ${gitRefLabel(activeBuildDefinition.triggerRef)}`
+                    : "Choose Git, image, or Helm"}
+                </strong>
                 <button className="text-link" onClick={() => setTab("source")}>
-                  Configure source <Icon name="arrow" />
+                  {activeBuildDefinition ? "Manage source" : "Configure source"}{" "}
+                  <Icon name="arrow" />
                 </button>
               </div>
             </Card>

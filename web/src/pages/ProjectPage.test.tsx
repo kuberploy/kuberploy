@@ -72,10 +72,26 @@ beforeEach(() => {
         id: "application_api",
         projectId: "project_payments",
         name: "Payments API",
+        description: "Handles payment requests",
       },
     ],
   });
-  vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+  vi.spyOn(api, "deployments").mockResolvedValue({
+    items: [
+      {
+        id: "deployment_api",
+        applicationId: "application_api",
+        environmentId: "environment_production",
+        image: "registry.example.com/payments@sha256:" + "a".repeat(64),
+        runtime: {
+          replicas: 1,
+          ports: [{ name: "http", containerPort: 8080 }],
+          resources: { requests: { cpu: "50m", memory: "100Mi" } },
+        },
+        status: "git-committed",
+      },
+    ],
+  });
   vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
   vi.spyOn(api, "users").mockResolvedValue({ items: [] });
   vi.spyOn(api, "serviceAccounts").mockResolvedValue({ items: [] });
@@ -97,6 +113,8 @@ describe("project workspace", () => {
     expect(
       screen.getByRole("link", { name: /Payments API/ }),
     ).toBeInTheDocument();
+    expect(screen.getByText("1 deployment")).toBeInTheDocument();
+    expect(screen.queryByText(/healthy/)).toBeNull();
     expect(screen.queryByText("payments-production")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Environments (1)" }));

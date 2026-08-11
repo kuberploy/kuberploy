@@ -184,6 +184,7 @@ awk '
 }
 [[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].tlsConfig.insecureSkipVerify' "${kp_tmp}/managed.yaml")" == "false" ]]
 kp_ksm_args="$(yq eval-all 'select(.kind == "Deployment" and .metadata.name == "kuberploy-kube-state-metrics") | .spec.template.spec.containers[0].args[]' "${kp_tmp}/managed.yaml")"
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and .metadata.name == "kuberploy-kube-state-metrics") | .spec.endpoints[0].honorLabels' "${kp_tmp}/managed.yaml")" == "true" ]]
 grep -Fx -- '--resources=deployments,ingresses,pods,services' <<<"${kp_ksm_args}" >/dev/null
 grep -Fx -- '--metric-allowlist=kube_deployment_labels,kube_deployment_status_replicas_available,kube_ingress_labels,kube_pod_container_status_restarts_total,kube_pod_labels,kube_service_labels' <<<"${kp_ksm_args}" >/dev/null
 grep -Fx -- '--metric-labels-allowlist=deployments=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],ingresses=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],pods=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],services=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]' <<<"${kp_ksm_args}" >/dev/null

@@ -48,6 +48,10 @@ beforeEach(() => {
     ],
   });
   vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+  vi.spyOn(api, "buildDefinitions").mockResolvedValue({
+    items: [],
+    nextCursor: null,
+  });
   vi.spyOn(api, "capabilities").mockResolvedValue({
     features: { builds: false, builder: false, helmDeployments: false },
     capabilities: [],
@@ -94,6 +98,65 @@ describe("application source overview", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Helm applications are not ready"),
+    ).toBeInTheDocument();
+  });
+
+  it("summarizes the active GitHub build source", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { builds: true, builder: true },
+      capabilities: [
+        {
+          role: "developer",
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["build-definitions:read"],
+        },
+      ],
+    });
+    vi.mocked(api.buildDefinitions).mockResolvedValue({
+      items: [
+        {
+          id: "definition-1",
+          projectId: "project-1",
+          applicationId: "application-1",
+          installationId: "installation-1",
+          repositoryId: "repository-1",
+          triggerRef: "refs/heads/main",
+          contextPath: ".",
+          dockerfilePath: "Dockerfile",
+          platforms: ["linux/amd64"],
+          registry: {
+            targetId: "target-1",
+            mode: "managed",
+            server: "registry.example.com",
+            repositoryPrefix: "payments",
+          },
+          buildArgs: [],
+          secretFiles: [],
+          sshFiles: [],
+          cacheTrustLane: "main",
+          cacheImports: 1,
+          profile: {
+            resource: "standard",
+            timeoutSeconds: 900,
+            egress: "registry-and-source",
+          },
+          maxAttempts: 3,
+          definitionDigest: `sha256:${"b".repeat(64)}`,
+          definitionGeneration: 1,
+          enabled: true,
+          createdAt: "2026-08-12T00:00:00Z",
+          updatedAt: "2026-08-12T00:00:00Z",
+        },
+      ],
+      nextCursor: null,
+    });
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper() });
+
+    expect(await screen.findByText("GitHub / main")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Manage source/ }),
     ).toBeInTheDocument();
   });
 });

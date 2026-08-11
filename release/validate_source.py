@@ -58,6 +58,9 @@ def main() -> None:
     web_version = json.loads((args.root / "web/package.json").read_text(encoding="utf-8"))["version"]
     if web_version != version:
         raise SystemExit("web package version must match chart version")
+    web_proxy = (args.root / "web/nginx.conf.template").read_text(encoding="utf-8")
+    if "location ~ ^/(readyz|v1|" not in web_proxy:
+        raise SystemExit("web proxy must route API readiness and v1 paths to the API")
     metadata = json.loads((args.root / "release/metadata.json").read_text(encoding="utf-8"))
     if set(metadata) != {"version", "summary", "breakingChanges", "supportedUpgradeFrom"}:
         raise SystemExit("release metadata has unexpected or missing fields")
