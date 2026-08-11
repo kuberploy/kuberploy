@@ -122,6 +122,7 @@ argoCD:
     argoCD:
       managed: true
       adoptExisting: false
+      crdsPreinstalledByParent: true
       capabilitiesConfirmed: false
     prerequisites:
       argoSecretName: argocd-secret
@@ -141,6 +142,9 @@ argoCD:
       repositoryOwner: ""
       repositoryName: ""
       targetRevision: ""
+  argo-cd:
+    crds:
+      install: false
 
 # Direct blank-cluster bootstrap dependency. It remains owned by the installer
 # release in kuberploy-system so Argo CD never depends on a child Application

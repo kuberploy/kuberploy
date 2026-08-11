@@ -12,6 +12,14 @@ existing wrapper at an explicit semantic release tag into its fixed namespace an
 release independently. No privileged in-cluster Helm Job, shell, or reusable
 cluster credential is created.
 
+For a truly blank cluster, the installer carries the exact Argo CD 3.5.0
+`Application`, `ApplicationSet`, and `AppProject` CRDs in Helm's `crds/`
+phase. The nested Argo bootstrap disables its duplicate CRD templates and
+attests this parent ownership, so Helm discovers the APIs before mapping the
+retained resources in the same invocation. Standalone Argo wrapper installs
+continue to own those same CRDs themselves; both/neither ownership modes are
+rejected.
+
 ## Required inputs
 
 Installation is intentionally Helm-native. Operators provide one reviewed
@@ -61,7 +69,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.54 \
+  --version 0.1.0-rc.55 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=true --force-conflicts \
@@ -91,8 +99,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.54.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.54.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.55.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.55.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.

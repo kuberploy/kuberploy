@@ -19,10 +19,11 @@
         "argoCD": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["managed", "adoptExisting", "capabilitiesConfirmed"],
+          "required": ["managed", "adoptExisting", "crdsPreinstalledByParent", "capabilitiesConfirmed"],
           "properties": {
             "managed": {"type": "boolean"},
             "adoptExisting": {"type": "boolean"},
+            "crdsPreinstalledByParent": {"type": "boolean"},
             "capabilitiesConfirmed": {"type": "boolean"}
           }
         },

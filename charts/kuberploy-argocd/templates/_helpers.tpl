@@ -39,6 +39,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "kuberploy-argocd must be bootstrapped by the installer release in kuberploy-system" }}{{- end -}}
 {{- if eq .Values.argoFoundation.argoCD.managed .Values.argoFoundation.argoCD.adoptExisting -}}{{ fail "exactly one of managed Argo CD or adopted Argo CD must be selected" }}{{- end -}}
 {{- if and .Values.argoFoundation.argoCD.adoptExisting (not .Values.argoFoundation.argoCD.capabilitiesConfirmed) -}}{{ fail "Argo CD adoption requires a completed compatibility and capability check" }}{{- end -}}
+{{- if and (not .Values.argoFoundation.argoCD.managed) .Values.argoFoundation.argoCD.crdsPreinstalledByParent -}}{{ fail "adopted Argo CD cannot claim installer-owned CRD preinstallation" }}{{- end -}}
 {{- if not .Values.argoFoundation.networkPolicy.enabled -}}{{ fail "Argo CD NetworkPolicy cannot be disabled" }}{{- end -}}
 {{- range $key, $want := dict "valkeyNamespace" "kuberploy-system" "controlPlaneNamespace" "kuberploy-system" "edgeNamespace" "kuberploy-system" "monitoringNamespace" "kuberploy-monitoring" -}}
   {{- if ne (index $.Values.argoFoundation.networkPolicy $key) $want -}}{{ fail (printf "Argo CD %s is locked" $key) }}{{- end -}}
@@ -70,7 +71,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- range .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs -}}{{- if has . (list "0.0.0.0/0" "::/0") -}}{{ fail "Kubernetes API CIDRs cannot be all-address ranges" }}{{- end -}}{{- end -}}
   {{- if or (ne $argo.nameOverride "argocd") (ne $argo.fullnameOverride "argocd") (ne $argo.namespaceOverride "argocd") -}}{{ fail "Argo CD names and namespace identity are locked" }}{{- end -}}
   {{- if or (ne $argo.global.image.repository "quay.io/argoproj/argocd") (ne $argo.global.image.tag "v3.5.0") -}}{{ fail "Argo CD image version is locked to v3.5.0" }}{{- end -}}
-  {{- if or (not $argo.crds.install) (not $argo.crds.keep) (not $argo.createClusterRoles) $argo.createAggregateRoles -}}{{ fail "Argo CD CRD and RBAC ownership is locked" }}{{- end -}}
+  {{- $parentOwnsCRDs := .Values.argoFoundation.argoCD.crdsPreinstalledByParent -}}
+  {{- if or (not $argo.crds.keep) (not $argo.createClusterRoles) $argo.createAggregateRoles -}}{{ fail "Argo CD CRD retention and RBAC ownership are locked" }}{{- end -}}
+  {{- if eq $argo.crds.install $parentOwnsCRDs -}}{{ fail "managed Argo CD must install CRDs itself or attest exact parent preinstallation, never both or neither" }}{{- end -}}
   {{- if or $argo.global.networkPolicy.create (not (empty $argo.global.env)) (not (empty $argo.global.extraVolumes)) (not (empty $argo.global.extraVolumeMounts)) (not (empty $argo.global.podAnnotations)) (not (empty $argo.global.podLabels)) (not (empty $argo.global.hostAliases)) -}}{{ fail "Argo CD global injection and upstream NetworkPolicy overrides are forbidden" }}{{- end -}}
   {{- if or (ne $argo.global.logging.format "json") (ne $argo.global.logging.level "info") (not $argo.global.securityContext.runAsNonRoot) (ne $argo.global.securityContext.seccompProfile.type "RuntimeDefault") -}}{{ fail "Argo CD global logging and Pod security are locked" }}{{- end -}}
   {{- if or (not $argo.configs.cm.create) (index $argo.configs.cm "admin.enabled") (index $argo.configs.cm "exec.enabled") (index $argo.configs.cm "statusbadge.enabled") -}}{{ fail "Argo CD local admin, exec, and status badge must remain disabled" }}{{- end -}}

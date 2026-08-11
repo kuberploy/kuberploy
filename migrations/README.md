@@ -24,3 +24,9 @@ drift-review surface and does not supersede native SQL features that Prisma
 cannot represent. The Helm
 pre-install/pre-upgrade migration Job runs `prisma migrate deploy`; API and
 worker startup only verify the exact completed migration names and checksums.
+
+The migration image waits for the configured PostgreSQL TCP endpoint for at
+most 480 seconds before invoking Prisma. This covers blank-cluster dependency
+convergence without masking a missing database: the Kubernetes Job keeps a hard
+active deadline, and Prisma or SQL failures remain terminal. Its pre-sync
+NetworkPolicy permits only kube-dns and the configured PostgreSQL targets.

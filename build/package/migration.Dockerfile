@@ -8,6 +8,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && \
     npm cache clean --force
 
 COPY migrations/prisma.config.ts ./prisma.config.ts
+COPY migrations/run.mjs ./run.mjs
 COPY migrations/prisma ./prisma
 
 ARG VERSION=dev
@@ -26,4 +27,4 @@ ENV HOME=/tmp/prisma \
     XDG_CACHE_HOME=/tmp/prisma/.cache
 
 USER 65532:65532
-ENTRYPOINT ["./node_modules/.bin/prisma", "migrate", "deploy", "--config", "prisma.config.ts"]
+ENTRYPOINT ["node", "run.mjs"]

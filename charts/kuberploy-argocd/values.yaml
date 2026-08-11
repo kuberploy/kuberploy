@@ -4,6 +4,10 @@ argoFoundation:
   argoCD:
     managed: true
     adoptExisting: false
+    # The single-invocation installer places this exact Argo CD version's
+    # CRDs in its parent crds/ phase before wrapper templates are mapped.
+    # Standalone installs keep this false and own the CRDs themselves.
+    crdsPreinstalledByParent: false
     # Adoption is accepted only after the installer has checked Argo CD 3.5.x,
     # the v1alpha1 CRDs, in-cluster destination, and required cache behavior.
     capabilitiesConfirmed: false
