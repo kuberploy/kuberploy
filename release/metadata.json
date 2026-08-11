@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Qualification RC restoring workload metrics, truthful readiness, and accurate project source summaries.",
+  "summary": "Qualification RC normalizing protected Prometheus labels and attesting the immutable scrape policy.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.75"
+  "version": "0.1.0-rc.76"
 }
