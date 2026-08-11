@@ -25,7 +25,11 @@ const (
 )
 
 var managedRequiredScrapePools = []string{
-	"serviceMonitor/kuberploy-monitoring/kuberploy-edge-traefik/0",
+	// The installer deliberately fixes the independently owned edge Helm
+	// release name to "edge". Bind readiness to that exact live identity;
+	// using the Argo Application name ("kuberploy-edge") here would reject a
+	// healthy installation even though the protected ServiceMonitor is up.
+	"serviceMonitor/kuberploy-monitoring/edge-traefik/0",
 	"serviceMonitor/kuberploy-monitoring/kuberploy-kube-state-metrics/0",
 	"serviceMonitor/kuberploy-monitoring/monitoring-kube-prometheus-kubelet/0",
 }

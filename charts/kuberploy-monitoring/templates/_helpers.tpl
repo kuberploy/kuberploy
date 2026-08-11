@@ -42,7 +42,7 @@ kuberploy.io/ownership-boundary: monitoring-only
 {{- $_ := unset $guardedPrometheus "resources" -}}
 {{- $_ := unset $guardedPrometheus "storageSpec" -}}
 {{- $guardedHash := sha256sum (toJson $guarded) -}}
-{{- if not (has $guardedHash (list "9e7e674433cb780480753ff952140220585ec1f396ae883d421604ce99ced408" "d32372f42791b83c797a248fc6d7570ee7fc20a2ac7caec11fc1f1179139259e")) -}}
+{{- if not (has $guardedHash (list "9e7e674433cb780480753ff952140220585ec1f396ae883d421604ce99ced408" "cc206bc68c2502341a4f882fe2a741dcc0c5c7eda5e9c8d57602a1b7c7d59314" "27f90edac8b5f59543970443cde35d28d757ff1023e76d62170cc9fb0f9a16b0")) -}}
   {{- fail (printf "only Prometheus retention, PVC, and resources are configurable; the managed upstream profile is otherwise immutable (%s)" $guardedHash) -}}
 {{- end -}}
 {{- if $stack.grafana.enabled -}}{{ fail "Grafana is disabled in the managed foundation" }}{{- end -}}

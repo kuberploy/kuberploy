@@ -75,9 +75,12 @@ kube-prometheus-stack:
         - action: keep
           sourceLabels: [__name__]
           regex: container_cpu_usage_seconds_total|container_memory_working_set_bytes
-        - action: drop
+        # Keep only real pod series. An empty drop regex is not safe here:
+        # Prometheus Operator omits it from the generated configuration and
+        # Prometheus then applies the default `(.*)`, dropping every sample.
+        - action: keep
           sourceLabels: [pod]
-          regex: ""
+          regex: .+
       cAdvisorRelabelings:
         - action: replace
           sourceLabels: [__metrics_path__]

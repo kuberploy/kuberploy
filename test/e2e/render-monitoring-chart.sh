@@ -183,6 +183,9 @@ awk '
   exit 1
 }
 [[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].tlsConfig.insecureSkipVerify' "${kp_tmp}/managed.yaml")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].metricRelabelings[1].action' "${kp_tmp}/managed.yaml")" == "keep" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].metricRelabelings[1].sourceLabels | join(",")' "${kp_tmp}/managed.yaml")" == "pod" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].metricRelabelings[1].regex' "${kp_tmp}/managed.yaml")" == ".+" ]]
 kp_ksm_args="$(yq eval-all 'select(.kind == "Deployment" and .metadata.name == "kuberploy-kube-state-metrics") | .spec.template.spec.containers[0].args[]' "${kp_tmp}/managed.yaml")"
 [[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and .metadata.name == "kuberploy-kube-state-metrics") | (.spec.endpoints[0].honorLabels // false)' "${kp_tmp}/managed.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Prometheus" and .metadata.name == "monitoring-kube-prometheus-prometheus") | .spec.overrideHonorLabels' "${kp_tmp}/managed.yaml")" == "true" ]]

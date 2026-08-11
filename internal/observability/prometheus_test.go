@@ -82,6 +82,9 @@ func managedTargetsResponse(targets []map[string]string) string {
 
 func TestProbeManagedTargetsRequiresEveryHealthyProtectedSource(t *testing.T) {
 	t.Parallel()
+	if got, want := managedRequiredScrapePools[0], "serviceMonitor/kuberploy-monitoring/edge-traefik/0"; got != want {
+		t.Fatalf("edge scrape pool=%q want=%q", got, want)
+	}
 	healthy := func() []map[string]string {
 		targets := make([]map[string]string, 0, len(managedRequiredScrapePools))
 		for _, pool := range managedRequiredScrapePools {
