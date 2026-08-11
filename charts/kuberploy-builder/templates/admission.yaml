@@ -82,13 +82,15 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ include "kuberploy-builder.policyName" . }}-egress
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     {{- include "kuberploy-builder.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConditions:
     - name: run-policy-only
-      expression: "object.metadata.name != 'default-deny'"
+      expression: "object.metadata.name != 'default-deny' && object.metadata.name != 'kuberploy-builder-managed-registry' && (!has(object.metadata.labels) || !('kuberploy.io/static-registry-egress' in object.metadata.labels) || object.metadata.labels['kuberploy.io/static-registry-egress'] != 'true')"
   matchConstraints:
     resourceRules:
       - apiGroups: ["networking.k8s.io"]
@@ -116,6 +118,8 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ include "kuberploy-builder.policyName" . }}-egress
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     {{- include "kuberploy-builder.labels" . | nindent 4 }}
 spec:

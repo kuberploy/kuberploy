@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,6 +102,22 @@ health:
 		"data":     map[string]any{"config.yml": configuration}}
 	if err := validateManagedRegistryConfigMap(configMap, config); err != nil {
 		t.Fatal(err)
+	}
+	tlsConfig := config
+	tlsConfig.AllowPlainHTTP = false
+	tlsConfiguration := string(bytes.ReplaceAll([]byte(configuration), []byte("  draintimeout: 60s\n"), []byte("  draintimeout: 60s\n  tls:\n    certificate: /tls/tls.crt\n    key: /tls/tls.key\n")))
+	tlsConfigMap := cloneRegistryTestJSON(t, configMap)
+	tlsConfigMap["data"].(map[string]any)["config.yml"] = tlsConfiguration
+	if err := validateManagedRegistryConfigMap(tlsConfigMap, tlsConfig); err != nil {
+		t.Fatalf("exact backend TLS config rejected: %v", err)
+	}
+	if err := validateManagedRegistryConfigMap(configMap, tlsConfig); !errors.Is(err, ErrRegistryMaintenanceInvalid) {
+		t.Fatalf("plaintext backend accepted for HTTPS runtime: %v", err)
+	}
+	changedTLS := cloneRegistryTestJSON(t, tlsConfigMap)
+	changedTLS["data"].(map[string]any)["config.yml"] = strings.ReplaceAll(tlsConfiguration, "/tls/tls.key", "/tmp/tls.key")
+	if err := validateManagedRegistryConfigMap(changedTLS, tlsConfig); !errors.Is(err, ErrRegistryMaintenanceInvalid) {
+		t.Fatalf("substituted backend TLS key accepted: %v", err)
 	}
 	for name, mutate := range map[string]func(map[string]any){
 		"mutable":   func(value map[string]any) { value["immutable"] = false },

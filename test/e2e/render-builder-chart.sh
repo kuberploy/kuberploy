@@ -66,7 +66,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.60'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.61'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
@@ -81,6 +81,7 @@ for kp_required in \
   "object.data['token'].size() <= 2732" \
   "object.metadata.name.startsWith('source-credentials-')" \
   "object.metadata.name == 'default-deny'" \
+  "kuberploy.io/static-registry-egress" \
   "'system:masters' in request.userInfo.groups"; do
   rg -F "${kp_required}" "${kp_render}" >/dev/null || {
     printf 'admission render lacks required invariant: %s\n' "${kp_required}" >&2

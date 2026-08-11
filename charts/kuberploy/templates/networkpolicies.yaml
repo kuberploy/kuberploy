@@ -211,13 +211,62 @@ spec:
 {{- end }}
 {{- if and .Values.networkPolicy.enabled .Values.builder.enabled .Values.config.managedRegistry.enabled }}
 ---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: kuberploy-builder-managed-registry
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["networkpolicies"]
+        scope: Namespaced
+  matchConditions:
+    - name: static-managed-registry-only
+      expression: "object.metadata.name == 'kuberploy-builder-managed-registry'"
+  validations:
+    - expression: {{ printf "request.userInfo.username == 'system:serviceaccount:%s:argocd-application-controller'" .Values.rbac.argoNamespace | quote }}
+      message: only the configured Argo CD controller may reconcile static managed-registry egress
+    - expression: {{ printf "object.metadata.name == 'kuberploy-builder-managed-registry' && object.metadata.namespace == '%s'" .Values.builder.namespace.name | quote }}
+      message: static managed-registry egress requires the exact server-owned identity
+    - expression: "object.spec.podSelector.matchLabels.size() == 2 && (!has(object.spec.podSelector.matchExpressions) || object.spec.podSelector.matchExpressions.size() == 0) && object.spec.podSelector.matchLabels['app.kubernetes.io/name'] == 'kuberploy-builder' && object.spec.podSelector.matchLabels['app.kubernetes.io/component'] == 'source-build'"
+      message: static managed-registry egress must select only source-build pods
+    - expression: "object.spec.policyTypes.size() == 1 && object.spec.policyTypes[0] == 'Egress' && (!has(object.spec.ingress) || object.spec.ingress.size() == 0) && object.spec.egress.size() == 1"
+      message: static managed-registry policy must contain exactly one egress rule
+    - expression: {{ printf "object.spec.egress[0].to.size() == 1 && object.spec.egress[0].to[0].namespaceSelector.matchLabels.size() == 1 && (!has(object.spec.egress[0].to[0].namespaceSelector.matchExpressions) || object.spec.egress[0].to[0].namespaceSelector.matchExpressions.size() == 0) && object.spec.egress[0].to[0].namespaceSelector.matchLabels['kubernetes.io/metadata.name'] == '%s' && object.spec.egress[0].to[0].podSelector.matchLabels.size() == 3 && (!has(object.spec.egress[0].to[0].podSelector.matchExpressions) || object.spec.egress[0].to[0].podSelector.matchExpressions.size() == 0) && object.spec.egress[0].to[0].podSelector.matchLabels['app.kubernetes.io/name'] == 'kuberploy-registry' && object.spec.egress[0].to[0].podSelector.matchLabels['app.kubernetes.io/instance'] == '%s' && object.spec.egress[0].to[0].podSelector.matchLabels['app.kubernetes.io/component'] == 'registry' && object.spec.egress[0].ports.size() == 1 && object.spec.egress[0].ports[0].protocol == 'TCP' && object.spec.egress[0].ports[0].port == %v && !has(object.spec.egress[0].ports[0].endPort)" .Values.config.managedRegistry.namespace .Values.config.managedRegistry.deployment .Values.config.managedRegistry.servicePort | quote }}
+      message: static managed-registry egress must target only the exact registry pod and port
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: kuberploy-builder-managed-registry
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+spec:
+  policyName: kuberploy-builder-managed-registry
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ .Values.builder.namespace.name }}
+---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: {{ include "kuberploy.fullname" . }}-builder-managed-registry
+  name: kuberploy-builder-managed-registry
   namespace: {{ .Values.builder.namespace.name }}
   labels:
     {{- include "kuberploy.labels" . | nindent 4 }}
+    kuberploy.io/static-registry-egress: "true"
 spec:
   podSelector:
     matchLabels:

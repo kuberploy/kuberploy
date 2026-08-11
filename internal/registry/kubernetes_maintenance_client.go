@@ -224,6 +224,9 @@ func validateManagedRegistryDeployment(object map[string]any, runtime RuntimeCon
 		!volumeBinds(volumes, "config", "configMap", "name", runtime.RegistryConfigMap) {
 		return managedDeploymentIdentity{}, ErrRegistryMaintenanceInvalid
 	}
+	if !runtime.AllowPlainHTTP && (!containerHasReadOnlyMount(container, "tls", "/tls") || !volumeHasExactTLSSecret(volumes, "tls")) {
+		return managedDeploymentIdentity{}, ErrRegistryMaintenanceInvalid
+	}
 	identity := managedDeploymentIdentity{uid: uid, resourceVersion: rv, replicas: replicas}
 	identity.generation, _ = jsonInt64(metadata["generation"])
 	if status, statusOK := object["status"].(map[string]any); statusOK {
@@ -266,6 +269,42 @@ func containerHasMount(container map[string]any, name, path string) bool {
 		if mount["name"] == name && mount["mountPath"] == path {
 			return true
 		}
+	}
+	return false
+}
+
+func containerHasReadOnlyMount(container map[string]any, name, path string) bool {
+	mounts, _ := container["volumeMounts"].([]any)
+	for _, raw := range mounts {
+		mount, _ := raw.(map[string]any)
+		if mount["name"] == name && mount["mountPath"] == path && mount["readOnly"] == true {
+			return true
+		}
+	}
+	return false
+}
+
+func volumeHasExactTLSSecret(volumes []any, name string) bool {
+	for _, raw := range volumes {
+		volume, _ := raw.(map[string]any)
+		secret, _ := volume["secret"].(map[string]any)
+		secretName, _ := secret["secretName"].(string)
+		mode, modeOK := jsonInt64(secret["defaultMode"])
+		items, _ := secret["items"].([]any)
+		if volume["name"] != name || secretName == "" || !modeOK || mode != 288 || len(items) != 2 {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, itemRaw := range items {
+			item, _ := itemRaw.(map[string]any)
+			key, _ := item["key"].(string)
+			path, _ := item["path"].(string)
+			if (key != "tls.crt" && key != "tls.key") || key != path || seen[key] {
+				return false
+			}
+			seen[key] = true
+		}
+		return seen["tls.crt"] && seen["tls.key"]
 	}
 	return false
 }
@@ -343,9 +382,13 @@ type managedRegistryConfiguration struct {
 		Formatter string `yaml:"formatter"`
 	} `yaml:"log"`
 	HTTP struct {
-		Address      string              `yaml:"addr"`
-		DrainTimeout string              `yaml:"draintimeout"`
-		Headers      map[string][]string `yaml:"headers"`
+		Address      string `yaml:"addr"`
+		DrainTimeout string `yaml:"draintimeout"`
+		TLS          *struct {
+			Certificate string `yaml:"certificate"`
+			Key         string `yaml:"key"`
+		} `yaml:"tls,omitempty"`
+		Headers map[string][]string `yaml:"headers"`
 	} `yaml:"http"`
 	Health struct {
 		StorageDriver struct {
@@ -391,6 +434,9 @@ func validateManagedRegistryConfigMap(object map[string]any, runtime RuntimeConf
 		config.Storage.Filesystem.RootDirectory != managedRegistryStorageRoot || !config.Storage.Delete.Enabled ||
 		config.Storage.Cache.BlobDescriptor != "inmemory" || !config.Storage.Maintenance.UploadPurging.Enabled ||
 		config.Storage.Maintenance.UploadPurging.DryRun || config.HTTP.Address == "" || !config.Health.StorageDriver.Enabled {
+		return ErrRegistryMaintenanceInvalid
+	}
+	if !runtime.AllowPlainHTTP && (config.HTTP.TLS == nil || config.HTTP.TLS.Certificate != "/tls/tls.crt" || config.HTTP.TLS.Key != "/tls/tls.key") {
 		return ErrRegistryMaintenanceInvalid
 	}
 	return nil
