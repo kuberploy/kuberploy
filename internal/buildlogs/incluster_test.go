@@ -43,7 +43,10 @@ func TestInClusterClientUsesOnlyExactGETJobPodAndAgentLogPaths(t *testing.T) {
 			if request.URL.Query().Get("limit") != "2" || request.URL.Query().Get("labelSelector") != "kuberploy.io/build-operation=11111111111141118111111111111111,kuberploy.io/build-generation=2" {
 				t.Errorf("unbounded selector: %s", request.URL.RawQuery)
 			}
-			_ = json.NewEncoder(response).Encode(map[string]any{"apiVersion": "v1", "kind": "PodList", "metadata": map[string]any{"continue": ""}, "items": []any{pod}})
+			listedPod := cloneLogObject(t, pod)
+			delete(listedPod, "apiVersion")
+			delete(listedPod, "kind")
+			_ = json.NewEncoder(response).Encode(map[string]any{"apiVersion": "v1", "kind": "PodList", "metadata": map[string]any{"continue": ""}, "items": []any{listedPod}})
 		case "/api/v1/namespaces/kuberploy-build-dind/pods/build-pod-aaaaaaaa":
 			_ = json.NewEncoder(response).Encode(pod)
 		case "/api/v1/namespaces/kuberploy-build-dind/pods/build-pod-aaaaaaaa/log":
@@ -83,6 +86,19 @@ func TestInClusterClientUsesOnlyExactGETJobPodAndAgentLogPaths(t *testing.T) {
 	}
 }
 
+func cloneLogObject(t *testing.T, object map[string]any) map[string]any {
+	t.Helper()
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cloned map[string]any
+	if err = json.Unmarshal(encoded, &cloned); err != nil {
+		t.Fatal(err)
+	}
+	return cloned
+}
+
 func TestInClusterClientProbeUsesOnlyFixedDiscovery(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -101,6 +117,28 @@ func TestInClusterClientProbeUsesOnlyFixedDiscovery(t *testing.T) {
 }
 
 func TestInClusterClientRejectsPaginationReplacementRedirectsAndForbiddenPaths(t *testing.T) {
+	t.Run("partial or substituted Pod TypeMeta", func(t *testing.T) {
+		_, _, fixture := buildLogFixture(t)
+		for name, mutate := range map[string]func(map[string]any){
+			"partial": func(pod map[string]any) { delete(pod, "kind") },
+			"wrong":   func(pod map[string]any) { pod["kind"] = "Secret" },
+		} {
+			t.Run(name, func(t *testing.T) {
+				pod := cloneLogObject(t, fixture)
+				mutate(pod)
+				server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+					response.Header().Set("Content-Type", "application/json")
+					_ = json.NewEncoder(response).Encode(map[string]any{"apiVersion": "v1", "kind": "PodList", "metadata": map[string]any{}, "items": []any{pod}})
+				}))
+				defer server.Close()
+				client := testInClusterClient(t, server)
+				_, err := client.ListBuildJobPods(t.Context(), JobPodQuery{Namespace: "kuberploy-build-dind", JobName: "job", JobUID: "44444444-4444-4444-8444-444444444444", OperationLabel: strings.Repeat("1", 32), GenerationLabel: "2"})
+				if !errors.Is(err, ErrScopeViolation) {
+					t.Fatalf("invalid TypeMeta accepted: %v", err)
+				}
+			})
+		}
+	})
 	t.Run("pagination", func(t *testing.T) {
 		server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 			response.Header().Set("Content-Type", "application/json")

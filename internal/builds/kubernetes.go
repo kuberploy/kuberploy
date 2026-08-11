@@ -938,7 +938,7 @@ func validTemplateLabels(liveMetadata, desiredMetadata map[string]any, uid, jobN
 func stripExactPodDefaults(live, desired map[string]any) error {
 	if account, exists := live["serviceAccount"]; exists {
 		if account != desired["serviceAccountName"] {
-			return ErrInfrastructure
+			return fmt.Errorf("service account default: %w", ErrInfrastructure)
 		}
 		delete(live, "serviceAccount")
 	}
@@ -947,7 +947,7 @@ func stripExactPodDefaults(live, desired map[string]any) error {
 	} {
 		if actual, exists := live[key]; exists {
 			if actual != value {
-				return ErrInfrastructure
+				return fmt.Errorf("%s default: %w", key, ErrInfrastructure)
 			}
 			delete(live, key)
 		}
@@ -956,13 +956,13 @@ func stripExactPodDefaults(live, desired map[string]any) error {
 		liveContainers, _ := live[field].([]any)
 		desiredContainers, _ := desired[field].([]any)
 		if len(liveContainers) != len(desiredContainers) {
-			return ErrInfrastructure
+			return fmt.Errorf("%s count: %w", field, ErrInfrastructure)
 		}
 		for index := range liveContainers {
 			actual, _ := liveContainers[index].(map[string]any)
 			expected, _ := desiredContainers[index].(map[string]any)
 			if actual == nil || expected == nil {
-				return ErrInfrastructure
+				return fmt.Errorf("%s %d shape: %w", field, index, ErrInfrastructure)
 			}
 			for _, key := range []string{"terminationMessagePath", "terminationMessagePolicy"} {
 				if _, owned := expected[key]; owned {
@@ -974,7 +974,7 @@ func stripExactPodDefaults(live, desired map[string]any) error {
 						want = "File"
 					}
 					if value != want {
-						return ErrInfrastructure
+						return fmt.Errorf("%s %d %s default: %w", field, index, key, ErrInfrastructure)
 					}
 					delete(actual, key)
 				}
@@ -983,13 +983,13 @@ func stripExactPodDefaults(live, desired map[string]any) error {
 				expectedProbe, _ := expected["startupProbe"].(map[string]any)
 				if threshold, defaulted := probe["successThreshold"]; defaulted {
 					if threshold != int64(1) || expectedProbe != nil && expectedProbe["successThreshold"] != nil {
-						return ErrInfrastructure
+						return fmt.Errorf("%s %d startup probe success threshold: %w", field, index, ErrInfrastructure)
 					}
 					delete(probe, "successThreshold")
 				}
 			}
 			if !equivalentResourceQuantities(actual["resources"], expected["resources"]) {
-				return ErrInfrastructure
+				return fmt.Errorf("%s %d resources: %w", field, index, ErrInfrastructure)
 			}
 			actual["resources"] = cloneAny(expected["resources"])
 		}

@@ -143,7 +143,21 @@ func (c *InClusterClient) ListBuildJobPods(ctx context.Context, query JobPodQuer
 	result := make([]map[string]any, 0, len(items))
 	for _, raw := range items {
 		pod, ok := raw.(map[string]any)
-		if !ok || pod["apiVersion"] != "v1" || pod["kind"] != "Pod" || objectIdentity(pod, "namespace") != query.Namespace {
+		if !ok {
+			return nil, ErrScopeViolation
+		}
+		apiVersion, hasAPIVersion := pod["apiVersion"]
+		kind, hasKind := pod["kind"]
+		if hasAPIVersion != hasKind || hasAPIVersion && (apiVersion != "v1" || kind != "Pod") {
+			return nil, ErrScopeViolation
+		}
+		// The raw Kubernetes API commonly omits TypeMeta from List items. The
+		// already-verified v1/PodList endpoint fixes both constants, so restore
+		// only the all-absent pair and reject partial or substituted TypeMeta.
+		if !hasAPIVersion {
+			pod["apiVersion"], pod["kind"] = "v1", "Pod"
+		}
+		if objectIdentity(pod, "namespace") != query.Namespace {
 			return nil, ErrScopeViolation
 		}
 		result = append(result, pod)
