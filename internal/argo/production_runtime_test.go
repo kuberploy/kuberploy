@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,6 +53,22 @@ func (s signalingNotReadyPrerequisite) ObserveProductionPrerequisites(context.Co
 type productionRuntimeMaterializerStub struct {
 	called chan struct{}
 	err    error
+}
+
+type transientPrerequisiteMaterializer struct {
+	calls     atomic.Int64
+	recovered chan struct{}
+}
+
+func (s *transientPrerequisiteMaterializer) MaterializeDesiredStateOnce(context.Context, time.Time) (bool, error) {
+	if s.calls.Add(1) == 1 {
+		return false, ErrArgoRuntimePrerequisiteNotReady
+	}
+	select {
+	case s.recovered <- struct{}{}:
+	default:
+	}
+	return false, nil
 }
 
 func (s productionRuntimeMaterializerStub) MaterializeDesiredStateOnce(context.Context, time.Time) (bool, error) {
@@ -158,5 +175,28 @@ func TestProductionDesiredStateRuntimeHeartbeatsOnlyCompositeReadyWorker(t *test
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("runtime did not stop with its context: %v", err)
+	}
+}
+
+func TestProductionDesiredStateRuntimeReacquiresAfterTransientPrerequisiteLoss(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	runtime, _ := productionRuntimeFixture(t, now)
+	materializer := &transientPrerequisiteMaterializer{recovered: make(chan struct{}, 1)}
+	runtime.Materializer = materializer
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	select {
+	case <-materializer.recovered:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("runtime terminated instead of reacquiring after a transient prerequisite loss")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("recovered runtime did not stop with its context: %v", err)
+	}
+	if materializer.calls.Load() < 2 {
+		t.Fatal("runtime did not enter a fresh readiness cycle")
 	}
 }

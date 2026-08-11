@@ -75,6 +75,37 @@ func (r *ProductionDesiredStateRuntime) Run(ctx context.Context) error {
 	if r.validate() != nil {
 		return ErrInvalid
 	}
+	pollDuration := r.PollInterval
+	if pollDuration == 0 {
+		pollDuration = time.Second
+	}
+	for {
+		err := r.runReadyCycle(ctx)
+		if !errors.Is(err, ErrArgoRuntimePrerequisiteNotReady) {
+			return err
+		}
+		// A protected Git write can make the root Application transiently
+		// OutOfSync. Let the readiness lease age/fence immediately, then wait
+		// for a new exact composite proof instead of killing the whole worker.
+		timer := time.NewTimer(pollDuration)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error {
+	if r.validate() != nil {
+		return ErrInvalid
+	}
 	started := r.Worker.Observation.StartedAt.UTC()
 	now := r.now()
 	if started.IsZero() || started.After(now) {
