@@ -208,7 +208,7 @@ func (w *DesiredStateWriter) bindings(ctx context.Context, command DesiredStateC
 		platform.ClusterID != command.ClusterID || platform.TargetRef != command.PlatformTargetRef || environment.Validate() != nil ||
 		environment.Kind != gitprojection.BindingEnvironment || environment.ID != command.EnvironmentBindingID ||
 		environment.ProjectID != command.ProjectID || environment.EnvironmentID != command.EnvironmentID ||
-		environment.TargetRef != command.EnvironmentTargetRef || command.Runtime != w.Identity.Runtime ||
+		environment.TargetRef != command.EnvironmentTargetRef || command.Runtime != w.Identity.Runtime && command.State != DesiredStateGitCommitted ||
 		command.ArgoNamespace != w.Identity.ArgoNamespace || command.DigestEnforcement != w.Identity.DigestEnforcement {
 		return gitprojection.Binding{}, gitprojection.Binding{}, ErrInvalid
 	}

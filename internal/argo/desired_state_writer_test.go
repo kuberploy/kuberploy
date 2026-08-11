@@ -362,6 +362,39 @@ func TestDesiredStateWriterRequiresPostPushProviderHeadBeforeTerminalSuccess(t *
 	}
 }
 
+func TestDesiredStateWriterFinalizesCommittedReceiptAfterRuntimeRotation(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	provider := fixture.provider(t, func(call int, actual string) string {
+		if call == 2 {
+			return strings.Repeat("f", 40)
+		}
+		return actual
+	})
+	_, err := fixture.writer(provider).CommitClaim(t.Context(), fixture.claim.Lease)
+	if !errors.Is(err, gitprojection.ErrProviderMismatch) {
+		t.Fatalf("expected durable command pending provider proof: %v", err)
+	}
+	fixture.now = fixture.now.Add(time.Second)
+	if _, err = fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "provider-mismatch", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	rotatedTarget := fixture.target
+	rotatedTarget.Environment.Runtime.ChartVersion = "1.2.4"
+	rotatedTarget.Environment.Runtime.ChartDigest = "sha256:" + strings.Repeat("e", 64)
+	rotatedIdentity := desiredStateIdentity(t, rotatedTarget)
+	work, err := fixture.commands.ClaimDesiredState(t.Context(), "argo-writer-worker-rotated", rotatedIdentity.DesiredStateWorkerIdentity, fixture.now, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := fixture.writer(fixture.provider(t, nil))
+	writer.Identity = rotatedIdentity
+	verified, err := writer.CommitClaim(t.Context(), work.Lease)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.Runtime != fixture.command.Runtime {
+		t.Fatalf("runtime rotation stranded immutable committed receipt: command=%#v err=%v", verified, err)
+	}
+}
+
 func TestDesiredStateWriterRejectsRecoveryWhenProtectedPathChanged(t *testing.T) {
 	fixture := newDesiredStateWriterFixture(t)
 	provider := fixture.provider(t, func(call int, actual string) string {
