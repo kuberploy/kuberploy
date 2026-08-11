@@ -227,7 +227,10 @@ func (s *PostgresStore) ClaimIntent(ctx context.Context, owner, profile, publish
 	if err != nil {
 		return Lease{}, false, err
 	}
-	lease := Lease{Intent: v, Owner: owner, Epoch: v.LeaseEpoch, Until: until}
+	// PostgreSQL stores timestamptz values at microsecond precision. Build the
+	// lease from the authoritative value read back from the row instead of the
+	// nanosecond-precision input used to calculate it.
+	lease := Lease{Intent: v, Owner: owner, Epoch: v.LeaseEpoch, Until: *v.LeaseUntil}
 	if lease.Validate(now) != nil {
 		return Lease{}, false, ErrConflict
 	}
@@ -249,7 +252,7 @@ func (s *PostgresStore) HeartbeatIntent(ctx context.Context, lease Lease, now ti
 	if err != nil {
 		return Lease{}, err
 	}
-	return Lease{Intent: v, Owner: lease.Owner, Epoch: lease.Epoch, Until: until}, nil
+	return Lease{Intent: v, Owner: lease.Owner, Epoch: lease.Epoch, Until: *v.LeaseUntil}, nil
 }
 
 func (s *PostgresStore) BindWriteBase(ctx context.Context, lease Lease, revision string, observedAt, now time.Time) (Intent, error) {

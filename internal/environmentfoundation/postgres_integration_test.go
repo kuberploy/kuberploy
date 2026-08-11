@@ -39,7 +39,9 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	}
 	cleanup(ctx)
 	defer cleanup(context.Background())
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	// Keep a sub-microsecond component so claims and heartbeats prove that the
+	// store returns PostgreSQL's authoritative timestamptz precision.
+	now := time.Now().UTC().Truncate(time.Microsecond).Add(789 * time.Nanosecond)
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Foundation test','foundation-test',$2)`, testProjectID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -85,6 +87,10 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	first, found, err := store.ClaimIntent(ctx, testWorker1, profileDigest, profile.PublisherConfigDigest, now.Add(time.Second), MinimumLease)
 	if err != nil || !found {
 		t.Fatalf("first claim: found=%v err=%v", found, err)
+	}
+	first, err = store.HeartbeatIntent(ctx, first, now.Add(2*time.Second), MinimumLease)
+	if err != nil || first.Validate(now.Add(2*time.Second)) != nil {
+		t.Fatalf("fractional-time heartbeat returned an invalid lease: %#v %v", first, err)
 	}
 	second, found, err := store.ClaimIntent(ctx, testWorker2, profileDigest, profile.PublisherConfigDigest, first.Until, MinimumLease)
 	if err != nil || !found || second.Epoch != first.Epoch+1 {
