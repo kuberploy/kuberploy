@@ -104,6 +104,39 @@ func TestDecodeKubernetesApplicationPageIsBoundedAndClosed(t *testing.T) {
 	}
 }
 
+func TestDecodeKubernetesApplicationPagePrefersCurrentSyncRevisions(t *testing.T) {
+	now := time.Date(2026, 8, 11, 2, 51, 55, 0, time.UTC)
+	application := observerApplication(now)
+	current := strings.Repeat("c", 40)
+	previous := strings.Repeat("b", 40)
+	wire := map[string]any{
+		"metadata": map[string]any{"resourceVersion": "99"},
+		"items": []any{map[string]any{
+			"metadata": map[string]any{"uid": application.UID, "namespace": application.Namespace, "name": application.Name,
+				"resourceVersion": application.ResourceVersion, "labels": application.Labels},
+			"spec": map[string]any{"project": application.Project, "destination": map[string]any{"server": application.DestinationServer, "namespace": application.DestinationNamespace}},
+			"status": map[string]any{
+				"sync":           map[string]any{"status": "Synced", "revisions": []string{"sha256:" + strings.Repeat("d", 64), current}},
+				"health":         map[string]any{"status": "Healthy"},
+				"operationState": map[string]any{"phase": "Succeeded", "syncResult": map[string]any{"revisions": []string{"sha256:" + strings.Repeat("e", 64), previous}}},
+				"reconciledAt":   now,
+			},
+		}},
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := decodeKubernetesApplicationPage(body, "argocd")
+	if err != nil || len(page.Applications) != 1 {
+		t.Fatalf("page=%#v err=%v", page, err)
+	}
+	observation, err := ObservationFromKubernetesApplication(page.Applications[0], observerTarget(), "argocd")
+	if err != nil || observation.ObservedRevision != current {
+		t.Fatalf("observation=%#v err=%v", observation, err)
+	}
+}
+
 type observerSource struct {
 	pages []KubernetesApplicationPage
 	calls int

@@ -191,11 +191,23 @@ func decodeKubernetesApplicationPage(body []byte, namespace string) (KubernetesA
 		if item.Metadata.Namespace != namespace || item.Metadata.Labels["app.kubernetes.io/managed-by"] != "kuberploy" {
 			return KubernetesApplicationPage{}, ErrInvalid
 		}
-		revisions := make([]string, 0, 2+len(item.Status.Sync.Revisions)+len(item.Status.OperationState.SyncResult.Revisions))
+		// status.operationState is historical after a later reconciliation. Argo
+		// keeps the prior operation receipt while status.sync.revisions reports the
+		// currently observed multi-source revisions, so mixing both sets can make
+		// two valid successive Git commits look ambiguous. Prefer the authoritative
+		// current sync set and use the operation receipt only while that set is
+		// entirely absent.
+		revisions := make([]string, 0, 1+len(item.Status.Sync.Revisions))
 		revisions = append(revisions, item.Status.Sync.Revision)
 		revisions = append(revisions, item.Status.Sync.Revisions...)
-		revisions = append(revisions, item.Status.OperationState.SyncResult.Revision)
-		revisions = append(revisions, item.Status.OperationState.SyncResult.Revisions...)
+		currentRevisionPresent := strings.TrimSpace(item.Status.Sync.Revision) != ""
+		for _, revision := range item.Status.Sync.Revisions {
+			currentRevisionPresent = currentRevisionPresent || strings.TrimSpace(revision) != ""
+		}
+		if !currentRevisionPresent {
+			revisions = append(revisions, item.Status.OperationState.SyncResult.Revision)
+			revisions = append(revisions, item.Status.OperationState.SyncResult.Revisions...)
+		}
 		page.Applications = append(page.Applications, KubernetesApplication{
 			UID: item.Metadata.UID, Namespace: item.Metadata.Namespace, Name: item.Metadata.Name,
 			ResourceVersion: item.Metadata.ResourceVersion, Labels: cloneStringMap(item.Metadata.Labels),
