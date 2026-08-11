@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Qualification RC fixing workload Argo revision identity, verified TLS transport to the managed registry, application-bound registry build policy, and service-scoped scheduling UX while retaining the seven-migration Prisma baseline and single Helm installer.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.65"
+  "version": "0.1.0-rc.66"
 }

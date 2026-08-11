@@ -5,6 +5,7 @@
 @custom-variant dark (&:is([data-theme="dark"] *));
 
 @theme inline {
+  --font-sans: "Roboto Variable", "Roboto", sans-serif;
   --color-background: var(--canvas);
   --color-foreground: var(--ink);
   --color-card: var(--surface);
@@ -32,6 +33,8 @@
 :root {
   color-scheme: light;
   font-family:
+    "Roboto Variable",
+    "Roboto",
     ui-sans-serif,
     -apple-system,
     BlinkMacSystemFont,

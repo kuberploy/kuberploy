@@ -133,6 +133,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: true
+      max-parallel: 2
       matrix:
         include:
           - component: api

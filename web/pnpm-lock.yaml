@@ -10,6 +10,9 @@ importers:
       "@base-ui/react":
         specifier: 1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      "@fontsource-variable/roboto":
+        specifier: 5.3.0
+        version: 5.3.0
       "@tanstack/react-query":
         specifier: 5.101.4
         version: 5.101.4(react@19.2.8)
@@ -487,6 +490,12 @@ packages:
     resolution:
       {
         integrity: sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww==,
+      }
+
+  "@fontsource-variable/roboto@5.3.0":
+    resolution:
+      {
+        integrity: sha512-BoaaZiQf8fgtxv07KXkTwx1bKz/EoqIlTXq2OOKKXINxp6qXWdnlChqV+hSaDANS49yyUASFl3OVBMMDTCIHFA==,
       }
 
   "@hono/node-server@2.1.0":
@@ -5280,6 +5289,8 @@ snapshots:
       react-dom: 19.2.8(react@19.2.8)
 
   "@floating-ui/utils@0.2.12": {}
+
+  "@fontsource-variable/roboto@5.3.0": {}
 
   "@hono/node-server@2.1.0(hono@4.13.1)":
     dependencies:
