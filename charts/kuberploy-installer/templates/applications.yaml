@@ -107,9 +107,14 @@
       "buildLogs" (dict "enabled" true)
       "gitProjection" (dict "enabled" true "chartVersion" $component.expectedPackageVersion)
       "platformGitBinding" (dict "enabled" true "clusterID" $github.clusterID)
+      "argoObservation" (dict "enabled" true "namespace" $github.argoNamespace "pollIntervalSeconds" 30)
+      "environmentFoundation" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "psaVersion" $github.psaVersion "pollIntervalSeconds" 1)
+      "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $component.expectedPackageVersion "runtimeChartDigest" $github.runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
+      "autoDeploy" (dict "enabled" true)
     )
     "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
     "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
+    "rbac" (dict "argoNamespace" $github.argoNamespace)
   -}}
   {{- $childValues = mergeOverwrite $childValues $githubValues -}}
 {{- end -}}
@@ -157,6 +162,8 @@ spec:
     # Role/Binding; builder Pods remain owned by the builder Application.
     - server: https://kubernetes.default.svc
       namespace: kuberploy-build-dind
+    - server: https://kubernetes.default.svc
+      namespace: {{ $root.Values.integrations.github.argoNamespace }}
     {{- end }}
     {{- if eq $item.key "builder" }}
     - server: https://kubernetes.default.svc

@@ -57,6 +57,10 @@ integrations:
     appSlug: ""
     secretName: ""
     clusterID: ""
+    platformBindingID: ""
+    argoNamespace: ""
+    psaVersion: ""
+    runtimeChartDigest: ""
     buildKitImage: ""
     # Exact current GitHub/API endpoints or stable operator egress proxies.
     controlPlaneEgressCIDRs: []

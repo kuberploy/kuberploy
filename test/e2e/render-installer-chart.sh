@@ -214,6 +214,10 @@ kp_github_args=(
   --set-string integrations.github.appSlug=kuberploy-test
   --set-string integrations.github.secretName=kuberploy-github-app
   --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222
+  --set-string integrations.github.platformBindingID=33333333-3333-4333-8333-333333333333
+  --set-string integrations.github.argoNamespace=argocd
+  --set-string integrations.github.psaVersion=v1.36
+  --set-string integrations.github.runtimeChartDigest=sha256:4444444444444444444444444444444444444444444444444444444444444444
   --set-string integrations.github.buildKitImage=registry.example.test/platform/buildkit:v0.32.2
   --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32
   --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32
@@ -230,11 +234,15 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.secretRef.name' "${kp_tmp}/github-platform.yaml")" == "kuberploy-github-app" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.33" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.platformGitBinding.clusterID' "${kp_tmp}/github-platform.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.argoDesiredState.platformBindingID' "${kp_tmp}/github-platform.yaml")" == "33333333-3333-4333-8333-333333333333" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.environmentFoundation.psaVersion' "${kp_tmp}/github-platform.yaml")" == "v1.36" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.autoDeploy.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.networkPolicy.registryEgressCIDRs[0]' "${kp_tmp}/github-platform.yaml")" == "192.0.2.12/32" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].targetRevision' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.33" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].helm.valuesObject.enabled' "${kp_tmp}/github-platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[].namespace] | contains(["kuberploy-build-dind"])' "${kp_tmp}/github-platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[].namespace] | contains(["argocd"])' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject' \
   "${kp_tmp}/github-platform.yaml" >"${kp_tmp}/github-control-values.yaml"
 # Source tests supply the readable RC reference; release packaging replaces
@@ -242,6 +250,7 @@ yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-cont
 helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
   -f "${kp_tmp}/github-control-values.yaml" \
   --set-string components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  --set-string components.worker.image.reference=ghcr.io/kuberploy/kuberploy-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222 \
   --set-string builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.33 \
   >"${kp_tmp}/github-control.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GITHUB_BUILDS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
