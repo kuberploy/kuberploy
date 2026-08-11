@@ -18,6 +18,7 @@ type DesiredStateRuntimeWorker struct {
 	LeaseDuration time.Duration
 	PollInterval  time.Duration
 	Now           func() time.Time
+	ReportError   func(commandID, failureCode string, err error)
 }
 
 func (w *DesiredStateRuntimeWorker) validate() error {
@@ -81,6 +82,9 @@ func (w *DesiredStateRuntimeWorker) ProcessOne(ctx context.Context) (bool, error
 	// this method still contains the original deadline.
 	lease := *current.Lease
 	failureCode := desiredStateFailureCode(err)
+	if w.ReportError != nil {
+		w.ReportError(work.Command.ID, failureCode, err)
+	}
 	if current.State == DesiredStateClaimed && IsPermanentDesiredStateError(err) {
 		_, finishErr := w.Store.FailDesiredState(ctx, lease, failureCode, now)
 		if finishErr != nil {

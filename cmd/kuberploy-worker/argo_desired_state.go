@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -102,6 +103,9 @@ func newArgoDesiredStateRuntime(
 			StartedAt: time.Now().UTC(), ObservedAt: time.Now().UTC(),
 		},
 		LeaseDuration: 2 * time.Minute, PollInterval: config.PollInterval,
+		ReportError: func(commandID, failureCode string, err error) {
+			slog.Warn("Argo desired-state command will retry", "command_id", commandID, "failure_code", failureCode, "error", err)
+		},
 	}
 	runtime := &argo.ProductionDesiredStateRuntime{
 		Worker: worker, Prerequisites: prerequisites, Materializer: components.Materializer,

@@ -3,6 +3,7 @@ package argo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -87,11 +88,11 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 	workContext := guard.Context()
 	platform, environment, err := w.bindings(workContext, command)
 	if err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("resolve bindings: %w", err))
 	}
 	head, err := w.Provider.VerifyTargetHead(workContext, platform, gitprojection.ObservationWrite)
 	if err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("verify provider head: %w", err))
 	}
 	if head.ValidateFor(platform) != nil {
 		return DesiredStateCommand{}, guard.Result(ErrInvalid)
@@ -106,14 +107,14 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 		return DesiredStateCommand{}, guard.Result(ErrInvalid)
 	}
 	if err = w.ClaimGate.ValidateDesiredStateClaim(workContext, command, claimMode); err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("validate projection claim: %w", err))
 	}
 	if err = w.Manager.CleanupOperation(workContext, platform.ID, command.ID); err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("clean operation workspace: %w", err))
 	}
 	prepared, err := w.Manager.Prepare(workContext, platform, head, command.ID)
 	if err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("prepare repository: %w", err))
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
@@ -139,11 +140,14 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 		}
 		guard.AdvanceTimeFloor(command.UpdatedAt)
 	} else if err = prepared.VerifyAncestor(workContext, command.WriteBaseRevision); err != nil {
-		return DesiredStateCommand{}, guard.Result(err)
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("verify durable write base: %w", err))
 	}
 
 	if command.State == DesiredStateGitCommitted {
 		result, recoverErr := w.recoverAcknowledged(workContext, command, guard, platform, prepared, head.Commit)
+		if recoverErr != nil {
+			recoverErr = fmt.Errorf("finalize acknowledged commit: %w", recoverErr)
+		}
 		return result, guard.Result(recoverErr)
 	}
 	if head.Commit != command.WriteBaseRevision {
