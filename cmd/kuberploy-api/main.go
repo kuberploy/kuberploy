@@ -254,6 +254,14 @@ func run() error {
 	}
 	if foundationAPI != nil {
 		defer foundationAPI.Close()
+		if runtime != nil {
+			// A Kubernetes discovery response alone does not prove the API service
+			// account can read this installation's dynamically created workload
+			// namespaces. Keep the public runtime-view capability closed until the
+			// exact protected foundation profile, including its RoleBinding subject,
+			// is durably ready.
+			runtimeReadiness = combinedReadiness{foundationAPI.readiness, runtimeReadiness}
+		}
 	}
 	argoDesiredState, err := newArgoDesiredStateAPI(ctx, databaseURL, argoDesiredStateConfig)
 	if err != nil {

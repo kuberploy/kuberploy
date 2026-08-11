@@ -50,6 +50,13 @@ It contains:
   Services, and Pods, plus get-only for Pod logs—never Secrets, exec/attach/
   port-forward, or mutation verbs.
 
+The production runtime receives the control-plane namespace and API
+ServiceAccount name from the rendered Helm release. Both values are part of
+the immutable foundation profile digest. A renamed release or substituted
+ServiceAccount therefore reconciles every environment RoleBinding before the
+runtime-view capability becomes ready; no nonexistent fixed observer account
+or cluster-wide read role is used.
+
 Default-deny intentionally leaves ordinary workload egress and workload-to-
 workload traffic closed. Application-specific, typed policy must explicitly
 open those paths later; foundation rendering is not an arbitrary policy escape.

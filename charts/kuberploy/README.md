@@ -27,7 +27,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.64` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.65` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -466,8 +466,10 @@ copies, and Argo's credential is not projected into the control plane.
 Set `networkPolicy.kubeAPIServerCIDRs` to the exact API Service/control-plane
 CIDRs seen by the cluster CNI. `0.0.0.0/0` and `::/0` are rejected. The worker
 and generated upgrade Job receive TCP 443/6443 access to those CIDRs; the API
-receives it only when `rbac.observedNamespaces` enables live runtime views, the
-strict runtime-secret provider is enabled, or source-build logs are enabled.
+receives it when `rbac.observedNamespaces` enables manually managed runtime
+views, when the protected environment foundation dynamically grants its exact
+service account access in each Kuberploy environment, when the strict
+runtime-secret provider is enabled, or when source-build logs are enabled.
 Certificate-issuer live observation is worker-only; the API consumes its
 durable PostgreSQL readiness proof and receives no issuer-driven Kubernetes API
 egress.

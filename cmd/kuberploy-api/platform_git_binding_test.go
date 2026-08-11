@@ -23,7 +23,7 @@ func platformBindingRuntime(t *testing.T) gitprojection.RuntimeConfig {
 		gitprojection.ProjectionGitAuthModeEnv:   "github-app",
 		gitprojection.ProjectionGitHubAppIDEnv:   "12345",
 		gitprojection.ProjectionGitHubClientEnv:  "Iv1_KuberployClient",
-		gitprojection.ProjectionChartVersionEnv:  "0.1.0-rc.64",
+		gitprojection.ProjectionChartVersionEnv:  "0.1.0-rc.65",
 		gitprojection.ProjectionPolicyVersionEnv: "runtime-policy-v1",
 	}
 	runtime, err := gitprojection.RuntimeConfigFromLookup(func(name string) (string, bool) {
@@ -106,23 +106,25 @@ func TestPlatformGitBindingIdentityIsSharedAcrossBootstrapAndRuntimes(t *testing
 
 	createdBindingID := testPlatformBindingID
 	stageTwo := map[string]string{
-		platformBindingIDEnv:                              createdBindingID,
-		argo.ProductionEnabledEnv:                         "true",
-		argo.ProductionPlatformBindingIDEnv:               createdBindingID,
-		argo.ProductionClusterIDEnv:                       clusterID,
-		argo.ProductionNamespaceEnv:                       "argocd",
-		argo.ProductionChartRepositoryEnv:                 "oci://ghcr.io/kuberploy/charts",
-		argo.ProductionChartVersionEnv:                    "1.2.3",
-		argo.ProductionChartDigestEnv:                     "sha256:" + strings.Repeat("c", 64),
-		argo.ProductionRendererImageEnv:                   "ghcr.io/kuberploy/worker@sha256:" + strings.Repeat("d", 64),
-		argo.ProductionPollIntervalSecondsEnv:             "2",
-		argo.ProductionCatalogMaxAgeSecondsEnv:            "300",
-		"KUBERPLOY_GITHUB_APP_ID":                         "12345",
-		"KUBERPLOY_GITHUB_APP_CLIENT_ID":                  "Iv1_KuberployClient",
-		environmentfoundation.RuntimeEnabledEnv:           "true",
-		environmentfoundation.RuntimePlatformBindingIDEnv: createdBindingID,
-		environmentfoundation.RuntimePSAVersionEnv:        "v1.31",
-		environmentfoundation.RuntimePollSecondsEnv:       "2",
+		platformBindingIDEnv:                                   createdBindingID,
+		argo.ProductionEnabledEnv:                              "true",
+		argo.ProductionPlatformBindingIDEnv:                    createdBindingID,
+		argo.ProductionClusterIDEnv:                            clusterID,
+		argo.ProductionNamespaceEnv:                            "argocd",
+		argo.ProductionChartRepositoryEnv:                      "oci://ghcr.io/kuberploy/charts",
+		argo.ProductionChartVersionEnv:                         "1.2.3",
+		argo.ProductionChartDigestEnv:                          "sha256:" + strings.Repeat("c", 64),
+		argo.ProductionRendererImageEnv:                        "ghcr.io/kuberploy/worker@sha256:" + strings.Repeat("d", 64),
+		argo.ProductionPollIntervalSecondsEnv:                  "2",
+		argo.ProductionCatalogMaxAgeSecondsEnv:                 "300",
+		"KUBERPLOY_GITHUB_APP_ID":                              "12345",
+		"KUBERPLOY_GITHUB_APP_CLIENT_ID":                       "Iv1_KuberployClient",
+		environmentfoundation.RuntimeEnabledEnv:                "true",
+		environmentfoundation.RuntimePlatformBindingIDEnv:      createdBindingID,
+		environmentfoundation.RuntimePSAVersionEnv:             "v1.31",
+		environmentfoundation.RuntimePollSecondsEnv:            "2",
+		environmentfoundation.RuntimeControlPlaneNamespaceEnv:  "kuberploy-system",
+		environmentfoundation.RuntimeObserverServiceAccountEnv: "kuberploy-api",
 	}
 	lookupStageTwo := func(name string) (string, bool) { value, found := stageTwo[name]; return value, found }
 	argoOn, err := argo.ProductionRuntimeConfigFromLookup(lookupStageTwo)

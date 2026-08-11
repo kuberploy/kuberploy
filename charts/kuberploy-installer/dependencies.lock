@@ -1,2 +1,2 @@
-4441d62f341b34e6d38a6bbae578c8d64889c64c60f941c1aef6c887209060e2  charts/kuberploy-argocd-0.1.0-rc.64.tgz
-538aece597a86809fff2913b7af3eec46eb4f7bec21aaf5dd0532f1016e881e6  charts/kuberploy-valkey-0.1.0-rc.64.tgz
+39712e255a6bdf0a0d26ae935198647964d57bc32f5136f06046a70667599d85  charts/kuberploy-installer/charts/kuberploy-argocd-0.1.0-rc.65.tgz
+c5183a33dfe6d1db04c0dd1b96bacdc06e67dd5118894a27ab52c3e4246fab99  charts/kuberploy-installer/charts/kuberploy-valkey-0.1.0-rc.65.tgz

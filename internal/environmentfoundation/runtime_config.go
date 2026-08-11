@@ -12,14 +12,22 @@ import (
 )
 
 const (
-	RuntimeEnabledEnv           = "KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED"
-	RuntimePlatformBindingIDEnv = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID"
-	RuntimeClusterIDEnv         = "KUBERPLOY_CLUSTER_ID"
-	RuntimePSAVersionEnv        = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION"
-	RuntimePollSecondsEnv       = "KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS"
+	RuntimeEnabledEnv                = "KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED"
+	RuntimePlatformBindingIDEnv      = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID"
+	RuntimeClusterIDEnv              = "KUBERPLOY_CLUSTER_ID"
+	RuntimePSAVersionEnv             = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION"
+	RuntimePollSecondsEnv            = "KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS"
+	RuntimeControlPlaneNamespaceEnv  = "KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE"
+	RuntimeObserverServiceAccountEnv = "KUBERPLOY_ENVIRONMENT_FOUNDATION_OBSERVER_SERVICE_ACCOUNT"
 )
 
-var runtimeExclusiveEnvironment = []string{RuntimePlatformBindingIDEnv, RuntimePSAVersionEnv, RuntimePollSecondsEnv}
+var runtimeExclusiveEnvironment = []string{
+	RuntimePlatformBindingIDEnv,
+	RuntimePSAVersionEnv,
+	RuntimePollSecondsEnv,
+	RuntimeControlPlaneNamespaceEnv,
+	RuntimeObserverServiceAccountEnv,
+}
 
 type RuntimeConfig struct {
 	Enabled           bool
@@ -63,6 +71,8 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	platformBindingID, clusterID := value(RuntimePlatformBindingIDEnv), value(RuntimeClusterIDEnv)
 	profile := DefaultProfile(clusterID, platformBindingID, "sha256:"+strings.Repeat("0", 64), value(RuntimePSAVersionEnv))
+	profile.ControlPlaneNamespace = value(RuntimeControlPlaneNamespaceEnv)
+	profile.ObserverServiceAccount = value(RuntimeObserverServiceAccountEnv)
 	canonical, err := json.Marshal(struct {
 		Contract, PlatformBindingID, ClusterID, PSAVersion string
 		Quota                                              Quota

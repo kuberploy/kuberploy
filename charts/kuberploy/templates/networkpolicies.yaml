@@ -188,7 +188,7 @@ spec:
       ports:
         - {port: {{ $.Values.config.managedRegistry.servicePort }}, protocol: TCP}
     {{- end }}
-    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (eq $component "upgrade") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
+    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (eq $component "upgrade") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.environmentFoundation.enabled $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
     - to:
         {{- range $.Values.networkPolicy.kubeAPIServerCIDRs }}
         - ipBlock:

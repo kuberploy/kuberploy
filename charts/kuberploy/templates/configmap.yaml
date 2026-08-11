@@ -660,7 +660,7 @@ data:
   KUBERPLOY_MONITORING_MODE: {{ .Values.config.monitoring.mode | quote }}
   KUBERPLOY_PROMETHEUS_URL: {{ .Values.config.monitoring.prometheusURL | quote }}
   KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED: {{ if .Values.config.monitoring.bearerTokenSecret.name }}"true"{{ else }}"false"{{ end }}
-  KUBERPLOY_RUNTIME_VIEW_ENABLED: {{ if .Values.rbac.observedNamespaces }}"true"{{ else }}"false"{{ end }}
+  KUBERPLOY_RUNTIME_VIEW_ENABLED: {{ if or .Values.rbac.observedNamespaces .Values.config.environmentFoundation.enabled }}"true"{{ else }}"false"{{ end }}
   KUBERPLOY_GIT_REMOTE: {{ .Values.config.git.remoteURL | quote }}
   KUBERPLOY_GIT_BRANCH: {{ .Values.config.git.branch | quote }}
   KUBERPLOY_GIT_WORKTREE: /var/lib/kuberploy/git
@@ -790,6 +790,8 @@ data:
   KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID: {{ .Values.config.environmentFoundation.platformBindingID | quote }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION: {{ .Values.config.environmentFoundation.psaVersion | quote }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS: {{ .Values.config.environmentFoundation.pollIntervalSeconds | quote }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE: {{ .Release.Namespace | quote }}
+  KUBERPLOY_ENVIRONMENT_FOUNDATION_OBSERVER_SERVICE_ACCOUNT: {{ include "kuberploy.componentName" (dict "root" . "component" "api") | quote }}
   {{- end }}
   {{- if .Values.config.argoDesiredState.enabled }}
   KUBERPLOY_ARGO_PLATFORM_BINDING_ID: {{ .Values.config.argoDesiredState.platformBindingID | quote }}

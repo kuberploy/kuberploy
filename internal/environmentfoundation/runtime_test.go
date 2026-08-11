@@ -22,7 +22,8 @@ func (s unavailableFoundationStore) EnsureIntent(context.Context, EnsureRequest)
 func foundationRuntimeConfig(t *testing.T) RuntimeConfig {
 	t.Helper()
 	values := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testBindingID,
-		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1"}
+		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
 	config, err := RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
 	if err != nil {
 		t.Fatal(err)
@@ -37,6 +38,7 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 	for name, value := range map[string]string{
 		RuntimeEnabledEnv: "yes", RuntimePlatformBindingIDEnv: testBindingID,
 		RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "01",
+		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api",
 	} {
 		t.Run(name, func(t *testing.T) {
 			values := map[string]string{name: value}
@@ -49,14 +51,30 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 		})
 	}
 	config := foundationRuntimeConfig(t)
-	if config.Profile.PlatformBindingID != testBindingID || config.Publisher.ConfigDigest != config.Profile.PublisherConfigDigest {
+	if config.Profile.PlatformBindingID != testBindingID || config.Profile.ControlPlaneNamespace != "kuberploy-system" ||
+		config.Profile.ObserverServiceAccount != "kuberploy-api" || config.Publisher.ConfigDigest != config.Profile.PublisherConfigDigest {
 		t.Fatalf("binding authority was not digested into config: %#v", config)
 	}
 	changed := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testIntentID,
-		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1"}
+		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
 	other, err := RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := changed[name]; return value, ok })
 	if err != nil || other.Publisher.ConfigDigest == config.Publisher.ConfigDigest {
 		t.Fatal("platform binding substitution did not change publisher identity")
+	}
+	for name, value := range map[string]string{
+		RuntimeControlPlaneNamespaceEnv:  "Other_Namespace",
+		RuntimeObserverServiceAccountEnv: "other/service-account",
+	} {
+		t.Run("invalid-"+name, func(t *testing.T) {
+			values := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testBindingID,
+				RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+				RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
+			values[name] = value
+			if _, configErr := RuntimeConfigFromLookup(func(key string) (string, bool) { result, ok := values[key]; return result, ok }); configErr == nil {
+				t.Fatal("invalid observer identity accepted")
+			}
+		})
 	}
 }
 

@@ -103,7 +103,7 @@ func DefaultProfile(clusterID, platformBindingID, publisherConfigDigest, psaVers
 		Limits: Limits{DefaultRequestCPUMilli: 100, DefaultLimitCPUMilli: 1000, MinimumCPUMilli: 10,
 			MaximumCPUMilli: 8000, DefaultRequestMemoryMiB: 128, DefaultLimitMemoryMiB: 512,
 			MinimumMemoryMiB: 16, MaximumMemoryMiB: 16384},
-		ControlPlaneNamespace: "kuberploy-system", ObserverServiceAccount: "kuberploy-runtime-observer",
+		ControlPlaneNamespace: "kuberploy-system", ObserverServiceAccount: "kuberploy-api",
 	}
 }
 
