@@ -70,12 +70,12 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 		}
 	}
 
-	input := gitprojection.CreatePlatformBindingInput{ClusterID: clusterID, LinkedInstallationID: installationID,
+	input := gitprojection.CreatePlatformBindingInput{BindingID: id.New(), ClusterID: clusterID, LinkedInstallationID: installationID,
 		LinkedRepositoryID: repositoryID, GitHubAppID: 177,
 		Repository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 184242,
 			RepositoryID: 189001, Owner: "kuberploy", Name: "platform-gitops"}, TargetRef: "refs/heads/platform"}
 	created, err := st.CreatePlatformGitBinding(ctx, adminID, "platform-binding", "platform-binding", "platform-binding-request", input)
-	if err != nil || created.Replay || created.Value.Kind != gitprojection.BindingPlatform || created.Value.ClusterID != clusterID ||
+	if err != nil || created.Replay || created.Value.ID != input.BindingID || created.Value.Kind != gitprojection.BindingPlatform || created.Value.ClusterID != clusterID ||
 		created.Value.Prefix != gitprojection.PlatformPrefix(clusterID) || created.Value.CredentialMode != gitprojection.CredentialGitHubApp ||
 		created.Value.CredentialSecretName != "" {
 		t.Fatalf("created=%#v err=%v", created, err)

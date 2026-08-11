@@ -77,6 +77,7 @@ config:
   # enabled before foundation/Argo because the binding UUID does not exist yet.
   platformGitBinding:
     enabled: false
+    bindingID: ""
     clusterID: ""
   # Strict Sealed Secrets runtime. Existing operator Secrets are projected to
   # fixed files; their bytes never enter values, ConfigMaps, or process env.
@@ -219,8 +220,12 @@ config:
   managedRegistry:
     enabled: false
     targetID: ""
+    targetName: ""
     endpoint: ""
     repositoryPrefix: ""
+    pullCredentialRef: ""
+    pushCredentialRef: ""
+    cacheCredentialRef: ""
     # Operator-only lifecycle/maintenance credential identity. This must be
     # distinct from every target pull, push, and build-cache credential.
     lifecycleCredentialRef: ""

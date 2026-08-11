@@ -9,12 +9,15 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/registry"
+	base "github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
 func apiRegistryConfig() registry.RuntimeConfig {
 	return registry.RuntimeConfig{
 		Enabled: true, TargetID: "11111111-1111-4111-8111-111111111111",
+		TargetName: "Managed registry", PullCredentialRef: "registry-pull",
+		PushCredentialRef: "registry-push", CacheCredentialRef: "registry-cache",
 		Endpoint: "http://kuberploy-registry.kuberploy-registry.svc.cluster.local:5000", RepositoryPrefix: "kuberploy",
 		CredentialRef: "operator/managed-registry", AllowPlainHTTP: true, Namespace: "kuberploy-registry",
 		Deployment: "kuberploy-registry", PersistentVolumeClaim: "kuberploy-registry", RegistryConfigMap: "kuberploy-registry-config-abc123",
@@ -39,12 +42,15 @@ func TestManagedRegistryAPIConstructsLocalManagementAndExactProbe(t *testing.T) 
 	if err != nil || configured.management == nil || configured.readiness == nil {
 		t.Fatalf("configured API=%+v err=%v", configured, err)
 	}
-	created, err := configured.management.CreateTarget(context.Background(), admin.ID, "managed-target", "fingerprint", "request", registry.RegistryTargetInput{
-		Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix,
-		PullCredentialRef: "registry-pull", PushCredentialRef: "registry-push", CacheCredentialRef: "registry-cache",
+	targets, err := configured.management.Targets(context.Background(), admin.ID)
+	if err != nil || len(targets) != 1 || targets[0].ID != config.TargetID || targets[0].Mode != domain.RegistryTargetManaged || targets[0].Name != config.TargetName {
+		t.Fatalf("managed targets=%+v err=%v", targets, err)
+	}
+	_, err = configured.management.UpdateTarget(context.Background(), admin.ID, "managed-target", "fingerprint", "request", config.TargetID, registry.RegistryTargetInput{
+		Name: "External", Mode: domain.RegistryTargetExternal, Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix,
 	})
-	if err != nil || created.Value.ID != config.TargetID {
-		t.Fatalf("managed target=%+v err=%v", created.Value, err)
+	if !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("operator managed target redefinition error=%v", err)
 	}
 	if err = configured.readiness.Probe(context.Background()); !errors.Is(err, registry.ErrRegistryRuntimeNotReady) {
 		t.Fatalf("unobserved probe=%v", err)

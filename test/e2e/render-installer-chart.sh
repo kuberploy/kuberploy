@@ -136,6 +136,15 @@ kp_all_args+=(--set-string publicEndpoint.tls.secretName=kuberploy-platform-tls)
 kp_all_args+=(--set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production)
 kp_all_args+=(--set-string publicEndpoint.tls.accountEmail=platform@example.com)
 kp_all_args+=(--set integrations.registry.enabled=true)
+kp_all_args+=(--set-string integrations.registry.targetID=55555555-5555-4555-8555-555555555555)
+kp_all_args+=(--set-string integrations.registry.targetName="Managed registry")
+kp_all_args+=(--set-string integrations.registry.repositoryPrefix=kuberploy)
+kp_all_args+=(--set-string integrations.registry.lifecycleCredentialRef=operator/managed-registry)
+kp_all_args+=(--set-string integrations.registry.lifecycleCredentialSecretName=registry-lifecycle)
+kp_all_args+=(--set-string integrations.registry.pullCredentialRef=runtime-pull-managed)
+kp_all_args+=(--set-string integrations.registry.pushCredentialRef=registry-push)
+kp_all_args+=(--set-string integrations.registry.cacheCredentialRef=registry-cache)
+kp_all_args+=(--set-string integrations.registry.controlPlaneEgressCIDRs[0]=192.0.2.13/32)
 kp_all_args+=(--set-string integrations.registry.authSecretName=registry-auth)
 kp_all_args+=(--set-string integrations.registry.secretRevision=v1)
 kp_all_args+=(--set-string integrations.registry.exposureMode=ingress)
@@ -150,6 +159,9 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.secretRevision' "${kp_tmp}/all-components.yaml")" == "v1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.endpoint' "${kp_tmp}/all-components.yaml")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.exposure.clusterIssuerName' "${kp_tmp}/all-components.yaml")" == "kuberploy-letsencrypt-production" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.targetName' "${kp_tmp}/all-components.yaml")" == "Managed registry" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.endpoint' "${kp_tmp}/all-components.yaml")" == "https://registry.example.com" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.credentialSecret.name' "${kp_tmp}/all-components.yaml")" == "registry-lifecycle" ]]
 [[ "$(yq eval-all -o=json 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.networkPolicy.allowedNamespaces' "${kp_tmp}/all-components.yaml" | jq -c .)" == '["kuberploy-build-dind","kuberploy-system"]' ]]
 
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system \
@@ -257,6 +269,15 @@ kp_registry_pull_args=(
   --set components.registry.mode=managed
   --set-string components.registry.expectedPackageVersion=0.1.0-rc.56
   --set integrations.registry.enabled=true
+  --set-string integrations.registry.targetID=55555555-5555-4555-8555-555555555555
+  --set-string integrations.registry.targetName=Managed-registry
+  --set-string integrations.registry.repositoryPrefix=kuberploy
+  --set-string integrations.registry.lifecycleCredentialRef=operator/managed-registry
+  --set-string integrations.registry.lifecycleCredentialSecretName=registry-lifecycle
+  --set-string integrations.registry.pullCredentialRef=runtime-pull-managed
+  --set-string integrations.registry.pushCredentialRef=registry-push
+  --set-string integrations.registry.cacheCredentialRef=registry-cache
+  --set-string integrations.registry.controlPlaneEgressCIDRs[0]=192.0.2.13/32
   --set-string integrations.registry.authSecretName=registry-auth
   --set-string integrations.registry.secretRevision=v1
   --set-string integrations.registry.exposureMode=ingress
@@ -266,7 +287,7 @@ kp_registry_pull_args=(
   --set integrations.registry.runtimePull.enabled=true
   --set-string integrations.registry.runtimePull.targetID=55555555-5555-4555-8555-555555555555
   --set-string integrations.registry.runtimePull.profileName=managed-registry
-  --set-string integrations.registry.runtimePull.credentialRef=operator/managed-registry
+  --set-string integrations.registry.runtimePull.credentialRef=runtime-pull-managed
   --set integrations.registry.runtimePull.revision=1
   --set-string integrations.registry.runtimePull.sourceSecretName=registry-pull-source
   --set-string integrations.registry.runtimePull.sourceSecretKey=dockerconfigjson

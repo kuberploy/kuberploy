@@ -165,10 +165,17 @@ the same reference to both the control plane and builder boundary.
 
 `integrations.registry` makes the managed registry component installable from
 the same Helm release without placing registry credentials in an Argo
-Application. Set `authSecretName` to a pre-created Secret in
+Application. The installer also registers the exact `targetID`, `targetName`,
+endpoint, repository prefix and separate pull/push/cache credential references
+as the operator-owned `Managed` registry target; no UI create step or
+metadata-only `External` placeholder is needed. API and worker both reconcile
+that row idempotently and reject a conflicting admin redefinition.
+Set `authSecretName` to a pre-created Secret in
 `kuberploy-system` containing the registry chart's exact `htpasswd` and
 `httpSecret` keys, and advance the readable `secretRevision` whenever those
-values rotate. Select shared-Ingress or dedicated-LoadBalancer exposure and set
+values rotate. The separate `lifecycleCredentialSecretName` contains only the
+username/password used for bounded observation and cleanup. Select
+shared-Ingress or dedicated-LoadBalancer exposure and set
 the registry endpoint and TLS Secret. LoadBalancer mode supports bounded
 provider annotations, an LB class, requested IP, and required source ranges;
 both modes reuse Traefik and the installer-owned cert-manager ClusterIssuer.
@@ -179,7 +186,7 @@ Kubernetes `imagePullSecrets`; nodes need no insecure-registry or custom-CA
 configuration.
 Set `integrations.registry.runtimePull.enabled` when services should select
 this private registry through the project credential catalog. Supply the exact
-database registry target ID, one readable profile/revision, the allowed
+operator registry target ID, one readable profile/revision, the allowed
 workload namespaces, and a pre-created Docker config JSON Secret/key in
 `kuberploy-system`. The installer passes only those references into the
 control plane and grants its worker access only to the derived Secret names in

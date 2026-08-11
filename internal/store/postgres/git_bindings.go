@@ -256,7 +256,7 @@ func (s *Store) CreatePlatformGitBinding(ctx context.Context, actor, key, finger
 		return base.Result[gitprojection.Binding]{}, gitprojection.ErrInvalid
 	}
 	now := time.Now().UTC()
-	binding, err := gitprojection.NewGitHubPlatformBinding(id.New(), in.ClusterID, repository, in.TargetRef, now)
+	binding, err := gitprojection.NewGitHubPlatformBinding(in.BindingID, in.ClusterID, repository, in.TargetRef, now)
 	if err != nil {
 		return base.Result[gitprojection.Binding]{}, err
 	}

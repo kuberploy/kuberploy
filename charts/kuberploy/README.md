@@ -375,6 +375,10 @@ Policy](https://kubernetes.io/docs/reference/access-authn-authz/validating-admis
 Distribution inventory observation and managed retention execution for one
 operator-owned registry target. It is false by default. Enabling it requires an
 exact target UUID, origin, repository prefix, opaque lifecycle credential ref,
+readable target name, and exact independent runtime-pull/build-push/build-cache
+credential references. API and worker idempotently materialize this identity as
+a `Managed` target before serving or reconciling; caller updates cannot relabel
+or substitute it. It also requires the
 registry namespace/Deployment/PVC/immutable ConfigMap identities, explicit
 Kubernetes API CIDRs, NetworkPolicy enforcement, and a digest-pinned worker
 image. Plain HTTP is separately acknowledged and is intended only for the

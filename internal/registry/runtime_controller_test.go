@@ -64,8 +64,10 @@ func runtimeControllerForCleanup(t *testing.T, target domain.RegistryTarget) (*R
 
 func TestRuntimeControllerCleanupRequiresExactManagedTarget(t *testing.T) {
 	config := testManagedRuntimeConfig(t)
-	exact := domain.RegistryTarget{ID: config.TargetID, Name: "managed", Mode: domain.RegistryTargetManaged,
-		Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix, PushCredentialRef: "builder-push-secret"}
+	exact, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	controller, runtimeStore, executor := runtimeControllerForCleanup(t, exact)
 	didWork, err := controller.ReconcileCleanup(t.Context())
 	if err != nil || !didWork || runtimeStore.nextCalls != 1 || executor.calls != 1 ||
@@ -93,7 +95,7 @@ func TestRuntimeControllerCleanupRequiresExactManagedTarget(t *testing.T) {
 	separateBuildCredential.PushCredentialRef = "rotated-builder-push-secret"
 	controller, runtimeStore, executor = runtimeControllerForCleanup(t, separateBuildCredential)
 	didWork, err = controller.ReconcileCleanup(t.Context())
-	if err != nil || !didWork || runtimeStore.nextCalls != 1 || executor.calls != 1 {
-		t.Fatalf("separate build credential affected lifecycle runtime: didWork=%v next=%d cleanup=%d err=%v", didWork, runtimeStore.nextCalls, executor.calls, err)
+	if didWork || !errors.Is(err, ErrDistributionScopeMismatch) || runtimeStore.nextCalls != 0 || executor.calls != 0 {
+		t.Fatalf("operator-owned build credential mutation was accepted: didWork=%v next=%d cleanup=%d err=%v", didWork, runtimeStore.nextCalls, executor.calls, err)
 	}
 }

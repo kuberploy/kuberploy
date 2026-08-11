@@ -34,8 +34,9 @@ func newPlatformGitBindingAPI(t *testing.T, resolver httpapi.GitBindingRepositor
 
 func TestPlatformArgoGitBindingHTTPIsHumanAdminOnlyAndServerDerived(t *testing.T) {
 	backend := &buildHTTPBackend{}
+	bindingID := id.New()
 	clusterID := id.New()
-	f := newPlatformGitBindingAPI(t, backend, httpapi.PlatformGitBindingConfig{Enabled: true, ClusterID: clusterID, GitHubAppID: 123})
+	f := newPlatformGitBindingAPI(t, backend, httpapi.PlatformGitBindingConfig{Enabled: true, BindingID: bindingID, ClusterID: clusterID, GitHubAppID: 123})
 	admin := f.bootstrap()
 	installation, err := f.store.CreateGitHubInstallation(t.Context(), admin.ID, "platform-binding-install", "platform-binding-install", "platform-binding-install", domain.CreateGitHubInstallation{
 		GitHubInstallationID: 5242, AccountLogin: "example", AccountType: "Organization", RepositorySelection: "selected", RepositoryCount: 1,
@@ -84,7 +85,7 @@ func TestPlatformArgoGitBindingHTTPIsHumanAdminOnlyAndServerDerived(t *testing.T
 		}
 	}
 	if response.StatusCode != http.StatusCreated || response.Header.Get("Cache-Control") != "no-store" ||
-		response.Header.Get("Location") != "/v1/platform/argo/git-binding" || binding.ClusterID != clusterID ||
+		response.Header.Get("Location") != "/v1/platform/argo/git-binding" || binding.ID != bindingID || binding.ClusterID != clusterID ||
 		binding.PathPrefix != gitprojection.PlatformPrefix(clusterID) || binding.TargetRef != "refs/heads/platform" ||
 		binding.State != "waiting-for-git" || binding.Repository.Provider != "github" ||
 		binding.Repository.InstallationID != 5242 || binding.Repository.RepositoryID != providerRepositoryID ||
@@ -92,9 +93,8 @@ func TestPlatformArgoGitBindingHTTPIsHumanAdminOnlyAndServerDerived(t *testing.T
 		t.Fatalf("unsafe or underived binding status=%d headers=%v body=%s", response.StatusCode, response.Header, raw)
 	}
 
-	// Stage two consumes only the server-returned binding ID and the same
-	// operator-owned cluster identity. This is the exact handoff that could not
-	// be configured before the stage-one route existed.
+	// Every runtime consumes the same operator-owned binding identity that the
+	// create boundary enforced. No second Helm edit is required.
 	stageTwo := map[string]string{
 		argo.ProductionEnabledEnv:                         "true",
 		argo.ProductionPlatformBindingIDEnv:               binding.ID,
@@ -162,7 +162,7 @@ func TestPlatformArgoGitBindingHTTPIsHumanAdminOnlyAndServerDerived(t *testing.T
 func TestPlatformArgoGitBindingHTTPFailsClosedOnOperatorAppOrConfigMismatch(t *testing.T) {
 	backend := &buildHTTPBackend{gitBinding: httpapi.GitBindingRepositoryResolution{GitHubAppID: 99, Repository: gitprojection.RepositoryIdentity{
 		Provider: "github", InstallationID: 6242, RepositoryID: 69001, Owner: "example", Name: "platform-gitops"}}}
-	f := newPlatformGitBindingAPI(t, backend, httpapi.PlatformGitBindingConfig{Enabled: true, ClusterID: id.New(), GitHubAppID: 123})
+	f := newPlatformGitBindingAPI(t, backend, httpapi.PlatformGitBindingConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(), GitHubAppID: 123})
 	f.bootstrap()
 	response := f.request(http.MethodPost, "/v1/platform/argo/git-binding", "platform-binding-app-mismatch", map[string]string{
 		"installationId": id.New(), "repositoryId": id.New(), "targetRef": "refs/heads/platform"})
@@ -184,17 +184,18 @@ func TestPlatformGitBindingOperatorConfigIsCanonicalAndDefaultOff(t *testing.T) 
 	if err := (httpapi.PlatformGitBindingConfig{}).Validate(); err != nil {
 		t.Fatalf("zero/default-off config invalid: %v", err)
 	}
-	if err := (httpapi.PlatformGitBindingConfig{Enabled: true, ClusterID: id.New(), GitHubAppID: 123}).Validate(); err != nil {
+	if err := (httpapi.PlatformGitBindingConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(), GitHubAppID: 123}).Validate(); err != nil {
 		t.Fatalf("canonical enabled config invalid: %v", err)
 	}
 	for name, config := range map[string]httpapi.PlatformGitBindingConfig{
-		"partial disabled": {ClusterID: id.New()},
-		"missing cluster":  {Enabled: true, GitHubAppID: 123},
-		"nil variant":      {Enabled: true, ClusterID: "01900000-0000-0000-8000-000000000001", GitHubAppID: 123},
-		"bad variant":      {Enabled: true, ClusterID: "01900000-0000-7000-7000-000000000001", GitHubAppID: 123},
-		"uppercase":        {Enabled: true, ClusterID: "01900000-0000-7000-8000-00000000000A", GitHubAppID: 123},
-		"whitespace":       {Enabled: true, ClusterID: " 01900000-0000-7000-8000-000000000001", GitHubAppID: 123},
-		"missing app":      {Enabled: true, ClusterID: id.New()},
+		"partial disabled": {BindingID: id.New(), ClusterID: id.New()},
+		"missing binding":  {Enabled: true, ClusterID: id.New(), GitHubAppID: 123},
+		"missing cluster":  {Enabled: true, BindingID: id.New(), GitHubAppID: 123},
+		"nil variant":      {Enabled: true, BindingID: id.New(), ClusterID: "01900000-0000-0000-8000-000000000001", GitHubAppID: 123},
+		"bad variant":      {Enabled: true, BindingID: id.New(), ClusterID: "01900000-0000-7000-7000-000000000001", GitHubAppID: 123},
+		"uppercase":        {Enabled: true, BindingID: id.New(), ClusterID: "01900000-0000-7000-8000-00000000000A", GitHubAppID: 123},
+		"whitespace":       {Enabled: true, BindingID: id.New(), ClusterID: " 01900000-0000-7000-8000-000000000001", GitHubAppID: 123},
+		"missing app":      {Enabled: true, BindingID: id.New(), ClusterID: id.New()},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := config.Validate(); err == nil {

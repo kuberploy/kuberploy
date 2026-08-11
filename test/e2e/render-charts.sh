@@ -364,8 +364,12 @@ fi
 yq '.components.worker.image.reference = "ghcr.io/kuberploy/kuberploy-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" |
     .config.managedRegistry.enabled = true |
     .config.managedRegistry.targetID = "11111111-1111-4111-8111-111111111111" |
+    .config.managedRegistry.targetName = "Managed registry" |
     .config.managedRegistry.endpoint = "http://kuberploy-registry.kuberploy-system.svc.cluster.local:5000" |
     .config.managedRegistry.repositoryPrefix = "kuberploy" |
+    .config.managedRegistry.pullCredentialRef = "registry-pull" |
+    .config.managedRegistry.pushCredentialRef = "registry-push" |
+    .config.managedRegistry.cacheCredentialRef = "registry-cache" |
     .config.managedRegistry.lifecycleCredentialRef = "operator/managed-registry" |
     .config.managedRegistry.allowPlainHTTP = true |
     .config.managedRegistry.namespace = "kuberploy-system" |
@@ -378,9 +382,10 @@ helm template managed-registry "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render \
   -f "${kp_tmp}/managed-registry-values.yaml" > "${kp_tmp}/managed-registry.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED' "${kp_tmp}/managed-registry.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_MANAGED_REGISTRY_TARGET_NAME' "${kp_tmp}/managed-registry.yaml")" == "Managed registry" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF' "${kp_tmp}/managed-registry.yaml")" == "operator/managed-registry" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_MANAGED_REGISTRY_"))] | length' "${kp_tmp}/managed-registry.yaml" | tail -1)" == "13" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_MANAGED_REGISTRY_"))] | length' "${kp_tmp}/managed-registry.yaml" | tail -1)" == "13" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_MANAGED_REGISTRY_"))] | length' "${kp_tmp}/managed-registry.yaml" | tail -1)" == "17" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_MANAGED_REGISTRY_"))] | length' "${kp_tmp}/managed-registry.yaml" | tail -1)" == "17" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.volumes[]? | select(.name == "managed-registry-credentials")] | length' "${kp_tmp}/managed-registry.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.volumes[] | select(.name == "managed-registry-credentials") | .secret.secretName' "${kp_tmp}/managed-registry.yaml")" == "kuberploy-registry-controller" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.volumes[] | select(.name == "managed-registry-credentials") | [.secret.items[].path] | sort | join(",")' "${kp_tmp}/managed-registry.yaml")" == "password,username" ]]
@@ -402,6 +407,8 @@ for kp_registry_mutation in \
   '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.managedRegistry.allowPlainHTTP = false' \
   '.config.managedRegistry.credentialSecret.passwordKey = .config.managedRegistry.credentialSecret.usernameKey' \
+  '.config.managedRegistry.pullCredentialRef = .config.managedRegistry.pushCredentialRef' \
+  '.config.managedRegistry.lifecycleCredentialRef = .config.managedRegistry.cacheCredentialRef' \
   '.config.managedRegistry.targetID = "../../other"' \
   '.config.managedRegistry.servicePort = 5001' \
   '.config.managedRegistry.credentialRef = "ambiguous-legacy-reference"' \
@@ -525,25 +532,28 @@ for kp_component in api worker; do
   [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_GIT_PROJECTION_CHART_VERSION" or .name == "KUBERPLOY_GIT_PROJECTION_POLICY_VERSION")] | length' "${kp_tmp}/git-projection.yaml" | tail -1)" == "2" ]]
 done
 
-# Stage one exposes only the API-side platform binding authority. Argo and the
-# foundation remain off because their durable binding UUID does not exist yet.
+# The API creates only the exact operator-owned binding UUID. Argo and the
+# foundation may share it from the first installer render.
 yq '.config.platformGitBinding.enabled = true |
+    .config.platformGitBinding.bindingID = "11111111-1111-4111-8111-111111111111" |
     .config.platformGitBinding.clusterID = "22222222-2222-4222-8222-222222222222"' \
   "${kp_tmp}/git-projection-values.yaml" > "${kp_tmp}/platform-git-bootstrap-values.yaml"
 helm template github-builds "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render \
   -f "${kp_tmp}/platform-git-bootstrap-values.yaml" > "${kp_tmp}/platform-git-bootstrap.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_CLUSTER_ID' "${kp_tmp}/platform-git-bootstrap.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_PLATFORM_GIT_BINDING_ID' "${kp_tmp}/platform-git-bootstrap.yaml")" == "11111111-1111-4111-8111-111111111111" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_PLATFORM_GIT_BINDING_ID")] | length' "${kp_tmp}/platform-git-bootstrap.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_CLUSTER_ID")] | length' "${kp_tmp}/platform-git-bootstrap.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_CLUSTER_ID")] | length' "${kp_tmp}/platform-git-bootstrap.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_DESIRED_STATE_ENABLED,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED] | join(",")' "${kp_tmp}/platform-git-bootstrap.yaml")" == "false,false" ]]
 
 for kp_platform_bootstrap_mutation in \
   '.config.platformGitBinding.enabled = false' \
+  '.config.platformGitBinding.bindingID = "not-a-uuid"' \
   '.config.platformGitBinding.clusterID = "not-a-uuid"' \
   '.config.gitProjection.enabled = false' \
-  '.config.githubApp.enabled = false' \
-  '.config.platformGitBinding.bindingID = "11111111-1111-4111-8111-111111111111"'; do
+  '.config.githubApp.enabled = false'; do
   yq "${kp_platform_bootstrap_mutation}" "${kp_tmp}/platform-git-bootstrap-values.yaml" > "${kp_tmp}/platform-git-bootstrap-invalid.yaml"
   if helm template github-builds "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/platform-git-bootstrap-invalid.yaml" \

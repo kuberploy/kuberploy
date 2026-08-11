@@ -25,18 +25,19 @@ type environmentGitBindingRequest struct {
 // App identities.
 type PlatformGitBindingConfig struct {
 	Enabled     bool
+	BindingID   string
 	ClusterID   string
 	GitHubAppID int64
 }
 
 func (c PlatformGitBindingConfig) Validate() error {
 	if !c.Enabled {
-		if c.ClusterID != "" || c.GitHubAppID != 0 {
+		if c.BindingID != "" || c.ClusterID != "" || c.GitHubAppID != 0 {
 			return gitprojection.ErrInvalid
 		}
 		return nil
 	}
-	if !platformClusterIDRE.MatchString(c.ClusterID) || c.GitHubAppID <= 0 {
+	if !platformClusterIDRE.MatchString(c.BindingID) || !platformClusterIDRE.MatchString(c.ClusterID) || c.GitHubAppID <= 0 {
 		return gitprojection.ErrInvalid
 	}
 	return nil
@@ -229,7 +230,7 @@ func (s *Server) platformArgoGitBinding(w http.ResponseWriter, r *http.Request) 
 		githubBuildUnavailable(w, r, "The verified repository does not belong to the operator-configured GitHub App.")
 		return
 	}
-	create := gitprojection.CreatePlatformBindingInput{ClusterID: s.platformGitBinding.ClusterID,
+	create := gitprojection.CreatePlatformBindingInput{BindingID: s.platformGitBinding.BindingID, ClusterID: s.platformGitBinding.ClusterID,
 		LinkedInstallationID: input.InstallationID, LinkedRepositoryID: input.RepositoryID,
 		GitHubAppID: s.platformGitBinding.GitHubAppID, Repository: resolved.Repository, TargetRef: input.TargetRef}
 	result, err := s.store.CreatePlatformGitBinding(r.Context(), actorID, key, "sha256:"+fingerprint(input), requestID(r.Context()), create)

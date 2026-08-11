@@ -39,7 +39,7 @@ type Management struct {
 	executor          CleanupPlanExecutor
 	now               func() time.Time
 	newID             func() string
-	managedTargetID   string
+	managedTarget     *domain.RegistryTarget
 	maxObservationAge time.Duration
 }
 
@@ -56,8 +56,11 @@ func WithManagementIDGenerator(newID func() string) ManagementOption {
 // WithManagedTargetID binds the single operator-managed registry profile to
 // the exact durable target identity supplied by runtime configuration. Other
 // (external) targets continue to receive independently generated identities.
-func WithManagedTargetID(targetID string) ManagementOption {
-	return func(service *Management) { service.managedTargetID = strings.TrimSpace(targetID) }
+func WithManagedTarget(target domain.RegistryTarget) ManagementOption {
+	return func(service *Management) {
+		copy := target
+		service.managedTarget = &copy
+	}
 }
 
 func WithManagementObservationAge(max time.Duration) ManagementOption {
@@ -100,10 +103,13 @@ func (s *Management) CreateTarget(ctx context.Context, actor, key, fingerprint, 
 		return store.Result[domain.RegistryTarget]{}, ErrRegistryManagementInvalid
 	}
 	targetID := s.newID()
-	if input.Mode == domain.RegistryTargetManaged && s.managedTargetID != "" {
-		targetID = s.managedTargetID
+	if input.Mode == domain.RegistryTargetManaged && s.managedTarget != nil {
+		targetID = s.managedTarget.ID
 	}
 	target := registryTargetFromInput(targetID, input)
+	if s.managedTarget != nil && target.Mode == domain.RegistryTargetManaged && target != *s.managedTarget {
+		return store.Result[domain.RegistryTarget]{}, store.ErrConflict
+	}
 	if err := ValidateTarget(target); err != nil {
 		return store.Result[domain.RegistryTarget]{}, err
 	}
@@ -115,6 +121,9 @@ func (s *Management) UpdateTarget(ctx context.Context, actor, key, fingerprint, 
 		return store.Result[domain.RegistryTarget]{}, ErrRegistryManagementInvalid
 	}
 	target := registryTargetFromInput(strings.TrimSpace(targetID), input)
+	if s.managedTarget != nil && target.ID == s.managedTarget.ID && target != *s.managedTarget {
+		return store.Result[domain.RegistryTarget]{}, store.ErrConflict
+	}
 	if err := ValidateTarget(target); err != nil {
 		return store.Result[domain.RegistryTarget]{}, err
 	}

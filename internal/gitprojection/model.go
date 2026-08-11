@@ -162,6 +162,7 @@ func (in CreateEnvironmentBindingInput) Validate() error {
 // active catalog rows transactionally. ClusterID and Repository are therefore
 // server authority, never request-body fields.
 type CreatePlatformBindingInput struct {
+	BindingID            string
 	ClusterID            string
 	LinkedInstallationID string
 	LinkedRepositoryID   string
@@ -171,7 +172,7 @@ type CreatePlatformBindingInput struct {
 }
 
 func (in CreatePlatformBindingInput) Validate() error {
-	if !uuidRE.MatchString(in.ClusterID) || !uuidRE.MatchString(in.LinkedInstallationID) || !uuidRE.MatchString(in.LinkedRepositoryID) ||
+	if !uuidRE.MatchString(in.BindingID) || !uuidRE.MatchString(in.ClusterID) || !uuidRE.MatchString(in.LinkedInstallationID) || !uuidRE.MatchString(in.LinkedRepositoryID) ||
 		in.GitHubAppID <= 0 || in.Repository.Validate() != nil || !validTargetRef(in.TargetRef) {
 		return ErrInvalid
 	}

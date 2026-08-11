@@ -15,6 +15,8 @@ import (
 func memoryRegistryRuntimeConfig() registry.RuntimeConfig {
 	return registry.RuntimeConfig{
 		Enabled: true, TargetID: "11111111-1111-4111-8111-111111111111",
+		TargetName: "Managed registry", PullCredentialRef: "registry-pull",
+		PushCredentialRef: "builder-push-secret", CacheCredentialRef: "builder-cache-secret",
 		Endpoint: "http://kuberploy-registry.kuberploy-registry.svc.cluster.local:5000", RepositoryPrefix: "kuberploy",
 		CredentialRef: "operator/managed-registry", AllowPlainHTTP: true, Namespace: "kuberploy-registry",
 		Deployment: "kuberploy-registry", PersistentVolumeClaim: "kuberploy-registry", RegistryConfigMap: "kuberploy-registry-config-abc123",
@@ -29,8 +31,10 @@ func TestManagedRegistryRuntimeReadinessIsFreshExactAndEpochFenced(t *testing.T)
 	store := New()
 	config := memoryRegistryRuntimeConfig()
 	now := time.Date(2026, 8, 9, 9, 0, 0, 0, time.UTC)
-	target := domain.RegistryTarget{ID: config.TargetID, Name: "managed", Mode: domain.RegistryTargetManaged,
-		Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix, PushCredentialRef: "builder-push-secret"}
+	target, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.PutRegistryTarget(ctx, target); err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +70,8 @@ func TestManagedRegistryRuntimeReadinessIsFreshExactAndEpochFenced(t *testing.T)
 	if _, err = store.PutRegistryTarget(ctx, rotatedBuildCredential); err != nil {
 		t.Fatal(err)
 	}
-	if err = probe.Probe(ctx); err != nil {
-		t.Fatalf("managed readiness was coupled to the separate build-push credential: %v", err)
+	if err = probe.Probe(ctx); !errors.Is(err, registry.ErrRegistryRuntimeNotReady) {
+		t.Fatalf("operator-owned build-push credential mutation was accepted: %v", err)
 	}
 	reusedLifecycleCredential := target
 	reusedLifecycleCredential.PushCredentialRef = config.CredentialRef
@@ -107,8 +111,11 @@ func TestManagedRegistryRuntimeReadinessIsFreshExactAndEpochFenced(t *testing.T)
 func TestManagedRegistryReadinessRejectsExternalTarget(t *testing.T) {
 	store := New()
 	config := memoryRegistryRuntimeConfig()
-	target := domain.RegistryTarget{ID: config.TargetID, Name: "external", Mode: domain.RegistryTargetExternal,
-		Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix, PushCredentialRef: "builder-push-secret"}
+	target, targetErr := config.ManagedTarget()
+	if targetErr != nil {
+		t.Fatal(targetErr)
+	}
+	target.Mode = domain.RegistryTargetExternal
 	if _, err := store.PutRegistryTarget(context.Background(), target); err != nil {
 		t.Fatal(err)
 	}

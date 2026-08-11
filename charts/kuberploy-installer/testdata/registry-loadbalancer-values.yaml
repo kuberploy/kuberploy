@@ -20,6 +20,16 @@ publicEndpoint:
 integrations:
   registry:
     enabled: true
+    targetID: 55555555-5555-4555-8555-555555555555
+    targetName: Managed registry
+    repositoryPrefix: kuberploy
+    lifecycleCredentialRef: operator/managed-registry
+    lifecycleCredentialSecretName: registry-lifecycle
+    pullCredentialRef: runtime-pull-managed
+    pushCredentialRef: registry-push
+    cacheCredentialRef: registry-cache
+    controlPlaneEgressCIDRs:
+      - 192.0.2.13/32
     authSecretName: registry-auth
     secretRevision: v1
     exposureMode: loadBalancer

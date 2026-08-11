@@ -106,7 +106,7 @@
       "githubApp" (dict "enabled" true "appID" $github.appID "clientID" $github.clientID "appSlug" $github.appSlug "secretRef" (dict "name" $github.secretName))
       "buildLogs" (dict "enabled" true)
       "gitProjection" (dict "enabled" true "chartVersion" $component.expectedPackageVersion)
-      "platformGitBinding" (dict "enabled" true "clusterID" $github.clusterID)
+      "platformGitBinding" (dict "enabled" true "bindingID" $github.platformBindingID "clusterID" $github.clusterID)
       "argoObservation" (dict "enabled" true "namespace" $github.argoNamespace "pollIntervalSeconds" 30)
       "environmentFoundation" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "psaVersion" $github.psaVersion "pollIntervalSeconds" 1)
       "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $component.expectedPackageVersion "runtimeChartDigest" $github.runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
@@ -117,6 +117,37 @@
     "rbac" (dict "argoNamespace" $github.argoNamespace)
   -}}
   {{- $childValues = mergeOverwrite $childValues $githubValues -}}
+{{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.enabled -}}
+  {{- $registry := $root.Values.integrations.registry -}}
+  {{- $registryConfigIdentity := dict "authMode" "htpasswd" "authRealm" "kuberploy-registry" "port" 5000 -}}
+  {{- $registryConfigMap := printf "registry-config-%s" (toJson $registryConfigIdentity | sha256sum | trunc 12) -}}
+  {{- $externalEgress := $registry.controlPlaneEgressCIDRs -}}
+  {{- if $root.Values.integrations.github.enabled -}}
+    {{- $externalEgress = concat $root.Values.integrations.github.controlPlaneEgressCIDRs $externalEgress | uniq | sortAlpha -}}
+  {{- end -}}
+  {{- $managedRegistryValues := dict
+    "config" (dict "managedRegistry" (dict
+      "enabled" true
+      "targetID" $registry.targetID
+      "targetName" $registry.targetName
+      "endpoint" (printf "https://%s" $registry.endpoint)
+      "repositoryPrefix" $registry.repositoryPrefix
+      "pullCredentialRef" $registry.pullCredentialRef
+      "pushCredentialRef" $registry.pushCredentialRef
+      "cacheCredentialRef" $registry.cacheCredentialRef
+      "lifecycleCredentialRef" $registry.lifecycleCredentialRef
+      "allowPlainHTTP" false
+      "namespace" "kuberploy-system"
+      "deployment" "registry"
+      "persistentVolumeClaim" "registry"
+      "registryConfigMap" $registryConfigMap
+      "credentialSecret" (dict "name" $registry.lifecycleCredentialSecretName "usernameKey" "username" "passwordKey" "password")
+      "observationIntervalSeconds" 300
+    ))
+    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $externalEgress)
+  -}}
+  {{- $childValues = mergeOverwrite $childValues $managedRegistryValues -}}
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.runtimePull.enabled -}}
   {{- $pull := $root.Values.integrations.registry.runtimePull -}}

@@ -236,19 +236,20 @@
         "platformGitBinding": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "clusterID"],
+          "required": ["enabled", "bindingID", "clusterID"],
           "properties": {
             "enabled": { "type": "boolean" },
+            "bindingID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
             "clusterID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" }
           },
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "clusterID": { "const": "" } } }
+              "then": { "properties": { "bindingID": { "const": "" }, "clusterID": { "const": "" } } }
             },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "clusterID": { "minLength": 36 } } }
+              "then": { "properties": { "bindingID": { "minLength": 36 }, "clusterID": { "minLength": 36 } } }
             }
           ]
         },
@@ -722,12 +723,16 @@
         "managedRegistry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "targetID", "endpoint", "repositoryPrefix", "lifecycleCredentialRef", "allowPlainHTTP", "namespace", "deployment", "persistentVolumeClaim", "registryConfigMap", "servicePort", "credentialSecret", "observationIntervalSeconds"],
+          "required": ["enabled", "targetID", "targetName", "endpoint", "repositoryPrefix", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "lifecycleCredentialRef", "allowPlainHTTP", "namespace", "deployment", "persistentVolumeClaim", "registryConfigMap", "servicePort", "credentialSecret", "observationIntervalSeconds"],
           "properties": {
             "enabled": { "type": "boolean" },
             "targetID": { "type": "string", "maxLength": 36, "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
+            "targetName": { "type": "string", "maxLength": 100, "pattern": "^(?:|[^\\s].*[^\\s]|[^\\s])$" },
             "endpoint": { "type": "string", "maxLength": 2048, "pattern": "^(?:|https?://[^/\\s?#]+)$" },
             "repositoryPrefix": { "type": "string", "maxLength": 255, "pattern": "^(?:|[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*)$" },
+            "pullCredentialRef": { "type": "string", "maxLength": 256, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255})$" },
+            "pushCredentialRef": { "type": "string", "maxLength": 256, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255})$" },
+            "cacheCredentialRef": { "type": "string", "maxLength": 256, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255})$" },
             "lifecycleCredentialRef": { "type": "string", "maxLength": 256, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255})$" },
             "allowPlainHTTP": { "type": "boolean" },
             "namespace": { "$ref": "#/$defs/optionalDNSLabel" },
@@ -752,7 +757,8 @@
               "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
               "then": {
                 "properties": {
-                  "targetID": { "const": "" }, "endpoint": { "const": "" }, "repositoryPrefix": { "const": "" },
+                  "targetID": { "const": "" }, "targetName": { "const": "" }, "endpoint": { "const": "" }, "repositoryPrefix": { "const": "" },
+                  "pullCredentialRef": { "const": "" }, "pushCredentialRef": { "const": "" }, "cacheCredentialRef": { "const": "" },
                   "lifecycleCredentialRef": { "const": "" }, "allowPlainHTTP": { "const": false }, "namespace": { "const": "" },
                   "deployment": { "const": "" }, "persistentVolumeClaim": { "const": "" }, "registryConfigMap": { "const": "" },
                   "credentialSecret": { "properties": { "name": { "const": "" } } }
@@ -763,7 +769,8 @@
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
                 "properties": {
-                  "targetID": { "minLength": 36 }, "endpoint": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 },
+                  "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "endpoint": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 },
+                  "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 },
                   "lifecycleCredentialRef": { "minLength": 1 }, "namespace": { "minLength": 1 }, "deployment": { "minLength": 1 },
                   "persistentVolumeClaim": { "minLength": 1 }, "registryConfigMap": { "minLength": 1 },
                   "credentialSecret": { "properties": { "name": { "minLength": 1 } } }

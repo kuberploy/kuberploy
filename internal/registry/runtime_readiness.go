@@ -73,8 +73,12 @@ func (c RuntimeConfig) RuntimeDigest() (string, error) {
 	canonical := struct {
 		Enabled                bool   `json:"enabled"`
 		TargetID               string `json:"targetId"`
+		TargetName             string `json:"targetName"`
 		Endpoint               string `json:"endpoint"`
 		RepositoryPrefix       string `json:"repositoryPrefix"`
+		PullCredentialRef      string `json:"pullCredentialRef"`
+		PushCredentialRef      string `json:"pushCredentialRef"`
+		CacheCredentialRef     string `json:"cacheCredentialRef"`
 		LifecycleCredentialRef string `json:"lifecycleCredentialRef"`
 		AllowPlainHTTP         bool   `json:"allowPlainHttp"`
 		Namespace              string `json:"namespace"`
@@ -85,9 +89,11 @@ func (c RuntimeConfig) RuntimeDigest() (string, error) {
 		HelperImage            string `json:"helperImage"`
 		ObservationNanos       int64  `json:"observationNanos"`
 	}{
-		Enabled: c.Enabled, TargetID: c.TargetID, Endpoint: c.Endpoint,
+		Enabled: c.Enabled, TargetID: c.TargetID, TargetName: c.TargetName, Endpoint: c.Endpoint,
 		RepositoryPrefix: c.RepositoryPrefix, LifecycleCredentialRef: c.CredentialRef,
-		AllowPlainHTTP: c.AllowPlainHTTP, Namespace: c.Namespace, Deployment: c.Deployment,
+		PullCredentialRef: c.PullCredentialRef, PushCredentialRef: c.PushCredentialRef,
+		CacheCredentialRef: c.CacheCredentialRef,
+		AllowPlainHTTP:     c.AllowPlainHTTP, Namespace: c.Namespace, Deployment: c.Deployment,
 		PersistentVolumeClaim: c.PersistentVolumeClaim, RegistryConfigMap: c.RegistryConfigMap,
 		HelperServiceAccount: c.HelperServiceAccount, HelperImage: c.HelperImage,
 		ObservationNanos: int64(c.ObservationInterval),

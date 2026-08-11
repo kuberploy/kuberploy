@@ -22,13 +22,16 @@ func testManagedRuntimeConfig(t *testing.T) RuntimeConfig {
 
 func TestRuntimeTargetBindingRejectsExternalAndMutation(t *testing.T) {
 	config := testManagedRuntimeConfig(t)
-	target := domain.RegistryTarget{ID: config.TargetID, Name: "managed", Mode: domain.RegistryTargetManaged,
-		Endpoint: config.Endpoint, RepositoryPrefix: config.RepositoryPrefix, PushCredentialRef: "builder-push-secret"}
+	target, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := config.ValidateTarget(target); err != nil {
 		t.Fatal(err)
 	}
 	mutations := []func(*domain.RegistryTarget){
 		func(value *domain.RegistryTarget) { value.Mode = domain.RegistryTargetExternal },
+		func(value *domain.RegistryTarget) { value.Name = "renamed" },
 		func(value *domain.RegistryTarget) { value.Endpoint = "https://attacker.invalid" },
 		func(value *domain.RegistryTarget) { value.RepositoryPrefix = "other" },
 		func(value *domain.RegistryTarget) { value.PushCredentialRef = config.CredentialRef },
@@ -44,8 +47,8 @@ func TestRuntimeTargetBindingRejectsExternalAndMutation(t *testing.T) {
 	}
 	rotatedBuildCredential := target
 	rotatedBuildCredential.PushCredentialRef = "rotated-builder-push-secret"
-	if err := config.ValidateTarget(rotatedBuildCredential); err != nil {
-		t.Fatalf("lifecycle runtime was coupled to the separate build-push credential: %v", err)
+	if err := config.ValidateTarget(rotatedBuildCredential); !errors.Is(err, ErrDistributionScopeMismatch) {
+		t.Fatalf("operator-owned build credential mutation was accepted: %v", err)
 	}
 }
 

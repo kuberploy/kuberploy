@@ -428,19 +428,19 @@
 {{- if and .Values.config.argoObservation.enabled (not .Values.rbac.argoNamespace) -}}
 {{- fail "Argo observation requires one explicit Argo namespace" -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.platformGitBinding))) "clusterID,enabled" -}}
-{{- fail "config.platformGitBinding accepts only enabled and clusterID" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.platformGitBinding))) "bindingID,clusterID,enabled" -}}
+{{- fail "config.platformGitBinding accepts only enabled, bindingID, and clusterID" -}}
 {{- end -}}
 {{- if not .Values.config.platformGitBinding.enabled -}}
-  {{- if .Values.config.platformGitBinding.clusterID -}}
-  {{- fail "disabled platform Git binding rejects a dormant cluster identity" -}}
+  {{- if or .Values.config.platformGitBinding.bindingID .Values.config.platformGitBinding.clusterID -}}
+  {{- fail "disabled platform Git binding rejects dormant identities" -}}
   {{- end -}}
 {{- else -}}
   {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) -}}
   {{- fail "platform Git binding bootstrap requires Git projection and GitHub App" -}}
   {{- end -}}
-  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.clusterID) -}}
-  {{- fail "platform Git binding bootstrap requires one canonical cluster UUID" -}}
+  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.bindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.clusterID)) -}}
+  {{- fail "platform Git binding bootstrap requires canonical binding and cluster UUIDs" -}}
   {{- end -}}
 {{- end -}}
 {{- if ne (join "," (sortAlpha (keys .Values.config.environmentFoundation))) "clusterID,enabled,platformBindingID,pollIntervalSeconds,psaVersion" -}}
@@ -639,6 +639,10 @@
   {{- if eq .Values.config.managedRegistry.credentialSecret.usernameKey .Values.config.managedRegistry.credentialSecret.passwordKey -}}
   {{- fail "managed registry username and password Secret keys must be distinct" -}}
   {{- end -}}
+  {{- $credentialRefs := list .Values.config.managedRegistry.lifecycleCredentialRef .Values.config.managedRegistry.pullCredentialRef .Values.config.managedRegistry.pushCredentialRef .Values.config.managedRegistry.cacheCredentialRef -}}
+  {{- if ne (len (uniq $credentialRefs)) 4 -}}
+  {{- fail "managed registry lifecycle, pull, push, and cache credential references must be distinct" -}}
+  {{- end -}}
   {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" .Values.components.worker.image.reference) -}}
   {{- fail "managed registry maintenance requires a digest-pinned worker image" -}}
   {{- end -}}
@@ -675,6 +679,7 @@ data:
   KUBERPLOY_GIT_PROJECTION_POLICY_VERSION: {{ .Values.config.gitProjection.policyVersion | quote }}
   KUBERPLOY_AUTO_DEPLOY_ENABLED: {{ .Values.config.autoDeploy.enabled | quote }}
   {{- if .Values.config.platformGitBinding.enabled }}
+  KUBERPLOY_PLATFORM_GIT_BINDING_ID: {{ .Values.config.platformGitBinding.bindingID | quote }}
   KUBERPLOY_CLUSTER_ID: {{ .Values.config.platformGitBinding.clusterID | quote }}
   {{- end }}
   KUBERPLOY_RUNTIME_SECRETS_ENABLED: {{ .Values.config.runtimeSecrets.enabled | quote }}
@@ -797,8 +802,12 @@ data:
   {{- end }}
   KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED: {{ .Values.config.managedRegistry.enabled | quote }}
   KUBERPLOY_MANAGED_REGISTRY_TARGET_ID: {{ .Values.config.managedRegistry.targetID | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_TARGET_NAME: {{ .Values.config.managedRegistry.targetName | quote }}
   KUBERPLOY_MANAGED_REGISTRY_ENDPOINT: {{ .Values.config.managedRegistry.endpoint | quote }}
   KUBERPLOY_MANAGED_REGISTRY_REPOSITORY_PREFIX: {{ .Values.config.managedRegistry.repositoryPrefix | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_PULL_CREDENTIAL_REF: {{ .Values.config.managedRegistry.pullCredentialRef | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_PUSH_CREDENTIAL_REF: {{ .Values.config.managedRegistry.pushCredentialRef | quote }}
+  KUBERPLOY_MANAGED_REGISTRY_CACHE_CREDENTIAL_REF: {{ .Values.config.managedRegistry.cacheCredentialRef | quote }}
   KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF: {{ .Values.config.managedRegistry.lifecycleCredentialRef | quote }}
   KUBERPLOY_MANAGED_REGISTRY_ALLOW_PLAIN_HTTP: {{ .Values.config.managedRegistry.allowPlainHTTP | quote }}
   KUBERPLOY_MANAGED_REGISTRY_NAMESPACE: {{ .Values.config.managedRegistry.namespace | quote }}

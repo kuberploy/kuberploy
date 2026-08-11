@@ -68,6 +68,15 @@ integrations:
     registryEgressCIDRs: []
   registry:
     enabled: false
+    targetID: ""
+    targetName: ""
+    repositoryPrefix: ""
+    lifecycleCredentialRef: ""
+    lifecycleCredentialSecretName: ""
+    pullCredentialRef: ""
+    pushCredentialRef: ""
+    cacheCredentialRef: ""
+    controlPlaneEgressCIDRs: []
     authSecretName: ""
     secretRevision: ""
     exposureMode: internal

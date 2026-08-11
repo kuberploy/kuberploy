@@ -11,9 +11,12 @@ import (
 func validRuntimeEnvironment() map[string]string {
 	return map[string]string{
 		ManagedRegistryRuntimeEnabledEnv: "true", ManagedRegistryTargetIDEnv: "11111111-1111-4111-8111-111111111111",
+		ManagedRegistryTargetNameEnv:       "Managed registry",
 		ManagedRegistryEndpointEnv:         "http://kuberploy-registry.kuberploy-registry.svc.cluster.local:5000",
 		ManagedRegistryRepositoryPrefixEnv: "kuberploy", ManagedRegistryLifecycleCredentialRefEnv: "operator/managed-registry",
-		ManagedRegistryAllowPlainHTTPEnv: "true", ManagedRegistryNamespaceEnv: "kuberploy-registry",
+		ManagedRegistryPullCredentialRefEnv: "registry-pull", ManagedRegistryPushCredentialRefEnv: "registry-push",
+		ManagedRegistryCacheCredentialRefEnv: "registry-cache",
+		ManagedRegistryAllowPlainHTTPEnv:     "true", ManagedRegistryNamespaceEnv: "kuberploy-registry",
 		ManagedRegistryDeploymentEnv: "kuberploy-registry", ManagedRegistryPVCEnv: "kuberploy-registry",
 		ManagedRegistryConfigMapEnv: "kuberploy-registry-config-abc123", ManagedRegistryHelperServiceAccountEnv: "kuberploy-registry-maintenance",
 		ManagedRegistryHelperImageEnv:        "ghcr.io/kuberploy/kuberploy-worker@sha256:" + repeatHex("a", 64),
@@ -46,8 +49,10 @@ func TestRuntimeConfigEnabledIsExactAndImmutable(t *testing.T) {
 	}
 	for name, mutation := range map[string]string{
 		ManagedRegistryTargetIDEnv: "../../other", ManagedRegistryEndpointEnv: "http://registry.invalid/path",
+		ManagedRegistryTargetNameEnv:       " managed ",
 		ManagedRegistryRepositoryPrefixEnv: "../other", ManagedRegistryLifecycleCredentialRefEnv: " secret ",
-		ManagedRegistryNamespaceEnv: "other/namespace", ManagedRegistryHelperImageEnv: "ghcr.io/kuberploy/worker:latest",
+		ManagedRegistryPullCredentialRefEnv: "registry-push",
+		ManagedRegistryNamespaceEnv:         "other/namespace", ManagedRegistryHelperImageEnv: "ghcr.io/kuberploy/worker:latest",
 		ManagedRegistryObservationSecondsEnv: "014", ManagedRegistryAllowPlainHTTPEnv: "TRUE",
 	} {
 		bad := validRuntimeEnvironment()

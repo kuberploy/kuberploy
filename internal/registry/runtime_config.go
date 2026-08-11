@@ -15,8 +15,12 @@ import (
 const (
 	ManagedRegistryRuntimeEnabledEnv         = "KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED"
 	ManagedRegistryTargetIDEnv               = "KUBERPLOY_MANAGED_REGISTRY_TARGET_ID"
+	ManagedRegistryTargetNameEnv             = "KUBERPLOY_MANAGED_REGISTRY_TARGET_NAME"
 	ManagedRegistryEndpointEnv               = "KUBERPLOY_MANAGED_REGISTRY_ENDPOINT"
 	ManagedRegistryRepositoryPrefixEnv       = "KUBERPLOY_MANAGED_REGISTRY_REPOSITORY_PREFIX"
+	ManagedRegistryPullCredentialRefEnv      = "KUBERPLOY_MANAGED_REGISTRY_PULL_CREDENTIAL_REF"
+	ManagedRegistryPushCredentialRefEnv      = "KUBERPLOY_MANAGED_REGISTRY_PUSH_CREDENTIAL_REF"
+	ManagedRegistryCacheCredentialRefEnv     = "KUBERPLOY_MANAGED_REGISTRY_CACHE_CREDENTIAL_REF"
 	ManagedRegistryLifecycleCredentialRefEnv = "KUBERPLOY_MANAGED_REGISTRY_LIFECYCLE_CREDENTIAL_REF"
 	ManagedRegistryAllowPlainHTTPEnv         = "KUBERPLOY_MANAGED_REGISTRY_ALLOW_PLAIN_HTTP"
 	ManagedRegistryNamespaceEnv              = "KUBERPLOY_MANAGED_REGISTRY_NAMESPACE"
@@ -46,10 +50,14 @@ var (
 // Distribution instance. Persisted target metadata must match every identity
 // field before credentials, Kubernetes mutation, or deletion become reachable.
 type RuntimeConfig struct {
-	Enabled          bool
-	TargetID         string
-	Endpoint         string
-	RepositoryPrefix string
+	Enabled            bool
+	TargetID           string
+	TargetName         string
+	Endpoint           string
+	RepositoryPrefix   string
+	PullCredentialRef  string
+	PushCredentialRef  string
+	CacheCredentialRef string
 	// CredentialRef identifies the operator-only lifecycle/maintenance
 	// credential projection. It is deliberately independent from the target's
 	// build-push, cache, and runtime-pull credential references.
@@ -76,7 +84,14 @@ func (c RuntimeConfig) Validate() error {
 		(parsed.Scheme != "https" && !(c.AllowPlainHTTP && parsed.Scheme == "http")) {
 		return errRegistryRuntimeConfig
 	}
-	if !registryUUIDRE.MatchString(c.TargetID) || !validRepository(c.RepositoryPrefix) ||
+	if !registryUUIDRE.MatchString(c.TargetID) || strings.TrimSpace(c.TargetName) != c.TargetName || c.TargetName == "" ||
+		len(c.TargetName) > 100 || !validRepository(c.RepositoryPrefix) ||
+		!registryCredentialRefRE.MatchString(c.PullCredentialRef) ||
+		!registryCredentialRefRE.MatchString(c.PushCredentialRef) ||
+		!registryCredentialRefRE.MatchString(c.CacheCredentialRef) ||
+		c.PullCredentialRef == c.PushCredentialRef || c.PullCredentialRef == c.CacheCredentialRef ||
+		c.PushCredentialRef == c.CacheCredentialRef || c.CredentialRef == c.PullCredentialRef ||
+		c.CredentialRef == c.PushCredentialRef || c.CredentialRef == c.CacheCredentialRef ||
 		!registryCredentialRefRE.MatchString(c.CredentialRef) ||
 		!validRegistryKubeName(c.Namespace) || !validRegistryKubeName(c.Deployment) ||
 		!validRegistryKubeName(c.PersistentVolumeClaim) || !validRegistryKubeName(c.RegistryConfigMap) ||
@@ -87,13 +102,31 @@ func (c RuntimeConfig) Validate() error {
 	return nil
 }
 
+// ManagedTarget materializes the exact operator-owned catalog row. Both API
+// and worker call this before serving or reconciling so install order cannot
+// turn the built-in registry into caller-managed metadata.
+func (c RuntimeConfig) ManagedTarget() (domain.RegistryTarget, error) {
+	target := domain.RegistryTarget{
+		ID: c.TargetID, Name: c.TargetName, Mode: domain.RegistryTargetManaged,
+		Endpoint: c.Endpoint, RepositoryPrefix: c.RepositoryPrefix,
+		PullCredentialRef: c.PullCredentialRef, PushCredentialRef: c.PushCredentialRef,
+		CacheCredentialRef: c.CacheCredentialRef,
+	}
+	if c.Validate() != nil || ValidateTarget(target) != nil ||
+		c.CredentialRef == target.PullCredentialRef || c.CredentialRef == target.PushCredentialRef ||
+		c.CredentialRef == target.CacheCredentialRef {
+		return domain.RegistryTarget{}, errRegistryRuntimeConfig
+	}
+	return target, nil
+}
+
 // ValidateTarget rejects any persisted target mutation before a credential is
 // read or a destructive runtime path is entered.
 func (c RuntimeConfig) ValidateTarget(target domain.RegistryTarget) error {
 	if c.Validate() != nil || !c.Enabled || target.ID != c.TargetID || target.Mode != domain.RegistryTargetManaged ||
-		target.Endpoint != c.Endpoint || target.RepositoryPrefix != c.RepositoryPrefix ||
-		target.PullCredentialRef == c.CredentialRef || target.PushCredentialRef == c.CredentialRef ||
-		target.CacheCredentialRef == c.CredentialRef ||
+		target.Name != c.TargetName || target.Endpoint != c.Endpoint || target.RepositoryPrefix != c.RepositoryPrefix ||
+		target.PullCredentialRef != c.PullCredentialRef || target.PushCredentialRef != c.PushCredentialRef ||
+		target.CacheCredentialRef != c.CacheCredentialRef ||
 		ValidateTarget(target) != nil {
 		return ErrDistributionScopeMismatch
 	}
@@ -136,10 +169,14 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	config := RuntimeConfig{
 		Enabled: true, TargetID: exactRegistryEnv(lookup, ManagedRegistryTargetIDEnv),
-		Endpoint:         exactRegistryEnv(lookup, ManagedRegistryEndpointEnv),
-		RepositoryPrefix: exactRegistryEnv(lookup, ManagedRegistryRepositoryPrefixEnv),
-		CredentialRef:    exactRegistryEnv(lookup, ManagedRegistryLifecycleCredentialRefEnv),
-		AllowPlainHTTP:   allowPlain, Namespace: exactRegistryEnv(lookup, ManagedRegistryNamespaceEnv),
+		TargetName:         exactRegistryEnv(lookup, ManagedRegistryTargetNameEnv),
+		Endpoint:           exactRegistryEnv(lookup, ManagedRegistryEndpointEnv),
+		RepositoryPrefix:   exactRegistryEnv(lookup, ManagedRegistryRepositoryPrefixEnv),
+		PullCredentialRef:  exactRegistryEnv(lookup, ManagedRegistryPullCredentialRefEnv),
+		PushCredentialRef:  exactRegistryEnv(lookup, ManagedRegistryPushCredentialRefEnv),
+		CacheCredentialRef: exactRegistryEnv(lookup, ManagedRegistryCacheCredentialRefEnv),
+		CredentialRef:      exactRegistryEnv(lookup, ManagedRegistryLifecycleCredentialRefEnv),
+		AllowPlainHTTP:     allowPlain, Namespace: exactRegistryEnv(lookup, ManagedRegistryNamespaceEnv),
 		Deployment:            exactRegistryEnv(lookup, ManagedRegistryDeploymentEnv),
 		PersistentVolumeClaim: exactRegistryEnv(lookup, ManagedRegistryPVCEnv),
 		RegistryConfigMap:     exactRegistryEnv(lookup, ManagedRegistryConfigMapEnv),
@@ -155,7 +192,8 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 
 func managedRegistryRuntimeIdentityEnvs() []string {
 	return []string{
-		ManagedRegistryTargetIDEnv, ManagedRegistryEndpointEnv, ManagedRegistryRepositoryPrefixEnv,
+		ManagedRegistryTargetIDEnv, ManagedRegistryTargetNameEnv, ManagedRegistryEndpointEnv, ManagedRegistryRepositoryPrefixEnv,
+		ManagedRegistryPullCredentialRefEnv, ManagedRegistryPushCredentialRefEnv, ManagedRegistryCacheCredentialRefEnv,
 		ManagedRegistryLifecycleCredentialRefEnv, ManagedRegistryAllowPlainHTTPEnv, ManagedRegistryNamespaceEnv,
 		ManagedRegistryDeploymentEnv, ManagedRegistryPVCEnv, ManagedRegistryConfigMapEnv,
 		ManagedRegistryHelperServiceAccountEnv, ManagedRegistryHelperImageEnv,

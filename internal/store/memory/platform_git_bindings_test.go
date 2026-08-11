@@ -25,7 +25,7 @@ func TestPlatformGitBindingIsPlatformAdminCatalogBoundIdempotentAndImmutable(t *
 	}
 	clusterID := id.New()
 	input := gitprojection.CreatePlatformBindingInput{
-		ClusterID: clusterID, LinkedInstallationID: installation.Value.ID,
+		BindingID: id.New(), ClusterID: clusterID, LinkedInstallationID: installation.Value.ID,
 		LinkedRepositoryID: deterministicGitHubRepositoryID(installation.Value.ID, 89001), GitHubAppID: 77,
 		Repository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 84242,
 			RepositoryID: 89001, Owner: "kuberploy", Name: "platform-gitops"},
@@ -36,7 +36,7 @@ func TestPlatformGitBindingIsPlatformAdminCatalogBoundIdempotentAndImmutable(t *
 	if err != nil || created.Replay || st.AuditCount() != auditsBefore+1 {
 		t.Fatalf("created=%#v audits=%d err=%v", created, st.AuditCount(), err)
 	}
-	if created.Value.Kind != gitprojection.BindingPlatform || created.Value.ClusterID != clusterID ||
+	if created.Value.ID != input.BindingID || created.Value.Kind != gitprojection.BindingPlatform || created.Value.ClusterID != clusterID ||
 		created.Value.Prefix != gitprojection.PlatformPrefix(clusterID) || created.Value.CredentialMode != gitprojection.CredentialGitHubApp ||
 		created.Value.CredentialSecretName != "" {
 		t.Fatalf("platform authority was not derived: %#v", created.Value)
@@ -83,7 +83,7 @@ func TestPlatformGitBindingConcurrentCreationHasOneAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	input := gitprojection.CreatePlatformBindingInput{ClusterID: id.New(), LinkedInstallationID: installation.Value.ID,
+	input := gitprojection.CreatePlatformBindingInput{BindingID: id.New(), ClusterID: id.New(), LinkedInstallationID: installation.Value.ID,
 		LinkedRepositoryID: deterministicGitHubRepositoryID(installation.Value.ID, 99001), GitHubAppID: 77,
 		Repository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 94242, RepositoryID: 99001,
 			Owner: "kuberploy", Name: "platform-concurrent"}, TargetRef: "refs/heads/platform"}

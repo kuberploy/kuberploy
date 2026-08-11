@@ -26,10 +26,14 @@ func TestRuntimeDigestBindsEveryRuntimeSetting(t *testing.T) {
 	}
 	mutations := []func(*RuntimeConfig){
 		func(value *RuntimeConfig) { value.TargetID = "22222222-2222-4222-8222-222222222222" },
+		func(value *RuntimeConfig) { value.TargetName = "Other registry" },
 		func(value *RuntimeConfig) {
 			value.Endpoint = "http://other-registry.kuberploy-registry.svc.cluster.local:5000"
 		},
 		func(value *RuntimeConfig) { value.RepositoryPrefix = "other" },
+		func(value *RuntimeConfig) { value.PullCredentialRef = "other-pull" },
+		func(value *RuntimeConfig) { value.PushCredentialRef = "other-push" },
+		func(value *RuntimeConfig) { value.CacheCredentialRef = "other-cache" },
 		func(value *RuntimeConfig) { value.CredentialRef = "operator/other-registry" },
 		func(value *RuntimeConfig) {
 			value.AllowPlainHTTP = false

@@ -29,7 +29,11 @@ func newManagedRegistryRuntime(ctx context.Context, host string, config registry
 	if database == nil || config.Validate() != nil {
 		return nil, registry.ErrRegistryRuntimeUnavailable
 	}
-	target, err := database.RegistryTarget(ctx, config.TargetID)
+	target, err := config.ManagedTarget()
+	if err != nil {
+		return nil, err
+	}
+	target, err = database.PutRegistryTarget(ctx, target)
 	if err != nil {
 		return nil, err
 	}
