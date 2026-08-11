@@ -21,7 +21,7 @@ cluster:
 source:
   chartRepository: ghcr.io/kuberploy/charts
   valuesRepository: https://github.com/kuberploy/kuberploy.git
-  valuesRevision: v0.1.0-rc.62
+  valuesRevision: v0.1.0-rc.63
 
 publicEndpoint:
   enabled: false
@@ -63,44 +63,44 @@ components:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
   postgresql:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles:
       - examples/installer/postgresql.yaml
   valkey:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
   edge:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
   certManager:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
   sealedSecrets:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
   monitoring:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.62
+    expectedPackageVersion: 0.1.0-rc.63
     valueFiles: []
 
 argoCD:

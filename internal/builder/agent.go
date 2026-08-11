@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -25,6 +26,10 @@ type Agent struct {
 	RuntimeRoot  string
 	WaitInterval time.Duration
 	Now          func() time.Time
+	// Progress receives only fixed, server-owned lifecycle messages. Raw tool
+	// output remains private because an untrusted Dockerfile can print mounted
+	// secrets or other credential-bearing process output.
+	Progress io.Writer
 }
 
 func NewAgent(executor CommandExecutor) *Agent {
@@ -46,6 +51,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	if a.Executor == nil {
 		return BuildResult{}, errors.New("command executor is required")
 	}
+	a.reportProgress("Build request accepted.")
 	if err := validateUnixSocket(a.DockerSocket); err != nil {
 		return BuildResult{}, err
 	}
@@ -79,10 +85,12 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	if err := a.waitForDaemon(ctx, pushDockerConfig); err != nil {
 		return BuildResult{}, err
 	}
+	a.reportProgress("Isolated Docker daemon ready.")
 	builderName := deterministicBuilderName(request.OperationID, request.Generation)
 	if err := a.createBuilder(ctx, pushDockerConfig, builderName, request.BuildKitImage); err != nil {
 		return BuildResult{}, err
 	}
+	a.reportProgress("Pinned BuildKit builder ready.")
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -106,18 +114,24 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	if err != nil {
 		return BuildResult{}, err
 	}
+	a.reportProgress("Registry cache build started.")
 	cacheResult, cacheBuildErr := a.Executor.Execute(ctx, cacheInvocation)
 	if cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output) {
 		warnings = addWarning(warnings, WarningCacheDegraded)
+		a.reportProgress("Registry cache degraded; continuing with the release build.")
+	} else {
+		a.reportProgress("Registry cache build completed.")
 	}
 	invocation, err := a.buildInvocation(request, pushDockerConfig, builderName, metadataPath)
 	if err != nil {
 		return BuildResult{}, err
 	}
+	a.reportProgress("Release image build and push started.")
 	_, buildErr := a.Executor.Execute(ctx, invocation)
 	if buildErr != nil {
 		return BuildResult{}, commandError("build and final image push", buildErr)
 	}
+	a.reportProgress("Release image push completed.")
 
 	digest, err := readBuildDigest(metadataPath)
 	if err != nil {
@@ -134,10 +148,15 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	if !slices.Equal(expectedPlatforms, platforms) {
 		return BuildResult{}, fmt.Errorf("pushed platform verification failed: expected %v, received %v", expectedPlatforms, platforms)
 	}
+	a.reportProgress("Published digest and platforms verified.")
 	cache, cacheErr := a.promoteCache(ctx, cacheDockerConfig, request)
 	if cacheErr != nil {
 		warnings = addWarning(warnings, WarningCacheDegraded)
+		a.reportProgress("Cache promotion degraded; the release image remains valid.")
+	} else {
+		a.reportProgress("Cache promotion completed.")
 	}
+	a.reportProgress("Build completed.")
 
 	return BuildResult{
 		APIVersion:  ProtocolVersion,
@@ -154,6 +173,12 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		StartedAt:   started,
 		CompletedAt: a.Now().UTC(),
 	}, nil
+}
+
+func (a *Agent) reportProgress(message string) {
+	if a.Progress != nil {
+		_, _ = fmt.Fprintln(a.Progress, message)
+	}
 }
 
 func (a *Agent) dockerArgs(configDirectory string, args ...string) []string {

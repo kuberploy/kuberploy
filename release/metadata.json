@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Qualification RC upgrading the Prisma baseline through seven ordered migrations. It consolidates configuration profiles, runtime readiness, mutation receipts, previews, Git write commands, and TLS observer readiness from 126 to 101 authority-fenced tables without replacing native PostgreSQL triggers or constraints. It retains the single Helm installer and rejects pre-Prisma RC databases.",
+  "summary": "Qualification RC retaining the seven-migration Prisma baseline and 101 authority-fenced tables. It restores real Kubernetes build-log reads for list items without TypeMeta and emits only fixed, server-owned builder lifecycle progress while keeping untrusted tool output private. It retains the single Helm installer and rejects pre-Prisma RC databases.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.62"
+  "version": "0.1.0-rc.63"
 }

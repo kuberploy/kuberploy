@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,23 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestBuildProgressContainsOnlyFixedLifecycleMessages(t *testing.T) {
+	var output bytes.Buffer
+	agent := NewAgent(&recordingExecutor{})
+	agent.Progress = &output
+	agent.reportProgress("Build request accepted.")
+	agent.reportProgress("Release image build and push started.")
+
+	if got, want := output.String(), "Build request accepted.\nRelease image build and push started.\n"; got != want {
+		t.Fatalf("progress output = %q, want %q", got, want)
+	}
+	for _, forbidden := range []string{"password", "token", "secret", "--build-arg", "registry.example"} {
+		if strings.Contains(strings.ToLower(output.String()), forbidden) {
+			t.Fatalf("progress output exposed forbidden material %q", forbidden)
+		}
+	}
+}
 
 type recordingExecutor struct {
 	invocations []Invocation

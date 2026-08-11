@@ -69,7 +69,9 @@ func run(args []string) error {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(request.Profile.TimeoutSeconds)*time.Second)
 		defer cancel()
-		result, err := builder.NewAgent(executor).Run(ctx, request)
+		agent := builder.NewAgent(executor)
+		agent.Progress = os.Stdout
+		result, err := agent.Run(ctx, request)
 		if err != nil {
 			return writeFailure(resultPath, "BuildFailed", err, request.OperationID, request.Generation)
 		}
