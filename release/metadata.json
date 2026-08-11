@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Qualification RC using PostgreSQL-authoritative edge observer lease timestamps and permitting exact cert-manager observer RBAC through the installer AppProject.",
+  "summary": "Qualification RC normalizing edge readiness timestamps to PostgreSQL precision and accepting production-only cert-manager observer profiles.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.71"
+  "version": "0.1.0-rc.72"
 }

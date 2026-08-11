@@ -427,6 +427,9 @@ func invalidateEdgeProjectionBindings(ctx context.Context, tx pgx.Tx, changedAt 
 }
 
 func (s *PostgreSQLStore) RecordReadiness(ctx context.Context, readiness Readiness) error {
+	readiness.StartedAt = readiness.StartedAt.UTC().Truncate(time.Microsecond)
+	readiness.ObservedAt = readiness.ObservedAt.UTC().Truncate(time.Microsecond)
+	readiness.LeaseUntil = readiness.LeaseUntil.UTC().Truncate(time.Microsecond)
 	if s == nil || s.pool == nil || readiness.Validate() != nil {
 		return ErrInvalid
 	}

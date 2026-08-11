@@ -131,6 +131,13 @@ func TestPostgreSQLEdgeRuntimeContract(t *testing.T) {
 	if err = store.RecordReadiness(ctx, readiness); err != nil {
 		t.Fatal(err)
 	}
+	heartbeat := readiness
+	heartbeat.ObservedAt = readiness.ObservedAt.Add(time.Second)
+	heartbeat.LeaseUntil = readiness.LeaseUntil.Add(time.Second)
+	if err = store.RecordReadiness(ctx, heartbeat); err != nil {
+		t.Fatalf("nanosecond readiness heartbeat did not preserve PostgreSQL identity: %v", err)
+	}
+	readiness = heartbeat
 	regressed := readiness
 	regressed.ObservedAt = now.Add(time.Second)
 	if err = store.RecordReadiness(ctx, regressed); !errors.Is(err, ErrConflict) {

@@ -1449,8 +1449,8 @@
       "maxItems": 2,
       "oneOf": [
         { "maxItems": 0 },
-        { "prefixItems": [{ "const": "http01" }], "items": false },
-        { "prefixItems": [{ "const": "dns01" }, { "const": "http01" }], "items": false }
+        { "minItems": 1, "prefixItems": [{ "const": "http01" }], "items": false },
+        { "minItems": 2, "prefixItems": [{ "const": "dns01" }, { "const": "http01" }], "items": false }
       ]
     },
     "edgeDNS01ProfileNames": {
