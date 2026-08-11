@@ -226,9 +226,12 @@ func (s *PostgreSQLStore) ClaimTarget(ctx context.Context, owner, contract, conf
 	if err != nil {
 		return Lease{}, false, classifyPostgreSQL(err)
 	}
-	lease := Lease{Target: target, Owner: owner, Epoch: target.LeaseEpoch, Until: until}
-	if lease.Validate(now.UTC()) != nil {
-		return Lease{}, false, ErrConflict
+	// PostgreSQL stores timestamptz at microsecond precision. Use the value
+	// returned by PostgreSQL so the lease and its embedded target have exactly
+	// the same authority timestamp even when the caller's clock has nanoseconds.
+	lease, err := authoritativePostgreSQLLease(target, owner, target.LeaseEpoch, now.UTC())
+	if err != nil {
+		return Lease{}, false, err
 	}
 	return lease, true, nil
 }
@@ -250,7 +253,18 @@ func (s *PostgreSQLStore) HeartbeatTarget(ctx context.Context, lease Lease, now 
 	if err != nil {
 		return Lease{}, classifyPostgreSQL(err)
 	}
-	return Lease{Target: target, Owner: lease.Owner, Epoch: lease.Epoch, Until: until}, nil
+	return authoritativePostgreSQLLease(target, lease.Owner, lease.Epoch, now.UTC())
+}
+
+func authoritativePostgreSQLLease(target Target, owner string, epoch int64, now time.Time) (Lease, error) {
+	if target.LeaseUntil == nil {
+		return Lease{}, ErrConflict
+	}
+	lease := Lease{Target: target, Owner: owner, Epoch: epoch, Until: *target.LeaseUntil}
+	if lease.Validate(now) != nil {
+		return Lease{}, ErrConflict
+	}
+	return lease, nil
 }
 
 func (s *PostgreSQLStore) RecordTargetReady(ctx context.Context, lease Lease, receipt ObservationReceipt, observedAt, next time.Time) (Target, error) {

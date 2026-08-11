@@ -13,6 +13,31 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestAuthoritativePostgreSQLLeaseUsesStoredPrecision(t *testing.T) {
+	now := time.Date(2026, time.August, 12, 1, 2, 3, 456789123, time.UTC)
+	storedNow := now.Truncate(time.Microsecond)
+	storedUntil := now.Add(2 * time.Minute).Truncate(time.Microsecond)
+	config := testRuntimeConfig()
+	digest, err := config.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets, err := config.DesiredTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := Target{DesiredTarget: targets[0], Active: true, State: StateAwaiting,
+		NextObservationAt: storedNow, LeaseOwner: testWorkerID, LeaseEpoch: 1, LeaseUntil: &storedUntil,
+		WorkerContract: RuntimeContract, WorkerConfigDigest: digest, CreatedAt: storedNow, UpdatedAt: storedNow}
+	lease, err := authoritativePostgreSQLLease(target, testWorkerID, 1, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lease.Until.Equal(storedUntil) || lease.Until.Nanosecond()%1000 != 0 {
+		t.Fatalf("lease did not preserve PostgreSQL precision: %s", lease.Until.Format(time.RFC3339Nano))
+	}
+}
+
 func TestPostgreSQLEdgeRuntimeContract(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -37,7 +62,13 @@ func TestPostgreSQLEdgeRuntimeContract(t *testing.T) {
 	}
 	cleanup(ctx)
 	defer cleanup(context.Background())
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	// Production time.Now values normally carry nanoseconds while PostgreSQL
+	// timestamptz stores microseconds. Keep that precision mismatch in this test
+	// so returned claims and heartbeats must use the database-authoritative time.
+	now := time.Now().UTC()
+	if now.Nanosecond()%1000 == 0 {
+		now = now.Add(time.Nanosecond)
+	}
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,'edge-runtime-test','platform-admin','edge-runtime-test','edge-runtime-test',1,$2)`, userID, now); err != nil {
 		t.Fatal(err)

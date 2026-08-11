@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Qualification RC restoring exact edge and cert-manager runtime observation with explicit dependency versions, and scoping managed registry lifecycle observation to its configured repository prefix.",
+  "summary": "Qualification RC using PostgreSQL-authoritative edge observer lease timestamps and permitting exact cert-manager observer RBAC through the installer AppProject.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.70"
+  "version": "0.1.0-rc.71"
 }
