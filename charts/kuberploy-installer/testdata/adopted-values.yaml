@@ -6,14 +6,14 @@ bootstrap:
 source:
   chartRepository: ghcr.io/kuberploy/charts
   valuesRepository: https://github.com/kuberploy/kuberploy.git
-  valuesRevision: "v0.1.0-rc.47"
+  valuesRevision: "v0.1.0-rc.48"
 
 components:
   edge:
     enabled: true
     mode: adopted
     adoptionConfirmed: true
-    expectedPackageVersion: 0.1.0-rc.47
+    expectedPackageVersion: 0.1.0-rc.48
     valueFiles: []
 
 argoCD:
