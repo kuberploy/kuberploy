@@ -58,10 +58,11 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		environmentID             string
 		latestCommandID           string
 		previousVerifiedCommandID string
+		preconditionCommandID     string
 	}
 	var selected candidate
 	err = m.pool.QueryRow(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
-	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,'')
+	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,''),COALESCE(precondition_command.id::text,'')
 	FROM git_repository_bindings b
 	JOIN git_projection_generations generation
 	  ON generation.binding_id=b.id AND generation.generation=b.projection_generation
@@ -78,6 +79,14 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		WHERE command.environment_id=b.environment_id AND command.state='verified'
 		ORDER BY command.generation DESC LIMIT 1
 	) previous_verified ON true
+	LEFT JOIN LATERAL (
+		SELECT command.id
+		FROM argo_desired_state_commands command
+		WHERE command.environment_id=b.environment_id AND
+		      (command.state='verified' OR
+		       (command.state IN ('failed','superseded') AND command.write_base_revision<>''))
+		ORDER BY command.generation DESC LIMIT 1
+	) precondition_command ON true
 	WHERE b.kind='environment' AND b.credential_mode='github-app' AND b.credential_secret_name=''
 	  AND b.state='ready' AND b.target_head_revision=b.indexed_revision AND b.indexed_revision IS NOT NULL
 	  AND b.projection_generation>0 AND generation.state='active'
@@ -95,7 +104,8 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3)))
 	ORDER BY b.indexed_at,b.id
 	LIMIT 1`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage).
-		Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID, &selected.previousVerifiedCommandID)
+		Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID,
+			&selected.previousVerifiedCommandID, &selected.preconditionCommandID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -148,6 +158,26 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	}
 	if err != nil {
 		return false, err
+	}
+	if selected.preconditionCommandID != "" && selected.preconditionCommandID != selected.previousVerifiedCommandID {
+		precondition, readErr := m.store.DesiredStateCommand(ctx, selected.preconditionCommandID)
+		if readErr != nil {
+			return false, readErr
+		}
+		if precondition.ProjectID != command.ProjectID || precondition.EnvironmentID != command.EnvironmentID ||
+			precondition.PlatformBindingID != command.PlatformBindingID || precondition.Path != command.Path ||
+			(precondition.State != DesiredStateFailed && precondition.State != DesiredStateSuperseded) ||
+			precondition.WriteBaseRevision == "" {
+			return false, ErrInvalid
+		}
+		if precondition.ContentSHA256 == command.ContentSHA256 {
+			return false, nil
+		}
+		command.Precondition = gitprojection.MutationMatchETag
+		command.ExpectedETag = `"` + precondition.ContentSHA256 + `"`
+		if command.ValidateFor(target) != nil {
+			return false, ErrInvalid
+		}
 	}
 	if selected.latestCommandID != "" {
 		latest, readErr := m.store.DesiredStateCommand(ctx, selected.latestCommandID)
