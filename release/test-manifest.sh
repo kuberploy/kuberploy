@@ -15,9 +15,10 @@ mkdir -p "${kp_assets}"
 kp_api_digest="sha256:$(printf '1%.0s' {1..64})"
 kp_worker_digest="sha256:$(printf '2%.0s' {1..64})"
 kp_web_digest="sha256:$(printf '3%.0s' {1..64})"
-kp_upgrader_digest="sha256:$(printf '4%.0s' {1..64})"
-kp_builder_agent_digest="sha256:$(printf '5%.0s' {1..64})"
-kp_chart_digest="sha256:$(printf '6%.0s' {1..64})"
+kp_migration_digest="sha256:$(printf '4%.0s' {1..64})"
+kp_upgrader_digest="sha256:$(printf '5%.0s' {1..64})"
+kp_builder_agent_digest="sha256:$(printf '6%.0s' {1..64})"
+kp_chart_digest="sha256:$(printf '7%.0s' {1..64})"
 kp_summary="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["summary"])' "${kp_root}/release/metadata.json")"
 kp_upgrade_range="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["supportedUpgradeFrom"])' "${kp_root}/release/metadata.json")"
 kp_breaking="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1], encoding="utf-8"))["breakingChanges"]).lower())' "${kp_root}/release/metadata.json")"
@@ -30,6 +31,7 @@ kp_package_args=(
   --api-image "ghcr.io/kuberploy/kuberploy-api@${kp_api_digest}"
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
+  --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
   --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )
@@ -134,6 +136,8 @@ kp_manifest_args=(
   --worker-digest "${kp_worker_digest}"
   --web-reference ghcr.io/kuberploy/kuberploy-web
   --web-digest "${kp_web_digest}"
+  --migration-reference ghcr.io/kuberploy/kuberploy-migration
+  --migration-digest "${kp_migration_digest}"
   --upgrader-reference ghcr.io/kuberploy/kuberploy-upgrader
   --upgrader-digest "${kp_upgrader_digest}"
   --builder-agent-reference ghcr.io/kuberploy/kuberploy-builder-agent
@@ -209,6 +213,7 @@ kp_mutable_args=(
   --api-image ghcr.io/kuberploy/kuberploy-api:latest
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
+  --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
   --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )
@@ -225,6 +230,7 @@ kp_mutable_builder_args=(
   --api-image "ghcr.io/kuberploy/kuberploy-api@${kp_api_digest}"
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
+  --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
   --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image ghcr.io/kuberploy/kuberploy-builder-agent:latest
 )
@@ -253,6 +259,7 @@ kp_enabled_source_args=(
   --api-image "ghcr.io/kuberploy/kuberploy-api@${kp_api_digest}"
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
+  --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
   --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )

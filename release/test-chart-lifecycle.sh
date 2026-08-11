@@ -21,6 +21,7 @@ kp_stage_chart() {
     --api-image "ghcr.io/kuberploy/kuberploy-api@${digest}"
     --worker-image "ghcr.io/kuberploy/kuberploy-worker@${digest}"
     --web-image "ghcr.io/kuberploy/kuberploy-web@${digest}"
+    --migration-image "ghcr.io/kuberploy/kuberploy-migration@${digest}"
     --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${digest}"
     --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${digest}"
   )
@@ -57,10 +58,12 @@ diff -u "${kp_tmp}/install.yaml" "${kp_tmp}/rollback.yaml" >/dev/null
 
 [[ "$(grep -c '^kind: Deployment$' "${kp_tmp}/install.yaml")" -eq 3 ]]
 [[ "$(grep -c '^kind: PodDisruptionBudget$' "${kp_tmp}/install.yaml")" -eq 3 ]]
-[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 6 ]]
+[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 7 ]]
 [[ "$(grep -Ec '^kind: (ClusterRole|ClusterRoleBinding|Namespace|Application|ApplicationSet|AppProject)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
 [[ "$(grep -Ec '^kind: (Namespace|ResourceQuota|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
-[[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 3 ]]
+[[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 4 ]]
+grep -q 'ghcr.io/kuberploy/kuberploy-migration@sha256:' "${kp_tmp}/install.yaml"
+grep -q 'helm.sh/hook: pre-install,pre-upgrade' "${kp_tmp}/install.yaml"
 grep -q 'KUBERPLOY_UPGRADER_IMAGE' "${kp_tmp}/install.yaml"
 grep -q 'ghcr.io/kuberploy/kuberploy-upgrader@sha256:' "${kp_tmp}/install.yaml"
 grep -q 'name: kuberploy-upgrade' "${kp_tmp}/install.yaml"
@@ -72,7 +75,7 @@ grep -q 'secrets' "${kp_tmp}/install.yaml"
 [[ "$(grep -c '^kind: ResourceQuota$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 [[ "$(grep -c '^kind: ValidatingAdmissionPolicy$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
 [[ "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
-[[ "$(grep -c '^kind: Job$' "${kp_tmp}/builder-enabled.yaml")" -eq 0 ]]
+[[ "$(grep -c '^kind: Job$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 grep -q 'ghcr.io/kuberploy/kuberploy-builder-agent@sha256:' "${kp_tmp}/builder-enabled.yaml"
 grep -q 'KUBERPLOY_GITHUB_BUILDS_ENABLED: "true"' "${kp_tmp}/github-builder-enabled.yaml"
 grep -q 'secretName: kuberploy-github-app' "${kp_tmp}/github-builder-enabled.yaml"

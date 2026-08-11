@@ -10,7 +10,7 @@ htmlcov
 playwright-report
 test-results
 tmp
-web/node_modules
+**/node_modules
 web/dist
 **/__pycache__
 **/*.py[cod]

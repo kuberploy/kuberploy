@@ -33,12 +33,13 @@
     "versions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kuberploy", "api", "worker", "web", "upgrader", "builderAgent", "chart"],
+      "required": ["kuberploy", "api", "worker", "web", "migration", "upgrader", "builderAgent", "chart"],
       "properties": {
         "kuberploy": { "$ref": "#/$defs/version" },
         "api": { "$ref": "#/$defs/version" },
         "worker": { "$ref": "#/$defs/version" },
         "web": { "$ref": "#/$defs/version" },
+        "migration": { "$ref": "#/$defs/version" },
         "upgrader": { "$ref": "#/$defs/version" },
         "builderAgent": { "$ref": "#/$defs/version" },
         "chart": { "$ref": "#/$defs/version" }
@@ -71,7 +72,7 @@
             "currentSchema": { "$ref": "#/$defs/schemaName" },
             "minimumUpgradeableSchema": { "$ref": "#/$defs/schemaName" },
             "migrationSetSha256": { "$ref": "#/$defs/digest" },
-            "strategy": { "const": "ordered-expand-contract-with-advisory-lock" },
+            "strategy": { "const": "prisma-migrate-deploy-with-advisory-lock" },
             "rollbackPolicy": { "type": "string", "minLength": 20, "maxLength": 512 }
           }
         }
@@ -84,8 +85,8 @@
       "properties": {
         "images": {
           "type": "array",
-          "minItems": 5,
-          "maxItems": 5,
+          "minItems": 6,
+          "maxItems": 6,
           "items": { "$ref": "#/$defs/image" }
         },
         "chart": {
@@ -180,8 +181,8 @@
       "additionalProperties": false,
       "required": ["component", "reference", "digest", "platforms"],
       "properties": {
-        "component": { "enum": ["api", "worker", "web", "upgrader", "builder-agent"] },
-        "reference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/kuberploy-(api|worker|web|upgrader|builder-agent)$" },
+        "component": { "enum": ["api", "worker", "web", "migration", "upgrader", "builder-agent"] },
+        "reference": { "type": "string", "pattern": "^ghcr\\.io/kuberploy/kuberploy-(api|worker|web|migration|upgrader|builder-agent)$" },
         "digest": { "$ref": "#/$defs/digest" },
         "platforms": {
           "type": "array",

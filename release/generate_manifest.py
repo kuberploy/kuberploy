@@ -24,16 +24,20 @@ def sha256(path: Path) -> str:
 
 
 def migration_identity(directory: Path) -> tuple[str, str, str]:
-    files = sorted(directory.glob("[0-9][0-9][0-9]_*.sql"))
-    if not files:
-        raise SystemExit("no ordered SQL migrations found")
+    migrations = sorted(
+        path for path in (directory / "prisma" / "migrations").glob("[0-9][0-9][0-9]_*")
+        if path.is_dir() and (path / "migration.sql").is_file()
+    )
+    if not migrations:
+        raise SystemExit("no ordered Prisma SQL migrations found")
     digest = hashlib.sha256()
-    for path in files:
+    for path in migrations:
+        body = path / "migration.sql"
         digest.update(path.name.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(path.read_bytes())
+        digest.update(body.read_bytes())
         digest.update(b"\0")
-    return files[-1].stem, files[0].stem, "sha256:" + digest.hexdigest()
+    return migrations[-1].name, migrations[0].name, "sha256:" + digest.hexdigest()
 
 
 def main() -> None:
@@ -45,7 +49,7 @@ def main() -> None:
     parser.add_argument("--created-at", required=True)
     parser.add_argument("--notes-url", required=True)
     parser.add_argument("--kubernetes-constraint", required=True)
-    for component in ("api", "worker", "web", "upgrader", "builder-agent"):
+    for component in ("api", "worker", "web", "migration", "upgrader", "builder-agent"):
         parser.add_argument(f"--{component}-reference", required=True)
         parser.add_argument(f"--{component}-digest", required=True)
     parser.add_argument("--summary", required=True)
@@ -92,6 +96,7 @@ def main() -> None:
         ("api", "api"),
         ("worker", "worker"),
         ("web", "web"),
+        ("migration", "migration"),
         ("upgrader", "upgrader"),
         ("builder_agent", "builder-agent"),
     )
@@ -162,7 +167,7 @@ def main() -> None:
         "source": {"repository": args.repository, "commit": args.commit},
         "versions": {
             name: version
-            for name in ("kuberploy", "api", "worker", "web", "upgrader", "builderAgent", "chart")
+            for name in ("kuberploy", "api", "worker", "web", "migration", "upgrader", "builderAgent", "chart")
         },
         "compatibility": {
             "supportedUpgradeFrom": args.supported_upgrade_from,
@@ -175,7 +180,7 @@ def main() -> None:
                 "currentSchema": current_schema,
                 "minimumUpgradeableSchema": minimum_schema,
                 "migrationSetSha256": migrations_digest,
-                "strategy": "ordered-expand-contract-with-advisory-lock",
+                "strategy": "prisma-migrate-deploy-with-advisory-lock",
                 "rollbackPolicy": (
                     "Roll back only to a control-plane release whose manifest accepts the current database schema; "
                     "Helm never rolls back tenant workloads."

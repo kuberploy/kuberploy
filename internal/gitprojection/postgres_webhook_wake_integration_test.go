@@ -7,10 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
-	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgreSQLGitHubPushWakeIsExactAndLostUpdateSafe(t *testing.T) {
@@ -24,7 +25,7 @@ func TestPostgreSQLGitHubPushWakeIsExactAndLostUpdateSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)

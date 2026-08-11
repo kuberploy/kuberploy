@@ -1,4 +1,4 @@
-.PHONY: help fmt test web-build helm-lint check platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
+.PHONY: help fmt test web-build helm-lint check prisma-migration-test platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
 
 help:
 	@echo "Kuberploy development targets"
@@ -7,6 +7,7 @@ help:
 	@echo "  make web-build  Build the web UI"
 	@echo "  make helm-lint  Lint and render Helm charts"
 	@echo "  make check      Run all local verification"
+	@echo "  make prisma-migration-test Test the real migration image against PostgreSQL"
 	@echo "  make platform-chart-test  Test the control-plane and runtime charts"
 	@echo "  make installer-chart-test Test the single-invocation Argo bootstrap installer"
 	@echo "  make builder-chart-test   Test the isolated builder boundary chart"
@@ -25,7 +26,7 @@ help:
 	@echo "  make kubernetes-cleanup       Delete only the owned smoke namespace"
 
 fmt:
-	@if [ -f go.mod ]; then gofmt -w $$(find cmd internal -name '*.go' -type f 2>/dev/null); fi
+	@if [ -f go.mod ]; then gofmt -w $$(find cmd internal migrations -name '*.go' -type f 2>/dev/null); fi
 	@if [ -f web/package.json ]; then pnpm --dir web format; fi
 
 test:
@@ -41,6 +42,9 @@ helm-lint: platform-chart-test installer-chart-test monitoring-chart-test edge-c
 	done
 
 check: test web-build helm-lint builder-chart-test registry-chart-test kubernetes-harness-test
+
+prisma-migration-test:
+	@./test/e2e/test-prisma-migrations.sh
 
 platform-chart-test:
 	@./test/e2e/render-charts.sh

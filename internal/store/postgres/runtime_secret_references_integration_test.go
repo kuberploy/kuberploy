@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -57,7 +59,7 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err = Migrate(ctx, st.pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Add(-time.Minute)

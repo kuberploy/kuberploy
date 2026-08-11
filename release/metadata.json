@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Fresh-install release candidate introducing the reviewed 0.1.0 PostgreSQL baseline, canonical immutable audit timeline, verified blank-cluster bootstrap, GitHub builds and GitOps delivery, managed platform foundations, runtime pull credentials, rollout controls, and operational previews. Pre-baseline RC databases are intentionally rejected.",
+  "summary": "Fresh-install release candidate moving the reviewed native PostgreSQL baseline into a dedicated Prisma CLI 7.9.1 migration image and mandatory Helm/Argo pre-sync Job. API and worker startup are now read-only schema verifiers; PostgreSQL functions, triggers, constraints, and indexes remain native SQL. Pre-Prisma RC databases are intentionally rejected.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.53"
+  "version": "0.1.0-rc.54"
 }

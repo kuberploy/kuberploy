@@ -27,7 +27,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.53` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.54` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -424,10 +424,14 @@ to the configured HTTPS remote host and username. Leave the Secret name empty
 for a public legacy repository. Enabling projection does not silently migrate
 or replace existing legacy-writer configuration.
 
-API and worker startup migrations use PostgreSQL's advisory lock. The optional
-`upgrade.migrationJob` is a narrowly scoped, pre-upgrade-only seam for a future
-dedicated migration command: its ServiceAccount has token automount disabled
-and receives no Kubernetes RBAC. Leave it disabled until that command exists.
+The mandatory `kuberploy-migration` Job is the sole production schema writer.
+It runs Prisma `migrate deploy` before both installation and upgrade, uses its
+own release image, reads only the PostgreSQL URL Secret, receives no Kubernetes
+token or RBAC, and can egress only to the selected PostgreSQL endpoint. Its
+selector-only NetworkPolicy remains inert after completion and is replaced
+before the next migration hook, avoiding Argo CD passive-hook deletion races. API and
+worker startup are read-only and fail closed unless the exact migration names
+and checksums compiled into the release have completed successfully.
 
 The default-deny control-plane NetworkPolicies separate four egress classes.
 Managed PostgreSQL is locked to labeled Pods in the `kuberploy-postgresql`

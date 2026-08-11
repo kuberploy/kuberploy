@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -15,7 +17,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/projectionpolicy"
 	"github.com/kuberploy/kuberploy/internal/secrets"
-	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *testing.T) {
@@ -29,7 +30,7 @@ func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *tes
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,7 +161,7 @@ func TestPostgreSQLPolicyPlatformOwnedProjectNoRefsAndSemanticSecretDiagnostic(t
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	projectID, environmentID, applicationID, bindingID := id.New(), id.New(), id.New(), id.New()

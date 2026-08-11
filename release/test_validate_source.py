@@ -101,7 +101,7 @@ def main() -> None:
             (
                 "emulated arm build",
                 workflow.replace("runner: ubuntu-26.04-arm\n", "runner: ubuntu-26.04\n", 1),
-                "five amd64 and five arm64",
+                "six amd64 and six arm64",
             ),
             (
                 "mutable child image tag",

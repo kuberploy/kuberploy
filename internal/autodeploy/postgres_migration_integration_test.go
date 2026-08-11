@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -31,7 +33,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)

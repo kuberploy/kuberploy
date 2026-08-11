@@ -6,35 +6,30 @@ metadata:
     {{- include "kuberploy.labels" . | nindent 4 }}
     app.kubernetes.io/component: upgrade
 automountServiceAccountToken: false
-{{- if .Values.upgrade.migrationJob.enabled }}
-{{- if eq (len .Values.upgrade.migrationJob.command) 0 }}
-{{- fail "upgrade.migrationJob.command must be non-empty when the migration Job is enabled" }}
-{{- end }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "kuberploy.fullname" . }}-upgrade
+  name: {{ include "kuberploy.fullname" . }}-migration
   labels:
     {{- include "kuberploy.labels" . | nindent 4 }}
     app.kubernetes.io/component: migration
   annotations:
-    helm.sh/hook: pre-upgrade
+    helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-5"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
-    kuberploy.io/ownership-boundary: control-plane-only
+    kuberploy.io/ownership-boundary: database-migration-only
 spec:
-  backoffLimit: 1
-  activeDeadlineSeconds: {{ .Values.upgrade.migrationJob.activeDeadlineSeconds }}
+  backoffLimit: {{ .Values.databaseMigration.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.databaseMigration.activeDeadlineSeconds }}
   ttlSecondsAfterFinished: 600
   template:
     metadata:
       labels:
-        {{- include "kuberploy.labels" . | nindent 8 }}
+        {{- include "kuberploy.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migration
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "kuberploy.fullname" . }}-upgrade
       automountServiceAccountToken: false
       enableServiceLinks: false
       securityContext:
@@ -45,22 +40,25 @@ spec:
           type: RuntimeDefault
       containers:
         - name: migrate
-          image: {{ include "kuberploy.image" (dict "root" . "component" "api" "config" .Values.components.api) | quote }}
-          imagePullPolicy: {{ .Values.components.api.image.pullPolicy }}
-          command:
-            {{- toYaml .Values.upgrade.migrationJob.command | nindent 12 }}
+          image: {{ include "kuberploy.image" (dict "root" . "component" "migration" "config" .Values.components.migration) | quote }}
+          imagePullPolicy: {{ .Values.components.migration.image.pullPolicy }}
           env:
-            - name: KUBERPLOY_DATABASE_URL
+            - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.config.postgresql.secretRef.name }}
                   key: {{ .Values.config.postgresql.secretRef.urlKey }}
           resources:
-            requests: {cpu: 25m, memory: 32Mi}
-            limits: {cpu: 250m, memory: 128Mi}
+            {{- toYaml .Values.components.migration.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
-{{- end }}
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+      volumes:
+        - name: temporary
+          emptyDir:
+            sizeLimit: 64Mi

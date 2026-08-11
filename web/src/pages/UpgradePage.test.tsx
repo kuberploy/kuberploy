@@ -41,6 +41,7 @@ const release: PlatformRelease = {
       api: "1.1.0",
       worker: "1.1.0",
       web: "1.1.0",
+      migration: "1.1.0",
       upgrader: "1.1.0",
       builderAgent: "1.1.0",
       chart: "1.1.0",
@@ -56,13 +57,20 @@ const release: PlatformRelease = {
         currentSchema: "003_team_github_access",
         minimumUpgradeableSchema: "001_initial",
         migrationSetSha256: digest,
-        strategy: "ordered-expand-contract-with-advisory-lock",
+        strategy: "prisma-migrate-deploy-with-advisory-lock",
         rollbackPolicy: "Use a compatible control-plane release only.",
       },
     },
     artifacts: {
       images: (
-        ["api", "worker", "web", "upgrader", "builder-agent"] as const
+        [
+          "api",
+          "worker",
+          "web",
+          "migration",
+          "upgrader",
+          "builder-agent",
+        ] as const
       ).map((component) => ({
         component,
         reference: `ghcr.io/kuberploy/kuberploy-${component}`,

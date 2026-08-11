@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/registry"
@@ -22,7 +24,7 @@ func TestAuthorizedImageSourcesSQLIsDeploymentScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err = Migrate(t.Context(), store.pool); err != nil {
+	if err = testdb.ApplyMigrations(t.Context(), store.pool); err != nil {
 		t.Fatal(err)
 	}
 	now := databaseTime(time.Now())

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -48,7 +50,7 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err = Migrate(ctx, st.pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
 		t.Fatal(err)
 	}
 

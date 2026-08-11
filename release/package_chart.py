@@ -124,14 +124,14 @@ def main() -> None:
     parser.add_argument("--builder-chart", required=True, type=Path)
     parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--version", required=True)
-    for component in ("api", "worker", "web", "upgrader"):
+    for component in ("api", "worker", "web", "migration", "upgrader"):
         parser.add_argument(f"--{component}-image", required=True)
     parser.add_argument("--builder-agent-image", required=True)
     args = parser.parse_args()
 
     if not SEMVER.fullmatch(args.version):
         raise SystemExit(f"release version is not semantic version text: {args.version}")
-    images = {name: getattr(args, f"{name}_image") for name in ("api", "worker", "web", "upgrader")}
+    images = {name: getattr(args, f"{name}_image") for name in ("api", "worker", "web", "migration", "upgrader")}
     images["builder-agent"] = args.builder_agent_image
     for name, reference in images.items():
         if not DIGEST_REF.fullmatch(reference):

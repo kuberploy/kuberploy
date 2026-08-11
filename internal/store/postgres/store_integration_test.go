@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
@@ -25,17 +27,22 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
 	st, err := Open(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	if err = Migrate(ctx, st.pool); err != nil {
-		t.Fatal(err)
-	}
-	if err = Migrate(ctx, st.pool); err != nil {
-		t.Fatal(err)
-	}
+	st.Close()
 }
 
 func TestMigrationsRejectPreStableHistory(t *testing.T) {
@@ -73,7 +80,7 @@ func TestMigrationsRejectPreStableHistory(t *testing.T) {
 		INSERT INTO schema_migrations(version) VALUES ('001_initial.sql'), ('012_runtime_secrets.sql')`); err != nil {
 		t.Fatal(err)
 	}
-	if err = Migrate(ctx, legacy); err == nil || !strings.Contains(err.Error(), "pre-stable database history is not upgradeable") {
+	if err = testdb.ApplyMigrations(ctx, legacy); err == nil || !strings.Contains(err.Error(), "pre-Prisma release-candidate databases require a fresh PostgreSQL database") {
 		t.Fatalf("legacy RC history was not rejected: %v", err)
 	}
 }

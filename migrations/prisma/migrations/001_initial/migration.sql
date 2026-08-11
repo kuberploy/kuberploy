@@ -1,11 +1,17 @@
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version text PRIMARY KEY,
-    applied_at timestamptz NOT NULL DEFAULT now(),
-    baseline text NOT NULL DEFAULT '0.1.0' CHECK (baseline = '0.1.0')
-);
-ALTER TABLE schema_migrations
-    ADD COLUMN IF NOT EXISTS baseline text NOT NULL DEFAULT '0.1.0'
-    CHECK (baseline = '0.1.0');
+DO $kuberploy_baseline$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_tables
+        WHERE schemaname = current_schema()
+          AND tablename = 'schema_migrations'
+    ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '55000',
+            MESSAGE = 'pre-Prisma release-candidate databases require a fresh PostgreSQL database';
+    END IF;
+END
+$kuberploy_baseline$;
 
 CREATE TABLE IF NOT EXISTS bootstrap_state (
     singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),

@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
-	postgresstore "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
@@ -23,11 +24,11 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = postgresstore.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	// Prove the stable initial schema remains idempotent.
-	if err = postgresstore.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	cleanup := func(c context.Context) {

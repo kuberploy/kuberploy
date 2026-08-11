@@ -51,13 +51,13 @@ func validManifest() domain.ReleaseManifest {
 			Summary:   "Safe control-plane update",
 		},
 		Source:   domain.ManifestSource{Repository: "kuberploy/kuberploy", Commit: commit},
-		Versions: domain.ManifestVersions{Kuberploy: version, API: version, Worker: version, Web: version, Upgrader: version, BuilderAgent: version, Chart: version},
+		Versions: domain.ManifestVersions{Kuberploy: version, API: version, Worker: version, Web: version, Migration: version, Upgrader: version, BuilderAgent: version, Chart: version},
 		Compatibility: domain.ReleaseCompatibility{
 			SupportedUpgradeFrom: ">=1.0.0 <1.1.0",
 			Kubernetes:           domain.KubernetesCompatibility{Constraint: ">=1.34.0-0 <1.37.0-0", TestedMinors: []string{"1.34", "1.35", "1.36"}},
 			Database: domain.DatabaseCompatibility{
 				Engine: "postgresql", CurrentSchema: "002_platform_upgrades", MinimumUpgradeableSchema: "001_initial",
-				MigrationSetSHA256: digest, Strategy: "ordered-expand-contract-with-advisory-lock",
+				MigrationSetSHA256: digest, Strategy: "prisma-migrate-deploy-with-advisory-lock",
 				RollbackPolicy: "Only roll back to a schema-compatible control-plane release.",
 			},
 		},
@@ -66,6 +66,7 @@ func validManifest() domain.ReleaseManifest {
 				{Component: "api", Reference: "ghcr.io/kuberploy/kuberploy-api", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "worker", Reference: "ghcr.io/kuberploy/kuberploy-worker", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "web", Reference: "ghcr.io/kuberploy/kuberploy-web", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
+				{Component: "migration", Reference: "ghcr.io/kuberploy/kuberploy-migration", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "upgrader", Reference: "ghcr.io/kuberploy/kuberploy-upgrader", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "builder-agent", Reference: "ghcr.io/kuberploy/kuberploy-builder-agent", Digest: digest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 			},

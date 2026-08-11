@@ -209,7 +209,6 @@ spec:
   {{- end }}
 {{- end }}
 {{- end }}
-{{- if .Values.upgrade.migrationJob.enabled }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -217,6 +216,10 @@ metadata:
   name: {{ include "kuberploy.fullname" . }}-migration
   labels:
     {{- include "kuberploy.componentLabels" (dict "root" . "component" "migration") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-9"
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   podSelector:
     matchLabels:
@@ -241,7 +244,6 @@ spec:
       ports:
         - {port: 5432, protocol: TCP}
     {{- end }}
-{{- end }}
 {{- if .Values.config.managedRegistry.enabled }}
 ---
 apiVersion: networking.k8s.io/v1

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/argo"
@@ -18,7 +20,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/projectionpolicy"
-	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgreSQLDesiredStateRegistryEligibilityUsesExactIndexedPolicyDocuments(t *testing.T) {
@@ -32,7 +33,7 @@ func TestPostgreSQLDesiredStateRegistryEligibilityUsesExactIndexedPolicyDocument
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 

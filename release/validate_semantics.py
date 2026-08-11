@@ -198,7 +198,7 @@ def main() -> None:
     require(database["migrationSetSha256"] == migrations_digest, "migration set digest mismatch")
     require(manifest["dependencyLock"]["sha256"] == sha256(args.root / "DEPENDENCIES.md"), "dependency lock digest mismatch")
 
-    components = ("api", "worker", "web", "upgrader", "builder-agent")
+    components = ("api", "worker", "web", "migration", "upgrader", "builder-agent")
     expected_references = {component: f"ghcr.io/kuberploy/kuberploy-{component}" for component in components}
     images = manifest["artifacts"]["images"]
     require([image["component"] for image in images] == list(components), "image order/components mismatch")

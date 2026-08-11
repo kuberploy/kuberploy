@@ -8,10 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
-	platformpostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
@@ -41,7 +42,7 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = platformpostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 

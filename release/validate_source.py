@@ -13,7 +13,7 @@ from validate_semantics import yaml_scalar
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 ACTION = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)(?:\s+#\s*(\S+))?\s*$")
 ALLOWED_ACTION_OWNERS = {"actions", "azure", "docker", "pnpm"}
-RELEASE_COMPONENTS = ("api", "worker", "web", "upgrader", "builder-agent")
+RELEASE_COMPONENTS = ("api", "worker", "web", "migration", "upgrader", "builder-agent")
 RELEASE_COMPONENT_CHARTS = (
     "kuberploy-argocd",
     "kuberploy-installer",
@@ -101,9 +101,22 @@ def main() -> None:
                 f"installer {fixture_name} package version must match {version}"
             )
 
-    migrations = sorted((args.root / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
+    migration_root = args.root / "migrations" / "prisma" / "migrations"
+    migrations = sorted(
+        path
+        for path in migration_root.glob("[0-9][0-9][0-9]_*")
+        if path.is_dir() and (path / "migration.sql").is_file()
+    )
     if not migrations or len({path.name[:3] for path in migrations}) != len(migrations):
         raise SystemExit("database migrations must have unique ordered three-digit prefixes")
+    migration_package = json.loads((args.root / "migrations/package.json").read_text(encoding="utf-8"))
+    if migration_package.get("dependencies") != {"prisma": "7.9.1"}:
+        raise SystemExit("migration package must contain only exact Prisma CLI 7.9.1")
+    if "@prisma/client" in json.dumps(migration_package):
+        raise SystemExit("migration-only package must not include Prisma Client")
+    prisma_schema = (args.root / "migrations/prisma/schema.prisma").read_text(encoding="utf-8")
+    if "generator client" in prisma_schema:
+        raise SystemExit("migration-only Prisma schema must not generate a client")
 
     workflow = args.root / ".github/workflows/release.yml"
     workflow_text = workflow.read_text(encoding="utf-8")
@@ -188,9 +201,9 @@ def main() -> None:
 
     if "runs-on: ${{ matrix.runner }}" not in build_job:
         raise SystemExit("native image builds must select the runner from the platform matrix")
-    if build_job.count("runner: ubuntu-26.04\n") != 5 or build_job.count("runner: ubuntu-26.04-arm\n") != 5:
-        raise SystemExit("native image matrix must contain five amd64 and five arm64 GitHub-hosted runners")
-    if build_job.count("platform: linux/amd64") != 5 or build_job.count("platform: linux/arm64") != 5:
+    if build_job.count("runner: ubuntu-26.04\n") != 6 or build_job.count("runner: ubuntu-26.04-arm\n") != 6:
+        raise SystemExit("native image matrix must contain six amd64 and six arm64 GitHub-hosted runners")
+    if build_job.count("platform: linux/amd64") != 6 or build_job.count("platform: linux/arm64") != 6:
         raise SystemExit("native image matrix must build every component for amd64 and arm64")
     for component in RELEASE_COMPONENTS:
         if build_job.count(f"component: {component}\n") != 2:
@@ -239,7 +252,7 @@ def main() -> None:
         "inputs.repair_release_tag != ''",
         "environment: release",
         ".immutable == true",
-        ".artifacts.images | length == 5",
+        ".artifacts.images | length == 6",
         'docker buildx imagetools create',
         '"${kp_reference}:${kp_version}"',
         '"${kp_reference}@${kp_digest}"',
@@ -276,6 +289,7 @@ def main() -> None:
         raise SystemExit("release gate, native builds, index assembly, local validation, and publication are out of order")
     local_controls = (
         "--builder-chart charts/kuberploy-builder",
+        "--migration-image \"ghcr.io/kuberploy/kuberploy-migration@${MIGRATION_DIGEST}\"",
         "--builder-agent-image \"ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}\"",
         "--source-date-epoch \"${SOURCE_DATE_EPOCH}\"",
         "release/package_chart_archive.py",
@@ -316,6 +330,7 @@ def main() -> None:
     dockerfiles = [
         args.root / "build/package/api.Dockerfile",
         args.root / "build/package/worker.Dockerfile",
+        args.root / "build/package/migration.Dockerfile",
         args.root / "build/package/upgrader.Dockerfile",
         args.root / "build/package/builder-agent.Dockerfile",
         args.root / "build/package/rfc2136-test-provider.Dockerfile",
@@ -351,7 +366,6 @@ def main() -> None:
     worker_dockerfile = (args.root / "build/package/worker.Dockerfile").read_text(encoding="utf-8")
     if "/usr/local/bin/kuberploy-upgrade-runner" not in worker_dockerfile:
         raise SystemExit("worker image does not contain the dedicated upgrade runner")
-
     values = (args.root / "charts/kuberploy/values.yaml").read_text(encoding="utf-8")
     if yaml_scalar(values, ("upgrade", "runnerExecutable")) != "/usr/local/bin/kuberploy-upgrade-runner":
         raise SystemExit("chart upgrade runner executable is not the release contract path")

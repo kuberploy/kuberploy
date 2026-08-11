@@ -2,7 +2,7 @@
 
 Kuberploy publishes semantic release tags (`vMAJOR.MINOR.PATCH` and explicit
 release-candidate tags such as `vMAJOR.MINOR.PATCH-rc.N`). A trusted tag
-builds each of five images natively on amd64 and arm64 GitHub-hosted runners,
+builds each of six images natively on amd64 and arm64 GitHub-hosted runners,
 assembles and verifies one two-platform OCI image index per component, records
 the index digests, packages an immutable Helm chart, validates the release
 manifest twice, and creates a draft GitHub Release before making it public.
@@ -41,9 +41,14 @@ after publication starts requires explicit administrator review.
 
 The source chart intentionally uses exact development tags. Release packaging
 copies it to a temporary directory, enables `global.requireImageDigest`, and
-injects the API, worker, web, upgrader, and builder-agent `image@sha256`
+injects the API, worker, web, migration, upgrader, and builder-agent `image@sha256`
 references. The published OCI chart and `.tgz` therefore render the same
 immutable images.
+
+The migration image contains Prisma CLI 7.9.1 and the reviewed native SQL
+history. Its mandatory pre-install/pre-upgrade Job is the only production
+schema writer. API and worker processes perform read-only history verification;
+they never run migrations during startup.
 
 The same release publishes the canonical component-chart set for Argo CD, the
 single-invocation installer, builder, cert-manager, Traefik edge, external-dns, External Secrets,
@@ -70,7 +75,7 @@ dedicated labelled and tainted builder node pool. Inclusion of this boundary
 does not claim that the build controller or build API is enabled.
 
 Each native build pushes an untagged, content-addressed platform manifest.
-After all ten builds complete, the assembly job verifies each child digest's
+After all twelve builds complete, the assembly job verifies each child digest's
 reported architecture and creates one uniquely tagged
 `candidate-RUN_ID-RUN_ATTEMPT` OCI index per component. It refuses an existing
 candidate tag and verifies that every index contains exactly the expected

@@ -4,114 +4,78 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"sort"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/migrations"
 )
 
-var migrationFilenamePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$`)
+var (
+	ErrMigrationsNotDeployed = errors.New("database migrations are not deployed")
+	ErrMigrationMismatch     = errors.New("database migration history does not match this Kuberploy release")
+)
 
-const stableBaseline = "0.1.0"
-
-func loadMigrationFilename(name string) (bool, error) {
-	// macOS archive tools may materialize AppleDouble sidecars next to source
-	// files. They are transport metadata, never executable migrations.
-	if strings.HasPrefix(name, "._") {
-		return false, nil
-	}
-	if !strings.HasSuffix(name, ".sql") {
-		return false, nil
-	}
-	if !migrationFilenamePattern.MatchString(name) {
-		return false, fmt.Errorf("embedded migration has noncanonical filename %q", name)
-	}
-	return true, nil
+type appliedMigration struct {
+	name         string
+	checksum     string
+	appliedSteps int
 }
 
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire migration connection: %w", err)
-	}
-	defer conn.Release()
-	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext('kuberploy-schema-migrations'))`); err != nil {
-		return fmt.Errorf("lock migrations: %w", err)
-	}
-	defer conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext('kuberploy-schema-migrations'))`) //nolint:errcheck
-	if _, err = conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		return fmt.Errorf("initialize migrations: %w", err)
-	}
-	var appliedCount int
-	if err = conn.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&appliedCount); err != nil {
+// VerifySchema proves that the dedicated Prisma migration Job completed the
+// exact immutable history compiled into this release. It is intentionally
+// read-only: API and worker startup must never alter a production schema.
+func VerifySchema(ctx context.Context, pool *pgxpool.Pool) error {
+	var prismaHistoryExists, legacyHistoryExists bool
+	if err := pool.QueryRow(ctx, `SELECT
+		to_regclass(current_schema() || '._prisma_migrations') IS NOT NULL,
+		to_regclass(current_schema() || '.schema_migrations') IS NOT NULL`).Scan(&prismaHistoryExists, &legacyHistoryExists); err != nil {
 		return fmt.Errorf("inspect migration history: %w", err)
 	}
-	if appliedCount > 0 {
-		var hasStableIdentity bool
-		if err = conn.QueryRow(ctx, `SELECT EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_schema=current_schema() AND table_name='schema_migrations' AND column_name='baseline'
-		)`).Scan(&hasStableIdentity); err != nil {
-			return fmt.Errorf("inspect stable baseline identity: %w", err)
-		}
-		if !hasStableIdentity {
-			return errors.New("pre-stable database history is not upgradeable; install 0.1.0 with a fresh PostgreSQL database")
-		}
+	if legacyHistoryExists {
+		return fmt.Errorf("%w: pre-Prisma release-candidate databases require a fresh PostgreSQL database", ErrMigrationMismatch)
 	}
-	entries, err := migrations.FS.ReadDir(".")
+	if !prismaHistoryExists {
+		return fmt.Errorf("%w: run the kuberploy-migration Job before API or worker startup", ErrMigrationsNotDeployed)
+	}
+
+	var unfinished int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`).Scan(&unfinished); err != nil {
+		return fmt.Errorf("inspect unfinished Prisma migrations: %w", err)
+	}
+	if unfinished != 0 {
+		return fmt.Errorf("%w: %d migration(s) are unfinished", ErrMigrationMismatch, unfinished)
+	}
+
+	rows, err := pool.Query(ctx, `SELECT migration_name, checksum, applied_steps_count
+		FROM _prisma_migrations
+		WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL
+		ORDER BY migration_name`)
 	if err != nil {
-		return fmt.Errorf("read embedded migrations: %w", err)
+		return fmt.Errorf("read applied Prisma migrations: %w", err)
 	}
-	var names []string
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	defer rows.Close()
+	var applied []appliedMigration
+	for rows.Next() {
+		var migration appliedMigration
+		if err = rows.Scan(&migration.name, &migration.checksum, &migration.appliedSteps); err != nil {
+			return fmt.Errorf("scan applied Prisma migration: %w", err)
 		}
-		load, nameErr := loadMigrationFilename(entry.Name())
-		if nameErr != nil {
-			return nameErr
-		}
-		if load {
-			names = append(names, entry.Name())
-		}
+		applied = append(applied, migration)
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		var applied bool
-		err = conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version=$1)`, name).Scan(&applied)
-		if err != nil {
-			return fmt.Errorf("check migration %s: %w", name, err)
-		}
-		if applied {
-			continue
-		}
-		body, err := migrations.FS.ReadFile(name)
-		if err != nil {
-			return fmt.Errorf("read migration %s: %w", name, err)
-		}
-		tx, err := conn.Begin(ctx)
-		if err != nil {
-			return fmt.Errorf("begin migration %s: %w", name, err)
-		}
-		if _, err = tx.Exec(ctx, string(body)); err == nil {
-			_, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version) VALUES ($1) ON CONFLICT DO NOTHING`, name)
-		}
-		if err != nil {
-			_ = tx.Rollback(ctx)
-			return fmt.Errorf("apply migration %s: %w", name, err)
-		}
-		if err = tx.Commit(ctx); err != nil {
-			return fmt.Errorf("commit migration %s: %w", name, err)
-		}
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("iterate applied Prisma migrations: %w", err)
 	}
-	var baseline string
-	if err = conn.QueryRow(ctx, `SELECT baseline FROM schema_migrations WHERE version=$1`, migrations.CurrentSchema+".sql").Scan(&baseline); err != nil {
-		return fmt.Errorf("read stable baseline identity: %w", err)
+
+	expected, err := migrations.History()
+	if err != nil {
+		return err
 	}
-	if baseline != stableBaseline {
-		return fmt.Errorf("unsupported database baseline %q", baseline)
+	if len(applied) != len(expected) {
+		return fmt.Errorf("%w: found %d successful migration(s), expected %d", ErrMigrationMismatch, len(applied), len(expected))
+	}
+	for i := range expected {
+		if applied[i].name != expected[i].Name || applied[i].checksum != expected[i].Checksum || applied[i].appliedSteps < 1 {
+			return fmt.Errorf("%w at position %d: found %q, expected %q", ErrMigrationMismatch, i+1, applied[i].name, expected[i].Name)
+		}
 	}
 	return nil
 }

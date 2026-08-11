@@ -200,7 +200,7 @@ func ValidateManifest(m domain.ReleaseManifest) error {
 	if len(m.Release.Summary) < 1 || len(m.Release.Summary) > 500 {
 		return errors.New("manifest summary must contain 1 to 500 bytes")
 	}
-	for name, version := range map[string]string{"kuberploy": m.Versions.Kuberploy, "api": m.Versions.API, "worker": m.Versions.Worker, "web": m.Versions.Web, "upgrader": m.Versions.Upgrader, "builderAgent": m.Versions.BuilderAgent, "chart": m.Versions.Chart} {
+	for name, version := range map[string]string{"kuberploy": m.Versions.Kuberploy, "api": m.Versions.API, "worker": m.Versions.Worker, "web": m.Versions.Web, "migration": m.Versions.Migration, "upgrader": m.Versions.Upgrader, "builderAgent": m.Versions.BuilderAgent, "chart": m.Versions.Chart} {
 		if version != m.Release.Version {
 			return fmt.Errorf("manifest %s version does not match release version", name)
 		}
@@ -212,12 +212,12 @@ func ValidateManifest(m domain.ReleaseManifest) error {
 		return errors.New("manifest Kubernetes compatibility does not match the v1 contract")
 	}
 	database := m.Compatibility.Database
-	if database.Engine != "postgresql" || !schemaNameRE.MatchString(database.CurrentSchema) || !schemaNameRE.MatchString(database.MinimumUpgradeableSchema) || database.MinimumUpgradeableSchema > database.CurrentSchema || !sha256RE.MatchString(database.MigrationSetSHA256) || database.Strategy != "ordered-expand-contract-with-advisory-lock" || len(database.RollbackPolicy) < 20 || len(database.RollbackPolicy) > 512 {
+	if database.Engine != "postgresql" || !schemaNameRE.MatchString(database.CurrentSchema) || !schemaNameRE.MatchString(database.MinimumUpgradeableSchema) || database.MinimumUpgradeableSchema > database.CurrentSchema || !sha256RE.MatchString(database.MigrationSetSHA256) || database.Strategy != "prisma-migrate-deploy-with-advisory-lock" || len(database.RollbackPolicy) < 20 || len(database.RollbackPolicy) > 512 {
 		return errors.New("manifest database compatibility is invalid")
 	}
-	wantedComponents := []string{"api", "worker", "web", "upgrader", "builder-agent"}
+	wantedComponents := []string{"api", "worker", "web", "migration", "upgrader", "builder-agent"}
 	if len(m.Artifacts.Images) != len(wantedComponents) {
-		return errors.New("manifest must contain exactly five component images")
+		return errors.New("manifest must contain exactly six component images")
 	}
 	for i, image := range m.Artifacts.Images {
 		component := wantedComponents[i]

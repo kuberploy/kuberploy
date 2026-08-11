@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/buildpromotion"
@@ -31,7 +33,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = platformpostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	store, err := NewPostgreSQLStore(pool)

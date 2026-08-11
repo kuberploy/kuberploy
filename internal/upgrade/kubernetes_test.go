@@ -69,13 +69,13 @@ func validExecutableRequest() ExecutableRequest {
 			Summary:   "Safe namespaced control-plane update",
 		},
 		Source:   domain.ManifestSource{Repository: "kuberploy/kuberploy", Commit: commit},
-		Versions: domain.ManifestVersions{Kuberploy: version, API: version, Worker: version, Web: version, Upgrader: version, BuilderAgent: version, Chart: version},
+		Versions: domain.ManifestVersions{Kuberploy: version, API: version, Worker: version, Web: version, Migration: version, Upgrader: version, BuilderAgent: version, Chart: version},
 		Compatibility: domain.ReleaseCompatibility{
 			SupportedUpgradeFrom: ">=1.0.0 <1.1.0",
 			Kubernetes:           domain.KubernetesCompatibility{Constraint: ">=1.34.0-0 <1.37.0-0", TestedMinors: []string{"1.34", "1.35", "1.36"}},
 			Database: domain.DatabaseCompatibility{
 				Engine: "postgresql", CurrentSchema: "002_platform_upgrades", MinimumUpgradeableSchema: "001_initial",
-				MigrationSetSHA256: artifactDigest, Strategy: "ordered-expand-contract-with-advisory-lock",
+				MigrationSetSHA256: artifactDigest, Strategy: "prisma-migrate-deploy-with-advisory-lock",
 				RollbackPolicy: "Only roll back to a schema-compatible control-plane release.",
 			},
 		},
@@ -84,6 +84,7 @@ func validExecutableRequest() ExecutableRequest {
 				{Component: "api", Reference: "ghcr.io/kuberploy/kuberploy-api", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "worker", Reference: "ghcr.io/kuberploy/kuberploy-worker", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "web", Reference: "ghcr.io/kuberploy/kuberploy-web", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
+				{Component: "migration", Reference: "ghcr.io/kuberploy/kuberploy-migration", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "upgrader", Reference: "ghcr.io/kuberploy/kuberploy-upgrader", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 				{Component: "builder-agent", Reference: "ghcr.io/kuberploy/kuberploy-builder-agent", Digest: artifactDigest, Platforms: []string{"linux/amd64", "linux/arm64"}},
 			},
@@ -120,7 +121,7 @@ func TestKubernetesRunnerCreatesSecureDigestPinnedJobAndReconciles(t *testing.T)
 		t.Fatalf("untrusted upgrader image %q", container.Image)
 	}
 	args := strings.Join(container.Args, " ")
-	for _, want := range []string{"oci://ghcr.io/kuberploy/charts/kuberploy@" + artifactDigest, "--reuse-values", "--rollback-on-failure", "components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@" + artifactDigest, "builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent@" + artifactDigest} {
+	for _, want := range []string{"oci://ghcr.io/kuberploy/charts/kuberploy@" + artifactDigest, "--reuse-values", "--rollback-on-failure", "components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@" + artifactDigest, "components.migration.image.reference=ghcr.io/kuberploy/kuberploy-migration@" + artifactDigest, "builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent@" + artifactDigest} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("Helm args missing %q: %s", want, args)
 		}

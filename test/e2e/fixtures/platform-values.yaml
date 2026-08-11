@@ -57,8 +57,3 @@ networkPolicy:
   externalEgressCIDRs: [192.0.2.10/32]
   externalPostgreSQLEgressCIDRs: [192.0.2.20/32]
   externalValkeyEgressCIDRs: [192.0.2.21/32]
-upgrade:
-  migrationJob:
-    enabled: false
-    command: []
-    activeDeadlineSeconds: 300

@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
 	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
-	"github.com/kuberploy/kuberploy/migrations"
 )
 
 func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
@@ -26,10 +27,10 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatalf("idempotent migration rerun: %v", err)
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -59,9 +60,8 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	if _, err = store.Deactivate(ctx, Command{ActorID: admin, IdempotencyKey: "admin-deactivate-" + admin, RequestID: "request-admin-deactivate", Now: now.Add(2 * time.Second)}, Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	var schema string
-	if err = pool.QueryRow(ctx, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&schema); err != nil || schema != migrations.CurrentSchema+".sql" {
-		t.Fatalf("schema=%q err=%v", schema, err)
+	if err = storepostgres.VerifySchema(ctx, pool); err != nil {
+		t.Fatalf("verify Prisma migration history: %v", err)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/certificates"
@@ -18,7 +20,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/secrets"
-	storepostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.T) {
@@ -32,7 +33,7 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	config := edgeRouteTestConfig(t)

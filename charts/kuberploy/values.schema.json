@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["global", "config", "components", "ingress", "rbac", "builder", "networkPolicy", "upgrade"],
+  "required": ["global", "config", "components", "databaseMigration", "ingress", "rbac", "builder", "networkPolicy", "upgrade"],
   "properties": {
     "global": {
       "type": "object",
@@ -791,11 +791,21 @@
     "components": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["api", "worker", "web"],
+      "required": ["api", "worker", "web", "migration"],
       "properties": {
         "api": { "$ref": "#/$defs/httpComponent" },
         "worker": { "$ref": "#/$defs/workerComponent" },
-        "web": { "$ref": "#/$defs/httpComponent" }
+        "web": { "$ref": "#/$defs/httpComponent" },
+        "migration": { "$ref": "#/$defs/jobComponent" }
+      }
+    },
+    "databaseMigration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activeDeadlineSeconds", "backoffLimit"],
+      "properties": {
+        "activeDeadlineSeconds": { "type": "integer", "minimum": 60, "maximum": 3600 },
+        "backoffLimit": { "type": "integer", "minimum": 0, "maximum": 10 }
       }
     },
     "ingress": {
@@ -856,7 +866,7 @@
     "upgrade": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["image", "runnerExecutable", "job", "migrationJob"],
+      "required": ["image", "runnerExecutable", "job"],
       "properties": {
         "image": { "$ref": "#/$defs/image" },
         "runnerExecutable": {
@@ -868,20 +878,6 @@
           "required": ["activeDeadlineSeconds"],
           "properties": {
             "activeDeadlineSeconds": { "type": "integer", "minimum": 60, "maximum": 900 }
-          }
-        },
-        "migrationJob": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["enabled", "command", "activeDeadlineSeconds"],
-          "properties": {
-            "enabled": { "type": "boolean" },
-            "command": {
-              "type": "array",
-              "maxItems": 32,
-              "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
-            },
-            "activeDeadlineSeconds": { "type": "integer", "minimum": 30, "maximum": 3600 }
           }
         }
       }
@@ -1634,6 +1630,15 @@
       "required": ["replicas", "image", "resources"],
       "properties": {
         "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "image": { "$ref": "#/$defs/image" },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "jobComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["image", "resources"],
+      "properties": {
         "image": { "$ref": "#/$defs/image" },
         "resources": { "$ref": "#/$defs/resources" }
       }

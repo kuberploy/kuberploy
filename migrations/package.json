@@ -1,0 +1,19 @@
+{
+  "name": "@kuberploy/database-migrations",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Migration-only Prisma runtime for Kuberploy PostgreSQL",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=26 <27"
+  },
+  "scripts": {
+    "deploy": "prisma migrate deploy --config prisma.config.ts",
+    "status": "prisma migrate status --config prisma.config.ts",
+    "pull": "prisma db pull --print --config prisma.config.ts",
+    "validate": "prisma validate --config prisma.config.ts"
+  },
+  "dependencies": {
+    "prisma": "7.9.1"
+  }
+}

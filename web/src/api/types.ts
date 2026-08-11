@@ -972,6 +972,7 @@ export type PlatformReleaseManifest = {
     api: string;
     worker: string;
     web: string;
+    migration: string;
     upgrader: string;
     builderAgent: string;
     chart: string;
@@ -993,7 +994,8 @@ export type PlatformReleaseManifest = {
   };
   artifacts: {
     images: Array<{
-      component: "api" | "worker" | "web" | "upgrader" | "builder-agent";
+      component:
+        "api" | "worker" | "web" | "migration" | "upgrader" | "builder-agent";
       reference: string;
       digest: string;
       platforms: string[];

@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
-	platformpostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
@@ -25,7 +26,7 @@ func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err = platformpostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	operatorDigest := digestBytes([]byte("helm-postgres-integration-operator.v1"))

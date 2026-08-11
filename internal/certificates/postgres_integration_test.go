@@ -9,11 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/secrets"
-	platformpostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
 )
 
 func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
@@ -27,7 +28,7 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err = platformpostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	actorID := id.New()

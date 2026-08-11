@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/testdb"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,10 +29,10 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	if err = storepostgres.Migrate(ctx, pool); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatalf("idempotent migration rerun: %v", err)
 	}
 	actor, team, project, environment, application, binding := id.New(), id.New(), id.New(), id.New(), id.New(), id.New()
@@ -102,20 +104,11 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if _, err = store.Deactivate(ctx, pgCommand(actor, "pg-deactivate-unreferenced", now.Add(3*time.Second)), profiles.Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if got := storepostgresSchema(t, ctx, pool); got != "001_initial.sql" {
-		t.Fatalf("current schema=%q", got)
+	if err = storepostgres.VerifySchema(ctx, pool); err != nil {
+		t.Fatalf("verify Prisma migration history: %v", err)
 	}
 }
 
 func pgCommand(actor, key string, now time.Time) profiles.Command {
 	return profiles.Command{ActorID: actor, IdempotencyKey: key, RequestID: "request-" + key, Now: now}
-}
-
-func storepostgresSchema(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
-	t.Helper()
-	var value string
-	if err := pool.QueryRow(ctx, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&value); err != nil {
-		t.Fatal(err)
-	}
-	return value
 }

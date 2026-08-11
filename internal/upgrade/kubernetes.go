@@ -159,6 +159,7 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 		"--set-string", "components.api.image.reference=" + imageRefs["api"],
 		"--set-string", "components.worker.image.reference=" + imageRefs["worker"],
 		"--set-string", "components.web.image.reference=" + imageRefs["web"],
+		"--set-string", "components.migration.image.reference=" + imageRefs["migration"],
 		"--set-string", "upgrade.image.reference=" + imageRefs["upgrader"],
 		"--set-string", "builder.builderAgentImage=" + imageRefs["builder-agent"],
 		"--wait", "--wait-for-jobs", "--cleanup-on-fail", "--rollback-on-failure",

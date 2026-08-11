@@ -43,7 +43,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	if err = Migrate(ctx, pool); err != nil {
+	if err = VerifySchema(ctx, pool); err != nil {
 		pool.Close()
 		return nil, err
 	}

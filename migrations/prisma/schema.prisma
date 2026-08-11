@@ -1,0 +1,10 @@
+// Kuberploy intentionally uses Prisma CLI only as a native-SQL migration
+// engine. The Go backend uses pgx and no Prisma Client is generated.
+//
+// Run `npm run pull` to print an introspected review snapshot without replacing
+// this migration-only schema. Partial indexes, deferred constraints, triggers,
+// functions, and several composite relations remain authoritative SQL because
+// Prisma's model language cannot represent the full Kuberploy contract.
+datasource db {
+  provider = "postgresql"
+}
