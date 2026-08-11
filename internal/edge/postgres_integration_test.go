@@ -29,7 +29,8 @@ func TestPostgreSQLEdgeRuntimeContract(t *testing.T) {
 	}
 	const userID = "22222222-2222-4222-8222-222222222222"
 	cleanup := func(cleanupContext context.Context) {
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_readiness WHERE worker_id IN ($1,$2)`, testWorkerID, "edge-worker-test-0002")
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness
+			WHERE runtime_kind='edge' AND scope_key='global' AND worker_id IN ($1,$2)`, testWorkerID, "edge-worker-test-0002")
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE integration_id=$1 OR integration_id IS NULL`, testExternalDNSIntegrationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM external_dns_integrations WHERE id=$1`, testExternalDNSIntegrationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM users WHERE id=$1`, userID)
@@ -183,7 +184,7 @@ func TestPostgreSQLExternalDNSManagedReferencesAreFenced(t *testing.T) {
 		userID        = "44444444-4444-4444-8444-444444444444"
 	)
 	cleanup := func(cleanupContext context.Context) {
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_readiness WHERE worker_id=$1`, testWorkerID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global' AND worker_id=$1`, testWorkerID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE integration_id=$1`, integrationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM external_dns_integrations WHERE id=$1`, integrationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM users WHERE id=$1`, userID)

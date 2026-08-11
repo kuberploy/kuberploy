@@ -422,8 +422,9 @@ func (s *PostgreSQLStore) RecordReadiness(ctx context.Context, readiness Readine
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var current Readiness
-	err = tx.QueryRow(ctx, `SELECT worker_id,worker_epoch,contract_version,config_digest,target_count,
-		started_at,observed_at,lease_until FROM edge_runtime_readiness WHERE worker_id=$1 FOR UPDATE`, readiness.WorkerID).
+	err = tx.QueryRow(ctx, `SELECT worker_id,worker_epoch,contract_version,config_digest,(identity->>'targetCount')::integer,
+		started_at,observed_at,lease_until FROM runtime_readiness
+		WHERE runtime_kind='edge' AND scope_key='global' AND worker_id=$1 FOR UPDATE`, readiness.WorkerID).
 		Scan(&current.WorkerID, &current.WorkerEpoch, &current.Contract, &current.ConfigDigest, &current.TargetCount,
 			&current.StartedAt, &current.ObservedAt, &current.LeaseUntil)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -440,12 +441,12 @@ func (s *PostgreSQLStore) RecordReadiness(ctx context.Context, readiness Readine
 			return ErrConflict
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO edge_runtime_readiness(
-		worker_id,worker_epoch,contract_version,config_digest,target_count,started_at,observed_at,lease_until
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-	ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=excluded.worker_epoch,contract_version=excluded.contract_version,
-		config_digest=excluded.config_digest,target_count=excluded.target_count,started_at=excluded.started_at,
-		observed_at=excluded.observed_at,lease_until=excluded.lease_until`, readiness.WorkerID, readiness.WorkerEpoch,
+	_, err = tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('edge','global',$1,$2,$3,$4,jsonb_build_object('targetCount',$5::integer),'{}'::jsonb,$6,$7,$8,$7)
+	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=excluded.worker_epoch,
+		contract_version=excluded.contract_version,config_digest=excluded.config_digest,identity=excluded.identity,
+		started_at=excluded.started_at,observed_at=excluded.observed_at,lease_until=excluded.lease_until,updated_at=excluded.updated_at`, readiness.WorkerID, readiness.WorkerEpoch,
 		readiness.Contract, readiness.ConfigDigest, readiness.TargetCount, readiness.StartedAt.UTC(), readiness.ObservedAt.UTC(), readiness.LeaseUntil.UTC())
 	if err != nil {
 		return classifyPostgreSQL(err)
@@ -460,8 +461,9 @@ func (s *PostgreSQLStore) RuntimeReady(ctx context.Context, contract, configDige
 	}
 	var workerReady, targetsReady bool
 	err := s.pool.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM edge_runtime_readiness r
-			WHERE r.contract_version=$1 AND r.config_digest=$2 AND r.target_count=$3
+		EXISTS(SELECT 1 FROM runtime_readiness r
+			WHERE r.runtime_kind='edge' AND r.scope_key='global' AND r.contract_version=$1 AND r.config_digest=$2
+			  AND (r.identity->>'targetCount')::integer=$3
 			  AND r.lease_until>$4 AND r.observed_at BETWEEN $4-make_interval(secs=>$5) AND $4+interval '5 seconds'),
 		((SELECT count(*) FROM edge_runtime_targets WHERE active)=$3 AND NOT EXISTS(
 			SELECT 1 FROM edge_runtime_targets target

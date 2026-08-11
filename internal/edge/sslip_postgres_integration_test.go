@@ -34,7 +34,7 @@ func TestPostgreSQLSSLIPObservationAndResolverAreFenced(t *testing.T) {
 		_, _ = pool.Exec(cleanupContext, `UPDATE edge_runtime_targets SET active=false,lease_owner=NULL,lease_until=NULL,
 			worker_contract=NULL,worker_config_digest=NULL WHERE target_key='traefik'`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_sslip_ingress_observations WHERE target_key='traefik'`)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_readiness WHERE worker_id=$1`, testWorkerID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global' AND worker_id=$1`, testWorkerID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key='traefik'`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM applications WHERE id=$1`, applicationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, environmentID)

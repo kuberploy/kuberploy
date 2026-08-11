@@ -60,8 +60,8 @@ func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM helm_renderer_readiness WHERE worker_id=$1`, "helm-postgres-worker-0001")
-		_, _ = pool.Exec(context.Background(), `DELETE FROM helm_renderer_readiness WHERE worker_id=$1`, "helm-postgres-worker-old1")
+		_, _ = pool.Exec(context.Background(), `DELETE FROM runtime_readiness WHERE runtime_kind='helm-renderer' AND scope_key='global' AND worker_id=$1`, "helm-postgres-worker-0001")
+		_, _ = pool.Exec(context.Background(), `DELETE FROM runtime_readiness WHERE runtime_kind='helm-renderer' AND scope_key='global' AND worker_id=$1`, "helm-postgres-worker-old1")
 		_, _ = pool.Exec(context.Background(), `DELETE FROM helm_render_results WHERE command_id=$1`, commandID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM helm_render_commands WHERE id=$1`, commandID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM helm_chart_approvals WHERE approval_id=$1`, approvalID)
@@ -191,8 +191,8 @@ func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
 	if ready, readyErr := oldStore.RuntimeReady(ctx, now.Add(time.Second)); readyErr != nil || !ready {
 		t.Fatalf("old store did not see its own exact readiness: %v %v", ready, readyErr)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE helm_renderer_readiness SET operator_config_digest=$2
-		WHERE worker_id=$1`, readiness.WorkerID, oldDigest); !postgresCheckViolation(err) {
+	if _, err = pool.Exec(ctx, `UPDATE runtime_readiness SET config_digest=$2
+		WHERE runtime_kind='helm-renderer' AND scope_key='global' AND worker_id=$1`, readiness.WorkerID, oldDigest); !postgresCheckViolation(err) {
 		t.Fatalf("same-epoch readiness digest substitution accepted: %v", err)
 	}
 }

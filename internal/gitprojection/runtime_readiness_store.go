@@ -58,13 +58,13 @@ func (s *PostgreSQLStore) AcquireRuntimeReadiness(ctx context.Context, observati
 		return RuntimeLease{}, ErrInvalid
 	}
 	var lease RuntimeLease
-	err := s.pool.QueryRow(ctx, `INSERT INTO git_projection_runtime_readiness(
-		worker_id,worker_epoch,contract_version,config_digest,github_app_id,started_at,observed_at,lease_until
-	) VALUES($1,1,$2,$3,$4,$5,$6,$7)
-	ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=git_projection_runtime_readiness.worker_epoch+1,
-		contract_version=excluded.contract_version,config_digest=excluded.config_digest,github_app_id=excluded.github_app_id,
-		started_at=excluded.started_at,observed_at=excluded.observed_at,lease_until=excluded.lease_until
-	RETURNING worker_id,worker_epoch,contract_version,config_digest,github_app_id,started_at,observed_at,lease_until`,
+	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('git-projection','global',$1,1,$2,$3,jsonb_build_object('githubAppId',$4::bigint),'{}'::jsonb,$5,$6,$7,$6)
+	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=runtime_readiness.worker_epoch+1,
+		contract_version=excluded.contract_version,config_digest=excluded.config_digest,identity=excluded.identity,
+		started_at=excluded.started_at,observed_at=excluded.observed_at,lease_until=excluded.lease_until,updated_at=excluded.updated_at
+	RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,started_at,observed_at,lease_until`,
 		observation.WorkerID, observation.ContractVersion, observation.ConfigDigest, observation.GitHubAppID,
 		observation.StartedAt.UTC(), observation.ObservedAt.UTC(), observation.ObservedAt.UTC().Add(duration)).Scan(
 		&lease.WorkerID, &lease.Epoch, &lease.ContractVersion, &lease.ConfigDigest, &lease.GitHubAppID,
@@ -80,10 +80,11 @@ func (s *PostgreSQLStore) HeartbeatRuntimeReadiness(ctx context.Context, lease R
 		return RuntimeLease{}, ErrInvalid
 	}
 	var updated RuntimeLease
-	err := s.pool.QueryRow(ctx, `UPDATE git_projection_runtime_readiness SET observed_at=$8,lease_until=$9
-		WHERE worker_id=$1 AND worker_epoch=$2 AND contract_version=$3 AND config_digest=$4 AND github_app_id=$5
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET observed_at=$8,lease_until=$9,updated_at=$8
+		WHERE runtime_kind='git-projection' AND scope_key='global' AND worker_id=$1 AND worker_epoch=$2
+		AND contract_version=$3 AND config_digest=$4 AND (identity->>'githubAppId')::bigint=$5
 		AND started_at=$6 AND observed_at=$7 AND lease_until>$8
-		RETURNING worker_id,worker_epoch,contract_version,config_digest,github_app_id,started_at,observed_at,lease_until`,
+		RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,started_at,observed_at,lease_until`,
 		lease.WorkerID, lease.Epoch, lease.ContractVersion, lease.ConfigDigest, lease.GitHubAppID, lease.StartedAt,
 		lease.ObservedAt, observedAt.UTC(), observedAt.UTC().Add(duration)).Scan(
 		&updated.WorkerID, &updated.Epoch, &updated.ContractVersion, &updated.ConfigDigest, &updated.GitHubAppID,
@@ -104,7 +105,8 @@ func (s *PostgreSQLStore) RuntimeReady(ctx context.Context, identity RuntimeIden
 	}
 	var ready bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM git_projection_runtime_readiness WHERE contract_version=$1 AND config_digest=$2 AND github_app_id=$3
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='git-projection' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND (identity->>'githubAppId')::bigint=$3
 		AND observed_at>=$4 AND observed_at<=$5 AND lease_until>$5
 	)`, identity.ContractVersion, identity.ConfigDigest, identity.GitHubAppID, now.UTC().Add(-maximumAge), now.UTC()).Scan(&ready)
 	if err != nil || !ready {

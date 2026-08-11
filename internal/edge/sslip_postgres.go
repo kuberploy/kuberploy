@@ -176,8 +176,8 @@ func (r *PostgreSQLSSLIPResolver) ResolveHostnameTx(
 	}
 	var workerReady bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM edge_runtime_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND target_count=$3
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND (identity->>'targetCount')::integer=$3
 		  AND observed_at BETWEEN $4::timestamptz-make_interval(secs=>$5) AND $4::timestamptz+interval '5 seconds'
 		  AND lease_until>$4::timestamptz
 	)`, RuntimeContract, configDigest, r.Config.TargetCount(), now.UTC(), int64(r.Config.ReadinessMaxAge.Seconds())).Scan(&workerReady)

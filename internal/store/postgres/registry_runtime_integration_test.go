@@ -193,9 +193,9 @@ func TestManagedRegistryRuntimeReadinessSQLFencingAndExactMatch(t *testing.T) {
 		Mode: domain.RegistryTargetExternal, Endpoint: "https://external-readiness.integration.test", RepositoryPrefix: "integration"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.pool.Exec(ctx, `INSERT INTO managed_registry_runtime_readiness(
-		registry_target_id,worker_id,worker_epoch,contract_version,config_digest,started_at,observed_at,lease_until
-	) VALUES($1,'worker-registry-ready-external',1,$2,$3,$4,$4,$5)`, externalID,
+	if _, err = st.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,registry_target_id,
+		worker_id,worker_epoch,contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('managed-registry',$1::text,$1,'worker-registry-ready-external',1,$2,$3,'{}'::jsonb,'{}'::jsonb,$4,$4,$5,$4)`, externalID,
 		registry.ManagedRegistryRuntimeContract, identity.ConfigDigest, now, now.Add(time.Minute)); err == nil {
 		t.Fatal("database accepted runtime readiness for external registry target")
 	}

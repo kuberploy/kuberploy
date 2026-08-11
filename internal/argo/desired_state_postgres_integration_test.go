@@ -44,7 +44,7 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 		pgSecondDeploymentID   = "b2400000-0000-4000-8000-000000000011"
 	)
 	cleanup := func(cleanupContext context.Context) {
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM argo_desired_state_runtime_readiness WHERE platform_binding_id=$1`, pgPlatformBindingID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='argo-desired-state' AND platform_binding_id=$1`, pgPlatformBindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM argo_desired_state_commands WHERE environment_id=$1`, pgEnvironmentID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id IN ($1,$2)`, pgEnvironmentBindingID, pgPlatformBindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, pgEnvironmentID)

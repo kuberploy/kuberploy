@@ -45,14 +45,20 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 	query := scopedURL.Query()
 	query.Set("search_path", schema)
 	scopedURL.RawQuery = query.Encode()
+	migrationPool, err := pgxpool.New(ctx, scopedURL.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, migrationPool); err != nil {
+		migrationPool.Close()
+		t.Fatal(err)
+	}
+	migrationPool.Close()
 	st, err := Open(ctx, scopedURL.String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
-		t.Fatal(err)
-	}
 
 	actorID := id.New()
 	viewerID := id.New()

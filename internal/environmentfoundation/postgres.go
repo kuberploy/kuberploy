@@ -326,13 +326,14 @@ func (s *PostgresStore) RecordReadiness(ctx context.Context, r Readiness) error 
 	if r.Validate() != nil {
 		return ErrInvalid
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO environment_foundation_readiness(
-	worker_id,worker_epoch,contract_version,profile_digest,publisher_config_digest,active_intent_count,
-	started_at,observed_at,lease_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
-	ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
-	contract_version=EXCLUDED.contract_version,profile_digest=EXCLUDED.profile_digest,
-	publisher_config_digest=EXCLUDED.publisher_config_digest,active_intent_count=EXCLUDED.active_intent_count,
-	started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until`,
+	_, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+	contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+	VALUES('environment-foundation','global',$1,$2,$3,$5,jsonb_build_object('profileDigest',$4::text),
+	jsonb_build_object('activeIntentCount',$6::integer),$7,$8,$9,$8)
+	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
+	contract_version=EXCLUDED.contract_version,config_digest=EXCLUDED.config_digest,identity=EXCLUDED.identity,
+	observation=EXCLUDED.observation,started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,
+	lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at`,
 		r.WorkerID, r.WorkerEpoch, r.Contract, r.ProfileDigest, r.PublisherConfigDigest, r.ActiveIntentCount, r.StartedAt, r.ObservedAt, r.LeaseUntil)
 	return mapPGExec(err)
 }
@@ -347,8 +348,9 @@ func (s *PostgresStore) ExactReady(ctx context.Context, profile, publisher strin
 	err := s.pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM environments),
 		count(*),count(*) FILTER(WHERE state='ready'),
-		EXISTS(SELECT 1 FROM environment_foundation_readiness WHERE contract_version=$1
-		  AND profile_digest=$2 AND publisher_config_digest=$3 AND active_intent_count=$4
+		EXISTS(SELECT 1 FROM runtime_readiness WHERE runtime_kind='environment-foundation' AND scope_key='global'
+		  AND contract_version=$1 AND identity->>'profileDigest'=$2 AND config_digest=$3
+		  AND (observation->>'activeIntentCount')::integer=$4
 		  AND observed_at<=$5 AND lease_until>$5)
 		FROM environment_foundation_intents
 		WHERE active AND profile_digest=$2 AND publisher_config_digest=$3`,

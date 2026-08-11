@@ -283,14 +283,14 @@ func (s *PostgreSQLStore) RecordReadiness(ctx context.Context, readiness Readine
 	if readiness.Validate() != nil {
 		return ErrInvalid
 	}
-	command, err := s.pool.Exec(ctx, `INSERT INTO runtime_registry_pull_readiness(
-		worker_id,worker_epoch,contract_version,config_digest,profile_count,started_at,observed_at,lease_until)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
+	command, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('runtime-registry-pull','global',$1,$2,$3,$4,jsonb_build_object('profileCount',$5::integer),'{}'::jsonb,$6,$7,$8,$7)
+		ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
 		 contract_version=EXCLUDED.contract_version,config_digest=EXCLUDED.config_digest,
-		 profile_count=EXCLUDED.profile_count,started_at=EXCLUDED.started_at,
-		 observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until
-		WHERE EXCLUDED.worker_epoch BETWEEN runtime_registry_pull_readiness.worker_epoch AND runtime_registry_pull_readiness.worker_epoch+1`,
+		 identity=EXCLUDED.identity,started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,
+		 lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at
+		WHERE EXCLUDED.worker_epoch BETWEEN runtime_readiness.worker_epoch AND runtime_readiness.worker_epoch+1`,
 		readiness.WorkerID, readiness.WorkerEpoch, readiness.Contract, readiness.ConfigDigest, readiness.ProfileCount,
 		readiness.StartedAt.UTC(), readiness.ObservedAt.UTC(), readiness.LeaseUntil.UTC())
 	if err != nil {
@@ -308,8 +308,8 @@ func (s *PostgreSQLStore) RuntimeReady(ctx context.Context, contract, configDige
 	}
 	var ready bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM runtime_registry_pull_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND profile_count=$3
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='runtime-registry-pull' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND (identity->>'profileCount')::integer=$3
 		  AND lease_until>$4 AND observed_at<=$5
 	)`, contract, configDigest, profileCount, now.UTC(), now.UTC().Add(5*time.Second)).Scan(&ready)
 	if err != nil {

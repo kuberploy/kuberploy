@@ -43,7 +43,7 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	cleanup := func(cleanupContext context.Context) {
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_readiness WHERE worker_id='projection-edge-test-worker'`)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global' AND worker_id='projection-edge-test-worker'`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key IN ('traefik','cert-manager')`)
 	}
 	cleanup(ctx)
@@ -69,8 +69,10 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 			t.Fatal(err)
 		}
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO edge_runtime_readiness(worker_id,worker_epoch,contract_version,config_digest,target_count,started_at,observed_at,lease_until)
-		VALUES('projection-edge-test-worker',1,$1,$2,$3,$4,$5,$6)`, edge.RuntimeContract, digest, config.TargetCount(),
+	if _, err = pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('edge','global','projection-edge-test-worker',1,$1,$2,jsonb_build_object('targetCount',$3::integer),
+		'{}'::jsonb,$4,$5,$6,$5)`, edge.RuntimeContract, digest, config.TargetCount(),
 		now.Add(-time.Minute), now.Add(-time.Second), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}

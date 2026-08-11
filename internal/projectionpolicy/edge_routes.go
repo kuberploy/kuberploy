@@ -293,8 +293,8 @@ func (p *EdgeRouteReferencePolicy) targetReadyTx(ctx context.Context, tx pgx.Tx,
 	}
 	var workerReady bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM edge_runtime_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND target_count=$3
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND (identity->>'targetCount')::integer=$3
 		  AND observed_at<=$4 AND observed_at>=$5 AND lease_until>$4
 	)`, edge.RuntimeContract, configDigest, p.Config.TargetCount(), now.UTC(), now.UTC().Add(-p.Config.ReadinessMaxAge)).Scan(&workerReady)
 	return workerReady, err

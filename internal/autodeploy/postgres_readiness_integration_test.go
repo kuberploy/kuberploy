@@ -71,8 +71,10 @@ func TestPostgreSQLAutoDeployRuntimeReadinessIsExactAndLeaseFenced(t *testing.T)
 		t.Fatalf("old lease survived reacquire: %v", err)
 	}
 
-	_, err = pool.Exec(ctx, `UPDATE auto_deploy_runtime_readiness SET operator_config_digest=$2 WHERE worker_id=$1`, observation.WorkerID, wrong.OperatorConfigDigest)
+	_, err = pool.Exec(ctx, `UPDATE runtime_readiness SET config_digest=$2
+		WHERE runtime_kind='auto-deploy' AND scope_key='global' AND worker_id=$1`, observation.WorkerID, wrong.OperatorConfigDigest)
 	assertPGCode(t, err, "23514")
-	_, err = pool.Exec(ctx, `UPDATE auto_deploy_runtime_readiness SET observed_at=$2,lease_until=$3 WHERE worker_id=$1`, observation.WorkerID, time.Now().UTC().Add(time.Minute), time.Now().UTC().Add(2*time.Minute))
+	_, err = pool.Exec(ctx, `UPDATE runtime_readiness SET observed_at=$2,lease_until=$3
+		WHERE runtime_kind='auto-deploy' AND scope_key='global' AND worker_id=$1`, observation.WorkerID, time.Now().UTC().Add(time.Minute), time.Now().UTC().Add(2*time.Minute))
 	assertPGCode(t, err, "23514")
 }

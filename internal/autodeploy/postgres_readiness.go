@@ -18,19 +18,22 @@ func (s *PostgreSQLStore) AcquireRuntimeReadiness(ctx context.Context, observati
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var epoch int64
-	err = tx.QueryRow(ctx, `SELECT lease_epoch FROM auto_deploy_runtime_readiness WHERE worker_id=$1 FOR UPDATE`, observation.WorkerID).Scan(&epoch)
+	err = tx.QueryRow(ctx, `SELECT worker_epoch FROM runtime_readiness
+		WHERE runtime_kind='auto-deploy' AND scope_key='global' AND worker_id=$1 FOR UPDATE`, observation.WorkerID).Scan(&epoch)
 	lease := RuntimeLease{RuntimeObservation: observation, Epoch: 1, Until: observation.ObservedAt.UTC().Add(duration)}
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_runtime_readiness(worker_id,contract_version,operator_config_digest,started_at,observed_at,lease_epoch,lease_until)
-			VALUES($1,$2,$3,$4,$5,1,$6)`, observation.WorkerID, observation.ContractVersion, observation.OperatorConfigDigest,
+		_, err = tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+			contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+			VALUES('auto-deploy','global',$1,1,$2,$3,'{}'::jsonb,'{}'::jsonb,$4,$5,$6,$5)`, observation.WorkerID, observation.ContractVersion, observation.OperatorConfigDigest,
 			observation.StartedAt.UTC(), observation.ObservedAt.UTC(), lease.Until)
 	case err != nil:
 		return RuntimeLease{}, classifyPostgres(err)
 	default:
 		lease.Epoch = epoch + 1
-		_, err = tx.Exec(ctx, `UPDATE auto_deploy_runtime_readiness SET contract_version=$2,operator_config_digest=$3,started_at=$4,
-			observed_at=$5,lease_epoch=$6,lease_until=$7 WHERE worker_id=$1`, observation.WorkerID, observation.ContractVersion,
+		_, err = tx.Exec(ctx, `UPDATE runtime_readiness SET contract_version=$2,config_digest=$3,started_at=$4,
+			observed_at=$5,worker_epoch=$6,lease_until=$7,updated_at=$5
+			WHERE runtime_kind='auto-deploy' AND scope_key='global' AND worker_id=$1`, observation.WorkerID, observation.ContractVersion,
 			observation.OperatorConfigDigest, observation.StartedAt.UTC(), observation.ObservedAt.UTC(), lease.Epoch, lease.Until)
 	}
 	if err != nil {
@@ -48,8 +51,9 @@ func (s *PostgreSQLStore) HeartbeatRuntimeReadiness(ctx context.Context, lease R
 		return RuntimeLease{}, ErrInvalid
 	}
 	until := observedAt.UTC().Add(duration)
-	result, err := s.pool.Exec(ctx, `UPDATE auto_deploy_runtime_readiness SET observed_at=$7,lease_until=$8
-		WHERE worker_id=$1 AND contract_version=$2 AND operator_config_digest=$3 AND started_at=$4 AND lease_epoch=$5 AND lease_until>$6`,
+	result, err := s.pool.Exec(ctx, `UPDATE runtime_readiness SET observed_at=$7,lease_until=$8,updated_at=$7
+		WHERE runtime_kind='auto-deploy' AND scope_key='global' AND worker_id=$1 AND contract_version=$2
+		AND config_digest=$3 AND started_at=$4 AND worker_epoch=$5 AND lease_until>$6`,
 		lease.WorkerID, lease.ContractVersion, lease.OperatorConfigDigest, lease.StartedAt.UTC(), lease.Epoch, observedAt.UTC(), observedAt.UTC(), until)
 	if err != nil {
 		return RuntimeLease{}, classifyPostgres(err)
@@ -66,8 +70,9 @@ func (s *PostgreSQLStore) RuntimeReady(ctx context.Context, identity RuntimeIden
 		return ErrInvalid
 	}
 	var ready bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM auto_deploy_runtime_readiness
-		WHERE contract_version=$1 AND operator_config_digest=$2 AND observed_at<=$4 AND observed_at>=$5 AND lease_until>$3)`,
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='auto-deploy' AND scope_key='global' AND contract_version=$1 AND config_digest=$2
+		AND observed_at<=$4 AND observed_at>=$5 AND lease_until>$3)`,
 		identity.ContractVersion, identity.OperatorConfigDigest, now.UTC(), now.UTC().Add(maximumRuntimeClockSkew), now.UTC().Add(-maximumAge)).Scan(&ready)
 	if err != nil {
 		return classifyPostgres(err)

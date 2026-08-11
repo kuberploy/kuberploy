@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kuberploy/kuberploy/migrations"
+	"github.com/kuberploy/kuberploy/internal/testdb"
 )
 
 func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
@@ -23,11 +23,7 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer pool.Close()
-	baseline, err := migrations.FS.ReadFile("001_initial.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, string(baseline)); err != nil {
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	store, err := NewPostgreSQLStore(pool)
@@ -55,7 +51,8 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_, _ = pool.Exec(context.Background(), `DELETE FROM runtime_registry_pull_artifacts WHERE environment_id=$1`, environmentID)
-		_, _ = pool.Exec(context.Background(), `DELETE FROM runtime_registry_pull_readiness WHERE worker_id LIKE 'registry-pull-integration:%'`)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM runtime_readiness
+			WHERE runtime_kind='runtime-registry-pull' AND scope_key='global' AND worker_id LIKE 'registry-pull-integration:%'`)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM registry_targets WHERE id=$1`, targetID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM environments WHERE id=$1`, environmentID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM projects WHERE id=$1`, projectID)

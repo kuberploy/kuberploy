@@ -133,31 +133,6 @@ model argo_desired_state_commands {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model argo_desired_state_runtime_readiness {
-  worker_id                String   @id
-  worker_epoch             BigInt
-  contract_version         String
-  config_digest            String
-  github_app_id            BigInt
-  platform_binding_id      String   @db.Uuid
-  cluster_id               String   @db.Uuid
-  argo_namespace           String
-  root_application_name    String
-  repository_secret_name   String
-  chart_repository         String
-  chart_name               String
-  chart_version            String
-  chart_digest             String
-  renderer_image           String
-  chart_digest_enforcement String
-  started_at               DateTime @db.Timestamptz(6)
-  observed_at              DateTime @db.Timestamptz(6)
-  lease_until              DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, github_app_id, platform_binding_id, cluster_id, chart_digest, renderer_image, observed_at(sort: Desc)], map: "argo_desired_state_runtime_readiness_match_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model argo_observation_runtime {
   argo_namespace            String    @id
   lease_owner               String    @default("")
@@ -283,17 +258,6 @@ model auto_deploy_runs {
 
   @@id([attempt_id, policy_id])
   @@index([available_at, created_at, attempt_id, policy_id], map: "auto_deploy_runs_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model auto_deploy_runtime_readiness {
-  worker_id              String   @id
-  contract_version       String
-  operator_config_digest String
-  started_at             DateTime @db.Timestamptz(6)
-  observed_at            DateTime @db.Timestamptz(6)
-  lease_epoch            BigInt
-  lease_until            DateTime @db.Timestamptz(6)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -429,22 +393,6 @@ model cert_manager_issuer_observations {
   updated_at           DateTime  @db.Timestamptz(6)
 
   @@id([profile_id, revision])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model cert_manager_issuer_observer_readiness {
-  worker_id        String   @id
-  contract_version String
-  config_digest    String   @unique
-  target_digest    String
-  target_count     Int
-  started_at       DateTime @db.Timestamptz(6)
-  observed_at      DateTime @db.Timestamptz(6)
-  lease_epoch      BigInt
-  lease_until      DateTime @db.Timestamptz(6)
-  updated_at       DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, target_digest, target_count, observed_at, lease_until], map: "cert_manager_issuer_observer_readiness_match_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -589,20 +537,6 @@ model deployments {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model edge_runtime_readiness {
-  worker_id        String   @id
-  worker_epoch     BigInt
-  contract_version String
-  config_digest    String
-  target_count     Int
-  started_at       DateTime @db.Timestamptz(6)
-  observed_at      DateTime @db.Timestamptz(6)
-  lease_until      DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, target_count, observed_at(sort: Desc)], map: "edge_runtime_readiness_match_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model edge_runtime_targets {
   target_key                     String    @unique(map: "edge_runtime_targets_active_key_idx", where: raw("active"))
   profile_revision               BigInt
@@ -703,21 +637,6 @@ model environment_foundation_intents {
 
   @@index([next_attempt_at, id], map: "environment_foundation_due_idx", where: raw("(active AND (state = ANY (ARRAY['pending'::text, 'claimed'::text])))"))
   @@index([profile_digest, publisher_config_digest, state], map: "environment_foundation_exact_ready_idx", where: raw("active"))
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model environment_foundation_readiness {
-  worker_id               String   @id
-  worker_epoch            BigInt
-  contract_version        String
-  profile_digest          String
-  publisher_config_digest String
-  active_intent_count     Int
-  started_at              DateTime @db.Timestamptz(6)
-  observed_at             DateTime @db.Timestamptz(6)
-  lease_until             DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, profile_digest, publisher_config_digest, active_intent_count, observed_at(sort: Desc)], map: "environment_foundation_readiness_exact_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -882,20 +801,6 @@ model git_projection_push_wakes {
   received_at     DateTime @db.Timestamptz(6)
 
   @@unique([github_app_id, installation_id, repository_id, target_ref, after_commit])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model git_projection_runtime_readiness {
-  worker_id        String   @id
-  worker_epoch     BigInt
-  contract_version String
-  config_digest    String
-  github_app_id    BigInt
-  started_at       DateTime @db.Timestamptz(6)
-  observed_at      DateTime @db.Timestamptz(6)
-  lease_until      DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, github_app_id, observed_at(sort: Desc)], map: "git_projection_runtime_readiness_match_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1316,20 +1221,6 @@ model helm_protected_payload_intents {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model helm_protected_publisher_readiness {
-  worker_id        String   @id
-  worker_epoch     BigInt
-  contract_version String
-  policy_version   String
-  config_digest    String
-  started_at       DateTime @db.Timestamptz(6)
-  observed_at      DateTime @db.Timestamptz(6)
-  lease_until      DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, policy_version, config_digest, observed_at(sort: Desc)], map: "helm_protected_publisher_readiness_match_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model helm_release_heads {
   project_id     String   @db.Uuid
   environment_id String   @db.Uuid
@@ -1430,23 +1321,6 @@ model helm_render_results {
   operator_config_digest String
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model helm_renderer_readiness {
-  worker_id              String   @id
-  worker_epoch           BigInt
-  contract_version       String
-  renderer_image         String
-  renderer_version       String
-  policy_version         String
-  limits_digest          String
-  started_at             DateTime @db.Timestamptz(6)
-  observed_at            DateTime @db.Timestamptz(6)
-  lease_until            DateTime @db.Timestamptz(6)
-  operator_config_digest String
-
-  @@index([contract_version, renderer_image, renderer_version, policy_version, limits_digest, operator_config_digest, observed_at(sort: Desc)], map: "helm_renderer_readiness_match_idx")
-}
-
 model idempotency_keys {
   actor_id      String   @db.Uuid
   scope         String
@@ -1458,21 +1332,6 @@ model idempotency_keys {
   created_at    DateTime @default(now()) @db.Timestamptz(6)
 
   @@id([actor_id, scope, key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model managed_registry_runtime_readiness {
-  registry_target_id String   @db.Uuid
-  worker_id          String
-  worker_epoch       BigInt
-  contract_version   String
-  config_digest      String
-  started_at         DateTime @db.Timestamptz(6)
-  observed_at        DateTime @db.Timestamptz(6)
-  lease_until        DateTime @db.Timestamptz(6)
-
-  @@id([registry_target_id, worker_id])
-  @@index([registry_target_id, contract_version, config_digest, observed_at(sort: Desc)], map: "managed_registry_runtime_readiness_match_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1852,6 +1711,28 @@ model registry_targets {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model runtime_readiness {
+  runtime_kind        String
+  scope_key           String
+  worker_id           String
+  worker_epoch        BigInt
+  contract_version    String
+  config_digest       String
+  identity            Json
+  observation         Json
+  registry_target_id  String?  @db.Uuid
+  platform_binding_id String?  @db.Uuid
+  started_at          DateTime @db.Timestamptz(6)
+  observed_at         DateTime @db.Timestamptz(6)
+  lease_until         DateTime @db.Timestamptz(6)
+  updated_at          DateTime @db.Timestamptz(6)
+
+  @@id([runtime_kind, scope_key, worker_id])
+  @@unique([runtime_kind, config_digest], map: "runtime_readiness_certificate_config_idx", where: raw("(runtime_kind = 'certificate-issuer-observer'::text)"))
+  @@index([runtime_kind, scope_key, contract_version, config_digest, observed_at(sort: Desc), lease_until], map: "runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model runtime_registry_pull_artifacts {
   environment_id            String    @db.Uuid
   namespace                 String
@@ -1880,35 +1761,6 @@ model runtime_registry_pull_artifacts {
   @@unique([namespace, secret_name])
   @@unique([environment_id, registry_target_id], map: "runtime_registry_pull_artifacts_one_active_idx", where: raw("active"))
   @@index([next_observation_at, environment_id, registry_target_id], map: "runtime_registry_pull_artifacts_due_idx", where: raw("(active AND (runtime_state <> 'failed'::text))"))
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model runtime_registry_pull_readiness {
-  worker_id        String   @id
-  worker_epoch     BigInt
-  contract_version String
-  config_digest    String
-  profile_count    Int
-  started_at       DateTime @db.Timestamptz(6)
-  observed_at      DateTime @db.Timestamptz(6)
-  lease_until      DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, profile_count, observed_at(sort: Desc)], map: "runtime_registry_pull_readiness_match_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model runtime_secret_runtime_readiness {
-  worker_id               String   @id
-  worker_epoch            BigInt
-  contract_version        String
-  config_digest           String
-  fingerprint_key_id      String
-  sealing_key_fingerprint String
-  started_at              DateTime @db.Timestamptz(6)
-  observed_at             DateTime @db.Timestamptz(6)
-  lease_until             DateTime @db.Timestamptz(6)
-
-  @@index([contract_version, config_digest, fingerprint_key_id, sealing_key_fingerprint, observed_at(sort: Desc)], map: "runtime_secret_runtime_readiness_match_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -2098,19 +1950,6 @@ model sessions {
   created_at     DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([expires_at], map: "sessions_expires_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model source_build_runtime_readiness {
-  worker_id           String   @id
-  config_digest       String
-  github_app_id       BigInt
-  builder_namespace   String
-  builder_agent_image String
-  started_at          DateTime @db.Timestamptz(6)
-  observed_at         DateTime @db.Timestamptz(6)
-
-  @@index([config_digest, observed_at(sort: Desc)], map: "source_build_runtime_readiness_match_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

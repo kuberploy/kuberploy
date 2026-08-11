@@ -807,13 +807,14 @@ func (s *PostgresProtectedPublicationStore) PutPublisherReadiness(ctx context.Co
 	if readiness.Validate() != nil {
 		return ErrInvalid
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO helm_protected_publisher_readiness(
-		worker_id,worker_epoch,contract_version,policy_version,config_digest,
-		started_at,observed_at,lease_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
-		contract_version=EXCLUDED.contract_version,policy_version=EXCLUDED.policy_version,
+	_, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('helm-protected-publisher','global',$1,$2,$3,$5,jsonb_build_object('policyVersion',$4::text),
+		'{}'::jsonb,$6,$7,$8,$7)
+		ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
+		contract_version=EXCLUDED.contract_version,identity=EXCLUDED.identity,
 		config_digest=EXCLUDED.config_digest,started_at=EXCLUDED.started_at,
-		observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until`, readiness.WorkerID,
+		observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at`, readiness.WorkerID,
 		readiness.WorkerEpoch, readiness.Publisher.Contract, readiness.Publisher.PolicyVersion,
 		readiness.Publisher.ConfigDigest, readiness.StartedAt.UTC(), readiness.ObservedAt.UTC(),
 		readiness.LeaseUntil.UTC())
@@ -826,9 +827,9 @@ func (s *PostgresProtectedPublicationStore) PublisherReady(ctx context.Context,
 		return false, ErrInvalid
 	}
 	var ready bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1
-		FROM helm_protected_publisher_readiness WHERE contract_version=$1
-		AND policy_version=$2 AND config_digest=$3 AND lease_until>$4)`, publisher.Contract,
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='helm-protected-publisher' AND scope_key='global' AND contract_version=$1
+		AND identity->>'policyVersion'=$2 AND config_digest=$3 AND lease_until>$4)`, publisher.Contract,
 		publisher.PolicyVersion, publisher.ConfigDigest, now.UTC()).Scan(&ready)
 	return ready, classifyPostgres(err)
 }

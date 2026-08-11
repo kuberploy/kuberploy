@@ -2,12 +2,17 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/id"
 )
 
 func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
@@ -30,19 +35,19 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 126)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 108)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-		WHERE n.nspname='public'`, 81)
+		WHERE n.nspname='public'`, 66)
 	assertCatalogCount(t, ctx, pool, "non-internal triggers", `SELECT count(*)
 		FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND NOT t.tgisinternal`, 89)
+		WHERE n.nspname='public' AND NOT t.tgisinternal`, 73)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 876)
+		WHERE n.nspname='public' AND c.contype='c'`, 777)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.condeferrable`, 12)
+		WHERE n.nspname='public' AND c.condeferrable`, 10)
 	assertCatalogCount(t, ctx, pool, "expression indexes", `SELECT count(*)
 		FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
 		WHERE n.nspname='public' AND i.indexprs IS NOT NULL`, 2)
@@ -51,7 +56,8 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"protect_git_pull_request_publication",
 		"protect_secret_binding_version",
 		"validate_helm_release_revision",
-		"validate_scheduling_profile_assignment",
+		"validate_configuration_profile_assignment",
+		"validate_runtime_readiness",
 		"enqueue_auto_deploy_runs",
 	} {
 		var present bool
@@ -68,7 +74,8 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"git_pull_request_publications_protect",
 		"secret_binding_versions_protect",
 		"helm_release_revisions_validate",
-		"scheduling_profile_assignment_validate",
+		"configuration_profile_assignment_validate",
+		"runtime_readiness_validate",
 		"build_release_enqueue_auto_deploy",
 	} {
 		var present bool
@@ -81,6 +88,23 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		if !present {
 			t.Errorf("native PostgreSQL trigger %q is missing", trigger)
 		}
+	}
+
+	workerID := "migration-readiness-" + id.New()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err = pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('source-build','global',$1,1,'source-build.v1',$2,
+		jsonb_build_object('githubAppId',1,'builderNamespace','builds','builderAgentImage',$3::text),
+		'{}'::jsonb,$4,$4,$4::timestamptz+interval '1 minute',$4)`, workerID, "sha256:"+strings.Repeat("1", 64),
+		"registry.example/kuberploy-build-agent@sha256:"+strings.Repeat("2", 64), now); err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `UPDATE runtime_readiness SET runtime_kind='edge',contract_version='edge-observer.v1',
+		identity=jsonb_build_object('targetCount',1) WHERE runtime_kind='source-build' AND worker_id=$1`, workerID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("cross-kind readiness substitution err=%v", err)
 	}
 }
 

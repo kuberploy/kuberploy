@@ -9,12 +9,14 @@ func (s *PostgreSQLStore) ObserveSourceBuildWorker(ctx context.Context, observat
 	if s == nil || s.pool == nil || observation.validate() != nil {
 		return ErrInvalid
 	}
-	command, err := s.pool.Exec(ctx, `INSERT INTO source_build_runtime_readiness(worker_id,config_digest,github_app_id,builder_namespace,builder_agent_image,started_at,observed_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT(worker_id) DO UPDATE SET config_digest=EXCLUDED.config_digest,github_app_id=EXCLUDED.github_app_id,
-		builder_namespace=EXCLUDED.builder_namespace,builder_agent_image=EXCLUDED.builder_agent_image,
-		started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at
-		WHERE source_build_runtime_readiness.observed_at <= EXCLUDED.observed_at`,
+	command, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('source-build','global',$1,1,'source-build.v1',$2,
+		jsonb_build_object('githubAppId',$3::bigint,'builderNamespace',$4::text,'builderAgentImage',$5::text),'{}'::jsonb,$6,$7,$7::timestamptz+interval '5 minutes',$7)
+		ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=runtime_readiness.worker_epoch+1,
+		config_digest=EXCLUDED.config_digest,identity=EXCLUDED.identity,started_at=EXCLUDED.started_at,
+		observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at
+		WHERE runtime_readiness.observed_at <= EXCLUDED.observed_at`,
 		observation.WorkerID, observation.ConfigDigest, observation.GitHubAppID, observation.BuilderNamespace,
 		observation.BuilderAgentImage, observation.StartedAt.UTC(), observation.ObservedAt.UTC())
 	if err != nil {
@@ -32,9 +34,10 @@ func (s *PostgreSQLStore) SourceBuildRuntimeReady(ctx context.Context, identity 
 	}
 	var exists bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM source_build_runtime_readiness
-		WHERE config_digest=$1 AND github_app_id=$2 AND builder_namespace=$3 AND builder_agent_image=$4
-		AND observed_at >= $5 AND observed_at <= $6
+		SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='source-build' AND scope_key='global' AND config_digest=$1
+		AND (identity->>'githubAppId')::bigint=$2 AND identity->>'builderNamespace'=$3 AND identity->>'builderAgentImage'=$4
+		AND observed_at >= $5 AND observed_at <= $6 AND lease_until>$6
 	)`, identity.ConfigDigest, identity.GitHubAppID, identity.BuilderNamespace, identity.BuilderAgentImage,
 		now.UTC().Add(-maximumAge), now.UTC().Add(5*time.Second)).Scan(&exists)
 	if err != nil {

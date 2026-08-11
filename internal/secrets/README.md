@@ -177,7 +177,7 @@ The runtime-reconciliation tables add:
   identity, safe scheduling/failure metadata and an epoch-fenced lease;
 - a due index used with PostgreSQL `FOR UPDATE ... SKIP LOCKED` for safe
   multi-worker claims; and
-- `runtime_secret_runtime_readiness`, an exact config/contract worker heartbeat
+- `runtime_readiness` kind `runtime-secret`, an exact config/contract worker heartbeat
   with restart epochs and freshness checks.
 
 Database constraints reject an ExternalSecret reconciliation cursor,

@@ -18,9 +18,11 @@ func (s *PostgresStore) AcquireObserverReadiness(ctx context.Context, observatio
 	}
 	defer tx.Rollback(context.Background())
 	until := observation.ObservedAt.Add(duration)
-	result, err := tx.Exec(ctx, `INSERT INTO cert_manager_issuer_observer_readiness(
-		worker_id,contract_version,config_digest,target_digest,target_count,started_at,observed_at,lease_epoch,lease_until,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,1,$8,$7) ON CONFLICT(config_digest) DO NOTHING`,
+	result, err := tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('certificate-issuer-observer','global',$1,1,$2,$3,'{}'::jsonb,
+		jsonb_build_object('targetDigest',$4::text,'targetCount',$5::integer),$6,$7,$8,$7)
+	ON CONFLICT(runtime_kind,config_digest) WHERE runtime_kind='certificate-issuer-observer' DO NOTHING`,
 		observation.WorkerID, observation.Identity.ContractVersion, observation.Identity.ConfigDigest, observation.TargetDigest,
 		observation.TargetCount, observation.StartedAt, observation.ObservedAt, until)
 	if err != nil {
@@ -41,10 +43,11 @@ func (s *PostgresStore) AcquireObserverReadiness(ctx context.Context, observatio
 		return ObserverReadinessLease{}, ErrObserverLeaseLost
 	}
 	lease.Epoch = current.Epoch + 1
-	result, err = tx.Exec(ctx, `UPDATE cert_manager_issuer_observer_readiness SET
-		worker_id=$1,contract_version=$2,target_digest=$4,target_count=$5,started_at=$6,observed_at=$7,
-		lease_epoch=$8,lease_until=$9,updated_at=$7
-		WHERE config_digest=$3 AND lease_epoch=$10 AND lease_until=$11`,
+	result, err = tx.Exec(ctx, `UPDATE runtime_readiness SET worker_id=$1,contract_version=$2,
+		observation=jsonb_build_object('targetDigest',$4::text,'targetCount',$5::integer),started_at=$6,observed_at=$7,
+		worker_epoch=$8,lease_until=$9,updated_at=$7
+		WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global'
+		AND config_digest=$3 AND worker_epoch=$10 AND lease_until=$11`,
 		observation.WorkerID, observation.Identity.ContractVersion, observation.Identity.ConfigDigest, observation.TargetDigest,
 		observation.TargetCount, observation.StartedAt, observation.ObservedAt, lease.Epoch, until, current.Epoch, current.Until)
 	if err != nil {
@@ -71,10 +74,11 @@ func (s *PostgresStore) HeartbeatObserverReadiness(ctx context.Context, lease Ob
 	updated := ObserverReadinessLease{ObserverWorkerObservation: observation, Epoch: lease.Epoch, Until: observation.ObservedAt.Add(duration)}
 	var returnedEpoch int64
 	var returnedUntil time.Time
-	err := s.pool.QueryRow(ctx, `UPDATE cert_manager_issuer_observer_readiness SET
-		target_digest=$1,target_count=$2,observed_at=$3,lease_until=$4,updated_at=$3
-		WHERE config_digest=$5 AND worker_id=$6 AND contract_version=$7 AND started_at=$8 AND lease_epoch=$9 AND lease_until=$10 AND lease_until>$3
-		RETURNING lease_epoch,lease_until`, observation.TargetDigest, observation.TargetCount, observation.ObservedAt, updated.Until,
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET
+		observation=jsonb_build_object('targetDigest',$1::text,'targetCount',$2::integer),observed_at=$3,lease_until=$4,updated_at=$3
+		WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global' AND config_digest=$5
+		AND worker_id=$6 AND contract_version=$7 AND started_at=$8 AND worker_epoch=$9 AND lease_until=$10 AND lease_until>$3
+		RETURNING worker_epoch,lease_until`, observation.TargetDigest, observation.TargetCount, observation.ObservedAt, updated.Until,
 		observation.Identity.ConfigDigest, observation.WorkerID, observation.Identity.ContractVersion, observation.StartedAt, lease.Epoch, lease.Until).
 		Scan(&returnedEpoch, &returnedUntil)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -97,8 +101,9 @@ func (s *PostgresStore) ObserverRuntimeReady(ctx context.Context, identity Obser
 	}
 	var ready bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM cert_manager_issuer_observer_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND target_digest=$3 AND target_count=$4
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND observation->>'targetDigest'=$3
+		AND (observation->>'targetCount')::integer=$4
 		  AND observed_at<=$5 AND observed_at>=$6 AND lease_until>$5
 	)`, identity.ContractVersion, identity.ConfigDigest, targetDigest, targetCount, now, now.Add(-maximumAge)).Scan(&ready)
 	if err != nil {
@@ -112,8 +117,10 @@ func (s *PostgresStore) ObserverRuntimeReady(ctx context.Context, identity Obser
 
 func loadObserverReadinessForUpdate(ctx context.Context, tx pgx.Tx, configDigest string) (ObserverReadinessLease, error) {
 	var lease ObserverReadinessLease
-	err := tx.QueryRow(ctx, `SELECT worker_id,contract_version,config_digest,target_digest,target_count,started_at,observed_at,lease_epoch,lease_until
-		FROM cert_manager_issuer_observer_readiness WHERE config_digest=$1 FOR UPDATE`, configDigest).
+	err := tx.QueryRow(ctx, `SELECT worker_id,contract_version,config_digest,observation->>'targetDigest',
+		(observation->>'targetCount')::integer,started_at,observed_at,worker_epoch,lease_until
+		FROM runtime_readiness WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global'
+		AND config_digest=$1 FOR UPDATE`, configDigest).
 		Scan(&lease.WorkerID, &lease.Identity.ContractVersion, &lease.Identity.ConfigDigest, &lease.TargetDigest, &lease.TargetCount,
 			&lease.StartedAt, &lease.ObservedAt, &lease.Epoch, &lease.Until)
 	if errors.Is(err, pgx.ErrNoRows) {

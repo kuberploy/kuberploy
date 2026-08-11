@@ -333,22 +333,21 @@ func (s *PostgreSQLStore) AcquireDesiredStateReadiness(ctx context.Context, obse
 		return DesiredStateRuntimeLease{}, ErrInvalid
 	}
 	var lease DesiredStateRuntimeLease
-	err := s.pool.QueryRow(ctx, `INSERT INTO argo_desired_state_runtime_readiness(
-		worker_id,worker_epoch,contract_version,config_digest,github_app_id,platform_binding_id,cluster_id,
-		argo_namespace,root_application_name,repository_secret_name,chart_repository,chart_name,chart_version,
-		chart_digest,renderer_image,chart_digest_enforcement,started_at,observed_at,lease_until
-	) VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-	ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=argo_desired_state_runtime_readiness.worker_epoch+1,
-		contract_version=excluded.contract_version,config_digest=excluded.config_digest,github_app_id=excluded.github_app_id,
-		platform_binding_id=excluded.platform_binding_id,cluster_id=excluded.cluster_id,argo_namespace=excluded.argo_namespace,
-		root_application_name=excluded.root_application_name,repository_secret_name=excluded.repository_secret_name,
-		chart_repository=excluded.chart_repository,chart_name=excluded.chart_name,chart_version=excluded.chart_version,
-		chart_digest=excluded.chart_digest,renderer_image=excluded.renderer_image,
-		chart_digest_enforcement=excluded.chart_digest_enforcement,started_at=excluded.started_at,
-		observed_at=excluded.observed_at,lease_until=excluded.lease_until
-	RETURNING worker_id,worker_epoch,contract_version,config_digest,github_app_id,platform_binding_id::text,cluster_id::text,
-		argo_namespace,root_application_name,repository_secret_name,chart_repository,chart_name,chart_version,
-		chart_digest,renderer_image,chart_digest_enforcement,started_at,observed_at,lease_until`,
+	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,platform_binding_id,started_at,observed_at,lease_until,updated_at
+	) VALUES('argo-desired-state','global',$1,1,$2,$3,jsonb_build_object(
+		'githubAppId',$4::bigint,'clusterId',$6::text,'argoNamespace',$7::text,'rootApplicationName',$8::text,
+		'repositorySecretName',$9::text,'chartRepository',$10::text,'chartName',$11::text,'chartVersion',$12::text,
+		'chartDigest',$13::text,'rendererImage',$14::text,'chartDigestEnforcement',$15::text
+	),'{}'::jsonb,$5,$16,$17,$18,$17)
+	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=runtime_readiness.worker_epoch+1,
+		contract_version=excluded.contract_version,config_digest=excluded.config_digest,identity=excluded.identity,
+		platform_binding_id=excluded.platform_binding_id,started_at=excluded.started_at,
+		observed_at=excluded.observed_at,lease_until=excluded.lease_until,updated_at=excluded.updated_at
+	RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,
+		platform_binding_id::text,identity->>'clusterId',identity->>'argoNamespace',identity->>'rootApplicationName',
+		identity->>'repositorySecretName',identity->>'chartRepository',identity->>'chartName',identity->>'chartVersion',
+		identity->>'chartDigest',identity->>'rendererImage',identity->>'chartDigestEnforcement',started_at,observed_at,lease_until`,
 		observation.WorkerID, observation.ContractVersion, observation.ConfigDigest, observation.GitHubAppID,
 		observation.PlatformBindingID, observation.ClusterID, observation.ArgoNamespace, observation.RootApplicationName,
 		observation.RepositorySecretName, observation.Runtime.ChartRepository, observation.Runtime.ChartName,
@@ -370,15 +369,19 @@ func (s *PostgreSQLStore) HeartbeatDesiredStateReadiness(ctx context.Context, le
 		return DesiredStateRuntimeLease{}, ErrInvalid
 	}
 	var updated DesiredStateRuntimeLease
-	err := s.pool.QueryRow(ctx, `UPDATE argo_desired_state_runtime_readiness SET observed_at=$19,lease_until=$20
-		WHERE worker_id=$1 AND worker_epoch=$2 AND contract_version=$3 AND config_digest=$4 AND github_app_id=$5
-		AND platform_binding_id=$6 AND cluster_id=$7 AND argo_namespace=$8 AND root_application_name=$9
-		AND repository_secret_name=$10 AND chart_repository=$11 AND chart_name=$12 AND chart_version=$13
-		AND chart_digest=$14 AND renderer_image=$15 AND chart_digest_enforcement=$16 AND started_at=$17
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET observed_at=$19,lease_until=$20,updated_at=$19
+		WHERE runtime_kind='argo-desired-state' AND scope_key='global' AND worker_id=$1 AND worker_epoch=$2
+		AND contract_version=$3 AND config_digest=$4 AND (identity->>'githubAppId')::bigint=$5
+		AND platform_binding_id=$6 AND identity->>'clusterId'=$7 AND identity->>'argoNamespace'=$8
+		AND identity->>'rootApplicationName'=$9 AND identity->>'repositorySecretName'=$10
+		AND identity->>'chartRepository'=$11 AND identity->>'chartName'=$12 AND identity->>'chartVersion'=$13
+		AND identity->>'chartDigest'=$14 AND identity->>'rendererImage'=$15
+		AND identity->>'chartDigestEnforcement'=$16 AND started_at=$17
 		AND observed_at=$18 AND lease_until>$19
-	RETURNING worker_id,worker_epoch,contract_version,config_digest,github_app_id,platform_binding_id::text,cluster_id::text,
-		argo_namespace,root_application_name,repository_secret_name,chart_repository,chart_name,chart_version,
-		chart_digest,renderer_image,chart_digest_enforcement,started_at,observed_at,lease_until`,
+	RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,
+		platform_binding_id::text,identity->>'clusterId',identity->>'argoNamespace',identity->>'rootApplicationName',
+		identity->>'repositorySecretName',identity->>'chartRepository',identity->>'chartName',identity->>'chartVersion',
+		identity->>'chartDigest',identity->>'rendererImage',identity->>'chartDigestEnforcement',started_at,observed_at,lease_until`,
 		lease.WorkerID, lease.Epoch, lease.ContractVersion, lease.ConfigDigest, lease.GitHubAppID,
 		lease.PlatformBindingID, lease.ClusterID, lease.ArgoNamespace, lease.RootApplicationName, lease.RepositorySecretName,
 		lease.Runtime.ChartRepository, lease.Runtime.ChartName, lease.Runtime.ChartVersion, lease.Runtime.ChartDigest,
@@ -403,11 +406,13 @@ func (s *PostgreSQLStore) DesiredStateRuntimeReady(ctx context.Context, identity
 		return ErrDesiredStateNotReady
 	}
 	var ready bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM argo_desired_state_runtime_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND github_app_id=$3 AND platform_binding_id=$4
-		AND cluster_id=$5 AND argo_namespace=$6 AND root_application_name=$7 AND repository_secret_name=$8
-		AND chart_repository=$9 AND chart_name=$10 AND chart_version=$11 AND chart_digest=$12
-		AND renderer_image=$13 AND chart_digest_enforcement=$14 AND observed_at>=$15 AND observed_at<=$16
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='argo-desired-state' AND scope_key='global' AND contract_version=$1 AND config_digest=$2
+		AND (identity->>'githubAppId')::bigint=$3 AND platform_binding_id=$4 AND identity->>'clusterId'=$5
+		AND identity->>'argoNamespace'=$6 AND identity->>'rootApplicationName'=$7 AND identity->>'repositorySecretName'=$8
+		AND identity->>'chartRepository'=$9 AND identity->>'chartName'=$10 AND identity->>'chartVersion'=$11
+		AND identity->>'chartDigest'=$12 AND identity->>'rendererImage'=$13 AND identity->>'chartDigestEnforcement'=$14
+		AND observed_at>=$15 AND observed_at<=$16
 		AND lease_until>$16)`, identity.ContractVersion, identity.ConfigDigest, identity.GitHubAppID,
 		identity.PlatformBindingID, identity.ClusterID, identity.ArgoNamespace, identity.RootApplicationName,
 		identity.RepositorySecretName, identity.Runtime.ChartRepository, identity.Runtime.ChartName,

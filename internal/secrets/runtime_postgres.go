@@ -252,15 +252,15 @@ func (s *PostgreSQLStore) AcquireRuntimeSecretReadiness(ctx context.Context, obs
 		return RuntimeReadinessLease{}, ErrInvalid
 	}
 	lease := RuntimeReadinessLease{RuntimeWorkerObservation: observation}
-	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_secret_runtime_readiness(
-		worker_id,worker_epoch,contract_version,config_digest,fingerprint_key_id,sealing_key_fingerprint,
-		started_at,observed_at,lease_until
-	) VALUES($1,1,$2,$3,$4,$5,$6,$7,$8)
-	ON CONFLICT (worker_id) DO UPDATE SET
-		worker_epoch=runtime_secret_runtime_readiness.worker_epoch+1,
+	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('runtime-secret','global',$1,1,$2,$3,
+		jsonb_build_object('fingerprintKeyId',$4::text,'sealingKeyFingerprint',$5::text),'{}'::jsonb,$6,$7,$8,$7)
+	ON CONFLICT (runtime_kind,scope_key,worker_id) DO UPDATE SET
+		worker_epoch=runtime_readiness.worker_epoch+1,
 		contract_version=EXCLUDED.contract_version,config_digest=EXCLUDED.config_digest,
-		fingerprint_key_id=EXCLUDED.fingerprint_key_id,sealing_key_fingerprint=EXCLUDED.sealing_key_fingerprint,
-		started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until
+		identity=EXCLUDED.identity,started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,
+		lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at
 	RETURNING worker_epoch,started_at,observed_at,lease_until`, observation.WorkerID, observation.Identity.ContractVersion,
 		observation.Identity.ConfigDigest, observation.Identity.FingerprintKeyID, observation.Identity.SealingKeyFingerprint,
 		observation.StartedAt.UTC(), observation.ObservedAt.UTC(), observation.ObservedAt.UTC().Add(duration)).
@@ -278,9 +278,10 @@ func (s *PostgreSQLStore) HeartbeatRuntimeSecretReadiness(ctx context.Context, l
 		return RuntimeReadinessLease{}, ErrInvalid
 	}
 	var storedObservedAt, until time.Time
-	err := s.pool.QueryRow(ctx, `UPDATE runtime_secret_runtime_readiness SET observed_at=$9,lease_until=$10
-		WHERE worker_id=$1 AND worker_epoch=$2 AND contract_version=$3 AND config_digest=$4
-		  AND fingerprint_key_id=$5 AND sealing_key_fingerprint=$6 AND started_at=$7
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET observed_at=$9,lease_until=$10,updated_at=$9
+		WHERE runtime_kind='runtime-secret' AND scope_key='global' AND worker_id=$1 AND worker_epoch=$2
+		  AND contract_version=$3 AND config_digest=$4 AND identity->>'fingerprintKeyId'=$5
+		  AND identity->>'sealingKeyFingerprint'=$6 AND started_at=$7
 		  AND lease_until=$8 AND lease_until>$9
 		RETURNING observed_at,lease_until`, lease.WorkerID, lease.Epoch, lease.Identity.ContractVersion,
 		lease.Identity.ConfigDigest, lease.Identity.FingerprintKeyID, lease.Identity.SealingKeyFingerprint,
@@ -301,8 +302,9 @@ func (s *PostgreSQLStore) RuntimeSecretReady(ctx context.Context, identity Runti
 	}
 	var ready bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM runtime_secret_runtime_readiness
-		WHERE contract_version=$1 AND config_digest=$2 AND fingerprint_key_id=$3 AND sealing_key_fingerprint=$4
+		SELECT 1 FROM runtime_readiness WHERE runtime_kind='runtime-secret' AND scope_key='global'
+		AND contract_version=$1 AND config_digest=$2 AND identity->>'fingerprintKeyId'=$3
+		AND identity->>'sealingKeyFingerprint'=$4
 		  AND lease_until>$5 AND observed_at>=$6 AND observed_at<=$7
 	)`, identity.ContractVersion, identity.ConfigDigest, identity.FingerprintKeyID, identity.SealingKeyFingerprint,
 		now.UTC(), now.UTC().Add(-maximumAge), now.UTC().Add(RuntimeSecretReadinessSkew)).Scan(&ready)

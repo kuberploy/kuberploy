@@ -65,7 +65,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		for _, statement := range []string{
-			`DELETE FROM argo_desired_state_runtime_readiness WHERE platform_binding_id='` + platformID + `'`,
+			`DELETE FROM runtime_readiness WHERE runtime_kind='argo-desired-state' AND platform_binding_id='` + platformID + `'`,
 			`DELETE FROM argo_desired_state_commands WHERE platform_binding_id='` + platformID + `'`,
 			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,
 			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,

@@ -68,10 +68,12 @@ func TestPostgresObserverReadinessFencesIdentityTargetsAndLeaseEpoch(t *testing.
 	if err = store.ObserverRuntimeReady(ctx, identity, targetB, 2, now.Add(3*time.Second), config.MaximumAge); err != nil {
 		t.Fatalf("new target identity not ready: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE cert_manager_issuer_observer_readiness SET config_digest=$2 WHERE config_digest=$1`, identity.ConfigDigest, digestText("substituted-config")); !isPGCode(err, "23514") {
+	if _, err = pool.Exec(ctx, `UPDATE runtime_readiness SET config_digest=$2
+		WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global' AND config_digest=$1`, identity.ConfigDigest, digestText("substituted-config")); !isPGCode(err, "23514") {
 		t.Fatalf("active config substitution err=%v", err)
 	}
-	if _, err = pool.Exec(ctx, `DELETE FROM cert_manager_issuer_observer_readiness WHERE config_digest=$1`, identity.ConfigDigest); !isPGCode(err, "23514") {
+	if _, err = pool.Exec(ctx, `DELETE FROM runtime_readiness
+		WHERE runtime_kind='certificate-issuer-observer' AND scope_key='global' AND config_digest=$1`, identity.ConfigDigest); !isPGCode(err, "23514") {
 		t.Fatalf("readiness deletion err=%v", err)
 	}
 

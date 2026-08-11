@@ -32,7 +32,8 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleanup := func(c context.Context) {
-		_, _ = pool.Exec(c, `DELETE FROM environment_foundation_readiness WHERE worker_id IN ($1,$2)`, testWorker1, testWorker2)
+		_, _ = pool.Exec(c, `DELETE FROM runtime_readiness
+			WHERE runtime_kind='environment-foundation' AND scope_key='global' AND worker_id IN ($1,$2)`, testWorker1, testWorker2)
 		_, _ = pool.Exec(c, `DELETE FROM environment_foundation_intents WHERE environment_id=$1`, testEnvironmentID)
 		_, _ = pool.Exec(c, `DELETE FROM git_repository_bindings WHERE id=$1`, testBindingID)
 		_, _ = pool.Exec(c, `DELETE FROM environments WHERE id=$1`, testEnvironmentID)

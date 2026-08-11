@@ -366,15 +366,15 @@ func (s *PostgresStore) PutReadiness(ctx context.Context, readiness Readiness) e
 	if readiness.Validate() != nil || readiness.RenderWorkerIdentity != ExpectedRenderWorkerIdentity(s.operatorConfigDigest) {
 		return ErrInvalid
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO helm_renderer_readiness(
-		worker_id,worker_epoch,contract_version,renderer_image,renderer_version,
-		policy_version,limits_digest,operator_config_digest,started_at,observed_at,lease_until
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-	ON CONFLICT(worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
-		contract_version=EXCLUDED.contract_version,renderer_image=EXCLUDED.renderer_image,
-		renderer_version=EXCLUDED.renderer_version,policy_version=EXCLUDED.policy_version,
-		limits_digest=EXCLUDED.limits_digest,operator_config_digest=EXCLUDED.operator_config_digest,started_at=EXCLUDED.started_at,
-		observed_at=EXCLUDED.observed_at,lease_until=EXCLUDED.lease_until`,
+	_, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('helm-renderer','global',$1,$2,$3,$8,jsonb_build_object(
+		'rendererImage',$4::text,'rendererVersion',$5::text,'policyVersion',$6::text,'limitsDigest',$7::text
+	),'{}'::jsonb,$9,$10,$11,$10)
+	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=EXCLUDED.worker_epoch,
+		contract_version=EXCLUDED.contract_version,config_digest=EXCLUDED.config_digest,identity=EXCLUDED.identity,
+		started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,
+		lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at`,
 		readiness.WorkerID, readiness.WorkerEpoch, readiness.Contract, readiness.RendererImage,
 		readiness.RendererVersion, readiness.PolicyVersion, readiness.LimitsDigest,
 		readiness.OperatorConfigDigest,
@@ -388,9 +388,10 @@ func (s *PostgresStore) RuntimeReady(ctx context.Context, now time.Time) (bool, 
 	}
 	runtime := ExpectedRenderWorkerIdentity(s.operatorConfigDigest)
 	var ready bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM helm_renderer_readiness
-		WHERE contract_version=$1 AND renderer_image=$2 AND renderer_version=$3 AND
-		policy_version=$4 AND limits_digest=$5 AND operator_config_digest=$6 AND lease_until>$7)`, runtime.Contract,
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='helm-renderer' AND scope_key='global' AND contract_version=$1
+		AND identity->>'rendererImage'=$2 AND identity->>'rendererVersion'=$3 AND
+		identity->>'policyVersion'=$4 AND identity->>'limitsDigest'=$5 AND config_digest=$6 AND lease_until>$7)`, runtime.Contract,
 		runtime.RendererImage, runtime.RendererVersion, runtime.PolicyVersion, runtime.LimitsDigest,
 		runtime.OperatorConfigDigest, now).Scan(&ready)
 	return ready, classifyPostgres(err)
