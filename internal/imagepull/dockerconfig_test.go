@@ -9,9 +9,10 @@ import (
 func TestDockerConfigAcceptsOnlyExactSingleRegistryCredential(t *testing.T) {
 	profile := testRuntimeConfig().Profiles[0]
 	for name, raw := range map[string]string{
-		"auth":           `{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz"}}}`,
-		"user password":  `{"auths":{"registry.example.test:5000":{"username":"robot","password":"correct horse battery staple"}}}`,
-		"identity token": `{"auths":{"registry.example.test:5000":{"identitytoken":"opaque-token"}}}`,
+		"auth":                    `{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz"}}}`,
+		"user password":           `{"auths":{"registry.example.test:5000":{"username":"robot","password":"correct horse battery staple"}}}`,
+		"kubectl docker-registry": `{"auths":{"registry.example.test:5000":{"auth":"cm9ib3Q6Y29ycmVjdCBob3JzZSBiYXR0ZXJ5IHN0YXBsZQ==","password":"correct horse battery staple","username":"robot"}}}`,
+		"identity token":          `{"auths":{"registry.example.test:5000":{"identitytoken":"opaque-token"}}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateDockerConfig([]byte(raw), profile); err != nil {
@@ -21,21 +22,22 @@ func TestDockerConfigAcceptsOnlyExactSingleRegistryCredential(t *testing.T) {
 	}
 
 	for name, raw := range map[string]string{
-		"wrong registry":      `{"auths":{"evil.example.test":{"auth":"private"}}}`,
-		"second registry":     `{"auths":{"registry.example.test:5000":{"auth":"private"},"evil.example.test":{"auth":"private"}}}`,
-		"duplicate auths":     `{"auths":{"registry.example.test:5000":{"auth":"private"}},"auths":{"registry.example.test:5000":{"auth":"private"}}}`,
-		"duplicate auth":      `{"auths":{"registry.example.test:5000":{"auth":"private","auth":"other"}}}`,
-		"credential helper":   `{"auths":{"registry.example.test:5000":{"auth":"private"}},"credsStore":"desktop"}`,
-		"unknown entry":       `{"auths":{"registry.example.test:5000":{"auth":"private","email":"person@example.test"}}}`,
-		"empty entry":         `{"auths":{"registry.example.test:5000":{}}}`,
-		"partial basic":       `{"auths":{"registry.example.test:5000":{"username":"robot"}}}`,
-		"mixed auth modes":    `{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz","identitytoken":"opaque-token"}}}`,
-		"invalid base64 auth": `{"auths":{"registry.example.test:5000":{"auth":"private"}}}`,
-		"empty basic user":    `{"auths":{"registry.example.test:5000":{"auth":"OnBhc3M="}}}`,
-		"empty credential":    `{"auths":{"registry.example.test:5000":{"auth":""}}}`,
-		"control credential":  `{"auths":{"registry.example.test:5000":{"password":"secret\nvalue","username":"robot"}}}`,
-		"escaped tab":         `{"auths":{"registry.example.test:5000":{"identitytoken":"secret\tvalue"}}}`,
-		"trailing document":   `{"auths":{"registry.example.test:5000":{"auth":"private"}}}{}`,
+		"wrong registry":       `{"auths":{"evil.example.test":{"auth":"private"}}}`,
+		"second registry":      `{"auths":{"registry.example.test:5000":{"auth":"private"},"evil.example.test":{"auth":"private"}}}`,
+		"duplicate auths":      `{"auths":{"registry.example.test:5000":{"auth":"private"}},"auths":{"registry.example.test:5000":{"auth":"private"}}}`,
+		"duplicate auth":       `{"auths":{"registry.example.test:5000":{"auth":"private","auth":"other"}}}`,
+		"credential helper":    `{"auths":{"registry.example.test:5000":{"auth":"private"}},"credsStore":"desktop"}`,
+		"unknown entry":        `{"auths":{"registry.example.test:5000":{"auth":"private","email":"person@example.test"}}}`,
+		"empty entry":          `{"auths":{"registry.example.test:5000":{}}}`,
+		"partial basic":        `{"auths":{"registry.example.test:5000":{"username":"robot"}}}`,
+		"mixed auth modes":     `{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz","identitytoken":"opaque-token"}}}`,
+		"mismatched auth copy": `{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz","password":"different","username":"user"}}}`,
+		"invalid base64 auth":  `{"auths":{"registry.example.test:5000":{"auth":"private"}}}`,
+		"empty basic user":     `{"auths":{"registry.example.test:5000":{"auth":"OnBhc3M="}}}`,
+		"empty credential":     `{"auths":{"registry.example.test:5000":{"auth":""}}}`,
+		"control credential":   `{"auths":{"registry.example.test:5000":{"password":"secret\nvalue","username":"robot"}}}`,
+		"escaped tab":          `{"auths":{"registry.example.test:5000":{"identitytoken":"secret\tvalue"}}}`,
+		"trailing document":    `{"auths":{"registry.example.test:5000":{"auth":"private"}}}{}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := ValidateDockerConfig([]byte(raw), profile); err == nil || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "secret") {

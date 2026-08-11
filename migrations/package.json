@@ -10,7 +10,10 @@
   "scripts": {
     "deploy": "prisma migrate deploy --config prisma.config.ts",
     "status": "prisma migrate status --config prisma.config.ts",
-    "pull": "prisma db pull --print --config prisma.config.ts",
+    "format": "prisma format --schema prisma/schema.prisma",
+    "pull": "prisma db pull --force --config prisma.config.ts",
+    "pull:print": "prisma db pull --print --config prisma.config.ts",
+    "check:drift": "node check-schema-drift.mjs",
     "validate": "prisma validate --config prisma.config.ts"
   },
   "dependencies": {

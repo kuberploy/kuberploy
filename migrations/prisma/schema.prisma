@@ -1,10 +1,2326 @@
-// Kuberploy intentionally uses Prisma CLI only as a native-SQL migration
-// engine. The Go backend uses pgx and no Prisma Client is generated.
+// Declarative source of truth for tables, columns, scalar types, primary keys,
+// unique constraints, and indexes. Kuberploy uses Prisma Migrate only; the Go
+// services use pgx and no generated Prisma Client is built or shipped.
 //
-// Run `npm run pull` to print an introspected review snapshot without replacing
-// this migration-only schema. Partial indexes, deferred constraints, triggers,
-// functions, and several composite relations remain authoritative SQL because
-// Prisma's model language cannot represent the full Kuberploy contract.
+// PostgreSQL foreign-key authority fences, CHECK constraints, deferrable
+// constraints, expression indexes, functions, and triggers remain native SQL
+// in prisma/migrations because Prisma cannot represent them losslessly.
+// Prisma Client is intentionally not generated. This generator block only
+// enables schema-language support needed to describe PostgreSQL partial
+// indexes in the migration source of truth.
+generator schema_language {
+  provider        = "prisma-client"
+  output          = "../generated-unused"
+  previewFeatures = ["partialIndexes"]
+}
+
 datasource db {
-  provider = "postgresql"
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model access_grants {
+  id              String   @id @db.Uuid
+  subject_user_id String   @db.Uuid
+  role            String
+  scope_type      String
+  scope_id        String
+  permissions     String[] @default([])
+  source          String   @default("explicit")
+  created_by      String   @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([subject_user_id, role, scope_type, scope_id])
+  @@index([scope_type, scope_id, subject_user_id], map: "access_grants_scope_idx")
+  @@index([subject_user_id, scope_type, scope_id], map: "access_grants_subject_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model application_registry_pull_selections {
+  application_id        String   @id @db.Uuid
+  mode                  String
+  project_credential_id String?  @db.Uuid
+  updated_by            String   @db.Uuid
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model applications {
+  id         String   @id @db.Uuid
+  project_id String   @db.Uuid
+  name       String
+  slug       String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, project_id], map: "applications_id_project_unique")
+  @@unique([project_id, slug])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model argo_application_observations {
+  application_id        String   @db.Uuid
+  project_id            String   @db.Uuid
+  environment_id        String   @db.Uuid
+  argo_uid              String   @db.Uuid
+  argo_namespace        String
+  argo_name             String
+  destination_namespace String
+  desired_revision      String
+  observed_revision     String
+  sync_status           String
+  health_status         String
+  operation_phase       String
+  message               String   @default("")
+  resources             Json
+  observed_at           DateTime @db.Timestamptz(6)
+  updated_at            DateTime @db.Timestamptz(6)
+  deployment_id         String   @id @db.Uuid
+
+  @@unique([application_id, environment_id], map: "argo_application_observations_application_environment_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model argo_desired_state_commands {
+  id                       String    @id @db.Uuid
+  generation               BigInt
+  project_id               String    @db.Uuid
+  environment_id           String    @unique(map: "argo_desired_state_commands_environment_live_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))")) @db.Uuid
+  platform_binding_id      String    @unique(map: "argo_desired_state_commands_binding_claim_idx", where: raw("(lease_owner IS NOT NULL)")) @db.Uuid
+  environment_binding_id   String    @db.Uuid
+  cluster_id               String    @db.Uuid
+  platform_target_ref      String
+  environment_target_ref   String
+  environment_revision     String
+  environment_generation   BigInt
+  path                     String
+  argo_namespace           String
+  destination_namespace    String
+  argo_project             String
+  base_revision            String
+  write_base_revision      String    @default("")
+  write_base_observed_at   DateTime? @db.Timestamptz(6)
+  precondition             String
+  expected_etag            String    @default("")
+  catalog_digest           String
+  chart_repository         String
+  chart_name               String
+  chart_version            String
+  chart_digest             String
+  renderer_image           String
+  chart_digest_enforcement String
+  content                  Bytes
+  content_sha256           String
+  message                  String
+  state                    String    @default("pending")
+  committed_revision       String    @default("")
+  committed_at             DateTime? @db.Timestamptz(6)
+  verified_at              DateTime? @db.Timestamptz(6)
+  next_attempt_at          DateTime  @db.Timestamptz(6)
+  consecutive_failures     Int       @default(0)
+  last_failure_code        String    @default("")
+  lease_owner              String?
+  lease_epoch              BigInt    @default(0)
+  lease_until              DateTime? @db.Timestamptz(6)
+  worker_contract          String?
+  worker_config_digest     String?
+  created_at               DateTime  @db.Timestamptz(6)
+  updated_at               DateTime  @db.Timestamptz(6)
+  completed_at             DateTime? @db.Timestamptz(6)
+
+  @@unique([environment_id, generation])
+  @@index([next_attempt_at, created_at, id], map: "argo_desired_state_commands_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+  @@index([environment_id, generation(sort: Desc)], map: "argo_desired_state_commands_status_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model argo_desired_state_runtime_readiness {
+  worker_id                String   @id
+  worker_epoch             BigInt
+  contract_version         String
+  config_digest            String
+  github_app_id            BigInt
+  platform_binding_id      String   @db.Uuid
+  cluster_id               String   @db.Uuid
+  argo_namespace           String
+  root_application_name    String
+  repository_secret_name   String
+  chart_repository         String
+  chart_name               String
+  chart_version            String
+  chart_digest             String
+  renderer_image           String
+  chart_digest_enforcement String
+  started_at               DateTime @db.Timestamptz(6)
+  observed_at              DateTime @db.Timestamptz(6)
+  lease_until              DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, github_app_id, platform_binding_id, cluster_id, chart_digest, renderer_image, observed_at(sort: Desc)], map: "argo_desired_state_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model argo_observation_runtime {
+  argo_namespace            String    @id
+  lease_owner               String    @default("")
+  lease_epoch               BigInt    @default(0)
+  lease_until               DateTime? @db.Timestamptz(6)
+  snapshot_resource_version String    @default("")
+  consecutive_failures      Int       @default(0)
+  last_failure_code         String    @default("")
+  next_poll_at              DateTime  @db.Timestamptz(6)
+  last_completed_at         DateTime? @db.Timestamptz(6)
+  updated_at                DateTime  @db.Timestamptz(6)
+
+  @@index([next_poll_at, argo_namespace], map: "argo_observation_runtime_due_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model argo_rollback_commands {
+  id                 String   @id @db.Uuid
+  application_id     String   @db.Uuid
+  project_id         String   @db.Uuid
+  environment_id     String   @db.Uuid
+  binding_id         String   @db.Uuid
+  operation_id       String   @unique @db.Uuid
+  base_revision      String
+  expected_etag      String
+  release_repository String
+  release_digest     String
+  path               String
+  candidate          Bytes
+  candidate_sha256   String
+  commit_message     String
+  state              String
+  git_revision       String?
+  failure_code       String   @default("")
+  created_at         DateTime @db.Timestamptz(6)
+  updated_at         DateTime @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model audit_events {
+  id          String   @id @db.Uuid
+  actor_id    String   @db.Uuid
+  action      String
+  target_type String
+  target_id   String   @db.Uuid
+  request_id  String
+  detail      Json     @default("{}")
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([target_type, target_id, created_at], map: "audit_events_target_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model auto_deploy_policies {
+  id                  String   @id @db.Uuid
+  build_definition_id String   @db.Uuid
+  project_id          String   @db.Uuid
+  application_id      String   @db.Uuid
+  environment_id      String   @db.Uuid
+  current_revision    BigInt
+  created_by          String   @db.Uuid
+  created_at          DateTime @db.Timestamptz(6)
+
+  @@unique([build_definition_id, environment_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model auto_deploy_policy_commands {
+  actor_id        String   @db.Uuid
+  idempotency_key String
+  action          String
+  request_digest  String
+  policy_id       String   @db.Uuid
+  result_revision BigInt
+  request_id      String
+  created_at      DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model auto_deploy_policy_revisions {
+  policy_id                    String   @db.Uuid
+  revision                     BigInt
+  enabled                      Boolean
+  source_deployment_id         String   @db.Uuid
+  source_deployment_generation BigInt
+  source_config_etag           String
+  config_intent                Bytes
+  template_digest              String
+  service_actor_id             String   @db.Uuid
+  created_by                   String   @db.Uuid
+  created_at                   DateTime @db.Timestamptz(6)
+
+  @@id([policy_id, revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model auto_deploy_runs {
+  attempt_id                   String    @db.Uuid
+  policy_id                    String    @db.Uuid
+  policy_revision              BigInt
+  definition_id                String    @db.Uuid
+  definition_digest            String
+  release_id                   String    @db.Uuid
+  template_digest              String
+  source_deployment_id         String    @db.Uuid
+  source_deployment_generation BigInt
+  source_config_etag           String
+  idempotency_key              String    @unique
+  state                        String    @default("pending")
+  attempts                     BigInt    @default(0)
+  available_at                 DateTime  @db.Timestamptz(6)
+  lease_owner                  String?
+  lease_until                  DateTime? @db.Timestamptz(6)
+  lease_epoch                  BigInt    @default(0)
+  operation_id                 String?   @db.Uuid
+  deployment_id                String?   @db.Uuid
+  failure_code                 String    @default("")
+  created_at                   DateTime  @db.Timestamptz(6)
+  updated_at                   DateTime  @db.Timestamptz(6)
+  completed_at                 DateTime? @db.Timestamptz(6)
+
+  @@id([attempt_id, policy_id])
+  @@index([available_at, created_at, attempt_id, policy_id], map: "auto_deploy_runs_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model auto_deploy_runtime_readiness {
+  worker_id              String   @id
+  contract_version       String
+  operator_config_digest String
+  started_at             DateTime @db.Timestamptz(6)
+  observed_at            DateTime @db.Timestamptz(6)
+  lease_epoch            BigInt
+  lease_until            DateTime @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model bootstrap_state {
+  singleton   Boolean   @id @default(true)
+  consumed_at DateTime? @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_api_idempotency {
+  actor_id            String   @db.Uuid
+  operation           String
+  scope_id            String   @db.Uuid
+  idempotency_key     String
+  request_fingerprint String
+  resource_id         String   @db.Uuid
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([actor_id, operation, scope_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_attempts {
+  id                  String    @id @db.Uuid
+  definition_id       String    @db.Uuid
+  delivery_claim_key  String
+  project_id          String    @db.Uuid
+  service_id          String    @db.Uuid
+  commit_sha          String
+  git_ref             String
+  generation          BigInt
+  definition_digest   String
+  plan_request        Json
+  checkout_request    Json
+  input_digest        String
+  registry_mode       String
+  state               String
+  execution_attempts  Int       @default(0)
+  max_attempts        Int
+  available_at        DateTime  @default(now()) @db.Timestamptz(6)
+  lease_owner         String?
+  lease_until         DateTime? @db.Timestamptz(6)
+  job_namespace       String
+  job_name            String
+  cache_candidate     String
+  cache_reference     String    @default("")
+  result              Json?
+  log_reference       String    @default("")
+  failure_code        String    @default("")
+  cancel_requested_at DateTime? @db.Timestamptz(6)
+  started_at          DateTime? @db.Timestamptz(6)
+  completed_at        DateTime? @db.Timestamptz(6)
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([delivery_claim_key, definition_id])
+  @@unique([project_id, service_id, generation])
+  @@index([project_id, service_id, definition_digest, generation(sort: Desc)], map: "build_attempts_service_cache_idx", where: raw("((state = 'succeeded'::text) AND (cache_reference <> ''::text))"))
+  @@index([state, available_at, created_at], map: "build_attempts_work_idx", where: raw("(state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_definitions {
+  id                 String   @id @db.Uuid
+  project_id         String   @db.Uuid
+  service_id         String   @db.Uuid
+  installation_id    String   @db.Uuid
+  repository_id      String   @db.Uuid
+  registry_target_id String   @db.Uuid
+  trigger_ref        String
+  spec               Json
+  definition_digest  String
+  generation         BigInt
+  enabled            Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([project_id, service_id, repository_id, trigger_ref])
+  @@index([installation_id, repository_id, trigger_ref], map: "build_definitions_push_idx", where: raw("(enabled = true)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_outbox {
+  attempt_id      String    @id @db.Uuid
+  kind            String
+  trace_id        String
+  attempts        Int       @default(0)
+  last_error_code String    @default("")
+  available_at    DateTime  @default(now()) @db.Timestamptz(6)
+  published_at    DateTime? @db.Timestamptz(6)
+  created_at      DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([available_at, created_at], map: "build_outbox_pending_idx", where: raw("(published_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_release_projections {
+  attempt_id          String    @id @db.Uuid
+  state               String    @default("pending")
+  attempts            Int       @default(0)
+  available_at        DateTime  @default(now()) @db.Timestamptz(6)
+  lease_owner         String?
+  lease_until         DateTime? @db.Timestamptz(6)
+  lease_epoch         BigInt    @default(0)
+  failure_code        String    @default("")
+  release_id          String?   @db.Uuid
+  cache_generation_id String?   @db.Uuid
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
+  completed_at        DateTime? @db.Timestamptz(6)
+
+  @@index([available_at, created_at, attempt_id], map: "build_release_projections_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model build_service_generations {
+  project_id      String @db.Uuid
+  service_id      String @db.Uuid
+  last_generation BigInt
+
+  @@id([project_id, service_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_commands {
+  actor_id        String   @db.Uuid
+  idempotency_key String
+  action          String
+  request_digest  String
+  profile_id      String   @db.Uuid
+  result_revision BigInt
+  request_id      String
+  created_at      DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_observations {
+  profile_id           String    @db.Uuid
+  revision             BigInt
+  state                String
+  observed_spec_digest String?
+  observed_generation  BigInt?
+  reason               String    @default("")
+  observed_at          DateTime? @db.Timestamptz(6)
+  updated_at           DateTime  @db.Timestamptz(6)
+
+  @@id([profile_id, revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_observer_readiness {
+  worker_id        String   @id
+  contract_version String
+  config_digest    String   @unique
+  target_digest    String
+  target_count     Int
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_epoch      BigInt
+  lease_until      DateTime @db.Timestamptz(6)
+  updated_at       DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, target_digest, target_count, observed_at, lease_until], map: "cert_manager_issuer_observer_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_profile_revisions {
+  profile_id  String   @db.Uuid
+  revision    BigInt
+  solver_type String
+  spec        Json
+  spec_digest String
+  created_by  String   @db.Uuid
+  created_at  DateTime @db.Timestamptz(6)
+
+  @@id([profile_id, revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_profiles {
+  id               String    @id @db.Uuid
+  name             String    @unique
+  lifecycle        String
+  current_revision BigInt
+  created_by       String    @db.Uuid
+  created_at       DateTime  @db.Timestamptz(6)
+  deactivated_by   String?   @db.Uuid
+  deactivated_at   DateTime? @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cert_manager_issuer_references {
+  profile_id     String   @db.Uuid
+  revision       BigInt
+  application_id String   @db.Uuid
+  environment_id String   @db.Uuid
+  git_path       String
+  hostname       String
+  updated_at     DateTime @db.Timestamptz(6)
+
+  @@id([git_path, hostname])
+  @@index([profile_id, git_path], map: "cert_manager_issuer_references_profile_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model deployment_config_previews {
+  id                 String    @id @db.Uuid
+  actor_id           String    @db.Uuid
+  deployment_id      String    @db.Uuid
+  token_hash         Bytes     @unique
+  base_etag          String
+  candidate_hash     Bytes
+  expires_at         DateTime  @db.Timestamptz(6)
+  consumed_at        DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+  git_binding_id     String?   @db.Uuid
+  git_base_revision  String?
+  git_path           String?
+  git_expected_etag  String?
+  git_chart_digest   String?
+  git_policy_version String?
+
+  @@index([expires_at], map: "deployment_config_previews_expiry_idx", where: raw("(consumed_at IS NULL)"))
+  @@index([deployment_id, actor_id, expires_at(sort: Desc)], map: "deployment_config_previews_lookup_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model deployment_operation_inputs {
+  operation_id  String   @id @db.Uuid
+  deployment_id String   @db.Uuid
+  image         String
+  replicas      Int
+  port          Int
+  environment   Json     @default("{}")
+  route         Json?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  runtime       Json
+  config_raw    Bytes?
+
+  @@index([deployment_id, created_at], map: "deployment_operation_inputs_deployment_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model deployments {
+  id                String   @id @db.Uuid
+  environment_id    String   @db.Uuid
+  application_id    String   @db.Uuid
+  image             String
+  replicas          Int
+  port              Int
+  environment       Json     @default("{}")
+  route             Json?
+  state             String
+  operation_id      String   @unique @db.Uuid
+  desired_revision  String   @default("")
+  observed_revision String   @default("")
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+  generation        BigInt   @default(1)
+  runtime           Json
+  config_raw        Bytes?
+  config_etag       String   @default("")
+  config_version    BigInt   @default(0)
+
+  @@unique([environment_id, application_id], map: "deployments_environment_application_unique")
+  @@unique([id, application_id, environment_id], map: "deployments_id_application_environment_unique")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model edge_runtime_readiness {
+  worker_id        String   @id
+  worker_epoch     BigInt
+  contract_version String
+  config_digest    String
+  target_count     Int
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_until      DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, target_count, observed_at(sort: Desc)], map: "edge_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model edge_runtime_targets {
+  target_key                     String    @unique(map: "edge_runtime_targets_active_key_idx", where: raw("active"))
+  profile_revision               BigInt
+  kind                           String
+  integration_id                 String?   @db.Uuid
+  management_mode                String
+  namespace                      String
+  profile_config_map             String
+  external_txt_owner_id          String    @default("")
+  external_policy                String    @default("")
+  external_domains               String    @default("")
+  desired_digest                 String
+  runtime_config_digest          String
+  active                         Boolean   @default(true)
+  runtime_state                  String    @default("awaiting")
+  next_observation_at            DateTime  @db.Timestamptz(6)
+  last_observed_at               DateTime? @db.Timestamptz(6)
+  observed_identity_digest       String    @default("")
+  observed_resource_versions     String    @default("")
+  consecutive_failures           Int       @default(0)
+  last_failure_code              String    @default("")
+  lease_owner                    String?
+  lease_epoch                    BigInt    @default(0)
+  lease_until                    DateTime? @db.Timestamptz(6)
+  worker_contract                String?
+  worker_config_digest           String?
+  created_at                     DateTime  @db.Timestamptz(6)
+  updated_at                     DateTime  @db.Timestamptz(6)
+  external_provider_kind         String    @default("")
+  external_credential_secret_ref String    @default("")
+  external_provider_config_ref   String    @default("")
+  external_egress_config_ref     String    @default("")
+
+  @@id([target_key, profile_revision])
+  @@index([next_observation_at, target_key, profile_revision], map: "edge_runtime_targets_due_idx", where: raw("(active AND (runtime_state <> 'failed'::text))"))
+  @@index([runtime_config_digest, runtime_state, last_observed_at], map: "edge_runtime_targets_readiness_idx", where: raw("active"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model edge_sslip_ingress_observations {
+  target_key               String
+  profile_revision         BigInt
+  desired_digest           String
+  runtime_config_digest    String
+  public_ipv4              String   @db.Inet
+  source_kind              String
+  service_uid              String   @db.Uuid
+  service_resource_version String
+  worker_id                String
+  lease_epoch              BigInt
+  observed_at              DateTime @db.Timestamptz(6)
+  created_at               DateTime @db.Timestamptz(6)
+  updated_at               DateTime @db.Timestamptz(6)
+
+  @@id([target_key, profile_revision])
+  @@index([runtime_config_digest, observed_at(sort: Desc)], map: "edge_sslip_ingress_fresh_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model environment_foundation_intents {
+  id                        String    @id @db.Uuid
+  environment_id            String    @unique(map: "environment_foundation_active_environment_idx", where: raw("active")) @db.Uuid
+  project_id                String    @db.Uuid
+  namespace                 String
+  argo_project              String
+  platform_binding_id       String    @db.Uuid
+  cluster_id                String    @db.Uuid
+  target_ref                String
+  planned_head_revision     String
+  binding_generation        BigInt
+  profile_digest            String
+  publisher_config_digest   String
+  publisher_contract        String
+  publisher_policy          String
+  manifest_path             String
+  manifest                  Bytes
+  manifest_digest           String
+  intent_digest             String    @unique
+  commit_trailer            String
+  state                     String
+  active                    Boolean
+  next_attempt_at           DateTime  @db.Timestamptz(6)
+  attempts                  Int       @default(0)
+  consecutive_failures      Int       @default(0)
+  last_failure_code         String    @default("")
+  lease_owner               String?
+  lease_epoch               BigInt    @default(0)
+  lease_until               DateTime? @db.Timestamptz(6)
+  write_base_revision       String    @default("")
+  write_base_observed_at    DateTime? @db.Timestamptz(6)
+  committed_revision        String    @default("")
+  committed_parent_revision String    @default("")
+  provider_request          String    @default("")
+  published_at              DateTime? @db.Timestamptz(6)
+  completed_at              DateTime? @db.Timestamptz(6)
+  created_at                DateTime  @db.Timestamptz(6)
+  updated_at                DateTime  @db.Timestamptz(6)
+
+  @@index([next_attempt_at, id], map: "environment_foundation_due_idx", where: raw("(active AND (state = ANY (ARRAY['pending'::text, 'claimed'::text])))"))
+  @@index([profile_digest, publisher_config_digest, state], map: "environment_foundation_exact_ready_idx", where: raw("active"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model environment_foundation_readiness {
+  worker_id               String   @id
+  worker_epoch            BigInt
+  contract_version        String
+  profile_digest          String
+  publisher_config_digest String
+  active_intent_count     Int
+  started_at              DateTime @db.Timestamptz(6)
+  observed_at             DateTime @db.Timestamptz(6)
+  lease_until             DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, profile_digest, publisher_config_digest, active_intent_count, observed_at(sort: Desc)], map: "environment_foundation_readiness_exact_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model environments {
+  id                String   @id @db.Uuid
+  project_id        String   @db.Uuid
+  name              String
+  slug              String
+  namespace         String   @unique
+  argo_project      String
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  protection_policy String   @default("protected")
+
+  @@unique([id, project_id, namespace], map: "environments_id_project_namespace_unique")
+  @@unique([id, project_id], map: "environments_id_project_unique")
+  @@unique([project_id, slug])
+}
+
+model external_dns_integration_environments {
+  integration_id String   @db.Uuid
+  environment_id String   @db.Uuid
+  created_at     DateTime @db.Timestamptz(6)
+
+  @@id([integration_id, environment_id])
+  @@index([environment_id, integration_id], map: "external_dns_integration_environments_environment_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model external_dns_integrations {
+  id                           String    @id @db.Uuid
+  slug                         String    @unique
+  name                         String
+  mode                         String
+  provider_kind                String
+  txt_owner_id                 String    @unique
+  allowed_domain_suffixes      Json
+  sync_policy                  String    @default("upsert-only")
+  destructive_sync_confirmed   Boolean   @default(false)
+  credential_secret_ref        String?
+  provider_config_ref          String?
+  egress_config_ref            String?
+  operator_profile_ref         String?
+  created_by                   String    @db.Uuid
+  created_at                   DateTime  @db.Timestamptz(6)
+  updated_at                   DateTime  @db.Timestamptz(6)
+  runtime_revision             BigInt    @default(1)
+  lifecycle                    String    @default("active")
+  deactivated_by               String?   @db.Uuid
+  deactivated_at               DateTime? @db.Timestamptz(6)
+  protected_git_state          String    @default("pending")
+  protected_git_revision       BigInt?
+  protected_git_content_digest String    @default("")
+  protected_git_commit         String    @default("")
+  protected_git_observed_at    DateTime? @db.Timestamptz(6)
+
+  @@index([runtime_revision, id], map: "external_dns_integrations_active_runtime_idx", where: raw("(lifecycle = 'active'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_deployment_write_commands {
+  operation_id       String    @id @db.Uuid
+  deployment_id      String    @db.Uuid
+  actor_id           String    @db.Uuid
+  binding_id         String    @db.Uuid
+  project_id         String    @db.Uuid
+  environment_id     String    @db.Uuid
+  application_id     String    @db.Uuid
+  target_ref         String
+  path               String
+  base_revision      String
+  precondition       String
+  expected_etag      String    @default("")
+  chart_digest       String
+  policy_version     String
+  content            Bytes
+  content_sha256     String
+  message            String
+  state              String    @default("pending")
+  committed_revision String    @default("")
+  committed_at       DateTime? @db.Timestamptz(6)
+  indexed_generation BigInt    @default(0)
+  indexed_at         DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @db.Timestamptz(6)
+  updated_at         DateTime  @db.Timestamptz(6)
+  publication_mode   String
+
+  @@index([binding_id, state, created_at, operation_id], map: "git_deployment_write_commands_binding_state_idx")
+  @@index([binding_id, committed_revision], map: "git_deployment_write_commands_committed_idx", where: raw("(state = ANY (ARRAY['git-committed'::text, 'indexed'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_path_reservations {
+  binding_id         String    @db.Uuid
+  target_ref         String
+  path               String
+  operation_id       String    @db.Uuid
+  owner              String
+  base_revision      String
+  committed_revision String?
+  state              String
+  lease_until        DateTime? @db.Timestamptz(6)
+  created_at         DateTime  @db.Timestamptz(6)
+  updated_at         DateTime  @db.Timestamptz(6)
+
+  @@id([binding_id, target_ref, path])
+  @@index([lease_until], map: "git_path_reservations_repair_idx", where: raw("(state = 'candidate'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_projected_documents {
+  binding_id      String   @db.Uuid
+  generation      BigInt
+  path            String
+  application_id  String?  @db.Uuid
+  source_revision String
+  config_revision String
+  blob_id         String
+  content_sha256  String
+  raw             Bytes
+  parsed          Json?
+  valid           Boolean
+  diagnostics     Json
+  schema_version  String
+  parser_version  String
+  indexed_at      DateTime @db.Timestamptz(6)
+
+  @@id([binding_id, generation, path])
+  @@index([application_id, binding_id, generation], map: "git_projected_documents_application_idx", where: raw("(application_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_projection_generations {
+  binding_id     String    @db.Uuid
+  generation     BigInt
+  head_revision  String
+  parser_version String
+  state          String
+  started_at     DateTime  @db.Timestamptz(6)
+  activated_at   DateTime? @db.Timestamptz(6)
+
+  @@id([binding_id, generation])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_projection_push_wake_targets {
+  delivery_hash   String
+  binding_id      String @db.Uuid
+  wake_generation BigInt
+
+  @@id([delivery_hash, binding_id])
+  @@unique([binding_id, wake_generation])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_projection_push_wakes {
+  delivery_hash   String   @id
+  github_app_id   BigInt
+  installation_id BigInt
+  repository_id   BigInt
+  target_ref      String
+  after_commit    String
+  received_at     DateTime @db.Timestamptz(6)
+
+  @@unique([github_app_id, installation_id, repository_id, target_ref, after_commit])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_projection_runtime_readiness {
+  worker_id        String   @id
+  worker_epoch     BigInt
+  contract_version String
+  config_digest    String
+  github_app_id    BigInt
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_until      DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, github_app_id, observed_at(sort: Desc)], map: "git_projection_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_pull_request_publications {
+  operation_id         String    @id @db.Uuid
+  binding_id           String    @db.Uuid
+  provider             String
+  installation_id      BigInt
+  repository_id        BigInt
+  repository_owner     String
+  repository_name      String
+  target_ref           String
+  base_revision        String
+  write_base_revision  String    @default("")
+  candidate_ref        String
+  candidate_revision   String    @default("")
+  pull_request_number  BigInt    @default(0)
+  pull_request_url     String    @default("")
+  pull_request_state   String    @default("")
+  merge_revision       String    @default("")
+  target_revision      String    @default("")
+  state                String
+  provider_observed_at DateTime? @db.Timestamptz(6)
+  created_at           DateTime  @db.Timestamptz(6)
+  updated_at           DateTime  @db.Timestamptz(6)
+  version              BigInt    @default(1)
+
+  @@unique([repository_id, pull_request_number], map: "git_pull_request_publications_provider_pr_idx", where: raw("(pull_request_number > 0)"))
+  @@unique([repository_id, candidate_ref])
+  @@index([state, updated_at, operation_id], map: "git_pull_request_publications_reconcile_idx", where: raw("(state = ANY (ARRAY['candidate-ready'::text, 'pull-request-open'::text, 'pull-request-closed'::text, 'merge-pending'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_repository_bindings {
+  id                      String    @id @db.Uuid
+  kind                    String
+  scope_id                String    @db.Uuid
+  project_id              String?   @db.Uuid
+  environment_id          String?   @unique(map: "git_repository_bindings_environment_authority", where: raw("(kind = 'environment'::text)")) @db.Uuid
+  cluster_id              String?   @unique(map: "git_repository_bindings_platform_authority", where: raw("(kind = 'platform'::text)")) @db.Uuid
+  provider                String
+  installation_id         BigInt
+  repository_id           BigInt
+  repository_owner        String
+  repository_name         String
+  target_ref              String
+  path_prefix             String
+  credential_secret_name  String
+  state                   String
+  target_head_revision    String?
+  indexed_revision        String?
+  projection_generation   BigInt    @default(0)
+  parser_version          String
+  target_head_observed_at DateTime? @db.Timestamptz(6)
+  indexed_at              DateTime? @db.Timestamptz(6)
+  created_at              DateTime  @db.Timestamptz(6)
+  updated_at              DateTime  @db.Timestamptz(6)
+  credential_mode         String    @default("legacy-secret")
+
+  @@unique([id, cluster_id], map: "git_repository_bindings_id_cluster_unique")
+  @@unique([id, project_id, environment_id])
+  @@unique([id, target_ref])
+  @@unique([provider, installation_id, repository_id, target_ref, scope_id])
+  @@index([state, updated_at, id], map: "git_repository_bindings_work_idx", where: raw("(state <> 'ready'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_safety_poll_cursors {
+  binding_id                    String    @id @db.Uuid
+  last_commit                   String?
+  provider_cursor               String    @default("")
+  consecutive_failures          Int       @default(0)
+  next_poll_at                  DateTime  @db.Timestamptz(6)
+  updated_at                    DateTime  @db.Timestamptz(6)
+  lease_owner                   String?
+  lease_epoch                   BigInt    @default(0)
+  lease_until                   DateTime? @db.Timestamptz(6)
+  reconciled_binding_updated_at DateTime? @db.Timestamptz(6)
+  last_error_code               String    @default("")
+  wake_generation               BigInt    @default(0)
+  reconciled_wake_generation    BigInt    @default(0)
+
+  @@index([next_poll_at, binding_id], map: "git_safety_poll_due_idx")
+  @@index([lease_until, next_poll_at, binding_id], map: "git_safety_poll_reconcile_due_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_variable_write_commands {
+  operation_id       String    @id @db.Uuid
+  actor_id           String    @db.Uuid
+  binding_id         String    @db.Uuid
+  project_id         String    @db.Uuid
+  environment_id     String    @db.Uuid
+  scope              String
+  target_ref         String
+  path               String
+  base_revision      String
+  precondition       String
+  expected_etag      String
+  parser_version     String
+  content            Bytes
+  content_sha256     String
+  message            String
+  publication_mode   String
+  state              String
+  committed_revision String    @default("")
+  committed_at       DateTime? @db.Timestamptz(6)
+  indexed_generation BigInt    @default(0)
+  indexed_at         DateTime? @db.Timestamptz(6)
+  request_digest     String
+  created_at         DateTime  @db.Timestamptz(6)
+  updated_at         DateTime  @db.Timestamptz(6)
+
+  @@index([binding_id, state, created_at, operation_id], map: "git_variable_write_commands_binding_state_idx")
+  @@index([binding_id, committed_revision], map: "git_variable_write_commands_committed_idx", where: raw("(state = ANY (ARRAY['git-committed'::text, 'indexed'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_verified_head_observations {
+  binding_id       String   @db.Uuid
+  provider         String
+  installation_id  BigInt
+  repository_id    BigInt
+  repository_owner String
+  repository_name  String
+  target_ref       String
+  commit_revision  String
+  source           String
+  provider_request String
+  observed_at      DateTime @db.Timestamptz(6)
+
+  @@id([binding_id, commit_revision, source, provider_request])
+  @@index([binding_id, observed_at(sort: Desc)], map: "git_verified_head_observations_latest_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model git_webhook_tombstones {
+  provider      String
+  repository_id BigInt
+  target_ref    String
+  after_commit  String
+  delivery_hash String
+  received_at   DateTime @db.Timestamptz(6)
+
+  @@id([provider, delivery_hash])
+  @@unique([provider, repository_id, target_ref, after_commit])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_installations {
+  id                     String    @id @db.Uuid
+  github_installation_id BigInt    @unique
+  account_login          String
+  account_type           String
+  owner_user_id          String    @db.Uuid
+  visibility             String    @default("private")
+  team_id                String?   @db.Uuid
+  repository_selection   String
+  repository_count       Int
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  github_app_id          BigInt?
+  github_account_id      BigInt?
+  lifecycle              String    @default("pending-verification")
+  permissions            Json      @default("{}")
+  suspended_at           DateTime? @db.Timestamptz(6)
+  deleted_at             DateTime? @db.Timestamptz(6)
+  last_verified_at       DateTime? @db.Timestamptz(6)
+
+  @@index([owner_user_id, created_at], map: "github_installations_owner_idx")
+  @@index([github_app_id, github_installation_id, lifecycle], map: "github_installations_provider_idx")
+  @@index([team_id, created_at], map: "github_installations_team_idx", where: raw("(visibility = 'team'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_one_time_claims {
+  kind         String
+  claim_key    String
+  retain_until DateTime @db.Timestamptz(6)
+  permanent    Boolean
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([kind, claim_key])
+  @@index([retain_until], map: "github_one_time_claims_expiry_idx", where: raw("(permanent = false)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_repositories {
+  id                   String    @id @db.Uuid
+  installation_id      String    @db.Uuid
+  github_repository_id BigInt
+  github_owner_id      BigInt
+  owner_login          String
+  name                 String
+  lifecycle            String
+  last_verified_at     DateTime  @db.Timestamptz(6)
+  removed_at           DateTime? @db.Timestamptz(6)
+  created_at           DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([id, installation_id])
+  @@unique([installation_id, github_repository_id])
+  @@index([github_repository_id, installation_id, lifecycle], map: "github_repositories_provider_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_setup_authorizations {
+  actor_id            String   @db.Uuid
+  idempotency_key     String
+  request_fingerprint String
+  state_value         String
+  expires_at          DateTime @db.Timestamptz(6)
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+  @@index([expires_at], map: "github_setup_authorizations_expiry_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_setup_handoffs {
+  digest                   Bytes     @id
+  actor_id                 String    @db.Uuid
+  team_id                  String?   @db.Uuid
+  github_user_id           BigInt
+  github_user_login        String
+  installation             Json
+  repositories             Json
+  expires_at               DateTime  @db.Timestamptz(6)
+  consumed_at              DateTime? @db.Timestamptz(6)
+  link_idempotency_key     String?
+  link_request_fingerprint String?
+  linked_installation_id   String?   @db.Uuid
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([actor_id, expires_at], map: "github_setup_handoffs_actor_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_user_bindings {
+  user_id        String   @id @db.Uuid
+  github_user_id BigInt   @unique
+  github_login   String
+  bound_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model github_webhook_receipts {
+  claim_key              String    @id
+  claim_kind             String    @default("github-delivery")
+  github_app_id          BigInt
+  github_installation_id BigInt
+  delivery_id            String    @db.Uuid
+  event                  String
+  body_sha256            String
+  typed_event            Json?
+  repository_id          BigInt?
+  git_ref                String    @default("")
+  state                  String
+  failure_code           String    @default("")
+  lease_owner            String?
+  lease_until            DateTime? @db.Timestamptz(6)
+  available_at           DateTime  @default(now()) @db.Timestamptz(6)
+  received_at            DateTime  @db.Timestamptz(6)
+  completed_at           DateTime? @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([github_app_id, github_installation_id, delivery_id])
+  @@index([state, available_at, received_at], map: "github_webhook_receipts_work_idx", where: raw("(state = ANY (ARRAY['claimed'::text, 'processing'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_chart_approval_documents {
+  approval_id          String   @db.Uuid
+  approval_revision    BigInt
+  values_schema_json   Bytes
+  default_values_yaml  Bytes
+  values_schema_digest String
+  documents_digest     String
+  created_at           DateTime @db.Timestamptz(6)
+
+  @@id([approval_id, approval_revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_chart_approvals {
+  approval_id          String   @db.Uuid
+  revision             BigInt
+  oci_repository       String
+  chart_version        String
+  manifest_digest      String
+  package_digest       String
+  values_schema_digest String
+  renderer_image       String
+  renderer_version     String
+  policy_version       String
+  identity_digest      String
+  created_by           String   @db.Uuid
+  idempotency_key      String
+  created_at           DateTime @db.Timestamptz(6)
+
+  @@id([approval_id, revision])
+  @@unique([created_by, idempotency_key])
+  @@unique([oci_repository, chart_version, manifest_digest, package_digest, values_schema_digest, renderer_image, policy_version])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_protected_application_intents {
+  id                        String    @id @db.Uuid
+  release_revision_id       String    @unique @db.Uuid
+  payload_intent_id         String    @unique @db.Uuid
+  release_generation        BigInt
+  project_id                String    @db.Uuid
+  environment_id            String    @db.Uuid
+  application_id            String    @db.Uuid
+  action                    String
+  platform_binding_id       String    @db.Uuid
+  environment_binding_id    String    @db.Uuid
+  cluster_id                String    @db.Uuid
+  platform_target_ref       String
+  environment_target_ref    String
+  environment_revision      String
+  environment_generation    BigInt
+  catalog_digest            String
+  planned_base_revision     String
+  payload_revision          String
+  payload_path              String
+  source_directory          String
+  application_path          String
+  operation                 String
+  precondition              String
+  expected_etag             String
+  content                   Bytes
+  content_digest            String
+  intent_digest             String
+  commit_trailer            String
+  publisher_contract        String
+  publisher_config_digest   String
+  message                   String
+  state                     String
+  next_attempt_at           DateTime  @db.Timestamptz(6)
+  attempts                  Int       @default(0)
+  consecutive_failures      Int       @default(0)
+  last_failure_code         String    @default("")
+  lease_owner               String?
+  lease_epoch               BigInt    @default(0)
+  lease_until               DateTime? @db.Timestamptz(6)
+  write_base_revision       String    @default("")
+  write_base_observed_at    DateTime? @db.Timestamptz(6)
+  committed_revision        String    @default("")
+  committed_parent_revision String    @default("")
+  committed_at              DateTime? @db.Timestamptz(6)
+  verified_at               DateTime? @db.Timestamptz(6)
+  verified_path_digest      String    @default("")
+  provider_request          String    @default("")
+  created_at                DateTime  @db.Timestamptz(6)
+  updated_at                DateTime  @db.Timestamptz(6)
+  completed_at              DateTime? @db.Timestamptz(6)
+
+  @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_in_environment_id_application_id_key")
+  @@index([platform_binding_id, state, created_at], map: "helm_protected_application_intents_binding_idx")
+  @@index([next_attempt_at, created_at, id], map: "helm_protected_application_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_protected_payload_intents {
+  id                        String    @id @db.Uuid
+  release_revision_id       String    @unique @db.Uuid
+  release_generation        BigInt
+  project_id                String    @db.Uuid
+  environment_id            String    @db.Uuid
+  application_id            String    @db.Uuid
+  action                    String
+  platform_binding_id       String    @db.Uuid
+  environment_binding_id    String    @db.Uuid
+  cluster_id                String    @db.Uuid
+  platform_target_ref       String
+  environment_target_ref    String
+  environment_revision      String
+  environment_generation    BigInt
+  catalog_digest            String
+  planned_base_revision     String
+  path                      String
+  precondition              String
+  expected_etag             String
+  content                   Bytes
+  content_digest            String
+  manifest_inventory_digest String?
+  manifest_resource_count   Int?
+  intent_digest             String
+  commit_trailer            String
+  publisher_contract        String
+  publisher_config_digest   String
+  message                   String
+  state                     String
+  next_attempt_at           DateTime  @db.Timestamptz(6)
+  attempts                  Int       @default(0)
+  consecutive_failures      Int       @default(0)
+  last_failure_code         String    @default("")
+  lease_owner               String?
+  lease_epoch               BigInt    @default(0)
+  lease_until               DateTime? @db.Timestamptz(6)
+  write_base_revision       String    @default("")
+  write_base_observed_at    DateTime? @db.Timestamptz(6)
+  committed_revision        String    @default("")
+  committed_parent_revision String    @default("")
+  committed_at              DateTime? @db.Timestamptz(6)
+  verified_at               DateTime? @db.Timestamptz(6)
+  verified_path_digest      String    @default("")
+  provider_request          String    @default("")
+  created_at                DateTime  @db.Timestamptz(6)
+  updated_at                DateTime  @db.Timestamptz(6)
+  completed_at              DateTime? @db.Timestamptz(6)
+
+  @@unique([environment_id, application_id, release_generation], map: "helm_protected_payload_intent_environment_id_application_id_key")
+  @@index([platform_binding_id, state, created_at], map: "helm_protected_payload_intents_binding_idx")
+  @@index([next_attempt_at, created_at, id], map: "helm_protected_payload_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_protected_publisher_readiness {
+  worker_id        String   @id
+  worker_epoch     BigInt
+  contract_version String
+  policy_version   String
+  config_digest    String
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_until      DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, policy_version, config_digest, observed_at(sort: Desc)], map: "helm_protected_publisher_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_release_heads {
+  project_id     String   @db.Uuid
+  environment_id String   @db.Uuid
+  application_id String   @db.Uuid
+  revision_id    String   @db.Uuid
+  generation     BigInt
+  updated_at     DateTime @db.Timestamptz(6)
+
+  @@id([environment_id, application_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_release_revisions {
+  id                          String   @id @db.Uuid
+  generation                  BigInt
+  project_id                  String   @db.Uuid
+  environment_id              String   @db.Uuid
+  application_id              String   @db.Uuid
+  release_name                String
+  action                      String
+  desired_enabled             Boolean
+  parent_revision_id          String?  @db.Uuid
+  rollback_source_revision_id String?  @db.Uuid
+  base_intent_id              String?  @db.Uuid
+  approval_id                 String   @db.Uuid
+  approval_revision           BigInt
+  render_command_id           String?  @unique @db.Uuid
+  values_yaml                 Bytes
+  values_digest               String
+  intent_digest               String
+  actor_id                    String   @db.Uuid
+  idempotency_key             String
+  request_id                  String
+  created_at                  DateTime @db.Timestamptz(6)
+
+  @@unique([actor_id, idempotency_key])
+  @@unique([environment_id, application_id, generation])
+  @@unique([id, project_id, environment_id, application_id, generation])
+  @@index([environment_id, application_id, generation(sort: Desc)], map: "helm_release_revisions_history_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_render_commands {
+  id                            String    @id @db.Uuid
+  idempotency_scope             String    @db.Uuid
+  idempotency_key               String
+  approval_id                   String    @db.Uuid
+  approval_revision             BigInt
+  project_id                    String    @db.Uuid
+  environment_id                String    @db.Uuid
+  application_id                String    @db.Uuid
+  namespace                     String
+  release_name                  String
+  descriptor_yaml               Bytes
+  values_yaml                   Bytes
+  descriptor_digest             String
+  values_digest                 String
+  input_digest                  String
+  state                         String    @default("queued")
+  available_at                  DateTime  @db.Timestamptz(6)
+  attempts                      Int       @default(0)
+  consecutive_failures          Int       @default(0)
+  last_failure_code             String    @default("")
+  lease_owner                   String?
+  lease_epoch                   BigInt    @default(0)
+  lease_until                   DateTime? @db.Timestamptz(6)
+  worker_contract               String?
+  worker_renderer_image         String?
+  worker_renderer_version       String?
+  worker_policy_version         String?
+  worker_limits_digest          String?
+  created_at                    DateTime  @db.Timestamptz(6)
+  updated_at                    DateTime  @db.Timestamptz(6)
+  completed_at                  DateTime? @db.Timestamptz(6)
+  operator_config_digest        String
+  worker_operator_config_digest String?
+
+  @@unique([idempotency_scope, idempotency_key])
+  @@index([environment_id, application_id, created_at(sort: Desc)], map: "helm_render_commands_application_idx")
+  @@index([approval_id, approval_revision, created_at(sort: Desc)], map: "helm_render_commands_approval_idx")
+  @@index([available_at, created_at, id], map: "helm_render_commands_due_idx", where: raw("(state = ANY (ARRAY['queued'::text, 'processing'::text]))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_render_results {
+  command_id             String   @id @db.Uuid
+  input_digest           String
+  manifest_digest        String
+  inventory_digest       String
+  rendered_manifests     Bytes
+  resource_count         Int
+  output_bytes           Int
+  renderer_image         String
+  renderer_version       String
+  policy_version         String
+  limits_digest          String
+  completed_at           DateTime @db.Timestamptz(6)
+  operator_config_digest String
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model helm_renderer_readiness {
+  worker_id              String   @id
+  worker_epoch           BigInt
+  contract_version       String
+  renderer_image         String
+  renderer_version       String
+  policy_version         String
+  limits_digest          String
+  started_at             DateTime @db.Timestamptz(6)
+  observed_at            DateTime @db.Timestamptz(6)
+  lease_until            DateTime @db.Timestamptz(6)
+  operator_config_digest String
+
+  @@index([contract_version, renderer_image, renderer_version, policy_version, limits_digest, operator_config_digest, observed_at(sort: Desc)], map: "helm_renderer_readiness_match_idx")
+}
+
+model idempotency_keys {
+  actor_id      String   @db.Uuid
+  scope         String
+  key           String
+  fingerprint   String
+  resource_type String
+  resource_id   String   @db.Uuid
+  operation_id  String?  @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([actor_id, scope, key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model managed_registry_runtime_readiness {
+  registry_target_id String   @db.Uuid
+  worker_id          String
+  worker_epoch       BigInt
+  contract_version   String
+  config_digest      String
+  started_at         DateTime @db.Timestamptz(6)
+  observed_at        DateTime @db.Timestamptz(6)
+  lease_until        DateTime @db.Timestamptz(6)
+
+  @@id([registry_target_id, worker_id])
+  @@index([registry_target_id, contract_version, config_digest, observed_at(sort: Desc)], map: "managed_registry_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model middleware_profile_assignments {
+  profile_id String @db.Uuid
+  revision   BigInt
+  ordinal    Int
+  scope_type String
+  scope_id   String @db.Uuid
+
+  @@id([profile_id, revision, ordinal])
+  @@unique([profile_id, revision, scope_type, scope_id], map: "middleware_profile_assignment_profile_id_revision_scope_typ_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model middleware_profile_commands {
+  actor_id        String   @db.Uuid
+  idempotency_key String
+  action          String
+  request_digest  String
+  profile_id      String   @db.Uuid
+  result_revision BigInt
+  request_id      String
+  created_at      DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model middleware_profile_references {
+  profile_id     String   @db.Uuid
+  revision       BigInt
+  application_id String   @db.Uuid
+  environment_id String   @db.Uuid
+  git_path       String
+  logical_name   String
+  updated_at     DateTime @db.Timestamptz(6)
+
+  @@id([git_path, profile_id, logical_name])
+  @@index([profile_id, git_path], map: "middleware_profile_references_profile_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model middleware_profile_revisions {
+  profile_id             String   @db.Uuid
+  revision               BigInt
+  spec                   Json
+  spec_digest            String
+  assignments_digest     String
+  created_by             String   @db.Uuid
+  created_at             DateTime @db.Timestamptz(6)
+  cloned_from_profile_id String?  @db.Uuid
+  cloned_from_revision   BigInt?
+
+  @@id([profile_id, revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model middleware_profiles {
+  id               String    @id @db.Uuid
+  name             String
+  lifecycle        String
+  current_revision BigInt
+  created_by       String    @db.Uuid
+  created_at       DateTime  @db.Timestamptz(6)
+  deactivated_by   String?   @db.Uuid
+  deactivated_at   DateTime? @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model operations {
+  id           String    @id @db.Uuid
+  kind         String
+  status       String
+  target_type  String
+  target_id    String    @db.Uuid
+  request_id   String
+  generation   BigInt    @default(1)
+  progress     Json      @default("[]")
+  git_revision String    @default("")
+  problem      Json?
+  lease_owner  String?
+  lease_until  DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at  DateTime? @db.Timestamptz(6)
+
+  @@index([status, lease_until, created_at], map: "operations_status_lease_idx")
+}
+
+model outbox {
+  operation_id String    @id @db.Uuid
+  kind         String
+  scope_id     String    @db.Uuid
+  generation   BigInt
+  trace_id     String
+  attempts     Int       @default(0)
+  last_error   String?
+  available_at DateTime  @default(now()) @db.Timestamptz(6)
+  published_at DateTime? @db.Timestamptz(6)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([available_at, created_at], map: "outbox_pending_idx", where: raw("(published_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model outbox_valkey_dataset {
+  singleton   Boolean  @id @default(true)
+  dataset_id  String   @db.Uuid
+  observed_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model platform_upgrades {
+  id              String   @id @db.Uuid
+  version         String
+  manifest_digest String
+  manifest        Json
+  state           String
+  operation_id    String   @unique @db.Uuid
+  runner_ref      String   @default("")
+  result          Json?
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  manifest_bytes  Bytes
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model project_registry_pull_credentials {
+  id                 String   @id @db.Uuid
+  project_id         String   @db.Uuid
+  registry_target_id String   @db.Uuid
+  name               String
+  created_by         String   @db.Uuid
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([project_id, registry_target_id], map: "project_registry_pull_credent_project_id_registry_target_id_key")
+  @@unique([project_id, name])
+}
+
+model projects {
+  id         String   @id @db.Uuid
+  name       String
+  slug       String   @unique
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  team_id    String?  @db.Uuid
+
+  @@unique([id, team_id], map: "projects_id_team_unique")
+  @@index([team_id, created_at], map: "projects_team_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_artifact_references {
+  registry_target_id String   @db.Uuid
+  service_id         String
+  repository         String
+  digest             String
+  kind               String
+  reference_key      String
+  source_revision    String   @default("")
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+  observed_at        DateTime @db.Timestamptz(6)
+
+  @@id([registry_target_id, service_id, kind, reference_key])
+  @@index([registry_target_id, repository, digest], map: "registry_artifact_references_digest_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_authority_observations {
+  registry_target_id String   @db.Uuid
+  service_id         String
+  authority          String
+  revision           String
+  complete           Boolean
+  snapshot_digest    String
+  observed_at        DateTime @db.Timestamptz(6)
+
+  @@id([registry_target_id, service_id, authority])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_blobs {
+  registry_target_id        String    @db.Uuid
+  repository                String
+  digest                    String
+  media_type                String    @default("")
+  size_bytes                BigInt
+  present                   Boolean   @default(true)
+  first_observed_at         DateTime  @db.Timestamptz(6)
+  last_observed_at          DateTime  @db.Timestamptz(6)
+  last_observation_revision BigInt
+  deleted_at                DateTime? @db.Timestamptz(6)
+
+  @@id([registry_target_id, repository, digest])
+  @@index([registry_target_id, repository, present, last_observed_at], map: "registry_blobs_present_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_cache_generations {
+  id                    String    @id @db.Uuid
+  registry_target_id    String    @db.Uuid
+  service_id            String
+  repository            String
+  platform_set          String
+  trust_lane            String
+  cache_schema          String
+  build_definition_hash String
+  generation            BigInt
+  root_digest           String
+  size_bytes            BigInt
+  state                 String
+  active_imports        Int       @default(0)
+  active_exports        Int       @default(0)
+  created_at            DateTime  @db.Timestamptz(6)
+  completed_at          DateTime? @db.Timestamptz(6)
+  last_used_at          DateTime  @db.Timestamptz(6)
+
+  @@unique([registry_target_id, service_id, platform_set, trust_lane, cache_schema, build_definition_hash, generation])
+  @@index([registry_target_id, service_id, platform_set, trust_lane, cache_schema, build_definition_hash, state, generation(sort: Desc)], map: "registry_cache_generations_lifecycle_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_catalog_observations {
+  id                 String   @id @db.Uuid
+  registry_target_id String   @db.Uuid
+  repository         String
+  revision           BigInt
+  complete           Boolean
+  snapshot_digest    String
+  observed_at        DateTime @db.Timestamptz(6)
+  manifest_count     Int
+  blob_count         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([registry_target_id, repository, revision])
+  @@index([registry_target_id, repository, revision(sort: Desc)], map: "registry_catalog_observations_latest_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_cleanup_items {
+  plan_id          String   @db.Uuid
+  ordinal          Int
+  repository       String
+  resource_kind    String
+  digest           String
+  disposition      String
+  action           String
+  estimated_bytes  BigInt
+  reasons          Json     @default("[]")
+  state            String   @default("planned")
+  provider_message String   @default("")
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([plan_id, ordinal])
+  @@unique([plan_id, repository, resource_kind, digest])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_cleanup_leases {
+  registry_target_id String   @db.Uuid
+  repository         String
+  plan_id            String   @db.Uuid
+  owner              String
+  lease_until        DateTime @db.Timestamptz(6)
+
+  @@id([registry_target_id, repository])
+  @@index([lease_until], map: "registry_cleanup_leases_expiry_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_cleanup_plans {
+  id                 String    @id @db.Uuid
+  registry_target_id String    @db.Uuid
+  service_id         String
+  snapshot_token     String
+  authority_token    String
+  plan_digest        String
+  state              String    @default("preview")
+  policy             Json
+  observations       Json
+  summary            Json
+  created_at         DateTime  @db.Timestamptz(6)
+  claimed_at         DateTime? @db.Timestamptz(6)
+  completed_at       DateTime? @db.Timestamptz(6)
+  failure            String    @default("")
+
+  @@unique([registry_target_id, service_id], map: "registry_cleanup_plans_one_executing_idx", where: raw("(state = 'executing'::text)"))
+  @@unique([registry_target_id, service_id, plan_digest])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_inventory_observations {
+  registry_target_id String   @id @db.Uuid
+  revision           String
+  complete           Boolean
+  repositories       Json
+  observed_at        DateTime @db.Timestamptz(6)
+}
+
+model registry_manifest_blobs {
+  registry_target_id String @db.Uuid
+  repository         String
+  manifest_digest    String
+  blob_digest        String
+
+  @@id([registry_target_id, repository, manifest_digest, blob_digest])
+  @@index([registry_target_id, repository, blob_digest], map: "registry_manifest_blobs_blob_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_manifest_children {
+  registry_target_id String @db.Uuid
+  repository         String
+  parent_digest      String
+  child_digest       String
+
+  @@id([registry_target_id, repository, parent_digest, child_digest])
+  @@index([registry_target_id, repository, child_digest], map: "registry_manifest_children_child_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_manifests {
+  registry_target_id        String    @db.Uuid
+  repository                String
+  digest                    String
+  kind                      String
+  media_type                String
+  size_bytes                BigInt
+  platform_os               String    @default("")
+  platform_architecture     String    @default("")
+  platform_variant          String    @default("")
+  present                   Boolean   @default(true)
+  first_observed_at         DateTime  @db.Timestamptz(6)
+  last_observed_at          DateTime  @db.Timestamptz(6)
+  last_observation_revision BigInt
+  deleted_at                DateTime? @db.Timestamptz(6)
+
+  @@id([registry_target_id, repository, digest])
+  @@index([registry_target_id, repository, present, last_observed_at], map: "registry_manifests_present_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_releases {
+  id                       String    @id @db.Uuid
+  registry_target_id       String    @db.Uuid
+  service_id               String
+  repository               String
+  root_digest              String
+  created_at               DateTime  @db.Timestamptz(6)
+  succeeded_at             DateTime? @db.Timestamptz(6)
+  availability             String    @default("present")
+  availability_observed_at DateTime? @db.Timestamptz(6)
+
+  @@index([registry_target_id, repository, root_digest], map: "registry_releases_digest_idx")
+  @@index([registry_target_id, service_id, succeeded_at(sort: Desc), id(sort: Desc)], map: "registry_releases_retention_idx", where: raw("(succeeded_at IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_runtime_gc_sweep_receipts {
+  registry_target_id   String   @db.Uuid
+  execution_key        String
+  plan_id              String   @db.Uuid
+  candidate_set_digest String
+  checkpoint_revision  String
+  provider_sweep_id    String
+  helper_job_uid       String
+  started_at           DateTime @db.Timestamptz(6)
+  completed_at         DateTime @db.Timestamptz(6)
+  created_at           DateTime @db.Timestamptz(6)
+
+  @@id([registry_target_id, execution_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_runtime_maintenance_executions {
+  registry_target_id     String    @unique(map: "registry_runtime_maintenance_target_exclusive_idx", where: raw("(released_at IS NULL)")) @db.Uuid
+  execution_key          String
+  plan_id                String    @db.Uuid
+  candidate_set_digest   String
+  state                  String    @default("acquired")
+  maintenance_mode       String?
+  deployment_uid         String    @default("")
+  original_replicas      Int?
+  checkpoint_revision    String    @default("")
+  checkpoint_digest      String    @default("")
+  checkpoint_observed_at DateTime? @db.Timestamptz(6)
+  sweep_job_uid          String    @default("")
+  lease_owner            String
+  lease_epoch            BigInt
+  lease_until            DateTime  @db.Timestamptz(6)
+  restored_at            DateTime? @db.Timestamptz(6)
+  released_at            DateTime? @db.Timestamptz(6)
+  created_at             DateTime  @db.Timestamptz(6)
+  updated_at             DateTime  @db.Timestamptz(6)
+
+  @@id([registry_target_id, execution_key])
+  @@index([lease_until, registry_target_id, execution_key], map: "registry_runtime_maintenance_lease_idx", where: raw("(released_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_runtime_observation_cursors {
+  registry_target_id   String    @id @db.Uuid
+  completed_revision   BigInt    @default(0)
+  completed_at         DateTime? @db.Timestamptz(6)
+  next_observe_at      DateTime  @db.Timestamptz(6)
+  consecutive_failures Int       @default(0)
+  last_error_code      String    @default("")
+  lease_owner          String?
+  lease_epoch          BigInt    @default(0)
+  lease_until          DateTime? @db.Timestamptz(6)
+  updated_at           DateTime  @db.Timestamptz(6)
+
+  @@index([lease_until, next_observe_at, registry_target_id], map: "registry_runtime_observation_due_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model registry_targets {
+  id                   String   @id @db.Uuid
+  name                 String   @unique
+  mode                 String
+  endpoint             String
+  repository_prefix    String
+  pull_credential_ref  String   @default("")
+  push_credential_ref  String   @default("")
+  cache_credential_ref String   @default("")
+  created_at           DateTime @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model runtime_registry_pull_artifacts {
+  environment_id            String    @db.Uuid
+  namespace                 String
+  registry_target_id        String    @db.Uuid
+  pull_credential_ref       String
+  profile_name              String
+  profile_revision          BigInt
+  secret_name               String
+  active                    Boolean   @default(true)
+  runtime_state             String    @default("awaiting")
+  next_observation_at       DateTime  @db.Timestamptz(6)
+  last_observed_at          DateTime? @db.Timestamptz(6)
+  consecutive_failures      Int       @default(0)
+  last_failure_code         String    @default("")
+  observed_uid              String    @default("")
+  observed_resource_version String    @default("")
+  lease_owner               String?
+  lease_epoch               BigInt    @default(0)
+  lease_until               DateTime? @db.Timestamptz(6)
+  worker_contract           String?
+  worker_config_digest      String?
+  created_at                DateTime  @db.Timestamptz(6)
+  updated_at                DateTime  @db.Timestamptz(6)
+
+  @@id([environment_id, registry_target_id, profile_revision])
+  @@unique([namespace, secret_name])
+  @@unique([environment_id, registry_target_id], map: "runtime_registry_pull_artifacts_one_active_idx", where: raw("active"))
+  @@index([next_observation_at, environment_id, registry_target_id], map: "runtime_registry_pull_artifacts_due_idx", where: raw("(active AND (runtime_state <> 'failed'::text))"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model runtime_registry_pull_readiness {
+  worker_id        String   @id
+  worker_epoch     BigInt
+  contract_version String
+  config_digest    String
+  profile_count    Int
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_until      DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, profile_count, observed_at(sort: Desc)], map: "runtime_registry_pull_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model runtime_secret_runtime_readiness {
+  worker_id               String   @id
+  worker_epoch            BigInt
+  contract_version        String
+  config_digest           String
+  fingerprint_key_id      String
+  sealing_key_fingerprint String
+  started_at              DateTime @db.Timestamptz(6)
+  observed_at             DateTime @db.Timestamptz(6)
+  lease_until             DateTime @db.Timestamptz(6)
+
+  @@index([contract_version, config_digest, fingerprint_key_id, sealing_key_fingerprint, observed_at(sort: Desc)], map: "runtime_secret_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model scheduling_profile_assignments {
+  profile_id String @db.Uuid
+  revision   BigInt
+  ordinal    Int
+  scope_type String
+  scope_id   String @db.Uuid
+
+  @@id([profile_id, revision, ordinal])
+  @@unique([profile_id, revision, scope_type, scope_id], map: "scheduling_profile_assignment_profile_id_revision_scope_typ_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model scheduling_profile_commands {
+  actor_id        String   @db.Uuid
+  idempotency_key String
+  action          String
+  request_digest  String
+  profile_id      String   @db.Uuid
+  result_revision BigInt
+  request_id      String
+  created_at      DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model scheduling_profile_revisions {
+  profile_id         String   @db.Uuid
+  revision           BigInt
+  spec               Json
+  spec_digest        String
+  assignments_digest String
+  created_by         String   @db.Uuid
+  created_at         DateTime @db.Timestamptz(6)
+
+  @@id([profile_id, revision])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model scheduling_profiles {
+  id               String    @id @db.Uuid
+  name             String    @unique
+  lifecycle        String
+  current_revision BigInt
+  created_by       String    @db.Uuid
+  created_at       DateTime  @db.Timestamptz(6)
+  deactivated_by   String?   @db.Uuid
+  deactivated_at   DateTime? @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_deliveries {
+  version_id       String  @db.Uuid
+  binding_id       String  @db.Uuid
+  ordinal          Int
+  source_key       String
+  kind             String
+  environment_name String?
+  file_path        String?
+  file_mode        Int?
+
+  @@id([version_id, ordinal])
+  @@unique([version_id, environment_name], map: "secret_binding_delivery_environment_unique", where: raw("(kind = 'environment'::text)"))
+  @@unique([version_id, file_path], map: "secret_binding_delivery_file_unique", where: raw("(kind = 'file'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_events {
+  id           String    @id @db.Uuid
+  binding_id   String    @db.Uuid
+  version_id   String?   @db.Uuid
+  actor_id     String?   @db.Uuid
+  kind         String
+  request_id   String
+  occurred_at  DateTime  @db.Timestamptz(6)
+  published_at DateTime? @db.Timestamptz(6)
+
+  @@index([occurred_at, id], map: "secret_binding_events_pending_idx", where: raw("(published_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_idempotency {
+  actor_id            String   @db.Uuid
+  operation           String
+  application_id      String   @db.Uuid
+  binding_id          String   @db.Uuid
+  idempotency_key     String
+  request_fingerprint Bytes
+  version_id          String   @db.Uuid
+  created_at          DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, operation, application_id, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_references {
+  binding_id   String   @db.Uuid
+  version_id   String   @db.Uuid
+  kind         String
+  reference_id String
+  revision     String
+  created_at   DateTime @db.Timestamptz(6)
+
+  @@id([binding_id, kind, reference_id])
+  @@index([version_id, kind, reference_id], map: "secret_binding_references_version_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_runtime_reconciliations {
+  version_id           String    @id @db.Uuid
+  binding_id           String    @db.Uuid
+  runtime_state        String    @default("awaiting")
+  next_attempt_at      DateTime  @db.Timestamptz(6)
+  consecutive_failures Int       @default(0)
+  last_failure_code    String    @default("")
+  lease_owner          String?
+  lease_epoch          BigInt    @default(0)
+  lease_until          DateTime? @db.Timestamptz(6)
+  worker_contract      String?
+  worker_config_digest String?
+  created_at           DateTime  @db.Timestamptz(6)
+  updated_at           DateTime  @db.Timestamptz(6)
+  completed_at         DateTime? @db.Timestamptz(6)
+
+  @@unique([version_id, binding_id], map: "secret_binding_runtime_reconciliation_version_id_binding_id_key")
+  @@index([next_attempt_at, version_id], map: "secret_binding_runtime_reconcile_due_idx", where: raw("(runtime_state = 'awaiting'::text)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_binding_versions {
+  id                     String    @id @db.Uuid
+  binding_id             String    @unique(map: "secret_binding_one_active_version", where: raw("(state = 'active'::text)")) @db.Uuid
+  version_number         BigInt
+  provider               String
+  state                  String
+  fingerprint_key_id     String
+  content_fingerprint    Bytes
+  provider_object_name   String?
+  target_secret_name     String?
+  provider_revision      String?
+  manifest_digest        String?
+  sealed_key_fingerprint String?
+  ciphertext_digest      String?
+  failure_code           String    @default("")
+  staged_at              DateTime? @db.Timestamptz(6)
+  readiness_observed_at  DateTime? @db.Timestamptz(6)
+  activated_at           DateTime? @db.Timestamptz(6)
+  retained_at            DateTime? @db.Timestamptz(6)
+  created_at             DateTime  @db.Timestamptz(6)
+  updated_at             DateTime  @db.Timestamptz(6)
+  target_secret_type     String    @default("Opaque")
+
+  @@unique([binding_id, version_number])
+  @@unique([id, binding_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model secret_bindings {
+  id                String    @id @db.Uuid
+  organization_id   String    @db.Uuid
+  project_id        String    @db.Uuid
+  environment_id    String    @db.Uuid
+  application_id    String    @db.Uuid
+  target_namespace  String
+  name              String
+  provider          String
+  state             String
+  active_version    BigInt    @default(0)
+  created_by        String    @db.Uuid
+  created_at        DateTime  @db.Timestamptz(6)
+  updated_at        DateTime  @db.Timestamptz(6)
+  delete_started_at DateTime? @db.Timestamptz(6)
+  deleted_at        DateTime? @db.Timestamptz(6)
+  purpose           String    @default("runtime-secret")
+
+  @@unique([id, provider])
+  @@unique([project_id, environment_id, application_id, name])
+  @@index([organization_id, project_id, environment_id, application_id, created_at, id], map: "secret_bindings_scope_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model service_account_tokens {
+  id                 String    @id @db.Uuid
+  service_account_id String    @db.Uuid
+  name               String
+  token_prefix       String
+  token_hash         Bytes     @unique
+  scopes             String[]
+  expires_at         DateTime  @db.Timestamptz(6)
+  last_used_at       DateTime? @db.Timestamptz(6)
+  revoked_at         DateTime? @db.Timestamptz(6)
+  created_by         String    @db.Uuid
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([service_account_id, created_at, id], map: "service_account_tokens_account_created_idx")
+  @@index([expires_at], map: "service_account_tokens_active_expiry_idx", where: raw("(revoked_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model service_accounts {
+  id          String    @id @db.Uuid
+  project_id  String    @db.Uuid
+  name        String
+  role        String
+  created_by  String    @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  disabled_at DateTime? @db.Timestamptz(6)
+
+  @@index([project_id, created_at, id], map: "service_accounts_project_created_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model service_registry_policies {
+  registry_target_id          String   @db.Uuid
+  service_id                  String
+  repository                  String
+  keep_last_successful        Int      @default(10)
+  minimum_safety_age_seconds  BigInt   @default(86400)
+  cache_keep_generations      Int      @default(2)
+  cache_unused_expiry_seconds BigInt   @default(604800)
+  cache_byte_quota            BigInt   @default(10737418240)
+  created_at                  DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([registry_target_id, service_id])
+  @@unique([registry_target_id, repository])
+}
+
+model sessions {
+  token_hash     Bytes    @id
+  user_id        String   @db.Uuid
+  grant_revision BigInt
+  expires_at     DateTime @db.Timestamptz(6)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at], map: "sessions_expires_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model source_build_runtime_readiness {
+  worker_id           String   @id
+  config_digest       String
+  github_app_id       BigInt
+  builder_namespace   String
+  builder_agent_image String
+  started_at          DateTime @db.Timestamptz(6)
+  observed_at         DateTime @db.Timestamptz(6)
+
+  @@index([config_digest, observed_at(sort: Desc)], map: "source_build_runtime_readiness_match_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model team_memberships {
+  team_id    String   @db.Uuid
+  user_id    String   @db.Uuid
+  role       String
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([team_id, user_id])
+  @@index([user_id, team_id], map: "team_memberships_user_idx")
+}
+
+model teams {
+  id         String   @id @db.Uuid
+  name       String
+  slug       String   @unique
+  created_by String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tls_certificate_observation_workers {
+  worker_id        String   @id
+  worker_epoch     BigInt
+  contract_version String
+  config_digest    String
+  started_at       DateTime @db.Timestamptz(6)
+  observed_at      DateTime @db.Timestamptz(6)
+  lease_until      DateTime @db.Timestamptz(6)
+  updated_at       DateTime @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tls_certificate_observations {
+  version_id                   String    @id @db.Uuid
+  binding_id                   String    @db.Uuid
+  target_digest                String
+  observation_contract_version String    @default("")
+  observation_config_digest    String    @default("")
+  state                        String
+  next_observation_at          DateTime  @db.Timestamptz(6)
+  consecutive_failures         Int       @default(0)
+  failure_code                 String    @default("")
+  last_observed_at             DateTime? @db.Timestamptz(6)
+  last_ready_at                DateTime? @db.Timestamptz(6)
+  lease_owner                  String?
+  lease_epoch                  BigInt    @default(0)
+  lease_claimed_at             DateTime? @db.Timestamptz(6)
+  lease_until                  DateTime? @db.Timestamptz(6)
+  lease_contract_version       String?
+  lease_config_digest          String?
+  lease_target_digest          String?
+  created_at                   DateTime  @db.Timestamptz(6)
+  updated_at                   DateTime  @db.Timestamptz(6)
+
+  @@index([binding_id, version_id, state, last_ready_at], map: "tls_certificate_observations_binding_idx")
+  @@index([next_observation_at, version_id], map: "tls_certificate_observations_claim_idx", where: raw("(lease_owner IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model tls_certificate_versions {
+  version_id                 String   @id @db.Uuid
+  binding_id                 String   @db.Uuid
+  version_number             BigInt
+  secret_content_fingerprint Bytes
+  leaf_fingerprint           String
+  public_key_fingerprint     String
+  dns_names                  Json
+  ip_addresses               Json
+  not_before                 DateTime @db.Timestamptz(6)
+  not_after                  DateTime @db.Timestamptz(6)
+  created_by                 String   @db.Uuid
+  created_at                 DateTime @db.Timestamptz(6)
+
+  @@unique([binding_id, version_number])
+  @@unique([version_id, binding_id])
+  @@index([binding_id, version_number], map: "tls_certificate_versions_binding_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model user_invitations {
+  id               String    @id @db.Uuid
+  token_hash       Bytes     @unique
+  display_name     String
+  created_by       String    @db.Uuid
+  expires_at       DateTime  @db.Timestamptz(6)
+  accepted_at      DateTime? @db.Timestamptz(6)
+  accepted_user_id String?   @db.Uuid
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([expires_at], map: "user_invitations_expires_idx", where: raw("(accepted_at IS NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model user_password_credentials {
+  user_id          String   @id @db.Uuid
+  login_normalized String   @unique
+  password_hash    String
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model users {
+  id             String   @id @db.Uuid
+  login          String
+  role           String
+  issuer         String
+  subject        String
+  grant_revision BigInt   @default(1)
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([issuer, subject])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model variable_set_previews {
+  token_hash     Bytes     @id
+  actor_id       String    @db.Uuid
+  binding_id     String    @db.Uuid
+  project_id     String    @db.Uuid
+  environment_id String    @db.Uuid
+  scope          String
+  path           String
+  base_revision  String
+  base_etag      String
+  parser_version String
+  candidate_hash Bytes
+  expires_at     DateTime  @db.Timestamptz(6)
+  consumed_at    DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @db.Timestamptz(6)
 }

@@ -92,6 +92,15 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
 ")"
 [[ "${kp_counts}" == $'1\n127\n81\n89\n876\n12\n2' ]]
 
+docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_fresh_url}" \
+  --entrypoint ./node_modules/.bin/prisma \
+  "${kp_image}" validate --config prisma.config.ts >/dev/null
+docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_fresh_url}" \
+  --entrypoint node \
+  "${kp_image}" check-schema-drift.mjs >/dev/null
+
 docker exec "${kp_postgres}" createdb --username postgres legacy
 docker exec "${kp_postgres}" psql --username postgres --dbname legacy \
   --command 'CREATE TABLE schema_migrations(version text PRIMARY KEY);' >/dev/null
@@ -102,4 +111,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh apply, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh apply, declarative drift, idempotency, native authority, and legacy rejection passed\n'

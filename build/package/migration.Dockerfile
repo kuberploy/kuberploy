@@ -8,6 +8,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && \
     npm cache clean --force
 
 COPY migrations/prisma.config.ts ./prisma.config.ts
+COPY migrations/check-schema-drift.mjs ./check-schema-drift.mjs
 COPY migrations/run.mjs ./run.mjs
 COPY migrations/prisma ./prisma
 

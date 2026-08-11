@@ -2,6 +2,7 @@ package imagepull
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -105,17 +106,13 @@ func validateAuthEntry(raw []byte) error {
 	if seen["username"] != seen["password"] {
 		return ErrInvalid
 	}
-	modes := 0
-	if seen["auth"] {
-		modes++
-	}
 	if seen["identitytoken"] {
-		modes++
+		if seen["auth"] || seen["username"] || len(seen) != 1 {
+			return ErrInvalid
+		}
+		return nil
 	}
-	if seen["username"] {
-		modes++
-	}
-	if modes != 1 {
+	if !seen["auth"] && !seen["username"] {
 		return ErrInvalid
 	}
 	if seen["auth"] && !validBasicAuthJSON(raw) {
@@ -151,5 +148,21 @@ func validBasicAuthJSON(raw []byte) bool {
 	if separator < 1 || separator == len(decoded)-1 || !utf8.Valid(decoded) {
 		return false
 	}
-	return strings.IndexFunc(string(decoded), unicode.IsControl) < 0
+	if strings.IndexFunc(string(decoded), unicode.IsControl) >= 0 {
+		return false
+	}
+	username, hasUsername := entry["username"]
+	password, hasPassword := entry["password"]
+	if hasUsername != hasPassword {
+		return false
+	}
+	if !hasUsername {
+		return true
+	}
+	expected := make([]byte, 0, len(username)+1+len(password))
+	expected = append(expected, username...)
+	expected = append(expected, ':')
+	expected = append(expected, password...)
+	defer clearBytes(expected)
+	return len(decoded) == len(expected) && subtle.ConstantTimeCompare(decoded, expected) == 1
 }
