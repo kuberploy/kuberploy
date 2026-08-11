@@ -75,8 +75,9 @@ func (c staticRuntimeBindingCatalog) ArgoRepositoryBindings(context.Context, int
 }
 
 type staticHeadVerifier struct {
-	head gitprojection.VerifiedHead
-	err  error
+	head  gitprojection.VerifiedHead
+	heads map[string]gitprojection.VerifiedHead
+	err   error
 }
 
 type staticProtectionVerifier struct {
@@ -96,7 +97,10 @@ func (v staticProtectionVerifier) VerifyPlatformRepositoryProtection(_ context.C
 	return observation, nil
 }
 
-func (v staticHeadVerifier) VerifyTargetHead(context.Context, gitprojection.Binding, gitprojection.ObservationSource) (gitprojection.VerifiedHead, error) {
+func (v staticHeadVerifier) VerifyTargetHead(_ context.Context, binding gitprojection.Binding, _ gitprojection.ObservationSource) (gitprojection.VerifiedHead, error) {
+	if head, ok := v.heads[binding.ID]; ok {
+		return head, v.err
+	}
 	return v.head, v.err
 }
 
@@ -240,6 +244,24 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 	if err != nil || proof.PlatformHead != head.Commit || proof.CredentialCount != 2 || proof.RootUID == "" {
 		t.Fatalf("proof=%#v err=%v", proof, err)
 	}
+
+	staleAuthorities := []RepositoryBindingAuthority{{Binding: platform, CatalogObservedAt: now.Add(-2 * time.Minute)},
+		{Binding: environment, CatalogObservedAt: now.Add(-2 * time.Minute)}}
+	environmentHead := gitprojection.VerifiedHead{BindingID: environment.ID, Repository: environment.Repository,
+		TargetRef: environment.TargetRef, Commit: environment.TargetHeadRevision, Source: gitprojection.ObservationPoll,
+		ProviderRequest: "runtime-environment-head", ObservedAt: now}
+	credentials.Keys.(*staticPrivateKeySource).value = []byte("refreshed-test-key")
+	credentials.Kubernetes.(*recordingCredentialKubernetes).applies = nil
+	prerequisites.Catalog = staticRuntimeBindingCatalog{values: staleAuthorities}
+	prerequisites.Provider = staticHeadVerifier{heads: map[string]gitprojection.VerifiedHead{
+		platform.ID: head, environment.ID: environmentHead,
+	}}
+	proof, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now)
+	if err != nil || proof.CredentialCount != 2 || len(credentials.Kubernetes.(*recordingCredentialKubernetes).applies) != 2 {
+		t.Fatalf("provider re-verification did not refresh stale matching authorities: proof=%#v err=%v", proof, err)
+	}
+	prerequisites.Catalog = staticRuntimeBindingCatalog{values: authorities}
+	prerequisites.Provider = staticHeadVerifier{head: head}
 
 	kubernetes := credentials.Kubernetes.(*recordingCredentialKubernetes)
 	kubernetes.applies = nil

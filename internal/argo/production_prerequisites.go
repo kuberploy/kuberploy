@@ -507,6 +507,27 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 	if err != nil {
 		return ProductionPrerequisiteProof{}, err
 	}
+	verifiedHeads := make(map[string]gitprojection.VerifiedHead)
+	authorities = slices.Clone(authorities)
+	for index := range authorities {
+		authority := &authorities[index]
+		if authority.Authorized || authority.RevocationRequired {
+			continue
+		}
+		// A matching but aged catalog row is not accepted by itself. Re-prove
+		// the exact installation, repository identity, permissions, and ref via
+		// the provider before allowing the credential controller to use it.
+		head, verifyErr := p.Provider.VerifyTargetHead(ctx, authority.Binding, gitprojection.ObservationPoll)
+		if verifyErr != nil {
+			return ProductionPrerequisiteProof{}, verifyErr
+		}
+		if head.ValidateFor(authority.Binding) != nil || head.Commit != authority.Binding.TargetHeadRevision {
+			return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady
+		}
+		authority.Authorized = true
+		authority.CatalogObservedAt = now.UTC()
+		verifiedHeads[authority.Binding.ID] = head
+	}
 	credentialObservation, err := p.Credentials.Reconcile(ctx, authorities, p.Identity.PlatformBindingID, now.UTC(), maximumAge)
 	if err != nil {
 		return ProductionPrerequisiteProof{}, err
@@ -523,7 +544,10 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		(platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) {
 		return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady
 	}
-	head, err := p.Provider.VerifyTargetHead(ctx, platform, gitprojection.ObservationPoll)
+	head, found := verifiedHeads[platform.ID]
+	if !found {
+		head, err = p.Provider.VerifyTargetHead(ctx, platform, gitprojection.ObservationPoll)
+	}
 	if err != nil || head.ValidateFor(platform) != nil || head.Commit != platform.TargetHeadRevision {
 		if err != nil {
 			return ProductionPrerequisiteProof{}, err
