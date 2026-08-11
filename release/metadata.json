@@ -1,6 +1,6 @@
 {
-  "breakingChanges": true,
-  "summary": "Qualification RC fixing isolated Buildx cache authority state and digest-preserving cache promotion.",
+  "breakingChanges": false,
+  "summary": "Qualification RC restoring workload metrics, truthful readiness, and accurate project source summaries.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.74"
+  "version": "0.1.0-rc.75"
 }
