@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Qualification RC normalizing edge readiness timestamps to PostgreSQL precision and accepting production-only cert-manager observer profiles.",
+  "summary": "Qualification RC fixing isolated Buildx cache authority state and digest-preserving cache promotion.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.73"
+  "version": "0.1.0-rc.74"
 }
