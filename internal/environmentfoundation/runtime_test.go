@@ -13,6 +13,12 @@ func (c memoryEnvironmentCatalog) EnvironmentIDs(context.Context) ([]string, err
 	return append([]string(nil), c.ids...), nil
 }
 
+type unavailableFoundationStore struct{ Store }
+
+func (s unavailableFoundationStore) EnsureIntent(context.Context, EnsureRequest) (Intent, error) {
+	return Intent{}, ErrNotFound
+}
+
 func foundationRuntimeConfig(t *testing.T) RuntimeConfig {
 	t.Helper()
 	values := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testBindingID,
@@ -102,5 +108,24 @@ func TestEnsureIntentRejectsConfiguredBindingSubstitution(t *testing.T) {
 	}
 	if _, err = store.EnsureIntent(context.Background(), EnsureRequest{testIntentID, testEnvironmentID, profile, time.Now().UTC()}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("configured platform binding substitution accepted: %v", err)
+	}
+}
+
+func TestRuntimeKeepsInitialUnreadyPlatformBindingRetryable(t *testing.T) {
+	now := time.Date(2026, 8, 11, 1, 0, 0, 0, time.UTC)
+	config := foundationRuntimeConfig(t)
+	base, err := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := unavailableFoundationStore{Store: base}
+	publisher := &fakePublisher{identity: config.Publisher, store: store, now: now}
+	controller := &Controller{Store: store, Publisher: publisher, Profile: config.Profile,
+		WorkerID: testWorker1, WorkerEpoch: 1, WorkLease: time.Minute,
+		MinimumBackoff: time.Second, MaximumBackoff: time.Minute, Now: func() time.Time { return now }}
+	runtime := &Runtime{Store: store, Catalog: memoryEnvironmentCatalog{[]string{testEnvironmentID}},
+		Controller: controller, Config: config, WorkerEpoch: 1, StartedAt: now, Now: func() time.Time { return now }}
+	if err = runtime.RunOnce(context.Background()); !errors.Is(err, ErrUnavailable) || errors.Is(err, ErrNotFound) {
+		t.Fatalf("initial unready binding was terminal: %v", err)
 	}
 }

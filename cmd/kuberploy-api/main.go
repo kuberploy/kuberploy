@@ -377,7 +377,7 @@ func run() error {
 		lock := argoDesiredStateConfig.DesiredState.Runtime
 		appConfigRenderedPreviews, err = appconfigpreview.NewProduction(appconfigpreview.Identity{
 			Contract: appconfigpreview.Contract, ChartName: lock.ChartName, ChartVersion: lock.ChartVersion,
-			ChartDigest: lock.ChartDigest, RendererImage: lock.RendererImage,
+			ChartDigest: lock.ChartDigest, RendererImage: helmapps.RendererImage,
 			RendererVersion: helmapps.HelmVersion, PolicyVersion: helmapps.PolicyVersion,
 		})
 		if err != nil {

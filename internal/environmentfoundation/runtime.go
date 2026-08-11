@@ -70,6 +70,12 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 	for _, environmentID := range ids {
 		intentID := deterministicIntentID(environmentID, r.Config.Profile.PublisherConfigDigest)
 		if _, err = r.Store.EnsureIntent(ctx, EnsureRequest{IntentID: intentID, EnvironmentID: environmentID, Profile: r.Config.Profile, Now: now}); err != nil {
+			// A newly enabled runtime can legitimately observe environments before
+			// the exact platform Git binding has reached its first ready revision.
+			// Keep the worker alive and retry; readiness remains unavailable.
+			if errors.Is(err, ErrNotFound) {
+				return ErrUnavailable
+			}
 			return err
 		}
 	}
