@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Fresh-install RC with the reviewed native PostgreSQL baseline applied by a dedicated Prisma CLI 7.9.1 pre-sync Job. The single-invocation installer preinstalls exact Argo CD 3.5.0 CRDs before mapping Applications, and migration waits boundedly for PostgreSQL through DNS-only plus database egress. API and worker remain read-only schema verifiers; PostgreSQL functions, triggers, constraints, and indexes stay native SQL. Pre-Prisma RC databases are rejected.",
+  "summary": "Qualification RC upgrading the Prisma baseline through seven ordered migrations. It consolidates configuration profiles, runtime readiness, mutation receipts, previews, Git write commands, and TLS observer readiness from 126 to 101 authority-fenced tables without replacing native PostgreSQL triggers or constraints. It retains the single Helm installer and rejects pre-Prisma RC databases.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.55"
+  "version": "0.1.0-rc.56"
 }
