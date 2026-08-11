@@ -321,8 +321,8 @@
         {{- fail "edge Traefik sslip.mode must be auto-first-ip or verified-static-ip" -}}
       {{- end -}}
     {{- end -}}
-    {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $edgeTraefik.deployment.image) -}}
-    {{- fail "edge Traefik observation requires a digest-pinned Deployment image" -}}
+    {{- if not (regexMatch "^[^[:space:]@]+/[^[:space:]@]+(:v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?|@sha256:[a-f0-9]{64})$" $edgeTraefik.deployment.image) -}}
+    {{- fail "edge Traefik observation requires an explicit vMAJOR.MINOR.PATCH tag or sha256 digest" -}}
     {{- end -}}
     {{- $actualTraefikCRDs := list -}}
     {{- range $crd := $edgeTraefik.crds -}}
@@ -383,8 +383,8 @@
       {{- if and $previousDeployment (ge $previousDeployment $deployment.name) -}}
       {{- fail "edge cert-manager Deployments must be uniquely sorted by name" -}}
       {{- end -}}
-      {{- if not (regexMatch "@sha256:[a-f0-9]{64}$" $deployment.image) -}}
-      {{- fail "edge cert-manager observation requires digest-pinned Deployment images" -}}
+      {{- if not (regexMatch "^[^[:space:]@]+/[^[:space:]@]+(:v[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?|@sha256:[a-f0-9]{64})$" $deployment.image) -}}
+      {{- fail "edge cert-manager observation requires explicit vMAJOR.MINOR.PATCH tags or sha256 digests" -}}
       {{- end -}}
       {{- $previousDeployment = $deployment.name -}}
     {{- end -}}

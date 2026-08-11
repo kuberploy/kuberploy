@@ -52,7 +52,7 @@ func TestDistributionObserverAllowsExternalReadOnlyInventory(t *testing.T) {
 	}
 }
 
-func TestDistributionObserverRejectsCrossScopeCatalogAndPagination(t *testing.T) {
+func TestDistributionObserverIgnoresCrossScopeCatalogAndRejectsUnsafePagination(t *testing.T) {
 	for name, handler := range map[string]http.HandlerFunc{
 		"catalog": func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = io.WriteString(w, `{"repositories":["other/repository"]}`)
@@ -66,11 +66,29 @@ func TestDistributionObserverRejectsCrossScopeCatalogAndPagination(t *testing.T)
 			server := httptest.NewServer(handler)
 			defer server.Close()
 			observer := testDistributionObserver(t, testManagedTarget(server.URL), nil)
-			_, _, err := observer.Observe(t.Context(), nil, 1, time.Now().UTC())
-			if name == "catalog" && !errors.Is(err, ErrDistributionScopeMismatch) || name == "pagination" && !errors.Is(err, errRegistryObservation) {
+			inventory, catalogs, err := observer.Observe(t.Context(), nil, 1, time.Now().UTC())
+			if name == "catalog" && (err != nil || len(inventory.Repositories) != 0 || len(catalogs) != 0) ||
+				name == "pagination" && !errors.Is(err, errRegistryObservation) {
 				t.Fatalf("err=%v", err)
 			}
 		})
+	}
+}
+
+func TestDistributionObserverStillRejectsCrossScopeDurableRoots(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v2/_catalog" {
+			t.Fatalf("cross-scope root reached repository transport: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(w, `{"repositories":[]}`)
+	}))
+	defer server.Close()
+	observer := testDistributionObserver(t, testManagedTarget(server.URL), nil)
+	_, _, err := observer.Observe(t.Context(), map[string][]string{
+		"other/repository": {"sha256:" + strings.Repeat("a", 64)},
+	}, 1, time.Now().UTC())
+	if !errors.Is(err, ErrDistributionScopeMismatch) {
+		t.Fatalf("err=%v", err)
 	}
 }
 

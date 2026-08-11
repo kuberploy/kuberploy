@@ -107,12 +107,28 @@ func (c *InClusterKubernetesReader) Deployment(ctx context.Context, namespace, n
 	return DeploymentSnapshot{
 		ObjectSnapshot: ObjectSnapshot{Name: name, Namespace: namespace, UID: object.Metadata.UID, ResourceVersion: object.Metadata.ResourceVersion,
 			Generation: object.Metadata.Generation, SpecDigest: specDigest},
-		ObservedGeneration: object.Status.ObservedGeneration, Version: object.Metadata.Labels["app.kubernetes.io/version"],
+		ObservedGeneration: object.Status.ObservedGeneration, Version: observedDeploymentVersion(object.Metadata.Labels, selected.Image),
 		DesiredReplicas: *spec.Replicas, AvailableReplicas: object.Status.AvailableReplicas,
 		ContainerName: selected.Name, ContainerImage: selected.Image, ContainerArguments: append([]string(nil), selected.Args...),
 		ContainerSecretRefs:    deploymentSecretRefs(selected.Env, selected.EnvFrom),
 		ContainerConfigMapRefs: deploymentConfigMapRefs(selected.EnvFrom),
 	}, nil
+}
+
+func observedDeploymentVersion(labels map[string]string, image string) string {
+	if version := labels["app.kubernetes.io/version"]; versionPattern.MatchString(version) {
+		return version
+	}
+	separator := strings.LastIndexByte(image, ':')
+	lastSlash := strings.LastIndexByte(image, '/')
+	if separator <= lastSlash || separator == len(image)-1 {
+		return ""
+	}
+	version := image[separator+1:]
+	if versionPattern.MatchString(version) {
+		return version
+	}
+	return ""
 }
 
 func deploymentSecretRefs(values []deploymentEnv, from []deploymentEnvFrom) []string {

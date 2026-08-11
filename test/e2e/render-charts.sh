@@ -445,7 +445,7 @@ yq '.config.githubApp.enabled = true |
     .config.publicURL = "https://kuberploy.example.test" |
     .config.githubApp.secretRef.name = "kuberploy-github-app" |
     .builder.enabled = true |
-    .builder.builderAgentImage = "ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.67" |
+    .builder.builderAgentImage = "ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.68" |
     .builder.networkPolicy.sourceEgressCIDRs = ["192.0.2.30/32"] |
     .builder.networkPolicy.registryEgressCIDRs = ["192.0.2.31/32"] |
     .builder.controllerServiceAccount.namespace = "kuberploy-e2e-render" |
@@ -534,7 +534,7 @@ for kp_build_log_mutation in \
   fi
 done
 
-yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.67"' \
+yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.68"' \
   "${kp_tmp}/github-build-values.yaml" > "${kp_tmp}/git-projection-values.yaml"
 helm template github-builds "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render \
@@ -543,7 +543,7 @@ helm template github-builds "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_AUTH_MODE' "${kp_tmp}/git-projection.yaml")" == "github-app" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES' "${kp_tmp}/git-projection.yaml")" == "536870912" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS' "${kp_tmp}/git-projection.yaml")" == "300" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CHART_VERSION' "${kp_tmp}/git-projection.yaml")" == "0.1.0-rc.67" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CHART_VERSION' "${kp_tmp}/git-projection.yaml")" == "0.1.0-rc.68" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_POLICY_VERSION' "${kp_tmp}/git-projection.yaml")" == "appconfig-v1alpha1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "git-projection-cache") | .mountPath' "${kp_tmp}/git-projection.yaml")" == "/var/lib/kuberploy/git-projection" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.volumes[] | select(.name == "git-projection-cache") | .emptyDir.sizeLimit' "${kp_tmp}/git-projection.yaml")" == "536870912" ]]
@@ -605,7 +605,7 @@ kp_argo_worker_image='ghcr.io/kuberploy/kuberploy-worker@sha256:bbbbbbbbbbbbbbbb
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_RUNTIME_VIEW_ENABLED,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_OBSERVER_SERVICE_ACCOUNT] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "true,kuberploy-e2e-render,argo-desired-api" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_PLATFORM_BINDING_ID' "${kp_tmp}/argo-desired-state.yaml")" == "11111111-1111-4111-8111-111111111111" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_CLUSTER_ID' "${kp_tmp}/argo-desired-state.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_NAMESPACE,.data.KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY,.data.KUBERPLOY_ARGO_RUNTIME_CHART_VERSION,.data.KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST,.data.KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS,.data.KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "kuberploy-e2e-render,oci://ghcr.io/kuberploy/charts,0.1.0-rc.67,sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc,2,300" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_NAMESPACE,.data.KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY,.data.KUBERPLOY_ARGO_RUNTIME_CHART_VERSION,.data.KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST,.data.KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS,.data.KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "kuberploy-e2e-render,oci://ghcr.io/kuberploy/charts,0.1.0-rc.68,sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc,2,300" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_RENDERER_IMAGE' "${kp_tmp}/argo-desired-state.yaml")" == "${kp_argo_worker_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].image' "${kp_tmp}/argo-desired-state.yaml")" == "${kp_argo_worker_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | (.data | has("KUBERPLOY_ARGO_ROOT_APPLICATION_NAME")) or (.data | has("KUBERPLOY_ARGO_REPOSITORY_SECRET_NAME"))' "${kp_tmp}/argo-desired-state.yaml")" == "false" ]]
@@ -990,7 +990,7 @@ for kp_edge_mutation in \
   '.config.edgeRuntime.readinessSeconds = 59' \
   '.config.edgeRuntime.minimumBackoffSeconds = 10 | .config.edgeRuntime.maximumBackoffSeconds = 9' \
   '.config.edgeRuntime.profiles.traefik.mode = "owner"' \
-  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:v3.7.10"' \
+  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:latest"' \
   '.config.edgeRuntime.profiles.traefik.crds |= reverse' \
   '.config.edgeRuntime.profiles.traefik.sslip = null' \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "caller-ip"' \
@@ -1007,7 +1007,7 @@ for kp_edge_mutation in \
   '.config.edgeRuntime.profiles.externalDNS[0].credentialSecretRef = ""' \
   '.config.edgeRuntime.profiles.externalDNS[0].providerConfigRef = ""' \
   '.config.edgeRuntime.profiles.externalDNS[0].egressConfigRef = ""' \
-  '.config.edgeRuntime.profiles.externalDNS[0].deployment.image = "registry.k8s.io/external-dns/external-dns:v0.21.0"' \
+  '.config.edgeRuntime.profiles.externalDNS[0].deployment.image = "registry.k8s.io/external-dns/external-dns:latest"' \
   '.networkPolicy.enabled = false' \
   '.networkPolicy.kubeAPIServerCIDRs = []' \
   '.components.api.image.reference = "kuberploy-api:mutable"' \
@@ -1028,7 +1028,7 @@ for kp_edge_mutation in \
   '.config.edgeRuntime.profiles.traefik = null | .config.edgeRuntime.profiles.certManager = null | .config.edgeRuntime.profiles.externalDNS = []' \
   '.config.edgeRuntime.workLeaseSeconds = 120 | .config.edgeRuntime.heartbeatSeconds = 60' \
   '.config.edgeRuntime.readinessSeconds = 59' \
-  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:v3.7.10"' \
+  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:latest"' \
   '.config.edgeRuntime.profiles.traefik.crds |= reverse' \
   '.config.edgeRuntime.profiles.traefik.sslip = null' \
   '.config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "8.8.8.8"' \
@@ -1257,7 +1257,7 @@ kp_projection_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metada
 kp_projection_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/git-projection-changed.yaml")"
 [[ "${kp_projection_config_name}" != "${kp_projection_changed_config_name}" ]] || { printf 'Git projection config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
-yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.67"' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/git-projection-no-github.yaml"
+yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.68"' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/git-projection-no-github.yaml"
 if helm template invalid-git-projection "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render -f "${kp_tmp}/git-projection-no-github.yaml" >/dev/null 2>&1; then
   printf 'platform chart enabled Git projection without the GitHub App boundary\n' >&2
@@ -1371,7 +1371,7 @@ helm template upgrade-seam "${kp_root}/charts/kuberploy" \
   -f "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/upgrade-job-render.yaml"
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .metadata.annotations."helm.sh/hook"' "${kp_tmp}/upgrade-job-render.yaml")" == "pre-install,pre-upgrade" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.automountServiceAccountToken' "${kp_tmp}/upgrade-job-render.yaml")" == "false" ]]
-[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].image' "${kp_tmp}/upgrade-job-render.yaml")" == "ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.67" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].image' "${kp_tmp}/upgrade-job-render.yaml")" == "ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.68" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].env[0].name' "${kp_tmp}/upgrade-job-render.yaml")" == "DATABASE_URL" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].command // "implicit-entrypoint"' "${kp_tmp}/upgrade-job-render.yaml")" == "implicit-entrypoint" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "upgrade-seam-migration") | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_tmp}/upgrade-job-render.yaml")" == "migration" ]]

@@ -106,6 +106,24 @@ func TestInClusterReaderUsesBoundedExactGETAndRejectsRedirects(t *testing.T) {
 	}
 }
 
+func TestObservedDeploymentVersionFallsBackOnlyToExplicitImageVersion(t *testing.T) {
+	if got := observedDeploymentVersion(nil, "docker.io/library/traefik:v3.7.10"); got != "v3.7.10" {
+		t.Fatalf("explicit image version was not observed: %q", got)
+	}
+	if got := observedDeploymentVersion(map[string]string{"app.kubernetes.io/version": "v3.7.9"}, "docker.io/library/traefik:v3.7.10"); got != "v3.7.9" {
+		t.Fatalf("valid object label did not remain authoritative: %q", got)
+	}
+	for _, image := range []string{
+		"docker.io/library/traefik:latest",
+		"docker.io/library/traefik@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"registry.example.test:5000/library/traefik",
+	} {
+		if got := observedDeploymentVersion(map[string]string{"app.kubernetes.io/version": "latest"}, image); got != "" {
+			t.Fatalf("non-version image produced runtime version %q for %q", got, image)
+		}
+	}
+}
+
 func TestClusterIssuerRejectsDuplicateReadyConditions(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte(`{"metadata":{"name":"letsencrypt","uid":"44444444-4444-4444-8444-444444444444","resourceVersion":"7","generation":1},"status":{"conditions":[{"type":"Ready","status":"True","observedGeneration":1},{"type":"Ready","status":"False","observedGeneration":1}]}}`))

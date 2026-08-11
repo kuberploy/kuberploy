@@ -1332,9 +1332,9 @@
         "containerName": { "$ref": "#/$defs/dnsLabel" },
         "image": {
           "type": "string",
-          "minLength": 80,
+          "minLength": 6,
           "maxLength": 512,
-          "pattern": "^[^\\s@]+/[^\\s@]+@sha256:[0-9a-f]{64}$"
+          "pattern": "^[^\\s@]+/[^\\s@]+(?::v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?|@sha256:[0-9a-f]{64})$"
         },
         "specDigest": { "$ref": "#/$defs/edgeDigest" }
       }

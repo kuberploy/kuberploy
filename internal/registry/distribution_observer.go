@@ -196,7 +196,12 @@ func (o *DistributionObserver) repositories(ctx context.Context) ([]string, erro
 		zeroBytes(body)
 		for _, repository := range response.Repositories {
 			if !repositoryInTarget(o.target, repository) {
-				return nil, ErrDistributionScopeMismatch
+				// A Distribution catalog is registry-wide. Repositories used by
+				// platform images or another independently managed target are not
+				// part of this target's lifecycle graph, so ignore them without
+				// issuing any repository-scoped request. Durable roots remain
+				// fail-closed in Observe above.
+				continue
 			}
 			seen[repository] = struct{}{}
 			if len(seen) > o.config.MaximumRepositories {
