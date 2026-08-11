@@ -158,12 +158,10 @@ func applicationTemplate(target EnvironmentTarget, name, applicationPath, applic
 	if err != nil {
 		return applicationManifest{}, err
 	}
-	generatePaths := append(append([]string(nil), dependencyPaths...), applicationPath)
 	manifest := applicationManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "Application"}, Metadata: objectMeta{Name: name, Namespace: target.ArgoNamespace, Labels: labels,
 		Annotations: map[string]string{"kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/git-indexed-revision": target.Binding.IndexedRevision,
 			"kuberploy.io/git-indexed-generation": fmt.Sprintf("%d", target.Binding.ProjectionGeneration), "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest,
-			"kuberploy.io/runtime-chart-version": target.Runtime.ChartVersion, "kuberploy.io/renderer-image": target.Runtime.RendererImage,
-			"argocd.argoproj.io/manifest-generate-paths": strings.Join(generatePaths, ";")}}}
+			"kuberploy.io/runtime-chart-version": target.Runtime.ChartVersion, "kuberploy.io/renderer-image": target.Runtime.RendererImage}}}
 	manifest.Spec.Project = target.Environment.ArgoProject
 	manifest.Spec.Sources = []argoSource{
 		{RepoURL: chartRepoForArgo(target.Runtime), Path: ".", TargetRevision: target.Runtime.ChartDigest, Helm: &helmSource{ValueFiles: []string{"$values/" + dependencyPaths[0], "$values/" + dependencyPaths[1], "$values/" + applicationPath}, IgnoreMissingValueFiles: true, Parameters: []helmParameter{

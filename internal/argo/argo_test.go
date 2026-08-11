@@ -91,7 +91,7 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	if !strings.Contains(text, `kuberploy.io/deployment-id: `+deploymentID) || !strings.Contains(text, `name: `+argo.ApplicationName(deploymentID)) {
 		t.Fatalf("Application is not uniquely deployment-scoped:\n%s", text)
 	}
-	for _, forbidden := range []string{"chart:", "valuesObject:", "passCredentials:", "skipCrds:", "CreateNamespace=true", "destination: '{{"} {
+	for _, forbidden := range []string{"chart:", "valuesObject:", "passCredentials:", "skipCrds:", "CreateNamespace=true", "destination: '{{", "argocd.argoproj.io/manifest-generate-paths"} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("unsafe Argo field %q in:\n%s", forbidden, text)
 		}
