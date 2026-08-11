@@ -201,7 +201,7 @@ func TestCachePromotionUsesDerivedGenerationReferenceAndVerifiesDigest(t *testin
 	}
 	promotion := executor.invocations[1]
 	joined := strings.Join(promotion.Argv, " ")
-	if !strings.Contains(joined, "imagetools create --tag "+want+" "+request.Cache.CandidateExport) || strings.Contains(joined, "username") || strings.Contains(joined, "password") {
+	if !strings.Contains(joined, "imagetools create --prefer-index=false --tag "+want+" "+request.Cache.CandidateExport) || strings.Contains(joined, "username") || strings.Contains(joined, "password") {
 		t.Fatalf("unsafe promotion invocation: %#v", promotion)
 	}
 }

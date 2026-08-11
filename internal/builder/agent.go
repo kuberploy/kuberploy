@@ -321,7 +321,7 @@ func (a *Agent) promoteCache(ctx context.Context, configDirectory string, reques
 		return nil, err
 	}
 	invocation := Invocation{
-		Argv: a.dockerArgs(configDirectory, "buildx", "imagetools", "create", "--tag", finalReference, request.Cache.CandidateExport),
+		Argv: a.dockerArgs(configDirectory, "buildx", "imagetools", "create", "--prefer-index=false", "--tag", finalReference, request.Cache.CandidateExport),
 		Env:  dockerEnvironment(configDirectory),
 	}
 	if _, err = a.Executor.Execute(ctx, invocation); err != nil {
