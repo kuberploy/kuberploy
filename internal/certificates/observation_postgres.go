@@ -299,11 +299,11 @@ func (s *PostgreSQLStore) AcquireCertificateObservationReadiness(ctx context.Con
 		return ObservationReadinessLease{}, ErrInvalid
 	}
 	lease := ObservationReadinessLease{ObservationWorkerObservation: observation}
-	err := s.pool.QueryRow(ctx, `INSERT INTO tls_certificate_observation_workers(
-		worker_id,worker_epoch,contract_version,config_digest,started_at,observed_at,lease_until,updated_at
-	) VALUES($1,1,$2,$3,$4,$5,$6,$5)
-	ON CONFLICT (worker_id) DO UPDATE SET
-		worker_epoch=tls_certificate_observation_workers.worker_epoch+1,
+	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,
+		worker_id,worker_epoch,contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
+	) VALUES('tls-certificate-observer','global',$1,1,$2,$3,'{}'::jsonb,'{}'::jsonb,$4,$5,$6,$5)
+	ON CONFLICT (runtime_kind,scope_key,worker_id) DO UPDATE SET
+		worker_epoch=runtime_readiness.worker_epoch+1,
 		contract_version=EXCLUDED.contract_version,config_digest=EXCLUDED.config_digest,
 		started_at=EXCLUDED.started_at,observed_at=EXCLUDED.observed_at,
 		lease_until=EXCLUDED.lease_until,updated_at=EXCLUDED.updated_at
@@ -325,9 +325,10 @@ func (s *PostgreSQLStore) HeartbeatCertificateObservationReadiness(ctx context.C
 		return ObservationReadinessLease{}, ErrInvalid
 	}
 	var storedObservedAt, until time.Time
-	err := s.pool.QueryRow(ctx, `UPDATE tls_certificate_observation_workers
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness
 		SET observed_at=$9,lease_until=$10,updated_at=$9
-		WHERE worker_id=$1 AND worker_epoch=$2 AND contract_version=$3 AND config_digest=$4
+		WHERE runtime_kind='tls-certificate-observer' AND scope_key='global'
+		  AND worker_id=$1 AND worker_epoch=$2 AND contract_version=$3 AND config_digest=$4
 		  AND started_at=$5 AND observed_at=$6 AND lease_until=$7 AND updated_at=$6
 		  AND lease_until>$8
 		RETURNING observed_at,lease_until`, lease.WorkerID, lease.Epoch, lease.Identity.ContractVersion,
@@ -367,8 +368,9 @@ func (s *PostgreSQLStore) certificateObservationRuntimeReadyQuery(ctx context.Co
 	}
 	var ready bool
 	err := query.QueryRow(ctx, `SELECT EXISTS(
-		SELECT 1 FROM tls_certificate_observation_workers
-		WHERE contract_version=$1 AND config_digest=$2 AND lease_until>$3
+		SELECT 1 FROM runtime_readiness
+		WHERE runtime_kind='tls-certificate-observer' AND scope_key='global'
+		  AND contract_version=$1 AND config_digest=$2 AND lease_until>$3
 		  AND observed_at>=$4 AND observed_at<=$5
 	)`, identity.ContractVersion, identity.ConfigDigest, now.UTC(), now.UTC().Add(-maximumAge),
 		now.UTC().Add(CertificateObservationReadinessSkew)).Scan(&ready)

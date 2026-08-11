@@ -18,7 +18,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is compared with
 // the verified release manifest before accepting a platform upgrade.
-const CurrentSchema = "006_consolidate_git_write_commands"
+const CurrentSchema = "007_consolidate_tls_readiness"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 

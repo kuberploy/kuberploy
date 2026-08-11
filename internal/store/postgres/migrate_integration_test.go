@@ -35,7 +35,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 102)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 101)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 		WHERE n.nspname='public'`, 64)
@@ -44,7 +44,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		WHERE n.nspname='public' AND NOT t.tgisinternal`, 69)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 742)
+		WHERE n.nspname='public' AND c.contype='c'`, 735)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
 		WHERE n.nspname='public' AND c.condeferrable`, 10)
@@ -62,6 +62,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"protect_preview_authority",
 		"protect_git_write_command",
 		"validate_git_write_operation",
+		"validate_tls_certificate_runtime_readiness",
 		"enqueue_auto_deploy_runs",
 	} {
 		var present bool
@@ -84,6 +85,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"preview_authorities_protect",
 		"git_write_commands_protect",
 		"git_write_commands_operation",
+		"runtime_readiness_tls_certificate_validate",
 		"build_release_enqueue_auto_deploy",
 	} {
 		var present bool

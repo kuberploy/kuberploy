@@ -226,7 +226,7 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 		created.Version.ID, "sha256:"+strings.Repeat("f", 64)); err == nil {
 		t.Fatal("certificate observation target digest was mutable")
 	}
-	if _, err = pool.Exec(ctx, `DELETE FROM tls_certificate_observation_workers WHERE worker_id=$1`, workerLease.WorkerID); err == nil {
+	if _, err = pool.Exec(ctx, `DELETE FROM runtime_readiness WHERE runtime_kind='tls-certificate-observer' AND scope_key='global' AND worker_id=$1`, workerLease.WorkerID); err == nil {
 		t.Fatal("certificate observation worker receipt was deletable")
 	}
 }
