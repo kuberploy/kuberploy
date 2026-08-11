@@ -72,6 +72,9 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	  AND b.state='ready' AND b.target_head_revision=b.indexed_revision AND b.indexed_revision IS NOT NULL
 	  AND b.projection_generation>0 AND generation.state='active'
 	  AND generation.head_revision=b.indexed_revision AND generation.parser_version=b.parser_version
+	  AND EXISTS(SELECT 1 FROM git_projected_documents document
+	    WHERE document.binding_id=b.id AND document.generation=b.projection_generation
+	      AND document.application_id IS NOT NULL)
 	  AND NOT EXISTS(SELECT 1 FROM argo_desired_state_commands live
 	    WHERE live.environment_id=b.environment_id AND live.state IN ('pending','claimed','git-committed'))
 	  AND (latest.id IS NULL OR (latest.state='verified' AND

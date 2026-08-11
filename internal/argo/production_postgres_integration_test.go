@@ -195,7 +195,20 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	materializer.newID = func() string { return "8e111111-1111-4111-8111-111111111111" }
+	if _, err = pool.Exec(ctx, `DELETE FROM git_projected_documents WHERE binding_id=$1`, binding.ID); err != nil {
+		t.Fatal(err)
+	}
 	created, err := materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(time.Second))
+	if err != nil || created {
+		t.Fatalf("foundation-only environment materialized desired state: created=%v err=%v", created, err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
+		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,$11,$12,$13)`, binding.ID, document.Path, applicationID,
+		document.SourceRevision, document.ConfigRevision, document.BlobID, document.ContentSHA256, document.Raw, parsedJSON,
+		diagnosticsJSON, document.SchemaVersion, document.ParserVersion, document.IndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(time.Second))
 	if err != nil || !created {
 		t.Fatalf("created=%v err=%v", created, err)
 	}

@@ -27,3 +27,11 @@ func TestWorkerLeaseOwnersAreOpaqueDistinctAndDeterministic(t *testing.T) {
 		t.Fatalf("unsafe owner identities: %q %q %q %q", deliveries, builds, projection, releases)
 	}
 }
+
+func TestWorkerLeaseOwnerSeparatesProcessStartsInSamePod(t *testing.T) {
+	first := workerLeaseOwner("pod-name/1/2026-08-11T01:00:00Z", "environment-foundation")
+	second := workerLeaseOwner("pod-name/1/2026-08-11T01:00:01Z", "environment-foundation")
+	if first == second {
+		t.Fatalf("process restart reused readiness identity %q", first)
+	}
+}

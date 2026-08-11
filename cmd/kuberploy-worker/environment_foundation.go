@@ -31,14 +31,18 @@ func newEnvironmentFoundationRuntime(ctx context.Context, databaseURL, host stri
 		return nil, err
 	}
 	now := func() time.Time { return time.Now().UTC() }
+	startedAt := now()
 	publisher := &environmentfoundation.ProtectedGitPublisher{Store: store, Bindings: projection.store,
 		Provider: projection.headVerifier, Manager: projection.writeManager, Publisher: config.Publisher, Now: now}
-	workerID := workerLeaseOwner(host+"/"+strconv.Itoa(os.Getpid()), "environment-foundation")
+	// A container restart in the same Pod reuses both hostname and PID. Include
+	// the process start instant so a new process cannot collide with the prior
+	// readiness row while its lease is still aging out.
+	workerID := workerLeaseOwner(host+"/"+strconv.Itoa(os.Getpid())+"/"+startedAt.Format(time.RFC3339Nano), "environment-foundation")
 	controller := &environmentfoundation.Controller{Store: store, Publisher: publisher, Profile: config.Profile,
 		WorkerID: workerID, WorkerEpoch: 1, WorkLease: 2 * time.Minute,
 		MinimumBackoff: 5 * time.Second, MaximumBackoff: 5 * time.Minute, Now: now}
 	runtime := &environmentfoundation.Runtime{Store: store, Catalog: store, Controller: controller, Config: config,
-		WorkerEpoch: 1, StartedAt: now(), Now: now,
+		WorkerEpoch: 1, StartedAt: startedAt, Now: now,
 		ReportError: func(err error) { slog.Warn("environment foundation reconciliation failed", "error", err) }}
 	if runtime.Validate() != nil {
 		store.Close()
