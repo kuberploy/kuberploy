@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"time"
@@ -37,7 +38,8 @@ func newEnvironmentFoundationRuntime(ctx context.Context, databaseURL, host stri
 		WorkerID: workerID, WorkerEpoch: 1, WorkLease: 2 * time.Minute,
 		MinimumBackoff: 5 * time.Second, MaximumBackoff: 5 * time.Minute, Now: now}
 	runtime := &environmentfoundation.Runtime{Store: store, Catalog: store, Controller: controller, Config: config,
-		WorkerEpoch: 1, StartedAt: now(), Now: now}
+		WorkerEpoch: 1, StartedAt: now(), Now: now,
+		ReportError: func(err error) { slog.Warn("environment foundation reconciliation failed", "error", err) }}
 	if runtime.Validate() != nil {
 		store.Close()
 		return nil, environmentfoundation.ErrInvalid

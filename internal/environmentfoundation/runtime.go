@@ -23,6 +23,7 @@ type Runtime struct {
 	WorkerEpoch int64
 	StartedAt   time.Time
 	Now         func() time.Time
+	ReportError func(error)
 }
 
 func (r *Runtime) now() time.Time { return r.Now().UTC() }
@@ -47,8 +48,13 @@ func (r *Runtime) Run(ctx context.Context) error {
 	ticker := time.NewTicker(r.Config.PollInterval)
 	defer ticker.Stop()
 	for {
-		if err := r.RunOnce(ctx); err != nil && !errors.Is(err, ErrUnavailable) && !errors.Is(err, ErrConflict) {
-			return err
+		if err := r.RunOnce(ctx); err != nil {
+			if !errors.Is(err, ErrUnavailable) && !errors.Is(err, ErrConflict) {
+				return err
+			}
+			if r.ReportError != nil {
+				r.ReportError(err)
+			}
 		}
 		select {
 		case <-ctx.Done():

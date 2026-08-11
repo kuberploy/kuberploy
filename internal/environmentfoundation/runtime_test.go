@@ -129,3 +129,37 @@ func TestRuntimeKeepsInitialUnreadyPlatformBindingRetryable(t *testing.T) {
 		t.Fatalf("initial unready binding was terminal: %v", err)
 	}
 }
+
+func TestRuntimeReportsRetryableReconciliationFailure(t *testing.T) {
+	now := time.Date(2026, 8, 11, 1, 0, 0, 0, time.UTC)
+	config := foundationRuntimeConfig(t)
+	base, err := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := unavailableFoundationStore{Store: base}
+	publisher := &fakePublisher{identity: config.Publisher, store: store, now: now}
+	controller := &Controller{Store: store, Publisher: publisher, Profile: config.Profile,
+		WorkerID: testWorker1, WorkerEpoch: 1, WorkLease: time.Minute,
+		MinimumBackoff: time.Second, MaximumBackoff: time.Minute, Now: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reported := make(chan error, 1)
+	runtime := &Runtime{Store: store, Catalog: memoryEnvironmentCatalog{[]string{testEnvironmentID}},
+		Controller: controller, Config: config, WorkerEpoch: 1, StartedAt: now, Now: func() time.Time { return now },
+		ReportError: func(err error) {
+			reported <- err
+			cancel()
+		}}
+	if err = runtime.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("runtime did not stop after reporter cancelled context: %v", err)
+	}
+	select {
+	case err = <-reported:
+		if !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("reported error lost retryable classification: %v", err)
+		}
+	default:
+		t.Fatal("retryable reconciliation failure was not reported")
+	}
+}
