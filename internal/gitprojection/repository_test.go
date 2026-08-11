@@ -901,3 +901,42 @@ func TestIndexerUsesExactHeadPreservesPathETagAndRepairsDivergence(t *testing.T)
 		t.Fatalf("full shadow repair failed: %#v %v", binding, err)
 	}
 }
+
+func TestIndexerActivatesPlatformBindingWithoutParsingTenantDocuments(t *testing.T) {
+	fixture := seedRepository(t, false)
+	const platformClusterID = "88888888-8888-4888-8888-888888888888"
+	fixture.binding.Kind = gitprojection.BindingPlatform
+	fixture.binding.ScopeID = platformClusterID
+	fixture.binding.ProjectID = ""
+	fixture.binding.EnvironmentID = ""
+	fixture.binding.ClusterID = platformClusterID
+	fixture.binding.Prefix = gitprojection.PlatformPrefix(platformClusterID)
+	fixture.binding.TargetHeadRevision = ""
+	fixture.binding.TargetHeadObservedAt = time.Time{}
+	fixture.binding.State = gitprojection.BindingWaiting
+	fixture.binding.UpdatedAt = time.Now().UTC()
+
+	store := gitprojection.NewMemoryStore()
+	if err := store.PutBinding(t.Context(), fixture.binding); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	lease := claimProjectionLease(t, store, now)
+	binding, _, err := store.RecordVerifiedHead(t.Context(), verified(fixture.binding, fixture.head, "platform-provider", now))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &gitprojection.MirrorManager{Root: filepath.Join(t.TempDir(), "cache"), AllowLocalTests: true, LocalRemote: fixture.remote}
+	prepared, err := manager.Prepare(t.Context(), binding, verified(binding, fixture.head, "platform-provider", now), operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close(t.Context()) //nolint:errcheck
+	binding, err = (gitprojection.Indexer{Store: store, Policy: gitprojection.SchemaOnlyAppConfigPolicyValidator{}}).Index(t.Context(), lease, prepared, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.State != gitprojection.BindingReady || binding.IndexedRevision != fixture.head || binding.ProjectionGeneration != 1 {
+		t.Fatalf("platform head did not activate: %#v", binding)
+	}
+}

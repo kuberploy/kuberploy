@@ -534,10 +534,6 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	if state != ProjectionStaging || head != generation.HeadRevision || parser != generation.ParserVersion || binding.TargetHeadRevision != generation.HeadRevision || binding.ParserVersion != generation.ParserVersion || now.Before(started) || now.Before(binding.UpdatedAt) {
 		return Binding{}, ErrConflict
 	}
-	transactionPolicy, ok := policy.(PostgreSQLAppConfigPolicyValidator)
-	if !ok {
-		return Binding{}, ErrPolicyUnavailable
-	}
 	currentDocuments, err := postgresPolicyDocuments(ctx, tx, binding.ID, generation.Number)
 	if err != nil {
 		return Binding{}, err
@@ -550,16 +546,30 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		}
 	}
 	input := AppConfigPolicyInput{Binding: binding, Generation: generation, Current: currentDocuments, Previous: previousDocuments}
-	validation, err := transactionPolicy.ValidateAppConfigsTx(ctx, tx, input, now.UTC())
-	if err != nil {
-		return Binding{}, err
+	validation := AppConfigPolicyValidation{Diagnostics: map[string][]Diagnostic{}}
+	if binding.Kind == BindingPlatform {
+		if len(currentDocuments) != 0 || len(previousDocuments) != 0 {
+			return Binding{}, ErrConflict
+		}
+	} else {
+		transactionPolicy, ok := policy.(PostgreSQLAppConfigPolicyValidator)
+		if !ok {
+			return Binding{}, ErrPolicyUnavailable
+		}
+		validation, err = transactionPolicy.ValidateAppConfigsTx(ctx, tx, input, now.UTC())
+		if err != nil {
+			return Binding{}, err
+		}
 	}
 	if validation.ValidateFor(input) != nil {
 		return Binding{}, ErrInvalid
 	}
-	validatedDocuments, err := applyPolicyValidation(binding, currentDocuments, validation)
-	if err != nil {
-		return Binding{}, err
+	validatedDocuments := []Document{}
+	if binding.Kind != BindingPlatform {
+		validatedDocuments, err = applyPolicyValidation(binding, currentDocuments, validation)
+		if err != nil {
+			return Binding{}, err
+		}
 	}
 	for _, document := range validatedDocuments {
 		diagnostics := document.Diagnostics

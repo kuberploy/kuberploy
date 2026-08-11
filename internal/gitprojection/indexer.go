@@ -92,6 +92,13 @@ func (i Indexer) indexFull(ctx context.Context, lease ReconciliationLease, repos
 }
 
 func (i Indexer) readDocuments(ctx context.Context, repository *PreparedRepository, generation Generation, now time.Time) ([]Document, error) {
+	// Platform bindings contain server-owned Argo and foundation manifests,
+	// not tenant AppConfig/VariableSet documents. Their individual writers
+	// validate paths and bytes; projection only activates the provider-verified
+	// head so those writers can use the binding as durable authority.
+	if repository.Binding.Kind == BindingPlatform {
+		return []Document{}, nil
+	}
 	maximumDocuments := i.MaxDocuments
 	if maximumDocuments == 0 {
 		maximumDocuments = defaultMaxIndexDocuments

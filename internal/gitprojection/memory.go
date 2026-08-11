@@ -461,16 +461,24 @@ func (s *MemoryStore) ActivateGeneration(ctx context.Context, lease Reconciliati
 		previousDocuments = policyDocuments(s.documents[generation.BindingID][binding.ProjectionGeneration])
 	}
 	input := AppConfigPolicyInput{Binding: cloneBinding(binding), Generation: generation, Current: currentDocuments, Previous: previousDocuments}
-	validation, err := policy.ValidateAppConfigs(ctx, input)
-	if err != nil {
+	validation := AppConfigPolicyValidation{Diagnostics: map[string][]Diagnostic{}}
+	var err error
+	if binding.Kind == BindingPlatform {
+		if len(currentDocuments) != 0 || len(previousDocuments) != 0 {
+			return Binding{}, ErrConflict
+		}
+	} else if validation, err = policy.ValidateAppConfigs(ctx, input); err != nil {
 		return Binding{}, err
 	}
 	if validation.ValidateFor(input) != nil {
 		return Binding{}, ErrInvalid
 	}
-	validatedDocuments, err := applyPolicyValidation(binding, currentDocuments, validation)
-	if err != nil {
-		return Binding{}, err
+	validatedDocuments := []Document{}
+	if binding.Kind != BindingPlatform {
+		validatedDocuments, err = applyPolicyValidation(binding, currentDocuments, validation)
+		if err != nil {
+			return Binding{}, err
+		}
 	}
 	for _, document := range validatedDocuments {
 		s.documents[generation.BindingID][generation.Number][document.Path] = document
