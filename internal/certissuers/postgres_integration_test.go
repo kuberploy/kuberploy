@@ -46,7 +46,29 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE cert_manager_issuer_profile_revisions SET spec_digest=$3 WHERE profile_id=$1 AND revision=$2`, created.Profile.ID, 1, "sha256:"+strings.Repeat("0", 64)); !isPGCode(err, "23514") {
+	schedulingProfile := id.New()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO configuration_profiles(id,kind,name,lifecycle,current_revision,created_by,created_at)
+		VALUES($1,'scheduling',$2,'active',1,$3,$4)`, schedulingProfile, "not-an-issuer-"+schedulingProfile[:8], admin, now); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO configuration_profile_revisions(profile_id,revision,profile_kind,spec,spec_digest,assignments_digest,created_by,created_at)
+		VALUES($1,1,'scheduling','{}'::jsonb,$2,$3,$4,$5)`, schedulingProfile, "sha256:"+strings.Repeat("1", 64), "sha256:"+strings.Repeat("2", 64), admin, now); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO cert_manager_issuer_observations(profile_id,revision,state,updated_at)
+		VALUES($1,1,'pending',$2)`, schedulingProfile, now); !isPGCode(err, "23503") {
+		t.Fatalf("cross-kind issuer observation err=%v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE configuration_profile_revisions SET spec_digest=$3 WHERE profile_id=$1 AND revision=$2 AND profile_kind='certificate-issuer'`, created.Profile.ID, 1, "sha256:"+strings.Repeat("0", 64)); !isPGCode(err, "23514") {
 		t.Fatalf("immutable revision update err=%v", err)
 	}
 	observed := now.Add(time.Second)

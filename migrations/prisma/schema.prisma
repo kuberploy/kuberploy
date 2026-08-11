@@ -418,20 +418,6 @@ model build_service_generations {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model cert_manager_issuer_commands {
-  actor_id        String   @db.Uuid
-  idempotency_key String
-  action          String
-  request_digest  String
-  profile_id      String   @db.Uuid
-  result_revision BigInt
-  request_id      String
-  created_at      DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, idempotency_key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model cert_manager_issuer_observations {
   profile_id           String    @db.Uuid
   revision             BigInt
@@ -462,31 +448,6 @@ model cert_manager_issuer_observer_readiness {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model cert_manager_issuer_profile_revisions {
-  profile_id  String   @db.Uuid
-  revision    BigInt
-  solver_type String
-  spec        Json
-  spec_digest String
-  created_by  String   @db.Uuid
-  created_at  DateTime @db.Timestamptz(6)
-
-  @@id([profile_id, revision])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model cert_manager_issuer_profiles {
-  id               String    @id @db.Uuid
-  name             String    @unique
-  lifecycle        String
-  current_revision BigInt
-  created_by       String    @db.Uuid
-  created_at       DateTime  @db.Timestamptz(6)
-  deactivated_by   String?   @db.Uuid
-  deactivated_at   DateTime? @db.Timestamptz(6)
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model cert_manager_issuer_references {
   profile_id     String   @db.Uuid
   revision       BigInt
@@ -498,6 +459,69 @@ model cert_manager_issuer_references {
 
   @@id([git_path, hostname])
   @@index([profile_id, git_path], map: "cert_manager_issuer_references_profile_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model configuration_profile_assignments {
+  profile_id   String @db.Uuid
+  revision     BigInt
+  profile_kind String
+  ordinal      Int
+  scope_type   String
+  scope_id     String @db.Uuid
+
+  @@id([profile_id, revision, ordinal])
+  @@unique([profile_id, revision, scope_type, scope_id], map: "configuration_profile_assignm_profile_id_revision_scope_typ_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model configuration_profile_commands {
+  actor_id        String   @db.Uuid
+  profile_kind    String
+  idempotency_key String
+  action          String
+  request_digest  String
+  profile_id      String   @db.Uuid
+  result_revision BigInt
+  request_id      String
+  created_at      DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, profile_kind, idempotency_key])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model configuration_profile_revisions {
+  profile_id             String   @db.Uuid
+  revision               BigInt
+  profile_kind           String
+  solver_type            String?
+  spec                   Json
+  spec_digest            String
+  assignments_digest     String?
+  created_by             String   @db.Uuid
+  created_at             DateTime @db.Timestamptz(6)
+  cloned_from_profile_id String?  @db.Uuid
+  cloned_from_revision   BigInt?
+
+  @@id([profile_id, revision])
+  @@unique([profile_id, revision, profile_kind], map: "configuration_profile_revisio_profile_id_revision_profile_k_key")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model configuration_profiles {
+  id               String    @id @db.Uuid
+  kind             String
+  name             String
+  lifecycle        String
+  current_revision BigInt
+  created_by       String    @db.Uuid
+  created_at       DateTime  @db.Timestamptz(6)
+  deactivated_by   String?   @db.Uuid
+  deactivated_at   DateTime? @db.Timestamptz(6)
+
+  @@unique([kind, name], map: "configuration_profiles_global_name_idx", where: raw("(kind = ANY (ARRAY['scheduling'::text, 'certificate-issuer'::text]))"))
+  @@unique([id, kind])
+  @@index([kind, name, id], map: "configuration_profiles_catalog_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1452,32 +1476,6 @@ model managed_registry_runtime_readiness {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model middleware_profile_assignments {
-  profile_id String @db.Uuid
-  revision   BigInt
-  ordinal    Int
-  scope_type String
-  scope_id   String @db.Uuid
-
-  @@id([profile_id, revision, ordinal])
-  @@unique([profile_id, revision, scope_type, scope_id], map: "middleware_profile_assignment_profile_id_revision_scope_typ_key")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model middleware_profile_commands {
-  actor_id        String   @db.Uuid
-  idempotency_key String
-  action          String
-  request_digest  String
-  profile_id      String   @db.Uuid
-  result_revision BigInt
-  request_id      String
-  created_at      DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, idempotency_key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model middleware_profile_references {
   profile_id     String   @db.Uuid
   revision       BigInt
@@ -1489,33 +1487,6 @@ model middleware_profile_references {
 
   @@id([git_path, profile_id, logical_name])
   @@index([profile_id, git_path], map: "middleware_profile_references_profile_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model middleware_profile_revisions {
-  profile_id             String   @db.Uuid
-  revision               BigInt
-  spec                   Json
-  spec_digest            String
-  assignments_digest     String
-  created_by             String   @db.Uuid
-  created_at             DateTime @db.Timestamptz(6)
-  cloned_from_profile_id String?  @db.Uuid
-  cloned_from_revision   BigInt?
-
-  @@id([profile_id, revision])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model middleware_profiles {
-  id               String    @id @db.Uuid
-  name             String
-  lifecycle        String
-  current_revision BigInt
-  created_by       String    @db.Uuid
-  created_at       DateTime  @db.Timestamptz(6)
-  deactivated_by   String?   @db.Uuid
-  deactivated_at   DateTime? @db.Timestamptz(6)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1938,57 +1909,6 @@ model runtime_secret_runtime_readiness {
   lease_until             DateTime @db.Timestamptz(6)
 
   @@index([contract_version, config_digest, fingerprint_key_id, sealing_key_fingerprint, observed_at(sort: Desc)], map: "runtime_secret_runtime_readiness_match_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model scheduling_profile_assignments {
-  profile_id String @db.Uuid
-  revision   BigInt
-  ordinal    Int
-  scope_type String
-  scope_id   String @db.Uuid
-
-  @@id([profile_id, revision, ordinal])
-  @@unique([profile_id, revision, scope_type, scope_id], map: "scheduling_profile_assignment_profile_id_revision_scope_typ_key")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model scheduling_profile_commands {
-  actor_id        String   @db.Uuid
-  idempotency_key String
-  action          String
-  request_digest  String
-  profile_id      String   @db.Uuid
-  result_revision BigInt
-  request_id      String
-  created_at      DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, idempotency_key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model scheduling_profile_revisions {
-  profile_id         String   @db.Uuid
-  revision           BigInt
-  spec               Json
-  spec_digest        String
-  assignments_digest String
-  created_by         String   @db.Uuid
-  created_at         DateTime @db.Timestamptz(6)
-
-  @@id([profile_id, revision])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model scheduling_profiles {
-  id               String    @id @db.Uuid
-  name             String    @unique
-  lifecycle        String
-  current_revision BigInt
-  created_by       String    @db.Uuid
-  created_at       DateTime  @db.Timestamptz(6)
-  deactivated_by   String?   @db.Uuid
-  deactivated_at   DateTime? @db.Timestamptz(6)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

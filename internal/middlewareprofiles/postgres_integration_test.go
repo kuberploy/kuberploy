@@ -66,7 +66,7 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if _, err = store.Create(ctx, pgCommand(actor, "pg-create-same-name", now.Add(time.Second)), "api-limit", spec, []profiles.Assignment{{Scope: profiles.ApplicationScope, ID: application}}); err != nil {
 		t.Fatalf("same logical name in another scope should be allowed: %v", err)
 	}
-	_, err = pool.Exec(ctx, `UPDATE middleware_profiles SET lifecycle='deactivated',current_revision=current_revision+1,deactivated_by=$2,deactivated_at=$3 WHERE id=$1`, created.Profile.ID, actor, now)
+	_, err = pool.Exec(ctx, `UPDATE configuration_profiles SET lifecycle='deactivated',current_revision=current_revision+1,deactivated_by=$2,deactivated_at=$3 WHERE id=$1 AND kind='middleware'`, created.Profile.ID, actor, now)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
 		t.Fatalf("deactivation advanced revision: %v", err)

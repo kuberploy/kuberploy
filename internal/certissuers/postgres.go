@@ -67,7 +67,7 @@ func mapError(err error) error {
 func (s *PostgresStore) replay(ctx context.Context, tx pgx.Tx, c Command, d string) (MutationResult, bool, error) {
 	var old, pid string
 	var rev int64
-	err := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM cert_manager_issuer_commands WHERE actor_id=$1 AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
+	err := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM configuration_profile_commands WHERE actor_id=$1 AND profile_kind='certificate-issuer' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MutationResult{}, false, nil
 	}
@@ -88,7 +88,7 @@ type rowQuerier interface {
 func loadEntry(ctx context.Context, q rowQuerier, id string, rev int64) (Entry, error) {
 	var e Entry
 	var raw []byte
-	err := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.revision,r.solver_type,r.spec,r.spec_digest,r.created_by::text,r.created_at FROM cert_manager_issuer_profiles p JOIN cert_manager_issuer_profile_revisions r ON r.profile_id=p.id AND r.revision=$2 WHERE p.id=$1`, id, rev).Scan(&e.Profile.ID, &e.Profile.Name, &e.Profile.Lifecycle, &e.Profile.CurrentRevision, &e.Profile.CreatedBy, &e.Profile.CreatedAt, &e.Profile.DeactivatedBy, &e.Profile.DeactivatedAt, &e.Revision.Revision, &e.Revision.Solver, &raw, &e.Revision.SpecDigest, &e.Revision.CreatedBy, &e.Revision.CreatedAt)
+	err := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.revision,r.solver_type,r.spec,r.spec_digest,r.created_by::text,r.created_at FROM configuration_profiles p JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=$2 WHERE p.id=$1 AND p.kind='certificate-issuer'`, id, rev).Scan(&e.Profile.ID, &e.Profile.Name, &e.Profile.Lifecycle, &e.Profile.CurrentRevision, &e.Profile.CreatedBy, &e.Profile.CreatedAt, &e.Profile.DeactivatedBy, &e.Profile.DeactivatedAt, &e.Revision.Revision, &e.Revision.Solver, &raw, &e.Revision.SpecDigest, &e.Revision.CreatedBy, &e.Revision.CreatedAt)
 	if err != nil {
 		return Entry{}, mapError(err)
 	}
@@ -131,11 +131,11 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	rev := int64(1)
 	if action == "create" {
 		pid = id.New()
-		_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_profiles(id,name,lifecycle,current_revision,created_by,created_at) VALUES($1,$2,'active',1,$3,$4)`, pid, name, c.ActorID, c.Now.UTC())
+		_, err = tx.Exec(ctx, `INSERT INTO configuration_profiles(id,kind,name,lifecycle,current_revision,created_by,created_at) VALUES($1,'certificate-issuer',$2,'active',1,$3,$4)`, pid, name, c.ActorID, c.Now.UTC())
 	} else {
 		var lifecycle Lifecycle
 		var current int64
-		err = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM cert_manager_issuer_profiles WHERE id=$1 FOR UPDATE`, pid).Scan(&lifecycle, &current)
+		err = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM configuration_profiles WHERE id=$1 AND kind='certificate-issuer' FOR UPDATE`, pid).Scan(&lifecycle, &current)
 		if err == nil && lifecycle != Active {
 			return MutationResult{}, ErrInactive
 		}
@@ -147,12 +147,12 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_profile_revisions(profile_id,revision,solver_type,spec,spec_digest,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, pid, rev, solver, raw, sd, c.ActorID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO configuration_profile_revisions(profile_id,revision,profile_kind,solver_type,spec,spec_digest,created_by,created_at) VALUES($1,$2,'certificate-issuer',$3,$4,$5,$6,$7)`, pid, rev, solver, raw, sd, c.ActorID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
 	if action == "revise" {
-		if _, err = tx.Exec(ctx, `UPDATE cert_manager_issuer_profiles SET current_revision=$2 WHERE id=$1`, pid, rev); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE configuration_profiles SET current_revision=$2 WHERE id=$1 AND kind='certificate-issuer'`, pid, rev); err != nil {
 			return MutationResult{}, mapError(err)
 		}
 	}
@@ -160,7 +160,7 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_commands(actor_id,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, rev, c.RequestID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'certificate-issuer',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, rev, c.RequestID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
@@ -200,11 +200,11 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, ref Ref) (Mut
 	if e.Profile.CurrentRevision != ref.Revision {
 		return MutationResult{}, ErrConflict
 	}
-	_, err = tx.Exec(ctx, `UPDATE cert_manager_issuer_profiles SET lifecycle='deactivated',deactivated_by=$2,deactivated_at=$3 WHERE id=$1`, ref.ProfileID, c.ActorID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `UPDATE configuration_profiles SET lifecycle='deactivated',deactivated_by=$2,deactivated_at=$3 WHERE id=$1 AND kind='certificate-issuer'`, ref.ProfileID, c.ActorID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO cert_manager_issuer_commands(actor_id,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, ref.ProfileID, ref.Revision, c.RequestID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'certificate-issuer',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, ref.ProfileID, ref.Revision, c.RequestID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
@@ -226,7 +226,7 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, ref Ref) (Mut
 }
 func (s *PostgresStore) Current(ctx context.Context, id string) (Entry, error) {
 	var rev int64
-	if err := s.pool.QueryRow(ctx, `SELECT current_revision FROM cert_manager_issuer_profiles WHERE id=$1`, id).Scan(&rev); err != nil {
+	if err := s.pool.QueryRow(ctx, `SELECT current_revision FROM configuration_profiles WHERE id=$1 AND kind='certificate-issuer'`, id).Scan(&rev); err != nil {
 		return Entry{}, mapError(err)
 	}
 	return loadEntry(ctx, s.pool, id, rev)
@@ -235,7 +235,7 @@ func (s *PostgresStore) List(ctx context.Context, limit int) ([]Entry, error) {
 	if limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM cert_manager_issuer_profiles ORDER BY name,id LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM configuration_profiles WHERE kind='certificate-issuer' ORDER BY name,id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +259,7 @@ func (s *PostgresStore) PendingMaterialization(ctx context.Context, limit int) (
 	if limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.name,p.current_revision FROM cert_manager_issuer_profiles p JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision JOIN cert_manager_issuer_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision WHERE p.lifecycle='active' AND (o.state<>'ready' OR o.observed_spec_digest IS DISTINCT FROM r.spec_digest) ORDER BY p.name LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.name,p.current_revision FROM configuration_profiles p JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision WHERE p.kind='certificate-issuer' AND p.lifecycle='active' AND (o.state<>'ready' OR o.observed_spec_digest IS DISTINCT FROM r.spec_digest) ORDER BY p.name LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (s *PostgresStore) ReadyForHostname(ctx context.Context, host string, now t
 	if !validHostname(host, true) || !validFreshness(now, maxAge) || limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.name,p.current_revision FROM cert_manager_issuer_profiles p JOIN cert_manager_issuer_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision WHERE p.lifecycle='active' AND o.state='ready' AND o.observed_spec_digest=r.spec_digest AND o.observed_at >= $1 AND o.observed_at <= $2 ORDER BY p.name LIMIT 500`, now.Add(-maxAge), now.Add(30*time.Second))
+	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.name,p.current_revision FROM configuration_profiles p JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision WHERE p.kind='certificate-issuer' AND p.lifecycle='active' AND o.state='ready' AND o.observed_spec_digest=r.spec_digest AND o.observed_at >= $1 AND o.observed_at <= $2 ORDER BY p.name LIMIT 500`, now.Add(-maxAge), now.Add(30*time.Second))
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +360,7 @@ func (s *PostgresStore) PendingDematerialization(ctx context.Context, limit int)
 	if limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM cert_manager_issuer_profiles WHERE lifecycle='deactivated' ORDER BY name LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM configuration_profiles WHERE kind='certificate-issuer' AND lifecycle='deactivated' ORDER BY name LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +418,7 @@ func (s *PostgresStore) ReconcileReferencesTx(ctx context.Context, tx pgx.Tx, ap
 		seen[host] = struct{}{}
 		var pid string
 		var rev int64
-		err := tx.QueryRow(ctx, `SELECT p.id::text,p.current_revision FROM cert_manager_issuer_profiles p JOIN cert_manager_issuer_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision WHERE p.name=$1 AND p.lifecycle='active' AND o.state='ready' AND o.observed_spec_digest=r.spec_digest AND o.observed_at >= $2 AND o.observed_at <= $3 FOR SHARE OF p,r,o`, selection.IssuerName, now.Add(-maxAge), now.Add(30*time.Second)).Scan(&pid, &rev)
+		err := tx.QueryRow(ctx, `SELECT p.id::text,p.current_revision FROM configuration_profiles p JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=p.current_revision JOIN cert_manager_issuer_observations o ON o.profile_id=p.id AND o.revision=p.current_revision WHERE p.kind='certificate-issuer' AND p.name=$1 AND p.lifecycle='active' AND o.state='ready' AND o.observed_spec_digest=r.spec_digest AND o.observed_at >= $2 AND o.observed_at <= $3 FOR SHARE OF p,r,o`, selection.IssuerName, now.Add(-maxAge), now.Add(30*time.Second)).Scan(&pid, &rev)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}

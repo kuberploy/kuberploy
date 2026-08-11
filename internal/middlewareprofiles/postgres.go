@@ -64,7 +64,7 @@ func pgerr(e error) error {
 func (s *PostgresStore) replay(ctx context.Context, tx pgx.Tx, c Command, d string) (MutationResult, bool, error) {
 	var old, pid string
 	var rev int64
-	e := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM middleware_profile_commands WHERE actor_id=$1 AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
+	e := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM configuration_profile_commands WHERE actor_id=$1 AND profile_kind='middleware' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return MutationResult{}, false, nil
 	}
@@ -86,7 +86,7 @@ func loadRevision(ctx context.Context, q qrow, ref Ref) (Profile, Revision, erro
 	var p Profile
 	var v Revision
 	var raw []byte
-	e := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.spec,r.spec_digest,r.assignments_digest,r.created_by::text,r.created_at FROM middleware_profiles p JOIN middleware_profile_revisions r ON r.profile_id=p.id AND r.revision=$2 WHERE p.id=$1 FOR SHARE OF p,r`, ref.ProfileID, ref.Revision).Scan(&p.ID, &p.Name, &p.Lifecycle, &p.CurrentRevision, &p.CreatedBy, &p.CreatedAt, &p.DeactivatedBy, &p.DeactivatedAt, &raw, &v.SpecDigest, &v.AssignmentsDigest, &v.CreatedBy, &v.CreatedAt)
+	e := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.spec,r.spec_digest,r.assignments_digest,r.created_by::text,r.created_at FROM configuration_profiles p JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=$2 WHERE p.id=$1 AND p.kind='middleware' FOR SHARE OF p,r`, ref.ProfileID, ref.Revision).Scan(&p.ID, &p.Name, &p.Lifecycle, &p.CurrentRevision, &p.CreatedBy, &p.CreatedAt, &p.DeactivatedBy, &p.DeactivatedAt, &raw, &v.SpecDigest, &v.AssignmentsDigest, &v.CreatedBy, &v.CreatedAt)
 	if e != nil {
 		return p, v, pgerr(e)
 	}
@@ -97,7 +97,7 @@ func loadRevision(ctx context.Context, q qrow, ref Ref) (Profile, Revision, erro
 	}
 	rows, e := q.(interface {
 		Query(context.Context, string, ...any) (pgx.Rows, error)
-	}).Query(ctx, `SELECT scope_type,scope_id::text FROM middleware_profile_assignments WHERE profile_id=$1 AND revision=$2 ORDER BY ordinal`, ref.ProfileID, ref.Revision)
+	}).Query(ctx, `SELECT scope_type,scope_id::text FROM configuration_profile_assignments WHERE profile_id=$1 AND revision=$2 AND profile_kind='middleware' ORDER BY ordinal`, ref.ProfileID, ref.Revision)
 	if e != nil {
 		return p, v, e
 	}
@@ -144,11 +144,11 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	resultRev := int64(1)
 	if action == "create" || action == "clone" {
 		pid = id.New()
-		_, e = tx.Exec(ctx, `INSERT INTO middleware_profiles(id,name,lifecycle,current_revision,created_by,created_at) VALUES($1,$2,'active',1,$3,$4)`, pid, name, c.ActorID, c.Now.UTC())
+		_, e = tx.Exec(ctx, `INSERT INTO configuration_profiles(id,kind,name,lifecycle,current_revision,created_by,created_at) VALUES($1,'middleware',$2,'active',1,$3,$4)`, pid, name, c.ActorID, c.Now.UTC())
 	} else {
 		var lifecycle Lifecycle
 		var current int64
-		e = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM middleware_profiles WHERE id=$1 FOR UPDATE`, pid).Scan(&lifecycle, &current)
+		e = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM configuration_profiles WHERE id=$1 AND kind='middleware' FOR UPDATE`, pid).Scan(&lifecycle, &current)
 		if errors.Is(e, pgx.ErrNoRows) {
 			return MutationResult{}, ErrNotFound
 		}
@@ -168,23 +168,23 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if clonedFrom != nil {
 		clonedProfile, clonedRevision = clonedFrom.ProfileID, clonedFrom.Revision
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_revisions(profile_id,revision,spec,spec_digest,assignments_digest,created_by,created_at,cloned_from_profile_id,cloned_from_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, pid, resultRev, raw, sd, ad, c.ActorID, c.Now.UTC(), clonedProfile, clonedRevision)
+	_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_revisions(profile_id,revision,profile_kind,spec,spec_digest,assignments_digest,created_by,created_at,cloned_from_profile_id,cloned_from_revision) VALUES($1,$2,'middleware',$3,$4,$5,$6,$7,$8,$9)`, pid, resultRev, raw, sd, ad, c.ActorID, c.Now.UTC(), clonedProfile, clonedRevision)
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
 	for i, x := range a {
-		_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_assignments(profile_id,revision,ordinal,scope_type,scope_id) VALUES($1,$2,$3,$4,$5)`, pid, resultRev, i, x.Scope, x.ID)
+		_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_assignments(profile_id,revision,profile_kind,ordinal,scope_type,scope_id) VALUES($1,$2,'middleware',$3,$4,$5)`, pid, resultRev, i, x.Scope, x.ID)
 		if e != nil {
 			return MutationResult{}, pgerr(e)
 		}
 	}
 	if action == "revise" {
-		_, e = tx.Exec(ctx, `UPDATE middleware_profiles SET current_revision=$2 WHERE id=$1`, pid, resultRev)
+		_, e = tx.Exec(ctx, `UPDATE configuration_profiles SET current_revision=$2 WHERE id=$1 AND kind='middleware'`, pid, resultRev)
 		if e != nil {
 			return MutationResult{}, pgerr(e)
 		}
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_commands(actor_id,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, resultRev, c.RequestID, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'middleware',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, resultRev, c.RequestID, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
@@ -248,11 +248,11 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, r Ref) (Mutat
 	if referenced {
 		return MutationResult{}, ErrReferenced
 	}
-	_, e = tx.Exec(ctx, `UPDATE middleware_profiles SET lifecycle='deactivated',deactivated_by=$2,deactivated_at=$3 WHERE id=$1`, p.ID, c.ActorID, c.Now.UTC())
+	_, e = tx.Exec(ctx, `UPDATE configuration_profiles SET lifecycle='deactivated',deactivated_by=$2,deactivated_at=$3 WHERE id=$1 AND kind='middleware'`, p.ID, c.ActorID, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO middleware_profile_commands(actor_id,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, p.ID, v.Revision, c.RequestID, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'middleware',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, p.ID, v.Revision, c.RequestID, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
@@ -277,7 +277,7 @@ func (s *PostgresStore) Revision(ctx context.Context, r Ref) (Profile, Revision,
 }
 func (s *PostgresStore) Current(ctx context.Context, id string) (Profile, Revision, error) {
 	var r int64
-	e := s.pool.QueryRow(ctx, `SELECT current_revision FROM middleware_profiles WHERE id=$1`, id).Scan(&r)
+	e := s.pool.QueryRow(ctx, `SELECT current_revision FROM configuration_profiles WHERE id=$1 AND kind='middleware'`, id).Scan(&r)
 	if e != nil {
 		return Profile{}, Revision{}, pgerr(e)
 	}
@@ -288,7 +288,7 @@ func (s *PostgresStore) Catalog(ctx context.Context, limit int) ([]Entry, error)
 	if limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM middleware_profiles ORDER BY name,id LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM configuration_profiles WHERE kind='middleware' ORDER BY name,id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -312,9 +312,9 @@ func (s *PostgresStore) Assigned(ctx context.Context, target Target, limit int) 
 		return nil, ErrInvalid
 	}
 	rows, err := s.pool.Query(ctx, `SELECT p.id::text,p.current_revision
-		FROM middleware_profiles p
-		WHERE p.lifecycle='active' AND EXISTS (
-			SELECT 1 FROM middleware_profile_assignments a
+		FROM configuration_profiles p
+		WHERE p.kind='middleware' AND p.lifecycle='active' AND EXISTS (
+			SELECT 1 FROM configuration_profile_assignments a
 			WHERE a.profile_id=p.id AND a.revision=p.current_revision AND (
 				(a.scope_type='project' AND a.scope_id::text=$1) OR
 				(a.scope_type='environment' AND a.scope_id::text=$2) OR
@@ -394,7 +394,7 @@ func (s *PostgresStore) ReplaceReferences(ctx context.Context, applicationID, en
 		seen[key] = struct{}{}
 		var lifecycle Lifecycle
 		var current int64
-		if err = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM middleware_profiles WHERE id=$1 FOR SHARE`, ref.ProfileID).Scan(&lifecycle, &current); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT lifecycle,current_revision FROM configuration_profiles WHERE id=$1 AND kind='middleware' FOR SHARE`, ref.ProfileID).Scan(&lifecycle, &current); err != nil {
 			return pgerr(err)
 		}
 		if lifecycle != Active || current != ref.Revision {

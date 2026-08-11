@@ -90,7 +90,11 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-[[ "${kp_counts}" == $'1\n127\n81\n89\n876\n12\n2' ]]
+kp_expected_counts=$'2\n120\n77\n84\n854\n10\n2'
+if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
+  printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
+  exit 1
+fi
 
 docker run --rm --network "${kp_network}" \
   --env DATABASE_URL="${kp_fresh_url}" \
