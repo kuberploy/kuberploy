@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Qualification RC restoring exact edge and cert-manager runtime observation with explicit dependency versions, and scoping managed registry lifecycle observation to its configured repository prefix.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.69"
+  "version": "0.1.0-rc.70"
 }
