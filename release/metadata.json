@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Qualification RC normalizing protected Prometheus labels and attesting the immutable scrape policy.",
+  "summary": "Qualification RC restoring kubelet and Traefik metrics with live scrape-target readiness.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.76"
+  "version": "0.1.0-rc.77"
 }
