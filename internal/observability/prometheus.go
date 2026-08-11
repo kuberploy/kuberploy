@@ -352,6 +352,48 @@ func (c *Client) ProbeManagedRules(ctx context.Context) error {
 	return nil
 }
 
+// ProbeManagedTargets verifies that every data source required by the closed
+// service metric catalog is actively scraped. Recording rules can be healthy
+// while silently producing empty series when a ServiceMonitor is rejected or
+// has no targets, so rule health alone is not sufficient readiness evidence.
+func (c *Client) ProbeManagedTargets(ctx context.Context) error {
+	endpoint := *c.base
+	endpoint.Path = strings.TrimSuffix(c.base.Path, "/") + "/api/v1/targets"
+	endpoint.RawQuery = url.Values{"state": {"active"}}.Encode()
+	body, err := c.get(ctx, endpoint)
+	if err != nil {
+		return err
+	}
+	var envelope prometheusTargetsEnvelope
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	if decoder.Decode(&envelope) != nil || decoder.Decode(&struct{}{}) != io.EOF || envelope.Status != "success" || len(envelope.Data.ActiveTargets) > 2_000 {
+		return ErrUnsafeResponse
+	}
+	found := make(map[string]int, len(managedRequiredScrapePools))
+	wanted := make(map[string]struct{}, len(managedRequiredScrapePools))
+	for _, pool := range managedRequiredScrapePools {
+		wanted[pool] = struct{}{}
+	}
+	for _, target := range envelope.Data.ActiveTargets {
+		if len(target.ScrapePool) > 253 || len(target.Health) > 16 {
+			return ErrUnsafeResponse
+		}
+		if _, ok := wanted[target.ScrapePool]; !ok {
+			continue
+		}
+		if target.Health != "up" {
+			return ErrUnavailable
+		}
+		found[target.ScrapePool]++
+	}
+	for _, pool := range managedRequiredScrapePools {
+		if found[pool] < 1 || found[pool] > 128 {
+			return ErrUnavailable
+		}
+	}
+	return nil
+}
+
 func (c *Client) get(ctx context.Context, endpoint url.URL) ([]byte, error) {
 
 	requestContext, cancel := context.WithTimeout(ctx, c.timeout)
@@ -509,6 +551,16 @@ type prometheusRulesEnvelope struct {
 				LastError string `json:"lastError"`
 			} `json:"rules"`
 		} `json:"groups"`
+	} `json:"data"`
+}
+
+type prometheusTargetsEnvelope struct {
+	Status string `json:"status"`
+	Data   struct {
+		ActiveTargets []struct {
+			ScrapePool string `json:"scrapePool"`
+			Health     string `json:"health"`
+		} `json:"activeTargets"`
 	} `json:"data"`
 }
 

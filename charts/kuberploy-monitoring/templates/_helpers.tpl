@@ -42,7 +42,7 @@ kuberploy.io/ownership-boundary: monitoring-only
 {{- $_ := unset $guardedPrometheus "resources" -}}
 {{- $_ := unset $guardedPrometheus "storageSpec" -}}
 {{- $guardedHash := sha256sum (toJson $guarded) -}}
-{{- if not (has $guardedHash (list "bf61b4dbf11933fc0abb368abb2c365d56d26df4e9e77926bddafbb4b1cd3301" "c68af8be40fa519a3a590ec61ce92ce5b1beb16f44b3d40217e37f599b913cbd")) -}}
+{{- if not (has $guardedHash (list "9e7e674433cb780480753ff952140220585ec1f396ae883d421604ce99ced408" "d32372f42791b83c797a248fc6d7570ee7fc20a2ac7caec11fc1f1179139259e")) -}}
   {{- fail (printf "only Prometheus retention, PVC, and resources are configurable; the managed upstream profile is otherwise immutable (%s)" $guardedHash) -}}
 {{- end -}}
 {{- if $stack.grafana.enabled -}}{{ fail "Grafana is disabled in the managed foundation" }}{{- end -}}
@@ -51,9 +51,9 @@ kuberploy.io/ownership-boundary: monitoring-only
   {{- fail "all monitoring Services must remain ClusterIP" -}}
 {{- end -}}
 {{- if ne (int $stack.prometheus.prometheusSpec.replicas) 1 -}}{{ fail "managed Prometheus must have exactly one replica" }}{{- end -}}
-{{- if not $stack.prometheus.prometheusSpec.ignoreNamespaceSelectors -}}{{ fail "ignoreNamespaceSelectors must remain enabled" }}{{- end -}}
+{{- if $stack.prometheus.prometheusSpec.ignoreNamespaceSelectors -}}{{ fail "protected ServiceMonitors must retain their exact namespace selectors" }}{{- end -}}
 {{- $fsGuard := $stack.prometheus.prometheusSpec.arbitraryFSAccessThroughSMs -}}
-{{- if or (not (kindIs "map" $fsGuard)) (ne (keys $fsGuard | sortAlpha | join ",") "deny") (not $fsGuard.deny) -}}{{ fail "monitor discovery must forbid arbitrary filesystem references" }}{{- end -}}
+{{- if or (not (kindIs "map" $fsGuard)) (ne (keys $fsGuard | sortAlpha | join ",") "deny") $fsGuard.deny -}}{{ fail "the protected kubelet monitor requires only the mounted service-account token and cluster CA" }}{{- end -}}
 {{- if or $stack.prometheus.prometheusSpec.enableAdminAPI $stack.prometheus.prometheusSpec.enableRemoteWriteReceiver $stack.prometheus.prometheusSpec.enableOTLPReceiver -}}
   {{- fail "Prometheus write/admin receivers are disabled" -}}
 {{- end -}}

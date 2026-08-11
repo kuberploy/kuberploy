@@ -26,13 +26,14 @@ data:
   operatorArgumentsSHA256: sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6
   recordingRuleName: monitoring-service-recording-rules
   recordingRuleSpecSHA256: sha256:b2d83d41bbc11bd5a1877fe07f0957af2edacd4c1c38e6ef90effa364274ad63
-  readinessContract: profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules
+  readinessContract: profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules+required-targets
   queryClientNamespaceLabel: kuberploy.io/control-plane-namespace=true
   queryClientPodLabels: app.kubernetes.io/name=kuberploy,app.kubernetes.io/component=api
   monitorNamespaceLabel: kuberploy.io/monitoring-namespace=true
   monitorSelectorLabel: kuberploy.io/monitoring-source=protected
   ruleSelectorLabel: kuberploy.io/monitoring-rule=protected
-  ignoreNamespaceSelectors: "true"
+  ignoreNamespaceSelectors: "false"
+  serviceMonitorFilesystemAccess: kubelet-service-account-token+cluster-ca
   grafanaEnabled: "false"
   metricSeries: kuberploy:service:cpu_usage_cores,kuberploy:service:memory_working_set_bytes,kuberploy:service:replicas_ready,kuberploy:service:container_restarts_total,kuberploy:service:http_requests_per_second,kuberploy:service:http_5xx_ratio,kuberploy:service:http_latency_seconds:p95
 {{- end }}

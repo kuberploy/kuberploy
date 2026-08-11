@@ -32,7 +32,10 @@ func TestManagedKubernetesObserverUsesOnlyExactGetsAndDigestsSpecs(t *testing.T)
 	})
 	prometheus, _ := json.Marshal(map[string]any{
 		"metadata": map[string]any{"name": ManagedMonitoringPrometheusName, "namespace": ManagedMonitoringNamespace, "uid": "prometheus-uid", "resourceVersion": "4", "generation": 2},
-		"spec":     map[string]any{"overrideHonorLabels": true},
+		"spec": map[string]any{
+			"overrideHonorLabels":         true,
+			"arbitraryFSAccessThroughSMs": map[string]any{"deny": false},
+		},
 	})
 	bodies := map[string][]byte{managedKubernetesPaths[0]: profile, managedKubernetesPaths[1]: operator, managedKubernetesPaths[2]: rule, managedKubernetesPaths[3]: prometheus}
 	seen := map[string]int{}
@@ -68,7 +71,7 @@ func TestManagedKubernetesObserverUsesOnlyExactGetsAndDigestsSpecs(t *testing.T)
 	if snapshot.OperatorArgumentsSHA256 != digestJSON([]string{"--one"}) || snapshot.RuleSpecSHA256 != digestJSON(ruleSpec) {
 		t.Fatalf("unexpected digests operator=%q rule=%q", snapshot.OperatorArgumentsSHA256, snapshot.RuleSpecSHA256)
 	}
-	if !snapshot.ProfileImmutable || snapshot.OperatorGeneration != 5 || snapshot.RuleGeneration != 8 || snapshot.PrometheusGeneration != 2 || !snapshot.PrometheusOverrideHonorLabels {
+	if !snapshot.ProfileImmutable || snapshot.OperatorGeneration != 5 || snapshot.RuleGeneration != 8 || snapshot.PrometheusGeneration != 2 || !snapshot.PrometheusOverrideHonorLabels || snapshot.PrometheusIgnoreNamespaceSelectors || snapshot.PrometheusArbitraryFSAccessDeny {
 		t.Fatalf("snapshot=%#v", snapshot)
 	}
 }

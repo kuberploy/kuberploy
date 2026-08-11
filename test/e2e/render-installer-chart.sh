@@ -212,6 +212,9 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | .spec.destinations[1].namespace' "${kp_tmp}/platform.yaml")" == "kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[].namespace] | contains(["cert-manager"])' "${kp_tmp}/platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-edge") | .spec.orphanedResources.warn' "${kp_tmp}/platform.yaml")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-edge") | [.spec.destinations[].namespace] | sort | join(",")' "${kp_tmp}/platform.yaml")" == "kuberploy-monitoring,kuberploy-system" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-monitoring") | .metadata.annotations."argocd.argoproj.io/sync-wave"' "${kp_tmp}/platform.yaml")" == "-10" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-edge") | .metadata.annotations."argocd.argoproj.io/sync-wave"' "${kp_tmp}/platform.yaml")" == "0" ]]
 
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \

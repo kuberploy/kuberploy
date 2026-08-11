@@ -18,10 +18,12 @@ func (o fixedManagedObserver) ObserveManagedMonitoring(context.Context) (Managed
 }
 
 type fixedManagedPrometheus struct {
-	probeErr error
-	rulesErr error
-	probes   int
-	rules    int
+	probeErr   error
+	rulesErr   error
+	targetsErr error
+	probes     int
+	rules      int
+	targets    int
 }
 
 func (p *fixedManagedPrometheus) Probe(context.Context) error {
@@ -32,6 +34,11 @@ func (p *fixedManagedPrometheus) Probe(context.Context) error {
 func (p *fixedManagedPrometheus) ProbeManagedRules(context.Context) error {
 	p.rules++
 	return p.rulesErr
+}
+
+func (p *fixedManagedPrometheus) ProbeManagedTargets(context.Context) error {
+	p.targets++
+	return p.targetsErr
 }
 
 func validManagedSnapshotForTest() ManagedMonitoringSnapshot {
@@ -52,8 +59,8 @@ func TestManagedReadinessRequiresAttestationProbeAndRules(t *testing.T) {
 	if err := probe.Probe(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if prometheus.probes != 1 || prometheus.rules != 1 {
-		t.Fatalf("probe calls=%d rule calls=%d", prometheus.probes, prometheus.rules)
+	if prometheus.probes != 1 || prometheus.rules != 1 || prometheus.targets != 1 {
+		t.Fatalf("probe calls=%d rule calls=%d target calls=%d", prometheus.probes, prometheus.rules, prometheus.targets)
 	}
 
 	prometheus = &fixedManagedPrometheus{probeErr: ErrUnavailable}
@@ -66,6 +73,12 @@ func TestManagedReadinessRequiresAttestationProbeAndRules(t *testing.T) {
 	probe.Prometheus = prometheus
 	if err := probe.Probe(context.Background()); !errors.Is(err, ErrUnsafeResponse) {
 		t.Fatalf("rules failure=%v", err)
+	}
+
+	prometheus = &fixedManagedPrometheus{targetsErr: ErrUnavailable}
+	probe.Prometheus = prometheus
+	if err := probe.Probe(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("targets failure=%v", err)
 	}
 }
 
@@ -88,6 +101,8 @@ func TestManagedSnapshotAttestationFailsClosedOnEveryProtectedIdentity(t *testin
 		{name: "prometheus name", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusName = "attacker" }},
 		{name: "prometheus generation", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusGeneration = 0 }},
 		{name: "prometheus label override", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusOverrideHonorLabels = false }},
+		{name: "prometheus namespace override", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusIgnoreNamespaceSelectors = true }},
+		{name: "prometheus filesystem guard", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusArbitraryFSAccessDeny = true }},
 	}
 	for _, test := range tests {
 		test := test

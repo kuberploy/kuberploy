@@ -113,6 +113,47 @@ traefik:
         names: {}
       queryParameters:
         defaultMode: drop
+  metrics:
+    addInternals: false
+    prometheus:
+      entryPoint: metrics
+      addEntryPointsLabels: true
+      addRoutersLabels: false
+      addServicesLabels: true
+      buckets: "0.1,0.3,1.2,5.0"
+      manualRouting: false
+      headerLabels: {}
+      service:
+        enabled: true
+        labels:
+          kuberploy.io/monitoring-source: protected
+        annotations: {}
+      # The installer orders monitoring CRDs before the edge release. Keeping
+      # this true also lets the independently packaged chart be rendered and
+      # verified without ambient cluster discovery.
+      disableAPICheck: true
+      serviceMonitor:
+        enabled: true
+        apiVersion: monitoring.coreos.com/v1
+        metricRelabelings:
+          - action: keep
+            sourceLabels: [__name__]
+            regex: traefik_service_requests_total|traefik_service_request_duration_seconds_bucket
+        relabelings: []
+        jobLabel: ""
+        interval: 30s
+        honorLabels: false
+        scrapeTimeout: 10s
+        honorTimestamps: false
+        enableHttp2: false
+        followRedirects: false
+        additionalLabels:
+          kuberploy.io/monitoring-source: protected
+        namespace: kuberploy-monitoring
+        namespaceSelector:
+          matchNames: [kuberploy-system]
+      prometheusRule:
+        enabled: false
   ports:
     traefik:
       expose:

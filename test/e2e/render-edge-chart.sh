@@ -118,6 +118,9 @@ kp_traefik_image='docker.io/library/traefik:v3.7.10'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_tmp}/edge.yaml")" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .spec.type == "LoadBalancer") | .spec.type' "${kp_tmp}/edge.yaml")" == "LoadBalancer" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .spec.type == "LoadBalancer") | [.spec.ports[].port] | sort | join(",")' "${kp_tmp}/edge.yaml")" == "80,443" ]]
+[[ "$(yq eval-all 'select(.kind == "Service" and .metadata.name == "edge-traefik-metrics") | .metadata.labels."kuberploy.io/monitoring-source" + "," + .spec.type + "," + (.spec.ports[0].port | tostring) + "," + .spec.ports[0].name' "${kp_tmp}/edge.yaml")" == "protected,ClusterIP,9100,metrics" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and .metadata.name == "edge-traefik") | .metadata.namespace + "," + .metadata.labels."kuberploy.io/monitoring-source" + "," + .spec.namespaceSelector.matchNames[0] + "," + .spec.endpoints[0].path + "," + .spec.endpoints[0].interval + "," + .spec.endpoints[0].scrapeTimeout' "${kp_tmp}/edge.yaml")" == "kuberploy-monitoring,protected,kuberploy-system,/metrics,30s,10s" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ServiceMonitor" and .metadata.name == "edge-traefik") | .spec.endpoints[0].metricRelabelings' "${kp_tmp}/edge.yaml" | jq -cS .)" == '[{"action":"keep","regex":"traefik_service_requests_total|traefik_service_request_duration_seconds_bucket","sourceLabels":["__name__"]}]' ]]
 [[ "$(yq eval-all 'select(.kind == "Namespace") | .metadata.labels."pod-security.kubernetes.io/enforce"' "${kp_tmp}/edge.yaml")" == "restricted" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.httpRoutesSupported' "${kp_tmp}/edge.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.customTLSSecretRoutesSupported' "${kp_tmp}/edge.yaml")" == "true" ]]
@@ -173,6 +176,9 @@ kp_expect_reject 'access-log header capture' "${kp_edge}" kuberploy-edge "${kp_e
 kp_expect_reject 'unbounded Traefik file provider' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.providers.file.enabled=true
 kp_expect_reject 'Traefik plugin execution' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.experimental.plugins.attacker.moduleName=example.invalid/plugin
 kp_expect_reject 'floating Traefik image' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+kp_expect_reject 'Traefik metrics namespace escape' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.metrics.prometheus.serviceMonitor.namespace=other-namespace
+kp_expect_reject 'Traefik metrics source expansion' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'traefik.metrics.prometheus.serviceMonitor.metricRelabelings[0].regex=.*'
+kp_expect_reject 'Traefik metrics filesystem-free render disabled' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.metrics.prometheus.disableAPICheck=false
 kp_expect_reject 'disabled edge NetworkPolicy' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set edge.networkPolicy.enabled=false
 kp_expect_reject 'wrong Traefik namespace' "${kp_edge}" default "${kp_edge_values}"
 kp_expect_reject 'unknown sslip selection mode' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=caller-ip

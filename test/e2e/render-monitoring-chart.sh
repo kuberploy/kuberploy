@@ -145,8 +145,8 @@ kp_operator_args_digest="$(
 [[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.replicas' "${kp_tmp}/managed.yaml")" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Alertmanager") | .spec.replicas' "${kp_tmp}/managed.yaml")" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Alertmanager") | .spec.automountServiceAccountToken' "${kp_tmp}/managed.yaml")" == "false" ]]
-[[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.ignoreNamespaceSelectors' "${kp_tmp}/managed.yaml")" == "true" ]]
-[[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.arbitraryFSAccessThroughSMs.deny' "${kp_tmp}/managed.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Prometheus") | (.spec.ignoreNamespaceSelectors // false)' "${kp_tmp}/managed.yaml")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.arbitraryFSAccessThroughSMs.deny' "${kp_tmp}/managed.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.serviceMonitorSelector.matchLabels."kuberploy.io/monitoring-source"' "${kp_tmp}/managed.yaml")" == "protected" ]]
 [[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.serviceMonitorNamespaceSelector.matchLabels."kuberploy.io/monitoring-namespace"' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.podMonitorSelector.matchLabels."kuberploy.io/monitoring-source"' "${kp_tmp}/managed.yaml")" == "protected" ]]
@@ -242,7 +242,8 @@ kp_query_policy="$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.n
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[]?.ipBlock] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .immutable' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .metadata.annotations."argocd.argoproj.io/sync-options"' "${kp_tmp}/managed.yaml")" == "Force=true,Replace=true" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | (.data | length)' "${kp_tmp}/managed.yaml")" == "23" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | (.data | length)' "${kp_tmp}/managed.yaml")" == "24" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.ignoreNamespaceSelectors + "," + .data.serviceMonitorFilesystemAccess' "${kp_tmp}/managed.yaml")" == "false,kubelet-service-account-token+cluster-ca" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.76,monitoring,kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.operatorArgumentsSHA256' "${kp_tmp}/managed.yaml")" == "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.upstreamChartSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90" ]]
@@ -273,7 +274,8 @@ kp_expect_reject 'public Prometheus Service' --set-string 'kube-prometheus-stack
 kp_expect_reject 'public Alertmanager route' --set 'kube-prometheus-stack.alertmanager.ingress.enabled=true'
 kp_expect_reject 'Prometheus replica increase' --set 'kube-prometheus-stack.prometheus.prometheusSpec.replicas=2'
 kp_expect_reject 'unprotected ServiceMonitor selector' --set-string 'kube-prometheus-stack.prometheus.prometheusSpec.serviceMonitorSelector.matchLabels.kuberploy\.io/monitoring-source=attacker'
-kp_expect_reject 'namespace selector override enabled' --set 'kube-prometheus-stack.prometheus.prometheusSpec.ignoreNamespaceSelectors=false'
+kp_expect_reject 'namespace selector suppression' --set 'kube-prometheus-stack.prometheus.prometheusSpec.ignoreNamespaceSelectors=true'
+kp_expect_reject 'kubelet service-account scrape disabled' --set 'kube-prometheus-stack.prometheus.prometheusSpec.arbitraryFSAccessThroughSMs.deny=true'
 kp_expect_reject 'kubelet TLS verification disabled' --set 'kube-prometheus-stack.kubelet.serviceMonitor.insecureSkipVerify=true'
 kp_expect_reject 'Prometheus admin API enabled' --set 'kube-prometheus-stack.prometheus.prometheusSpec.enableAdminAPI=true'
 kp_expect_reject 'remote-write receiver enabled' --set 'kube-prometheus-stack.prometheus.prometheusSpec.enableRemoteWriteReceiver=true'

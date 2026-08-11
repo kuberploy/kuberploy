@@ -24,6 +24,12 @@ const (
 	ManagedMonitoringQueryURL           = "http://prometheus-operated.kuberploy-monitoring.svc:9090"
 )
 
+var managedRequiredScrapePools = []string{
+	"serviceMonitor/kuberploy-monitoring/kuberploy-edge-traefik/0",
+	"serviceMonitor/kuberploy-monitoring/kuberploy-kube-state-metrics/0",
+	"serviceMonitor/kuberploy-monitoring/monitoring-kube-prometheus-kubelet/0",
+}
+
 var managedMetricSeries = []string{
 	"kuberploy:service:container_restarts_total",
 	"kuberploy:service:cpu_usage_cores",
@@ -37,22 +43,24 @@ var managedMetricSeries = []string{
 // ManagedMonitoringSnapshot is the closed set of live Kubernetes state used
 // to attest the independently owned managed-monitoring release.
 type ManagedMonitoringSnapshot struct {
-	ProfileData                   map[string]string
-	ProfileImmutable              bool
-	OperatorName                  string
-	OperatorContainer             string
-	OperatorImage                 string
-	OperatorArgumentsSHA256       string
-	OperatorGeneration            int64
-	OperatorObservedGeneration    int64
-	OperatorDesiredReplicas       int32
-	OperatorAvailableReplicas     int32
-	RuleName                      string
-	RuleGeneration                int64
-	RuleSpecSHA256                string
-	PrometheusName                string
-	PrometheusGeneration          int64
-	PrometheusOverrideHonorLabels bool
+	ProfileData                        map[string]string
+	ProfileImmutable                   bool
+	OperatorName                       string
+	OperatorContainer                  string
+	OperatorImage                      string
+	OperatorArgumentsSHA256            string
+	OperatorGeneration                 int64
+	OperatorObservedGeneration         int64
+	OperatorDesiredReplicas            int32
+	OperatorAvailableReplicas          int32
+	RuleName                           string
+	RuleGeneration                     int64
+	RuleSpecSHA256                     string
+	PrometheusName                     string
+	PrometheusGeneration               int64
+	PrometheusOverrideHonorLabels      bool
+	PrometheusIgnoreNamespaceSelectors bool
+	PrometheusArbitraryFSAccessDeny    bool
 }
 
 type ManagedMonitoringObserver interface {
@@ -62,6 +70,7 @@ type ManagedMonitoringObserver interface {
 type ManagedPrometheusProbe interface {
 	Probe(context.Context) error
 	ProbeManagedRules(context.Context) error
+	ProbeManagedTargets(context.Context) error
 }
 
 // ManagedReadinessProbe requires both exact Kubernetes release attestation and
@@ -87,7 +96,10 @@ func (p *ManagedReadinessProbe) Probe(ctx context.Context) error {
 	if err = p.Prometheus.Probe(ctx); err != nil {
 		return err
 	}
-	return p.Prometheus.ProbeManagedRules(ctx)
+	if err = p.Prometheus.ProbeManagedRules(ctx); err != nil {
+		return err
+	}
+	return p.Prometheus.ProbeManagedTargets(ctx)
 }
 
 func validateManagedSnapshot(snapshot ManagedMonitoringSnapshot, chartVersion string) error {
@@ -103,7 +115,8 @@ func validateManagedSnapshot(snapshot ManagedMonitoringSnapshot, chartVersion st
 	if snapshot.RuleName != ManagedMonitoringRuleName || snapshot.RuleGeneration < 1 || snapshot.RuleSpecSHA256 != ManagedMonitoringRuleSpecSHA256 {
 		return ErrUnsafeResponse
 	}
-	if snapshot.PrometheusName != ManagedMonitoringPrometheusName || snapshot.PrometheusGeneration < 1 || !snapshot.PrometheusOverrideHonorLabels {
+	if snapshot.PrometheusName != ManagedMonitoringPrometheusName || snapshot.PrometheusGeneration < 1 || !snapshot.PrometheusOverrideHonorLabels ||
+		snapshot.PrometheusIgnoreNamespaceSelectors || snapshot.PrometheusArbitraryFSAccessDeny {
 		return ErrUnsafeResponse
 	}
 	return nil
@@ -147,29 +160,30 @@ func validManagedChartVersion(version string) bool {
 
 func expectedManagedProfile(chartVersion string) map[string]string {
 	return map[string]string{
-		"contract":                  "kuberploy-managed-monitoring/v1",
-		"management":                "managed",
-		"chartName":                 "kuberploy-monitoring",
-		"chartVersion":              chartVersion,
-		"upstreamChartSHA256":       "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90",
-		"releaseName":               "monitoring",
-		"namespace":                 ManagedMonitoringNamespace,
-		"queryURL":                  ManagedMonitoringQueryURL,
-		"operatorDeploymentName":    ManagedMonitoringOperatorName,
-		"operatorContainerName":     ManagedMonitoringOperatorContainer,
-		"operatorImage":             ManagedMonitoringOperatorImage,
-		"operatorArgumentsSHA256":   ManagedMonitoringOperatorArgsSHA256,
-		"recordingRuleName":         ManagedMonitoringRuleName,
-		"recordingRuleSpecSHA256":   ManagedMonitoringRuleSpecSHA256,
-		"readinessContract":         "profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules",
-		"queryClientNamespaceLabel": "kuberploy.io/control-plane-namespace=true",
-		"queryClientPodLabels":      "app.kubernetes.io/name=kuberploy,app.kubernetes.io/component=api",
-		"monitorNamespaceLabel":     "kuberploy.io/monitoring-namespace=true",
-		"monitorSelectorLabel":      "kuberploy.io/monitoring-source=protected",
-		"ruleSelectorLabel":         "kuberploy.io/monitoring-rule=protected",
-		"ignoreNamespaceSelectors":  "true",
-		"grafanaEnabled":            "false",
-		"metricSeries":              "kuberploy:service:cpu_usage_cores,kuberploy:service:memory_working_set_bytes,kuberploy:service:replicas_ready,kuberploy:service:container_restarts_total,kuberploy:service:http_requests_per_second,kuberploy:service:http_5xx_ratio,kuberploy:service:http_latency_seconds:p95",
+		"contract":                       "kuberploy-managed-monitoring/v1",
+		"management":                     "managed",
+		"chartName":                      "kuberploy-monitoring",
+		"chartVersion":                   chartVersion,
+		"upstreamChartSHA256":            "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90",
+		"releaseName":                    "monitoring",
+		"namespace":                      ManagedMonitoringNamespace,
+		"queryURL":                       ManagedMonitoringQueryURL,
+		"operatorDeploymentName":         ManagedMonitoringOperatorName,
+		"operatorContainerName":          ManagedMonitoringOperatorContainer,
+		"operatorImage":                  ManagedMonitoringOperatorImage,
+		"operatorArgumentsSHA256":        ManagedMonitoringOperatorArgsSHA256,
+		"recordingRuleName":              ManagedMonitoringRuleName,
+		"recordingRuleSpecSHA256":        ManagedMonitoringRuleSpecSHA256,
+		"readinessContract":              "profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules+required-targets",
+		"queryClientNamespaceLabel":      "kuberploy.io/control-plane-namespace=true",
+		"queryClientPodLabels":           "app.kubernetes.io/name=kuberploy,app.kubernetes.io/component=api",
+		"monitorNamespaceLabel":          "kuberploy.io/monitoring-namespace=true",
+		"monitorSelectorLabel":           "kuberploy.io/monitoring-source=protected",
+		"ruleSelectorLabel":              "kuberploy.io/monitoring-rule=protected",
+		"ignoreNamespaceSelectors":       "false",
+		"serviceMonitorFilesystemAccess": "kubelet-service-account-token+cluster-ca",
+		"grafanaEnabled":                 "false",
+		"metricSeries":                   "kuberploy:service:cpu_usage_cores,kuberploy:service:memory_working_set_bytes,kuberploy:service:replicas_ready,kuberploy:service:container_restarts_total,kuberploy:service:http_requests_per_second,kuberploy:service:http_5xx_ratio,kuberploy:service:http_latency_seconds:p95",
 	}
 }
 

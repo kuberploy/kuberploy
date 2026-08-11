@@ -75,6 +75,71 @@ func TestProbeManagedRulesRequiresEveryUniqueHealthyRecordingRule(t *testing.T) 
 	}
 }
 
+func managedTargetsResponse(targets []map[string]string) string {
+	body, _ := json.Marshal(map[string]any{"status": "success", "data": map[string]any{"activeTargets": targets}})
+	return string(body)
+}
+
+func TestProbeManagedTargetsRequiresEveryHealthyProtectedSource(t *testing.T) {
+	t.Parallel()
+	healthy := func() []map[string]string {
+		targets := make([]map[string]string, 0, len(managedRequiredScrapePools))
+		for _, pool := range managedRequiredScrapePools {
+			targets = append(targets, map[string]string{"scrapePool": pool, "health": "up"})
+		}
+		return targets
+	}
+	tests := []struct {
+		name    string
+		mutate  func([]map[string]string) []map[string]string
+		wantErr error
+	}{
+		{name: "healthy"},
+		{name: "unrelated target ignored", mutate: func(targets []map[string]string) []map[string]string {
+			return append(targets, map[string]string{"scrapePool": "serviceMonitor/other/other/0", "health": "down"})
+		}},
+		{name: "missing source", mutate: func(targets []map[string]string) []map[string]string {
+			return targets[:len(targets)-1]
+		}, wantErr: ErrUnavailable},
+		{name: "source down", mutate: func(targets []map[string]string) []map[string]string {
+			targets[0]["health"] = "down"
+			return targets
+		}, wantErr: ErrUnavailable},
+		{name: "oversized identity", mutate: func(targets []map[string]string) []map[string]string {
+			targets[0]["scrapePool"] = strings.Repeat("x", 254)
+			return targets
+		}, wantErr: ErrUnsafeResponse},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			targets := healthy()
+			if test.mutate != nil {
+				targets = test.mutate(targets)
+			}
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/targets" || r.URL.Query().Get("state") != "active" || len(r.URL.Query()) != 1 {
+					t.Errorf("unexpected targets request %s?%s", r.URL.Path, r.URL.RawQuery)
+				}
+				fmt.Fprint(w, managedTargetsResponse(targets))
+			}))
+			defer server.Close()
+			client, err := NewClient(Options{BaseURL: server.URL, HTTPClient: server.Client()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = client.ProbeManagedTargets(context.Background())
+			if test.wantErr == nil && err != nil {
+				t.Fatal(err)
+			}
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("error=%v want=%v", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func (s *recordingTokenSource) ReadToken(context.Context) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

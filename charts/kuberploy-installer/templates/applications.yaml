@@ -8,7 +8,7 @@
   (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10")
   (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0")
   (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0")
-  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "10")
+  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "-10")
   (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10")
   (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10")
 -}}
@@ -204,6 +204,13 @@ spec:
     # cert-manager's upstream leader-election Roles live in kube-system.
     - server: https://kubernetes.default.svc
       namespace: kube-system
+    {{- end }}
+    {{- if and (eq $item.key "edge") $root.Values.components.monitoring.enabled }}
+    # The managed edge release owns one exact protected Traefik ServiceMonitor
+    # in the monitoring namespace. Monitoring installs its CRDs in an earlier
+    # sync wave, and the edge Project has no other cross-namespace destination.
+    - server: https://kubernetes.default.svc
+      namespace: kuberploy-monitoring
     {{- end }}
     {{- if and (eq $item.key "controlPlane") $root.Values.components.monitoring.enabled }}
     # Managed monitoring attestation uses exact read-only Roles in its fixed

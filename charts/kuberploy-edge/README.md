@@ -2,17 +2,19 @@
 
 This standalone chart is the protected `kuberploy-edge` release. It manages the
 locked Traefik chart in its Helm release namespace, or records an explicitly
-confirmed compatible Traefik adoption. The installer places it in the shared
-`kuberploy-system` namespace; standalone operators may choose a dedicated
-namespace. It never owns cert-manager,
+confirmed compatible Traefik adoption. The installer and standalone installs
+place it in the shared `kuberploy-system` namespace. It never owns cert-manager,
 external-dns, tenant Ingresses, or the Kuberploy control plane; those have
 independent Argo Applications and upgrade lifecycles.
 
-The managed profile installs two digest-pinned Traefik 3.7.10 replicas behind a
+The managed profile installs two explicit-version Traefik 3.7.10 replicas behind a
 LoadBalancer Service, with a PDB, topology spread, restricted Pod Security,
 dedicated upstream RBAC/service account, a non-default IngressClass, disabled
 dashboard, safe Kubernetes providers, JSON access logs, TLS 1.2 minimum, and
-NetworkPolicy. Only ports 80 and 443 are public.
+NetworkPolicy. Only ports 80 and 443 are public. A separate ClusterIP metrics
+Service exposes port 9100 only to the protected monitoring namespace, and an
+exact ServiceMonitor there retains only Traefik request-count and latency
+histogram series.
 
 The wrapper passes Traefik's standard scheduling values through, including
 `traefik.nodeSelector`, `traefik.tolerations`, `traefik.affinity`,
@@ -84,12 +86,12 @@ Fetch/verify the locked dependency and render the mutation suite with
 ```sh
 helm dependency build charts/kuberploy-edge
 helm upgrade --install kuberploy-edge charts/kuberploy-edge \
-  --namespace kuberploy-edge --create-namespace \
+  --namespace kuberploy-system --create-namespace \
   -f operator-edge-values.yaml
 ```
 
 Adoption requires `managed=false`, `adoptExisting=true`, and
 `crdProviderConfirmed=true`. Adoption deliberately does not claim an existing
-Namespace; the protected `kuberploy-edge` Namespace must already exist and carry
+Namespace; the protected `kuberploy-system` Namespace must already exist and carry
 restricted Pod Security labels. Live version/CRD/IngressClass health observation
 and managed-hostPort mode remain controller integration work.

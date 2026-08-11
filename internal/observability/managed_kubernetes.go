@@ -112,7 +112,11 @@ func (c *InClusterManagedMonitoringObserver) ObserveManagedMonitoring(ctx contex
 	var prometheus struct {
 		Metadata managedObjectMetadata `json:"metadata"`
 		Spec     struct {
-			OverrideHonorLabels *bool `json:"overrideHonorLabels"`
+			OverrideHonorLabels         *bool `json:"overrideHonorLabels"`
+			IgnoreNamespaceSelectors    *bool `json:"ignoreNamespaceSelectors"`
+			ArbitraryFSAccessThroughSMs struct {
+				Deny *bool `json:"deny"`
+			} `json:"arbitraryFSAccessThroughSMs"`
 		} `json:"spec"`
 	}
 	if err := c.getJSON(ctx, managedKubernetesPaths[3], &prometheus); err != nil {
@@ -121,7 +125,8 @@ func (c *InClusterManagedMonitoringObserver) ObserveManagedMonitoring(ctx contex
 	if !validManagedMetadata(profile.Metadata, ManagedMonitoringProfileName) || profile.Immutable == nil || len(profile.BinaryData) != 0 || len(profile.Data) > 32 ||
 		!validManagedMetadata(operator.Metadata, ManagedMonitoringOperatorName) || operator.Spec.Replicas == nil || len(operator.Spec.Template.Spec.Containers) > 16 ||
 		!validManagedMetadata(rule.Metadata, ManagedMonitoringRuleName) ||
-		!validManagedMetadata(prometheus.Metadata, ManagedMonitoringPrometheusName) || prometheus.Spec.OverrideHonorLabels == nil {
+		!validManagedMetadata(prometheus.Metadata, ManagedMonitoringPrometheusName) || prometheus.Spec.OverrideHonorLabels == nil ||
+		prometheus.Spec.ArbitraryFSAccessThroughSMs.Deny == nil {
 		return ManagedMonitoringSnapshot{}, ErrUnsafeResponse
 	}
 	var selectedName, selectedImage string
@@ -150,7 +155,9 @@ func (c *InClusterManagedMonitoringObserver) ObserveManagedMonitoring(ctx contex
 		OperatorDesiredReplicas: *operator.Spec.Replicas, OperatorAvailableReplicas: operator.Status.AvailableReplicas,
 		RuleName: rule.Metadata.Name, RuleGeneration: rule.Metadata.Generation, RuleSpecSHA256: canonicalRawJSONDigest(rule.Spec),
 		PrometheusName: prometheus.Metadata.Name, PrometheusGeneration: prometheus.Metadata.Generation,
-		PrometheusOverrideHonorLabels: *prometheus.Spec.OverrideHonorLabels,
+		PrometheusOverrideHonorLabels:      *prometheus.Spec.OverrideHonorLabels,
+		PrometheusIgnoreNamespaceSelectors: prometheus.Spec.IgnoreNamespaceSelectors != nil && *prometheus.Spec.IgnoreNamespaceSelectors,
+		PrometheusArbitraryFSAccessDeny:    *prometheus.Spec.ArbitraryFSAccessThroughSMs.Deny,
 	}, nil
 }
 

@@ -24,9 +24,11 @@ ServiceMonitor and PodMonitor discovery requires both:
 - the object's namespace label `kuberploy.io/monitoring-namespace=true`; and
 - the object label `kuberploy.io/monitoring-source=protected`.
 
-`ignoreNamespaceSelectors` is always enabled, so an approved monitor can scrape
-only its own namespace. PrometheusRule discovery is limited to protected rules
-in `kuberploy-monitoring`.
+Approved monitors live in `kuberploy-monitoring`. Their namespace selector is
+honored, so the protected Traefik monitor can select only
+`kuberploy-system`; the wrapper locks that exact selector and rejects arbitrary
+targets. PrometheusRule discovery is limited to protected rules in
+`kuberploy-monitoring`.
 
 ## Runtime identity and metrics
 
@@ -59,8 +61,10 @@ storage class are the only upstream values that may be changed. PVCs use
 `ReadWriteOnce` and are retained when the StatefulSet is deleted or scaled.
 Scrapes have enforced sample, target, label, body-size, and dropped-target
 limits. Kubelet scraping verifies the serving certificate against the projected
-cluster CA and fails closed on clusters whose kubelet certificate cannot be
-validated.
+cluster CA and uses only the Prometheus Pod's mounted service-account token and
+cluster CA. The protected monitor namespace and exact selector remain the
+authority boundary. Clusters whose kubelet certificate cannot be validated
+fail closed.
 
 node-exporter reads the host's `/proc` and `/sys` through read-only hostPath
 mounts. Therefore the namespace must use the `privileged` Pod Security
@@ -75,6 +79,8 @@ The API reads the immutable `monitoring-monitoring-profile`, the exact operator
 Deployment, and the exact protected PrometheusRule through resource-name-scoped
 `get` permissions. It verifies the fixed release/chart identity, pinned
 operator image and arguments digest, current Deployment generation, and rule
-spec digest, then requires a healthy query probe and all seven recording rules
-to be uniquely loaded with no Prometheus evaluation error. Any drift keeps the
-capability and monitoring status fail-closed.
+spec digest and exact Prometheus scrape policy. It then requires a healthy
+query probe, all seven recording rules to be uniquely loaded with no evaluation
+error, and healthy active targets for kube-state-metrics, kubelet/cAdvisor, and
+Traefik. Any drift or missing source keeps the capability and monitoring status
+fail-closed.

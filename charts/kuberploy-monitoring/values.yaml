@@ -550,9 +550,16 @@ kube-prometheus-stack:
       scrapeConfigNamespaceSelector:
         matchLabels:
           kubernetes.io/metadata.name: kuberploy-monitoring
-      ignoreNamespaceSelectors: true
+      # ServiceMonitors remain selected only from the protected monitoring
+      # namespace, but may point at an exact service namespace. This is needed
+      # for the protected Traefik metrics Service in kuberploy-system.
+      ignoreNamespaceSelectors: false
       arbitraryFSAccessThroughSMs:
-        deny: true
+        # The upstream kubelet ServiceMonitor uses only the Prometheus Pod's
+        # mounted service-account token and cluster CA to scrape cAdvisor over
+        # the kubelet HTTPS endpoint. All ServiceMonitor objects are still
+        # confined to the protected monitoring namespace and exact selectors.
+        deny: false
       overrideHonorLabels: true
       overrideHonorTimestamps: true
       enforcedSampleLimit: 10000
