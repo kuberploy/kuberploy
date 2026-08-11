@@ -67,7 +67,7 @@ func mapError(err error) error {
 func (s *PostgresStore) replay(ctx context.Context, tx pgx.Tx, c Command, d string) (MutationResult, bool, error) {
 	var old, pid string
 	var rev int64
-	err := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM configuration_profile_commands WHERE actor_id=$1 AND profile_kind='certificate-issuer' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
+	err := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM mutation_receipts WHERE actor_id=$1 AND receipt_kind='configuration-profile' AND namespace='certificate-issuer' AND scope_key='global' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MutationResult{}, false, nil
 	}
@@ -160,7 +160,7 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'certificate-issuer',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, rev, c.RequestID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'configuration-profile','certificate-issuer','global',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, rev, c.RequestID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
@@ -204,7 +204,7 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, ref Ref) (Mut
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'certificate-issuer',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, ref.ProfileID, ref.Revision, c.RequestID, c.Now.UTC())
+	_, err = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'configuration-profile','certificate-issuer','global',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, ref.ProfileID, ref.Revision, c.RequestID, c.Now.UTC())
 	if err != nil {
 		return MutationResult{}, mapError(err)
 	}

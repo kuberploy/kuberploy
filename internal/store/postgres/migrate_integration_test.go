@@ -35,16 +35,16 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 108)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 104)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-		WHERE n.nspname='public'`, 66)
+		WHERE n.nspname='public'`, 65)
 	assertCatalogCount(t, ctx, pool, "non-internal triggers", `SELECT count(*)
 		FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND NOT t.tgisinternal`, 73)
+		WHERE n.nspname='public' AND NOT t.tgisinternal`, 70)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 777)
+		WHERE n.nspname='public' AND c.contype='c'`, 764)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
 		WHERE n.nspname='public' AND c.condeferrable`, 10)
@@ -58,6 +58,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"validate_helm_release_revision",
 		"validate_configuration_profile_assignment",
 		"validate_runtime_readiness",
+		"validate_mutation_receipt",
 		"enqueue_auto_deploy_runs",
 	} {
 		var present bool
@@ -76,6 +77,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		"helm_release_revisions_validate",
 		"configuration_profile_assignment_validate",
 		"runtime_readiness_validate",
+		"mutation_receipts_validate",
 		"build_release_enqueue_auto_deploy",
 	} {
 		var present bool
@@ -105,6 +107,28 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
 		t.Fatalf("cross-kind readiness substitution err=%v", err)
+	}
+
+	actorID, receiptID := id.New(), id.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+		VALUES($1,$2,'platform-admin','migration-authority',$2,$3)`, actorID, "migration-receipt-"+actorID[:8], now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,
+		idempotency_key,request_digest,resource_type,resource_id,created_at)
+		VALUES($1,'resource','migration.authority','global',$2,'request-fingerprint','migration-receipt',$3,$4)`,
+		actorID, "receipt-"+receiptID, receiptID, now); err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `UPDATE mutation_receipts SET request_digest='substituted'
+		WHERE actor_id=$1 AND receipt_kind='resource' AND namespace='migration.authority'`, actorID)
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("mutation receipt update err=%v", err)
+	}
+	_, err = pool.Exec(ctx, `DELETE FROM mutation_receipts
+		WHERE actor_id=$1 AND receipt_kind='resource' AND namespace='migration.authority'`, actorID)
+	if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+		t.Fatalf("mutation receipt delete err=%v", err)
 	}
 }
 

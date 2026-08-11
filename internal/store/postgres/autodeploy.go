@@ -58,8 +58,8 @@ func (s *Store) CreatePolicy(ctx context.Context, policy autodeploy.Policy, revi
 		err = insertAutoDeployRevision(ctx, tx, revision)
 	}
 	if err == nil {
-		_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policy_commands(actor_id,idempotency_key,action,request_digest,policy_id,result_revision,request_id,created_at)
-			VALUES($1,$2,'create',$3,$4,$5,$6,$7)`, policy.CreatedBy, key, requestDigest, policy.ID, revision.Revision, requestID, revision.CreatedAt.UTC())
+		_, err = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,auto_deploy_policy_id,result_revision,request_id,created_at)
+			VALUES($1,'auto-deploy-policy','auto-deploy-policy','global',$2,'create',$3,$4,$5,$6,$7)`, policy.CreatedBy, key, requestDigest, policy.ID, revision.Revision, requestID, revision.CreatedAt.UTC())
 	}
 	if err == nil {
 		err = insertAutoDeployAudit(ctx, tx, policy.CreatedBy, "create", revision, requestID)
@@ -108,8 +108,8 @@ func (s *Store) RevisePolicy(ctx context.Context, prior autodeploy.Policy, revis
 		_, err = tx.Exec(ctx, `UPDATE auto_deploy_policies SET current_revision=$2 WHERE id=$1`, prior.ID, revision.Revision)
 	}
 	if err == nil {
-		_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policy_commands(actor_id,idempotency_key,action,request_digest,policy_id,result_revision,request_id,created_at)
-			VALUES($1,$2,'revise',$3,$4,$5,$6,$7)`, revision.CreatedBy, key, requestDigest, prior.ID, revision.Revision, requestID, revision.CreatedAt.UTC())
+		_, err = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,auto_deploy_policy_id,result_revision,request_id,created_at)
+			VALUES($1,'auto-deploy-policy','auto-deploy-policy','global',$2,'revise',$3,$4,$5,$6,$7)`, revision.CreatedBy, key, requestDigest, prior.ID, revision.Revision, requestID, revision.CreatedAt.UTC())
 	}
 	if err == nil {
 		action := "revise"
@@ -317,8 +317,8 @@ func insertAutoDeployAudit(ctx context.Context, tx pgx.Tx, actorID, action strin
 func autoDeployPolicyReplay(ctx context.Context, q rowQuerier, actorID, key, action, digest string) (autodeploy.Policy, autodeploy.Revision, bool, error) {
 	var storedAction, storedDigest, policyID string
 	var revision int64
-	err := q.QueryRow(ctx, `SELECT action,request_digest,policy_id::text,result_revision FROM auto_deploy_policy_commands
-		WHERE actor_id=$1 AND idempotency_key=$2`, actorID, key).Scan(&storedAction, &storedDigest, &policyID, &revision)
+	err := q.QueryRow(ctx, `SELECT action,request_digest,auto_deploy_policy_id::text,result_revision FROM mutation_receipts
+		WHERE actor_id=$1 AND receipt_kind='auto-deploy-policy' AND namespace='auto-deploy-policy' AND scope_key='global' AND idempotency_key=$2`, actorID, key).Scan(&storedAction, &storedDigest, &policyID, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, nil
 	}

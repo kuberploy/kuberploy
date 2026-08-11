@@ -395,7 +395,7 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE secret_binding_events SET request_id='rewritten' WHERE binding_id=$1 AND kind='version-staging'`, active.Binding.ID); err == nil {
 		t.Fatal("immutable event was updated")
 	}
-	if _, err = pool.Exec(ctx, `DELETE FROM secret_binding_idempotency WHERE binding_id=$1`, active.Binding.ID); err == nil {
+	if _, err = pool.Exec(ctx, `DELETE FROM mutation_receipts WHERE secret_binding_id=$1`, active.Binding.ID); err == nil {
 		t.Fatal("idempotency tombstone was deleted")
 	}
 }
@@ -407,7 +407,7 @@ func migrateSecretTestDatabase(ctx context.Context, pool *pgxpool.Pool) error {
 func cleanupPostgresSecretFixture(ctx context.Context, pool *pgxpool.Pool) {
 	_, _ = pool.Exec(ctx, `DELETE FROM secret_binding_events WHERE binding_id IN (SELECT id FROM secret_bindings WHERE application_id=$1)`, testApplication)
 	_, _ = pool.Exec(ctx, `DELETE FROM secret_binding_references WHERE binding_id IN (SELECT id FROM secret_bindings WHERE application_id=$1)`, testApplication)
-	_, _ = pool.Exec(ctx, `DELETE FROM secret_binding_idempotency WHERE application_id=$1`, testApplication)
+	_, _ = pool.Exec(ctx, `DELETE FROM mutation_receipts WHERE receipt_kind='secret-binding' AND scope_key=$1::text`, testApplication)
 	// Delivery immutability intentionally prevents destructive cleanup of
 	// version rows. Integration databases should be ephemeral; remove the whole
 	// tenant only when no secret rows exist (the normal pre-test state).

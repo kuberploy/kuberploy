@@ -275,8 +275,8 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 	var planID string
 	err := s.pool.QueryRow(ctx, `SELECT p.id::text FROM registry_cleanup_plans p
 		JOIN registry_targets t ON t.id=p.registry_target_id AND t.mode='managed'
-		JOIN idempotency_keys i ON i.resource_type='registry-cleanup-plan' AND i.resource_id=p.id
-			AND i.scope='registry-cleanup.execute:'||p.id::text
+		JOIN mutation_receipts i ON i.receipt_kind='resource' AND i.resource_type='registry-cleanup-plan' AND i.resource_id=p.id
+			AND i.namespace='registry-cleanup.execute:'||p.id::text AND i.scope_key='global'
 		WHERE p.registry_target_id=$1 AND p.state IN ('preview','executing') AND p.created_at<=$2
 		ORDER BY CASE p.state WHEN 'executing' THEN 0 ELSE 1 END,p.created_at,p.id LIMIT 1`, targetID, databaseTime(now)).Scan(&planID)
 	return planID, classify(err)

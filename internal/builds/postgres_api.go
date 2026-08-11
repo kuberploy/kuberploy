@@ -156,8 +156,8 @@ func (s *PostgreSQLStore) ClaimAPICommand(ctx context.Context, actorID, operatio
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "build-api-command|"+actorID+"|"+operation+"|"+scopeID+"|"+key); err != nil {
 		return "", false, err
 	}
-	command, err := tx.Exec(ctx, `INSERT INTO build_api_idempotency(actor_id,operation,scope_id,idempotency_key,request_fingerprint,resource_id,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(actor_id,operation,scope_id,idempotency_key) DO NOTHING`, actorID, operation, scopeID, key, fingerprint, resourceID, now.UTC())
+	command, err := tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_id,created_at)
+		VALUES($1,'build-api',$2,$3::text,$4,$5,$6,$7) ON CONFLICT(actor_id,receipt_kind,namespace,scope_key,idempotency_key) DO NOTHING`, actorID, operation, scopeID, key, fingerprint, resourceID, now.UTC())
 	if err != nil {
 		return "", false, classifyPostgres(err)
 	}
@@ -165,8 +165,8 @@ func (s *PostgreSQLStore) ClaimAPICommand(ctx context.Context, actorID, operatio
 		return resourceID, false, tx.Commit(ctx)
 	}
 	var storedFingerprint, storedResource string
-	err = tx.QueryRow(ctx, `SELECT request_fingerprint,resource_id::text FROM build_api_idempotency
-		WHERE actor_id=$1 AND operation=$2 AND scope_id=$3 AND idempotency_key=$4 FOR UPDATE`, actorID, operation, scopeID, key).
+	err = tx.QueryRow(ctx, `SELECT request_digest,resource_id::text FROM mutation_receipts
+		WHERE actor_id=$1 AND receipt_kind='build-api' AND namespace=$2 AND scope_key=$3::text AND idempotency_key=$4 FOR UPDATE`, actorID, operation, scopeID, key).
 		Scan(&storedFingerprint, &storedResource)
 	if err != nil {
 		return "", false, classifyPostgres(err)

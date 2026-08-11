@@ -770,8 +770,8 @@ func insertDeliveries(ctx context.Context, tx pgx.Tx, version Version) error {
 }
 
 func insertIdempotency(ctx context.Context, tx pgx.Tx, value Idempotency) error {
-	_, err := tx.Exec(ctx, `INSERT INTO secret_binding_idempotency(actor_id,operation,application_id,binding_id,idempotency_key,request_fingerprint,version_id,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-		value.ActorID, value.Operation, value.ApplicationID, value.BindingID, value.Key, value.RequestFingerprint[:], value.VersionID, value.CreatedAt)
+	_, err := tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_fingerprint,secret_binding_id,secret_version_id,created_at) VALUES($1,'secret-binding',$2,$3::text,$4,$5,$6,$7,$8)`,
+		value.ActorID, value.Operation, value.ApplicationID, value.Key, value.RequestFingerprint[:], value.BindingID, value.VersionID, value.CreatedAt)
 	return classifyPostgres(err)
 }
 
@@ -787,7 +787,7 @@ func (s *PostgreSQLStore) lookupReplay(ctx context.Context, input Idempotency) (
 	}
 	var fingerprint []byte
 	var bindingID, versionID string
-	err := s.pool.QueryRow(ctx, `SELECT request_fingerprint,binding_id::text,version_id::text FROM secret_binding_idempotency WHERE actor_id=$1 AND operation=$2 AND application_id=$3 AND idempotency_key=$4`,
+	err := s.pool.QueryRow(ctx, `SELECT request_fingerprint,secret_binding_id::text,secret_version_id::text FROM mutation_receipts WHERE actor_id=$1 AND receipt_kind='secret-binding' AND namespace=$2 AND scope_key=$3::text AND idempotency_key=$4`,
 		input.ActorID, input.Operation, input.ApplicationID, input.Key).Scan(&fingerprint, &bindingID, &versionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Binding{}, Version{}, false, nil

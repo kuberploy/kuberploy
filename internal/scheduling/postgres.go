@@ -63,7 +63,7 @@ func pgerr(e error) error {
 func (s *PostgresStore) replay(ctx context.Context, tx pgx.Tx, c Command, d string) (MutationResult, bool, error) {
 	var old, pid string
 	var rev int64
-	e := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM configuration_profile_commands WHERE actor_id=$1 AND profile_kind='scheduling' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
+	e := tx.QueryRow(ctx, `SELECT request_digest,profile_id::text,result_revision FROM mutation_receipts WHERE actor_id=$1 AND receipt_kind='configuration-profile' AND namespace='scheduling' AND scope_key='global' AND idempotency_key=$2`, c.ActorID, c.IdempotencyKey).Scan(&old, &pid, &rev)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return MutationResult{}, false, nil
 	}
@@ -178,7 +178,7 @@ func (s *PostgresStore) mutate(ctx context.Context, c Command, action, name stri
 			return MutationResult{}, pgerr(e)
 		}
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'scheduling',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, resultRev, c.RequestID, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'configuration-profile','scheduling','global',$2,$3,$4,$5,$6,$7,$8)`, c.ActorID, c.IdempotencyKey, action, d, pid, resultRev, c.RequestID, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
@@ -228,7 +228,7 @@ func (s *PostgresStore) Deactivate(ctx context.Context, c Command, r Ref) (Mutat
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}
-	_, e = tx.Exec(ctx, `INSERT INTO configuration_profile_commands(actor_id,profile_kind,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'scheduling',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, p.ID, v.Revision, c.RequestID, c.Now.UTC())
+	_, e = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,action,request_digest,profile_id,result_revision,request_id,created_at) VALUES($1,'configuration-profile','scheduling','global',$2,'deactivate',$3,$4,$5,$6,$7)`, c.ActorID, c.IdempotencyKey, d, p.ID, v.Revision, c.RequestID, c.Now.UTC())
 	if e != nil {
 		return MutationResult{}, pgerr(e)
 	}

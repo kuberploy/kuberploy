@@ -141,7 +141,7 @@ type idem struct {
 
 func findIdem(ctx context.Context, tx pgx.Tx, actor, scope, key string) (idem, bool, error) {
 	var x idem
-	err := tx.QueryRow(ctx, `SELECT fingerprint,resource_type,resource_id,operation_id FROM idempotency_keys WHERE actor_id=$1 AND scope=$2 AND key=$3`, actor, scope, key).
+	err := tx.QueryRow(ctx, `SELECT request_digest,resource_type,resource_id,operation_id FROM mutation_receipts WHERE actor_id=$1 AND receipt_kind='resource' AND namespace=$2 AND scope_key='global' AND idempotency_key=$3`, actor, scope, key).
 		Scan(&x.fingerprint, &x.resourceType, &x.resourceID, &x.operationID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return idem{}, false, nil
@@ -150,7 +150,7 @@ func findIdem(ctx context.Context, tx pgx.Tx, actor, scope, key string) (idem, b
 }
 
 func putIdem(ctx context.Context, tx pgx.Tx, actor, scope, key, fingerprint, typ, resourceID string, operationID *string) error {
-	_, err := tx.Exec(ctx, `INSERT INTO idempotency_keys(actor_id,scope,key,fingerprint,resource_type,resource_id,operation_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, actor, scope, key, fingerprint, typ, resourceID, operationID)
+	_, err := tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,operation_id) VALUES($1,'resource',$2,'global',$3,$4,$5,$6,$7)`, actor, scope, key, fingerprint, typ, resourceID, operationID)
 	return err
 }
 

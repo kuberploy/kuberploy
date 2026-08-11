@@ -95,9 +95,9 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 		planID, targetID, postgresRegistryDigest("f"), now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = st.pool.Exec(ctx, `INSERT INTO idempotency_keys(
-		actor_id,scope,key,fingerprint,resource_type,resource_id,created_at
-	) VALUES($1,$2,'registry-cleanup-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
+	if _, err = st.pool.Exec(ctx, `INSERT INTO mutation_receipts(
+		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,created_at
+	) VALUES($1,'resource',$2,'global','registry-cleanup-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
 		actorID, "registry-cleanup.execute:"+planID, planID, now); err != nil {
 		t.Fatal(err)
 	}

@@ -200,20 +200,6 @@ model auto_deploy_policies {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model auto_deploy_policy_commands {
-  actor_id        String   @db.Uuid
-  idempotency_key String
-  action          String
-  request_digest  String
-  policy_id       String   @db.Uuid
-  result_revision BigInt
-  request_id      String
-  created_at      DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, idempotency_key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model auto_deploy_policy_revisions {
   policy_id                    String   @db.Uuid
   revision                     BigInt
@@ -264,19 +250,6 @@ model auto_deploy_runs {
 model bootstrap_state {
   singleton   Boolean   @id @default(true)
   consumed_at DateTime? @db.Timestamptz(6)
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model build_api_idempotency {
-  actor_id            String   @db.Uuid
-  operation           String
-  scope_id            String   @db.Uuid
-  idempotency_key     String
-  request_fingerprint String
-  resource_id         String   @db.Uuid
-  created_at          DateTime @default(now()) @db.Timestamptz(6)
-
-  @@id([actor_id, operation, scope_id, idempotency_key])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -420,21 +393,6 @@ model configuration_profile_assignments {
 
   @@id([profile_id, revision, ordinal])
   @@unique([profile_id, revision, scope_type, scope_id], map: "configuration_profile_assignm_profile_id_revision_scope_typ_key")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model configuration_profile_commands {
-  actor_id        String   @db.Uuid
-  profile_kind    String
-  idempotency_key String
-  action          String
-  request_digest  String
-  profile_id      String   @db.Uuid
-  result_revision BigInt
-  request_id      String
-  created_at      DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, profile_kind, idempotency_key])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1321,19 +1279,6 @@ model helm_render_results {
   operator_config_digest String
 }
 
-model idempotency_keys {
-  actor_id      String   @db.Uuid
-  scope         String
-  key           String
-  fingerprint   String
-  resource_type String
-  resource_id   String   @db.Uuid
-  operation_id  String?  @db.Uuid
-  created_at    DateTime @default(now()) @db.Timestamptz(6)
-
-  @@id([actor_id, scope, key])
-}
-
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model middleware_profile_references {
   profile_id     String   @db.Uuid
@@ -1794,20 +1739,6 @@ model secret_binding_events {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model secret_binding_idempotency {
-  actor_id            String   @db.Uuid
-  operation           String
-  application_id      String   @db.Uuid
-  binding_id          String   @db.Uuid
-  idempotency_key     String
-  request_fingerprint Bytes
-  version_id          String   @db.Uuid
-  created_at          DateTime @db.Timestamptz(6)
-
-  @@id([actor_id, operation, application_id, idempotency_key])
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model secret_binding_references {
   binding_id   String   @db.Uuid
   version_id   String   @db.Uuid
@@ -2082,4 +2013,30 @@ model variable_set_previews {
   expires_at     DateTime  @db.Timestamptz(6)
   consumed_at    DateTime? @db.Timestamptz(6)
   created_at     DateTime  @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model mutation_receipts {
+  actor_id              String   @db.Uuid
+  receipt_kind          String
+  namespace             String
+  scope_key             String
+  idempotency_key       String
+  request_digest        String?
+  request_fingerprint   Bytes?
+  resource_type         String?
+  resource_id           String?  @db.Uuid
+  operation_id          String?  @db.Uuid
+  profile_id            String?  @db.Uuid
+  auto_deploy_policy_id String?  @db.Uuid
+  secret_binding_id     String?  @db.Uuid
+  secret_version_id     String?  @db.Uuid
+  action                String?
+  result_revision       BigInt?
+  request_id            String?
+  created_at            DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([actor_id, receipt_kind, namespace, scope_key, idempotency_key])
+  @@index([operation_id], map: "mutation_receipts_operation_idx", where: raw("(operation_id IS NOT NULL)"))
+  @@index([receipt_kind, resource_type, resource_id], map: "mutation_receipts_resource_idx")
 }

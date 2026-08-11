@@ -643,7 +643,7 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 			return err
 		}
 	}
-	err = tx.QueryRow(ctx, `SELECT actor_id FROM idempotency_keys WHERE operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)
+	err = tx.QueryRow(ctx, `SELECT actor_id FROM mutation_receipts WHERE receipt_kind='resource' AND operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}

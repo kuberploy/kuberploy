@@ -201,8 +201,8 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 			VALUES($1,$2,'queued',$3,$4,$5,1,'[{"name":"git-write","status":"pending"}]'::jsonb,$6,$6)`, operationID, kind, targetType, targetID, label, createdAt); beginErr != nil {
 			t.Fatal(beginErr)
 		}
-		if _, beginErr = tx.Exec(ctx, `INSERT INTO idempotency_keys(actor_id,scope,key,fingerprint,resource_type,resource_id,operation_id)
-			VALUES($1,'variable-sets.save',$2,$3,$4,$5,$6)`, actorID, label+operationID, idemFingerprint, targetType, targetID, operationID); beginErr != nil {
+		if _, beginErr = tx.Exec(ctx, `INSERT INTO mutation_receipts(actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,operation_id)
+			VALUES($1,'resource','variable-sets.save','global',$2,$3,$4,$5,$6)`, actorID, label+operationID, idemFingerprint, targetType, targetID, operationID); beginErr != nil {
 			t.Fatal(beginErr)
 		}
 		committedRevision, committedAt := "", any(nil)

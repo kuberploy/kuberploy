@@ -36,7 +36,7 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 	suffix := adminID[:8]
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM audit_events WHERE actor_id=$1`, adminID)
-		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM idempotency_keys WHERE actor_id IN ($1,$2)`, adminID, viewerID)
+		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM mutation_receipts WHERE actor_id IN ($1,$2)`, adminID, viewerID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE cluster_id IN ($1,$2,$3)`, clusterID, concurrentClusterID, rejectedClusterID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM github_repositories WHERE id=$1`, repositoryID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM github_installations WHERE id=$1`, installationID)

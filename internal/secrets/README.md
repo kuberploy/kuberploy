@@ -162,7 +162,7 @@ The stable schema defines:
 
 - `secret_bindings` and immutable `secret_binding_versions`;
 - relational `secret_binding_deliveries` with mutation-rejecting triggers;
-- `secret_binding_idempotency` containing keyed fingerprints only;
+- shared immutable `mutation_receipts` rows containing keyed fingerprints only;
 - typed `secret_binding_references`; and
 - `secret_binding_events`, a safe transactional outbox.
 

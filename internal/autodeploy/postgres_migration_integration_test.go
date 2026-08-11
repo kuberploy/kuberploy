@@ -76,7 +76,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 	}
 	defer management.Close()
 	var policiesBefore, commandsBefore, auditsBefore int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM auto_deploy_policies),(SELECT count(*) FROM auto_deploy_policy_commands),(SELECT count(*) FROM audit_events WHERE target_type='auto-deploy-policy')`).
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM auto_deploy_policies),(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy'),(SELECT count(*) FROM audit_events WHERE target_type='auto-deploy-policy')`).
 		Scan(&policiesBefore, &commandsBefore, &auditsBefore); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		t.Fatalf("cross-application path create err=%v", err)
 	}
 	var policiesAfter, commandsAfter, auditsAfter int
-	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM auto_deploy_policies),(SELECT count(*) FROM auto_deploy_policy_commands),(SELECT count(*) FROM audit_events WHERE target_type='auto-deploy-policy')`).
+	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM auto_deploy_policies),(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy'),(SELECT count(*) FROM audit_events WHERE target_type='auto-deploy-policy')`).
 		Scan(&policiesAfter, &commandsAfter, &auditsAfter); err != nil {
 		t.Fatal(err)
 	}

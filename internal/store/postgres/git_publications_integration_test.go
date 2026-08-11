@@ -31,7 +31,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	suffix := actorID[:8]
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM audit_events WHERE actor_id=$1`, actorID)
-		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM idempotency_keys WHERE actor_id=$1`, actorID)
+		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM mutation_receipts WHERE actor_id=$1`, actorID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_pull_request_publications WHERE binding_id IN (SELECT id FROM git_repository_bindings WHERE repository_id=$1)`, int64(189101))
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_path_reservations WHERE binding_id IN (SELECT id FROM git_repository_bindings WHERE repository_id=$1)`, int64(189101))
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_deployment_write_commands WHERE binding_id IN (SELECT id FROM git_repository_bindings WHERE repository_id=$1)`, int64(189101))

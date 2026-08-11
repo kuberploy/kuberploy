@@ -193,7 +193,7 @@ func (s *Store) CompleteUpgradeOperation(ctx context.Context, operationID string
 	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='succeeded',runner_ref=$2,result=$3,updated_at=$4 WHERE id=$1`, targetID, runnerRef, resultJSON, now); err != nil {
 		return err
 	}
-	err = tx.QueryRow(ctx, `SELECT actor_id FROM idempotency_keys WHERE operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)
+	err = tx.QueryRow(ctx, `SELECT actor_id FROM mutation_receipts WHERE receipt_kind='resource' AND operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
