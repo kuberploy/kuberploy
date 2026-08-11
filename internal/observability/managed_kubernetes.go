@@ -23,7 +23,7 @@ var managedKubernetesPaths = []string{
 	"/api/v1/namespaces/kuberploy-monitoring/configmaps/monitoring-monitoring-profile",
 	"/apis/apps/v1/namespaces/kuberploy-monitoring/deployments/kuberploy-prometheus-operator",
 	"/apis/monitoring.coreos.com/v1/namespaces/kuberploy-monitoring/prometheusrules/monitoring-service-recording-rules",
-	"/apis/monitoring.coreos.com/v1/namespaces/kuberploy-monitoring/servicemonitors/kuberploy-kube-state-metrics",
+	"/apis/monitoring.coreos.com/v1/namespaces/kuberploy-monitoring/prometheuses/monitoring-kube-prometheus-prometheus",
 }
 
 // InClusterManagedMonitoringObserver has four fixed read-only Kubernetes API
@@ -109,23 +109,19 @@ func (c *InClusterManagedMonitoringObserver) ObserveManagedMonitoring(ctx contex
 	if err := c.getJSON(ctx, managedKubernetesPaths[2], &rule); err != nil {
 		return ManagedMonitoringSnapshot{}, err
 	}
-	var kubeStateMonitor struct {
+	var prometheus struct {
 		Metadata managedObjectMetadata `json:"metadata"`
 		Spec     struct {
-			Endpoints []struct {
-				Port        string `json:"port"`
-				HonorLabels *bool  `json:"honorLabels"`
-			} `json:"endpoints"`
+			OverrideHonorLabels *bool `json:"overrideHonorLabels"`
 		} `json:"spec"`
 	}
-	if err := c.getJSON(ctx, managedKubernetesPaths[3], &kubeStateMonitor); err != nil {
+	if err := c.getJSON(ctx, managedKubernetesPaths[3], &prometheus); err != nil {
 		return ManagedMonitoringSnapshot{}, err
 	}
 	if !validManagedMetadata(profile.Metadata, ManagedMonitoringProfileName) || profile.Immutable == nil || len(profile.BinaryData) != 0 || len(profile.Data) > 32 ||
 		!validManagedMetadata(operator.Metadata, ManagedMonitoringOperatorName) || operator.Spec.Replicas == nil || len(operator.Spec.Template.Spec.Containers) > 16 ||
 		!validManagedMetadata(rule.Metadata, ManagedMonitoringRuleName) ||
-		!validManagedMetadata(kubeStateMonitor.Metadata, ManagedMonitoringKubeStateMonitor) || len(kubeStateMonitor.Spec.Endpoints) != 1 ||
-		kubeStateMonitor.Spec.Endpoints[0].Port != "http" || kubeStateMonitor.Spec.Endpoints[0].HonorLabels == nil {
+		!validManagedMetadata(prometheus.Metadata, ManagedMonitoringPrometheusName) || prometheus.Spec.OverrideHonorLabels == nil {
 		return ManagedMonitoringSnapshot{}, ErrUnsafeResponse
 	}
 	var selectedName, selectedImage string
@@ -153,8 +149,8 @@ func (c *InClusterManagedMonitoringObserver) ObserveManagedMonitoring(ctx contex
 		OperatorGeneration: operator.Metadata.Generation, OperatorObservedGeneration: operator.Status.ObservedGeneration,
 		OperatorDesiredReplicas: *operator.Spec.Replicas, OperatorAvailableReplicas: operator.Status.AvailableReplicas,
 		RuleName: rule.Metadata.Name, RuleGeneration: rule.Metadata.Generation, RuleSpecSHA256: canonicalRawJSONDigest(rule.Spec),
-		KubeStateMonitorName: kubeStateMonitor.Metadata.Name, KubeStateMonitorGeneration: kubeStateMonitor.Metadata.Generation,
-		KubeStateMonitorHonorLabels: *kubeStateMonitor.Spec.Endpoints[0].HonorLabels,
+		PrometheusName: prometheus.Metadata.Name, PrometheusGeneration: prometheus.Metadata.Generation,
+		PrometheusOverrideHonorLabels: *prometheus.Spec.OverrideHonorLabels,
 	}, nil
 }
 

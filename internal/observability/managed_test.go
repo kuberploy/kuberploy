@@ -41,7 +41,7 @@ func validManagedSnapshotForTest() ManagedMonitoringSnapshot {
 		OperatorImage: ManagedMonitoringOperatorImage, OperatorArgumentsSHA256: ManagedMonitoringOperatorArgsSHA256,
 		OperatorGeneration: 4, OperatorObservedGeneration: 4, OperatorDesiredReplicas: 1, OperatorAvailableReplicas: 1,
 		RuleName: ManagedMonitoringRuleName, RuleGeneration: 7, RuleSpecSHA256: ManagedMonitoringRuleSpecSHA256,
-		KubeStateMonitorName: ManagedMonitoringKubeStateMonitor, KubeStateMonitorGeneration: 3, KubeStateMonitorHonorLabels: true,
+		PrometheusName: ManagedMonitoringPrometheusName, PrometheusGeneration: 3, PrometheusOverrideHonorLabels: true,
 	}
 }
 
@@ -85,9 +85,9 @@ func TestManagedSnapshotAttestationFailsClosedOnEveryProtectedIdentity(t *testin
 		{name: "operator replicas", mutate: func(s *ManagedMonitoringSnapshot) { s.OperatorAvailableReplicas = 2 }},
 		{name: "rule name", mutate: func(s *ManagedMonitoringSnapshot) { s.RuleName = "attacker" }},
 		{name: "rule digest", mutate: func(s *ManagedMonitoringSnapshot) { s.RuleSpecSHA256 = "" }},
-		{name: "kube state monitor name", mutate: func(s *ManagedMonitoringSnapshot) { s.KubeStateMonitorName = "attacker" }},
-		{name: "kube state monitor generation", mutate: func(s *ManagedMonitoringSnapshot) { s.KubeStateMonitorGeneration = 0 }},
-		{name: "kube state monitor labels", mutate: func(s *ManagedMonitoringSnapshot) { s.KubeStateMonitorHonorLabels = false }},
+		{name: "prometheus name", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusName = "attacker" }},
+		{name: "prometheus generation", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusGeneration = 0 }},
+		{name: "prometheus label override", mutate: func(s *ManagedMonitoringSnapshot) { s.PrometheusOverrideHonorLabels = false }},
 	}
 	for _, test := range tests {
 		test := test

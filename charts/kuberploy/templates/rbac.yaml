@@ -52,8 +52,8 @@ rules:
     resourceNames: ["monitoring-service-recording-rules"]
     verbs: ["get"]
   - apiGroups: ["monitoring.coreos.com"]
-    resources: ["servicemonitors"]
-    resourceNames: ["kuberploy-kube-state-metrics"]
+    resources: ["prometheuses"]
+    resourceNames: ["monitoring-kube-prometheus-prometheus"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

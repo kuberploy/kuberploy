@@ -19,8 +19,8 @@ const (
 	ManagedMonitoringOperatorImage      = "quay.io/prometheus-operator/prometheus-operator:v0.93.0"
 	ManagedMonitoringOperatorArgsSHA256 = "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6"
 	ManagedMonitoringRuleName           = "monitoring-service-recording-rules"
-	ManagedMonitoringRuleSpecSHA256     = "sha256:dce75aca8d4db27efe9e685fee3b02f1f3fcefb71ff3674f02002f7d700780a5"
-	ManagedMonitoringKubeStateMonitor   = "kuberploy-kube-state-metrics"
+	ManagedMonitoringRuleSpecSHA256     = "sha256:b2d83d41bbc11bd5a1877fe07f0957af2edacd4c1c38e6ef90effa364274ad63"
+	ManagedMonitoringPrometheusName     = "monitoring-kube-prometheus-prometheus"
 	ManagedMonitoringQueryURL           = "http://prometheus-operated.kuberploy-monitoring.svc:9090"
 )
 
@@ -37,22 +37,22 @@ var managedMetricSeries = []string{
 // ManagedMonitoringSnapshot is the closed set of live Kubernetes state used
 // to attest the independently owned managed-monitoring release.
 type ManagedMonitoringSnapshot struct {
-	ProfileData                 map[string]string
-	ProfileImmutable            bool
-	OperatorName                string
-	OperatorContainer           string
-	OperatorImage               string
-	OperatorArgumentsSHA256     string
-	OperatorGeneration          int64
-	OperatorObservedGeneration  int64
-	OperatorDesiredReplicas     int32
-	OperatorAvailableReplicas   int32
-	RuleName                    string
-	RuleGeneration              int64
-	RuleSpecSHA256              string
-	KubeStateMonitorName        string
-	KubeStateMonitorGeneration  int64
-	KubeStateMonitorHonorLabels bool
+	ProfileData                   map[string]string
+	ProfileImmutable              bool
+	OperatorName                  string
+	OperatorContainer             string
+	OperatorImage                 string
+	OperatorArgumentsSHA256       string
+	OperatorGeneration            int64
+	OperatorObservedGeneration    int64
+	OperatorDesiredReplicas       int32
+	OperatorAvailableReplicas     int32
+	RuleName                      string
+	RuleGeneration                int64
+	RuleSpecSHA256                string
+	PrometheusName                string
+	PrometheusGeneration          int64
+	PrometheusOverrideHonorLabels bool
 }
 
 type ManagedMonitoringObserver interface {
@@ -103,7 +103,7 @@ func validateManagedSnapshot(snapshot ManagedMonitoringSnapshot, chartVersion st
 	if snapshot.RuleName != ManagedMonitoringRuleName || snapshot.RuleGeneration < 1 || snapshot.RuleSpecSHA256 != ManagedMonitoringRuleSpecSHA256 {
 		return ErrUnsafeResponse
 	}
-	if snapshot.KubeStateMonitorName != ManagedMonitoringKubeStateMonitor || snapshot.KubeStateMonitorGeneration < 1 || !snapshot.KubeStateMonitorHonorLabels {
+	if snapshot.PrometheusName != ManagedMonitoringPrometheusName || snapshot.PrometheusGeneration < 1 || !snapshot.PrometheusOverrideHonorLabels {
 		return ErrUnsafeResponse
 	}
 	return nil
@@ -161,7 +161,7 @@ func expectedManagedProfile(chartVersion string) map[string]string {
 		"operatorArgumentsSHA256":   ManagedMonitoringOperatorArgsSHA256,
 		"recordingRuleName":         ManagedMonitoringRuleName,
 		"recordingRuleSpecSHA256":   ManagedMonitoringRuleSpecSHA256,
-		"readinessContract":         "profile+operator+rule-spec+kube-state-monitor+prometheus-rules",
+		"readinessContract":         "profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules",
 		"queryClientNamespaceLabel": "kuberploy.io/control-plane-namespace=true",
 		"queryClientPodLabels":      "app.kubernetes.io/name=kuberploy,app.kubernetes.io/component=api",
 		"monitorNamespaceLabel":     "kuberploy.io/monitoring-namespace=true",

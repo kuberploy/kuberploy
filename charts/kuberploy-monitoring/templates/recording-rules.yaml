@@ -16,7 +16,10 @@ spec:
           expr: |
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               sum by (namespace, pod) (
-                rate(container_cpu_usage_seconds_total{container!="", image!="", namespace!="", pod!=""}[5m])
+                label_replace(
+                  rate(container_cpu_usage_seconds_total{container!="", image!="", exported_namespace!="", pod!=""}[5m]),
+                  "namespace", "$1", "exported_namespace", "(.+)"
+                )
               )
               * on (namespace, pod)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -25,19 +28,25 @@ spec:
                     label_replace(
                       label_replace(
                         label_replace(
-                          kube_pod_labels{
-                            label_kuberploy_io_project!="",
-                            label_kuberploy_io_environment!="",
-                            label_kuberploy_io_application!="",
-                            label_kuberploy_io_service!=""
-                          },
-                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                          label_replace(
+                            label_replace(
+                              kube_pod_labels{
+                                label_kuberploy_io_project!="",
+                                label_kuberploy_io_environment!="",
+                                label_kuberploy_io_application!="",
+                                label_kuberploy_io_service!=""
+                              },
+                              "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                            ),
+                            "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                          ),
+                          "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
                         ),
-                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                        "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
                       ),
-                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                      "namespace", "$1", "exported_namespace", "(.+)"
                     ),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                    "pod", "$1", "exported_pod", "(.+)"
                   )
                 )
             )
@@ -45,7 +54,10 @@ spec:
           expr: |
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               sum by (namespace, pod) (
-                container_memory_working_set_bytes{container!="", image!="", namespace!="", pod!=""}
+                label_replace(
+                  container_memory_working_set_bytes{container!="", image!="", exported_namespace!="", pod!=""},
+                  "namespace", "$1", "exported_namespace", "(.+)"
+                )
               )
               * on (namespace, pod)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -54,19 +66,25 @@ spec:
                     label_replace(
                       label_replace(
                         label_replace(
-                          kube_pod_labels{
-                            label_kuberploy_io_project!="",
-                            label_kuberploy_io_environment!="",
-                            label_kuberploy_io_application!="",
-                            label_kuberploy_io_service!=""
-                          },
-                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                          label_replace(
+                            label_replace(
+                              kube_pod_labels{
+                                label_kuberploy_io_project!="",
+                                label_kuberploy_io_environment!="",
+                                label_kuberploy_io_application!="",
+                                label_kuberploy_io_service!=""
+                              },
+                              "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                            ),
+                            "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                          ),
+                          "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
                         ),
-                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                        "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
                       ),
-                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                      "namespace", "$1", "exported_namespace", "(.+)"
                     ),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                    "pod", "$1", "exported_pod", "(.+)"
                   )
                 )
             )
@@ -74,12 +92,16 @@ spec:
           expr: |
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               max by (namespace, deployment) (
-                kube_deployment_status_replicas_available{namespace!=""}
+                label_replace(
+                  kube_deployment_status_replicas_available{exported_namespace!=""},
+                  "namespace", "$1", "exported_namespace", "(.+)"
+                )
               )
               * on (namespace, deployment)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
                 max by (namespace, deployment, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
                   label_replace(
+                    label_replace(
                     label_replace(
                       label_replace(
                         label_replace(
@@ -95,7 +117,9 @@ spec:
                       ),
                       "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
                     ),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                    ),
+                    "namespace", "$1", "exported_namespace", "(.+)"
                   )
                 )
             )
@@ -103,7 +127,13 @@ spec:
           expr: |
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               max by (namespace, pod, container) (
-                kube_pod_container_status_restarts_total{container!="", namespace!="", pod!=""}
+                label_replace(
+                  label_replace(
+                    kube_pod_container_status_restarts_total{container!="", exported_namespace!="", exported_pod!=""},
+                    "namespace", "$1", "exported_namespace", "(.+)"
+                  ),
+                  "pod", "$1", "exported_pod", "(.+)"
+                )
               )
               * on (namespace, pod)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -112,19 +142,25 @@ spec:
                     label_replace(
                       label_replace(
                         label_replace(
-                          kube_pod_labels{
-                            label_kuberploy_io_project!="",
-                            label_kuberploy_io_environment!="",
-                            label_kuberploy_io_application!="",
-                            label_kuberploy_io_service!=""
-                          },
-                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                          label_replace(
+                            label_replace(
+                              kube_pod_labels{
+                                label_kuberploy_io_project!="",
+                                label_kuberploy_io_environment!="",
+                                label_kuberploy_io_application!="",
+                                label_kuberploy_io_service!=""
+                              },
+                              "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                            ),
+                            "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                          ),
+                          "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
                         ),
-                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                        "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
                       ),
-                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                      "namespace", "$1", "exported_namespace", "(.+)"
                     ),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                    "pod", "$1", "exported_pod", "(.+)"
                   )
                 )
             )
@@ -145,19 +181,25 @@ spec:
                     label_replace(
                       label_replace(
                         label_replace(
-                          kube_service_labels{
-                            label_kuberploy_io_project!="",
-                            label_kuberploy_io_environment!="",
-                            label_kuberploy_io_application!="",
-                            label_kuberploy_io_service!=""
-                          },
-                          "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                          label_replace(
+                            label_replace(
+                              kube_service_labels{
+                                label_kuberploy_io_project!="",
+                                label_kuberploy_io_environment!="",
+                                label_kuberploy_io_application!="",
+                                label_kuberploy_io_service!=""
+                              },
+                              "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"
+                            ),
+                            "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                          ),
+                          "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
                         ),
-                        "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"
+                        "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
                       ),
-                      "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"
+                      "namespace", "$1", "exported_namespace", "(.+)"
                     ),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"
+                    "service", "$1", "exported_service", "(.+)"
                   )
                 )
             )
@@ -174,12 +216,14 @@ spec:
               * on (namespace, service)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
                 max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
-                  label_replace(label_replace(label_replace(label_replace(
+                  label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(
                     kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
                     "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
                     "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
                     "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
-                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                    "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"),
+                    "namespace", "$1", "exported_namespace", "(.+)"),
+                    "service", "$1", "exported_service", "(.+)")
                 )
             )
             /
@@ -195,12 +239,14 @@ spec:
                 * on (namespace, service)
                   group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
                   max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
-                    label_replace(label_replace(label_replace(label_replace(
+                    label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(
                       kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
                       "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
                       "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
                       "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
-                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"),
+                      "namespace", "$1", "exported_namespace", "(.+)"),
+                      "service", "$1", "exported_service", "(.+)")
                   )
               ),
               0.000000001
@@ -220,12 +266,14 @@ spec:
                 * on (namespace, service)
                   group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
                   max by (namespace, service, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
-                    label_replace(label_replace(label_replace(label_replace(
+                    label_replace(label_replace(label_replace(label_replace(label_replace(label_replace(
                       kube_service_labels{label_kuberploy_io_project!="",label_kuberploy_io_environment!="",label_kuberploy_io_application!="",label_kuberploy_io_service!=""},
                       "kuberploy_project", "$1", "label_kuberploy_io_project", "(.+)"),
                       "kuberploy_environment", "$1", "label_kuberploy_io_environment", "(.+)"),
                       "kuberploy_application", "$1", "label_kuberploy_io_application", "(.+)"),
-                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)")
+                      "kuberploy_service", "$1", "label_kuberploy_io_service", "(.+)"),
+                      "namespace", "$1", "exported_namespace", "(.+)"),
+                      "service", "$1", "exported_service", "(.+)")
                   )
               )
             )

@@ -184,7 +184,8 @@ awk '
 }
 [[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and (.metadata.name | test("kubelet"))) | .spec.endpoints[0].tlsConfig.insecureSkipVerify' "${kp_tmp}/managed.yaml")" == "false" ]]
 kp_ksm_args="$(yq eval-all 'select(.kind == "Deployment" and .metadata.name == "kuberploy-kube-state-metrics") | .spec.template.spec.containers[0].args[]' "${kp_tmp}/managed.yaml")"
-[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and .metadata.name == "kuberploy-kube-state-metrics") | .spec.endpoints[0].honorLabels' "${kp_tmp}/managed.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "ServiceMonitor" and .metadata.name == "kuberploy-kube-state-metrics") | (.spec.endpoints[0].honorLabels // false)' "${kp_tmp}/managed.yaml")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Prometheus" and .metadata.name == "monitoring-kube-prometheus-prometheus") | .spec.overrideHonorLabels' "${kp_tmp}/managed.yaml")" == "true" ]]
 grep -Fx -- '--resources=deployments,ingresses,pods,services' <<<"${kp_ksm_args}" >/dev/null
 grep -Fx -- '--metric-allowlist=kube_deployment_labels,kube_deployment_status_replicas_available,kube_ingress_labels,kube_pod_container_status_restarts_total,kube_pod_labels,kube_service_labels' <<<"${kp_ksm_args}" >/dev/null
 grep -Fx -- '--metric-labels-allowlist=deployments=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],ingresses=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],pods=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service],services=[kuberploy.io/project,kuberploy.io/environment,kuberploy.io/application,kuberploy.io/service]' <<<"${kp_ksm_args}" >/dev/null
@@ -223,6 +224,9 @@ for kp_label in namespace kuberploy_project kuberploy_environment kuberploy_appl
   grep -F -- "${kp_label}" <<<"${kp_rule_exprs}" >/dev/null
 done
 [[ "$(grep -c 'traefik_service_' <<<"${kp_rule_exprs}")" -ge "3" ]]
+[[ "$(grep -c 'exported_namespace' <<<"${kp_rule_exprs}")" -ge "7" ]]
+[[ "$(grep -c 'exported_pod' <<<"${kp_rule_exprs}")" -ge "3" ]]
+[[ "$(grep -c 'exported_service' <<<"${kp_rule_exprs}")" -ge "3" ]]
 if grep -E 'or[[:space:]]+vector\(0\)' <<<"${kp_rule_exprs}" >/dev/null; then
   printf 'HTTP recording rules must remain empty when Traefik metrics are absent\n' >&2
   exit 1
@@ -242,7 +246,7 @@ kp_query_policy="$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.n
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.75,monitoring,kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.operatorArgumentsSHA256' "${kp_tmp}/managed.yaml")" == "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.upstreamChartSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:dce75aca8d4db27efe9e685fee3b02f1f3fcefb71ff3674f02002f7d700780a5" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b2d83d41bbc11bd5a1877fe07f0957af2edacd4c1c38e6ef90effa364274ad63" ]]
 
 if rg -n 'kind: (Ingress|HTTPRoute)|type: (LoadBalancer|NodePort)|grafana/grafana' "${kp_tmp}/managed.yaml"; then
   printf 'managed monitoring rendered a public route, public Service, or Grafana\n' >&2

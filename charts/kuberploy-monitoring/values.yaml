@@ -118,10 +118,10 @@ kube-prometheus-stack:
         labelLimit: 40
         labelNameLengthLimit: 128
         labelValueLengthLimit: 512
-        # kube-state-metrics exports the Kubernetes object namespace as the
-        # `namespace` label. Preserve it instead of replacing it with the
-        # ServiceMonitor target namespace (`kuberploy-monitoring`).
-        honorLabels: true
+        http:
+          honorLabels: false
+        metrics:
+          honorLabels: false
     collectors:
       - deployments
       - ingresses

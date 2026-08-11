@@ -131,7 +131,7 @@ if [[ "${kp_obs_mode}" == "managed" ]]; then
       groups:[.spec.groups[]|{name,records:[.rules[].record]}]}' >"${kp_obs_dir}/managed-rules.json"
   jq -e '
     .immutable == true and .data.contract == "kuberploy-managed-monitoring/v1" and
-    .data.readinessContract == "profile+operator+rule-spec+kube-state-monitor+prometheus-rules" and
+    .data.readinessContract == "profile+operator+rule-spec+prometheus-scrape-policy+prometheus-rules" and
     .data.metricSeries == "kuberploy:service:cpu_usage_cores,kuberploy:service:memory_working_set_bytes,kuberploy:service:replicas_ready,kuberploy:service:container_restarts_total,kuberploy:service:http_requests_per_second,kuberploy:service:http_5xx_ratio,kuberploy:service:http_latency_seconds:p95"
   ' "${kp_obs_dir}/managed-profile.json" >/dev/null || kp_obs_die "managed profile identity drifted"
   jq -e '
