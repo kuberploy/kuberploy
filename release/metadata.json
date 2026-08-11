@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Qualification RC restoring kubelet and Traefik metrics with live scrape-target readiness.",
+  "summary": "Qualification RC retaining kubelet samples and binding readiness to the installed edge release.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.77"
+  "version": "0.1.0-rc.78"
 }
