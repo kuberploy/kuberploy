@@ -5921,3 +5921,300 @@ textarea:disabled {
   color: var(--ink-soft);
   font-size: 0.875rem;
 }
+
+/* Readability baseline: controls should be comfortably scannable at 100% zoom. */
+.nav-section-label {
+  font-size: 11px;
+}
+
+.nav-link {
+  font-size: 14px;
+}
+
+.topbar__context,
+.topbar__page {
+  font-size: 14px;
+}
+
+.user-menu__copy strong {
+  font-size: 13px;
+}
+
+.user-menu__copy small {
+  font-size: 11px;
+}
+
+.page {
+  width: min(1160px, 100%);
+}
+
+.page--narrow {
+  width: min(920px, 100%);
+}
+
+.button {
+  min-height: 40px;
+  padding-inline: 14px;
+  font-size: 13px;
+}
+
+.card {
+  border-radius: 12px;
+}
+
+.field {
+  gap: 8px;
+}
+
+.field__label {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.field input,
+.field select,
+.field textarea,
+input,
+select,
+textarea {
+  min-height: 44px;
+  padding-inline: 13px;
+  border-radius: 9px;
+  font-size: 14px;
+}
+
+.field__hint,
+.field__error {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.status-pill {
+  min-height: 28px;
+  padding-inline: 10px;
+  font-size: 12px;
+}
+
+.muted-copy,
+.project-card__header p,
+.scope-row small,
+.form-card__heading p {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.scope-row strong {
+  font-size: 13px;
+}
+
+.scope-column h3 {
+  font-size: 12px;
+}
+
+.scope-column h3 span {
+  font-size: 11px;
+}
+
+.deployment-summary-row {
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  gap: 14px;
+  min-height: 64px;
+  padding-inline: 10px;
+}
+
+.project-owner {
+  min-height: 28px;
+  font-size: 12px;
+}
+
+.form-card__heading > span {
+  width: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+
+.form-card__heading {
+  grid-template-columns: 38px 1fr;
+}
+
+.application-source-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.application-source-card__header {
+  padding: 22px 24px 18px;
+}
+
+.application-source-card__header h2,
+.service-settings-section__header h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+
+.application-source-card__header p,
+.service-settings-section__header p {
+  margin: 5px 0 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.application-source-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.application-source-tabs button {
+  display: inline-flex;
+  min-height: 50px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-soft);
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.application-source-tabs button svg {
+  width: 16px;
+}
+
+.application-source-tabs button:hover {
+  color: var(--ink);
+}
+
+.application-source-tabs button[aria-selected="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+  background: var(--surface);
+}
+
+.service-settings-card {
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.service-settings-section {
+  display: grid;
+  gap: 20px;
+  padding: 26px;
+}
+
+.service-settings-section + .service-settings-section {
+  border-top: 1px solid var(--line);
+}
+
+.service-settings-section__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.service-settings-section > .field {
+  max-width: calc(50% - 7px);
+}
+
+.build-platforms {
+  min-height: 52px;
+  align-items: center;
+}
+
+.build-platforms legend,
+.build-platforms label {
+  font-size: 13px;
+}
+
+.service-settings-advanced,
+.service-settings-disclosure {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.service-settings-advanced > summary,
+.service-settings-disclosure > summary {
+  display: flex;
+  min-height: 68px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.service-settings-advanced > summary::-webkit-details-marker,
+.service-settings-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.service-settings-advanced > summary span,
+.service-settings-disclosure > summary span {
+  display: grid;
+  gap: 3px;
+}
+
+.service-settings-advanced > summary strong,
+.service-settings-disclosure > summary strong {
+  font-size: 14px;
+}
+
+.service-settings-advanced > summary small,
+.service-settings-disclosure > summary small {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.service-settings-advanced > summary svg,
+.service-settings-disclosure > summary svg {
+  width: 16px;
+  transition: transform 150ms ease;
+}
+
+.service-settings-advanced[open] > summary svg,
+.service-settings-disclosure[open] > summary svg {
+  transform: rotate(90deg);
+}
+
+.service-settings-advanced__content {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.service-settings-disclosure > .card {
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@media (max-width: 760px) {
+  .application-source-tabs {
+    overflow-x: auto;
+    padding-inline: 12px;
+  }
+
+  .application-source-tabs button {
+    flex: none;
+    padding-inline: 12px;
+  }
+
+  .service-settings-section > .field {
+    max-width: none;
+  }
+}

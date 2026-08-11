@@ -91,7 +91,7 @@ export function RegistryPullCredentialsPanel({
   return (
     <Card>
       <div className="form-card__heading">
-        <span>02</span>
+        <span aria-hidden="true">↧</span>
         <div>
           <h2>Image pull credentials</h2>
           <p>

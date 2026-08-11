@@ -27,6 +27,13 @@ function uniqueTargets(targets: RegistryTarget[]) {
   return [...new Map(targets.map((target) => [target.id, target])).values()];
 }
 
+function compactImageReference(image?: string) {
+  if (!image) return "Image pending";
+  const [repository, digest] = image.split("@sha256:");
+  const name = repository?.split("/").at(-1) || repository || image;
+  return digest ? `${name}@sha256:${digest.slice(0, 12)}…` : name;
+}
+
 export function ApplicationOverviewPage() {
   const { applicationId } = useParams({
     from: "/applications/$applicationId",
@@ -135,7 +142,7 @@ export function ApplicationOverviewPage() {
       <PageHeader
         eyebrow={project.name}
         title={application.data.name}
-        description="Choose a source first. An application does not need a placeholder deployment before builds or Helm desired state can be configured."
+        description="Configure how this service is built and deployed. Start with one source type; runtime settings stay separate."
         actions={
           <Link to="/projects" className="button button--ghost">
             Back to projects
@@ -143,16 +150,16 @@ export function ApplicationOverviewPage() {
         }
       />
 
-      <Card>
-        <div className="form-card__heading">
-          <span>01</span>
+      <Card className="application-source-card">
+        <div className="application-source-card__header">
           <div>
-            <h2>Application source</h2>
-            <p>These are peer workflows; none requires another to run first.</p>
+            <span className="eyebrow">Service setup</span>
+            <h2>Deployment source</h2>
+            <p>Choose how Kuberploy should deliver this service.</p>
           </div>
         </div>
         <div
-          className="segmented-control"
+          className="application-source-tabs"
           role="tablist"
           aria-label="Application source"
         >
@@ -162,6 +169,7 @@ export function ApplicationOverviewPage() {
             aria-selected={source === "build"}
             onClick={() => setSource("build")}
           >
+            <Icon name="git" />
             GitHub / Dockerfile
           </button>
           <button
@@ -170,6 +178,7 @@ export function ApplicationOverviewPage() {
             aria-selected={source === "image"}
             onClick={() => setSource("image")}
           >
+            <Icon name="deploy" />
             Existing image
           </button>
           <button
@@ -178,54 +187,75 @@ export function ApplicationOverviewPage() {
             aria-selected={source === "helm"}
             onClick={() => setSource("helm")}
           >
+            <Icon name="layers" />
             Helm / OCI
           </button>
         </div>
       </Card>
 
-      <RegistryPullCredentialsPanel
-        application={application.data}
-        project={project}
-        enabled={features?.registry === true}
-        canManage={canManageApplicationRegistry}
-      />
-
       {source === "build" ? (
-        <Card>
-          {features?.builds !== true || features?.builder !== true ? (
-            <EmptyState
-              icon="git"
-              title="Source builds are not ready"
-              description="Both the Source Builds API and the cluster builder must report ready before a build definition can be created."
-            />
-          ) : (
-            <BuildDefinitionForm
+        <div className="page-stack">
+          <Card className="service-settings-card">
+            {features?.builds !== true || features?.builder !== true ? (
+              <EmptyState
+                icon="git"
+                title="Source builds are not ready"
+                description="Both the Source Builds API and the cluster builder must report ready before a build definition can be created."
+              />
+            ) : (
+              <BuildDefinitionForm
+                application={application.data}
+                project={project}
+                capabilities={effectiveCapabilities}
+                humanSession={humanSession}
+                registryTargets={uniqueTargets([
+                  ...(registry.data?.items.map((item) => item.target) ?? []),
+                  ...(platformRegistry.data?.items ?? []),
+                ])}
+              />
+            )}
+          </Card>
+          <details className="service-settings-disclosure">
+            <summary>
+              <span>
+                <strong>Runtime image pull</strong>
+                <small>
+                  Public image or a project credential used only by Kubernetes
+                </small>
+              </span>
+              <Icon name="chevron" />
+            </summary>
+            <RegistryPullCredentialsPanel
               application={application.data}
               project={project}
-              capabilities={effectiveCapabilities}
-              humanSession={humanSession}
-              registryTargets={uniqueTargets([
-                ...(registry.data?.items.map((item) => item.target) ?? []),
-                ...(platformRegistry.data?.items ?? []),
-              ])}
+              enabled={features?.registry === true}
+              canManage={canManageApplicationRegistry}
             />
-          )}
-        </Card>
+          </details>
+        </div>
       ) : null}
 
       {source === "image" ? (
-        <Card>
-          <EmptyState
-            icon="deploy"
-            title="Deploy an existing immutable image"
-            description="Open the deployment wizard, select Existing application, and choose this application. Tags require a fresh server-side digest preview before commit."
-            action={
-              <Link to="/deploy" className="button button--primary">
-                Configure image deployment <Icon name="arrow" />
-              </Link>
-            }
+        <div className="page-stack">
+          <Card>
+            <EmptyState
+              icon="deploy"
+              title="Deploy an existing image"
+              description="Use a public image or select a project pull credential, then configure its deployment. Image tags are resolved to an immutable digest before saving."
+              action={
+                <Link to="/deploy" className="button button--primary">
+                  Configure image deployment <Icon name="arrow" />
+                </Link>
+              }
+            />
+          </Card>
+          <RegistryPullCredentialsPanel
+            application={application.data}
+            project={project}
+            enabled={features?.registry === true}
+            canManage={canManageApplicationRegistry}
           />
-        </Card>
+        </div>
       ) : null}
 
       {source === "helm" ? (
@@ -287,11 +317,18 @@ export function ApplicationOverviewPage() {
                 key={deployment.id}
                 to="/applications/$applicationId/deployments/$deploymentId"
                 params={{ applicationId, deploymentId: deployment.id }}
-                className="scope-row scope-row--link"
+                className="scope-row scope-row--link deployment-summary-row"
               >
                 <div>
-                  <strong>{deployment.environmentId}</strong>
-                  <small>{deployment.image}</small>
+                  <strong>
+                    {applicationEnvironments.find(
+                      (environment) =>
+                        environment.id === deployment.environmentId,
+                    )?.name ?? "Environment"}
+                  </strong>
+                  <small title={deployment.image}>
+                    {compactImageReference(deployment.image)}
+                  </small>
                 </div>
                 <StatusPill value={deployment.status ?? "pending"} />
                 <Icon name="chevron" />

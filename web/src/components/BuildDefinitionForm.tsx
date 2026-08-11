@@ -231,123 +231,157 @@ export function BuildDefinitionForm({
       className="build-definition-form"
       onSubmit={form.handleSubmit(submit)}
     >
-      <div className="build-definition-form__grid">
-        <Field
-          label="GitHub installation"
-          required
-          error={form.formState.errors.installationId?.message}
-        >
-          <select
-            {...form.register("installationId", {
-              required: "Select a linked installation.",
-              onChange: () => form.setValue("repositoryId", ""),
-            })}
+      <section className="service-settings-section">
+        <div className="service-settings-section__header">
+          <div>
+            <span className="eyebrow">Source</span>
+            <h2>Repository</h2>
+            <p>
+              Choose the GitHub repository and branch that should trigger this
+              service build.
+            </p>
+          </div>
+        </div>
+        <div className="build-definition-form__grid">
+          <Field
+            label="GitHub installation"
+            required
+            error={form.formState.errors.installationId?.message}
           >
-            <option value="">Select installation</option>
-            {installations.data?.items.map((installation) => (
-              <option key={installation.id} value={installation.id}>
-                {installation.accountLogin}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Repository"
-          required
-          hint={
-            installationId
-              ? "Only verified active repositories are listed."
-              : "Select an installation first."
-          }
-          error={form.formState.errors.repositoryId?.message}
-        >
-          <select
-            disabled={!installationId || repositories.isPending}
-            {...form.register("repositoryId", {
-              required: "Select a verified repository.",
-            })}
+            <select
+              {...form.register("installationId", {
+                required: "Select a linked installation.",
+                onChange: () => form.setValue("repositoryId", ""),
+              })}
+            >
+              <option value="">Select installation</option>
+              {installations.data?.items.map((installation) => (
+                <option key={installation.id} value={installation.id}>
+                  {installation.accountLogin}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Repository"
+            required
+            hint={
+              installationId
+                ? "Only verified active repositories are listed."
+                : "Select an installation first."
+            }
+            error={form.formState.errors.repositoryId?.message}
           >
-            <option value="">Select repository</option>
-            {activeRepositories.map((repository) => (
-              <option key={repository.id} value={repository.id}>
-                {repository.ownerLogin}/{repository.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Registry target"
-          required
-          hint="Only targets visible through your application or platform scope are listed."
-          error={form.formState.errors.registryTargetId?.message}
-        >
-          <select
-            {...form.register("registryTargetId", {
-              required: "Select an accessible registry target.",
-            })}
+            <select
+              disabled={!installationId || repositories.isPending}
+              {...form.register("repositoryId", {
+                required: "Select a verified repository.",
+              })}
+            >
+              <option value="">Select repository</option>
+              {activeRepositories.map((repository) => (
+                <option key={repository.id} value={repository.id}>
+                  {repository.ownerLogin}/{repository.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Git ref"
+            required
+            hint="A verified push to this branch or tag starts a build."
+            error={form.formState.errors.triggerRef?.message}
           >
-            <option value="">Select target</option>
-            {registryTargets.map((target) => (
-              <option key={target.id} value={target.id}>
-                {target.name} · {target.mode}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field
-          label="Git ref"
-          required
-          hint="A matching verified push creates the build; the webhook commit is re-resolved server-side."
-          error={form.formState.errors.triggerRef?.message}
-        >
-          <input
-            {...form.register("triggerRef", {
-              required: "Enter a branch or tag ref.",
-              pattern: {
-                value: /^refs\/(heads|tags)\/.+/,
-                message: "Use refs/heads/... or refs/tags/....",
-              },
-              maxLength: { value: 255, message: "Use at most 255 characters." },
-            })}
-          />
-        </Field>
-        <Field
-          label="Build context"
-          required
-          error={form.formState.errors.contextPath?.message}
-        >
-          <input
-            {...form.register("contextPath", {
-              required: "Enter a repository-relative context path.",
-              maxLength: { value: 512, message: "Use at most 512 characters." },
-            })}
-          />
-        </Field>
-        <Field
-          label="Dockerfile"
-          required
-          error={form.formState.errors.dockerfilePath?.message}
-        >
-          <input
-            {...form.register("dockerfilePath", {
-              required: "Enter a repository-relative Dockerfile path.",
-              maxLength: { value: 512, message: "Use at most 512 characters." },
-            })}
-          />
-        </Field>
-      </div>
+            <input
+              {...form.register("triggerRef", {
+                required: "Enter a branch or tag ref.",
+                pattern: {
+                  value: /^refs\/(heads|tags)\/.+/,
+                  message: "Use refs/heads/... or refs/tags/....",
+                },
+                maxLength: {
+                  value: 255,
+                  message: "Use at most 255 characters.",
+                },
+              })}
+            />
+          </Field>
+        </div>
+      </section>
 
-      <fieldset className="build-platforms">
-        <legend>Platforms</legend>
-        <label>
-          <input type="checkbox" {...form.register("amd64")} /> linux/amd64
-        </label>
-        <label>
-          <input type="checkbox" {...form.register("arm64")} /> linux/arm64
-        </label>
-      </fieldset>
+      <section className="service-settings-section">
+        <div className="service-settings-section__header">
+          <div>
+            <span className="eyebrow">Build</span>
+            <h2>Dockerfile</h2>
+            <p>
+              Configure the build context, output registry, and target
+              platforms. The defaults work for most services.
+            </p>
+          </div>
+        </div>
+        <div className="build-definition-form__grid">
+          <Field
+            label="Registry target"
+            required
+            hint="The built image is pushed here. Runtime pull credentials are configured separately."
+            error={form.formState.errors.registryTargetId?.message}
+          >
+            <select
+              {...form.register("registryTargetId", {
+                required: "Select an accessible registry target.",
+              })}
+            >
+              <option value="">Select target</option>
+              {registryTargets.map((target) => (
+                <option key={target.id} value={target.id}>
+                  {target.name} · {target.mode}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label="Build context"
+            required
+            error={form.formState.errors.contextPath?.message}
+          >
+            <input
+              {...form.register("contextPath", {
+                required: "Enter a repository-relative context path.",
+                maxLength: {
+                  value: 512,
+                  message: "Use at most 512 characters.",
+                },
+              })}
+            />
+          </Field>
+          <Field
+            label="Dockerfile"
+            required
+            error={form.formState.errors.dockerfilePath?.message}
+          >
+            <input
+              {...form.register("dockerfilePath", {
+                required: "Enter a repository-relative Dockerfile path.",
+                maxLength: {
+                  value: 512,
+                  message: "Use at most 512 characters.",
+                },
+              })}
+            />
+          </Field>
+        </div>
 
-      <div className="build-definition-form__grid">
+        <fieldset className="build-platforms">
+          <legend>Platforms</legend>
+          <label>
+            <input type="checkbox" {...form.register("amd64")} /> linux/amd64
+          </label>
+          <label>
+            <input type="checkbox" {...form.register("arm64")} /> linux/arm64
+          </label>
+        </fieldset>
+
         <Field
           label="Docker build arguments"
           hint="Build time only. One NAME=value per line; runtime environment values are never passed to the builder."
@@ -358,95 +392,106 @@ export function BuildDefinitionForm({
             {...form.register("buildArgs")}
           />
         </Field>
-      </div>
 
-      <div className="notice notice--warning">
-        <div>
-          <strong>Docker build arguments are not secret storage</strong>
-          <p>
-            Values may be retained in image history or build cache. Kuberploy
-            accepts valid argument names without enforcing your team’s naming
-            policy, so review sensitive values before saving.
-          </p>
+        <div className="notice notice--warning">
+          <div>
+            <strong>Docker build arguments are not secret storage</strong>
+            <p>
+              Values may be retained in image history or build cache. Do not
+              place passwords, tokens, or private keys here.
+            </p>
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="notice notice--warning">
-        <div>
-          <strong>Build-secret and SSH profiles are not available yet</strong>
-          <p>
-            This form accepts and submits no build-secret values, file
-            references, or SSH keys. Operator-owned profile resolution must be
-            enabled before those closed API fields can be used.
-          </p>
+      <details className="service-settings-advanced">
+        <summary>
+          <span>
+            <strong>Advanced build policy</strong>
+            <small>Cache, resources, egress, timeout, and retry limits</small>
+          </span>
+          <Icon name="chevron" />
+        </summary>
+        <div className="service-settings-advanced__content">
+          <div className="build-definition-form__grid build-definition-form__grid--compact">
+            <Field label="Cache trust lane" required>
+              <input
+                {...form.register("cacheTrustLane", {
+                  required: "Enter a cache trust lane.",
+                  pattern: {
+                    value: namePattern,
+                    message: "Use a canonical profile name.",
+                  },
+                })}
+              />
+            </Field>
+            <Field label="Cache imports" required hint="1–8 generations">
+              <input
+                type="number"
+                min={1}
+                max={8}
+                {...form.register("cacheImports", {
+                  valueAsNumber: true,
+                  min: 1,
+                  max: 8,
+                })}
+              />
+            </Field>
+            <Field label="Resource profile" required>
+              <input
+                {...form.register("profileResource", {
+                  required: true,
+                  pattern: namePattern,
+                })}
+              />
+            </Field>
+            <Field label="Timeout (seconds)" required hint="60–7200">
+              <input
+                type="number"
+                min={60}
+                max={7200}
+                {...form.register("timeoutSeconds", {
+                  valueAsNumber: true,
+                  min: 60,
+                  max: 7200,
+                })}
+              />
+            </Field>
+            <Field label="Egress profile" required>
+              <input
+                {...form.register("profileEgress", {
+                  required: true,
+                  pattern: namePattern,
+                })}
+              />
+            </Field>
+            <Field label="Infrastructure attempts" required hint="1–5">
+              <input
+                type="number"
+                min={1}
+                max={5}
+                {...form.register("maxAttempts", {
+                  valueAsNumber: true,
+                  min: 1,
+                  max: 5,
+                })}
+              />
+            </Field>
+          </div>
+
+          <div className="notice notice--warning">
+            <div>
+              <strong>
+                Build-secret and SSH profiles are not available yet
+              </strong>
+              <p>
+                This form accepts no build-secret values, file references, or
+                SSH keys.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <div className="build-definition-form__grid build-definition-form__grid--compact">
-        <Field label="Cache trust lane" required>
-          <input
-            {...form.register("cacheTrustLane", {
-              required: "Enter a cache trust lane.",
-              pattern: {
-                value: namePattern,
-                message: "Use a canonical profile name.",
-              },
-            })}
-          />
-        </Field>
-        <Field label="Cache imports" required hint="1–8 generations">
-          <input
-            type="number"
-            min={1}
-            max={8}
-            {...form.register("cacheImports", {
-              valueAsNumber: true,
-              min: 1,
-              max: 8,
-            })}
-          />
-        </Field>
-        <Field label="Resource profile" required>
-          <input
-            {...form.register("profileResource", {
-              required: true,
-              pattern: namePattern,
-            })}
-          />
-        </Field>
-        <Field label="Timeout (seconds)" required hint="60–7200">
-          <input
-            type="number"
-            min={60}
-            max={7200}
-            {...form.register("timeoutSeconds", {
-              valueAsNumber: true,
-              min: 60,
-              max: 7200,
-            })}
-          />
-        </Field>
-        <Field label="Egress profile" required>
-          <input
-            {...form.register("profileEgress", {
-              required: true,
-              pattern: namePattern,
-            })}
-          />
-        </Field>
-        <Field label="Infrastructure attempts" required hint="1–5">
-          <input
-            type="number"
-            min={1}
-            max={5}
-            {...form.register("maxAttempts", {
-              valueAsNumber: true,
-              min: 1,
-              max: 5,
-            })}
-          />
-        </Field>
-      </div>
+      </details>
 
       {installations.error ? <ErrorPanel error={installations.error} /> : null}
       {repositories.error ? <ErrorPanel error={repositories.error} /> : null}
