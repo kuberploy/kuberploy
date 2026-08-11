@@ -3,6 +3,7 @@ package argo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -52,22 +53,31 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		return false, ErrArgoRuntimePrerequisiteNotReady
 	}
 	type candidate struct {
-		bindingID         string
-		projectID         string
-		environmentID     string
-		previousCommandID string
+		bindingID                 string
+		projectID                 string
+		environmentID             string
+		latestCommandID           string
+		previousVerifiedCommandID string
 	}
 	var selected candidate
-	err = m.pool.QueryRow(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,COALESCE(latest.id::text,'')
+	err = m.pool.QueryRow(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
+	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,'')
 	FROM git_repository_bindings b
 	JOIN git_projection_generations generation
 	  ON generation.binding_id=b.id AND generation.generation=b.projection_generation
 	LEFT JOIN LATERAL (
-		SELECT command.id,command.state,command.environment_revision,command.environment_generation
+		SELECT command.id,command.state,command.environment_revision,command.environment_generation,
+		       command.chart_version,command.chart_digest,command.renderer_image
 		FROM argo_desired_state_commands command
 		WHERE command.environment_id=b.environment_id
 		ORDER BY command.generation DESC LIMIT 1
 	) latest ON true
+	LEFT JOIN LATERAL (
+		SELECT command.id
+		FROM argo_desired_state_commands command
+		WHERE command.environment_id=b.environment_id AND command.state='verified'
+		ORDER BY command.generation DESC LIMIT 1
+	) previous_verified ON true
 	WHERE b.kind='environment' AND b.credential_mode='github-app' AND b.credential_secret_name=''
 	  AND b.state='ready' AND b.target_head_revision=b.indexed_revision AND b.indexed_revision IS NOT NULL
 	  AND b.projection_generation>0 AND generation.state='active'
@@ -77,10 +87,15 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	      AND document.application_id IS NOT NULL)
 	  AND NOT EXISTS(SELECT 1 FROM argo_desired_state_commands live
 	    WHERE live.environment_id=b.environment_id AND live.state IN ('pending','claimed','git-committed'))
-	  AND (latest.id IS NULL OR (latest.state='verified' AND
-	    (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation)))
+	  AND (latest.id IS NULL OR
+	    (latest.state='verified' AND
+	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation)) OR
+	    (latest.state IN ('failed','superseded') AND
+	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
+	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3)))
 	ORDER BY b.indexed_at,b.id
-	LIMIT 1`).Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.previousCommandID)
+	LIMIT 1`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage).
+		Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID, &selected.previousVerifiedCommandID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -113,8 +128,8 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		return false, ErrInvalid
 	}
 	var previous *DesiredStateCommand
-	if selected.previousCommandID != "" {
-		value, readErr := m.store.DesiredStateCommand(ctx, selected.previousCommandID)
+	if selected.previousVerifiedCommandID != "" {
+		value, readErr := m.store.DesiredStateCommand(ctx, selected.previousVerifiedCommandID)
 		if readErr != nil {
 			return false, readErr
 		}
@@ -133,6 +148,23 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	}
 	if err != nil {
 		return false, err
+	}
+	if selected.latestCommandID != "" {
+		latest, readErr := m.store.DesiredStateCommand(ctx, selected.latestCommandID)
+		if readErr != nil {
+			return false, readErr
+		}
+		if latest.EnvironmentID != command.EnvironmentID || latest.ProjectID != command.ProjectID || latest.Generation < 1 ||
+			latest.Generation == int64(^uint64(0)>>1) {
+			return false, ErrInvalid
+		}
+		if command.Generation <= latest.Generation {
+			command.Generation = latest.Generation + 1
+			command.Message = fmt.Sprintf("Reconcile Argo desired state for environment %s generation %d", command.EnvironmentID, command.Generation)
+			if command.ValidateFor(target) != nil {
+				return false, ErrInvalid
+			}
+		}
 	}
 	created, err := m.store.CreateDesiredState(ctx, command)
 	if errors.Is(err, ErrConflict) {
