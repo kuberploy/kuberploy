@@ -111,6 +111,8 @@ describe("platform Argo Git authority page", () => {
       expect.any(String),
     );
     expect(await screen.findByText("kuberploy/platform-gitops")).toBeVisible();
+    expect(screen.getByText("platform")).toBeVisible();
+    expect(screen.queryByText("refs/heads/platform")).toBeNull();
     expect(screen.getByText(created.pathPrefix)).toBeVisible();
     expect(screen.queryByLabelText(/secret|credential|clone url/i)).toBeNull();
   });

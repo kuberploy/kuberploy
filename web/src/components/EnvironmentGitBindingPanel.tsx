@@ -2,12 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api, errorMessage } from "../api/client";
 import type { CreateEnvironmentGitBinding, Environment } from "../api/types";
-import { formatDate, shortId } from "../lib/format";
+import {
+  canonicalBranchRef,
+  formatDate,
+  gitRefLabel,
+  shortId,
+} from "../lib/format";
 import { Icon } from "./Icon";
 import { Button, ErrorPanel, Field, Skeleton, StatusPill } from "./ui";
 
-const branchRefPattern =
-  /^refs\/heads\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$/;
+const branchNamePattern =
+  /^(?!refs\/)[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$/;
 
 function isStatus(error: unknown, status: number) {
   return error instanceof ApiError && error.status === status;
@@ -43,7 +48,7 @@ export function EnvironmentGitBindingPanel({
   });
   const [installationId, setInstallationId] = useState("");
   const [repositoryId, setRepositoryId] = useState("");
-  const [targetRef, setTargetRef] = useState("refs/heads/main");
+  const [targetRef, setTargetRef] = useState("main");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
 
@@ -104,19 +109,18 @@ export function EnvironmentGitBindingPanel({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const branch = gitRefLabel(targetRef.trim());
     const value = {
       installationId,
       repositoryId,
-      targetRef: targetRef.trim(),
+      targetRef: canonicalBranchRef(branch),
     };
     if (!value.installationId || !value.repositoryId) {
       setValidationError("Select a verified installation and repository.");
       return;
     }
-    if (!branchRefPattern.test(value.targetRef)) {
-      setValidationError(
-        "Use a full branch ref such as refs/heads/main with no spaces.",
-      );
+    if (!branchNamePattern.test(branch)) {
+      setValidationError("Use a branch name such as main with no spaces.");
       return;
     }
     if (!confirmed) {
@@ -170,7 +174,7 @@ export function EnvironmentGitBindingPanel({
             <div>
               <dt>Target branch</dt>
               <dd>
-                <code>{binding.data.targetRef}</code>
+                <code>{gitRefLabel(binding.data.targetRef)}</code>
               </dd>
             </div>
             <div>
@@ -250,9 +254,9 @@ export function EnvironmentGitBindingPanel({
             </select>
           </Field>
           <Field
-            label="Target branch ref"
+            label="Target branch"
             required
-            hint="Use the full immutable authority ref, not a short branch name."
+            hint="Enter the branch name. Kuberploy stores its canonical Git ref."
           >
             <input
               value={targetRef}

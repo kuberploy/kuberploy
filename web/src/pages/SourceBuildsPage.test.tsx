@@ -208,7 +208,8 @@ describe("source-build workspace", () => {
     expect(
       screen.queryByRole("option", { name: /Restricted/ }),
     ).not.toBeInTheDocument();
-    expect(await screen.findAllByText("refs/heads/main")).not.toHaveLength(0);
+    expect(await screen.findAllByText("main")).not.toHaveLength(0);
+    expect(screen.queryByText("refs/heads/main")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Create immutable definition" }),
     ).not.toBeInTheDocument();

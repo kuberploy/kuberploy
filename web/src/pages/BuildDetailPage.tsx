@@ -19,7 +19,7 @@ import {
   hasBuildApplicationCapability,
   hasPotentialBuildAccess,
 } from "../lib/buildAccess";
-import { formatDate, shortId } from "../lib/format";
+import { formatDate, gitRefLabel, shortId } from "../lib/format";
 
 const activeStates = new Set(["queued", "preparing", "running", "cancelling"]);
 
@@ -213,7 +213,7 @@ export function BuildDetailPage() {
       <section className="build-detail-hero">
         <div>
           <span className="eyebrow eyebrow--light">Attempt state</span>
-          <h2>{currentAttempt.gitRef}</h2>
+          <h2>{gitRefLabel(currentAttempt.gitRef)}</h2>
           <code>{currentAttempt.commitSha}</code>
         </div>
         <StatusPill value={currentAttempt.state} />

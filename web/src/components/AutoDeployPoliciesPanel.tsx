@@ -8,7 +8,7 @@ import type {
   Capability,
   Project,
 } from "../api/types";
-import { formatDate, shortId } from "../lib/format";
+import { formatDate, gitRefLabel, shortId } from "../lib/format";
 import {
   canMutateAutoDeployPolicy,
   hasPotentialAutoDeployManagement,
@@ -272,7 +272,8 @@ export function AutoDeployPoliciesPanel({
             >
               {definitions.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.triggerRef} · {shortId(item.definitionDigest, 12)}
+                  {gitRefLabel(item.triggerRef)} ·{" "}
+                  {shortId(item.definitionDigest, 12)}
                 </option>
               ))}
             </select>

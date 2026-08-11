@@ -153,6 +153,7 @@ describe("build definition form", () => {
     ).toBeInTheDocument();
     expect(create).toHaveBeenCalledTimes(1);
     const input = create.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(input.triggerRef).toBe("refs/heads/main");
     expect(input).not.toHaveProperty("secretFiles");
     expect(input).not.toHaveProperty("sshFiles");
     expect(

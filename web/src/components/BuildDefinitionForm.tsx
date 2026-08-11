@@ -11,6 +11,7 @@ import type {
   RegistryTarget,
 } from "../api/types";
 import { hasBuildApplicationCapability } from "../lib/buildAccess";
+import { canonicalBranchRef, gitRefLabel } from "../lib/format";
 import { Icon } from "./Icon";
 import { Button, ErrorPanel, Field } from "./ui";
 
@@ -108,7 +109,7 @@ export function BuildDefinitionForm({
       installationId: "",
       repositoryId: "",
       registryTargetId: "",
-      triggerRef: "refs/heads/main",
+      triggerRef: "main",
       contextPath: ".",
       dockerfilePath: "Dockerfile",
       amd64: true,
@@ -168,11 +169,15 @@ export function BuildDefinitionForm({
       if (value.amd64) platforms.push("linux/amd64");
       if (value.arm64) platforms.push("linux/arm64");
       if (!platforms.length) throw new Error("Select at least one platform.");
+      const enteredRef = value.triggerRef.trim();
+      const triggerRef = enteredRef.startsWith("refs/tags/")
+        ? enteredRef
+        : canonicalBranchRef(gitRefLabel(enteredRef));
       const input: CreateBuildDefinition = {
         installationId: value.installationId,
         repositoryId: value.repositoryId,
         registryTargetId: value.registryTargetId,
-        triggerRef: value.triggerRef.trim(),
+        triggerRef,
         contextPath: value.contextPath.trim(),
         dockerfilePath: value.dockerfilePath.trim(),
         platforms,
@@ -287,7 +292,7 @@ export function BuildDefinitionForm({
             </select>
           </Field>
           <Field
-            label="Git ref"
+            label="Branch or tag"
             required
             hint="A verified push to this branch or tag starts a build."
             error={form.formState.errors.triggerRef?.message}
@@ -296,8 +301,9 @@ export function BuildDefinitionForm({
               {...form.register("triggerRef", {
                 required: "Enter a branch or tag ref.",
                 pattern: {
-                  value: /^refs\/(heads|tags)\/.+/,
-                  message: "Use refs/heads/... or refs/tags/....",
+                  value:
+                    /^(?:refs\/tags\/[A-Za-z0-9][A-Za-z0-9._/-]*|(?:refs\/heads\/)?[A-Za-z0-9][A-Za-z0-9._/-]*)$/,
+                  message: "Use a branch name or a full refs/tags/... ref.",
                 },
                 maxLength: {
                   value: 255,

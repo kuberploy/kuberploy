@@ -36,6 +36,18 @@ export function shortId(value?: string, size = 8): string {
   return cleaned.length > size ? cleaned.slice(0, size) : cleaned;
 }
 
+export function gitRefLabel(value?: string): string {
+  if (!value) return "—";
+  return value.startsWith("refs/heads/")
+    ? value.slice("refs/heads/".length)
+    : value;
+}
+
+export function canonicalBranchRef(value: string): string {
+  const branch = value.trim();
+  return branch.startsWith("refs/heads/") ? branch : `refs/heads/${branch}`;
+}
+
 export function titleCase(value?: string): string {
   if (!value) return "Unknown";
   return value

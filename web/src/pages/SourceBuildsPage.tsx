@@ -21,7 +21,7 @@ import {
   buildReadableApplications,
   hasBuildApplicationCapability,
 } from "../lib/buildAccess";
-import { formatDate, shortId } from "../lib/format";
+import { formatDate, gitRefLabel, shortId } from "../lib/format";
 import {
   hasRegistryApplicationCapability,
   hasRegistryPlatformCapability,
@@ -62,7 +62,7 @@ function BuildAttemptRow({
         <small>Generation {attempt.generation}</small>
       </div>
       <div className="build-attempt-row__source">
-        <strong>{attempt.gitRef}</strong>
+        <strong>{gitRefLabel(attempt.gitRef)}</strong>
         <code>{shortId(attempt.commitSha, 12)}</code>
       </div>
       <div className="build-attempt-row__result">
@@ -401,7 +401,7 @@ export function SourceBuildsPage() {
                         key={definition.id}
                       >
                         <div>
-                          <strong>{definition.triggerRef}</strong>
+                          <strong>{gitRefLabel(definition.triggerRef)}</strong>
                           <code>
                             {shortId(definition.definitionDigest, 12)}
                           </code>

@@ -13,10 +13,15 @@ import {
   Skeleton,
   StatusPill,
 } from "../components/ui";
-import { formatDate, shortId } from "../lib/format";
+import {
+  canonicalBranchRef,
+  formatDate,
+  gitRefLabel,
+  shortId,
+} from "../lib/format";
 
-const branchRefPattern =
-  /^refs\/heads\/[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$/;
+const branchNamePattern =
+  /^(?!refs\/)[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$/;
 
 function isStatus(error: unknown, status: number) {
   return error instanceof ApiError && error.status === status;
@@ -49,7 +54,7 @@ export function PlatformArgoGitBindingPage() {
   });
   const [installationId, setInstallationId] = useState("");
   const [repositoryId, setRepositoryId] = useState("");
-  const [targetRef, setTargetRef] = useState("refs/heads/platform");
+  const [targetRef, setTargetRef] = useState("platform");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
 
@@ -99,15 +104,14 @@ export function PlatformArgoGitBindingPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const exactRef = targetRef.trim();
+    const branch = gitRefLabel(targetRef.trim());
+    const exactRef = canonicalBranchRef(branch);
     if (!installationId || !repositoryId) {
       setValidationError("Select a verified installation and repository.");
       return;
     }
-    if (!branchRefPattern.test(exactRef)) {
-      setValidationError(
-        "Use a full branch ref such as refs/heads/platform with no spaces.",
-      );
+    if (!branchNamePattern.test(branch)) {
+      setValidationError("Use a branch name such as platform with no spaces.");
       return;
     }
     if (!confirmed) {
@@ -180,9 +184,9 @@ export function PlatformArgoGitBindingPage() {
               </dd>
             </div>
             <div>
-              <dt>Target branch ref</dt>
+              <dt>Target branch</dt>
               <dd>
-                <code>{binding.data.targetRef}</code>
+                <code>{gitRefLabel(binding.data.targetRef)}</code>
               </dd>
             </div>
             <div>
@@ -300,9 +304,9 @@ export function PlatformArgoGitBindingPage() {
               </select>
             </Field>
             <Field
-              label="Target branch ref"
+              label="Target branch"
               required
-              hint="Full refs/heads/... form. The protected path is derived by Kuberploy."
+              hint="Enter the branch name. The protected path is derived by Kuberploy."
             >
               <input
                 value={targetRef}
@@ -310,7 +314,7 @@ export function PlatformArgoGitBindingPage() {
                   setTargetRef(event.target.value);
                   setConfirmed(false);
                 }}
-                placeholder="refs/heads/platform"
+                placeholder="platform"
                 autoComplete="off"
                 spellCheck={false}
                 maxLength={210}

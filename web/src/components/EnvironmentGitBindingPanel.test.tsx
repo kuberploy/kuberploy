@@ -137,6 +137,8 @@ describe("environment Git authority panel", () => {
     expect(
       await screen.findByText("kuberploy/application-gitops"),
     ).toBeVisible();
+    expect(screen.getByText("development")).toBeVisible();
+    expect(screen.queryByText("refs/heads/development")).toBeNull();
     expect(screen.getByText(created.pathPrefix)).toBeVisible();
   });
 
