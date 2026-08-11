@@ -112,7 +112,7 @@
       "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $component.expectedPackageVersion "runtimeChartDigest" $github.runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
       "autoDeploy" (dict "enabled" true)
     )
-    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs "allowSharedNodeEndpoint" $github.allowSharedNodeEndpoint))
+    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
     "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
     "rbac" (dict "argoNamespace" $github.argoNamespace)
   -}}
@@ -120,7 +120,7 @@
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.enabled -}}
   {{- $registry := $root.Values.integrations.registry -}}
-  {{- $registryConfigIdentity := dict "authMode" "htpasswd" "authRealm" "kuberploy-registry" "port" 5000 -}}
+  {{- $registryConfigIdentity := dict "authMode" "htpasswd" "authRealm" "kuberploy-registry" "port" 5000 "tls" true -}}
   {{- $registryConfigMap := printf "registry-config-%s" (toJson $registryConfigIdentity | sha256sum | trunc 12) -}}
   {{- $externalEgress := $registry.controlPlaneEgressCIDRs -}}
   {{- if $root.Values.integrations.github.enabled -}}

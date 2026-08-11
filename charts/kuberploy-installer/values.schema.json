@@ -111,7 +111,7 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "platformBindingID", "argoNamespace", "psaVersion", "runtimeChartDigest", "buildKitImage", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs", "allowSharedNodeEndpoint"],
+          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "platformBindingID", "argoNamespace", "psaVersion", "runtimeChartDigest", "buildKitImage", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
             "enabled": { "type": "boolean" },
             "appID": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
@@ -126,13 +126,12 @@
             "buildKitImage": { "type": "string", "maxLength": 512, "pattern": "^(?:|[^\\s@]+:v0\\.32\\.2)$" },
             "controlPlaneEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
             "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-            "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-            "allowSharedNodeEndpoint": { "type": "boolean", "default": false }
+            "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
           },
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "const": 0 }, "clientID": { "const": "" }, "appSlug": { "const": "" }, "secretName": { "const": "" }, "clusterID": { "const": "" }, "platformBindingID": { "const": "" }, "argoNamespace": { "const": "" }, "psaVersion": { "const": "" }, "runtimeChartDigest": { "const": "" }, "buildKitImage": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "sourceEgressCIDRs": { "maxItems": 0 }, "registryEgressCIDRs": { "maxItems": 0 }, "allowSharedNodeEndpoint": { "const": false } } }
+              "then": { "properties": { "appID": { "const": 0 }, "clientID": { "const": "" }, "appSlug": { "const": "" }, "secretName": { "const": "" }, "clusterID": { "const": "" }, "platformBindingID": { "const": "" }, "argoNamespace": { "const": "" }, "psaVersion": { "const": "" }, "runtimeChartDigest": { "const": "" }, "buildKitImage": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "sourceEgressCIDRs": { "maxItems": 0 }, "registryEgressCIDRs": { "maxItems": 0 } } }
             },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },

@@ -43,7 +43,7 @@ kuberploy.io/test-run: {{ . | quote }}
 {{- end -}}
 
 {{- define "kuberploy-registry.configName" -}}
-{{- $config := dict "authMode" .Values.auth.mode "authRealm" .Values.auth.realm "port" .Values.service.port -}}
+{{- $config := dict "authMode" .Values.auth.mode "authRealm" .Values.auth.realm "port" .Values.service.port "tls" (ne .Values.exposure.mode "internal") -}}
 {{- printf "%s-config-%s" (include "kuberploy-registry.fullname" .) (toJson $config | sha256sum | trunc 12) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 

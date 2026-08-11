@@ -32,6 +32,11 @@ data:
     http:
       addr: :{{ .Values.service.port }}
       draintimeout: 60s
+      {{- if ne .Values.exposure.mode "internal" }}
+      tls:
+        certificate: /tls/tls.crt
+        key: /tls/tls.key
+      {{- end }}
       headers:
         X-Content-Type-Options: [nosniff]
     health:

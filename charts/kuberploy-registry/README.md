@@ -8,6 +8,14 @@ remains a ClusterIP Service. Its HTTPS exposure uses the shared Traefik edge and
 cert-manager ClusterIssuer so node kubelets and isolated builders need no
 NodePort, insecure-registry configuration, or custom node CA.
 
+For ingress or LoadBalancer exposure, the same cert-manager Secret is mounted
+read-only into Distribution. The backend therefore serves TLS directly, the
+ClusterIP Service exposes TCP 443, and Traefik verifies a normal HTTPS backend.
+Cluster DNS may resolve the public registry hostname to this ClusterIP for
+in-cluster clients; kubelets continue resolving the public endpoint from the
+node network. The control-plane chart grants build Pods only the exact registry
+Pod selector and backend port, never broad access to Traefik or node addresses.
+
 The default `enabled: false` renders no Kubernetes resources. An enabled
 production render is fail-closed and requires:
 

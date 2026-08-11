@@ -14,7 +14,7 @@ spec:
     {{- include "kuberploy-registry.selectorLabels" . | nindent 4 }}
   ports:
     - name: registry
-      port: {{ .Values.service.port }}
+      port: {{ if eq .Values.exposure.mode "internal" }}{{ .Values.service.port }}{{ else }}443{{ end }}
       protocol: TCP
       targetPort: registry
 {{- end }}

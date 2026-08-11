@@ -53,8 +53,7 @@
       "properties": {
         "enabled": { "const": true },
         "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-        "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-        "allowSharedNodeEndpoint": { "type": "boolean", "default": false }
+        "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
       }
     },
     "resourceQuota": {

@@ -130,7 +130,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- range concat $github.controlPlaneEgressCIDRs $github.sourceEgressCIDRs $github.registryEgressCIDRs -}}
     {{- if or (has . (list "0.0.0.0/0" "::/0")) (not (regexMatch "(?:/32|/128)$" .)) -}}{{ fail "GitHub integration egress accepts only exact /32 or /128 hosts" }}{{- end -}}
   {{- end -}}
-{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (ne $github.platformBindingID "") (ne $github.argoNamespace "") (ne $github.psaVersion "") (ne $github.runtimeChartDigest "") (ne $github.buildKitImage "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) $github.allowSharedNodeEndpoint -}}
+{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (ne $github.platformBindingID "") (ne $github.argoNamespace "") (ne $github.psaVersion "") (ne $github.runtimeChartDigest "") (ne $github.buildKitImage "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) -}}
   {{- fail "disabled GitHub integration rejects dormant configuration" -}}
 {{- end -}}
 

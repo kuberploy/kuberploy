@@ -48,10 +48,12 @@ kp_expected_image='docker.io/library/registry:3.1.1'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_auth_render}")" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.strategy.type' "${kp_auth_render}")" == "Recreate" ]]
 [[ "$(yq eval-all 'select(.kind == "Service") | .spec.type' "${kp_auth_render}")" == "ClusterIP" ]]
+[[ "$(yq eval-all 'select(.kind == "Service") | .spec.ports[0].port' "${kp_auth_render}")" == "443" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.ingressClassName' "${kp_auth_render}")" == "traefik" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.rules[0].host' "${kp_auth_render}")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.tls[0].secretName' "${kp_auth_render}")" == "registry-tls" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."external-dns.alpha.kubernetes.io/cloudflare-proxied"' "${kp_auth_render}")" == "false" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."traefik.ingress.kubernetes.io/service.serversscheme"' "${kp_auth_render}")" == "https" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.rules[0].http.paths[0].backend.service.port.name' "${kp_auth_render}")" == "registry" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.secretName' "${kp_auth_render}")" == "registry-tls" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.issuerRef.name' "${kp_auth_render}")" == "kuberploy-letsencrypt-production" ]]
@@ -72,12 +74,16 @@ kp_expected_image='docker.io/library/registry:3.1.1'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].env[] | select(.name == "REGISTRY_HTTP_SECRET") | .valueFrom.secretKeyRef.key' "${kp_auth_render}")" == "httpSecret" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "auth") | .secret.secretName' "${kp_auth_render}")" == "registry-auth" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "auth") | .secret.items[0].key' "${kp_auth_render}")" == "htpasswd" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "tls") | .secret.secretName' "${kp_auth_render}")" == "registry-tls" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "tls") | .mountPath' "${kp_auth_render}")" == "/tls" ]]
 
 kp_config="$(yq eval-all 'select(.kind == "ConfigMap") | .data."config.yml"' "${kp_auth_render}")"
 grep -F 'rootdirectory: /var/lib/registry' <<<"${kp_config}" >/dev/null
 grep -F 'path: /auth/htpasswd' <<<"${kp_config}" >/dev/null
 grep -A1 -F 'delete:' <<<"${kp_config}" | grep -F 'enabled: true' >/dev/null
 grep -F 'addr: :5000' <<<"${kp_config}" >/dev/null
+grep -F 'certificate: /tls/tls.crt' <<<"${kp_config}" >/dev/null
+grep -F 'key: /tls/tls.key' <<<"${kp_config}" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[].namespaceSelector.matchLabels."kubernetes.io/metadata.name"] | sort | join(",")' "${kp_auth_render}" | tail -1)" == "kuberploy,kuberploy-build" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_auth_render}")" == "0" ]]
@@ -189,8 +195,10 @@ helm template test-only "${kp_chart}" \
   --namespace kuberploy-e2e-render \
   -f "${kp_test_values}" >"${kp_test_render}"
 yq eval-all 'true' "${kp_test_render}" >/dev/null
+[[ "$(yq eval-all 'select(.kind == "Service") | .spec.ports[0].port' "${kp_test_render}")" == "5000" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.metadata.annotations."kuberploy.io/security-warning"' "${kp_test_render}")" == "test-only-unauthenticated" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "auth")] | length' "${kp_test_render}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "tls")] | length' "${kp_test_render}" | tail -1)" == "0" ]]
 if grep -F 'auth:' <<<"$(yq eval-all 'select(.kind == "ConfigMap") | .data."config.yml"' "${kp_test_render}")" >/dev/null; then
   printf 'test-only registry unexpectedly rendered an auth provider\n' >&2
   exit 1

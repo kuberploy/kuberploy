@@ -126,7 +126,7 @@ app.kubernetes.io/component: {{ .component }}
     {{- fail (printf "builder.networkPolicy.%sEgressCIDRs must contain only /32 or /128 hosts" $kind) -}}
     {{- end -}}
     {{- range $api := $.Values.networkPolicy.kubeAPIServerCIDRs -}}
-      {{- if and (eq $cidr $api) (or (ne $kind "registry") (not $.Values.builder.networkPolicy.allowSharedNodeEndpoint)) -}}
+      {{- if eq $cidr $api -}}
       {{- fail "builder egress and Kubernetes API CIDRs must be disjoint" -}}
       {{- end -}}
     {{- end -}}

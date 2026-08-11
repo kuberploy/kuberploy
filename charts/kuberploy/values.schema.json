@@ -1566,12 +1566,11 @@
         "networkPolicy": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "sourceEgressCIDRs", "registryEgressCIDRs", "allowSharedNodeEndpoint"],
+          "required": ["enabled", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
             "enabled": { "const": true },
             "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-            "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-            "allowSharedNodeEndpoint": { "type": "boolean", "default": false }
+            "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
           }
         },
         "resourceQuota": {

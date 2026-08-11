@@ -99,6 +99,11 @@ spec:
               mountPath: /auth
               readOnly: true
             {{- end }}
+            {{- if ne .Values.exposure.mode "internal" }}
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -118,5 +123,16 @@ spec:
             items:
               - key: htpasswd
                 path: htpasswd
+        {{- end }}
+        {{- if ne .Values.exposure.mode "internal" }}
+        - name: tls
+          secret:
+            secretName: {{ .Values.exposure.secretName }}
+            defaultMode: 0440
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
         {{- end }}
 {{- end }}
