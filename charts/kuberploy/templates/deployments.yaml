@@ -280,6 +280,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_BUILD_LOGS_ENABLED
+            - name: KUBERPLOY_AUTO_DEPLOY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_AUTO_DEPLOY_ENABLED
             - name: KUBERPLOY_GITHUB_APP_ID
               valueFrom:
                 configMapKeyRef:

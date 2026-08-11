@@ -20,6 +20,7 @@ admissionPolicy:
 
 networkPolicy:
   enabled: true
+  allowSharedNodeEndpoint: false
 
 resourceQuota:
   hard:

@@ -27,7 +27,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.58` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.59` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -452,6 +452,12 @@ egress-proxy CIDR before enabling GitHub, external Git/OCI, release checks, or
 an adopted Prometheus endpoint. Provider ranges must be disjoint from every
 Kubernetes API range; exact duplicates are rejected at render time, while the
 installer must reject broader CIDR containment before supplying chart values.
+
+Single-node clusters may intentionally expose a registry on TCP 443 and the
+Kubernetes API on TCP 6443 at the same node address. Set
+`builder.networkPolicy.allowSharedNodeEndpoint=true` only for that topology.
+The option is default-off, applies only to registry egress (never source
+egress), and does not permit overlaps with general provider egress.
 
 `config.valkey.mode=external` keeps the explicit compatibility contract: API
 and worker read the generic address, username, and password keys. Managed mode

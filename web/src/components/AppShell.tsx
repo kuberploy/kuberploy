@@ -227,19 +227,6 @@ export function AppShell({ user }: { user: Principal }) {
               <span>Helm approvals</span>
             </Link>
           ) : null}
-          {user.role === "platform-admin" &&
-          user.authentication.kind === "session" &&
-          capabilities.data?.features?.schedulingProfiles === true ? (
-            <Link
-              to="/settings/scheduling-profiles"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="layers" />
-              <span>Scheduling profiles</span>
-            </Link>
-          ) : null}
           {user.authentication.kind === "session" &&
           capabilities.data?.features?.middlewareProfiles === true ? (
             <Link

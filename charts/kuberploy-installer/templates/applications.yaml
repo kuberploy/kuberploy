@@ -112,7 +112,7 @@
       "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $component.expectedPackageVersion "runtimeChartDigest" $github.runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
       "autoDeploy" (dict "enabled" true)
     )
-    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
+    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs "allowSharedNodeEndpoint" $github.allowSharedNodeEndpoint))
     "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
     "rbac" (dict "argoNamespace" $github.argoNamespace)
   -}}

@@ -162,6 +162,21 @@ describe("platform upgrade navigation", () => {
   });
 });
 
+describe("application scheduling navigation", () => {
+  it("keeps scheduling in each service configuration instead of platform navigation", async () => {
+    renderShell(
+      { features: { schedulingProfiles: true } },
+      "platform-admin",
+      "session",
+    );
+
+    await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
+    expect(
+      screen.queryByRole("link", { name: "Scheduling profiles" }),
+    ).toBeNull();
+  });
+});
+
 describe("Helm approval navigation", () => {
   const exactGrant: Capabilities = {
     features: { helmApprovals: true },

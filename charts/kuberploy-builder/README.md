@@ -20,6 +20,9 @@ passes `networkPolicy.sourceEgressCIDRs` and `registryEgressCIDRs`. This chart
 validates them as exact IPv4 `/32` or IPv6 `/128` hosts but does not render a
 broad static allow rule; the controller binds the resolved hosts to each
 run-scoped policy.
+`networkPolicy.allowSharedNodeEndpoint` is parent-validated and default-off;
+it permits only an explicitly acknowledged registry/API node address shared
+across TCP 443 and TCP 6443.
 
 `buildKitImage` is an explicit `v0.32.2` text-version reference. It may point
 to an operator mirror; the control plane binds the exact reference into every

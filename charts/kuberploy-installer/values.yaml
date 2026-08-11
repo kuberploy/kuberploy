@@ -66,6 +66,7 @@ integrations:
     controlPlaneEgressCIDRs: []
     sourceEgressCIDRs: []
     registryEgressCIDRs: []
+    allowSharedNodeEndpoint: false
   registry:
     enabled: false
     targetID: ""
