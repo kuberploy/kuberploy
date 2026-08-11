@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { BuildAttempt, RegistryTarget } from "../api/types";
+import type { BuildAttempt } from "../api/types";
 import { BuildAttemptActions } from "../components/BuildAttemptActions";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { AutoDeployPoliciesPanel } from "../components/AutoDeployPoliciesPanel";
@@ -22,10 +22,7 @@ import {
   hasBuildApplicationCapability,
 } from "../lib/buildAccess";
 import { formatDate, gitRefLabel, shortId } from "../lib/format";
-import {
-  hasRegistryApplicationCapability,
-  hasRegistryPlatformCapability,
-} from "../lib/registryAccess";
+import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 
 const activeBuildStates = new Set([
   "queued",
@@ -33,14 +30,6 @@ const activeBuildStates = new Set([
   "running",
   "cancelling",
 ]);
-
-function uniqueRegistryTargets(targets: RegistryTarget[]) {
-  const byID = new Map<string, RegistryTarget>();
-  for (const target of targets) byID.set(target.id, target);
-  return [...byID.values()].sort((left, right) =>
-    left.name.localeCompare(right.name),
-  );
-}
 
 function BuildAttemptRow({
   attempt,
@@ -153,10 +142,6 @@ export function SourceBuildsPage() {
       selectedProject,
     ),
   );
-  const canReadPlatformTargets = hasRegistryPlatformCapability(
-    effectiveCapabilities,
-    "registry-targets:read",
-  );
   const applicationRegistry = useQuery({
     queryKey: ["application-registry", selectedApplicationId],
     queryFn: () => api.applicationRegistry(selectedApplicationId, 100),
@@ -167,20 +152,8 @@ export function SourceBuildsPage() {
       canReadApplicationRegistry,
     retry: false,
   });
-  const platformRegistryTargets = useQuery({
-    queryKey: ["registry-targets", 100],
-    queryFn: () => api.registryTargets(100),
-    enabled: buildsEnabled && registryEnabled && canReadPlatformTargets,
-    retry: false,
-  });
-  const registryTargets = useMemo(
-    () =>
-      uniqueRegistryTargets([
-        ...(applicationRegistry.data?.items.map((item) => item.target) ?? []),
-        ...(platformRegistryTargets.data?.items ?? []),
-      ]),
-    [applicationRegistry.data, platformRegistryTargets.data],
-  );
+  const registryTargets =
+    applicationRegistry.data?.items.map((item) => item.target) ?? [];
   const definitions = useQuery({
     queryKey: ["build-definitions", selectedApplicationId],
     queryFn: () => api.buildDefinitions(selectedApplicationId),
@@ -203,10 +176,7 @@ export function SourceBuildsPage() {
   const loadError =
     me.error ?? capabilities.error ?? projects.error ?? applications.error;
   const buildError =
-    definitions.error ??
-    attempts.error ??
-    applicationRegistry.error ??
-    platformRegistryTargets.error;
+    definitions.error ?? attempts.error ?? applicationRegistry.error;
   const loadingBuildCatalog =
     buildsEnabled &&
     (projects.isPending || applications.isPending || capabilities.isPending);
@@ -336,7 +306,6 @@ export function SourceBuildsPage() {
                   definitions.refetch(),
                   attempts.refetch(),
                   applicationRegistry.refetch(),
-                  platformRegistryTargets.refetch(),
                 ])
               }
             />

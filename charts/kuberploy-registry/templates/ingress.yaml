@@ -1,4 +1,17 @@
 {{- if and .Values.enabled (ne .Values.exposure.mode "internal") }}
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: {{ include "kuberploy-registry.fullname" . }}-backend
+  labels:
+    {{- include "kuberploy-registry.labels" . | nindent 4 }}
+spec:
+  # The registry serves its public cert-manager certificate on the internal
+  # Service too. Traefik connects by ClusterIP, so it must verify that
+  # certificate against the public endpoint name instead of the Service DNS
+  # name. Verification remains enabled; insecureSkipVerify is never used.
+  serverName: {{ .Values.exposure.endpoint | quote }}
+---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -11,7 +24,6 @@ metadata:
     external-dns.alpha.kubernetes.io/hostname: {{ .Values.exposure.endpoint | quote }}
     {{- end }}
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/service.serversscheme: https
 spec:
   ingressClassName: {{ .Values.exposure.ingressClassName }}
   tls:

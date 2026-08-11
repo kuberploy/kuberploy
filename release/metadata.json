@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Qualification RC retaining the seven-migration Prisma baseline and 101 authority-fenced tables. It restores real Kubernetes build-log reads for list items without TypeMeta and emits only fixed, server-owned builder lifecycle progress while keeping untrusted tool output private. It retains the single Helm installer and rejects pre-Prisma RC databases.",
+  "summary": "Qualification RC fixing workload Argo revision identity, verified TLS transport to the managed registry, application-bound registry build policy, and service-scoped scheduling UX while retaining the seven-migration Prisma baseline and single Helm installer.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.63"
+  "version": "0.1.0-rc.64"
 }

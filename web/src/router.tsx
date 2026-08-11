@@ -26,7 +26,6 @@ import { BuildDetailPage } from "./pages/BuildDetailPage";
 import { GitHubSetupCompletePage } from "./pages/GitHubSetupCompletePage";
 import { PlatformArgoGitBindingPage } from "./pages/PlatformArgoGitBindingPage";
 import { HelmApprovalsPage } from "./pages/HelmApprovalsPage";
-import { SchedulingProfilesPage } from "./pages/SchedulingProfilesPage";
 import { MiddlewareProfilesPage } from "./pages/MiddlewareProfilesPage";
 import { VariableSetsPage } from "./pages/VariableSetsPage";
 import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
@@ -173,11 +172,6 @@ const helmApprovalsRoute = createRoute({
   path: "/settings/helm-approvals",
   component: HelmApprovalsPage,
 });
-const schedulingProfilesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/settings/scheduling-profiles",
-  component: SchedulingProfilesPage,
-});
 const middlewareProfilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/middleware-profiles",
@@ -210,7 +204,6 @@ const routeTree = rootRoute.addChildren([
   upgradeRoute,
   platformArgoGitBindingRoute,
   helmApprovalsRoute,
-  schedulingProfilesRoute,
   middlewareProfilesRoute,
   certificateIssuersRoute,
 ]);

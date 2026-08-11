@@ -221,4 +221,66 @@ describe("source-build workspace", () => {
     );
     expect(api.buildAttempts).toHaveBeenCalledWith("application-safe", 50);
   });
+
+  it("does not offer a platform target without an application policy", async () => {
+    vi.spyOn(api, "applicationRegistry").mockResolvedValue({
+      items: [],
+      truncated: false,
+    });
+    const platformTargets = vi.spyOn(api, "registryTargets").mockResolvedValue({
+      items: [
+        {
+          id: "target-platform-only",
+          name: "Platform registry",
+          mode: "managed",
+          endpoint: "https://registry.example.test",
+          repositoryPrefix: "tenant",
+          pullCredentialRef: "pull",
+          pushCredentialRef: "push",
+          cacheCredentialRef: "cache",
+          createdAt: "2026-08-09T00:00:00Z",
+          updatedAt: "2026-08-09T00:00:00Z",
+        },
+      ],
+      truncated: false,
+    });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+
+    renderPage({
+      features: {
+        githubAppSetup: true,
+        builds: true,
+        builder: true,
+        registry: true,
+      },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: [
+            "build-definitions:read",
+            "build-definitions:write",
+            "builds:read",
+            "registry:read",
+          ],
+        },
+        {
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["registry-targets:read"],
+        },
+      ],
+    });
+
+    expect(
+      await screen.findByText("No accessible registry target"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: /Platform registry/ }),
+    ).not.toBeInTheDocument();
+    expect(platformTargets).not.toHaveBeenCalled();
+  });
 });

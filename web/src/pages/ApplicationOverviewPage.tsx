@@ -2,15 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { RegistryTarget } from "../api/types";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { Icon } from "../components/Icon";
-import {
-  hasRegistryApplicationCapability,
-  hasRegistryPlatformCapability,
-} from "../lib/registryAccess";
+import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
   Card,
   EmptyState,
@@ -23,10 +19,6 @@ import {
 
 type SourceKind = "build" | "image" | "helm";
 type WorkspaceTab = "overview" | "source" | "runtime";
-
-function uniqueTargets(targets: RegistryTarget[]) {
-  return [...new Map(targets.map((target) => [target.id, target])).values()];
-}
 
 function compactImageReference(image?: string) {
   if (!image) return "Image pending";
@@ -93,17 +85,6 @@ export function ApplicationOverviewPage() {
     enabled:
       capabilities.data?.features?.registry === true &&
       canReadApplicationRegistry,
-    retry: false,
-  });
-  const platformRegistry = useQuery({
-    queryKey: ["registry-targets", 100],
-    queryFn: () => api.registryTargets(100),
-    enabled:
-      capabilities.data?.features?.registry === true &&
-      hasRegistryPlatformCapability(
-        effectiveCapabilities,
-        "registry-targets:read",
-      ),
     retry: false,
   });
 
@@ -339,10 +320,9 @@ export function ApplicationOverviewPage() {
                 project={project}
                 capabilities={effectiveCapabilities}
                 humanSession={humanSession}
-                registryTargets={uniqueTargets([
-                  ...(registry.data?.items.map((item) => item.target) ?? []),
-                  ...(platformRegistry.data?.items ?? []),
-                ])}
+                registryTargets={
+                  registry.data?.items.map((item) => item.target) ?? []
+                }
               />
             )}
           </Card>

@@ -760,11 +760,11 @@ export function NewDeploymentPage() {
             <div className="form-card__heading">
               <span>04</span>
               <div>
-                <h2>Scheduling</h2>
+                <h2>Scheduling for this service</h2>
                 <p>
-                  Select an administrator-managed immutable placement profile.
-                  Kuberploy never mutates Nodes, taints, NodePools, or
-                  NodeClasses.
+                  Choose this app's placement policy independently from every
+                  other service. Kuberploy never mutates Nodes, taints,
+                  NodePools, or NodeClasses.
                 </p>
               </div>
             </div>

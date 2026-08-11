@@ -30,13 +30,13 @@ func (r *PostgreSQLObservationTargetResolver) ResolveArgoObservationTarget(ctx c
 	if r == nil || r.pool == nil || !uuidRE.MatchString(deploymentID) {
 		return ObservationTarget{}, ErrInvalid
 	}
-	rows, err := r.pool.Query(ctx, `SELECT d.id::text,a.id::text,p.id::text,e.id::text,p.name,p.slug,e.slug,e.namespace,e.argo_project,b.target_head_revision
+	rows, err := r.pool.Query(ctx, `SELECT d.id::text,a.id::text,p.id::text,e.id::text,p.name,p.slug,e.slug,e.namespace,e.argo_project,d.desired_revision
 		FROM deployments d
 		JOIN applications a ON a.id=d.application_id
 		JOIN environments e ON e.id=d.environment_id
 		JOIN projects p ON p.id=a.project_id AND p.id=e.project_id
 		JOIN git_repository_bindings b ON b.kind='environment' AND b.project_id=p.id AND b.environment_id=e.id
-		WHERE d.id=$1 AND b.target_head_revision IS NOT NULL AND b.state<>'missing-ref'
+		WHERE d.id=$1 AND d.desired_revision<>'' AND b.target_head_revision IS NOT NULL AND b.state<>'missing-ref'
 		ORDER BY b.id`, deploymentID)
 	if err != nil {
 		return ObservationTarget{}, classifyPostgres(err)

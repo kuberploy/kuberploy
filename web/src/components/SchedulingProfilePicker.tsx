@@ -28,8 +28,8 @@ export function SchedulingProfilePicker({
   return (
     <div>
       <Field
-        label="Scheduling profile"
-        hint="Optional. Platform admins own placement rules; deployments select only an exact assigned revision."
+        label="Scheduling for this service"
+        hint="Optional. This selection is saved only in this service's AppConfig. Infrastructure administrators define the safe placement policies available here."
       >
         <select
           value={value ? `${value.profileId}@${value.revision}` : ""}
@@ -53,7 +53,7 @@ export function SchedulingProfilePicker({
           }}
         >
           {allowClear ? (
-            <option value="">Default Kubernetes scheduling</option>
+            <option value="">Default scheduling for this service</option>
           ) : null}
           {profiles.data?.items.map((item) => (
             <option

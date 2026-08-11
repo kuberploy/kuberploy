@@ -837,10 +837,10 @@ export function GuidedConfigForm({
             <Icon name="layers" />
           </span>
           <div>
-            <h3>Scheduling</h3>
+            <h3>Scheduling for this service</h3>
             <p>
-              Kubernetes placement controls for Karpenter and fixed node pools.
-              These are Pod tolerations—Kuberploy never edits taints.
+              Choose how this app is placed on Karpenter or fixed node pools.
+              Other services keep their own independent selection.
             </p>
           </div>
         </div>
@@ -859,14 +859,14 @@ export function GuidedConfigForm({
           />
         ) : (
           <p className="field-hint">
-            Scheduling profiles are unavailable. Existing effective placement
-            remains visible in Advanced YAML and cannot be edited here.
+            Scheduling policies are unavailable. Existing placement remains
+            visible in Advanced YAML and cannot be edited here.
           </p>
         )}
         <p className="field-hint">
-          Effective node selectors, required affinity, topology spread,
-          tolerations, and priority class are read-only server material.
-          Kuberploy never edits taints or provisioning resources.
+          The selected policy materializes node selectors, affinity, topology
+          spread, tolerations, and priority class for this app only. Kuberploy
+          never edits Nodes, taints, or provisioning resources.
         </p>
       </section>
 

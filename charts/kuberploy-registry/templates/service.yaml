@@ -5,6 +5,13 @@ metadata:
   name: {{ include "kuberploy-registry.fullname" . }}
   labels:
     {{- include "kuberploy-registry.labels" . | nindent 4 }}
+  {{- if ne .Values.exposure.mode "internal" }}
+  annotations:
+    # Traefik service annotations, not Ingress annotations: this transport
+    # verifies the registry's public certificate with its public DNS name.
+    traefik.ingress.kubernetes.io/service.serversscheme: https
+    traefik.ingress.kubernetes.io/service.serverstransport: {{ printf "%s-%s-backend@kubernetescrd" .Release.Namespace (include "kuberploy-registry.fullname" .) | quote }}
+  {{- end }}
 spec:
   type: ClusterIP
   {{- with .Values.service.clusterIP }}

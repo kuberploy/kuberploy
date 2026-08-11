@@ -18,6 +18,8 @@ type resolverCatalog struct {
 	application domain.Application
 	project     domain.Project
 	target      domain.RegistryTarget
+	policy      domain.ServiceRegistryPolicy
+	policyErr   error
 	authorize   error
 }
 
@@ -42,6 +44,9 @@ func (c *resolverCatalog) Authorize(_ context.Context, _ string, permission doma
 func (c *resolverCatalog) RegistryTarget(context.Context, string) (domain.RegistryTarget, error) {
 	return c.target, nil
 }
+func (c *resolverCatalog) ServiceRegistryPolicy(context.Context, string, string) (domain.ServiceRegistryPolicy, error) {
+	return c.policy, c.policyErr
+}
 
 func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T) {
 	actorID := "11111111-1111-4111-8111-111111111111"
@@ -62,8 +67,11 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID},
-		target: domain.RegistryTarget{ID: targetID, Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.example.test:5000", RepositoryPrefix: "tenant/builds", PushCredentialRef: "registry-push", CacheCredentialRef: "registry-cache"}}
+	target := domain.RegistryTarget{ID: targetID, Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.example.test:5000", RepositoryPrefix: "tenant/builds", PullCredentialRef: "registry-pull", PushCredentialRef: "registry-push", CacheCredentialRef: "registry-cache"}
+	policy := domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: applicationID,
+		Repository:         "tenant/builds/projects/" + projectID + "/services/" + applicationID + "/image",
+		KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID}, target: target, policy: policy}
 	resolver := &ServerBuildDefinitionResolver{Catalog: catalog, Runtime: runtime}
 	resolution, err := resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID)
 	if err != nil {
@@ -76,6 +84,37 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 	catalog.application.ProjectID = "55555555-5555-4555-8555-555555555555"
 	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrUnauthorized) {
 		t.Fatalf("cross-project app accepted: %v", err)
+	}
+}
+
+func TestServerBuildDefinitionResolverRequiresExactApplicationPolicy(t *testing.T) {
+	actorID := "11111111-1111-4111-8111-111111111111"
+	projectID := "22222222-2222-4222-8222-222222222222"
+	applicationID := "33333333-3333-4333-8333-333333333333"
+	targetID := "44444444-4444-4444-8444-444444444444"
+	runtime, err := builds.WorkerRuntimeConfigFromLookup(func(name string) (string, bool) {
+		values := map[string]string{
+			builds.GitHubBuildsEnabledEnv: "true", builds.GitHubAppIDEnv: "12345", builds.GitHubAppClientIDEnv: "Iv1_KuberployClient",
+			builds.BuilderNamespaceEnv: "kuberploy-build-dind", builds.BuilderPodServiceAccountEnv: "kuberploy-build-pod",
+			builds.BuilderAgentImageEnv: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64), builds.BuilderBuildKitImageEnv: builder.DefaultBuildKitImage,
+			builds.BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
+		}
+		value, ok := values[name]
+		return value, ok
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := domain.RegistryTarget{ID: targetID, Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.example.test", RepositoryPrefix: "tenant", PullCredentialRef: "pull", PushCredentialRef: "push", CacheCredentialRef: "cache"}
+	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID}, target: target,
+		policy: domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: applicationID, Repository: "tenant/attacker/image", KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}}
+	resolver := &ServerBuildDefinitionResolver{Catalog: catalog, Runtime: runtime}
+	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrInfrastructure) {
+		t.Fatalf("mismatched application policy accepted: %v", err)
+	}
+	catalog.policyErr = store.ErrNotFound
+	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrNotFound) {
+		t.Fatalf("missing application policy accepted: %v", err)
 	}
 }
 
