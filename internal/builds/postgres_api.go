@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/kuberploy/kuberploy/internal/builder"
 )
 
 func (s *PostgreSQLStore) Installation(ctx context.Context, installationID string) (Installation, error) {
@@ -78,7 +79,7 @@ func (s *PostgreSQLStore) AttemptsForService(ctx context.Context, serviceID stri
 	if !uuidRE.MatchString(serviceID) || limit < 1 || limit > 100 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,definition_id::text,delivery_claim_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at
+	rows, err := s.pool.Query(ctx, `SELECT id::text,definition_id::text,project_id::text,service_id::text,commit_sha,git_ref,generation,state,execution_attempts,max_attempts,cache_reference,result,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at
 		FROM build_attempts WHERE service_id=$1 ORDER BY created_at DESC,id DESC LIMIT $2`, serviceID, limit)
 	if err != nil {
 		return nil, err
@@ -86,13 +87,61 @@ func (s *PostgreSQLStore) AttemptsForService(ctx context.Context, serviceID stri
 	defer rows.Close()
 	result := make([]BuildAttempt, 0)
 	for rows.Next() {
-		attempt, scanErr := scanAttempt(rows)
+		attempt, scanErr := scanAttemptHistory(rows)
 		if scanErr != nil {
 			return nil, scanErr
 		}
 		result = append(result, attempt)
 	}
 	return result, rows.Err()
+}
+
+// scanAttemptHistory reads only the bounded, credential-free projection used
+// by the history API. Historical terminal attempts remain readable when a
+// later release strengthens the private immutable execution protocol. Direct
+// attempt reads and every mutation continue to use scanAttempt and its exact
+// current protocol validation.
+func scanAttemptHistory(row scanner) (BuildAttempt, error) {
+	var attempt BuildAttempt
+	var resultJSON []byte
+	if err := row.Scan(&attempt.ID, &attempt.DefinitionID, &attempt.ProjectID, &attempt.ServiceID, &attempt.CommitSHA, &attempt.GitRef,
+		&attempt.Generation, &attempt.State, &attempt.ExecutionAttempts, &attempt.MaxAttempts, &attempt.CacheReference, &resultJSON,
+		&attempt.FailureCode, &attempt.CancelRequestedAt, &attempt.StartedAt, &attempt.CompletedAt, &attempt.CreatedAt, &attempt.UpdatedAt); err != nil {
+		return BuildAttempt{}, classifyPostgres(err)
+	}
+	if len(resultJSON) > 0 {
+		var result builder.BuildResult
+		if err := decodeClosedJSON(resultJSON, &result); err != nil {
+			return BuildAttempt{}, ErrInvalid
+		}
+		attempt.Result = &result
+	}
+	if err := validateStoredAttemptHistory(attempt); err != nil {
+		return BuildAttempt{}, err
+	}
+	return attempt, nil
+}
+
+func validateStoredAttemptHistory(attempt BuildAttempt) error {
+	if !uuidRE.MatchString(attempt.ID) || !uuidRE.MatchString(attempt.DefinitionID) || !uuidRE.MatchString(attempt.ProjectID) ||
+		!uuidRE.MatchString(attempt.ServiceID) || !commitRE.MatchString(attempt.CommitSHA) || !validGitRef(attempt.GitRef) ||
+		attempt.Generation < 1 || attempt.ExecutionAttempts < 0 || attempt.MaxAttempts < 1 || attempt.MaxAttempts > 5 ||
+		(attempt.FailureCode != "" && !failureRE.MatchString(attempt.FailureCode)) || attempt.CreatedAt.IsZero() ||
+		attempt.UpdatedAt.IsZero() || terminalAttempt(attempt.State) != (attempt.CompletedAt != nil) {
+		return ErrInvalid
+	}
+	switch attempt.State {
+	case AttemptQueued, AttemptPreparing, AttemptRunning, AttemptCancelling, AttemptSucceeded, AttemptFailed, AttemptCancelled:
+	default:
+		return ErrInvalid
+	}
+	if attempt.State == AttemptSucceeded {
+		if attempt.Result == nil || attempt.Result.OperationID != attempt.ID || attempt.Result.Generation != attempt.Generation ||
+			validateBuildResult(*attempt.Result, attempt.CacheReference, "") != nil {
+			return ErrInvalid
+		}
+	}
+	return nil
 }
 
 func (s *PostgreSQLStore) ClaimAPICommand(ctx context.Context, actorID, operation, scopeID, key, fingerprint, resourceID string, now time.Time) (string, bool, error) {
