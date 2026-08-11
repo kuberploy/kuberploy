@@ -190,6 +190,18 @@ func (c *inClusterBuildResources) ListBuildPods(ctx context.Context, namespace, 
 		if !ok {
 			return nil, ErrInfrastructure
 		}
+		apiVersion, hasAPIVersion := pod["apiVersion"]
+		kind, hasKind := pod["kind"]
+		if hasAPIVersion != hasKind || hasAPIVersion && (apiVersion != "v1" || kind != "Pod") {
+			return nil, ErrInfrastructure
+		}
+		// Kubernetes list responses may omit TypeMeta from every item because
+		// the already-validated v1/PodList envelope fixes the item resource.
+		// Reconstruct only those two constants; never accept partial or
+		// substituted item TypeMeta.
+		if !hasAPIVersion {
+			pod["apiVersion"], pod["kind"] = "v1", "Pod"
+		}
 		pods = append(pods, pod)
 	}
 	return pods, nil

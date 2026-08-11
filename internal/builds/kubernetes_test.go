@@ -633,6 +633,40 @@ func TestKubernetesRESTPodListRejectsPagination(t *testing.T) {
 	}
 }
 
+func TestKubernetesRESTPodListReconstructsOnlyOmittedFixedTypeMeta(t *testing.T) {
+	const serviceAccountToken = "service-account.header.signature"
+	for name, item := range map[string]struct {
+		item     string
+		accepted bool
+	}{
+		"omitted":     {item: `{"metadata":{"name":"build-pod","namespace":"kuberploy-build-dind"}}`, accepted: true},
+		"exact":       {item: `{"apiVersion":"v1","kind":"Pod","metadata":{"name":"build-pod","namespace":"kuberploy-build-dind"}}`, accepted: true},
+		"partial":     {item: `{"kind":"Pod","metadata":{"name":"build-pod","namespace":"kuberploy-build-dind"}}`},
+		"substituted": {item: `{"apiVersion":"v1","kind":"Secret","metadata":{"name":"build-pod","namespace":"kuberploy-build-dind"}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("Content-Type", "application/json")
+				_, _ = response.Write([]byte(`{"apiVersion":"v1","kind":"PodList","metadata":{},"items":[` + item.item + `]}`))
+			}))
+			defer server.Close()
+			tokenPath := filepath.Join(t.TempDir(), "token")
+			if err := os.WriteFile(tokenPath, []byte(serviceAccountToken), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			client := &inClusterBuildResources{baseURL: server.URL, http: server.Client(), tokenPath: tokenPath}
+			pods, err := client.ListBuildPods(context.Background(), "kuberploy-build-dind", "11111111111141118111111111111111", "1", 2)
+			if item.accepted {
+				if err != nil || len(pods) != 1 || pods[0]["apiVersion"] != "v1" || pods[0]["kind"] != "Pod" {
+					t.Fatalf("pods=%#v err=%v", pods, err)
+				}
+			} else if !errors.Is(err, ErrInfrastructure) {
+				t.Fatalf("unsafe TypeMeta was accepted: pods=%#v err=%v", pods, err)
+			}
+		})
+	}
+}
+
 func buildPodFixture(resources *fakeBuildResources, attempt BuildAttempt, phase string, checkoutDone bool, result []byte) map[string]any {
 	job := resources.objects[resources.key(resourceJobs, attempt.JobNamespace, attempt.JobName)]
 	jobMetadata := job["metadata"].(map[string]any)
