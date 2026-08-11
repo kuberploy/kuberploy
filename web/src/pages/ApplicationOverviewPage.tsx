@@ -22,6 +22,7 @@ import {
 } from "../components/ui";
 
 type SourceKind = "build" | "image" | "helm";
+type WorkspaceTab = "overview" | "source" | "runtime";
 
 function uniqueTargets(targets: RegistryTarget[]) {
   return [...new Map(targets.map((target) => [target.id, target])).values()];
@@ -39,6 +40,7 @@ export function ApplicationOverviewPage() {
     from: "/applications/$applicationId",
   });
   const [source, setSource] = useState<SourceKind>("build");
+  const [tab, setTab] = useState<WorkspaceTab>("overview");
   const [environmentId, setEnvironmentId] = useState("");
   const application = useQuery({
     queryKey: ["application", applicationId],
@@ -138,62 +140,191 @@ export function ApplicationOverviewPage() {
   }
 
   return (
-    <div className="page-stack">
+    <div className="page">
       <PageHeader
         eyebrow={project.name}
         title={application.data.name}
-        description="Configure how this service is built and deployed. Start with one source type; runtime settings stay separate."
+        description="Manage this service's source, runtime image access, and environment deployments."
         actions={
-          <Link to="/projects" className="button button--ghost">
-            Back to projects
+          <Link
+            to="/projects/$projectId"
+            params={{ projectId: project.id }}
+            className="button button--ghost"
+          >
+            Back to project
           </Link>
         }
       />
 
-      <Card className="application-source-card">
-        <div className="application-source-card__header">
-          <div>
-            <span className="eyebrow">Service setup</span>
-            <h2>Deployment source</h2>
-            <p>Choose how Kuberploy should deliver this service.</p>
-          </div>
-        </div>
-        <div
-          className="application-source-tabs"
-          role="tablist"
-          aria-label="Application source"
-        >
+      <nav
+        className="page-tabs service-workspace-tabs"
+        aria-label="Service sections"
+      >
+        {(["overview", "source", "runtime"] as const).map((item) => (
           <button
-            type="button"
-            role="tab"
-            aria-selected={source === "build"}
-            onClick={() => setSource("build")}
+            key={item}
+            className={tab === item ? "active" : ""}
+            aria-current={tab === item ? "page" : undefined}
+            onClick={() => setTab(item)}
           >
-            <Icon name="git" />
-            GitHub / Dockerfile
+            {item === "overview"
+              ? "Overview"
+              : item === "source"
+                ? "Source & build"
+                : "Runtime image access"}
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === "image"}
-            onClick={() => setSource("image")}
-          >
-            <Icon name="deploy" />
-            Existing image
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={source === "helm"}
-            onClick={() => setSource("helm")}
-          >
-            <Icon name="layers" />
-            Helm / OCI
-          </button>
-        </div>
-      </Card>
+        ))}
+      </nav>
 
-      {source === "build" ? (
+      {tab === "overview" ? (
+        <div className="page-stack">
+          <section className="service-summary-grid">
+            <Card className="service-summary-card">
+              <span className="service-summary-card__icon">
+                <Icon name="git" />
+              </span>
+              <div>
+                <small>Source</small>
+                <strong>Choose Git, image, or Helm</strong>
+                <button className="text-link" onClick={() => setTab("source")}>
+                  Configure source <Icon name="arrow" />
+                </button>
+              </div>
+            </Card>
+            <Card className="service-summary-card">
+              <span className="service-summary-card__icon">
+                <Icon name="layers" />
+              </span>
+              <div>
+                <small>Environments</small>
+                <strong>{applicationEnvironments.length}</strong>
+                <span>Available in {project.name}</span>
+              </div>
+            </Card>
+            <Card className="service-summary-card">
+              <span className="service-summary-card__icon">
+                <Icon name="deploy" />
+              </span>
+              <div>
+                <small>Deployments</small>
+                <strong>{applicationDeployments.length}</strong>
+                <Link to="/deploy" className="text-link">
+                  New deployment <Icon name="arrow" />
+                </Link>
+              </div>
+            </Card>
+          </section>
+
+          <Card className="service-deployments-card">
+            <div className="section-heading">
+              <div>
+                <span className="eyebrow">Environments</span>
+                <h2>Deployments</h2>
+                <p>
+                  Open an environment deployment to manage configuration,
+                  releases, logs, and metrics.
+                </p>
+              </div>
+              <Link to="/deploy" className="button button--primary">
+                <Icon name="plus" /> Deploy service
+              </Link>
+            </div>
+            {applicationDeployments.length ? (
+              <div className="deployment-card-grid">
+                {applicationDeployments.map((deployment) => {
+                  const environment = applicationEnvironments.find(
+                    (item) => item.id === deployment.environmentId,
+                  );
+                  return (
+                    <Link
+                      key={deployment.id}
+                      to="/applications/$applicationId/deployments/$deploymentId"
+                      params={{ applicationId, deploymentId: deployment.id }}
+                      className="deployment-card"
+                    >
+                      <div>
+                        <span className="deployment-card__environment">
+                          <Icon name="layers" />
+                          {environment?.name ?? "Environment"}
+                        </span>
+                        <StatusPill value={deployment.status ?? "pending"} />
+                      </div>
+                      <strong title={deployment.image}>
+                        {compactImageReference(deployment.image)}
+                      </strong>
+                      <span>
+                        Open deployment <Icon name="arrow" />
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <EmptyState
+                compact
+                icon="deploy"
+                title="No deployment yet"
+                description="Choose a source, then deploy this service to an environment."
+                action={
+                  <button
+                    className="button button--secondary"
+                    onClick={() => setTab("source")}
+                  >
+                    Configure source
+                  </button>
+                }
+              />
+            )}
+          </Card>
+        </div>
+      ) : null}
+
+      {tab === "source" ? (
+        <Card className="application-source-card">
+          <div className="application-source-card__header">
+            <div>
+              <span className="eyebrow">Service setup</span>
+              <h2>Deployment source</h2>
+              <p>Choose how Kuberploy should deliver this service.</p>
+            </div>
+          </div>
+          <div
+            className="application-source-tabs"
+            role="tablist"
+            aria-label="Application source"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === "build"}
+              onClick={() => setSource("build")}
+            >
+              <Icon name="git" />
+              GitHub / Dockerfile
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === "image"}
+              onClick={() => setSource("image")}
+            >
+              <Icon name="deploy" />
+              Existing image
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={source === "helm"}
+              onClick={() => setSource("helm")}
+            >
+              <Icon name="layers" />
+              Helm / OCI
+            </button>
+          </div>
+        </Card>
+      ) : null}
+
+      {tab === "source" && source === "build" ? (
         <div className="page-stack">
           <Card className="service-settings-card">
             {features?.builds !== true || features?.builder !== true ? (
@@ -215,27 +346,10 @@ export function ApplicationOverviewPage() {
               />
             )}
           </Card>
-          <details className="service-settings-disclosure">
-            <summary>
-              <span>
-                <strong>Runtime image pull</strong>
-                <small>
-                  Public image or a project credential used only by Kubernetes
-                </small>
-              </span>
-              <Icon name="chevron" />
-            </summary>
-            <RegistryPullCredentialsPanel
-              application={application.data}
-              project={project}
-              enabled={features?.registry === true}
-              canManage={canManageApplicationRegistry}
-            />
-          </details>
         </div>
       ) : null}
 
-      {source === "image" ? (
+      {tab === "source" && source === "image" ? (
         <div className="page-stack">
           <Card>
             <EmptyState
@@ -249,16 +363,10 @@ export function ApplicationOverviewPage() {
               }
             />
           </Card>
-          <RegistryPullCredentialsPanel
-            application={application.data}
-            project={project}
-            enabled={features?.registry === true}
-            canManage={canManageApplicationRegistry}
-          />
         </div>
       ) : null}
 
-      {source === "helm" ? (
+      {tab === "source" && source === "helm" ? (
         <div className="page-stack">
           <Card>
             <Field
@@ -303,42 +411,14 @@ export function ApplicationOverviewPage() {
         </div>
       ) : null}
 
-      <Card>
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">Deployment-bound detail</span>
-            <h2>Existing deployments</h2>
-          </div>
-        </div>
-        {applicationDeployments.length ? (
-          <div className="stack">
-            {applicationDeployments.map((deployment) => (
-              <Link
-                key={deployment.id}
-                to="/applications/$applicationId/deployments/$deploymentId"
-                params={{ applicationId, deploymentId: deployment.id }}
-                className="scope-row scope-row--link deployment-summary-row"
-              >
-                <div>
-                  <strong>
-                    {applicationEnvironments.find(
-                      (environment) =>
-                        environment.id === deployment.environmentId,
-                    )?.name ?? "Environment"}
-                  </strong>
-                  <small title={deployment.image}>
-                    {compactImageReference(deployment.image)}
-                  </small>
-                </div>
-                <StatusPill value={deployment.status ?? "pending"} />
-                <Icon name="chevron" />
-              </Link>
-            ))}
-          </div>
-        ) : (
-          <p className="muted-copy">No deployment exists yet.</p>
-        )}
-      </Card>
+      {tab === "runtime" ? (
+        <RegistryPullCredentialsPanel
+          application={application.data}
+          project={project}
+          enabled={features?.registry === true}
+          canManage={canManageApplicationRegistry}
+        />
+      ) : null}
     </div>
   );
 }

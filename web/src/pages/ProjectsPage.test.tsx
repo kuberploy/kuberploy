@@ -6,6 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { ProjectsPage } from "./ProjectsPage";
 
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    children,
+    to,
+    className,
+  }: PropsWithChildren<{ to: string; className?: string }>) => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
+}));
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -289,7 +301,7 @@ describe("project team ownership", () => {
     });
   });
 
-  it("opens the service account automation surface from a manageable project", async () => {
+  it("keeps the project index compact and sends project administration to the workspace", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user_admin",
       displayName: "Project admin",
@@ -318,23 +330,22 @@ describe("project team ownership", () => {
     vi.spyOn(api, "environments").mockResolvedValue({ items: [] });
     vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
     vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
-    const serviceAccounts = vi
-      .spyOn(api, "serviceAccounts")
-      .mockResolvedValue({ items: [] });
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     const Wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const user = userEvent.setup();
     render(<ProjectsPage />, { wrapper: Wrapper });
 
-    await user.click(await screen.findByRole("button", { name: "Automation" }));
     expect(
-      await screen.findByRole("heading", { name: "Service accounts" }),
+      await screen.findByRole("heading", { name: "Payments" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("No service accounts")).toBeInTheDocument();
-    expect(serviceAccounts).toHaveBeenCalledWith("project_payments");
+    expect(screen.getByText("0 services")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Automation" })).toBeNull();
+    expect(screen.getByRole("link", { name: /Payments/ })).toHaveAttribute(
+      "href",
+      "/projects/$projectId",
+    );
   });
 });

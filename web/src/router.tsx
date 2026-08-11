@@ -10,6 +10,7 @@ import { AppShell } from "./components/AppShell";
 import { AuthScreen } from "./components/AuthScreen";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { ProjectPage } from "./pages/ProjectPage";
 import { NewDeploymentPage } from "./pages/NewDeploymentPage";
 import { ApplicationPage } from "./pages/ApplicationPage";
 import { ApplicationOverviewPage } from "./pages/ApplicationOverviewPage";
@@ -81,6 +82,11 @@ const projectsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/projects",
   component: ProjectsPage,
+});
+const projectRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId",
+  component: ProjectPage,
 });
 const variableSetsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -186,6 +192,7 @@ const certificateIssuersRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   projectsRoute,
+  projectRoute,
   variableSetsRoute,
   teamsRoute,
   deployRoute,

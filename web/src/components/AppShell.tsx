@@ -62,11 +62,16 @@ export function AppShell({ user }: { user: Principal }) {
     return watchSystemTheme(applyTheme);
   }, [themePreference]);
 
-  const pageName =
-    pathname === "/"
-      ? "Overview"
-      : (pathname.split("/").filter(Boolean).at(-1)?.replace(/-/g, " ") ??
-        "Overview");
+  const pageName = pathname.match(/^\/projects\/[^/]+$/)
+    ? "Project"
+    : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
+      ? "Deployment"
+      : pathname.match(/^\/applications\/[^/]+$/)
+        ? "Service"
+        : pathname === "/"
+          ? "Overview"
+          : (pathname.split("/").filter(Boolean).at(-1)?.replace(/-/g, " ") ??
+            "Overview");
 
   return (
     <div className="app-shell">

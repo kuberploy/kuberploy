@@ -5,9 +5,6 @@ import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
 import type { Project, Team } from "../api/types";
 import { Icon } from "../components/Icon";
-import { EnvironmentGitBindingPanel } from "../components/EnvironmentGitBindingPanel";
-import { ProjectAccessPanel } from "../components/ProjectAccessPanel";
-import { ProjectAutomationPanel } from "../components/ProjectAutomationPanel";
 import {
   Button,
   Card,
@@ -38,11 +35,6 @@ export function ProjectsPage() {
   const queryClient = useQueryClient();
   const [projectFilter, setProjectFilter] = useState("");
   const [panel, setPanel] = useState<"project" | "environment" | null>(null);
-  const [accessProjectId, setAccessProjectId] = useState<string | null>(null);
-  const [automationProjectId, setAutomationProjectId] = useState<string | null>(
-    null,
-  );
-  const [gitEnvironmentId, setGitEnvironmentId] = useState<string | null>(null);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -123,8 +115,6 @@ export function ProjectsPage() {
     [teams.data],
   );
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
-  const variableSetsEnabled =
-    capabilities.data?.features?.variableSets === true;
   const hasActionAtProject = (action: string, project: Project) =>
     effectiveCapabilities.some(
       (capability) =>
@@ -134,18 +124,6 @@ export function ProjectsPage() {
             capability.scopeId === project.teamId) ||
           (capability.scopeType === "project" &&
             capability.scopeId === project.id)),
-    );
-  const hasActionAtEnvironment = (
-    action: string,
-    project: Project,
-    environmentId: string,
-  ) =>
-    hasActionAtProject(action, project) ||
-    effectiveCapabilities.some(
-      (capability) =>
-        capability.actions?.includes(action) &&
-        capability.scopeType === "environment" &&
-        capability.scopeId === environmentId,
     );
   const canCreatePlatformProject = effectiveCapabilities.some(
     (capability) =>
@@ -168,12 +146,6 @@ export function ProjectsPage() {
     ) ?? [];
   const canCreateProject =
     canCreatePlatformProject || projectCreationTeams.length > 0;
-  const canManageProjectAccess = (project: Project) =>
-    hasActionAtProject("access-grants:create", project);
-  const canViewProjectAutomation = (project: Project) =>
-    capabilities.data?.features?.serviceAccounts === true &&
-    hasActionAtProject("access-grants:read", project);
-
   const loading = [
     me,
     teams,
@@ -194,8 +166,8 @@ export function ProjectsPage() {
     <div className="page">
       <PageHeader
         eyebrow="Workspace"
-        title="Projects & environments"
-        description="Organize logical applications, namespaces, and Argo CD policy boundaries without hiding the Kubernetes mapping."
+        title="Projects"
+        description="Choose a project to manage its services and environments."
         actions={
           <>
             {environmentProjects.length ? (
@@ -411,215 +383,61 @@ export function ProjectsPage() {
           <Skeleton lines={8} />
         </Card>
       ) : visibleProjects.length ? (
-        <div className="project-stack">
+        <div className="project-grid">
           {visibleProjects.map(
             ({
               project,
               environments: projectEnvironments,
               applications: projectApplications,
             }) => (
-              <Card key={project.id} className="project-card">
-                <div className="project-card__header">
-                  <span className="project-avatar">
-                    {project.name.slice(0, 2).toUpperCase()}
-                  </span>
-                  <div>
-                    <div className="eyebrow">Project</div>
-                    <h2>{project.name}</h2>
-                    <p>
-                      {project.description ??
-                        `${projectApplications.length} applications across ${projectEnvironments.length} environments`}
-                    </p>
+              <Card key={project.id} className="project-index-card">
+                <Link
+                  to="/projects/$projectId"
+                  params={{ projectId: project.id }}
+                  className="project-index-card__link"
+                >
+                  <div className="project-index-card__heading">
+                    <span className="project-avatar">
+                      {project.name.slice(0, 2).toUpperCase()}
+                    </span>
+                    <div>
+                      <h2>{project.name}</h2>
+                      <p>
+                        {project.description ??
+                          `${projectApplications.length} service${projectApplications.length === 1 ? "" : "s"}`}
+                      </p>
+                    </div>
+                    <Icon name="chevron" />
                   </div>
-                  <div className="project-card__badges">
+                  <dl className="project-index-card__stats">
+                    <div>
+                      <dt>Services</dt>
+                      <dd>{projectApplications.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Environments</dt>
+                      <dd>{projectEnvironments.length}</dd>
+                    </div>
+                    <div>
+                      <dt>Deployments</dt>
+                      <dd>
+                        {deployments.data?.items.filter((deployment) =>
+                          projectApplications.some(
+                            (application) =>
+                              application.id === deployment.applicationId,
+                          ),
+                        ).length ?? 0}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="project-index-card__footer">
                     <span className="project-owner">
                       <Icon name="user" />
                       {projectOwnershipLabel(project, teams.data?.items ?? [])}
                     </span>
                     <StatusPill value={project.status ?? "active"} />
-                    {canManageProjectAccess(project) ? (
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setAutomationProjectId(null);
-                          setAccessProjectId((current) =>
-                            current === project.id ? null : project.id,
-                          );
-                        }}
-                      >
-                        <Icon name="user" /> Access
-                      </Button>
-                    ) : null}
-                    {canViewProjectAutomation(project) ? (
-                      <Button
-                        variant="secondary"
-                        onClick={() => {
-                          setAccessProjectId(null);
-                          setAutomationProjectId((current) =>
-                            current === project.id ? null : project.id,
-                          );
-                        }}
-                      >
-                        <Icon name="terminal" /> Automation
-                      </Button>
-                    ) : null}
                   </div>
-                </div>
-                <div className="project-card__body">
-                  <div className="scope-column">
-                    <h3>
-                      Environments <span>{projectEnvironments.length}</span>
-                    </h3>
-                    {projectEnvironments.length ? (
-                      projectEnvironments.map((environment) => (
-                        <div className="scope-row" key={environment.id}>
-                          <span className="scope-row__icon">
-                            <Icon name="layers" />
-                          </span>
-                          <div>
-                            <strong>{environment.name}</strong>
-                            <small>
-                              <code>{environment.namespace}</code> · Argo{" "}
-                              {environment.argoProject ?? "project default"} ·{" "}
-                              {environment.protectionPolicy === "development"
-                                ? "direct Git"
-                                : "PR protected"}
-                            </small>
-                          </div>
-                          <StatusPill value={environment.status ?? "active"} />
-                          {hasActionAtEnvironment(
-                            "deployment-config:read",
-                            project,
-                            environment.id,
-                          ) ? (
-                            <>
-                              {variableSetsEnabled ? (
-                                <Link
-                                  to="/environments/$environmentId/variables"
-                                  params={{ environmentId: environment.id }}
-                                  className="button button--secondary"
-                                >
-                                  <Icon name="terminal" /> Variables
-                                </Link>
-                              ) : null}
-                              <Button
-                                variant="secondary"
-                                onClick={() => {
-                                  setAccessProjectId(null);
-                                  setAutomationProjectId(null);
-                                  setGitEnvironmentId((current) =>
-                                    current === environment.id
-                                      ? null
-                                      : environment.id,
-                                  );
-                                }}
-                              >
-                                <Icon name="git" /> Git
-                              </Button>
-                            </>
-                          ) : null}
-                        </div>
-                      ))
-                    ) : (
-                      <p className="muted-copy">No namespace bindings yet.</p>
-                    )}
-                  </div>
-                  <div className="scope-column">
-                    <h3>
-                      Applications <span>{projectApplications.length}</span>
-                    </h3>
-                    {projectApplications.length ? (
-                      projectApplications.map((application) => {
-                        const appDeployments =
-                          deployments.data?.items.filter(
-                            (deployment) =>
-                              deployment.applicationId === application.id,
-                          ) ?? [];
-                        const firstDeployment = appDeployments[0];
-                        return firstDeployment ? (
-                          <Link
-                            key={application.id}
-                            to="/applications/$applicationId"
-                            params={{
-                              applicationId: application.id,
-                            }}
-                            className="scope-row scope-row--link"
-                          >
-                            <span className="scope-row__icon scope-row__icon--app">
-                              {application.name.slice(0, 1).toUpperCase()}
-                            </span>
-                            <div>
-                              <strong>{application.name}</strong>
-                              <small>
-                                {appDeployments.length} deployment
-                                {appDeployments.length === 1 ? "" : "s"}
-                              </small>
-                            </div>
-                            <Icon name="chevron" />
-                          </Link>
-                        ) : (
-                          <Link
-                            className="scope-row scope-row--link"
-                            key={application.id}
-                            to="/applications/$applicationId"
-                            params={{ applicationId: application.id }}
-                          >
-                            <span className="scope-row__icon scope-row__icon--app">
-                              {application.name.slice(0, 1).toUpperCase()}
-                            </span>
-                            <div>
-                              <strong>{application.name}</strong>
-                              <small>Not deployed</small>
-                            </div>
-                            <Icon name="chevron" />
-                          </Link>
-                        );
-                      })
-                    ) : (
-                      <p className="muted-copy">No applications yet.</p>
-                    )}
-                  </div>
-                </div>
-                {(() => {
-                  const environment = projectEnvironments.find(
-                    (item) => item.id === gitEnvironmentId,
-                  );
-                  return environment ? (
-                    <EnvironmentGitBindingPanel
-                      environment={environment}
-                      humanSession={me.data?.authentication?.kind === "session"}
-                      canManage={
-                        hasActionAtEnvironment(
-                          "deployment-config:write",
-                          project,
-                          environment.id,
-                        ) &&
-                        hasActionAtEnvironment(
-                          "build-definitions:write",
-                          project,
-                          environment.id,
-                        )
-                      }
-                      onClose={() => setGitEnvironmentId(null)}
-                    />
-                  ) : null;
-                })()}
-                {accessProjectId === project.id ? (
-                  <ProjectAccessPanel
-                    project={project}
-                    environments={projectEnvironments}
-                    applications={projectApplications}
-                    capabilities={effectiveCapabilities}
-                    onClose={() => setAccessProjectId(null)}
-                  />
-                ) : null}
-                {automationProjectId === project.id ? (
-                  <ProjectAutomationPanel
-                    project={project}
-                    capabilities={effectiveCapabilities}
-                    onClose={() => setAutomationProjectId(null)}
-                  />
-                ) : null}
+                </Link>
               </Card>
             ),
           )}

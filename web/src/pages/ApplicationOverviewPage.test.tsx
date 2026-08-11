@@ -73,6 +73,13 @@ describe("application source overview", () => {
     expect(
       await screen.findByRole("heading", { name: "Payments API" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByText("No deployment yet")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Source & build" }));
     expect(
       screen.getByRole("tab", { name: "GitHub / Dockerfile" }),
     ).toBeInTheDocument();
@@ -88,6 +95,5 @@ describe("application source overview", () => {
     expect(
       screen.getByText("Helm applications are not ready"),
     ).toBeInTheDocument();
-    expect(screen.getByText("No deployment exists yet.")).toBeInTheDocument();
   });
 });
