@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
@@ -21,6 +20,17 @@ type PostgreSQLDesiredStateMaterializer struct {
 	identity DesiredStateRuntimeIdentity
 	newID    func() string
 }
+
+type desiredStateMaterializationCandidate struct {
+	bindingID                 string
+	projectID                 string
+	environmentID             string
+	latestCommandID           string
+	previousVerifiedCommandID string
+	preconditionCommandID     string
+}
+
+var errDesiredStateCandidateBlocked = errors.New("desired-state candidate is blocked by current tenant policy")
 
 func NewPostgreSQLDesiredStateMaterializer(
 	pool *pgxpool.Pool,
@@ -52,16 +62,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		platform.TargetHeadRevision == "" || (platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) {
 		return false, ErrArgoRuntimePrerequisiteNotReady
 	}
-	type candidate struct {
-		bindingID                 string
-		projectID                 string
-		environmentID             string
-		latestCommandID           string
-		previousVerifiedCommandID string
-		preconditionCommandID     string
-	}
-	var selected candidate
-	err = m.pool.QueryRow(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
+	rows, err := m.pool.Query(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
 	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,''),COALESCE(precondition_command.id::text,'')
 	FROM git_repository_bindings b
 	JOIN git_projection_generations generation
@@ -103,15 +104,54 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
 	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3)))
 	ORDER BY b.indexed_at,b.id
-	LIMIT 1`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage).
-		Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID,
-			&selected.previousVerifiedCommandID, &selected.preconditionCommandID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
+	LIMIT 64`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage)
 	if err != nil {
 		return false, classifyPostgres(err)
 	}
+	defer rows.Close()
+	candidates := make([]desiredStateMaterializationCandidate, 0, 64)
+	for rows.Next() {
+		var selected desiredStateMaterializationCandidate
+		if err = rows.Scan(&selected.bindingID, &selected.projectID, &selected.environmentID, &selected.latestCommandID,
+			&selected.previousVerifiedCommandID, &selected.preconditionCommandID); err != nil {
+			return false, classifyPostgres(err)
+		}
+		candidates = append(candidates, selected)
+	}
+	if err = rows.Err(); err != nil {
+		return false, classifyPostgres(err)
+	}
+	rows.Close()
+	return materializeFirstEligibleCandidate(candidates, func(selected desiredStateMaterializationCandidate) (bool, error) {
+		return m.materializeCandidate(ctx, platform, selected, now.UTC())
+	})
+}
+
+func materializeFirstEligibleCandidate(
+	candidates []desiredStateMaterializationCandidate,
+	materialize func(desiredStateMaterializationCandidate) (bool, error),
+) (bool, error) {
+	if materialize == nil {
+		return false, ErrInvalid
+	}
+	for _, selected := range candidates {
+		created, err := materialize(selected)
+		if errors.Is(err, errDesiredStateCandidateBlocked) {
+			continue
+		}
+		if err != nil || created {
+			return created, err
+		}
+	}
+	return false, nil
+}
+
+func (m *PostgreSQLDesiredStateMaterializer) materializeCandidate(
+	ctx context.Context,
+	platform gitprojection.Binding,
+	selected desiredStateMaterializationCandidate,
+	now time.Time,
+) (bool, error) {
 	binding, err := m.bindings.Binding(ctx, selected.bindingID)
 	if err != nil {
 		return false, err
@@ -155,6 +195,9 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	command, err := m.planner.Plan(ctx, commandID, target, previous, now.UTC())
 	if errors.Is(err, ErrNoDesiredStateChange) {
 		return false, nil
+	}
+	if errors.Is(err, ErrConflict) || errors.Is(err, ErrRegistryReferencesNotReady) {
+		return false, errDesiredStateCandidateBlocked
 	}
 	if err != nil {
 		return false, err

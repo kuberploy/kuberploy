@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/imagepull"
 )
 
 // PostgreSQLDesiredStateProjectionGate reconstructs approval exclusively from
@@ -168,6 +169,12 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 	validation, err := g.policy.ValidateAppConfigsTx(ctx, tx, input, now.UTC())
 	if err != nil || validation.ValidateFor(input) != nil {
 		if err != nil {
+			if errors.Is(err, imagepull.ErrConflict) {
+				return DesiredStateProjectionApproval{}, ErrConflict
+			}
+			if errors.Is(err, imagepull.ErrInvalid) {
+				return DesiredStateProjectionApproval{}, ErrInvalid
+			}
 			return DesiredStateProjectionApproval{}, classifyPostgres(err)
 		}
 		return DesiredStateProjectionApproval{}, ErrConflict
