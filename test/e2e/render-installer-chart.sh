@@ -4,6 +4,7 @@ set -Eeuo pipefail
 
 kp_failure() {
   printf 'installer chart check failed at line %s: %s\n' "${1}" "${2}" >&2
+  return 1
 }
 trap 'kp_failure "${LINENO}" "${BASH_COMMAND}"' ERR
 
@@ -279,7 +280,7 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
   --set-string upgrade.image.reference=example.invalid/upgrader@sha256:4444444444444444444444444444444444444444444444444444444444444444 \
   --set-string builder.builderAgentImage=example.invalid/builder@sha256:5555555555555555555555555555555555555555555555555555555555555555 \
   >"${kp_tmp}/registry-pull-control.yaml"
-[[ "$(yq eval-all '[select(.kind == "Role" and .metadata.namespace == "kp-example-development") | .rules[] | select(.resources == ["secrets"] and .verbs == ["create"])] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "Role" and .metadata.namespace == "kp-example-development") | .rules[] | select((.resources | join(",")) == "secrets" and (.verbs | join(",")) == "create")] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
 if helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \
   --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \
