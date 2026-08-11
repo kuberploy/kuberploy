@@ -160,14 +160,14 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 	if err = store.CreateVariableSetPreview(ctx, actorID, plan, secondToken[:], candidateHash[:], time.Now().UTC().Add(10*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	assertRejected("preview identity substitution", `UPDATE variable_set_previews SET base_revision=$2 WHERE token_hash=$1`, secondToken[:], strings.Repeat("d", 40))
-	assertRejected("preview parser substitution", `UPDATE variable_set_previews SET parser_version=$2 WHERE token_hash=$1`, secondToken[:], "variables/v2")
+	assertRejected("preview identity substitution", `UPDATE preview_authorities SET base_revision=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], strings.Repeat("d", 40))
+	assertRejected("preview parser substitution", `UPDATE preview_authorities SET policy_version=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], "variables/v2")
 	consumedAt := time.Now().UTC()
-	if _, err = store.pool.Exec(ctx, `UPDATE variable_set_previews SET consumed_at=$2 WHERE token_hash=$1`, secondToken[:], consumedAt); err != nil {
+	if _, err = store.pool.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], consumedAt); err != nil {
 		t.Fatalf("exact preview consumption: %v", err)
 	}
-	assertRejected("preview double consumption", `UPDATE variable_set_previews SET consumed_at=$2 WHERE token_hash=$1`, secondToken[:], consumedAt.Add(time.Second))
-	assertRejected("preview deletion", `DELETE FROM variable_set_previews WHERE token_hash=$1`, secondToken[:])
+	assertRejected("preview double consumption", `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], consumedAt.Add(time.Second))
+	assertRejected("preview deletion", `DELETE FROM preview_authorities WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:])
 
 	driftToken := sha256.Sum256([]byte("variable-trigger-policy-drift-" + suffix))
 	if err = store.CreateVariableSetPreview(ctx, actorID, plan, driftToken[:], candidateHash[:], time.Now().UTC().Add(10*time.Minute)); err != nil {

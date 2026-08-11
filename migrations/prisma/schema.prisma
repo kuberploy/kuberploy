@@ -431,28 +431,6 @@ model configuration_profiles {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model deployment_config_previews {
-  id                 String    @id @db.Uuid
-  actor_id           String    @db.Uuid
-  deployment_id      String    @db.Uuid
-  token_hash         Bytes     @unique
-  base_etag          String
-  candidate_hash     Bytes
-  expires_at         DateTime  @db.Timestamptz(6)
-  consumed_at        DateTime? @db.Timestamptz(6)
-  created_at         DateTime  @default(now()) @db.Timestamptz(6)
-  git_binding_id     String?   @db.Uuid
-  git_base_revision  String?
-  git_path           String?
-  git_expected_etag  String?
-  git_chart_digest   String?
-  git_policy_version String?
-
-  @@index([expires_at], map: "deployment_config_previews_expiry_idx", where: raw("(consumed_at IS NULL)"))
-  @@index([deployment_id, actor_id, expires_at(sort: Desc)], map: "deployment_config_previews_lookup_idx")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model deployment_operation_inputs {
   operation_id  String   @id @db.Uuid
   deployment_id String   @db.Uuid
@@ -1998,24 +1976,6 @@ model users {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model variable_set_previews {
-  token_hash     Bytes     @id
-  actor_id       String    @db.Uuid
-  binding_id     String    @db.Uuid
-  project_id     String    @db.Uuid
-  environment_id String    @db.Uuid
-  scope          String
-  path           String
-  base_revision  String
-  base_etag      String
-  parser_version String
-  candidate_hash Bytes
-  expires_at     DateTime  @db.Timestamptz(6)
-  consumed_at    DateTime? @db.Timestamptz(6)
-  created_at     DateTime  @db.Timestamptz(6)
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model mutation_receipts {
   actor_id              String   @db.Uuid
   receipt_kind          String
@@ -2039,4 +1999,29 @@ model mutation_receipts {
   @@id([actor_id, receipt_kind, namespace, scope_key, idempotency_key])
   @@index([operation_id], map: "mutation_receipts_operation_idx", where: raw("(operation_id IS NOT NULL)"))
   @@index([receipt_kind, resource_type, resource_id], map: "mutation_receipts_resource_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model preview_authorities {
+  token_hash     Bytes     @id
+  preview_kind   String
+  actor_id       String    @db.Uuid
+  deployment_id  String?   @db.Uuid
+  binding_id     String?   @db.Uuid
+  project_id     String?   @db.Uuid
+  environment_id String?   @db.Uuid
+  variable_scope String?
+  path           String?
+  base_revision  String?
+  base_etag      String
+  expected_etag  String?
+  policy_version String?
+  chart_identity String?
+  candidate_hash Bytes
+  expires_at     DateTime  @db.Timestamptz(6)
+  consumed_at    DateTime? @db.Timestamptz(6)
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([deployment_id, actor_id, expires_at(sort: Desc)], map: "preview_authorities_deployment_lookup_idx", where: raw("(preview_kind = 'deployment-config'::text)"))
+  @@index([expires_at], map: "preview_authorities_expiry_idx", where: raw("(consumed_at IS NULL)"))
 }

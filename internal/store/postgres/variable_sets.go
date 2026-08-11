@@ -60,8 +60,8 @@ func (s *Store) CreateVariableSetPreview(ctx context.Context, actor string, plan
 		return err
 	}
 	now := time.Now().UTC()
-	_, err = tx.Exec(ctx, `INSERT INTO variable_set_previews(token_hash,actor_id,binding_id,project_id,environment_id,scope,path,base_revision,base_etag,parser_version,candidate_hash,expires_at,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, tokenHash, actor, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, plan.VariablePath, plan.BaseRevision, plan.ExpectedETag, plan.PolicyVersion, candidateHash, expires, now)
+	_, err = tx.Exec(ctx, `INSERT INTO preview_authorities(token_hash,preview_kind,actor_id,binding_id,project_id,environment_id,variable_scope,path,base_revision,base_etag,policy_version,candidate_hash,expires_at,created_at)
+		VALUES($1,'variable-set',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, tokenHash, actor, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, plan.VariablePath, plan.BaseRevision, plan.ExpectedETag, plan.PolicyVersion, candidateHash, expires, now)
 	if err != nil {
 		return classify(err)
 	}
@@ -74,9 +74,9 @@ func (s *Store) VariableSetPreviewAuthority(ctx context.Context, actor string, t
 	}
 	var plan gitprojection.WritePlan
 	var candidateHash []byte
-	err := s.pool.QueryRow(ctx, `SELECT p.binding_id::text,p.project_id::text,p.environment_id::text,p.scope,p.path,p.base_revision,
-		p.base_etag,p.candidate_hash,p.parser_version FROM variable_set_previews p
-		WHERE p.token_hash=$1 AND p.actor_id=$2`, tokenHash, actor).Scan(&plan.BindingID, &plan.ProjectID, &plan.EnvironmentID,
+	err := s.pool.QueryRow(ctx, `SELECT p.binding_id::text,p.project_id::text,p.environment_id::text,p.variable_scope,p.path,p.base_revision,
+		p.base_etag,p.candidate_hash,p.policy_version FROM preview_authorities p
+		WHERE p.token_hash=$1 AND p.preview_kind='variable-set' AND p.actor_id=$2`, tokenHash, actor).Scan(&plan.BindingID, &plan.ProjectID, &plan.EnvironmentID,
 		&plan.VariableScope, &plan.VariablePath, &plan.BaseRevision, &plan.ExpectedETag, &candidateHash, &plan.PolicyVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gitprojection.WritePlan{}, nil, base.ErrPreviewInvalid
@@ -137,7 +137,7 @@ func (s *Store) SaveVariableSet(ctx context.Context, actor, key, fingerprint, re
 	var previewCandidate []byte
 	var expires time.Time
 	var consumed *time.Time
-	err = tx.QueryRow(ctx, `SELECT actor_id::text,binding_id::text,project_id::text,environment_id::text,scope,path,base_revision,base_etag,parser_version,candidate_hash,expires_at,consumed_at FROM variable_set_previews WHERE token_hash=$1 FOR UPDATE`, tokenHash).Scan(&previewActor, &previewBinding, &previewProject, &previewEnvironment, &previewScope, &previewPath, &previewBase, &previewETag, &previewPolicy, &previewCandidate, &expires, &consumed)
+	err = tx.QueryRow(ctx, `SELECT actor_id::text,binding_id::text,project_id::text,environment_id::text,variable_scope,path,base_revision,base_etag,policy_version,candidate_hash,expires_at,consumed_at FROM preview_authorities WHERE token_hash=$1 AND preview_kind='variable-set' FOR UPDATE`, tokenHash).Scan(&previewActor, &previewBinding, &previewProject, &previewEnvironment, &previewScope, &previewPath, &previewBase, &previewETag, &previewPolicy, &previewCandidate, &expires, &consumed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return base.Result[domain.Operation]{}, base.ErrPreviewInvalid
 	}
@@ -200,7 +200,7 @@ func (s *Store) SaveVariableSet(ctx context.Context, actor, key, fingerprint, re
 	if err = putIdem(ctx, tx, actor, "variable-sets.save", key, fingerprint, plan.VariableScope, targetID, &op.ID); err != nil {
 		return base.Result[domain.Operation]{}, classify(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE variable_set_previews SET consumed_at=$2 WHERE token_hash=$1 AND consumed_at IS NULL`, tokenHash, now); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set' AND consumed_at IS NULL`, tokenHash, now); err != nil {
 		return base.Result[domain.Operation]{}, err
 	}
 	if err = audit(ctx, tx, actor, "variable-set.accepted", plan.VariableScope, targetID, requestID, map[string]any{"operationId": op.ID, "bindingId": plan.BindingID, "path": plan.VariablePath, "baseRevision": plan.BaseRevision, "publicationMode": mode}); err != nil {

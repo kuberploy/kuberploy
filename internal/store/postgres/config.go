@@ -108,9 +108,9 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 			return candidateErr
 		}
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO deployment_config_previews(id,actor_id,deployment_id,token_hash,base_etag,candidate_hash,expires_at,
-		git_binding_id,git_base_revision,git_path,git_expected_etag,git_chart_digest,git_policy_version)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, id.New(), actor, in.DeploymentID, in.TokenHash, in.BaseETag, in.CandidateHash, in.ExpiresAt,
+	_, err = tx.Exec(ctx, `INSERT INTO preview_authorities(preview_kind,actor_id,deployment_id,token_hash,base_etag,candidate_hash,expires_at,
+		binding_id,base_revision,path,expected_etag,chart_identity,policy_version)
+		VALUES('deployment-config',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, actor, in.DeploymentID, in.TokenHash, in.BaseETag, in.CandidateHash, in.ExpiresAt,
 		bindingID, baseRevision, gitPath, gitETag, chartDigest, policyVersion)
 	if err != nil {
 		return classify(err)
@@ -181,9 +181,9 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	var expires time.Time
 	var consumed *time.Time
 	err = tx.QueryRow(ctx, `SELECT actor_id,deployment_id,base_etag,candidate_hash,expires_at,consumed_at,
-		COALESCE(git_binding_id::text,''),COALESCE(git_base_revision,''),COALESCE(git_path,''),COALESCE(git_expected_etag,''),
-		COALESCE(git_chart_digest,''),COALESCE(git_policy_version,'')
-		FROM deployment_config_previews WHERE token_hash=$1 FOR UPDATE`, in.TokenHash).Scan(&previewActor, &previewDeployment, &previewETag, &previewCandidate, &expires, &consumed,
+		COALESCE(binding_id::text,''),COALESCE(base_revision,''),COALESCE(path,''),COALESCE(expected_etag,''),
+		COALESCE(chart_identity,''),COALESCE(policy_version,'')
+		FROM preview_authorities WHERE token_hash=$1 AND preview_kind='deployment-config' FOR UPDATE`, in.TokenHash).Scan(&previewActor, &previewDeployment, &previewETag, &previewCandidate, &expires, &consumed,
 		&previewBindingID, &previewBaseRevision, &previewPath, &previewGitETag, &previewChartDigest, &previewPolicyVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreviewInvalid
@@ -272,7 +272,7 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	if _, err = tx.Exec(ctx, `INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES($1,$2,$3,$4,$5)`, op.ID, op.Kind, d.EnvironmentID, op.Generation, requestID); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE deployment_config_previews SET consumed_at=$2 WHERE token_hash=$1 AND consumed_at IS NULL`, in.TokenHash, now); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='deployment-config' AND consumed_at IS NULL`, in.TokenHash, now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	if err = audit(ctx, tx, actor, "deployment.config.accepted", "deployment", d.ID, requestID, map[string]any{"operationId": op.ID, "baseETag": in.BaseETag, "configVersion": newVersion}); err != nil {
