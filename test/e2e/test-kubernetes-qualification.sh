@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.68"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.69"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
@@ -774,9 +774,9 @@ for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/platform/upgrades'; do
   grep -F "${kp_required_mutation}" "${KP_COMMAND_LOG}" >/dev/null
 done
-[[ "$(grep -Fc 'curl|POST|https://api.fixture.test/v1/projects' "${KP_COMMAND_LOG}")" -eq 1 ]]
-[[ "$(grep -Fc 'curl|POST|https://api.fixture.test/v1/deployments/99999999-9999-4999-8999-999999999999/rollback' "${KP_COMMAND_LOG}")" -eq 2 ]]
-[[ "$(grep -Fc 'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/cancel' "${KP_COMMAND_LOG}")" -eq 1 ]]
+[[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/projects' "${KP_COMMAND_LOG}")" -eq 2 ]]
+[[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/deployments/99999999-9999-4999-8999-999999999999/rollback' "${KP_COMMAND_LOG}")" -eq 2 ]]
+[[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/cancel' "${KP_COMMAND_LOG}")" -eq 1 ]]
 [[ "$(grep -Fc 'kubectl|get jobs.batch --all-namespaces --selector kuberploy.io/build-operation=65656565656545658565656565656565,kuberploy.io/build-generation=2 -o json' "${KP_COMMAND_LOG}")" -ge 2 ]]
 jq -e '.mutation == "github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-approved-helm" and
   .buildCancellationAccepted == true and .buildCancellationJobDeleted == true and
