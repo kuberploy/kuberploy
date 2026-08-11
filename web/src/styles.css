@@ -6028,6 +6028,55 @@ textarea {
   font-size: 12px;
 }
 
+.project-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.project-toolbar input {
+  max-width: 560px;
+  background: var(--surface);
+}
+
+.project-toolbar span {
+  margin-left: auto;
+  color: var(--ink-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.project-stack {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr));
+  align-items: start;
+  gap: 18px;
+}
+
+.project-card__header {
+  grid-template-columns: 46px minmax(0, 1fr);
+}
+
+.project-card__badges {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.project-card__body {
+  grid-template-columns: 1fr;
+}
+
+.project-card__body .scope-column + .scope-column {
+  border-top: 1px solid var(--line);
+  border-left: 0;
+}
+
+.project-card__body .scope-column:first-child .scope-row {
+  grid-template-columns: 32px minmax(0, 1fr) auto auto auto;
+}
+
 .form-card__heading > span {
   width: 34px;
   height: 34px;
@@ -6036,6 +6085,15 @@ textarea {
 
 .form-card__heading {
   grid-template-columns: 38px 1fr;
+}
+
+.page-tabs {
+  gap: 22px;
+}
+
+.page-tabs button {
+  padding-bottom: 13px;
+  font-size: 13px;
 }
 
 .application-source-card {
@@ -6204,6 +6262,28 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .project-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-toolbar input {
+    max-width: none;
+  }
+
+  .project-toolbar span {
+    margin-left: 0;
+  }
+
+  .project-card__body .scope-column:first-child .scope-row {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+  }
+
+  .project-card__body .scope-column:first-child .scope-row > .button {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+
   .application-source-tabs {
     overflow-x: auto;
     padding-inline: 12px;

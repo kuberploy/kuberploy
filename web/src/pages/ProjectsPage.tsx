@@ -36,6 +36,7 @@ export function projectOwnershipLabel(project: Project, teams: Team[]) {
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
+  const [projectFilter, setProjectFilter] = useState("");
   const [panel, setPanel] = useState<"project" | "environment" | null>(null);
   const [accessProjectId, setAccessProjectId] = useState<string | null>(null);
   const [automationProjectId, setAutomationProjectId] = useState<string | null>(
@@ -105,6 +106,17 @@ export function ProjectsPage() {
       })),
     [applications.data, environments.data, projects.data],
   );
+  const visibleProjects = useMemo(() => {
+    const query = projectFilter.trim().toLocaleLowerCase();
+    if (!query) return grouped;
+    return grouped.filter(
+      ({ project, applications: projectApplications }) =>
+        project.name.toLocaleLowerCase().includes(query) ||
+        projectApplications.some((application) =>
+          application.name.toLocaleLowerCase().includes(query),
+        ),
+    );
+  }, [grouped, projectFilter]);
 
   const teamsById = useMemo(
     () => new Map(teams.data?.items.map((team) => [team.id, team]) ?? []),
@@ -379,13 +391,28 @@ export function ProjectsPage() {
         </Card>
       ) : null}
 
+      {!loading && grouped.length ? (
+        <div className="project-toolbar">
+          <input
+            type="search"
+            aria-label="Filter projects"
+            placeholder="Filter projects or services…"
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+          />
+          <span>
+            {visibleProjects.length} of {grouped.length} projects
+          </span>
+        </div>
+      ) : null}
+
       {loading ? (
         <Card>
           <Skeleton lines={8} />
         </Card>
-      ) : grouped.length ? (
+      ) : visibleProjects.length ? (
         <div className="project-stack">
-          {grouped.map(
+          {visibleProjects.map(
             ({
               project,
               environments: projectEnvironments,
@@ -597,6 +624,12 @@ export function ProjectsPage() {
             ),
           )}
         </div>
+      ) : grouped.length ? (
+        <EmptyState
+          icon="layers"
+          title="No matching project"
+          description="Try another project or service name."
+        />
       ) : (
         <EmptyState
           icon="layers"
