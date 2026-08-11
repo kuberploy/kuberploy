@@ -8,6 +8,7 @@ import (
 type Store interface {
 	EnsureIntent(context.Context, EnsureRequest) (Intent, error)
 	Intent(context.Context, string) (Intent, error)
+	ExpectedPreimage(context.Context, string) (string, bool, error)
 	ClaimIntent(context.Context, string, string, string, time.Time, time.Duration) (Lease, bool, error)
 	HeartbeatIntent(context.Context, Lease, time.Time, time.Duration) (Lease, error)
 	BindWriteBase(context.Context, Lease, string, time.Time, time.Time) (Intent, error)

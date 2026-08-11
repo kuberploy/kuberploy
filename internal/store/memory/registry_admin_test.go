@@ -135,6 +135,28 @@ func TestRegistryApplicationWrappersAreScopedReplaySafeAndManagedOnly(t *testing
 	}
 }
 
+func TestOperatorRegistryTargetMayBroadenWithoutOrphaningExistingPolicy(t *testing.T) {
+	ctx := context.Background()
+	st := New()
+	target := domain.RegistryTarget{ID: "11111111-1111-4111-8111-111111111111", Name: "managed", Mode: domain.RegistryTargetManaged,
+		Endpoint: "registry.test", RepositoryPrefix: "kuberploy/apps"}
+	if _, err := st.PutRegistryTarget(ctx, target); err != nil {
+		t.Fatal(err)
+	}
+	policy := registry.DefaultPolicy(target.ID, "service", "kuberploy/apps/service", time.Now().UTC())
+	if _, err := st.PutServiceRegistryPolicy(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	target.RepositoryPrefix = "kuberploy"
+	if _, err := st.PutRegistryTarget(ctx, target); err != nil {
+		t.Fatalf("safe operator prefix broadening was rejected: %v", err)
+	}
+	target.RepositoryPrefix = "other"
+	if _, err := st.PutRegistryTarget(ctx, target); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("policy-orphaning prefix rotation was accepted: %v", err)
+	}
+}
+
 func (s *Store) registryLifecycleSnapshotLockedForTest(targetID, serviceID string, now time.Time) (domain.RegistryLifecycleSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

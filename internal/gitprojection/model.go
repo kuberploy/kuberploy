@@ -935,7 +935,8 @@ func (m Mutation) Validate(binding Binding) error {
 			return ErrInvalid
 		}
 	case MutationAuthorityFoundation:
-		if binding.Kind != BindingPlatform || action != MutationUpsert || precondition != MutationCreateIfAbsent ||
+		if binding.Kind != BindingPlatform || action != MutationUpsert ||
+			(precondition != MutationCreateIfAbsent && precondition != MutationMatchETag) ||
 			!commitRE.MatchString(m.RequiredAncestor) || m.CommitTrailer != "Kuberploy-Environment-Foundation-Intent: "+m.OperationID ||
 			!validFoundationPath(binding, m.Path) || len(m.Content) == 0 || len(m.Content) > MaxProtectedFoundationBytes ||
 			!contentDigestMatches(m.Content, m.ContentSHA256) {

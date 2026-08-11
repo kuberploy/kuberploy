@@ -64,6 +64,37 @@ func TestRegistryRuntimeObservationLeaseRecoveryAndFencing(t *testing.T) {
 	}
 }
 
+func TestPutRegistryTargetAllowsOnlyPolicyPreservingPrefixRotation(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := databaseTime(time.Now().UTC())
+	target := domain.RegistryTarget{ID: id.New(), Name: "prefix-rotation-" + id.New(), Mode: domain.RegistryTargetManaged,
+		Endpoint: "https://registry-prefix.integration.test", RepositoryPrefix: "kuberploy/apps", CreatedAt: now, UpdatedAt: now}
+	if target, err = st.PutRegistryTarget(ctx, target); err != nil {
+		t.Fatal(err)
+	}
+	policy := registry.DefaultPolicy(target.ID, "service", "kuberploy/apps/service", now)
+	if _, err = st.PutServiceRegistryPolicy(ctx, policy); err != nil {
+		t.Fatal(err)
+	}
+	target.RepositoryPrefix = "kuberploy"
+	if target, err = st.PutRegistryTarget(ctx, target); err != nil {
+		t.Fatalf("safe operator prefix broadening was rejected: %v", err)
+	}
+	target.RepositoryPrefix = "other"
+	if _, err = st.PutRegistryTarget(ctx, target); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("policy-orphaning prefix rotation was accepted: %v", err)
+	}
+}
+
 func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

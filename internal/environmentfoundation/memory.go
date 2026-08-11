@@ -65,6 +65,12 @@ func (s *MemoryStore) EnsureIntent(ctx context.Context, request EnsureRequest) (
 			if existing.IntentDigest == value.IntentDigest {
 				return cloneIntent(existing), nil
 			}
+			// Finish or recover the exact durable predecessor before rotating its
+			// material. This closes the push-before-receipt boundary across a
+			// rolling worker/profile upgrade.
+			if existing.State == StatePending || existing.State == StateClaimed {
+				return cloneIntent(existing), nil
+			}
 			now := request.Now
 			existing.Active = false
 			existing.State = StateSuperseded
@@ -91,6 +97,40 @@ func (s *MemoryStore) Intent(ctx context.Context, id string) (Intent, error) {
 	return cloneIntent(v), nil
 }
 
+func (s *MemoryStore) ExpectedPreimage(ctx context.Context, id string) (string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if !uuidRE.MatchString(id) {
+		return "", false, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.intents[id]
+	if !ok {
+		return "", false, ErrNotFound
+	}
+	var selected Intent
+	found := false
+	for otherID, candidate := range s.intents {
+		if otherID == id || candidate.EnvironmentID != current.EnvironmentID || candidate.Path != current.Path ||
+			candidate.PublishedAt == nil || candidate.CommittedRevision == "" {
+			continue
+		}
+		if !found || candidate.PublishedAt.After(*selected.PublishedAt) ||
+			(candidate.PublishedAt.Equal(*selected.PublishedAt) && candidate.ID > selected.ID) {
+			selected, found = candidate, true
+		}
+	}
+	if !found {
+		return "", false, nil
+	}
+	if selected.Validate() != nil || !digestRE.MatchString(selected.ManifestDigest) {
+		return "", false, ErrConflict
+	}
+	return selected.ManifestDigest, true, nil
+}
+
 func (s *MemoryStore) ClaimIntent(ctx context.Context, owner, profileDigest, publisherDigest string, now time.Time, duration time.Duration) (Lease, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return Lease{}, false, err
@@ -111,7 +151,7 @@ func (s *MemoryStore) ClaimIntent(ctx context.Context, owner, profileDigest, pub
 				break
 			}
 		}
-		if v.Active && v.ProfileDigest == profileDigest && v.PublisherConfigDigest == publisherDigest &&
+		if v.Active && v.PublisherConfigDigest == publisherDigest &&
 			!bindingClaimed && (v.State == StatePending || v.State == StateClaimed) && !v.NextAttemptAt.After(now) && (v.LeaseUntil == nil || !v.LeaseUntil.After(now)) {
 			ids = append(ids, id)
 		}
@@ -121,6 +161,9 @@ func (s *MemoryStore) ClaimIntent(ctx context.Context, owner, profileDigest, pub
 	}
 	sort.Slice(ids, func(i, j int) bool {
 		a, b := s.intents[ids[i]], s.intents[ids[j]]
+		if (a.ProfileDigest == profileDigest) != (b.ProfileDigest == profileDigest) {
+			return a.ProfileDigest != profileDigest
+		}
 		if !a.NextAttemptAt.Equal(b.NextAttemptAt) {
 			return a.NextAttemptAt.Before(b.NextAttemptAt)
 		}

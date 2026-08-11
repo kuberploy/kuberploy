@@ -76,10 +76,14 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 	if err = prepared.VerifyAncestor(ctx, request.PlannedHead); err != nil {
 		return PublicationReceipt{}, classifyFoundationGit(err)
 	}
+	expectedPreimage, hasPreimage, err := p.Store.ExpectedPreimage(ctx, request.IntentID)
+	if err != nil {
+		return PublicationReceipt{}, err
+	}
 
 	intent := lease.Intent
 	if intent.WriteBaseRevision == "" {
-		candidate := foundationMutation(request, head.Commit)
+		candidate := foundationMutation(request, head.Commit, expectedPreimage, hasPreimage)
 		if candidate.Validate(binding) != nil {
 			return PublicationReceipt{}, ErrInvalid
 		}
@@ -92,7 +96,7 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 			return PublicationReceipt{}, err
 		}
 	}
-	mutation := foundationMutation(request, intent.WriteBaseRevision)
+	mutation := foundationMutation(request, intent.WriteBaseRevision, expectedPreimage, hasPreimage)
 	if mutation.Validate(binding) != nil || intent.WriteBaseObservedAt == nil {
 		return PublicationReceipt{}, ErrInvalid
 	}
@@ -122,8 +126,8 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 	return p.verifyReceipt(ctx, binding, committed, request, mutation.BaseRevision, committed)
 }
 
-func foundationMutation(request PublicationRequest, base string) gitprojection.Mutation {
-	return gitprojection.Mutation{
+func foundationMutation(request PublicationRequest, base, expectedPreimage string, hasPreimage bool) gitprojection.Mutation {
+	mutation := gitprojection.Mutation{
 		BindingID: request.BindingID, OperationID: request.IntentID,
 		Path: ManifestPath(request.ClusterID, request.EnvironmentID), BaseRevision: base,
 		Precondition: gitprojection.MutationCreateIfAbsent, Action: gitprojection.MutationUpsert,
@@ -132,6 +136,11 @@ func foundationMutation(request PublicationRequest, base string) gitprojection.M
 		Authority: gitprojection.MutationAuthorityFoundation, CommitTrailer: request.CommitTrailer,
 		RequiredAncestor: request.PlannedHead,
 	}
+	if hasPreimage {
+		mutation.Precondition = gitprojection.MutationMatchETag
+		mutation.ExpectedETag = `"` + expectedPreimage + `"`
+	}
+	return mutation
 }
 
 func (p *ProtectedGitPublisher) verifyReceipt(ctx context.Context, binding gitprojection.Binding,

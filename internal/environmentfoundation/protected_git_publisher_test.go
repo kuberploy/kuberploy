@@ -149,6 +149,7 @@ func TestProtectedGitPublisherSerializesTwoIntentsFromOnePlannedHead(t *testing.
 	if _, err = fixture.store.RecordReady(ctx, fixture.lease, firstReceipt, fixture.now.Add(6*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	fixture.publisher.Now = func() time.Time { return fixture.now.Add(20 * time.Second) }
 	secondLease, found, err := fixture.store.ClaimIntent(ctx, testWorker2, profileDigest, profile.PublisherConfigDigest, fixture.now.Add(7*time.Second), time.Minute)
 	if err != nil || !found || secondLease.Intent.ID != secondIntent.ID {
 		t.Fatalf("second intent was not released: %#v found=%v err=%v", secondLease, found, err)
@@ -159,6 +160,89 @@ func TestProtectedGitPublisherSerializesTwoIntentsFromOnePlannedHead(t *testing.
 	}
 	if secondReceipt.ParentRevision != firstReceipt.CommittedRevision || secondReceipt.ParentRevision == fixture.base {
 		t.Fatalf("second intent did not bind the verified descendant: first=%#v second=%#v", firstReceipt, secondReceipt)
+	}
+}
+
+func TestProtectedGitPublisherRotatesProfileOnlyFromExactPublishedPreimage(t *testing.T) {
+	fixture := newPublisherFixture(t)
+	ctx := context.Background()
+	firstReceipt, err := fixture.publisher.Publish(ctx, fixture.lease, fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCurrent, err := fixture.store.Intent(ctx, fixture.lease.Intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.lease.Intent = firstCurrent
+	if _, err = fixture.store.RecordReady(ctx, fixture.lease, firstReceipt, fixture.now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.publisher.Now = func() time.Time { return fixture.now.Add(20 * time.Second) }
+	fixture.verifier.now = fixture.now.Add(9 * time.Second)
+
+	changed := testProfile()
+	changed.ObserverServiceAccount = "kuberploy-api-rotated"
+	second, err := fixture.store.EnsureIntent(ctx, EnsureRequest{testIntentID2, testEnvironmentID, changed, fixture.now.Add(7 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, found, err := fixture.store.ExpectedPreimage(ctx, second.ID)
+	if err != nil || !found || expected != fixture.request.ContentDigest {
+		t.Fatalf("exact predecessor was not retained: digest=%q found=%v err=%v", expected, found, err)
+	}
+	profileDigest, _ := changed.Digest()
+	lease, found, err := fixture.store.ClaimIntent(ctx, testWorker2, profileDigest, changed.PublisherConfigDigest, fixture.now.Add(8*time.Second), time.Minute)
+	if err != nil || !found || lease.Intent.ID != second.ID {
+		t.Fatalf("rotation claim failed: %#v found=%v err=%v", lease, found, err)
+	}
+	receipt, err := fixture.publisher.Publish(ctx, lease, publicationFor(lease.Intent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.ParentRevision != firstReceipt.CommittedRevision {
+		t.Fatalf("rotation did not CAS from the exact published predecessor: %#v", receipt)
+	}
+	clone := filepath.Join(t.TempDir(), "rotation")
+	runFoundationGit(t, "", "clone", "--branch", "main", fixture.verifier.remote, clone)
+	content, err := os.ReadFile(filepath.Join(clone, filepath.FromSlash(second.Path)))
+	if err != nil || !strings.Contains(string(content), "name: kuberploy-api-rotated") {
+		t.Fatalf("rotated manifest was not published: %v\n%s", err, content)
+	}
+}
+
+func TestProtectedGitPublisherRejectsProfileRotationAfterPreimageSubstitution(t *testing.T) {
+	fixture := newPublisherFixture(t)
+	ctx := context.Background()
+	firstReceipt, err := fixture.publisher.Publish(ctx, fixture.lease, fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstCurrent, err := fixture.store.Intent(ctx, fixture.lease.Intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.lease.Intent = firstCurrent
+	if _, err = fixture.store.RecordReady(ctx, fixture.lease, firstReceipt, fixture.now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	fixture.publisher.Now = func() time.Time { return fixture.now.Add(20 * time.Second) }
+	fixture.verifier.now = fixture.now.Add(9 * time.Second)
+	appendFoundationRemote(t, fixture.verifier.remote, fixture.request.Path, []byte("attacker substitution\n"))
+
+	changed := testProfile()
+	changed.ObserverServiceAccount = "kuberploy-api-rotated"
+	second, err := fixture.store.EnsureIntent(ctx, EnsureRequest{testIntentID2, testEnvironmentID, changed, fixture.now.Add(7 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, _ := changed.Digest()
+	lease, found, err := fixture.store.ClaimIntent(ctx, testWorker2, profileDigest, changed.PublisherConfigDigest, fixture.now.Add(8*time.Second), time.Minute)
+	if err != nil || !found || lease.Intent.ID != second.ID {
+		t.Fatalf("rotation claim failed: %#v found=%v err=%v", lease, found, err)
+	}
+	if _, err = fixture.publisher.Publish(ctx, lease, publicationFor(lease.Intent)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("substituted foundation preimage was accepted: %v", err)
 	}
 }
 

@@ -144,6 +144,16 @@ func (s *PostgresStore) EnsureIntent(ctx context.Context, request EnsureRequest)
 			}
 			return active, nil
 		}
+		// A rolling profile change must recover an exact predecessor that may
+		// have pushed before its database receipt. The current controller can
+		// finish any active intent bound to the same publisher identity; the
+		// replacement is created on the following reconciliation pass.
+		if active.State == StatePending || active.State == StateClaimed {
+			if err = tx.Commit(ctx); err != nil {
+				return Intent{}, mapPG(err)
+			}
+			return active, nil
+		}
 		_, err = tx.Exec(ctx, `UPDATE environment_foundation_intents SET state='superseded',active=false,
 			lease_owner=NULL,lease_until=NULL,completed_at=COALESCE(completed_at,$2),updated_at=$2 WHERE id=$1`, active.ID, request.Now)
 		if err != nil {
@@ -178,6 +188,39 @@ func (s *PostgresStore) Intent(ctx context.Context, id string) (Intent, error) {
 	return scanIntent(s.pool.QueryRow(ctx, `SELECT `+intentColumns+` FROM environment_foundation_intents WHERE id=$1`, id))
 }
 
+func (s *PostgresStore) ExpectedPreimage(ctx context.Context, id string) (string, bool, error) {
+	if !uuidRE.MatchString(id) {
+		return "", false, ErrInvalid
+	}
+	var value string
+	err := s.pool.QueryRow(ctx, `SELECT previous.manifest_digest
+		FROM environment_foundation_intents current
+		JOIN LATERAL (
+			SELECT manifest_digest FROM environment_foundation_intents candidate
+			WHERE candidate.id<>current.id AND candidate.environment_id=current.environment_id
+			  AND candidate.manifest_path=current.manifest_path AND candidate.published_at IS NOT NULL
+			  AND candidate.committed_revision<>''
+			ORDER BY candidate.published_at DESC,candidate.id DESC LIMIT 1
+		) previous ON true WHERE current.id=$1`, id).Scan(&value)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var exists bool
+		if existsErr := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environment_foundation_intents WHERE id=$1)`, id).Scan(&exists); existsErr != nil {
+			return "", false, mapPG(existsErr)
+		}
+		if !exists {
+			return "", false, ErrNotFound
+		}
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, mapPG(err)
+	}
+	if !digestRE.MatchString(value) {
+		return "", false, ErrConflict
+	}
+	return value, true, nil
+}
+
 func (s *PostgresStore) EnvironmentIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `SELECT id::text FROM environments ORDER BY id`)
 	if err != nil {
@@ -210,13 +253,13 @@ func (s *PostgresStore) ClaimIntent(ctx context.Context, owner, profile, publish
 	row := s.pool.QueryRow(ctx, `WITH candidate AS (
 		SELECT i.id AS candidate_id FROM environment_foundation_intents i
 		 JOIN git_repository_bindings b ON b.id=i.platform_binding_id
-		 WHERE i.active AND i.profile_digest=$1 AND i.publisher_config_digest=$2 AND i.attempts<30
+		 WHERE i.active AND i.publisher_config_digest=$2 AND i.attempts<30
 		   AND i.state IN ('pending','claimed') AND i.next_attempt_at<=$3
 		   AND (i.lease_until IS NULL OR i.lease_until<=$3)
 		   AND NOT EXISTS (SELECT 1 FROM environment_foundation_intents held
 		       WHERE held.id<>i.id AND held.platform_binding_id=i.platform_binding_id
 		         AND held.active AND held.state='claimed' AND held.lease_until>$3)
-		 ORDER BY i.next_attempt_at,i.id FOR UPDATE OF i,b SKIP LOCKED LIMIT 1)
+		 ORDER BY (i.profile_digest=$1),i.next_attempt_at,i.id FOR UPDATE OF i,b SKIP LOCKED LIMIT 1)
 		UPDATE environment_foundation_intents i SET state='claimed',lease_owner=$4,
 		 lease_epoch=i.lease_epoch+1,lease_until=$5,attempts=i.attempts+1,updated_at=$3
 		FROM candidate WHERE i.id=candidate.candidate_id RETURNING `+intentColumns, profile, publisher, now, owner, until)

@@ -73,8 +73,12 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 		return errors.Join(ErrUnavailable, err)
 	}
 	now := r.now()
+	profileDigest, err := r.Config.Profile.Digest()
+	if err != nil {
+		return err
+	}
 	for _, environmentID := range ids {
-		intentID := deterministicIntentID(environmentID, r.Config.Profile.PublisherConfigDigest)
+		intentID := deterministicIntentID(environmentID, profileDigest, r.Config.Profile.PublisherConfigDigest)
 		if _, err = r.Store.EnsureIntent(ctx, EnsureRequest{IntentID: intentID, EnvironmentID: environmentID, Profile: r.Config.Profile, Now: now}); err != nil {
 			// A newly enabled runtime can legitimately observe environments before
 			// the exact platform Git binding has reached its first ready revision.
@@ -86,10 +90,6 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 		}
 	}
 	if _, err = r.Controller.Reconcile(ctx); err != nil && !errors.Is(err, ErrUnavailable) {
-		return err
-	}
-	profileDigest, err := r.Config.Profile.Digest()
-	if err != nil {
 		return err
 	}
 	if err = r.Store.RecordReadiness(ctx, Readiness{WorkerID: r.Controller.WorkerID, WorkerEpoch: r.WorkerEpoch,
@@ -141,8 +141,8 @@ func exactEnvironmentIDs(ctx context.Context, catalog EnvironmentCatalog) ([]str
 	return ids, nil
 }
 
-func deterministicIntentID(environmentID, publisherDigest string) string {
-	sum := sha256.Sum256([]byte(Contract + "\x00" + environmentID + "\x00" + publisherDigest))
+func deterministicIntentID(environmentID, profileDigest, publisherDigest string) string {
+	sum := sha256.Sum256([]byte(Contract + "\x00" + environmentID + "\x00" + profileDigest + "\x00" + publisherDigest))
 	value := append([]byte(nil), sum[:16]...)
 	value[6] = value[6]&0x0f | 0x50
 	value[8] = value[8]&0x3f | 0x80

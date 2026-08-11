@@ -86,6 +86,20 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	if replayed.Authority.PlannedHead != strings.Repeat("a", 40) || replayed.IntentDigest != intent.IntentDigest {
 		t.Fatalf("retry rebound immutable authority: %s", replayed.Authority.PlannedHead)
 	}
+	pendingRotation := profile
+	pendingRotation.ObserverServiceAccount = "kuberploy-api-rotated"
+	deferred, err := store.EnsureIntent(ctx, EnsureRequest{testIntentID2, testEnvironmentID, pendingRotation, now.Add(2 * time.Second)})
+	if err != nil || deferred.ID != intent.ID {
+		t.Fatalf("PostgreSQL superseded a nonterminal predecessor: %#v err=%v", deferred, err)
+	}
+	pendingDigest, _ := pendingRotation.Digest()
+	legacyLease, legacyFound, err := store.ClaimIntent(ctx, testWorker1, pendingDigest, pendingRotation.PublisherConfigDigest, now.Add(time.Second), MinimumLease)
+	if err != nil || !legacyFound || legacyLease.Intent.ID != intent.ID || legacyLease.Intent.ProfileDigest == pendingDigest {
+		t.Fatalf("rotated runtime could not recover the PostgreSQL predecessor: %#v found=%v err=%v", legacyLease, legacyFound, err)
+	}
+	if _, err = store.RecordRetry(ctx, legacyLease, "release-for-main-test", false, now.Add(time.Second), now.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	first, found, err := store.ClaimIntent(ctx, testWorker1, profileDigest, profile.PublisherConfigDigest, now.Add(time.Second), MinimumLease)
 	if err != nil || !found {
 		t.Fatalf("first claim: found=%v err=%v", found, err)
@@ -131,5 +145,15 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	}
 	if err = store.ExactReady(ctx, profileDigest, profile.PublisherConfigDigest, 1, first.Until.Add(2*time.Minute)); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("expired readiness accepted: %v", err)
+	}
+	changed := profile
+	changed.ObserverServiceAccount = "kuberploy-api-rotated"
+	replacement, err := store.EnsureIntent(ctx, EnsureRequest{testIntentID2, testEnvironmentID, changed, first.Until.Add(3 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected, found, err := store.ExpectedPreimage(ctx, replacement.ID)
+	if err != nil || !found || expected != ready.ManifestDigest {
+		t.Fatalf("exact PostgreSQL foundation preimage was not retained: digest=%q found=%v err=%v", expected, found, err)
 	}
 }

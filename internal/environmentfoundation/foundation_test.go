@@ -248,6 +248,31 @@ func TestMemoryStoreDerivesIdentityAndFencesRecovery(t *testing.T) {
 	}
 }
 
+func TestProfileRotationRecoversNonterminalPredecessorBeforeReplacement(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 9, 8, 0, 0, 0, time.UTC)
+	store, err := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldProfile := testProfile()
+	oldIntent, err := store.EnsureIntent(ctx, EnsureRequest{testIntentID, testEnvironmentID, oldProfile, now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newProfile := oldProfile
+	newProfile.ObserverServiceAccount = "kuberploy-api-rotated"
+	deferred, err := store.EnsureIntent(ctx, EnsureRequest{testIntentID2, testEnvironmentID, newProfile, now.Add(time.Second)})
+	if err != nil || deferred.ID != oldIntent.ID {
+		t.Fatalf("nonterminal predecessor was not preserved: %#v err=%v", deferred, err)
+	}
+	newDigest, _ := newProfile.Digest()
+	lease, found, err := store.ClaimIntent(ctx, testWorker1, newDigest, newProfile.PublisherConfigDigest, now.Add(2*time.Second), MinimumLease)
+	if err != nil || !found || lease.Intent.ID != oldIntent.ID || lease.Intent.ProfileDigest == newDigest {
+		t.Fatalf("new runtime did not claim the exact legacy predecessor: %#v found=%v err=%v", lease, found, err)
+	}
+}
+
 type fakePublisher struct {
 	identity PublisherIdentity
 	store    Store

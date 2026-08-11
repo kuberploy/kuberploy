@@ -32,6 +32,12 @@ func TestFoundationMutationAuthorityIsExactAndCannotBeSubstituted(t *testing.T) 
 	if err = mutation.Validate(binding); err != nil {
 		t.Fatalf("exact foundation mutation rejected: %v", err)
 	}
+	rotation := mutation
+	rotation.Precondition = MutationMatchETag
+	rotation.ExpectedETag = `"sha256:` + strings.Repeat("f", 64) + `"`
+	if err = rotation.Validate(binding); err != nil {
+		t.Fatalf("exact foundation rotation rejected: %v", err)
+	}
 
 	tests := map[string]func(*Mutation){
 		"ordinary authority bypass": func(v *Mutation) { v.Authority, v.CommitTrailer, v.RequiredAncestor, v.ContentSHA256 = "", "", "", "" },
@@ -45,9 +51,9 @@ func TestFoundationMutationAuthorityIsExactAndCannotBeSubstituted(t *testing.T) 
 		"missing ancestor": func(v *Mutation) { v.RequiredAncestor = "" },
 		"digest mismatch":  func(v *Mutation) { v.ContentSHA256 = "sha256:" + strings.Repeat("0", 64) },
 		"delete":           func(v *Mutation) { v.Action = MutationDelete },
-		"match update": func(v *Mutation) {
+		"match update without etag": func(v *Mutation) {
 			v.Precondition = MutationMatchETag
-			v.ExpectedETag = `"sha256:` + strings.Repeat("0", 64) + `"`
+			v.ExpectedETag = ""
 		},
 	}
 	for name, alter := range tests {

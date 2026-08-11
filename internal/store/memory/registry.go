@@ -28,7 +28,8 @@ func (s *Store) PutRegistryTarget(_ context.Context, target domain.RegistryTarge
 		}
 		if current.RepositoryPrefix != target.RepositoryPrefix {
 			for _, policy := range s.registryPolicies {
-				if policy.RegistryTargetID == target.ID {
+				if policy.RegistryTargetID == target.ID &&
+					policy.Repository != target.RepositoryPrefix && !strings.HasPrefix(policy.Repository, target.RepositoryPrefix+"/") {
 					return domain.RegistryTarget{}, base.ErrConflict
 				}
 			}

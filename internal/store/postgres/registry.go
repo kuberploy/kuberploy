@@ -54,6 +54,8 @@ func (s *Store) PutRegistryTarget(ctx context.Context, target domain.RegistryTar
 		WHERE registry_targets.mode=EXCLUDED.mode AND
 		      (registry_targets.repository_prefix=EXCLUDED.repository_prefix OR NOT EXISTS (
 		          SELECT 1 FROM service_registry_policies p WHERE p.registry_target_id=registry_targets.id
+		            AND p.repository<>EXCLUDED.repository_prefix
+		            AND p.repository NOT LIKE EXCLUDED.repository_prefix || '/%'
 		      ))
 		RETURNING id,name,mode,endpoint,repository_prefix,pull_credential_ref,
 			push_credential_ref,cache_credential_ref,created_at,updated_at`,
