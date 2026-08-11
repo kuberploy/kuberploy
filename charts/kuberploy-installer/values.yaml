@@ -79,6 +79,18 @@ integrations:
       class: ""
       ip: ""
       sourceRanges: []
+    # Optional private-pull authority for the managed registry. The source
+    # Secret is pre-created in kuberploy-system and contains one Docker config
+    # JSON value; credential bytes never enter Helm values or Argo resources.
+    runtimePull:
+      enabled: false
+      targetID: ""
+      profileName: ""
+      credentialRef: ""
+      revision: 0
+      sourceSecretName: ""
+      sourceSecretKey: ""
+      namespaces: []
 
 components:
   controlPlane: &disabledComponent

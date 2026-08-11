@@ -239,6 +239,47 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.buildLogs.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.secretRef.name' "${kp_tmp}/github-platform.yaml")" == "kuberploy-github-app" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.41" ]]
+
+kp_registry_pull_args=(
+  --set components.registry.enabled=true
+  --set components.registry.mode=managed
+  --set-string components.registry.expectedPackageVersion=0.1.0-rc.41
+  --set integrations.registry.enabled=true
+  --set-string integrations.registry.authSecretName=registry-auth
+  --set-string integrations.registry.secretRevision=v1
+  --set-string integrations.registry.exposureMode=ingress
+  --set-string integrations.registry.endpoint=registry.example.com
+  --set-string integrations.registry.tlsSecretName=registry-tls
+  --set-string integrations.registry.clusterIssuerName=kuberploy-letsencrypt-production
+  --set integrations.registry.runtimePull.enabled=true
+  --set-string integrations.registry.runtimePull.targetID=55555555-5555-4555-8555-555555555555
+  --set-string integrations.registry.runtimePull.profileName=managed-registry
+  --set-string integrations.registry.runtimePull.credentialRef=operator/managed-registry
+  --set integrations.registry.runtimePull.revision=1
+  --set-string integrations.registry.runtimePull.sourceSecretName=registry-pull-source
+  --set-string integrations.registry.runtimePull.sourceSecretKey=dockerconfigjson
+  --set-string integrations.registry.runtimePull.namespaces[0]=kp-example-development
+)
+helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
+  --set publicEndpoint.tls.enabled=true \
+  --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \
+  --set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production \
+  --set-string publicEndpoint.tls.accountEmail=platform@example.com \
+  "${kp_github_args[@]}" "${kp_registry_pull_args[@]}" >"${kp_tmp}/registry-pull-platform.yaml"
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.enabled' "${kp_tmp}/registry-pull-platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.profiles[0].targetId' "${kp_tmp}/registry-pull-platform.yaml")" == "55555555-5555-4555-8555-555555555555" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.destinations[] | select(.namespace == "kp-example-development") | .namespace' "${kp_tmp}/registry-pull-platform.yaml")" == "kp-example-development" ]]
+yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject' \
+  "${kp_tmp}/registry-pull-platform.yaml" >"${kp_tmp}/registry-pull-control-values.yaml"
+helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
+  -f "${kp_tmp}/registry-pull-control-values.yaml" \
+  --set-string components.api.image.reference=example.invalid/api@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
+  --set-string components.worker.image.reference=example.invalid/worker@sha256:2222222222222222222222222222222222222222222222222222222222222222 \
+  --set-string components.web.image.reference=example.invalid/web@sha256:3333333333333333333333333333333333333333333333333333333333333333 \
+  --set-string upgrade.image.reference=example.invalid/upgrader@sha256:4444444444444444444444444444444444444444444444444444444444444444 \
+  --set-string builder.builderAgentImage=example.invalid/builder@sha256:5555555555555555555555555555555555555555555555555555555555555555 \
+  >"${kp_tmp}/registry-pull-control.yaml"
+[[ "$(yq eval-all '[select(.kind == "Role" and .metadata.namespace == "kp-example-development") | .rules[] | select(.resources == ["secrets"] and .verbs == ["create"])] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
 if helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \
   --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \
@@ -327,6 +368,7 @@ kp_expect_reject "broad cluster API CIDR" --set-string cluster.kubeAPIServerCIDR
 kp_expect_reject "dormant GitHub identity" --set integrations.github.appID=123456
 kp_expect_reject "GitHub without builder component" "${kp_platform_args[@]}" --set publicEndpoint.tls.enabled=true --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls --set-string publicEndpoint.tls.clusterIssuerName=kuberploy-letsencrypt-production --set-string publicEndpoint.tls.accountEmail=platform@example.com --set integrations.github.enabled=true --set integrations.github.appID=123456 --set-string integrations.github.clientID=Iv1_KuberployClient --set-string integrations.github.appSlug=kuberploy-test --set-string integrations.github.secretName=kuberploy-github-app --set-string integrations.github.clusterID=22222222-2222-4222-8222-222222222222 --set-string integrations.github.controlPlaneEgressCIDRs[0]=192.0.2.10/32 --set-string integrations.github.sourceEgressCIDRs[0]=192.0.2.11/32 --set-string integrations.github.registryEgressCIDRs[0]=192.0.2.12/32
 kp_expect_reject "dormant registry identity" --set-string integrations.registry.authSecretName=registry-auth
+kp_expect_reject "dormant registry pull identity" --set-string integrations.registry.runtimePull.targetID=55555555-5555-4555-8555-555555555555
 kp_expect_reject "registry integration without registry component" --set integrations.registry.enabled=true --set-string integrations.registry.authSecretName=registry-auth --set-string integrations.registry.secretRevision=v1 --set-string integrations.registry.exposureMode=ingress --set-string integrations.registry.endpoint=registry.example.com --set-string integrations.registry.tlsSecretName=registry-tls --set-string integrations.registry.clusterIssuerName=kuberploy-letsencrypt-production
 kp_expect_reject "managed registry without registry integration" --set components.registry.enabled=true --set components.registry.mode=managed --set-string components.registry.expectedPackageVersion=0.1.0-rc.41
 

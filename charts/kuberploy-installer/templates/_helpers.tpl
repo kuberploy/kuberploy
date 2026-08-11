@@ -135,6 +135,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- end -}}
 
 {{- $registry := .Values.integrations.registry -}}
+{{- $runtimePull := $registry.runtimePull -}}
 {{- if $registry.enabled -}}
   {{- if or (not .Values.components.registry.enabled) (ne .Values.components.registry.mode "managed") -}}{{ fail "managed registry integration requires the managed registry component" }}{{- end -}}
   {{- if or (not .Values.components.edge.enabled) (not .Values.publicEndpoint.tls.enabled) -}}{{ fail "managed registry integration requires managed edge and public TLS" }}{{- end -}}
@@ -146,7 +147,17 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- else if or (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) -}}
     {{- fail "registry ingress mode rejects dormant LoadBalancer configuration" -}}
   {{- end -}}
-{{- else if or (ne $registry.authSecretName "") (ne $registry.secretRevision "") (ne $registry.exposureMode "internal") (ne $registry.endpoint "") (ne $registry.tlsSecretName "") (ne $registry.clusterIssuerName "") (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) -}}
+  {{- if $runtimePull.enabled -}}
+    {{- if or (not .Values.components.controlPlane.enabled) (not .Values.integrations.github.enabled) -}}{{ fail "managed registry runtime pull requires the GitOps control plane" }}{{- end -}}
+    {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $runtimePull.targetID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.profileName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$" $runtimePull.credentialRef)) (le (int64 $runtimePull.revision) 0) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.sourceSecretName)) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" $runtimePull.sourceSecretKey)) (empty $runtimePull.namespaces) -}}{{ fail "managed registry runtime pull identities are invalid" }}{{- end -}}
+    {{- if or (ne (len $runtimePull.namespaces) (len (uniq $runtimePull.namespaces))) (ne (join "," $runtimePull.namespaces) (join "," (sortAlpha $runtimePull.namespaces))) -}}{{ fail "managed registry runtime pull namespaces must be sorted and unique" }}{{- end -}}
+    {{- range $runtimePull.namespaces -}}
+      {{- if not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" .) -}}{{ fail "managed registry runtime pull namespace is invalid" }}{{- end -}}
+    {{- end -}}
+  {{- else if or (ne $runtimePull.targetID "") (ne $runtimePull.profileName "") (ne $runtimePull.credentialRef "") (ne (int64 $runtimePull.revision) 0) (ne $runtimePull.sourceSecretName "") (ne $runtimePull.sourceSecretKey "") (not (empty $runtimePull.namespaces)) -}}
+    {{- fail "disabled managed registry runtime pull rejects dormant configuration" -}}
+  {{- end -}}
+{{- else if or (ne $registry.authSecretName "") (ne $registry.secretRevision "") (ne $registry.exposureMode "internal") (ne $registry.endpoint "") (ne $registry.tlsSecretName "") (ne $registry.clusterIssuerName "") (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) $runtimePull.enabled (ne $runtimePull.targetID "") (ne $runtimePull.profileName "") (ne $runtimePull.credentialRef "") (ne (int64 $runtimePull.revision) 0) (ne $runtimePull.sourceSecretName "") (ne $runtimePull.sourceSecretKey "") (not (empty $runtimePull.namespaces)) -}}
   {{- fail "disabled managed registry integration rejects dormant configuration" -}}
 {{- end -}}
 {{- if and .Values.components.registry.enabled (not $registry.enabled) -}}

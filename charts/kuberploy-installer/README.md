@@ -161,6 +161,14 @@ registry Pod access only to `kuberploy-system` and the isolated
 `kuberploy-build-dind` namespace. Workloads authenticate with their selected
 Kubernetes `imagePullSecrets`; nodes need no insecure-registry or custom-CA
 configuration.
+Set `integrations.registry.runtimePull.enabled` when services should select
+this private registry through the project credential catalog. Supply the exact
+database registry target ID, one readable profile/revision, the allowed
+workload namespaces, and a pre-created Docker config JSON Secret/key in
+`kuberploy-system`. The installer passes only those references into the
+control plane and grants its worker access only to the derived Secret names in
+the listed namespaces; credential bytes never enter Helm values, Argo, Git, or
+the API.
 Cloudflare registry DNS is always forced to DNS-only; proxy mode cannot be
 overridden through installer values.
 

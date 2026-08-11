@@ -118,6 +118,29 @@
   -}}
   {{- $childValues = mergeOverwrite $childValues $githubValues -}}
 {{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.runtimePull.enabled -}}
+  {{- $pull := $root.Values.integrations.registry.runtimePull -}}
+  {{- $pullValues := dict "config" (dict "runtimeRegistryPulls" (dict
+    "enabled" true
+    "namespaces" $pull.namespaces
+    "profiles" (list (dict
+      "name" $pull.profileName
+      "targetId" $pull.targetID
+      "registryServer" $root.Values.integrations.registry.endpoint
+      "credentialRef" $pull.credentialRef
+      "revision" $pull.revision
+      "sourceSecretRef" $pull.sourceSecretName
+      "sourceSecretKey" $pull.sourceSecretKey
+    ))
+    "pollIntervalSeconds" 30
+    "workLeaseSeconds" 120
+    "heartbeatSeconds" 20
+    "readinessSeconds" 90
+    "minimumBackoffSeconds" 5
+    "maximumBackoffSeconds" 300
+  )) -}}
+  {{- $childValues = mergeOverwrite $childValues $pullValues -}}
+{{- end -}}
 {{- if and (eq $item.key "builder") $root.Values.integrations.github.enabled -}}
   {{- $childValues = mergeOverwrite $childValues (dict "buildKitImage" $root.Values.integrations.github.buildKitImage) -}}
 {{- end -}}
@@ -164,6 +187,12 @@ spec:
       namespace: kuberploy-build-dind
     - server: https://kubernetes.default.svc
       namespace: {{ $root.Values.integrations.github.argoNamespace }}
+    {{- end }}
+    {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.runtimePull.enabled }}
+    {{- range $root.Values.integrations.registry.runtimePull.namespaces }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ . }}
+    {{- end }}
     {{- end }}
     {{- if eq $item.key "builder" }}
     - server: https://kubernetes.default.svc
