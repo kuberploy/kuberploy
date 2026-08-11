@@ -230,9 +230,11 @@ func desiredStatePolicyDocumentsTx(ctx context.Context, tx pgx.Tx, binding gitpr
 
 func desiredStateResourcesTx(ctx context.Context, tx pgx.Tx, projectID, environmentID string, documents []gitprojection.Document) ([]domain.Application, []domain.Deployment, error) {
 	applicationIDs := make([]string, 0, len(documents))
+	configRevisions := make(map[string]string, len(documents))
 	for _, document := range documents {
 		if document.ApplicationID != "" {
 			applicationIDs = append(applicationIDs, document.ApplicationID)
+			configRevisions[document.ApplicationID] = document.ConfigRevision
 		}
 	}
 	if len(applicationIDs) == 0 {
@@ -284,6 +286,11 @@ func desiredStateResourcesTx(ctx context.Context, tx pgx.Tx, projectID, environm
 			return nil, nil, ErrConflict
 		}
 		if _, duplicate := seenApplications[deployment.ApplicationID]; duplicate {
+			rows.Close()
+			return nil, nil, ErrConflict
+		}
+		deployment.DesiredRevision = configRevisions[deployment.ApplicationID]
+		if !commitRE.MatchString(deployment.DesiredRevision) {
 			rows.Close()
 			return nil, nil, ErrConflict
 		}

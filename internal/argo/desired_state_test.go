@@ -107,8 +107,10 @@ func desiredStateTargetFixture(t *testing.T, now time.Time) (argo.DesiredStateTa
 	}
 	platform.TargetHeadRevision = strings.Repeat("d", 40)
 	platform.TargetHeadObservedAt, platform.UpdatedAt, platform.State = now, now, gitprojection.BindingIndexing
+	deployment := deploymentFixture()
+	deployment.DesiredRevision = environmentTarget.Binding.IndexedRevision
 	return argo.DesiredStateTarget{Environment: environmentTarget, PlatformBinding: platform},
-		[]domain.Application{application}, []domain.Deployment{deploymentFixture()}
+		[]domain.Application{application}, []domain.Deployment{deployment}
 }
 
 func desiredStateIdentity(t *testing.T, target argo.DesiredStateTarget) argo.DesiredStateRuntimeIdentity {
@@ -191,7 +193,7 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 	if _, err = planDesiredStateCommand(t, "19111111-1111-4111-8111-111111111111", branchAdvanced, applications, deployments, &completed, now.Add(3*time.Second)); !errors.Is(err, argo.ErrInvalid) {
 		t.Fatalf("unindexed branch advance entered Argo desired state: %v", err)
 	}
-	if !strings.Contains(string(command.Content), "targetRevision: "+target.Environment.Binding.IndexedRevision) || strings.Contains(string(command.Content), "targetRevision: "+branchAdvanced.Environment.Binding.TargetHeadRevision) {
+	if !strings.Contains(string(command.Content), "valuesRevision: "+deployments[0].DesiredRevision) || strings.Contains(string(command.Content), "valuesRevision: "+branchAdvanced.Environment.Binding.TargetHeadRevision) {
 		t.Fatal("existing protected command followed mutable environment branch")
 	}
 	indexedAdvance := branchAdvanced
@@ -200,10 +202,8 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 	indexedAdvance.Environment.Binding.ProjectionGeneration++
 	indexedAdvance.Environment.Binding.UpdatedAt = now.Add(4 * time.Second)
 	indexedAdvance.Environment.Binding.State = gitprojection.BindingReady
-	advancedCommand, err := planDesiredStateCommand(t, "19111111-1111-4111-8111-111111111111", indexedAdvance, applications, deployments, &completed, now.Add(5*time.Second))
-	if err != nil || advancedCommand.EnvironmentRevision != indexedAdvance.Environment.Binding.IndexedRevision ||
-		!strings.Contains(string(advancedCommand.Content), indexedAdvance.Environment.Binding.IndexedRevision) {
-		t.Fatalf("new indexed generation did not produce a newly pinned command: %#v err=%v", advancedCommand, err)
+	if _, err = planDesiredStateCommand(t, "19111111-1111-4111-8111-111111111111", indexedAdvance, applications, deployments, &completed, now.Add(5*time.Second)); !errors.Is(err, argo.ErrNoDesiredStateChange) {
+		t.Fatalf("platform-only indexed advance changed tenant desired state: %v", err)
 	}
 	if _, err = planDesiredStateCommand(t, "15111111-1111-4111-8111-111111111111", target, applications, deployments, &completed, now.Add(3*time.Second)); !errors.Is(err, argo.ErrNoDesiredStateChange) {
 		t.Fatalf("unchanged catalog queued: %v", err)

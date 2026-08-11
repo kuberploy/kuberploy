@@ -2,7 +2,6 @@ package argo
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -81,6 +80,7 @@ type applicationElement struct {
 	ApplicationID   string `yaml:"applicationId"`
 	ApplicationName string `yaml:"applicationName"`
 	ApplicationPath string `yaml:"applicationPath"`
+	ValuesRevision  string `yaml:"valuesRevision"`
 }
 
 type applicationSetManifest struct {
@@ -138,17 +138,27 @@ func RenderApplication(target EnvironmentTarget, application domain.Application,
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := applicationTemplate(target, ApplicationName(deployment.ID), applicationPath, application.ID, deployment.ID)
+	valuesRevision := target.Binding.IndexedRevision
+	if deployment.DesiredRevision != "" {
+		if !commitRE.MatchString(deployment.DesiredRevision) {
+			return nil, ErrInvalid
+		}
+		valuesRevision = deployment.DesiredRevision
+	}
+	manifest, err := applicationTemplate(target, ApplicationName(deployment.ID), applicationPath, application.ID, deployment.ID, valuesRevision)
 	if err != nil {
 		return nil, err
 	}
 	return yaml.Marshal(manifest)
 }
 
-func applicationTemplate(target EnvironmentTarget, name, applicationPath, applicationID, deploymentID string) (applicationManifest, error) {
+func applicationTemplate(target EnvironmentTarget, name, applicationPath, applicationID, deploymentID, valuesRevision string) (applicationManifest, error) {
 	gitRemote, err := target.Binding.Repository.CanonicalRemote()
 	if err != nil {
 		return applicationManifest{}, err
+	}
+	if !commitRE.MatchString(valuesRevision) && valuesRevision != "{{.valuesRevision}}" {
+		return applicationManifest{}, ErrInvalid
 	}
 	labels := baseLabels(target)
 	labels["kuberploy.io/application-id"] = applicationID
@@ -159,8 +169,7 @@ func applicationTemplate(target EnvironmentTarget, name, applicationPath, applic
 		return applicationManifest{}, err
 	}
 	manifest := applicationManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "Application"}, Metadata: objectMeta{Name: name, Namespace: target.ArgoNamespace, Labels: labels,
-		Annotations: map[string]string{"kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/git-indexed-revision": target.Binding.IndexedRevision,
-			"kuberploy.io/git-indexed-generation": fmt.Sprintf("%d", target.Binding.ProjectionGeneration), "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest,
+		Annotations: map[string]string{"kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest,
 			"kuberploy.io/runtime-chart-version": target.Runtime.ChartVersion, "kuberploy.io/renderer-image": target.Runtime.RendererImage}}}
 	manifest.Spec.Project = target.Environment.ArgoProject
 	manifest.Spec.Sources = []argoSource{
@@ -169,7 +178,7 @@ func applicationTemplate(target EnvironmentTarget, name, applicationPath, applic
 			{Name: "kuberployExpectedIdentity.environmentId", Value: target.Environment.ID, ForceString: true},
 			{Name: "kuberployExpectedIdentity.applicationId", Value: applicationID, ForceString: true},
 		}}},
-		{RepoURL: gitRemote, TargetRevision: target.Binding.IndexedRevision, Ref: "values"},
+		{RepoURL: gitRemote, TargetRevision: valuesRevision, Ref: "values"},
 	}
 	manifest.Spec.Destination = map[string]string{"server": InClusterServer, "namespace": target.Environment.Namespace}
 	manifest.Spec.SyncPolicy.Automated = map[string]bool{"allowEmpty": false, "prune": true, "selfHeal": true}
@@ -210,9 +219,16 @@ func RenderApplicationSet(target EnvironmentTarget, applications []domain.Applic
 		if err != nil {
 			return nil, err
 		}
-		elements = append(elements, applicationElement{DeploymentID: deployment.ID, ApplicationID: application.ID, ApplicationName: ApplicationName(deployment.ID), ApplicationPath: applicationPath})
+		valuesRevision := target.Binding.IndexedRevision
+		if deployment.DesiredRevision != "" {
+			if !commitRE.MatchString(deployment.DesiredRevision) {
+				return nil, ErrInvalid
+			}
+			valuesRevision = deployment.DesiredRevision
+		}
+		elements = append(elements, applicationElement{DeploymentID: deployment.ID, ApplicationID: application.ID, ApplicationName: ApplicationName(deployment.ID), ApplicationPath: applicationPath, ValuesRevision: valuesRevision})
 	}
-	template, err := applicationTemplate(target, "{{.applicationName}}", "{{.applicationPath}}", "{{.applicationId}}", "{{.deploymentId}}")
+	template, err := applicationTemplate(target, "{{.applicationName}}", "{{.applicationPath}}", "{{.applicationId}}", "{{.deploymentId}}", "{{.valuesRevision}}")
 	if err != nil {
 		return nil, err
 	}

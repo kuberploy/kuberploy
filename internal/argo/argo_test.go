@@ -68,6 +68,7 @@ func deploymentFixture() domain.Deployment {
 func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T) {
 	target, application := targetFixture(t)
 	deployment := deploymentFixture()
+	deployment.DesiredRevision = strings.Repeat("d", 40)
 	first, err := argo.RenderApplication(target, application, deployment)
 	if err != nil {
 		t.Fatal(err)
@@ -80,7 +81,7 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 		t.Fatal("Application rendering is nondeterministic")
 	}
 	text := string(first)
-	for _, required := range []string{`project: ` + target.Environment.ArgoProject, `server: https://kubernetes.default.svc`, `namespace: ` + target.Environment.Namespace, `repoURL: oci://ghcr.io/kuberploy/charts/kuberploy-runtime`, `targetRevision: ` + target.Runtime.ChartDigest, `path: .`, `targetRevision: ` + target.Binding.IndexedRevision, `kuberploy.io/runtime-chart-digest: sha256:`, `$values/tenants/` + projectID + `/environments/` + environmentID + `/apps/` + applicationID + `/app.yaml`} {
+	for _, required := range []string{`project: ` + target.Environment.ArgoProject, `server: https://kubernetes.default.svc`, `namespace: ` + target.Environment.Namespace, `repoURL: oci://ghcr.io/kuberploy/charts/kuberploy-runtime`, `targetRevision: ` + target.Runtime.ChartDigest, `path: .`, `targetRevision: ` + deployment.DesiredRevision, `kuberploy.io/runtime-chart-digest: sha256:`, `$values/tenants/` + projectID + `/environments/` + environmentID + `/apps/` + applicationID + `/app.yaml`} {
 		if !strings.Contains(text, required) {
 			t.Errorf("missing %q in:\n%s", required, text)
 		}
@@ -91,7 +92,7 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	if !strings.Contains(text, `kuberploy.io/deployment-id: `+deploymentID) || !strings.Contains(text, `name: `+argo.ApplicationName(deploymentID)) {
 		t.Fatalf("Application is not uniquely deployment-scoped:\n%s", text)
 	}
-	for _, forbidden := range []string{"chart:", "valuesObject:", "passCredentials:", "skipCrds:", "CreateNamespace=true", "destination: '{{", "argocd.argoproj.io/manifest-generate-paths"} {
+	for _, forbidden := range []string{"chart:", "valuesObject:", "passCredentials:", "skipCrds:", "CreateNamespace=true", "destination: '{{", "argocd.argoproj.io/manifest-generate-paths", "kuberploy.io/git-indexed-revision", "kuberploy.io/git-indexed-generation"} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("unsafe Argo field %q in:\n%s", forbidden, text)
 		}
@@ -136,7 +137,7 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 		t.Fatalf("missing identity parameters: %#v", wantedIdentity)
 	}
 	valuesSource, ok := sources[1].(map[string]any)
-	if !ok || len(valuesSource) != 3 || valuesSource["repoURL"] != "https://github.com/kuberploy/environments.git" || valuesSource["targetRevision"] != target.Binding.IndexedRevision || valuesSource["ref"] != "values" || valuesSource["path"] != nil {
+	if !ok || len(valuesSource) != 3 || valuesSource["repoURL"] != "https://github.com/kuberploy/environments.git" || valuesSource["targetRevision"] != deployment.DesiredRevision || valuesSource["ref"] != "values" || valuesSource["path"] != nil {
 		t.Fatalf("Git values source is not closed: %#v", sources[1])
 	}
 	project, err := argo.RenderAppProject(target)
