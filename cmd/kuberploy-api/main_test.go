@@ -27,7 +27,7 @@ func TestMonitoringClientConfigurationFailsClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("KUBERPLOY_PROMETHEUS_URL", test.endpoint)
 			t.Setenv("KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED", test.token)
-			service, err := monitoringClient(test.mode, "0.1.0-rc.48")
+			service, err := monitoringClient(test.mode, "0.1.0-rc.49")
 			if (err != nil) != test.wantError {
 				t.Fatalf("service=%T error=%v", service, err)
 			}
