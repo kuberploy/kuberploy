@@ -1,4 +1,4 @@
-{{- range $component, $config := .Values.components }}
+{{- range $component := list "api" "worker" "web" }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

@@ -206,6 +206,8 @@ fi
 [[ "$(yq eval-all 'select(.kind == "ServiceAccount" and .metadata.labels."app.kubernetes.io/component" == "web") | .automountServiceAccountToken' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all '[select(.kind == "PodDisruptionBudget" and .spec.maxUnavailable == 0)] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .spec.strategy.type == "RollingUpdate" and .spec.strategy.rollingUpdate.maxUnavailable == 0)] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select((.kind == "Deployment" or .kind == "PodDisruptionBudget") and .metadata.labels."app.kubernetes.io/component" == "migration")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.annotations."kuberploy.io/migrations" == "prisma-schema-verified-read-only")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GITHUB_BUILDS_ENABLED' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_ENABLED' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_AUTH_MODE' "${kp_tmp}/platform.yaml")" == "disabled" ]]

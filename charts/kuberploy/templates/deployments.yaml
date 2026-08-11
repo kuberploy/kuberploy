@@ -1,4 +1,5 @@
-{{- range $component, $config := .Values.components }}
+{{- range $component := list "api" "worker" "web" }}
+{{- $config := index $.Values.components $component }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -7,7 +8,7 @@ metadata:
   labels:
     {{- include "kuberploy.componentLabels" (dict "root" $ "component" $component) | nindent 4 }}
   annotations:
-    kuberploy.io/migrations: startup-postgresql-advisory-lock
+    kuberploy.io/migrations: prisma-schema-verified-read-only
     kuberploy.io/control-plane-release: {{ $.Release.Name | quote }}
     kuberploy.io/control-plane-namespace: {{ $.Release.Namespace | quote }}
 spec:
