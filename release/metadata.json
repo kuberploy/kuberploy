@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Middleware profile reads now reject missing, malformed, and duplicate workload targets without reaching persistence.",
+  "summary": "Accepted VariableSet Git writes now recover exact commits through unrelated descendants without remaining in a requeue loop.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.101"
+  "version": "0.1.0-rc.102"
 }
