@@ -63,6 +63,17 @@ func TestVariableSetSaveBindsRequestDigestIndependentlyOfCandidateBytes(t *testi
 	environmentDigest := "sha256:" + strings.Repeat("2", 64)
 	projectSave := save("project", paths[0], "project-save", projectDigest, "project-preview")
 	environmentSave := save("environment", paths[1], "environment-save", environmentDigest, "environment-preview")
+	started, execute, err := store.StartOperation(ctx, projectSave.operationID, 1, "variable-worker", time.Minute)
+	if err != nil || !execute || started.Kind != "variable-set.git-write" {
+		t.Fatalf("variable operation was not leased: operation=%#v execute=%t err=%v", started, execute, err)
+	}
+	if err = store.RequeueOperation(ctx, projectSave.operationID, 1, "variable-worker", "GitCommitResultPending", "retry exact VariableSet publication"); err != nil {
+		t.Fatalf("variable operation could not be requeued after uncertain publication: %v", err)
+	}
+	requeued, err := store.GetOperation(ctx, projectSave.operationID)
+	if err != nil || requeued.Status != "queued" || len(requeued.Progress) != 1 || requeued.Progress[0].Status != "pending" {
+		t.Fatalf("variable operation did not return to its durable queue: operation=%#v err=%v", requeued, err)
+	}
 	if projectSave.command.ContentSHA256 != environmentSave.command.ContentSHA256 {
 		t.Fatal("identical candidate bytes produced different content digests")
 	}

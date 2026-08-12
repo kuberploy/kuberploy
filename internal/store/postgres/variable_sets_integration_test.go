@@ -103,6 +103,17 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	started, execute, err := store.StartOperation(ctx, accepted.Value.ID, 1, "variable-worker-"+suffix, time.Minute)
+	if err != nil || !execute || started.Kind != "variable-set.git-write" {
+		t.Fatalf("variable operation was not leased: operation=%#v execute=%t err=%v", started, execute, err)
+	}
+	if err = store.RequeueOperation(ctx, accepted.Value.ID, 1, "variable-worker-"+suffix, "GitCommitResultPending", "retry exact VariableSet publication"); err != nil {
+		t.Fatalf("variable operation could not be requeued after uncertain publication: %v", err)
+	}
+	requeued, err := store.GetOperation(ctx, accepted.Value.ID)
+	if err != nil || requeued.Status != "queued" || len(requeued.Progress) != 1 || requeued.Progress[0].Status != "pending" {
+		t.Fatalf("variable operation did not return to its durable queue: operation=%#v err=%v", requeued, err)
+	}
 	projectionStore, err := gitprojection.OpenPostgreSQLStore(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)

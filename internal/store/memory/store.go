@@ -1005,7 +1005,7 @@ func (s *Store) RequeueOperation(_ context.Context, operationID string, generati
 	if !ok {
 		return base.ErrNotFound
 	}
-	if op.Generation != generation || op.Kind != "platform.upgrade" && op.Kind != "deployment.git-write" {
+	if op.Generation != generation || op.Kind != "platform.upgrade" && op.Kind != "deployment.git-write" && op.Kind != "variable-set.git-write" {
 		return base.ErrConflict
 	}
 	if op.Status == "succeeded" {

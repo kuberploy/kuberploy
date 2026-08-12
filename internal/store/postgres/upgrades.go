@@ -132,7 +132,7 @@ func (s *Store) RequeueOperation(ctx context.Context, operationID string, genera
 	if err = tx.QueryRow(ctx, `SELECT kind,status,generation,COALESCE(lease_owner,''),lease_until FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&kind, &status, &gen, &owner, &leaseUntil); err != nil {
 		return classify(err)
 	}
-	if gen != generation || kind != "platform.upgrade" && kind != "deployment.git-write" {
+	if gen != generation || kind != "platform.upgrade" && kind != "deployment.git-write" && kind != "variable-set.git-write" {
 		return fmt.Errorf("%w: operation generation or kind changed", base.ErrConflict)
 	}
 	// Completion can commit while its response is lost. A reconcile-pending
