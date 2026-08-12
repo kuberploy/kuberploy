@@ -735,11 +735,8 @@
       "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$"
     },
     "schedulingLabelKey": {
-      "allOf": [
-        { "$ref": "#/$defs/labelKey" },
-        { "not": { "enum": ["node-role.kubernetes.io/control-plane", "node-role.kubernetes.io/master"] } },
-        { "not": { "pattern": "^kuberploy\\.io/" } }
-      ]
+      "description": "Kubernetes label or taint key in server-materialized scheduling fields. Tenant-authored reserved keys are rejected by workload validation unless an exact scheduling profile reference is present.",
+      "$ref": "#/$defs/labelKey"
     },
     "labelValue": {
       "type": "string",
