@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Auto-deploy resolves verified registry releases with an explicit PostgreSQL text-to-UUID identity comparison.",
+  "summary": "AppConfig image receipts, merged pull-request recovery, and environment-scoped Argo projects close three live qualification gaps.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.95"
+  "version": "0.1.0-rc.96"
 }
