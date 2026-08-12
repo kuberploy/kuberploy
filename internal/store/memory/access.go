@@ -105,7 +105,7 @@ func (s *Store) resolveTargetLocked(target domain.AccessTarget) (domain.AccessTa
 		application, applicationOK := s.applications[target.ApplicationID]
 		environment, environmentOK := s.environments[target.EnvironmentID]
 		project := s.projects[application.ProjectID]
-		valid := target.ID != "" && applicationOK && environmentOK && project.ID != "" && project.TeamID != "" &&
+		valid := target.ID != "" && applicationOK && environmentOK && project.ID != "" &&
 			environment.ProjectID == project.ID && target.ProjectID == project.ID && target.TeamID == project.TeamID && target.Namespace == environment.Namespace
 		return domain.AccessTarget{Type: "secret-binding", ID: target.ID, TeamID: project.TeamID, ProjectID: project.ID,
 			EnvironmentID: environment.ID, Namespace: environment.Namespace, ApplicationID: application.ID}, valid

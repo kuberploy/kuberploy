@@ -82,7 +82,7 @@ func resolveAccessTarget(ctx context.Context, q rowQuerier, target domain.Access
 		if err != nil {
 			return resolved, classify(err)
 		}
-		if target.ID == "" || resolved.TeamID == "" || target.ProjectID != resolved.ProjectID || target.TeamID != resolved.TeamID || target.Namespace != resolved.Namespace {
+		if target.ID == "" || target.ProjectID != resolved.ProjectID || target.TeamID != resolved.TeamID || target.Namespace != resolved.Namespace {
 			return resolved, base.ErrNotFound
 		}
 		return resolved, nil

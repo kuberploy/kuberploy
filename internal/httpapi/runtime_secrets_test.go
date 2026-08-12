@@ -35,7 +35,7 @@ func httpRuntimeSecretConfig(t *testing.T) secrets.RuntimeConfig {
 	t.Helper()
 	config := secrets.DefaultRuntimeConfig()
 	config.Enabled = true
-	config.Namespaces = []string{"kp-secret-project-production"}
+	config.Namespaces = []string{"kp-platform-no-secrets-production", "kp-secret-project-production"}
 	config.FingerprintSecretRef = "kuberploy-runtime-secret-fingerprint"
 	config.FingerprintKeyID = "http-secret-key-v1"
 	config.SealingCertificateSecretRef = "sealed-secrets-key"
@@ -166,6 +166,21 @@ func TestConfiguredRuntimeSecretsDoNotGatePlatformAppWithoutReferences(t *testin
 	application := decode[domain.Application](t, applicationResponse)
 	if applicationResponse.StatusCode != http.StatusCreated {
 		t.Fatalf("application status=%d", applicationResponse.StatusCode)
+	}
+	secretValue := "teamless project private value"
+	secretPath := "/v1/applications/" + application.ID + "/secret-bindings"
+	secretResponse := f.request(http.MethodPost, secretPath, "platform-no-secret-binding", secretPayload(environment.ID, secretValue))
+	secretBody := assertSecretResponseSafe(t, secretResponse, http.StatusCreated, secretValue, base64.StdEncoding.EncodeToString([]byte(secretValue)))
+	var binding struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(secretBody, &binding); err != nil || binding.ID == "" {
+		t.Fatalf("teamless binding=%#v err=%v", binding, err)
+	}
+	listResponse := f.request(http.MethodGet, secretPath+"?environmentId="+environment.ID, "", nil)
+	listBody := assertSecretResponseSafe(t, listResponse, http.StatusOK, secretValue)
+	if !bytes.Contains(listBody, []byte(binding.ID)) {
+		t.Fatal("teamless project runtime-secret list omitted the created binding")
 	}
 	response := f.request(http.MethodPost, "/v1/deployments", "platform-no-secret-deployment", map[string]any{
 		"environmentId": environment.ID,

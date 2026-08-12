@@ -154,7 +154,7 @@ func readActiveReferenceCandidateTx(ctx context.Context, tx pgx.Tx, bindingID st
 	var objectName, targetName, providerRevision, manifestDigest, sealingFingerprint, ciphertextDigest sql.NullString
 	var stagedAt, readinessObservedAt, activatedAt, retainedAt, deleteStarted, deletedAt sql.NullTime
 	err := tx.QueryRow(ctx, `SELECT
-		b.id::text,b.organization_id::text,b.project_id::text,b.environment_id::text,b.application_id::text,
+		b.id::text,COALESCE(b.organization_id::text,''),b.project_id::text,b.environment_id::text,b.application_id::text,
 		b.target_namespace,b.name,b.provider,b.purpose,b.state,b.active_version,b.created_by::text,
 		b.created_at,b.updated_at,b.delete_started_at,b.deleted_at,
 		v.id::text,v.binding_id::text,v.version_number,v.provider,v.target_secret_type,v.state,

@@ -1718,7 +1718,7 @@ model secret_binding_versions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model secret_bindings {
   id                String    @id @db.Uuid
-  organization_id   String    @db.Uuid
+  organization_id   String?   @db.Uuid
   project_id        String    @db.Uuid
   environment_id    String    @db.Uuid
   application_id    String    @db.Uuid

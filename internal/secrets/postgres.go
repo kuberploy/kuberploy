@@ -53,7 +53,7 @@ func (s *PostgreSQLStore) BeginCreate(ctx context.Context, command BeginCreate) 
 	defer tx.Rollback(ctx) //nolint:errcheck
 	_, err = tx.Exec(ctx, `INSERT INTO secret_bindings(
 		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,purpose,state,active_version,created_by,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,$12)`,
+		VALUES($1,NULLIF($2,'')::uuid,$3,$4,$5,$6,$7,$8,$9,$10,0,$11,$12,$12)`,
 		command.Binding.ID, command.Binding.Scope.OrganizationID, command.Binding.Scope.ProjectID, command.Binding.Scope.EnvironmentID,
 		command.Binding.Scope.ApplicationID, command.Binding.Scope.Namespace, command.Binding.Name, command.Binding.Provider,
 		command.Binding.Purpose, command.Binding.State, command.Binding.CreatedBy, command.Binding.CreatedAt)
@@ -340,7 +340,7 @@ func (s *PostgreSQLStore) ListBindings(ctx context.Context, applicationID, envir
 	if !uuidRE.MatchString(applicationID) || environmentID != "" && !uuidRE.MatchString(environmentID) {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,organization_id::text,project_id::text,environment_id::text,application_id::text,target_namespace,name,provider,purpose,state,active_version,created_by::text,created_at,updated_at,delete_started_at,deleted_at
+	rows, err := s.pool.Query(ctx, `SELECT id::text,COALESCE(organization_id::text,''),project_id::text,environment_id::text,application_id::text,target_namespace,name,provider,purpose,state,active_version,created_by::text,created_at,updated_at,delete_started_at,deleted_at
 		FROM secret_bindings WHERE application_id=$1 AND ($2='' OR environment_id::text=$2) ORDER BY created_at,id`, applicationID, environmentID)
 	if err != nil {
 		return nil, classifyPostgres(err)
@@ -649,7 +649,7 @@ func scanBinding(row rowScanner) (Binding, error) {
 }
 
 func readBinding(ctx context.Context, query rowQuerier, id string, lock bool) (Binding, error) {
-	statement := `SELECT id::text,organization_id::text,project_id::text,environment_id::text,application_id::text,target_namespace,name,provider,purpose,state,active_version,created_by::text,created_at,updated_at,delete_started_at,deleted_at FROM secret_bindings WHERE id=$1`
+	statement := `SELECT id::text,COALESCE(organization_id::text,''),project_id::text,environment_id::text,application_id::text,target_namespace,name,provider,purpose,state,active_version,created_by::text,created_at,updated_at,delete_started_at,deleted_at FROM secret_bindings WHERE id=$1`
 	if lock {
 		statement += ` FOR UPDATE`
 	}

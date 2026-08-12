@@ -52,9 +52,44 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	}
 	provider := &fakeProviders{}
 	service := testService(store, provider)
+	const personalProject = "10000000-0000-4000-8000-000000000013"
+	const personalEnvironment = "10000000-0000-4000-8000-000000000014"
+	const personalApplication = "10000000-0000-4000-8000-000000000015"
+	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Personal project','personal-project',$2)`, personalProject, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Runtime','runtime','personal-runtime','personal-runtime',$3)`, personalEnvironment, personalProject, testTime); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Personal API','personal-api',$3)`, personalApplication, personalProject, testTime); err != nil {
+		t.Fatal(err)
+	}
+	personalRequest := createRequest(t, ProviderSealedSecrets, "personal-project-value", "postgres-personal-01")
+	personalRequest.Scope = Scope{ProjectID: personalProject, EnvironmentID: personalEnvironment, ApplicationID: personalApplication, Namespace: "personal-runtime"}
+	personalRequest.Name, personalRequest.RequestID = "personal", "postgres-personal-create"
+	personalCreated, err := service.Create(ctx, personalRequest)
+	if err != nil || personalCreated.Binding.Scope.OrganizationID != "" {
+		t.Fatalf("personal binding=%#v err=%v", personalCreated.Binding, err)
+	}
+	personalBindings, err := store.ListBindings(ctx, personalApplication, personalEnvironment)
+	if err != nil || len(personalBindings) != 1 || personalBindings[0].ID != personalCreated.Binding.ID || personalBindings[0].Scope.OrganizationID != "" {
+		t.Fatalf("personal bindings=%#v err=%v", personalBindings, err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO secret_bindings(
+		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,purpose,state,active_version,created_by,created_at,updated_at)
+		SELECT '10000000-0000-4000-8000-000000000016',$2,project_id,environment_id,application_id,target_namespace,'forged-team',provider,purpose,state,active_version,created_by,created_at,updated_at
+		FROM secret_bindings WHERE id=$1`, personalCreated.Binding.ID, testOrganization); err == nil {
+		t.Fatal("personal project accepted a forged team organization")
+	}
 	created, err := service.Create(ctx, createRequest(t, ProviderSealedSecrets, "pg-plaintext-value", "postgres-create-01"))
 	if err != nil || created.Version.State != VersionAwaitingReadiness {
 		t.Fatalf("created=%#v err=%v", created, err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO secret_bindings(
+		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,purpose,state,active_version,created_by,created_at,updated_at)
+		SELECT '10000000-0000-4000-8000-000000000017',NULL,project_id,environment_id,application_id,target_namespace,'forged-personal',provider,purpose,state,active_version,created_by,created_at,updated_at
+		FROM secret_bindings WHERE id=$1`, created.Binding.ID); err == nil {
+		t.Fatal("team-owned project accepted an empty organization")
 	}
 	replayed, err := service.Create(ctx, createRequest(t, ProviderSealedSecrets, "pg-plaintext-value", "postgres-create-01"))
 	if err != nil || !replayed.Replay || replayed.Version.ID != created.Version.ID {

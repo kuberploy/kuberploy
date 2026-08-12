@@ -162,6 +162,19 @@ func createRequest(t *testing.T, provider ProviderKind, password, idem string) C
 		IdempotencyKey: idem, RequestID: "request-create-1", Material: testMaterial(t, password)}
 }
 
+func TestScopeAllowsPersonalProjectAndRejectsMalformedOrganization(t *testing.T) {
+	personal := testScope()
+	personal.OrganizationID = ""
+	if err := personal.Validate(); err != nil {
+		t.Fatalf("personal project scope: %v", err)
+	}
+	malformed := personal
+	malformed.OrganizationID = "not-a-team-uuid"
+	if !errors.Is(malformed.Validate(), ErrInvalid) {
+		t.Fatalf("malformed organization was accepted: %#v", malformed)
+	}
+}
+
 func TestWriteOnlyExternalSecretLifecycleRotationReferencesAndDelete(t *testing.T) {
 	store := NewMemoryStore()
 	provider := &fakeProviders{}

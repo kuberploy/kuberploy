@@ -55,9 +55,9 @@ func validateRuntimeSecretReferencesTx(
 	if tx == nil || referencePlan == nil || referencePlan.Validate() != nil || len(domain.ValidateWorkloadRuntime(runtime)) != 0 {
 		return secrets.BindingReferencePlan{}, base.ErrPreconditionFailed
 	}
-	var organizationID *string
+	var organizationID string
 	var namespace string
-	err := tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
+	err := tx.QueryRow(ctx, `SELECT COALESCE(p.team_id::text,''),e.namespace
 		FROM projects p
 		JOIN environments e ON e.project_id=p.id AND e.id=$2
 		JOIN applications a ON a.project_id=p.id AND a.id=$3
@@ -66,10 +66,7 @@ func validateRuntimeSecretReferencesTx(
 	if err != nil {
 		return secrets.BindingReferencePlan{}, classify(err)
 	}
-	if organizationID == nil || *organizationID == "" {
-		return secrets.BindingReferencePlan{}, base.ErrPreconditionFailed
-	}
-	scope := secrets.Scope{OrganizationID: *organizationID, ProjectID: projectID, EnvironmentID: environmentID,
+	scope := secrets.Scope{OrganizationID: organizationID, ProjectID: projectID, EnvironmentID: environmentID,
 		ApplicationID: applicationID, Namespace: namespace}
 	catalog, err := secrets.NewPostgreSQLBindingReferenceCatalogTx(tx)
 	if err != nil {
@@ -152,9 +149,9 @@ func removeRuntimeSecretReferencesTx(
 	if err != nil {
 		return base.ErrPreconditionFailed
 	}
-	var organizationID *string
+	var organizationID string
 	var namespace string
-	if err = tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(p.team_id::text,''),e.namespace
 		FROM projects p
 		JOIN environments e ON e.project_id=p.id AND e.id=$2
 		JOIN applications a ON a.project_id=p.id AND a.id=$3
@@ -162,7 +159,7 @@ func removeRuntimeSecretReferencesTx(
 		FOR SHARE OF p,e,a`, projectID, environmentID, applicationID).Scan(&organizationID, &namespace); err != nil {
 		return classify(err)
 	}
-	rows, err := tx.Query(ctx, `SELECT b.organization_id::text,b.project_id::text,b.environment_id::text,b.application_id::text,b.target_namespace
+	rows, err := tx.Query(ctx, `SELECT COALESCE(b.organization_id::text,''),b.project_id::text,b.environment_id::text,b.application_id::text,b.target_namespace
 		FROM secret_binding_references r
 		JOIN secret_bindings b ON b.id=r.binding_id
 		WHERE r.kind='git-current' AND r.reference_id=$1
@@ -179,7 +176,7 @@ func removeRuntimeSecretReferencesTx(
 			rows.Close()
 			return classify(err)
 		}
-		if organizationID == nil || *organizationID == "" || rowOrganization != *organizationID || rowProject != projectID ||
+		if rowOrganization != organizationID || rowProject != projectID ||
 			rowEnvironment != environmentID || rowApplication != applicationID || rowNamespace != namespace {
 			rows.Close()
 			return base.ErrPreconditionFailed
@@ -193,11 +190,8 @@ func removeRuntimeSecretReferencesTx(
 	if !found {
 		return nil
 	}
-	if organizationID == nil || *organizationID == "" {
-		return base.ErrPreconditionFailed
-	}
 	digest := sha256.Sum256(raw)
-	plan := secrets.BindingReferencePlan{Scope: secrets.Scope{OrganizationID: *organizationID, ProjectID: projectID,
+	plan := secrets.BindingReferencePlan{Scope: secrets.Scope{OrganizationID: organizationID, ProjectID: projectID,
 		EnvironmentID: environmentID, ApplicationID: applicationID, Namespace: namespace}, Uses: []secrets.ResolvedBindingReference{}}
 	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, actor, referenceID,
 		"sha256:"+hex.EncodeToString(digest[:]), requestID, now.UTC()); err != nil {

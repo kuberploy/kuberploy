@@ -106,7 +106,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'3\n102\n64\n69\n735\n10\n2'
+kp_expected_counts=$'4\n102\n65\n70\n735\n10\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -120,6 +120,44 @@ docker run --rm --network "${kp_network}" \
   --env DATABASE_URL="${kp_fresh_url}" \
   --entrypoint node \
   "${kp_image}" check-schema-drift.mjs >/dev/null
+
+# Personal projects have no team, while team-owned projects retain an exact
+# organization fence. Prove both legal rows and reject both substitutions at
+# the database boundary rather than relying only on API validation.
+docker exec "${kp_postgres}" psql --username postgres --dbname fresh --set ON_ERROR_STOP=1 --command "
+  INSERT INTO users(id,login,role,issuer,subject) VALUES
+    ('10000000-0000-4000-8000-000000000001','scope-admin','platform-admin','test','scope-admin');
+  INSERT INTO teams(id,name,slug,created_by) VALUES
+    ('10000000-0000-4000-8000-000000000002','Scope team','scope-team','10000000-0000-4000-8000-000000000001');
+  INSERT INTO projects(id,name,slug,team_id) VALUES
+    ('10000000-0000-4000-8000-000000000003','Personal','personal',NULL),
+    ('10000000-0000-4000-8000-000000000004','Team owned','team-owned','10000000-0000-4000-8000-000000000002');
+  INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES
+    ('10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000003','Personal','personal','kp-personal','kp-personal'),
+    ('10000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000004','Team','team','kp-team','kp-team');
+  INSERT INTO applications(id,project_id,name,slug) VALUES
+    ('10000000-0000-4000-8000-000000000007','10000000-0000-4000-8000-000000000003','Personal API','personal-api'),
+    ('10000000-0000-4000-8000-000000000008','10000000-0000-4000-8000-000000000004','Team API','team-api');
+  INSERT INTO secret_bindings(id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,created_by,created_at,updated_at) VALUES
+    ('10000000-0000-4000-8000-000000000009',NULL,'10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000007','kp-personal','personal-secret','sealed-secrets','provisioning','10000000-0000-4000-8000-000000000001',now(),now()),
+    ('10000000-0000-4000-8000-000000000010','10000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000008','kp-team','team-secret','sealed-secrets','provisioning','10000000-0000-4000-8000-000000000001',now(),now());
+  DO \$\$
+  BEGIN
+    BEGIN
+      INSERT INTO secret_bindings(id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,created_by,created_at,updated_at)
+      VALUES('10000000-0000-4000-8000-000000000011','10000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000007','kp-personal','forged-team','sealed-secrets','provisioning','10000000-0000-4000-8000-000000000001',now(),now());
+      RAISE EXCEPTION 'personal project accepted a team organization';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+    BEGIN
+      INSERT INTO secret_bindings(id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,created_by,created_at,updated_at)
+      VALUES('10000000-0000-4000-8000-000000000012',NULL,'10000000-0000-4000-8000-000000000004','10000000-0000-4000-8000-000000000006','10000000-0000-4000-8000-000000000008','kp-team','forged-personal','sealed-secrets','provisioning','10000000-0000-4000-8000-000000000001',now(),now());
+      RAISE EXCEPTION 'team-owned project accepted an empty organization';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END
+  \$\$;
+" >/dev/null
 
 # Prove migration 003 repairs a real preexisting project-wide AppProject value
 # and is idempotent when its SQL is replayed by an operator during recovery.
@@ -145,4 +183,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh apply, declarative drift, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh apply, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

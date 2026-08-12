@@ -120,8 +120,9 @@ func (t TargetSecretType) valid() bool {
 }
 
 // Scope is the complete tenant and workload boundary. OrganizationID maps to
-// a Kuberploy team; PostgreSQL verifies every descendant relationship and the
-// environment's exact Kubernetes namespace.
+// a Kuberploy team when the project is team-owned and is empty for a personal
+// or platform-owned project. PostgreSQL verifies that exact ownership choice,
+// every descendant relationship, and the environment's Kubernetes namespace.
 type Scope struct {
 	OrganizationID string `json:"organizationId"`
 	ProjectID      string `json:"projectId"`
@@ -131,7 +132,7 @@ type Scope struct {
 }
 
 func (s Scope) Validate() error {
-	if !uuidRE.MatchString(s.OrganizationID) || !uuidRE.MatchString(s.ProjectID) ||
+	if (s.OrganizationID != "" && !uuidRE.MatchString(s.OrganizationID)) || !uuidRE.MatchString(s.ProjectID) ||
 		!uuidRE.MatchString(s.EnvironmentID) || !uuidRE.MatchString(s.ApplicationID) ||
 		!dnsLabelRE.MatchString(s.Namespace) {
 		return ErrInvalid

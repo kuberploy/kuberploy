@@ -26,7 +26,7 @@ func ValidateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan Binding
 		var objectName, targetName, manifestDigest, sealingFingerprint, ciphertextDigest sql.NullString
 		var deliveryCount int
 		err := tx.QueryRow(ctx, `SELECT
-			b.organization_id::text,b.project_id::text,b.environment_id::text,b.application_id::text,b.target_namespace,
+			COALESCE(b.organization_id::text,''),b.project_id::text,b.environment_id::text,b.application_id::text,b.target_namespace,
 			b.name,b.provider,b.purpose,b.state,b.active_version,
 			v.id::text,v.provider,v.target_secret_type,v.state,v.provider_object_name,v.target_secret_name,v.manifest_digest,v.sealed_key_fingerprint,v.ciphertext_digest,
 			(SELECT count(*) FROM secret_binding_deliveries d
