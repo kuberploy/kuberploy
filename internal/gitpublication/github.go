@@ -173,9 +173,9 @@ func validCreateRequestText(request CreatePullRequestRequest) bool {
 		return false
 	}
 	lines := strings.Split(request.Body, "\n")
-	return len(lines) == 4 && lines[0] == "Kuberploy-Operation: "+operationID &&
+	return len(lines) == 3 && lines[0] == "Kuberploy-Operation: "+operationID &&
 		strings.HasPrefix(lines[1], "Kuberploy-Binding: ") && uuidPattern.MatchString(strings.TrimPrefix(lines[1], "Kuberploy-Binding: ")) &&
-		lines[2] == "Kuberploy-Candidate: "+request.HeadSHA && lines[3] == ""
+		lines[2] == "Kuberploy-Candidate: "+request.HeadSHA
 }
 
 func mapGitHubPullRequest(observed githubapp.PullRequest, repository Repository) (PullRequestObservation, error) {

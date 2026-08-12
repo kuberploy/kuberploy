@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +127,9 @@ func TestGitHubProviderUsesExactRepositoryScopedWritePermissions(t *testing.T) {
 	result, err := provider.CreatePullRequest(t.Context(), request)
 	if err != nil || result.Number != 7 {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if strings.TrimSpace(body) != body || strings.HasSuffix(body, "\n") {
+		t.Fatalf("pull request body is incompatible with the bounded GitHub client: %q", body)
 	}
 	wantPermissions := githubapp.Permissions{
 		"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionWrite, "pull_requests": githubapp.PermissionWrite,

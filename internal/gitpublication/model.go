@@ -290,5 +290,5 @@ func PullRequestBody(publication Publication) (string, error) {
 	if publication.Validate() != nil || !commitPattern.MatchString(publication.CandidateRevision) {
 		return "", ErrInvalid
 	}
-	return fmt.Sprintf("Kuberploy-Operation: %s\nKuberploy-Binding: %s\nKuberploy-Candidate: %s\n", publication.OperationID, publication.BindingID, publication.CandidateRevision), nil
+	return fmt.Sprintf("Kuberploy-Operation: %s\nKuberploy-Binding: %s\nKuberploy-Candidate: %s", publication.OperationID, publication.BindingID, publication.CandidateRevision), nil
 }
