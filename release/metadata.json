@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Scheduling profile detachment is atomic and AppConfig Git writes persist exact BasicAuth secret-reference guards.",
+  "summary": "Managed registry cleanup derives exact Git, live runtime and active-operation protection roots at every destructive boundary.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.113"
+  "version": "0.1.0-rc.114"
 }
