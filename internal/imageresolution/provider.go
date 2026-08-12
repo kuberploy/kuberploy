@@ -20,6 +20,10 @@ const (
 	dockerIndexMediaType    = "application/vnd.docker.distribution.manifest.list.v2+json"
 	dockerManifestMediaType = "application/vnd.docker.distribution.manifest.v2+json"
 	manifestAccept          = ociIndexMediaType + ", " + ociManifestMediaType + ", " + dockerIndexMediaType + ", " + dockerManifestMediaType
+	maximumReferencedBytes  = int64(1 << 40)
+	maximumAnnotations      = 32
+	maximumAnnotationKey    = 256
+	maximumAnnotationValue  = 4 << 10
 )
 
 type ProviderConfig struct {
@@ -52,10 +56,11 @@ type manifestEnvelope struct {
 }
 
 type manifestDescriptor struct {
-	MediaType string `json:"mediaType"`
-	Digest    string `json:"digest"`
-	Size      int64  `json:"size"`
-	Platform  struct {
+	MediaType   string            `json:"mediaType"`
+	Digest      string            `json:"digest"`
+	Size        int64             `json:"size"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+	Platform    struct {
 		Architecture string `json:"architecture"`
 		OS           string `json:"os"`
 		Variant      string `json:"variant"`
@@ -404,7 +409,8 @@ func selectPlatform(raw []byte, mediaType string, platform Platform, maximum int
 	var selected *manifestDescriptor
 	for index := range envelope.Manifests {
 		descriptor := envelope.Manifests[index]
-		if !isImageManifest(descriptor.MediaType) || !digestPattern.MatchString(descriptor.Digest) || descriptor.Size < 1 || descriptor.Size > maximumBody {
+		if !isImageManifest(descriptor.MediaType) || !digestPattern.MatchString(descriptor.Digest) || descriptor.Size < 1 || descriptor.Size > maximumBody ||
+			!validAnnotations(descriptor.Annotations) {
 			return manifestDescriptor{}, ErrConflict
 		}
 		if descriptor.Platform.OS == platform.OS && descriptor.Platform.Architecture == platform.Architecture && descriptor.Platform.Variant == platform.Variant {
@@ -424,19 +430,19 @@ func selectPlatform(raw []byte, mediaType string, platform Platform, maximum int
 func validateImageManifest(raw []byte, mediaType string, maximumLayers int, maximumBody int64) error {
 	var envelope imageManifestEnvelope
 	if decodeStrictJSON(raw, &envelope, 12) != nil || envelope.SchemaVersion != 2 || envelope.MediaType != mediaType || !isImageManifest(mediaType) ||
-		len(envelope.Layers) > maximumLayers || !validContentDescriptor(envelope.Config, true, maximumBody) {
+		len(envelope.Layers) > maximumLayers || !validContentDescriptor(envelope.Config, true) {
 		return ErrConflict
 	}
 	for _, layer := range envelope.Layers {
-		if !validContentDescriptor(layer, false, maximumBody) {
+		if !validContentDescriptor(layer, false) {
 			return ErrConflict
 		}
 	}
 	return nil
 }
 
-func validContentDescriptor(descriptor contentDescriptor, config bool, maximum int64) bool {
-	if !digestPattern.MatchString(descriptor.Digest) || descriptor.Size < 1 || descriptor.Size > maximum {
+func validContentDescriptor(descriptor contentDescriptor, config bool) bool {
+	if !digestPattern.MatchString(descriptor.Digest) || descriptor.Size < 1 || descriptor.Size > maximumReferencedBytes {
 		return false
 	}
 	if config {
@@ -449,6 +455,19 @@ func validContentDescriptor(descriptor contentDescriptor, config bool, maximum i
 	default:
 		return false
 	}
+}
+
+func validAnnotations(values map[string]string) bool {
+	if len(values) > maximumAnnotations {
+		return false
+	}
+	for key, value := range values {
+		if key == "" || len(key) > maximumAnnotationKey || len(value) > maximumAnnotationValue ||
+			strings.TrimSpace(key) != key || strings.ContainsAny(key, "\x00\r\n\t ") || strings.ContainsAny(value, "\x00\r\n") {
+			return false
+		}
+	}
+	return true
 }
 
 func decodeStrictJSON(raw []byte, target any, maximumDepth int) error {

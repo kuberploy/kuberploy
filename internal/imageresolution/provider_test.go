@@ -49,6 +49,11 @@ func validImageManifest(mediaType string) []byte {
 	return []byte(`{"schemaVersion":2,"mediaType":"` + mediaType + `","config":{"mediaType":"` + configMedia + `","digest":"sha256:` + strings.Repeat("9", 64) + `","size":123},"layers":[]}`)
 }
 
+func validImageManifestWithLargeLayer(mediaType string) []byte {
+	configMedia := "application/vnd.oci.image.config.v1+json"
+	return []byte(`{"schemaVersion":2,"mediaType":"` + mediaType + `","config":{"mediaType":"` + configMedia + `","digest":"sha256:` + strings.Repeat("9", 64) + `","size":123},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","digest":"sha256:` + strings.Repeat("8", 64) + `","size":20313073}]}`)
+}
+
 func TestHTTPProviderResolvesVerifiedManifestWithExactCredentialScope(t *testing.T) {
 	body := validImageManifest(ociManifestMediaType)
 	want := manifestResponse(body, ociManifestMediaType).Header.Get("Docker-Content-Digest")
@@ -68,10 +73,10 @@ func TestHTTPProviderResolvesVerifiedManifestWithExactCredentialScope(t *testing
 }
 
 func TestHTTPProviderSelectsExactlyOneBoundedPlatformManifest(t *testing.T) {
-	child := validImageManifest(ociManifestMediaType)
+	child := validImageManifestWithLargeLayer(ociManifestMediaType)
 	childDigest := manifestResponse(child, ociManifestMediaType).Header.Get("Docker-Content-Digest")
 	index := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[` +
-		`{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:` + strings.Repeat("1", 64) + `","size":123,"platform":{"os":"linux","architecture":"arm64"}},` +
+		`{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:` + strings.Repeat("1", 64) + `","size":123,"platform":{"os":"unknown","architecture":"unknown"},"annotations":{"vnd.docker.reference.type":"attestation-manifest","vnd.docker.reference.digest":"sha256:` + strings.Repeat("2", 64) + `"}},` +
 		`{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + childDigest + `","size":` + stringInt(len(child)) + `,"platform":{"os":"linux","architecture":"amd64"}}]}`)
 	var requests atomic.Int32
 	provider := &HTTPProvider{Config: DefaultProviderConfig(), Transport: resolverRoundTripper(func(request *http.Request) (*http.Response, error) {
@@ -87,6 +92,22 @@ func TestHTTPProviderSelectsExactlyOneBoundedPlatformManifest(t *testing.T) {
 		&ProviderAuthority{Anonymous: true}, DefaultPlatform())
 	if err != nil || digest != childDigest || requests.Load() != 2 {
 		t.Fatalf("digest=%q requests=%d err=%v", digest, requests.Load(), err)
+	}
+}
+
+func TestSelectPlatformRejectsUnknownDescriptorFieldsAndUnsafeAnnotations(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("1", 64)
+	for name, descriptor := range map[string]string{
+		"unknown field":       `{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + digest + `","size":123,"platform":{"os":"linux","architecture":"amd64"},"credentials":"secret"}`,
+		"unsafe annotation":   `{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + digest + `","size":123,"platform":{"os":"linux","architecture":"amd64"},"annotations":{"unsafe key":"value"}}`,
+		"oversize annotation": `{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + digest + `","size":123,"platform":{"os":"linux","architecture":"amd64"},"annotations":{"safe.key":"` + strings.Repeat("a", maximumAnnotationValue+1) + `"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			index := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[` + descriptor + `]}`)
+			if _, err := selectPlatform(index, ociIndexMediaType, DefaultPlatform(), 64, 1<<20); !errors.Is(err, ErrConflict) {
+				t.Fatalf("err=%v", err)
+			}
+		})
 	}
 }
 
