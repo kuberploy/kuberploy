@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Isolated Docker 29 builders disable ambient CDI discovery so CPU-only BuildKit containers start reliably.",
+  "summary": "Manual build retries refresh the trusted operator runtime after an upgrade while preserving the original source and registry authority.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.90"
+  "version": "0.1.0-rc.91"
 }
