@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Already-installed GitHub Apps can be provider-verified and safely linked after a fresh database install.",
+  "summary": "Isolated Docker 29 builders disable ambient CDI discovery so CPU-only BuildKit containers start reliably.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.89"
+  "version": "0.1.0-rc.90"
 }
