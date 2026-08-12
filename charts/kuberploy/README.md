@@ -16,9 +16,19 @@ kubectl -n <release-namespace> logs job/<release-name>-bootstrap-token \
 ```
 
 If the Secret already exists, the hook succeeds without reading or disclosing
-its value. Set `generate=false` when an operator provisions the Secret by a
-different protected mechanism. The temporary hook ServiceAccount can only
-create Secrets, its Role and RoleBinding are removed after success, and its
+its value. Argo CD can recreate the hook Job on a later sync, so that newer Job
+may report the existing Secret after the original disclosure log is gone. A
+cluster administrator can recover the same value directly without placing it
+in Helm values or command arguments:
+
+```sh
+kubectl -n <release-namespace> get secret <bootstrap-secret-name> \
+  -o jsonpath='{.data.token}' | base64 --decode
+```
+
+Set `generate=false` when an operator provisions the Secret by a different
+protected mechanism. The temporary hook ServiceAccount can only create
+Secrets, its Role and RoleBinding are removed after success, and its
 NetworkPolicy permits only the explicitly supplied API CIDR. Bootstrap remains
 single-use at the PostgreSQL authority even if the Kubernetes Secret is later
 replayed.

@@ -6,7 +6,10 @@ stored in Helm values or release manifests. Retrieve its one-time disclosure:
 
 Record it before the Job's 24-hour TTL expires, then use it at the Kuberploy
 bootstrap screen. If the Secret already existed, the Job intentionally prints
-no token.
+no token. A cluster administrator can recover it without putting the value in
+Helm values or command arguments:
+
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.config.bootstrapSecret.name }} -o jsonpath='{.data.{{ .Values.config.bootstrapSecret.tokenKey }}}' | base64 --decode
 {{- else }}
 Kuberploy expects the first-administrator token in Secret
 {{ .Release.Namespace }}/{{ .Values.config.bootstrapSecret.name }}, key
