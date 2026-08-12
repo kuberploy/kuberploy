@@ -188,7 +188,10 @@ func (s *Service) renderDeterministic(parent context.Context, request Request, v
 		return nil, ErrUnavailable
 	}
 	args := []string{"template", request.ReleaseName, s.chartPath, "--namespace", request.Namespace,
-		"--values", valuesPath, "--kube-version", helmapps.RendererKubeVersion}
+		"--values", valuesPath, "--kube-version", helmapps.RendererKubeVersion,
+		"--set-string", "kuberployExpectedIdentity.projectId=" + request.ProjectID,
+		"--set-string", "kuberployExpectedIdentity.environmentId=" + request.EnvironmentID,
+		"--set-string", "kuberployExpectedIdentity.applicationId=" + request.ApplicationID}
 	ctx, cancel := context.WithTimeout(parent, RenderTimeout)
 	defer cancel()
 	first, err := s.run(ctx, s.helmPath, args...)

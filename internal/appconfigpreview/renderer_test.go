@@ -26,9 +26,12 @@ func TestRendererProducesDeterministicBoundedRedactedDiff(t *testing.T) {
 	calls := 0
 	renderer, err := NewTestService(testIdentity(), func(_ context.Context, binary string, arguments ...string) ([]byte, error) {
 		calls++
-		if binary != ProductionHelmPath || len(arguments) != 9 || arguments[0] != "template" || arguments[2] != ProductionChartPath ||
+		if binary != ProductionHelmPath || len(arguments) != 15 || arguments[0] != "template" || arguments[2] != ProductionChartPath ||
 			arguments[3] != "--namespace" || arguments[4] != request.Namespace || arguments[5] != "--values" ||
-			arguments[7] != "--kube-version" || arguments[8] != helmapps.RendererKubeVersion {
+			arguments[7] != "--kube-version" || arguments[8] != helmapps.RendererKubeVersion ||
+			arguments[9] != "--set-string" || arguments[10] != "kuberployExpectedIdentity.projectId="+request.ProjectID ||
+			arguments[11] != "--set-string" || arguments[12] != "kuberployExpectedIdentity.environmentId="+request.EnvironmentID ||
+			arguments[13] != "--set-string" || arguments[14] != "kuberployExpectedIdentity.applicationId="+request.ApplicationID {
 			t.Fatalf("renderer escaped closed arguments: %#v", arguments)
 		}
 		values, readErr := os.ReadFile(arguments[6])
@@ -109,6 +112,7 @@ func TestRepositoryRuntimeChartPassesProductionRenderBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	values = []byte(strings.Replace(string(values), "kuberployExpectedIdentity:\n  projectId: 00000000-0000-4000-8000-000000000002\n  environmentId: 00000000-0000-4000-8000-000000000003\n  applicationId: 00000000-0000-4000-8000-000000000001\n", "", 1))
 	candidate := []byte(strings.Replace(string(values), "replicas: 1", "replicas: 2", 1))
 	renderer, err := newService(testIdentity(), helm, chart, nil)
 	if err != nil {
