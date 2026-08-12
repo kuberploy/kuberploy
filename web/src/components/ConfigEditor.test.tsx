@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -39,6 +40,97 @@ afterEach(() => {
 });
 
 describe("deployment ConfigEditor preview binding", () => {
+  it("waits for the server document before initializing Guided fields", async () => {
+    const deployment: Deployment = {
+      id: "deployment-delayed",
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      image: `registry.example/api@sha256:${"b".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+    };
+    const application: Application = {
+      id: "application-1",
+      projectId: "project-1",
+      name: "API",
+    };
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: {},
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["deployment-config:write"],
+        },
+      ],
+    });
+    let resolveConfig!: (
+      value: Awaited<ReturnType<typeof api.deploymentConfig>>,
+    ) => void;
+    vi.spyOn(api, "deploymentConfig").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveConfig = resolve;
+        }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigEditor deployment={deployment} application={application} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.queryByRole("combobox", { name: /Deployment strategy/i }),
+    ).not.toBeInTheDocument();
+    await act(async () =>
+      resolveConfig({
+        kind: "ConfigBundle",
+        etag: `"cfg-sha256-${"a".repeat(64)}"`,
+        targetHeadRevision: "",
+        indexedRevision: "",
+        configRevision: "server-revision",
+        freshness: "projection-only",
+        documents: [
+          {
+            id: "app.yaml",
+            documentId: "app.yaml",
+            rawYaml: `apiVersion: config.kuberploy.io/v1alpha1
+kind: AppConfig
+metadata:
+  id: application-1
+  name: API
+spec:
+  runtime:
+    replicas: 2
+    strategy:
+      type: Recreate
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+`,
+          },
+        ],
+      }),
+    );
+
+    expect(
+      await screen.findByRole("combobox", { name: /Deployment strategy/i }),
+    ).toHaveValue("Recreate");
+    expect(screen.getByRole("textbox", { name: /CPU request/i })).toHaveValue(
+      "100m",
+    );
+    expect(
+      screen.getByRole("textbox", { name: /Memory request/i }),
+    ).toHaveValue("128Mi");
+  });
+
   it("enables save only for the exact successful preview and retains a failed draft", async () => {
     const etag = `"cfg-sha256-${"a".repeat(64)}"`;
     const rawYaml =

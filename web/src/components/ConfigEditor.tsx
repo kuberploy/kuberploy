@@ -133,20 +133,25 @@ export function ConfigEditor({
   );
 
   useEffect(() => {
-    if (!rawYaml)
-      setRawYaml(
-        serverDocument?.rawYaml ?? serverDocument?.rawYAML ?? fallback,
-      );
-  }, [fallback, rawYaml, serverDocument]);
+    setRawYaml("");
+    setPreview(null);
+    setDraftError(null);
+  }, [deployment.id]);
+
+  useEffect(() => {
+    if (bundle.isPending || rawYaml) return;
+    setRawYaml(serverDocument?.rawYaml ?? serverDocument?.rawYAML ?? fallback);
+  }, [bundle.isPending, fallback, rawYaml, serverDocument]);
 
   const yamlError = rawYaml ? validateYaml(rawYaml) : null;
   const guided = useMemo(() => {
+    if (!rawYaml) return null;
     try {
-      return guidedConfigFromYaml(rawYaml || fallback);
+      return guidedConfigFromYaml(rawYaml);
     } catch {
       return null;
     }
-  }, [fallback, rawYaml]);
+  }, [rawYaml]);
   const documentId =
     serverDocument?.documentId ?? serverDocument?.id ?? "app.yaml";
   const change: ConfigChange = {
