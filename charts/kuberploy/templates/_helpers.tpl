@@ -30,6 +30,10 @@
 {{- printf "%s-argo-repositories-%s" (include "kuberploy.fullname" .) (.Release.Namespace | sha256sum | trunc 10) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "kuberploy.argoRootRefreshAdmissionPolicyName" -}}
+{{- printf "%s-argo-root-refresh-%s" (include "kuberploy.fullname" .) (.Release.Namespace | sha256sum | trunc 10) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "kuberploy.argoDesiredStateWorkerUsername" -}}
 {{- printf "system:serviceaccount:%s:%s" .Release.Namespace (include "kuberploy.componentName" (dict "root" . "component" "worker")) -}}
 {{- end -}}

@@ -14,15 +14,25 @@ type DesiredStateBindingStore interface {
 	Binding(context.Context, string) (gitprojection.Binding, error)
 }
 
+// PlatformRootRefresher asks the one installer-owned root Application to
+// immediately re-read its branch after a verified desired-state commit. The
+// protected command is not completed until this acknowledgement succeeds, so
+// a crash or transient Kubernetes failure replays the same idempotent refresh.
+type PlatformRootRefresher interface {
+	RefreshPlatformRootApplication(context.Context, string, string) error
+}
+
 // DesiredStateWriter is the sole runtime mutation path for protected Argo
 // manifests. It commits immutable server-derived bytes through the hardened
-// Git mirror/token broker and never calls Kubernetes or Argo sync APIs.
+// Git mirror/token broker, then requests only an exact root-Application
+// metadata refresh; Argo's automated policy remains the sole sync executor.
 type DesiredStateWriter struct {
 	Store             DesiredStateStore
 	Bindings          DesiredStateBindingStore
 	ClaimGate         DesiredStateClaimGate
 	Provider          gitprojection.HeadVerifier
 	Manager           *gitprojection.MirrorManager
+	RootRefresher     PlatformRootRefresher
 	Identity          DesiredStateRuntimeIdentity
 	Now               func() time.Time
 	LeaseDuration     time.Duration
@@ -30,7 +40,8 @@ type DesiredStateWriter struct {
 }
 
 func (w *DesiredStateWriter) validate() error {
-	if w == nil || w.Store == nil || w.Bindings == nil || w.ClaimGate == nil || w.Provider == nil || w.Manager == nil || w.Identity.Validate() != nil {
+	if w == nil || w.Store == nil || w.Bindings == nil || w.ClaimGate == nil || w.Provider == nil || w.Manager == nil ||
+		w.RootRefresher == nil || w.Identity.Validate() != nil {
 		return ErrInvalid
 	}
 	leaseDuration, heartbeat := w.leaseSettings()
@@ -178,6 +189,9 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 	if verified.ValidateFor(platform) != nil || verified.Commit != revision {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
 	}
+	if err = w.RootRefresher.RefreshPlatformRootApplication(workContext, w.Identity.ArgoNamespace, w.Identity.RootApplicationName); err != nil {
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("refresh platform root Application: %w", err))
+	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {
 		var completeErr error
@@ -247,6 +261,9 @@ func (w *DesiredStateWriter) recoverUnacknowledged(ctx context.Context, command 
 	if verified.ValidateFor(platform) != nil || verified.Commit != providerHead {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
 	}
+	if err = w.RootRefresher.RefreshPlatformRootApplication(ctx, w.Identity.ArgoNamespace, w.Identity.RootApplicationName); err != nil {
+		return DesiredStateCommand{}, fmt.Errorf("refresh platform root Application: %w", err)
+	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {
 		var completeErr error
@@ -273,6 +290,9 @@ func (w *DesiredStateWriter) recoverAcknowledged(ctx context.Context, command De
 	}
 	if verified.ValidateFor(platform) != nil || verified.Commit != providerHead {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
+	}
+	if err = w.RootRefresher.RefreshPlatformRootApplication(ctx, w.Identity.ArgoNamespace, w.Identity.RootApplicationName); err != nil {
+		return DesiredStateCommand{}, fmt.Errorf("refresh platform root Application: %w", err)
 	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {

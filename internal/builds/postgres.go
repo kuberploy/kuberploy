@@ -474,6 +474,18 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 		if !errors.Is(getErr, ErrNotFound) {
 			return nil, getErr
 		}
+		// GitHub may deliver the same authoritative push more than once with
+		// different delivery IDs (for example after webhook reconfiguration).
+		// Coalesce by the independently resolved source tuple. Manual retries
+		// remain distinct because their synthetic receipts have no typed event.
+		existing, getErr = pushAttemptBySourceQuery(ctx, tx, current.ID, input.CommitSHA, input.GitRef)
+		if getErr == nil {
+			staged = append(staged, existing)
+			continue
+		}
+		if !errors.Is(getErr, ErrNotFound) {
+			return nil, getErr
+		}
 		var generation int64
 		if err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1) ON CONFLICT(project_id,service_id) DO UPDATE SET last_generation=build_service_generations.last_generation+1 RETURNING last_generation`, current.ProjectID, current.ServiceID).Scan(&generation); err != nil {
 			return nil, classifyPostgres(err)
@@ -866,6 +878,13 @@ func attemptByIDQuery(ctx context.Context, query rowQuery, attemptID string, for
 		suffix = " FOR UPDATE"
 	}
 	return scanAttempt(query.QueryRow(ctx, `SELECT id::text,definition_id::text,delivery_claim_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE id=$1`+suffix, attemptID))
+}
+
+func pushAttemptBySourceQuery(ctx context.Context, query rowQuery, definitionID, commitSHA, gitRef string) (BuildAttempt, error) {
+	return scanAttempt(query.QueryRow(ctx, `SELECT a.id::text,a.definition_id::text,a.delivery_claim_key,a.project_id::text,a.service_id::text,a.commit_sha,a.git_ref,a.generation,a.definition_digest,a.plan_request,a.checkout_request,a.input_digest,a.registry_mode,a.state,a.execution_attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until,a.job_namespace,a.job_name,a.cache_candidate,a.cache_reference,a.result,a.log_reference,a.failure_code,a.cancel_requested_at,a.started_at,a.completed_at,a.created_at,a.updated_at
+		FROM build_attempts a JOIN github_webhook_receipts r ON r.claim_key=a.delivery_claim_key
+		WHERE a.definition_id=$1 AND a.commit_sha=$2 AND a.git_ref=$3 AND r.typed_event IS NOT NULL
+		ORDER BY a.generation,a.id LIMIT 1`, definitionID, commitSHA, gitRef))
 }
 
 func scanAttempt(row scanner) (BuildAttempt, error) {

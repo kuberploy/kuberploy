@@ -40,8 +40,13 @@ content digest. Planning and claiming require trusted validation receipts for
 AppConfig/dependencies and resolved secret/registry references. A new mutation
 is allowed only while that exact projection tuple is active.
 
-The writer never calls Kubernetes or Argo mutation/sync APIs. It accepts only a
-server-derived protected platform GitHub App binding and path. After an
+The writer never calls the Argo sync API. It accepts only a server-derived
+protected platform GitHub App binding and path. After a provider-verified
+platform commit it performs one metadata-only hard-refresh patch on the exact
+installer-owned root Application; narrow RBAC and a fail-closed admission
+policy reject a spec, label, owner, finalizer, unrelated-annotation, namespace,
+or name change. The durable command is completed only after that refresh is
+acknowledged, so crash recovery safely repeats it. After an
 ambiguous push it locates the exact operation-trailer commit, verifies that it
 is an ancestor of the provider head, verifies the current protected path's
 exact bytes, and records the operation commit rather than a later descendant.

@@ -22,6 +22,12 @@ func (f desiredStateVerifierFunc) VerifyTargetHead(ctx context.Context, binding 
 	return f(ctx, binding, source)
 }
 
+type desiredStateRefresherFunc func(context.Context, string, string) error
+
+func (f desiredStateRefresherFunc) RefreshPlatformRootApplication(ctx context.Context, namespace, name string) error {
+	return f(ctx, namespace, name)
+}
+
 type failingDesiredStateHeartbeatStore struct {
 	argo.DesiredStateStore
 	heartbeat chan struct{}
@@ -155,7 +161,12 @@ func (f *desiredStateWriterFixture) provider(t *testing.T, override func(int, st
 
 func (f *desiredStateWriterFixture) writer(provider gitprojection.HeadVerifier) *argo.DesiredStateWriter {
 	return &argo.DesiredStateWriter{Store: f.commands, Bindings: f.bindings, ClaimGate: f.claimGate, Provider: provider, Manager: f.manager,
-		Identity: f.identity, Now: func() time.Time { return f.now }}
+		RootRefresher: desiredStateRefresherFunc(func(_ context.Context, namespace, name string) error {
+			if namespace != f.identity.ArgoNamespace || name != f.identity.RootApplicationName {
+				return argo.ErrInvalid
+			}
+			return nil
+		}), Identity: f.identity, Now: func() time.Time { return f.now }}
 }
 
 func (f *desiredStateWriterFixture) advancePlatform(t *testing.T, mutate func(string) error) string {
@@ -359,6 +370,32 @@ func TestDesiredStateWriterRequiresPostPushProviderHeadBeforeTerminalSuccess(t *
 	}
 	if verified.CommittedRevision == descendant {
 		t.Fatal("acknowledged recovery recorded a descendant instead of the operation commit")
+	}
+}
+
+func TestDesiredStateWriterRetriesRootRefreshBeforeTerminalSuccess(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	writer := fixture.writer(fixture.provider(t, nil))
+	refreshCalls := 0
+	writer.RootRefresher = desiredStateRefresherFunc(func(_ context.Context, namespace, name string) error {
+		refreshCalls++
+		if namespace != fixture.identity.ArgoNamespace || name != fixture.identity.RootApplicationName {
+			return argo.ErrInvalid
+		}
+		return errors.New("transient Kubernetes API failure")
+	})
+	_, err := writer.CommitClaim(t.Context(), fixture.claim.Lease)
+	if err == nil || refreshCalls != 1 {
+		t.Fatalf("root refresh failure was not surfaced: calls=%d err=%v", refreshCalls, err)
+	}
+	committed, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if readErr != nil || committed.State != argo.DesiredStateGitCommitted || committed.CommittedRevision == "" || committed.CompletedAt != nil {
+		t.Fatalf("refresh failure lost durable Git receipt: command=%#v err=%v", committed, readErr)
+	}
+	fixture.now = fixture.now.Add(time.Second)
+	verified, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != committed.CommittedRevision {
+		t.Fatalf("refresh replay did not converge: command=%#v err=%v", verified, err)
 	}
 }
 

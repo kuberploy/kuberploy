@@ -20,6 +20,8 @@ import (
 
 const maximumArgoRuntimeResponseBytes = int64(2 << 20)
 
+const argoHardRefreshAnnotation = "argocd.argoproj.io/refresh"
+
 // InClusterProductionClient exposes only two Kubernetes authority surfaces:
 // server-side apply/delete for the deterministic Argo repository credential
 // Secret family and exact-name GET for the installer-owned root Application.
@@ -234,6 +236,36 @@ type rootApplicationEnvelopeWire struct {
 	} `json:"status"`
 }
 
+// RefreshPlatformRootApplication performs one closed metadata-only patch. It
+// cannot select another Application and does not invoke Argo's sync API; the
+// installer-owned automated policy still decides and executes reconciliation.
+func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.Context, namespace, name string) error {
+	if c == nil || c.http == nil || !kubeRE.MatchString(namespace) || name != PlatformRootApplicationName {
+		return ErrInvalid
+	}
+	body := []byte(`{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}`)
+	requestPath := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(namespace) +
+		"/applications/" + url.PathEscape(name)
+	response, err := c.request(ctx, http.MethodPatch, requestPath, body, "application/merge-patch+json",
+		"application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1")
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("Kubernetes root Application refresh returned HTTP %d", response.StatusCode)
+	}
+	var metadata partialObjectMetadataWire
+	if err = decodeBoundedJSON(response.Body, maximumArgoRuntimeResponseBytes, &metadata, false); err != nil {
+		return err
+	}
+	if metadata.Metadata.Namespace != namespace || metadata.Metadata.Name != name || metadata.Metadata.UID == "" ||
+		metadata.Metadata.ResourceVersion == "" || metadata.Metadata.Annotations[argoHardRefreshAnnotation] != "hard" {
+		return ErrPlatformRootNotReady
+	}
+	return nil
+}
+
 func (c *InClusterProductionClient) ObservePlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
 	expectedDigest, digestErr := expectation.expectedSpecDigest()
 	if c == nil || c.http == nil || digestErr != nil || expectedDigest != expectation.SpecDigest || now.IsZero() {
@@ -345,3 +377,4 @@ func decodeStrictJSON(body []byte, destination any) error {
 
 var _ RepositoryCredentialKubernetes = (*InClusterProductionClient)(nil)
 var _ PlatformRootApplicationSource = (*InClusterProductionClient)(nil)
+var _ PlatformRootRefresher = (*InClusterProductionClient)(nil)

@@ -40,7 +40,9 @@ receives the handoff.
 4. The authoritative 40-hex commit, monotonically allocated service
    generation, closed `builder.JobPlanRequest`, closed checkout request, and
    one `build_outbox` record are committed atomically. Uniqueness on delivery
-   plus definition makes replays exactly once.
+   plus definition makes replays exactly once; distinct authenticated
+   deliveries that resolve to the same definition/ref/commit reuse that exact
+   push attempt. Explicit human retries remain separate generations.
 5. `BuildController` leases the attempt and repeats installation/repository
    authorization immediately before minting a fresh source token. Only the
    opaque redacting credential reaches `KubernetesBuildAPI.Ensure`; no token is

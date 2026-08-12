@@ -320,6 +320,25 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 		}
 		switch request.Method {
 		case http.MethodPatch:
+			if request.URL.Path == "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/"+PlatformRootApplicationName {
+				if request.URL.RawQuery != "" || request.Header.Get("Content-Type") != "application/merge-patch+json" {
+					t.Errorf("unsafe root refresh request: %s headers=%v", request.URL.String(), request.Header)
+				}
+				var body map[string]any
+				if decodeErr := json.NewDecoder(io.LimitReader(request.Body, maximumArgoRuntimeResponseBytes)).Decode(&body); decodeErr != nil {
+					t.Errorf("decode root refresh: %v", decodeErr)
+				}
+				encoded, _ := json.Marshal(body)
+				if string(encoded) != `{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}` {
+					t.Errorf("root refresh body drifted: %s", encoded)
+				}
+				writer.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(writer).Encode(map[string]any{"apiVersion": "meta.k8s.io/v1", "kind": "PartialObjectMetadata",
+					"metadata": map[string]any{"name": expectation.Name, "namespace": expectation.Namespace,
+						"uid": "79111111-1111-4111-8111-111111111111", "resourceVersion": "22",
+						"annotations": map[string]string{argoHardRefreshAnnotation: "hard"}}})
+				break
+			}
 			wantPath := "/api/v1/namespaces/argocd/secrets/" + apply.Name
 			if request.URL.Path != wantPath || request.URL.Query().Get("fieldManager") != RepositoryCredentialFieldManager ||
 				request.URL.Query().Get("force") != "true" || request.Header.Get("Content-Type") != "application/apply-patch+yaml" {
@@ -378,6 +397,9 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || root.ObservedRevision != expectation.ExpectedGitRevision || root.SpecDigest != expectation.SpecDigest {
 		t.Fatalf("root=%#v err=%v", root, err)
 	}
+	if err = client.RefreshPlatformRootApplication(t.Context(), "argocd", PlatformRootApplicationName); err != nil {
+		t.Fatalf("refresh root: %v", err)
+	}
 	revocation, err := client.DeleteRepositoryCredential(t.Context(), "argocd", apply.Name, platform.ID, now)
 	if err != nil || revocation.Absent {
 		t.Fatalf("delete request was not pending: observation=%#v err=%v", revocation, err)
@@ -386,11 +408,14 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || !revocation.Absent {
 		t.Fatalf("NotFound did not acknowledge revocation: observation=%#v err=%v", revocation, err)
 	}
-	if requests != 4 {
+	if requests != 5 {
 		t.Fatalf("requests=%d", requests)
 	}
 	if _, err = client.DeleteRepositoryCredential(t.Context(), "argocd", "attacker-secret", platform.ID, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("arbitrary Secret delete accepted: %v", err)
+	}
+	if err = client.RefreshPlatformRootApplication(t.Context(), "argocd", "attacker-root"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("arbitrary Application refresh accepted: %v", err)
 	}
 }
 

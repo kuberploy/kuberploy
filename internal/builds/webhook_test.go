@@ -243,6 +243,30 @@ func TestConcurrentDeliveryCreatesOneAttempt(t *testing.T) {
 	}
 }
 
+func TestDifferentDeliveriesForSameResolvedCommitCoalesce(t *testing.T) {
+	store, _ := seedMemory(t, RegistryManaged)
+	clock := testNow
+	provider := &fakeProvider{resolvedCommit: strings.Repeat("b", 40), now: clock}
+	firstService := webhookService(store, provider,
+		testEnvelope(t, "99999999-8888-4777-8666-555555555555", strings.Repeat("a", 40), clock), &clock)
+	first, err := firstService.Handle(context.Background(), http.Header{}, strings.NewReader("ignored"))
+	if err != nil || len(first.AttemptIDs) != 1 {
+		t.Fatalf("first=%#v err=%v", first, err)
+	}
+	clock = clock.Add(time.Second)
+	provider.now = clock
+	secondService := webhookService(store, provider,
+		testEnvelope(t, "11111111-2222-4333-8444-555555555555", strings.Repeat("c", 40), clock), &clock)
+	second, err := secondService.Handle(context.Background(), http.Header{}, strings.NewReader("ignored"))
+	if err != nil || len(second.AttemptIDs) != 1 || second.AttemptIDs[0] != first.AttemptIDs[0] {
+		t.Fatalf("same resolved commit was not coalesced: first=%#v second=%#v err=%v", first, second, err)
+	}
+	outbox, err := store.PendingOutbox(context.Background(), 10)
+	if err != nil || len(outbox) != 1 {
+		t.Fatalf("coalesced outbox=%#v err=%v", outbox, err)
+	}
+}
+
 func TestDeliveryIDCannotBeReboundToDifferentAuthenticatedBody(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow

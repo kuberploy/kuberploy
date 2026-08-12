@@ -506,6 +506,23 @@ func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, ow
 			staged = append(staged, cloneAttempt(existing))
 			continue
 		}
+		var existingPush *BuildAttempt
+		for _, candidate := range s.attempts {
+			receipt, receiptExists := s.deliveries[candidate.DeliveryClaimKey]
+			if !receiptExists || len(receipt.TypedEvent) == 0 || candidate.DefinitionID != current.ID ||
+				candidate.CommitSHA != input.CommitSHA || candidate.GitRef != input.GitRef {
+				continue
+			}
+			copy := candidate
+			if existingPush == nil || copy.Generation < existingPush.Generation ||
+				(copy.Generation == existingPush.Generation && copy.ID < existingPush.ID) {
+				existingPush = &copy
+			}
+		}
+		if existingPush != nil {
+			staged = append(staged, cloneAttempt(*existingPush))
+			continue
+		}
 		key := serviceKey(current.ProjectID, current.ServiceID)
 		generation := s.serviceGeneration[key]
 		if value, ok := stagedGenerations[key]; ok {

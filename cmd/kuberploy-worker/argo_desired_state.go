@@ -93,7 +93,7 @@ func newArgoDesiredStateRuntime(
 	workerID := workerLeaseOwner(processIdentity, "argo-desired-state")
 	writer := &argo.DesiredStateWriter{
 		Store: store, Bindings: projection.store, ClaimGate: components.ProjectionGate,
-		Provider: projection.headVerifier, Manager: projection.writeManager, Identity: identity,
+		Provider: projection.headVerifier, Manager: projection.writeManager, RootRefresher: kubernetes, Identity: identity,
 		LeaseDuration: 2 * time.Minute, HeartbeatInterval: 30 * time.Second,
 	}
 	worker := &argo.DesiredStateRuntimeWorker{

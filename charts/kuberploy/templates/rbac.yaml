@@ -451,7 +451,7 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
     resourceNames: ["kuberploy-platform-root"]
-    verbs: ["get"]
+    verbs: ["get", "patch"]
   # Server-Side Apply is authorized as create for an absent object and patch
   # for an existing object. Admission below confines all three mutation verbs
   # to the deterministic repository-credential family; no Secret read exists.

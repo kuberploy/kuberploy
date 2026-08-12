@@ -172,6 +172,26 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || len(attempts) != 1 {
 		t.Fatalf("attempts=%#v err=%v", attempts, err)
 	}
+	secondDigest := sha256.Sum256([]byte("postgres-build-contract-second-delivery\x00" + definitionID))
+	secondClaimKey := hex.EncodeToString(secondDigest[:])
+	secondReceipt := receipt
+	secondReceipt.DeliveryID, secondReceipt.BodySHA256 = id.New(), "sha256:"+strings.Repeat("e", 64)
+	secondReceipt.State, secondReceipt.AvailableAt, secondReceipt.ReceivedAt, secondReceipt.UpdatedAt = DeliveryClaimed, now.Add(3*time.Second), now.Add(3*time.Second), now.Add(3*time.Second)
+	secondClaim := githubapp.OneTimeClaim{Kind: "github-delivery", ClaimKey: secondClaimKey, RetainUntil: now.Add(48 * time.Hour), Permanent: true}
+	if inserted, claimErr := store.ClaimDelivery(ctx, secondClaim, secondReceipt); claimErr != nil || !inserted {
+		t.Fatalf("second delivery inserted=%v err=%v", inserted, claimErr)
+	}
+	if _, acquired, acquireErr := store.AcquireDelivery(ctx, secondClaimKey, "postgres-contract-second", now.Add(3*time.Second), time.Minute); acquireErr != nil || !acquired {
+		t.Fatalf("second delivery acquired=%v err=%v", acquired, acquireErr)
+	}
+	coalesced, coalesceErr := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: secondClaimKey, CommitSHA: strings.Repeat("b", 40), GitRef: event.Ref, ResolvedAt: now.Add(3 * time.Second)}, "postgres-contract-second", storedAttemptDefinitions(authorized.Definitions), now.Add(3*time.Second))
+	if coalesceErr != nil || len(coalesced) != 1 || coalesced[0].ID != attempts[0].ID {
+		t.Fatalf("same source was not coalesced: first=%#v second=%#v err=%v", attempts, coalesced, coalesceErr)
+	}
+	var sameSourceCount int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM build_attempts WHERE definition_id=$1 AND commit_sha=$2 AND git_ref=$3`, definitionID, strings.Repeat("b", 40), event.Ref).Scan(&sameSourceCount); err != nil || sameSourceCount != 1 {
+		t.Fatalf("same-source attempts=%d err=%v", sameSourceCount, err)
+	}
 	// Build-log access is authorized and audited by the central store, not by
 	// the build catalog. Exercise the exact PostgreSQL transaction against this
 	// freshly persisted attempt: viewer build visibility alone is insufficient,

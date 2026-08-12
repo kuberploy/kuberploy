@@ -564,10 +564,10 @@ The mirror is a performance cache, not a shared authority. Kuberploy never expos
 
 #### Argo CD reconciliation load
 
-- The Git provider sends verified push webhooks to both the Kuberploy indexer and Argo CD; polling remains a repair path. ApplicationSet Git generators receive their separately configured refresh webhook.
+- The Git provider sends verified push webhooks to the Kuberploy indexer; polling remains a repair path. After a provider-verified platform desired-state commit, Kuberploy requests one admission-fenced metadata refresh of the installer-owned root Application so Argo re-reads the branch immediately.
 - Each generated Argo Application uses a fully qualified target ref, points at the narrow application directory and carries `argocd.argoproj.io/manifest-generate-paths` for its true dependencies, preventing an unrelated monorepo path from forcing unnecessary manifest generation.
 - New/deleted application directories refresh the owning ApplicationSet; an ordinary edit refreshes the existing Application without regenerating every project.
-- Kuberploy pushes once and lets Argo auto-sync. It does not issue `app sync` or hard-refresh every Application after each commit, and its status projector consumes Argo/Kubernetes watches rather than polling Argo once per application.
+- Kuberploy pushes once and lets Argo auto-sync. It never issues `app sync` and never refreshes each workload Application; only the single root Application receives the bounded refresh above. Its status projector consumes Argo/Kubernetes watches rather than polling Argo once per application.
 - At higher scale, repo-server replicas, manifest-generation parallelism/cache storage, webhook refresh workers/jitter and application-controller processors are tuned from observed queue and reconciliation metrics. Multi-cluster expansion may then shard the application controller.
 - A bulk commit may deliberately contain several trusted generated targets, but operations retain individual audit links. Argo webhook jitter prevents a large change from creating a synchronized repo-server refresh spike.
 
