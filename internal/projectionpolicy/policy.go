@@ -23,8 +23,8 @@ import (
 var namespaceRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$`)
 
 // DocumentScope is the server-resolved tenant, destination, Git and AppConfig
-// identity supplied to reference policies. OrganizationID can be empty only
-// for documents that do not use an organization-scoped child policy.
+// identity supplied to reference policies. OrganizationID is empty exactly
+// when the durable project is personal or platform-owned.
 type DocumentScope struct {
 	Binding        gitprojection.Binding
 	OrganizationID string

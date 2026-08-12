@@ -36,26 +36,7 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 	}
 	middlewareReferences := document.MiddlewareSecretReferences()
 	usesReferences := runtimeUsesSecretReferences(runtime) || len(middlewareReferences) != 0
-	if scope.OrganizationID == "" {
-		if usesReferences {
-			return []gitprojection.Diagnostic{{
-				Code:    "RuntimeSecretReferenceUnresolved",
-				Detail:  "Runtime-secret references require an exact organization-owned application destination.",
-				Pointer: "/spec/runtime/env",
-			}}, nil
-		}
-		exists, err := gitCurrentReferencesExistTx(ctx, tx, scope.Path)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
-			// Without an immutable organization scope there is no safe plan with
-			// which to prove that a prior deletion guard may be removed.
-			return nil, gitprojection.ErrConflict
-		}
-		return nil, nil
-	}
-	secretScope, err := p.validateScope(tx, scope, now)
+	secretScope, err := p.validateScope(ctx, tx, scope, now)
 	if err != nil {
 		return nil, err
 	}
@@ -107,17 +88,7 @@ func (p *RuntimeSecretReferencePolicy) ReconcileDeletedTx(ctx context.Context, t
 	if err := p.validateDocumentIdentity(tx, scope, now); err != nil {
 		return err
 	}
-	if scope.OrganizationID == "" {
-		exists, err := gitCurrentReferencesExistTx(ctx, tx, scope.Path)
-		if err != nil {
-			return err
-		}
-		if exists {
-			return gitprojection.ErrConflict
-		}
-		return nil
-	}
-	secretScope, err := p.validateScope(tx, scope, now)
+	secretScope, err := p.validateScope(ctx, tx, scope, now)
 	if err != nil {
 		return err
 	}
@@ -125,8 +96,33 @@ func (p *RuntimeSecretReferencePolicy) ReconcileDeletedTx(ctx context.Context, t
 	return secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, "", scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC())
 }
 
-func (p *RuntimeSecretReferencePolicy) validateScope(tx pgx.Tx, scope DocumentScope, now time.Time) (secrets.Scope, error) {
-	if err := p.validateDocumentIdentity(tx, scope, now); err != nil || scope.OrganizationID == "" {
+func (p *RuntimeSecretReferencePolicy) validateScope(ctx context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) (secrets.Scope, error) {
+	if err := p.validateDocumentIdentity(tx, scope, now); err != nil {
+		return secrets.Scope{}, err
+	}
+	// Re-resolve the durable ownership relationship independently of the
+	// caller-supplied scope. A NULL team is the authoritative personal-project
+	// identity, not an absence of tenant authority.
+	var durableOrganizationID *string
+	var durableNamespace string
+	err := tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
+		FROM projects p
+		JOIN environments e ON e.id=$2 AND e.project_id=p.id
+		JOIN applications a ON a.id=$3 AND a.project_id=p.id
+		WHERE p.id=$1
+		FOR SHARE OF p,e,a`, scope.Binding.ProjectID, scope.Binding.EnvironmentID, scope.ApplicationID).
+		Scan(&durableOrganizationID, &durableNamespace)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return secrets.Scope{}, gitprojection.ErrInvalid
+	}
+	if err != nil {
+		return secrets.Scope{}, err
+	}
+	expectedOrganizationID := ""
+	if durableOrganizationID != nil {
+		expectedOrganizationID = *durableOrganizationID
+	}
+	if scope.OrganizationID != expectedOrganizationID || scope.Namespace != durableNamespace {
 		return secrets.Scope{}, gitprojection.ErrInvalid
 	}
 	secretScope := secrets.Scope{OrganizationID: scope.OrganizationID, ProjectID: scope.Binding.ProjectID,
@@ -148,26 +144,6 @@ func (p *RuntimeSecretReferencePolicy) validateDocumentIdentity(tx pgx.Tx, scope
 		return gitprojection.ErrInvalid
 	}
 	return nil
-}
-
-func gitCurrentReferencesExistTx(ctx context.Context, tx pgx.Tx, referenceID string) (bool, error) {
-	if tx == nil || referenceID == "" {
-		return false, gitprojection.ErrInvalid
-	}
-	var bindingID string
-	err := tx.QueryRow(ctx, `SELECT binding_id::text
-		FROM secret_binding_references
-		WHERE kind='git-current' AND reference_id=$1
-		ORDER BY binding_id
-		LIMIT 1
-		FOR UPDATE`, referenceID).Scan(&bindingID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return bindingID != "", nil
 }
 
 func runtimeUsesSecretReferences(runtime domain.WorkloadRuntime) bool {

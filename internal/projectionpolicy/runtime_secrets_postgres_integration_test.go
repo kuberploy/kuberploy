@@ -182,39 +182,36 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	}
 	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
 
-	// A project without a durable organization scope cannot resolve a new
-	// runtime-secret reference, or silently orphan a prior Git-current guard.
+	// A caller cannot erase a team-owned project's durable organization scope
+	// to resolve or silently orphan a Git-current guard.
 	noOrganization := scope
 	noOrganization.OrganizationID = ""
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, noOrganization, runtime), now.Add(4*time.Second))
-	if err != nil || len(diagnostics) != 1 || diagnostics[0].Code != "RuntimeSecretReferenceUnresolved" {
+	if _, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, noOrganization, runtime), now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrInvalid) {
 		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("no-organization diagnostics=%#v err=%v", diagnostics, err)
+		t.Fatalf("erased-organization scope error=%v", err)
 	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
+	tx.Rollback(ctx) //nolint:errcheck
 	emptyRuntime := domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, noOrganization, emptyRuntime), now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrConflict) {
+	if _, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, noOrganization, emptyRuntime), now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrInvalid) {
 		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("no-organization current cleanup error=%v", err)
+		t.Fatalf("erased-organization current cleanup error=%v", err)
 	}
 	tx.Rollback(ctx) //nolint:errcheck
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = policy.ReconcileDeletedTx(ctx, tx, noOrganization, now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrConflict) {
+	if err = policy.ReconcileDeletedTx(ctx, tx, noOrganization, now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrInvalid) {
 		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("no-organization deleted cleanup error=%v", err)
+		t.Fatalf("erased-organization deleted cleanup error=%v", err)
 	}
 	tx.Rollback(ctx) //nolint:errcheck
 	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
@@ -272,21 +269,6 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, "", "", 0)
-	tx, err = pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, noOrganization, emptyRuntime), now.Add(8*time.Second)); err != nil || len(diagnostics) != 0 {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("unscoped empty no-op diagnostics=%#v err=%v", diagnostics, err)
-	}
-	if err = policy.ReconcileDeletedTx(ctx, tx, noOrganization, now.Add(8*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("unscoped deleted no-op error=%v", err)
-	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
 	var retainedCount int
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references WHERE binding_id=$1 AND kind='retained-release'`, active.Binding.ID).Scan(&retainedCount); err != nil || retainedCount != 1 {
 		t.Fatalf("retained references=%d err=%v", retainedCount, err)
@@ -301,6 +283,122 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if strings.Contains(persisted, "projection-policy-private-value") {
 		t.Fatal("runtime-secret material was persisted")
 	}
+}
+
+func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC().Add(-time.Minute)
+	actorID, projectID, environmentID, applicationID := id.New(), id.New(), id.New(), id.New()
+	suffix := strings.ReplaceAll(projectID, "-", "")[:12]
+	namespace := "personal-secrets-" + suffix
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "personal-policy-" + suffix, now}},
+		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Personal project',$2,NULL,$3)`, []any{projectID, "personal-policy-" + suffix, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "personal-production-" + suffix, namespace, "kp-personal-" + suffix, now}},
+		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "personal-api-" + suffix, now}},
+	} {
+		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secretStore, err := secrets.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := secrets.Service{Store: secretStore, Keys: projectionSecretKeys{}, SealedSecrets: projectionSealedProvider{}, Now: func() time.Time { return now.Add(time.Second) }}
+	material, err := secrets.NewMaterial(map[string][]byte{"password": []byte("personal-policy-private-value")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.Create(ctx, secrets.CreateRequest{ActorID: actorID,
+		Scope: secrets.Scope{ProjectID: projectID, EnvironmentID: environmentID, ApplicationID: applicationID, Namespace: namespace},
+		Name:  "database", Provider: secrets.ProviderSealedSecrets,
+		Deliveries:     []secrets.Delivery{{SourceKey: "password", Kind: secrets.DeliveryEnvironment, EnvironmentName: "DATABASE_PASSWORD"}},
+		IdempotencyKey: "personal-projection-policy-create", RequestID: "personal-projection-policy-create", Material: material})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := service.ReconcileVersion(ctx, created.Version.ID, "personal-projection-policy-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), projectID, environmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 30, RepositoryID: 40, Owner: "kuberploy", Name: "desired-state"},
+		"refs/heads/main", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.TargetHeadRevision, binding.TargetHeadObservedAt, binding.State = strings.Repeat("7", 40), now.Add(2*time.Second), gitprojection.BindingIndexing
+	binding.UpdatedAt = now.Add(2 * time.Second)
+	path, err := gitprojection.ApplicationPath(binding, applicationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := DocumentScope{Binding: binding, Namespace: namespace, ApplicationID: applicationID,
+		Path: path, SourceRevision: binding.TargetHeadRevision, ConfigRevision: strings.Repeat("8", 40)}
+	config := runtimeSecretPolicyConfig(t)
+	config.Namespaces = []string{namespace}
+	policy := &RuntimeSecretReferencePolicy{Config: config}
+	runtime := domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))
+	runtime.Env = []domain.WorkloadEnv{{Name: "DATABASE_PASSWORD", ValueFrom: &domain.WorkloadEnvValueFrom{SecretBindingRef: domain.SecretBindingRef{
+		BindingID: active.Binding.ID, Name: active.Binding.Name, Key: "password", Version: active.Version.Number,
+	}}}}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err := policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, scope, runtime), now.Add(3*time.Second))
+	if err != nil || len(diagnostics) != 0 {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("personal-project diagnostics=%#v err=%v", diagnostics, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectionSecretReference(t, pool, active.Binding.ID, path, active.Version.ID, binding.TargetHeadRevision, 1)
+
+	// Supplying a team identity for a personal project is rejected before the
+	// existing deletion guard can be changed.
+	tampered := scope
+	tampered.OrganizationID = id.New()
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, tampered, domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))), now.Add(4*time.Second)); !errors.Is(err, gitprojection.ErrInvalid) {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("tampered personal-project scope error=%v", err)
+	}
+	tx.Rollback(ctx) //nolint:errcheck
+	assertProjectionSecretReference(t, pool, active.Binding.ID, path, active.Version.ID, binding.TargetHeadRevision, 1)
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = policy.ReconcileDeletedTx(ctx, tx, scope, now.Add(5*time.Second)); err != nil {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatal(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectionSecretReference(t, pool, active.Binding.ID, path, "", "", 0)
 }
 
 func assertProjectionSecretReference(t *testing.T, pool *pgxpool.Pool, bindingID, path, versionID, revision string, expected int) {
