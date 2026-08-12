@@ -51,7 +51,7 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 	if err != nil {
 		return nil, err
 	}
-	plan, err := secrets.ResolveWorkloadBindingReferences(ctx, catalog, secretScope, runtime)
+	plan, err := secrets.ResolveGitCurrentWorkloadBindingReferences(ctx, catalog, secretScope, runtime)
 	if err != nil {
 		if semanticRuntimeSecretReferenceError(err) {
 			return []gitprojection.Diagnostic{{
@@ -63,7 +63,7 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 		return nil, err
 	}
 	if len(middlewareReferences) != 0 {
-		middlewarePlan, resolveErr := secrets.ResolveMiddlewareBindingReferences(ctx, catalog, secretScope, middlewareReferences)
+		middlewarePlan, resolveErr := secrets.ResolveGitCurrentMiddlewareBindingReferences(ctx, catalog, secretScope, middlewareReferences)
 		if resolveErr != nil {
 			if semanticRuntimeSecretReferenceError(resolveErr) {
 				return []gitprojection.Diagnostic{{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}}, nil
@@ -75,7 +75,10 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 			return nil, err
 		}
 	}
-	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, "", scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC()); err != nil {
+	if err = secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC()); err != nil {
+		if semanticRuntimeSecretReferenceError(err) {
+			return []gitprojection.Diagnostic{{Code: "RuntimeSecretReferenceUnresolved", Detail: "A runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.", Pointer: "/spec/runtime/environment"}}, nil
+		}
 		// The finalizer may already have issued writes before a database error.
 		// Returning any error forces the outer activation transaction to roll
 		// back, preserving the previous desired state and every deletion guard.
@@ -93,7 +96,7 @@ func (p *RuntimeSecretReferencePolicy) ReconcileDeletedTx(ctx context.Context, t
 		return err
 	}
 	plan := secrets.BindingReferencePlan{Scope: secretScope, Uses: []secrets.ResolvedBindingReference{}}
-	return secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, "", scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC())
+	return secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC())
 }
 
 func (p *RuntimeSecretReferencePolicy) validateScope(ctx context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) (secrets.Scope, error) {

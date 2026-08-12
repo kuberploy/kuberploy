@@ -136,7 +136,11 @@ func TestResolveBindingReferenceRejectsRetainedAndMismatchedProviderIdentity(t *
 		t.Fatal(err)
 	}
 	if _, err = ResolveBindingReference(ctx, store, active.Binding.Scope, ref, delivery); !errors.Is(err, ErrNotReady) {
-		t.Fatalf("retained version resolved: %v", err)
+		t.Fatalf("ordinary write resolver accepted retained version: %v", err)
+	}
+	resolved, err := ResolveGitCurrentBindingReference(ctx, store, active.Binding.Scope, ref, delivery)
+	if err != nil || resolved.VersionID != active.Version.ID || resolved.Version != 1 || resolved.TargetSecretName != TargetSecretName(active.Binding, 1) {
+		t.Fatalf("exact indexed Git retained version was not preserved: resolved=%#v err=%v", resolved, err)
 	}
 }
 

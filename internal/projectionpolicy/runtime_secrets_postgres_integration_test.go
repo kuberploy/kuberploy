@@ -182,6 +182,59 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	}
 	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
 
+	// Rotation must not invalidate the exact indexed AppConfig that is still
+	// running on the now-retained version. Otherwise the fail-closed config API
+	// cannot read that document to republish it with the new active version.
+	rotatedMaterial, materialErr := secrets.NewMaterial(map[string][]byte{
+		"password": []byte("projection-policy-rotated-private-value"),
+		"users":    []byte("admin:$2y$05$projection-policy-rotated-private-value"),
+	})
+	if materialErr != nil {
+		t.Fatal(materialErr)
+	}
+	rotated, rotateErr := service.Rotate(ctx, secrets.RotateRequest{ActorID: actorID, BindingID: active.Binding.ID,
+		ExpectedActiveVersion: 1, Deliveries: active.Version.Deliveries, IdempotencyKey: "projection-policy-rotate-0001",
+		RequestID: "projection-policy-rotate", Material: rotatedMaterial})
+	if rotateErr != nil {
+		t.Fatal(rotateErr)
+	}
+	rotated, rotateErr = service.ReconcileVersion(ctx, rotated.Version.ID, "projection-policy-ready-2")
+	if rotateErr != nil || rotated.Binding.ActiveVersion != 2 {
+		t.Fatalf("rotation=%#v err=%v", rotated, rotateErr)
+	}
+	if _, resolveErr := secrets.ResolveWorkloadBindingReferences(ctx, secretStore, active.Binding.Scope, runtime); !errors.Is(resolveErr, secrets.ErrNotReady) {
+		t.Fatalf("ordinary write resolver accepted retained Git version: %v", resolveErr)
+	}
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, scope, runtime), now.Add(4*time.Second))
+	if err != nil || len(diagnostics) != 0 {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("retained exact Git reference diagnostics=%#v err=%v", diagnostics, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+
+	changedGitScope := scope
+	changedGitScope.SourceRevision = "sha256:" + strings.Repeat("f", 64)
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, changedGitScope, runtime), now.Add(5*time.Second))
+	if err != nil || len(diagnostics) != 1 || diagnostics[0].Code != "RuntimeSecretReferenceUnresolved" {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("changed Git revision restored retained version diagnostics=%#v err=%v", diagnostics, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+
 	// A caller cannot erase a team-owned project's durable organization scope
 	// to resolve or silently orphan a Git-current guard.
 	noOrganization := scope

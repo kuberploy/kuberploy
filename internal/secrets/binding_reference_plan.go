@@ -52,6 +52,14 @@ const MiddlewareBasicAuthUsersPath = "/var/run/secrets/kuberploy/traefik-basic-a
 // Traefik consumes the derived namespaced Secret directly; the file delivery
 // identity is only the write-time authorization recorded on the binding.
 func ResolveMiddlewareBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, refs []domain.SecretBindingRef) (BindingReferencePlan, error) {
+	return resolveMiddlewareBindingReferences(ctx, catalog, scope, refs, false)
+}
+
+func ResolveGitCurrentMiddlewareBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, refs []domain.SecretBindingRef) (BindingReferencePlan, error) {
+	return resolveMiddlewareBindingReferences(ctx, catalog, scope, refs, true)
+}
+
+func resolveMiddlewareBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, refs []domain.SecretBindingRef, allowRetained bool) (BindingReferencePlan, error) {
 	if catalog == nil || scope.Validate() != nil || len(refs) > 32 {
 		return BindingReferencePlan{}, ErrInvalid
 	}
@@ -61,7 +69,11 @@ func ResolveMiddlewareBindingReferences(ctx context.Context, catalog BindingRefe
 		if ref.Key != "users" {
 			return BindingReferencePlan{}, ErrInvalid
 		}
-		resolved, err := ResolveBindingReference(ctx, snapshot, scope, ref, Delivery{SourceKey: ref.Key, Kind: DeliveryFile, FilePath: MiddlewareBasicAuthUsersPath, FileMode: 0o400})
+		resolver := ResolveBindingReference
+		if allowRetained {
+			resolver = ResolveGitCurrentBindingReference
+		}
+		resolved, err := resolver(ctx, snapshot, scope, ref, Delivery{SourceKey: ref.Key, Kind: DeliveryFile, FilePath: MiddlewareBasicAuthUsersPath, FileMode: 0o400})
 		if err != nil {
 			return BindingReferencePlan{}, err
 		}
@@ -143,6 +155,14 @@ func (i ReferenceIdentity) Validate() error {
 // destination for every SecretBindingRef. Ordinary values never enter the
 // resolver. The result contains no material, ciphertext or provider artifact.
 func ResolveWorkloadBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, runtime domain.WorkloadRuntime) (BindingReferencePlan, error) {
+	return resolveWorkloadBindingReferences(ctx, catalog, scope, runtime, false)
+}
+
+func ResolveGitCurrentWorkloadBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, runtime domain.WorkloadRuntime) (BindingReferencePlan, error) {
+	return resolveWorkloadBindingReferences(ctx, catalog, scope, runtime, true)
+}
+
+func resolveWorkloadBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, runtime domain.WorkloadRuntime, allowRetained bool) (BindingReferencePlan, error) {
 	if catalog == nil || scope.Validate() != nil || len(domain.ValidateWorkloadRuntime(runtime)) != 0 {
 		return BindingReferencePlan{}, ErrInvalid
 	}
@@ -153,7 +173,11 @@ func ResolveWorkloadBindingReferences(ctx context.Context, catalog BindingRefere
 			continue
 		}
 		ref := variable.ValueFrom.SecretBindingRef
-		resolved, err := ResolveBindingReference(ctx, snapshot, scope, ref, Delivery{
+		resolver := ResolveBindingReference
+		if allowRetained {
+			resolver = ResolveGitCurrentBindingReference
+		}
+		resolved, err := resolver(ctx, snapshot, scope, ref, Delivery{
 			SourceKey: ref.Key, Kind: DeliveryEnvironment, EnvironmentName: variable.Name,
 		})
 		if err != nil {

@@ -33,6 +33,19 @@ type ResolvedBindingReference struct {
 // example the environment variable name), preventing a user from selecting a
 // material key that was not authorized for that destination.
 func ResolveBindingReference(ctx context.Context, catalog BindingReferenceCatalog, expectedScope Scope, ref domain.SecretBindingRef, expectedDelivery Delivery) (ResolvedBindingReference, error) {
+	return resolveBindingReference(ctx, catalog, expectedScope, ref, expectedDelivery, false)
+}
+
+// ResolveGitCurrentBindingReference validates an AppConfig that is already the
+// exact indexed Git state. A rotation retains the previous immutable Secret so
+// the currently running workload can continue while the operator republishes
+// the AppConfig with the new active version. This path accepts that one exact
+// retained version; ordinary preview/save resolution remains active-only.
+func ResolveGitCurrentBindingReference(ctx context.Context, catalog BindingReferenceCatalog, expectedScope Scope, ref domain.SecretBindingRef, expectedDelivery Delivery) (ResolvedBindingReference, error) {
+	return resolveBindingReference(ctx, catalog, expectedScope, ref, expectedDelivery, true)
+}
+
+func resolveBindingReference(ctx context.Context, catalog BindingReferenceCatalog, expectedScope Scope, ref domain.SecretBindingRef, expectedDelivery Delivery, allowRetained bool) (ResolvedBindingReference, error) {
 	if catalog == nil || expectedScope.Validate() != nil || !ref.Valid() || expectedDelivery.Validate() != nil ||
 		expectedDelivery.SourceKey != ref.Key {
 		return ResolvedBindingReference{}, ErrInvalid
@@ -47,7 +60,7 @@ func ResolveBindingReference(ctx context.Context, catalog BindingReferenceCatalo
 		binding.Provider != ProviderSealedSecrets || binding.Purpose != PurposeRuntimeSecret {
 		return ResolvedBindingReference{}, ErrNotFound
 	}
-	if binding.State != BindingReady || binding.ActiveVersion != ref.Version {
+	if binding.State != BindingReady || binding.ActiveVersion < ref.Version {
 		return ResolvedBindingReference{}, ErrNotReady
 	}
 	versions, err := catalog.Versions(ctx, binding.ID)
@@ -66,7 +79,10 @@ func ResolveBindingReference(ctx context.Context, catalog BindingReferenceCatalo
 	}
 	if selected == nil || selected.Validate() != nil || selected.BindingID != binding.ID ||
 		selected.Provider != ProviderSealedSecrets || selected.TargetSecretType != TargetSecretOpaque ||
-		selected.State != VersionActive || selected.Artifact == nil {
+		(selected.State != VersionActive && (!allowRetained || selected.State != VersionRetained)) || selected.Artifact == nil {
+		return ResolvedBindingReference{}, ErrNotReady
+	}
+	if selected.State == VersionActive && binding.ActiveVersion != ref.Version {
 		return ResolvedBindingReference{}, ErrNotReady
 	}
 	target := TargetSecretName(binding, selected.Number)

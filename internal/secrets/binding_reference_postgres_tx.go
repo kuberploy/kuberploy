@@ -15,9 +15,15 @@ import (
 // exact binding/version rows in the caller's PostgreSQL transaction. It is the
 // authoritative counterpart to the read-only UI/direct-Git resolver.
 func ValidateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan) error {
+	_, err := validateBindingReferencePlanTx(ctx, tx, plan, false)
+	return err
+}
+
+func validateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, allowRetained bool) (map[string]bool, error) {
 	if tx == nil || plan.Validate() != nil {
-		return ErrInvalid
+		return nil, ErrInvalid
 	}
+	retained := make(map[string]bool, len(plan.Uses))
 	for _, use := range plan.Uses {
 		var organizationID, projectID, environmentID, applicationID, namespace string
 		var bindingName, bindingProvider, bindingPurpose, bindingState string
@@ -40,37 +46,54 @@ func ValidateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan Binding
 			&versionID, &versionProvider, &versionTargetType, &versionState, &objectName, &targetName, &manifestDigest, &sealingFingerprint, &ciphertextDigest,
 			&deliveryCount)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
 		if err != nil {
-			return classifyPostgres(err)
+			return nil, classifyPostgres(err)
 		}
 		expectedTarget := TargetSecretName(Binding{ID: use.BindingID, Name: use.Name}, use.Version)
 		if organizationID != plan.Scope.OrganizationID || projectID != plan.Scope.ProjectID || environmentID != plan.Scope.EnvironmentID ||
 			applicationID != plan.Scope.ApplicationID || namespace != plan.Scope.Namespace || bindingName != use.Name {
-			return ErrNotFound
+			return nil, ErrNotFound
 		}
+		versionReady := versionState == string(VersionActive) && activeVersion == use.Version ||
+			allowRetained && versionState == string(VersionRetained) && activeVersion > use.Version
 		if bindingProvider != string(ProviderSealedSecrets) || bindingPurpose != string(PurposeRuntimeSecret) ||
 			versionProvider != string(ProviderSealedSecrets) || versionTargetType != string(TargetSecretOpaque) ||
-			bindingState != string(BindingReady) || activeVersion != use.Version || versionID != use.VersionID || versionState != string(VersionActive) ||
+			bindingState != string(BindingReady) || !versionReady || versionID != use.VersionID ||
 			!objectName.Valid || objectName.String != expectedTarget || !targetName.Valid || targetName.String != expectedTarget ||
 			!manifestDigest.Valid || !digestRE.MatchString(manifestDigest.String) || !sealingFingerprint.Valid || !digestRE.MatchString(sealingFingerprint.String) ||
 			!ciphertextDigest.Valid || !digestRE.MatchString(ciphertextDigest.String) || deliveryCount != 1 {
-			return ErrNotReady
+			return nil, ErrNotReady
 		}
+		retained[use.BindingID] = versionState == string(VersionRetained)
 	}
-	return nil
+	return retained, nil
 }
 
 // ReplaceGitCurrentReferencesTx validates the exact plan and reconciles only
 // Git-current deletion guards in the caller's transaction. Current-release and
 // retained-release rows are never selected or modified.
 func ReplaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, actorID, referenceID, revision, requestID string, now time.Time) error {
+	return replaceGitCurrentReferencesTx(ctx, tx, plan, actorID, referenceID, revision, requestID, now, false)
+}
+
+// ReplaceIndexedGitCurrentReferencesTx is reserved for an exact AppConfig
+// already observed in Git. It preserves deletion guards for an immutable
+// retained version only when the same path, source revision, binding and
+// version were already indexed while active. All API-authored preview/save
+// plans use ReplaceGitCurrentReferencesTx and remain active-only.
+func ReplaceIndexedGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, referenceID, revision, requestID string, now time.Time) error {
+	return replaceGitCurrentReferencesTx(ctx, tx, plan, "", referenceID, revision, requestID, now, true)
+}
+
+func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, actorID, referenceID, revision, requestID string, now time.Time, allowRetained bool) error {
 	if (actorID != "" && !uuidRE.MatchString(actorID)) || !safeOpaque(referenceID, 256) || !revisionRE.MatchString(revision) ||
 		!requestIDRE.MatchString(requestID) || now.IsZero() {
 		return ErrInvalid
 	}
-	if err := ValidateBindingReferencePlanTx(ctx, tx, plan); err != nil {
+	retained, err := validateBindingReferencePlanTx(ctx, tx, plan, allowRetained)
+	if err != nil {
 		return err
 	}
 	type storedReference struct {
@@ -102,6 +125,22 @@ func ReplaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingR
 	rows.Close()
 
 	desired := plan.BindingVersions()
+	existingByBinding := make(map[string]storedReference, len(existing))
+	for _, current := range existing {
+		existingByBinding[current.BindingID] = current
+	}
+	// A retained version is valid only as continuity for the exact Git source
+	// revision that was indexed while it was active. A new Git revision cannot
+	// introduce or restore an old version after rotation.
+	for _, item := range desired {
+		if !retained[item.BindingID] {
+			continue
+		}
+		current, found := existingByBinding[item.BindingID]
+		if !found || current.VersionID != item.VersionID || current.Revision != revision {
+			return ErrNotReady
+		}
+	}
 	desiredByBinding := make(map[string]ReferenceIdentity, len(desired))
 	for _, item := range desired {
 		desiredByBinding[item.BindingID] = item
