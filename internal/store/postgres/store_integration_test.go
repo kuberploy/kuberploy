@@ -384,6 +384,11 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	verifiedInstallation, replay, err := st.LinkVerifiedGitHubInstallation(ctx, admin.ID, "verify-existing-install", "verify-existing-install", "request",
+		domain.CreateGitHubInstallation{GitHubInstallationID: 42, AccountLogin: "KUBERPLOY", AccountType: "Organization", RepositorySelection: "selected", RepositoryCount: 3})
+	if err != nil || replay || verifiedInstallation.ID != installation.Value.ID || verifiedInstallation.RepositoryCount != 3 {
+		t.Fatalf("verified existing installation=%#v replay=%v err=%v", verifiedInstallation, replay, err)
+	}
 	if _, err = st.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); err != nil {
 		t.Fatal(err)
 	}

@@ -254,8 +254,9 @@ func (b *buildBackend) clock() time.Time {
 }
 
 type beginGitHubSetupRequest struct {
-	ExpectedAccountID *int64 `json:"expectedAccountId,omitempty"`
-	ReturnKey         string `json:"returnKey"`
+	ExpectedAccountID      *int64 `json:"expectedAccountId,omitempty"`
+	ExistingInstallationID *int64 `json:"existingInstallationId,omitempty"`
+	ReturnKey              string `json:"returnKey"`
 }
 
 type githubSetupAuthorizationView struct {
@@ -374,8 +375,16 @@ func (s *Server) beginGitHubSetup(w http.ResponseWriter, r *http.Request) {
 		}
 		expectedAccountID = *input.ExpectedAccountID
 	}
+	existingInstallationID := int64(0)
+	if input.ExistingInstallationID != nil {
+		if *input.ExistingInstallationID <= 0 {
+			writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "existingInstallationId must be a positive integer when provided.")
+			return
+		}
+		existingInstallationID = *input.ExistingInstallationID
+	}
 	result, err := s.githubSetup.Begin(r.Context(), builds.BeginSetupRequest{ActorID: currentUser(r.Context()).ID,
-		ExpectedAccountID: expectedAccountID, ReturnKey: input.ReturnKey, IdempotencyKey: key,
+		ExpectedAccountID: expectedAccountID, ExistingInstallationID: existingInstallationID, ReturnKey: input.ReturnKey, IdempotencyKey: key,
 		RequestFingerprint: "sha256:" + fingerprint(input)})
 	if err != nil {
 		mappedGitHubBuildError(w, r, err)

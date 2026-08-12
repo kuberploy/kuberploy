@@ -35,6 +35,7 @@ type githubSetupHTTPBackend struct {
 	continueCalls int
 	completeCalls int
 	linkCalls     int
+	beginInput    builds.BeginSetupRequest
 	continueInput builds.ContinueSetupRequest
 	completeInput builds.CompleteSetupRequest
 }
@@ -42,6 +43,7 @@ type githubSetupHTTPBackend struct {
 func (b *githubSetupHTTPBackend) Begin(_ context.Context, request builds.BeginSetupRequest) (builds.BeginSetupResult, error) {
 	b.mu.Lock()
 	b.beginCalls++
+	b.beginInput = request
 	b.mu.Unlock()
 	return builds.BeginSetupResult{AuthorizationURL: "https://github.com/apps/kuberploy/installations/new?state=signed-state", State: "signed-state", ExpiresAt: time.Now().UTC().Add(5 * time.Minute)}, nil
 }
@@ -294,6 +296,16 @@ func TestGitHubSetupHTTPIsHumanBoundNoStoreAndRejectsAmbiguity(t *testing.T) {
 	problem = decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
 		t.Fatalf("zero expected account status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response = f.request(http.MethodPost, "/v1/github/installations/authorize", "setup-http-existing-install", map[string]any{"existingInstallationId": 4242, "returnKey": "application-source"})
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || setup.beginInput.ExistingInstallationID != 4242 {
+		t.Fatalf("existing installation setup status=%d input=%#v", response.StatusCode, setup.beginInput)
+	}
+	response = f.request(http.MethodPost, "/v1/github/installations/authorize", "setup-http-existing-zero", map[string]any{"existingInstallationId": 0, "returnKey": "application-source"})
+	problem = decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+		t.Fatalf("zero existing installation status=%d problem=%#v", response.StatusCode, problem)
 	}
 
 	duplicate := `{"returnKey":"application-source","returnKey":"other"}`

@@ -78,11 +78,45 @@ describe("GitHub installation setup UI", () => {
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith(destination));
     expect(api.beginGitHubSetup).toHaveBeenCalledWith(
-      { returnKey: "source-builds" },
+      { returnKey: "source-builds", existingInstallationId: undefined },
       expect.any(String),
     );
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0);
     expect(storageWrite).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain("s".repeat(64));
+  });
+
+  it("can verify an already-installed App without sending the user back to installation settings", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.githubInstallations).mockResolvedValue({
+      items: [
+        {
+          id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          githubInstallationId: 152576900,
+          accountLogin: "kuberploy",
+          accountType: "Organization",
+          ownerUserId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          visibility: "private",
+          repositorySelection: "selected",
+          repositoryCount: 3,
+          createdAt: "2026-08-12T00:00:00Z",
+          updatedAt: "2026-08-12T00:00:00Z",
+        },
+      ],
+      nextCursor: undefined,
+    });
+    const destination = `${window.location.origin}/v1/github/installations/setup?installation_id=152576900&setup_action=update&state=${"s".repeat(64)}`;
+    vi.spyOn(api, "beginGitHubSetup").mockResolvedValue(destination);
+    const { navigate } = renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Verify link" }),
+    );
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(destination));
+    expect(api.beginGitHubSetup).toHaveBeenCalledWith(
+      { returnKey: "source-builds", existingInstallationId: 152576900 },
+      expect.any(String),
+    );
   });
 });

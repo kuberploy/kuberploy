@@ -107,6 +107,18 @@ func TestSetupBindsExactGitHubUserAndLinksOnlyVerifiedMetadata(t *testing.T) {
 	if !strings.HasPrefix(begin.AuthorizationURL, "https://github.com/apps/kuberploy/installations/new?state=") || begin.State == "" {
 		t.Fatalf("unsafe authorization result: %#v", begin)
 	}
+	existing, err := service.Begin(ctx, BeginSetupRequest{ActorID: setupActorID, ExpectedAccountID: 202, ExistingInstallationID: 4242,
+		ReturnKey: "application-source", IdempotencyKey: "setup-authorize-existing-0001",
+		RequestFingerprint: "sha256:" + strings.Repeat("2", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingURL, err := url.Parse(existing.AuthorizationURL)
+	if err != nil || existingURL.Scheme != "https" || existingURL.Host != "kuberploy.example.test" ||
+		existingURL.Path != "/v1/github/installations/setup" || existingURL.Query().Get("state") != existing.State ||
+		existingURL.Query().Get("installation_id") != "4242" || existingURL.Query().Get("setup_action") != "update" || len(existingURL.Query()) != 3 {
+		t.Fatalf("unsafe existing-installation continuation: %q err=%v", existing.AuthorizationURL, err)
+	}
 	replay, err := service.Begin(ctx, BeginSetupRequest{ActorID: setupActorID, ExpectedAccountID: 202, ReturnKey: "application-source",
 		IdempotencyKey: "setup-authorize-0001", RequestFingerprint: "sha256:" + strings.Repeat("1", 64)})
 	if err != nil || !replay.Replay || replay.State != begin.State {

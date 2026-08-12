@@ -355,14 +355,25 @@ function githubSetupDestination(
   }
   const state = destination.searchParams.getAll("state");
   const keys = [...destination.searchParams.keys()];
+  const githubInstall =
+    destination.origin === "https://github.com" &&
+    /^\/apps\/[a-z0-9-]+\/installations\/new$/.test(destination.pathname) &&
+    keys.length === 1 &&
+    keys[0] === "state";
+  const existingInstall =
+    destination.origin === window.location.origin &&
+    destination.pathname === "/v1/github/installations/setup" &&
+    keys.length === 3 &&
+    keys.every((key) =>
+      ["installation_id", "setup_action", "state"].includes(key),
+    ) &&
+    /^\d+$/.test(destination.searchParams.get("installation_id") ?? "") &&
+    destination.searchParams.get("setup_action") === "update";
   if (
-    destination.origin !== "https://github.com" ||
     destination.username !== "" ||
     destination.password !== "" ||
     destination.hash !== "" ||
-    !/^\/apps\/[a-z0-9-]+\/installations\/new$/.test(destination.pathname) ||
-    keys.length !== 1 ||
-    keys[0] !== "state" ||
+    (!githubInstall && !existingInstall) ||
     state.length !== 1 ||
     state[0].length < 64 ||
     state[0].length > 4096 ||
@@ -1995,7 +2006,11 @@ export const api = {
       };
     }),
   beginGitHubSetup: (
-    input: { returnKey: string; expectedAccountId?: number },
+    input: {
+      returnKey: string;
+      expectedAccountId?: number;
+      existingInstallationId?: number;
+    },
     idempotencyKey: string,
   ) =>
     request<GitHubSetupAuthorizationWire>(
@@ -2006,6 +2021,7 @@ export const api = {
         body: {
           returnKey: input.returnKey,
           expectedAccountId: input.expectedAccountId,
+          existingInstallationId: input.existingInstallationId,
         },
       },
     ).then(githubSetupDestination),

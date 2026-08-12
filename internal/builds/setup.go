@@ -102,11 +102,12 @@ type SetupService struct {
 }
 
 type BeginSetupRequest struct {
-	ActorID            string
-	ExpectedAccountID  int64
-	ReturnKey          string
-	IdempotencyKey     string
-	RequestFingerprint string
+	ActorID                string
+	ExpectedAccountID      int64
+	ExistingInstallationID int64
+	ReturnKey              string
+	IdempotencyKey         string
+	RequestFingerprint     string
 }
 
 type BeginSetupResult struct {
@@ -158,7 +159,7 @@ type LinkSetupResult struct {
 
 func (s *SetupService) Begin(ctx context.Context, request BeginSetupRequest) (BeginSetupResult, error) {
 	if s == nil || s.StateManager == nil || s.Store == nil || s.Provider == nil || s.Catalog == nil ||
-		!uuidRE.MatchString(request.ActorID) || request.ExpectedAccountID < 0 || !setupIdempotencyRE.MatchString(request.IdempotencyKey) ||
+		!uuidRE.MatchString(request.ActorID) || request.ExpectedAccountID < 0 || request.ExistingInstallationID < 0 || !setupIdempotencyRE.MatchString(request.IdempotencyKey) ||
 		!setupFingerprintRE.MatchString(request.RequestFingerprint) {
 		return BeginSetupResult{}, ErrInvalid
 	}
@@ -188,10 +189,32 @@ func (s *SetupService) Begin(ctx context.Context, request BeginSetupRequest) (Be
 			return BeginSetupResult{}, err
 		}
 	}
-	query := base.Query()
-	query.Set("state", stored.State)
-	base.RawQuery = query.Encode()
+	if request.ExistingInstallationID > 0 {
+		base, err = existingInstallationSetupURL(s.OAuthCallbackURL, stored.State, request.ExistingInstallationID)
+		if err != nil {
+			return BeginSetupResult{}, err
+		}
+	} else {
+		query := base.Query()
+		query.Set("state", stored.State)
+		base.RawQuery = query.Encode()
+	}
 	return BeginSetupResult{AuthorizationURL: base.String(), State: stored.State, ExpiresAt: verified.ExpiresAt, Replay: replay}, nil
+}
+
+func existingInstallationSetupURL(callbackURL, state string, installationID int64) (*url.URL, error) {
+	callback, err := url.Parse(callbackURL)
+	if err != nil || callback.Scheme != "https" || callback.Host == "" || callback.User != nil || callback.Fragment != "" ||
+		callback.RawQuery != "" || callback.EscapedPath() != "/v1/github/installations/callback" || installationID <= 0 || state == "" {
+		return nil, ErrInvalid
+	}
+	callback.Path = "/v1/github/installations/setup"
+	query := callback.Query()
+	query.Set("state", state)
+	query.Set("installation_id", strconv.FormatInt(installationID, 10))
+	query.Set("setup_action", "update")
+	callback.RawQuery = query.Encode()
+	return callback, nil
 }
 
 // Continue consumes the GitHub App Setup URL return and starts a distinct,

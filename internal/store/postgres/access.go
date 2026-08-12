@@ -623,6 +623,33 @@ func (s *Store) LinkVerifiedGitHubInstallation(ctx context.Context, actor, key, 
 		return installation, true, tx.Commit(ctx)
 	}
 	now := time.Now().UTC()
+	var existing domain.GitHubInstallation
+	err = tx.QueryRow(ctx, `SELECT id,github_installation_id,account_login,account_type,owner_user_id,visibility,COALESCE(team_id::text,''),repository_selection,repository_count,created_at,updated_at
+		FROM github_installations WHERE github_installation_id=$1 FOR UPDATE`, in.GitHubInstallationID).Scan(&existing.ID, &existing.GitHubInstallationID,
+		&existing.AccountLogin, &existing.AccountType, &existing.OwnerUserID, &existing.Visibility, &existing.TeamID,
+		&existing.RepositorySelection, &existing.RepositoryCount, &existing.CreatedAt, &existing.UpdatedAt)
+	if err == nil {
+		if existing.OwnerUserID != actor || !strings.EqualFold(existing.AccountLogin, in.AccountLogin) || existing.AccountType != in.AccountType ||
+			existing.RepositorySelection != in.RepositorySelection {
+			return domain.GitHubInstallation{}, false, base.ErrConflict
+		}
+		existing.RepositoryCount = in.RepositoryCount
+		existing.UpdatedAt = now
+		if _, err = tx.Exec(ctx, `UPDATE github_installations SET repository_count=$2,updated_at=$3 WHERE id=$1`, existing.ID, existing.RepositoryCount, now); err != nil {
+			return domain.GitHubInstallation{}, false, classify(err)
+		}
+		if err = audit(ctx, tx, actor, "github.installation.verify", "github-installation", existing.ID, requestID,
+			map[string]any{"githubInstallationId": existing.GitHubInstallationID, "accountLogin": existing.AccountLogin}); err != nil {
+			return domain.GitHubInstallation{}, false, err
+		}
+		if err = putIdem(ctx, tx, actor, "github-installations.link", key, fingerprint, "github-installation", existing.ID, nil); err != nil {
+			return domain.GitHubInstallation{}, false, classify(err)
+		}
+		return existing, false, tx.Commit(ctx)
+	}
+	if !errors.Is(classify(err), base.ErrNotFound) {
+		return domain.GitHubInstallation{}, false, classify(err)
+	}
 	installation := domain.GitHubInstallation{ID: id.New(), GitHubInstallationID: in.GitHubInstallationID, AccountLogin: in.AccountLogin,
 		AccountType: in.AccountType, OwnerUserID: actor, Visibility: "private", RepositorySelection: in.RepositorySelection,
 		RepositoryCount: in.RepositoryCount, CreatedAt: now, UpdatedAt: now}

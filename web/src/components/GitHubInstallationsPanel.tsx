@@ -20,7 +20,8 @@ export function GitHubInstallationsPanel({
   humanSession: boolean;
   navigate?: (destination: string) => void;
 }) {
-  const setupKey = useRef<string | null>(null);
+  const setupKeys = useRef(new Map<string, string>());
+  const setupTarget = useRef<number | undefined>(undefined);
   const [setupPending, setSetupPending] = useState(false);
   const [setupError, setSetupError] = useState<unknown>();
   const installations = useQuery({
@@ -30,17 +31,21 @@ export function GitHubInstallationsPanel({
     retry: false,
   });
 
-  const beginSetup = async () => {
+  const beginSetup = async (existingInstallationId?: number) => {
     if (!humanSession || setupPending) return;
-    setupKey.current ??= crypto.randomUUID();
+    setupTarget.current = existingInstallationId;
+    const targetKey = existingInstallationId?.toString() ?? "new";
+    if (!setupKeys.current.has(targetKey)) {
+      setupKeys.current.set(targetKey, crypto.randomUUID());
+    }
     setSetupPending(true);
     setSetupError(undefined);
     try {
       // The sensitive provider state exists only inside this local promise and
       // the validated destination. It never enters React Query or web storage.
       const destination = await api.beginGitHubSetup(
-        { returnKey: "source-builds" },
-        setupKey.current,
+        { returnKey: "source-builds", existingInstallationId },
+        setupKeys.current.get(targetKey)!,
       );
       navigate(destination);
     } catch (error) {
@@ -105,6 +110,20 @@ export function GitHubInstallationsPanel({
                   installation.visibility === "team" ? "Team shared" : "Private"
                 }
               />
+              {humanSession ? (
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    void beginSetup(installation.githubInstallationId)
+                  }
+                  busy={
+                    setupPending &&
+                    setupTarget.current === installation.githubInstallationId
+                  }
+                >
+                  Verify link
+                </Button>
+              ) : null}
             </article>
           ))}
         </div>
@@ -132,7 +151,7 @@ export function GitHubInstallationsPanel({
         <ErrorPanel
           title="Could not begin GitHub setup"
           error={setupError}
-          onRetry={() => void beginSetup()}
+          onRetry={() => void beginSetup(setupTarget.current)}
         />
       ) : null}
     </Card>

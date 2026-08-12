@@ -458,4 +458,34 @@ describe("GitHub source-build API client", () => {
       }),
     );
   });
+
+  it("accepts only the exact same-origin existing-installation continuation", async () => {
+    const state = "s".repeat(64);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            authorizationUrl: `${window.location.origin}/v1/github/installations/setup?installation_id=152576900&setup_action=update&state=${state}`,
+            state,
+            expiresAt: "2026-08-09T00:05:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    await expect(
+      api.beginGitHubSetup(
+        { returnKey: "source-builds", existingInstallationId: 152576900 },
+        "github-setup-key-existing-0001",
+      ),
+    ).resolves.toContain("/v1/github/installations/setup?");
+    expect(
+      JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body)),
+    ).toEqual({
+      returnKey: "source-builds",
+      existingInstallationId: 152576900,
+    });
+  });
 });
