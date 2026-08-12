@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 
 from validate_semantics import yaml_scalar
@@ -29,6 +30,58 @@ RELEASE_COMPONENT_CHARTS = (
     "kuberploy-sealed-secrets",
     "kuberploy-valkey",
 )
+
+
+def validate_stable_qualification(root: Path, version: str) -> None:
+    if "-" in version:
+        return
+
+    receipt_path = root / "release" / "qualifications" / f"{version}.json"
+    if not receipt_path.is_file():
+        raise SystemExit(
+            f"stable release {version} requires a reviewed final-RC qualification receipt"
+        )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    expected_keys = {
+        "candidateVersion",
+        "candidateTag",
+        "candidateCommit",
+        "qualificationReportSHA256",
+        "qualificationCompletedAt",
+        "status",
+        "teardownStatus",
+    }
+    if set(receipt) != expected_keys:
+        raise SystemExit("stable qualification receipt has unexpected or missing fields")
+    candidate = receipt["candidateVersion"]
+    if not isinstance(candidate, str) or not re.fullmatch(
+        rf"{re.escape(version)}-rc\.[1-9][0-9]*", candidate
+    ):
+        raise SystemExit("stable qualification receipt does not name a final RC of this version")
+    if receipt["candidateTag"] != f"v{candidate}":
+        raise SystemExit("stable qualification receipt tag does not match its candidate version")
+    if not isinstance(receipt["candidateCommit"], str) or not re.fullmatch(
+        r"[a-f0-9]{40}", receipt["candidateCommit"]
+    ):
+        raise SystemExit("stable qualification receipt has an invalid candidate commit")
+    if not isinstance(receipt["qualificationReportSHA256"], str) or not re.fullmatch(
+        r"sha256:[a-f0-9]{64}", receipt["qualificationReportSHA256"]
+    ):
+        raise SystemExit("stable qualification receipt has an invalid report checksum")
+    if not isinstance(receipt["qualificationCompletedAt"], str) or not re.fullmatch(
+        r"20[0-9]{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T"
+        r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z",
+        receipt["qualificationCompletedAt"],
+    ):
+        raise SystemExit("stable qualification receipt has an invalid UTC completion time")
+    try:
+        datetime.strptime(receipt["qualificationCompletedAt"], "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as error:
+        raise SystemExit(
+            "stable qualification receipt has an invalid UTC completion time"
+        ) from error
+    if receipt["status"] != "passed" or receipt["teardownStatus"] != "passed":
+        raise SystemExit("stable qualification and its teardown must both have passed")
 
 
 def main() -> None:
@@ -80,6 +133,7 @@ def main() -> None:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
     if args.tag and args.tag != f"v{version}":
         raise SystemExit(f"tag {args.tag} does not match source version v{version}")
+    validate_stable_qualification(args.root, version)
 
     installer_fixtures = (
         ("managed-values.yaml", "postgresql"),
@@ -207,6 +261,9 @@ def main() -> None:
         ".immutable == true",
         "kp_source_date_epoch=",
         "Reject an existing GitHub release",
+        "Verify qualified immutable release candidate",
+        "release/qualifications/${kp_version}.json",
+        '${kp_candidate_state}" == "${CANDIDATE_TAG},false,true,true',
         "Build and push native image by digest",
         "Assemble and verify image indexes",
         "Package and validate release artifacts",

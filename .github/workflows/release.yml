@@ -82,6 +82,8 @@ jobs:
       breaking_changes: ${{ steps.release.outputs.breaking_changes }}
       supported_upgrade_from: ${{ steps.release.outputs.supported_upgrade_from }}
       kubernetes_constraint: ${{ steps.release.outputs.kubernetes_constraint }}
+      stable_candidate_tag: ${{ steps.release.outputs.stable_candidate_tag }}
+      stable_candidate_commit: ${{ steps.release.outputs.stable_candidate_commit }}
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v7
@@ -100,6 +102,13 @@ jobs:
           kp_breaking="$(python3 -c 'import json; print(str(json.load(open("release/metadata.json", encoding="utf-8"))["breakingChanges"]).lower())')"
           kp_upgrade_range="$(python3 -c 'import json; print(json.load(open("release/metadata.json", encoding="utf-8"))["supportedUpgradeFrom"])')"
           kp_kube_constraint="$(PYTHONPATH=release python3 -c 'from pathlib import Path; from validate_semantics import yaml_scalar; print(yaml_scalar(Path("charts/kuberploy/Chart.yaml").read_text(), ("kubeVersion",)))')"
+          kp_stable_candidate_tag=""
+          kp_stable_candidate_commit=""
+          if [[ "${kp_version}" != *-* ]]; then
+            kp_receipt="release/qualifications/${kp_version}.json"
+            kp_stable_candidate_tag="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["candidateTag"])' "${kp_receipt}")"
+            kp_stable_candidate_commit="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["candidateCommit"])' "${kp_receipt}")"
+          fi
           {
             echo "version=${kp_version}"
             echo "created_at=${kp_created_at}"
@@ -108,7 +117,29 @@ jobs:
             echo "breaking_changes=${kp_breaking}"
             echo "supported_upgrade_from=${kp_upgrade_range}"
             echo "kubernetes_constraint=${kp_kube_constraint}"
+            echo "stable_candidate_tag=${kp_stable_candidate_tag}"
+            echo "stable_candidate_commit=${kp_stable_candidate_commit}"
           } >>"${GITHUB_OUTPUT}"
+      - name: Verify qualified immutable release candidate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+          CANDIDATE_TAG: ${{ steps.release.outputs.stable_candidate_tag }}
+          CANDIDATE_COMMIT: ${{ steps.release.outputs.stable_candidate_commit }}
+        run: |
+          if [[ "${VERSION}" == *-* ]]; then
+            [[ -z "${CANDIDATE_TAG}" && -z "${CANDIDATE_COMMIT}" ]]
+            exit 0
+          fi
+          [[ "${CANDIDATE_TAG}" == "v${VERSION}-rc."* ]]
+          [[ "${CANDIDATE_TAG#v${VERSION}-rc.}" =~ ^[1-9][0-9]*$ ]]
+          [[ "${CANDIDATE_COMMIT}" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$(git rev-list -n 1 "${CANDIDATE_TAG}")" == "${CANDIDATE_COMMIT}" ]]
+          kp_candidate_state="$(gh api \
+            -H "X-GitHub-Api-Version: 2026-03-10" \
+            "/repos/${GITHUB_REPOSITORY}/releases/tags/${CANDIDATE_TAG}" \
+            --jq '[.tag_name, (.draft | tostring), (.prerelease | tostring), (.immutable | tostring)] | join(",")')"
+          [[ "${kp_candidate_state}" == "${CANDIDATE_TAG},false,true,true" ]]
       - name: Reject an existing GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

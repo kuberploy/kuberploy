@@ -9,6 +9,15 @@ manifest twice, and creates a draft GitHub Release before making it public.
 Versions with a prerelease suffix publish as GitHub prereleases; only stable
 versions may become the repository's latest release.
 
+A stable tag is additionally fail-closed behind a reviewed receipt at
+`release/qualifications/<stable-version>.json`. The receipt must name an exact
+final RC on the same version line, its protected commit, the checksum and UTC
+completion time of the qualification report, and successful qualification and
+teardown states. The release gate independently proves that the named RC tag
+still resolves to that commit and that its GitHub prerelease is immutable.
+Release candidates do not require this receipt. This keeps ordinary RC work
+moving while making an accidental stable tag unable to publish.
+
 Repository release immutability is an externally verified prerequisite. Before
 a tag is pushed, a repository administrator must enable immutable releases and
 verify the setting through the repository settings or an administrator-scoped

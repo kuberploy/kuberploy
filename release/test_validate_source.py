@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from validate_source import validate_stable_qualification
 
 
 def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.CompletedProcess[str]:
@@ -22,6 +25,41 @@ def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.Comple
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
+        qualification_root = Path(temporary)
+        validate_stable_qualification(qualification_root, "0.1.0-rc.85")
+        try:
+            validate_stable_qualification(qualification_root, "0.1.0")
+        except SystemExit as error:
+            if "requires a reviewed final-RC" not in str(error):
+                raise
+        else:
+            raise SystemExit("validator accepted a stable release without qualification")
+
+        receipt_directory = qualification_root / "release/qualifications"
+        receipt_directory.mkdir(parents=True)
+        valid_receipt = {
+            "candidateVersion": "0.1.0-rc.85",
+            "candidateTag": "v0.1.0-rc.85",
+            "candidateCommit": "a" * 40,
+            "qualificationReportSHA256": f"sha256:{'b' * 64}",
+            "qualificationCompletedAt": "2026-08-12T03:00:00Z",
+            "status": "passed",
+            "teardownStatus": "passed",
+        }
+        receipt_path = receipt_directory / "0.1.0.json"
+        receipt_path.write_text(json.dumps(valid_receipt), encoding="utf-8")
+        validate_stable_qualification(qualification_root, "0.1.0")
+        invalid_receipt = valid_receipt | {"candidateVersion": "0.2.0-rc.1"}
+        receipt_path.write_text(json.dumps(invalid_receipt), encoding="utf-8")
+        try:
+            validate_stable_qualification(qualification_root, "0.1.0")
+        except SystemExit as error:
+            if "final RC of this version" not in str(error):
+                raise
+        else:
+            raise SystemExit("validator accepted a receipt for a different release line")
+
     workflow = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
     ci_workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
