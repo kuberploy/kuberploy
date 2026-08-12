@@ -1029,9 +1029,9 @@ func (s *Store) ListProjectAccessGrants(ctx context.Context, actor, projectID st
 		FROM access_grants g WHERE
 		(g.scope_type='team' AND g.scope_id=$2) OR
 		(g.scope_type='project' AND g.scope_id=$1::text) OR
-		(g.scope_type='environment' AND EXISTS(SELECT 1 FROM environments e WHERE e.id::text=g.scope_id AND e.project_id=$1)) OR
-		(g.scope_type='namespace' AND EXISTS(SELECT 1 FROM environments e WHERE e.namespace=g.scope_id AND e.project_id=$1)) OR
-		(g.scope_type='application' AND EXISTS(SELECT 1 FROM applications a WHERE a.id::text=g.scope_id AND a.project_id=$1))
+		(g.scope_type='environment' AND EXISTS(SELECT 1 FROM environments e WHERE e.id::text=g.scope_id AND e.project_id=$1::uuid)) OR
+		(g.scope_type='namespace' AND EXISTS(SELECT 1 FROM environments e WHERE e.namespace=g.scope_id AND e.project_id=$1::uuid)) OR
+		(g.scope_type='application' AND EXISTS(SELECT 1 FROM applications a WHERE a.id::text=g.scope_id AND a.project_id=$1::uuid))
 		ORDER BY g.created_at,g.id`, project.ID, project.TeamID)
 	if err != nil {
 		return nil, err

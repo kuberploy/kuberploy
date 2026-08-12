@@ -294,6 +294,20 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	listedGrants, err := st.ListProjectAccessGrants(ctx, admin.ID, project.Value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listedGrant := false
+	for _, grant := range listedGrants {
+		if grant.ID == createdGrant.Value.ID {
+			listedGrant = true
+			break
+		}
+	}
+	if !listedGrant {
+		t.Fatalf("project grant list omitted created grant: %#v", listedGrants)
+	}
 	if _, err = st.UserBySession(ctx, viewerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("scoped grant retained stale PostgreSQL session: %v", err)
 	}
