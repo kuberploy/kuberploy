@@ -6,7 +6,7 @@ shipped.
 
 `prisma/schema.prisma` is the readable declarative source for tables, columns,
 scalar types, primary keys, unique constraints, and indexes. The immutable
-deployment history is SQL under
+post-stable deployment history is SQL under
 `prisma/migrations/<NNN_name>/migration.sql`. PostgreSQL foreign-key authority
 fences, functions, triggers, CHECK and deferred constraints, expression
 indexes, and other database-owned guards belong in that SQL because Prisma
@@ -25,6 +25,12 @@ For a schema change:
 5. Bump `migrations.CurrentSchema` in `embed.go`.
 6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
+
+`001_initial` is the final pre-stable `0.1.0` baseline. It was regenerated from
+the fully qualified release-candidate schema after RC86. Databases created by
+older release candidates must be recreated; Kuberploy never guesses across a
+changed pre-stable migration checksum. After `0.1.0` is stable, this baseline is
+immutable and every change must use a new ordered migration.
 
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
