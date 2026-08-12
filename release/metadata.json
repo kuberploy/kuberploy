@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Manual build retries refresh the trusted operator runtime after an upgrade while preserving the original source and registry authority.",
+  "summary": "Runtime image-pull artifacts recover only after exact operator profile correction under a fenced worker lease; all other permanent failures remain terminal.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.91"
+  "version": "0.1.0-rc.92"
 }
