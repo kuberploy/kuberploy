@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Corrected registry-pull profiles invalidate only exact stale mismatch projections for same-head revalidation before Argo activation.",
+  "summary": "Source builds expose a closed cache-reuse outcome without revealing untrusted BuildKit output, including truthful legacy unknown results.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.93"
+  "version": "0.1.0-rc.94"
 }
