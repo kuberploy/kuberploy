@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Protected Argo publication now retries hard refreshes until the exact verified provider revision is observed Synced and Healthy.",
+  "summary": "Runtime-secret rotation preserves the exact indexed Git revision while requiring active versions for every new configuration write.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.107"
+  "version": "0.1.0-rc.108"
 }
