@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "AppConfig image receipts, merged pull-request recovery, and environment-scoped Argo projects close three live qualification gaps.",
+  "summary": "Protected Git publication now emits a GitHub-compatible exact pull-request body and recovers durable candidate refs automatically.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.96"
+  "version": "0.1.0-rc.97"
 }
