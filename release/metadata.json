@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Protected Git publication now emits a GitHub-compatible exact pull-request body and recovers durable candidate refs automatically.",
+  "summary": "Existing-image tag resolution now accepts bounded OCI BuildKit attestations and normal image layer sizes without weakening digest verification.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.97"
+  "version": "0.1.0-rc.98"
 }
