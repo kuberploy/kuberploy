@@ -67,11 +67,13 @@ func (g *PostgreSQLDesiredStateProjectionGate) ValidateDesiredStateClaim(ctx con
 		(mode != DesiredStateClaimActive && mode != DesiredStateClaimRecovery) {
 		return ErrInvalid
 	}
-	// Once the operation commit is durable, recovery may only authenticate and
-	// finalize that exact immutable command. Requiring mutable policy/artifact
-	// freshness here would strand a successfully pushed command forever.
-	if mode == DesiredStateClaimRecovery && command.State == DesiredStateGitCommitted {
-		return g.validateCommittedReceipt(ctx, command)
+	// Once the write-base receipt is durable, the exact Git mutation may already
+	// have succeeded even when its acknowledgement did not reach PostgreSQL.
+	// Recovery therefore authenticates the immutable command and its retained
+	// projection receipt without consulting the newer mutable active generation.
+	if mode == DesiredStateClaimRecovery && command.WriteBaseRevision != "" &&
+		(command.State == DesiredStateClaimed || command.State == DesiredStateGitCommitted) {
+		return g.validateRecoveryReceipt(ctx, command)
 	}
 	target, err := g.targetForActiveCommand(ctx, command)
 	if err != nil {
@@ -409,20 +411,41 @@ func (g *PostgreSQLDesiredStateProjectionGate) targetForActiveCommand(ctx contex
 	return target, nil
 }
 
-func (g *PostgreSQLDesiredStateProjectionGate) validateCommittedReceipt(ctx context.Context, command DesiredStateCommand) error {
+func (g *PostgreSQLDesiredStateProjectionGate) validateRecoveryReceipt(ctx context.Context, command DesiredStateCommand) error {
 	var valid bool
 	err := g.pool.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM argo_desired_state_commands c
 		JOIN git_projection_generations generation
 		  ON generation.binding_id=c.environment_binding_id AND generation.generation=c.environment_generation
-		WHERE c.id=$1 AND c.state='git-committed' AND c.environment_binding_id=$2
-		  AND c.environment_revision=$3 AND c.environment_generation=$4 AND c.catalog_digest=$5
-		  AND c.content_sha256=$6 AND c.committed_revision=$7 AND generation.state='active'
+		WHERE c.id=$1 AND c.generation=$2 AND c.project_id=$3 AND c.environment_id=$4
+		  AND c.platform_binding_id=$5 AND c.environment_binding_id=$6 AND c.cluster_id=$7
+		  AND c.platform_target_ref=$8 AND c.environment_target_ref=$9
+		  AND c.environment_revision=$10 AND c.environment_generation=$11 AND c.path=$12
+		  AND c.argo_namespace=$13 AND c.destination_namespace=$14 AND c.argo_project=$15
+		  AND c.base_revision=$16 AND c.write_base_revision=$17 AND c.write_base_observed_at=$18
+		  AND c.precondition=$19 AND c.expected_etag=$20 AND c.catalog_digest=$21
+		  AND c.chart_repository=$22 AND c.chart_name=$23 AND c.chart_version=$24
+		  AND c.chart_digest=$25 AND c.renderer_image=$26 AND c.chart_digest_enforcement=$27
+		  AND c.content=$28 AND c.content_sha256=$29 AND c.message=$30
+		  AND c.state=$31 AND c.committed_revision=$32 AND c.write_base_revision<>''
+		  AND ((c.state='claimed' AND c.committed_revision='') OR
+		       (c.state='git-committed' AND c.committed_revision<>''))
+		  AND generation.state='active'
 		  AND generation.head_revision=c.environment_revision
+		  AND EXISTS(SELECT 1 FROM git_projected_documents document
+		    WHERE document.binding_id=c.environment_binding_id AND document.generation=c.environment_generation
+		      AND document.application_id IS NOT NULL)
 		  AND NOT EXISTS(SELECT 1 FROM git_projected_documents document
 		    WHERE document.binding_id=c.environment_binding_id AND document.generation=c.environment_generation AND NOT document.valid)
-	)`, command.ID, command.EnvironmentBindingID, command.EnvironmentRevision, command.EnvironmentGeneration,
-		command.CatalogDigest, command.ContentSHA256, command.CommittedRevision).Scan(&valid)
+	)`, command.ID, command.Generation, command.ProjectID, command.EnvironmentID,
+		command.PlatformBindingID, command.EnvironmentBindingID, command.ClusterID,
+		command.PlatformTargetRef, command.EnvironmentTargetRef, command.EnvironmentRevision, command.EnvironmentGeneration,
+		command.Path, command.ArgoNamespace, command.DestinationNamespace, command.ArgoProject,
+		command.BaseRevision, command.WriteBaseRevision, command.WriteBaseObservedAt,
+		command.Precondition, command.ExpectedETag, command.CatalogDigest,
+		command.Runtime.ChartRepository, command.Runtime.ChartName, command.Runtime.ChartVersion,
+		command.Runtime.ChartDigest, command.Runtime.RendererImage, command.DigestEnforcement,
+		command.Content, command.ContentSHA256, command.Message, command.State, command.CommittedRevision).Scan(&valid)
 	if err != nil {
 		return classifyPostgres(err)
 	}

@@ -252,13 +252,34 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	advancedRevision := strings.Repeat("3", 40)
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,2,$2,$3,'active',$4,$4)`, binding.ID, advancedRevision, binding.ParserVersion, receiptAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
+		target_head_observed_at=$3,indexed_at=$3,projection_generation=2,updated_at=$3 WHERE id=$1`,
+		binding.ID, advancedRevision, receiptAt.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	registry.resolved = false
+	beforeCalls := registry.calls
+	if err = gate.ValidateDesiredStateClaim(ctx, bound, DesiredStateClaimRecovery); err != nil {
+		t.Fatalf("durable write-base recovery was stranded by a newer projection: %v", err)
+	}
+	if registry.calls != beforeCalls {
+		t.Fatal("mutable registry freshness was consulted after durable write-base receipt")
+	}
+	tamperedRecovery := bound
+	tamperedRecovery.CatalogDigest = "sha256:" + strings.Repeat("0", 64)
+	if err = gate.ValidateDesiredStateClaim(ctx, tamperedRecovery, DesiredStateClaimRecovery); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("tampered durable recovery receipt accepted: %v", err)
+	}
 	committedRevision := strings.Repeat("2", 40)
 	committed, err := argoStore.MarkDesiredStateGitCommitted(ctx, *bound.Lease, committedRevision, receiptAt.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry.resolved = false
-	beforeCalls := registry.calls
 	if err = gate.ValidateDesiredStateClaim(ctx, committed, DesiredStateClaimRecovery); err != nil {
 		t.Fatalf("durable operation recovery was stranded: %v", err)
 	}
