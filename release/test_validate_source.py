@@ -27,7 +27,7 @@ def main() -> None:
     root = Path(__file__).resolve().parent.parent
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, "0.1.0-rc.112")
+        validate_stable_qualification(qualification_root, "0.1.0-rc.113")
         try:
             validate_stable_qualification(qualification_root, "0.1.0")
         except SystemExit as error:
@@ -39,8 +39,8 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": "0.1.0-rc.112",
-            "candidateTag": "v0.1.0-rc.112",
+            "candidateVersion": "0.1.0-rc.113",
+            "candidateTag": "v0.1.0-rc.113",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
