@@ -86,7 +86,7 @@ func runtimeSecretDocumentScope(t *testing.T, namespace string) DocumentScope {
 	}
 	return DocumentScope{Binding: binding, OrganizationID: "55555555-5555-4555-8555-555555555555", Namespace: namespace,
 		ApplicationID: "44444444-4444-4444-8444-444444444444", Path: path, SourceRevision: binding.TargetHeadRevision,
-		ConfigRevision: strings.Repeat("b", 40)}
+		ConfigRevision: strings.Repeat("b", 40), ContentSHA256: "sha256:" + strings.Repeat("c", 64)}
 }
 
 func TestRuntimeSecretReferencePolicyFailsClosedBeforeTransactionUse(t *testing.T) {

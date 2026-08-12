@@ -2,6 +2,8 @@ package projectionpolicy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"strings"
@@ -16,6 +18,26 @@ import (
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
+
+func seedRuntimeSecretProjectionDocument(t testing.TB, pool *pgxpool.Pool, binding gitprojection.Binding, applicationID, sourceRevision, configRevision string, raw []byte, generation int64, indexedAt time.Time) string {
+	t.Helper()
+	digest := sha256.Sum256(raw)
+	contentSHA256 := "sha256:" + hex.EncodeToString(digest[:])
+	path, err := gitprojection.ApplicationPath(binding, applicationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(t.Context(), `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,$2,$3,$4,'active',$5,$5)`, binding.ID, generation, sourceRevision, binding.ParserVersion, indexedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(t.Context(), `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'{}'::jsonb,true,'[]'::jsonb,'config.kuberploy.io/v1alpha1',$10,$11)`,
+		binding.ID, generation, path, applicationID, sourceRevision, configRevision, strings.Repeat(string(rune('a'+generation)), 40), contentSHA256, raw, binding.ParserVersion, indexedAt); err != nil {
+		t.Fatal(err)
+	}
+	return contentSHA256
+}
 
 type projectionSecretKeys struct{}
 
@@ -130,6 +152,15 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	}
 	scope := DocumentScope{Binding: binding, OrganizationID: organizationID, Namespace: namespace, ApplicationID: applicationID,
 		Path: documentPath, SourceRevision: binding.TargetHeadRevision, ConfigRevision: strings.Repeat("e", 40)}
+	projectionStore, err := gitprojection.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = projectionStore.PutBinding(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+	originalRaw := []byte("runtime-secret-policy-document-v1\n")
+	scope.ContentSHA256 = seedRuntimeSecretProjectionDocument(t, pool, binding, applicationID, scope.SourceRevision, scope.ConfigRevision, originalRaw, 1, now.Add(3*time.Second))
 	config := runtimeSecretPolicyConfig(t)
 	config.Namespaces = []string{namespace, namespaceB}
 	policy := &RuntimeSecretReferencePolicy{Config: config}
@@ -153,7 +184,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	scopeB := DocumentScope{Binding: bindingB, OrganizationID: organizationID, Namespace: namespaceB, ApplicationID: applicationID,
-		Path: pathB, SourceRevision: bindingB.TargetHeadRevision, ConfigRevision: strings.Repeat("9", 40)}
+		Path: pathB, SourceRevision: bindingB.TargetHeadRevision, ConfigRevision: strings.Repeat("9", 40), ContentSHA256: "sha256:" + strings.Repeat("9", 64)}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -220,20 +251,40 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
 
 	changedGitScope := scope
-	changedGitScope.SourceRevision = "sha256:" + strings.Repeat("f", 64)
+	changedGitScope.SourceRevision = strings.Repeat("f", 40)
+	changedGitScope.Binding.TargetHeadRevision = changedGitScope.SourceRevision
+	changedGitScope.ContentSHA256 = seedRuntimeSecretProjectionDocument(t, pool, binding, applicationID, changedGitScope.SourceRevision, scope.ConfigRevision, originalRaw, 2, now.Add(5*time.Second))
 	tx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, changedGitScope, runtime), now.Add(5*time.Second))
-	if err != nil || len(diagnostics) != 1 || diagnostics[0].Code != "RuntimeSecretReferenceUnresolved" {
+	if err != nil || len(diagnostics) != 0 {
 		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("changed Git revision restored retained version diagnostics=%#v err=%v", diagnostics, err)
+		t.Fatalf("byte-identical descendant rejected retained version diagnostics=%#v err=%v", diagnostics, err)
 	}
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, changedGitScope.SourceRevision, 1)
+
+	changedBytesScope := changedGitScope
+	changedBytesScope.SourceRevision = strings.Repeat("6", 40)
+	changedBytesScope.Binding.TargetHeadRevision = changedBytesScope.SourceRevision
+	changedBytesScope.ContentSHA256 = seedRuntimeSecretProjectionDocument(t, pool, binding, applicationID, changedBytesScope.SourceRevision, scope.ConfigRevision, []byte("changed-runtime-secret-policy-document\n"), 3, now.Add(6*time.Second))
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, policyTestDocument(t, changedBytesScope, runtime), now.Add(6*time.Second))
+	if err != nil || len(diagnostics) != 1 || diagnostics[0].Code != "RuntimeSecretReferenceUnresolved" {
+		tx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("changed Git bytes restored retained version diagnostics=%#v err=%v", diagnostics, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, changedGitScope.SourceRevision, 1)
 
 	// A caller cannot erase a team-owned project's durable organization scope
 	// to resolve or silently orphan a Git-current guard.
@@ -267,7 +318,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 		t.Fatalf("erased-organization deleted cleanup error=%v", err)
 	}
 	tx.Rollback(ctx) //nolint:errcheck
-	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, changedGitScope.SourceRevision, 1)
 
 	// A semantic name drift becomes a safe diagnostic and preserves the exact
 	// previously deployable reference.
@@ -287,7 +338,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, changedGitScope.SourceRevision, 1)
 
 	// An outer activation failure rolls back a successful empty-plan removal.
 	tx, err = pool.Begin(ctx)
@@ -301,7 +352,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if err = tx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, binding.TargetHeadRevision, 1)
+	assertProjectionSecretReference(t, pool, active.Binding.ID, documentPath, active.Version.ID, changedGitScope.SourceRevision, 1)
 
 	retained := secrets.Reference{BindingID: active.Binding.ID, VersionID: active.Version.ID, Kind: secrets.ReferenceRetainedRelease,
 		Reference: "release-" + suffix, Revision: strings.Repeat("f", 40), CreatedAt: now.Add(6 * time.Second)}
@@ -403,7 +454,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := DocumentScope{Binding: binding, Namespace: namespace, ApplicationID: applicationID,
-		Path: path, SourceRevision: binding.TargetHeadRevision, ConfigRevision: strings.Repeat("8", 40)}
+		Path: path, SourceRevision: binding.TargetHeadRevision, ConfigRevision: strings.Repeat("8", 40), ContentSHA256: "sha256:" + strings.Repeat("8", 64)}
 	config := runtimeSecretPolicyConfig(t)
 	config.Namespaces = []string{namespace}
 	policy := &RuntimeSecretReferencePolicy{Config: config}

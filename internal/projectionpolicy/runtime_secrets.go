@@ -75,7 +75,7 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 			return nil, err
 		}
 	}
-	if err = secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC()); err != nil {
+	if err = secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Binding.ID, scope.Path, scope.SourceRevision, scope.ContentSHA256, runtimeSecretPolicyRequestID(scope), now.UTC()); err != nil {
 		if semanticRuntimeSecretReferenceError(err) {
 			return []gitprojection.Diagnostic{{Code: "RuntimeSecretReferenceUnresolved", Detail: "A runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.", Pointer: "/spec/runtime/environment"}}, nil
 		}
@@ -96,7 +96,7 @@ func (p *RuntimeSecretReferencePolicy) ReconcileDeletedTx(ctx context.Context, t
 		return err
 	}
 	plan := secrets.BindingReferencePlan{Scope: secretScope, Uses: []secrets.ResolvedBindingReference{}}
-	return secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Path, scope.SourceRevision, runtimeSecretPolicyRequestID(scope), now.UTC())
+	return secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Binding.ID, scope.Path, scope.SourceRevision, scope.ContentSHA256, runtimeSecretPolicyRequestID(scope), now.UTC())
 }
 
 func (p *RuntimeSecretReferencePolicy) validateScope(ctx context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) (secrets.Scope, error) {
@@ -139,7 +139,7 @@ func (p *RuntimeSecretReferencePolicy) validateScope(ctx context.Context, tx pgx
 func (p *RuntimeSecretReferencePolicy) validateDocumentIdentity(tx pgx.Tx, scope DocumentScope, now time.Time) error {
 	if p == nil || p.Config.Validate() != nil || tx == nil || now.IsZero() || scope.Binding.Validate() != nil ||
 		scope.Binding.Kind != gitprojection.BindingEnvironment || scope.ApplicationID == "" || scope.Path == "" ||
-		scope.SourceRevision != scope.Binding.TargetHeadRevision || scope.ConfigRevision == "" {
+		scope.SourceRevision != scope.Binding.TargetHeadRevision || scope.ConfigRevision == "" || !policyDigestRE.MatchString(scope.ContentSHA256) {
 		return gitprojection.ErrInvalid
 	}
 	expectedPath, err := gitprojection.ApplicationPath(scope.Binding, scope.ApplicationID)

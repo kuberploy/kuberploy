@@ -75,21 +75,22 @@ func validateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan Binding
 // Git-current deletion guards in the caller's transaction. Current-release and
 // retained-release rows are never selected or modified.
 func ReplaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, actorID, referenceID, revision, requestID string, now time.Time) error {
-	return replaceGitCurrentReferencesTx(ctx, tx, plan, actorID, referenceID, revision, requestID, now, false)
+	return replaceGitCurrentReferencesTx(ctx, tx, plan, actorID, referenceID, revision, requestID, now, false, "", "")
 }
 
 // ReplaceIndexedGitCurrentReferencesTx is reserved for an exact AppConfig
 // already observed in Git. It preserves deletion guards for an immutable
-// retained version only when the same path, source revision, binding and
-// version were already indexed while active. All API-authored preview/save
-// plans use ReplaceGitCurrentReferencesTx and remain active-only.
-func ReplaceIndexedGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, referenceID, revision, requestID string, now time.Time) error {
-	return replaceGitCurrentReferencesTx(ctx, tx, plan, "", referenceID, revision, requestID, now, true)
+// retained version only when the same path, binding, version and byte-identical
+// AppConfig were already indexed while active. An unrelated descendant commit
+// can therefore preserve a running reference, but changed bytes cannot restore
+// an old version. All API-authored preview/save plans remain active-only.
+func ReplaceIndexedGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, gitBindingID, referenceID, revision, contentSHA256, requestID string, now time.Time) error {
+	return replaceGitCurrentReferencesTx(ctx, tx, plan, "", referenceID, revision, requestID, now, true, gitBindingID, contentSHA256)
 }
 
-func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, actorID, referenceID, revision, requestID string, now time.Time, allowRetained bool) error {
+func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingReferencePlan, actorID, referenceID, revision, requestID string, now time.Time, allowRetained bool, gitBindingID, contentSHA256 string) error {
 	if (actorID != "" && !uuidRE.MatchString(actorID)) || !safeOpaque(referenceID, 256) || !revisionRE.MatchString(revision) ||
-		!requestIDRE.MatchString(requestID) || now.IsZero() {
+		!requestIDRE.MatchString(requestID) || now.IsZero() || allowRetained && (!uuidRE.MatchString(gitBindingID) || !digestRE.MatchString(contentSHA256)) {
 		return ErrInvalid
 	}
 	retained, err := validateBindingReferencePlanTx(ctx, tx, plan, allowRetained)
@@ -100,8 +101,9 @@ func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingR
 		BindingID string
 		VersionID string
 		Revision  string
+		CreatedAt time.Time
 	}
-	rows, err := tx.Query(ctx, `SELECT binding_id::text,version_id::text,revision
+	rows, err := tx.Query(ctx, `SELECT binding_id::text,version_id::text,revision,created_at
 		FROM secret_binding_references
 		WHERE kind='git-current' AND reference_id=$1
 		ORDER BY binding_id
@@ -112,7 +114,7 @@ func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingR
 	existing := []storedReference{}
 	for rows.Next() {
 		var item storedReference
-		if err = rows.Scan(&item.BindingID, &item.VersionID, &item.Revision); err != nil {
+		if err = rows.Scan(&item.BindingID, &item.VersionID, &item.Revision, &item.CreatedAt); err != nil {
 			rows.Close()
 			return classifyPostgres(err)
 		}
@@ -129,15 +131,27 @@ func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingR
 	for _, current := range existing {
 		existingByBinding[current.BindingID] = current
 	}
-	// A retained version is valid only as continuity for the exact Git source
-	// revision that was indexed while it was active. A new Git revision cannot
-	// introduce or restore an old version after rotation.
+	// A retained version is continuity only when the exact previous reference
+	// was created by a valid projected document with byte-identical content.
+	// This admits unrelated descendant commits without allowing changed Git
+	// bytes to introduce or restore an old version after rotation.
 	for _, item := range desired {
 		if !retained[item.BindingID] {
 			continue
 		}
 		current, found := existingByBinding[item.BindingID]
-		if !found || current.VersionID != item.VersionID || current.Revision != revision {
+		if !found || current.VersionID != item.VersionID {
+			return ErrNotReady
+		}
+		var matched bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM git_projected_documents d
+			WHERE d.binding_id=$1 AND d.path=$2 AND d.source_revision=$3
+			AND d.content_sha256=$4 AND d.indexed_at=$5 AND d.valid)`,
+			gitBindingID, referenceID, current.Revision, contentSHA256, current.CreatedAt).Scan(&matched); err != nil {
+			return classifyPostgres(err)
+		}
+		if !matched {
 			return ErrNotReady
 		}
 	}

@@ -33,6 +33,7 @@ type DocumentScope struct {
 	Path           string
 	SourceRevision string
 	ConfigRevision string
+	ContentSHA256  string
 }
 
 // ReferencePolicy owns one dynamic reference family, such as runtime secrets
@@ -107,7 +108,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		if len(diagnostics) != 0 || parsed == nil {
 			return gitprojection.AppConfigPolicyValidation{}, gitprojection.ErrConflict
 		}
-		scope, err := resolveDocumentScopeTx(ctx, tx, input.Binding, document.ApplicationID, document.Path, input.Generation.HeadRevision, document.ConfigRevision)
+		scope, err := resolveDocumentScopeTx(ctx, tx, input.Binding, document.ApplicationID, document.Path, input.Generation.HeadRevision, document.ConfigRevision, document.ContentSHA256)
 		if err != nil {
 			return gitprojection.AppConfigPolicyValidation{}, err
 		}
@@ -231,7 +232,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		if _, present := currentPaths[previous.Path]; present {
 			continue
 		}
-		scope, err := resolveDocumentScopeTx(ctx, tx, input.Binding, previous.ApplicationID, previous.Path, input.Generation.HeadRevision, previous.ConfigRevision)
+		scope, err := resolveDocumentScopeTx(ctx, tx, input.Binding, previous.ApplicationID, previous.Path, input.Generation.HeadRevision, previous.ConfigRevision, previous.ContentSHA256)
 		if err != nil {
 			return gitprojection.AppConfigPolicyValidation{}, err
 		}
@@ -259,7 +260,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 	return validation, nil
 }
 
-func resolveDocumentScopeTx(ctx context.Context, tx pgx.Tx, binding gitprojection.Binding, applicationID, documentPath, sourceRevision, configRevision string) (DocumentScope, error) {
+func resolveDocumentScopeTx(ctx context.Context, tx pgx.Tx, binding gitprojection.Binding, applicationID, documentPath, sourceRevision, configRevision, contentSHA256 string) (DocumentScope, error) {
 	var organizationID *string
 	var namespace string
 	err := tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
@@ -275,7 +276,7 @@ func resolveDocumentScopeTx(ctx context.Context, tx pgx.Tx, binding gitprojectio
 		return DocumentScope{}, err
 	}
 	scope := DocumentScope{Binding: binding, Namespace: namespace, ApplicationID: applicationID, Path: documentPath,
-		SourceRevision: sourceRevision, ConfigRevision: configRevision}
+		SourceRevision: sourceRevision, ConfigRevision: configRevision, ContentSHA256: contentSHA256}
 	if organizationID != nil {
 		scope.OrganizationID = *organizationID
 	}
