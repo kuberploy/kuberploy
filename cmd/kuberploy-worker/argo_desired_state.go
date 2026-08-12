@@ -85,7 +85,7 @@ func newArgoDesiredStateRuntime(
 	}
 	prerequisites := &argo.ProductionPrerequisites{
 		Identity: identity, Catalog: components.Catalog, Credentials: credentials,
-		Provider: projection.headVerifier, Protection: protection, RootApplications: kubernetes,
+		Provider: projection.headVerifier, Protection: protection, RootApplications: kubernetes, RootRefresher: kubernetes,
 		Foundation:        foundation,
 		MaximumCatalogAge: config.MaximumCatalogAge,
 	}

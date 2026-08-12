@@ -122,6 +122,29 @@ func (s staticRootApplicationSource) ObservePlatformRootApplication(_ context.Co
 	return observation, nil
 }
 
+type recoveringRootApplication struct {
+	staleRevision string
+	refreshes     int
+}
+
+func (s *recoveringRootApplication) ObservePlatformRootApplication(_ context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	revision := expectation.ExpectedGitRevision
+	if s.refreshes == 0 {
+		revision = s.staleRevision
+	}
+	return PlatformRootApplicationObservation{Namespace: expectation.Namespace, Name: expectation.Name,
+		UID: "77111111-1111-4111-8111-111111111111", ResourceVersion: "12", SpecDigest: expectation.SpecDigest,
+		ObservedRevision: revision, SyncStatus: "Synced", HealthStatus: "Healthy", ObservedAt: now}, nil
+}
+
+func (s *recoveringRootApplication) RefreshPlatformRootApplication(_ context.Context, expectation PlatformRootApplicationExpectation, now time.Time) error {
+	if expectation.Name != PlatformRootApplicationName || !commitRE.MatchString(expectation.ExpectedGitRevision) || now.IsZero() {
+		return ErrInvalid
+	}
+	s.refreshes++
+	return nil
+}
+
 func productionBindings(t *testing.T, now time.Time) (gitprojection.Binding, gitprojection.Binding) {
 	t.Helper()
 	platform, err := gitprojection.NewGitHubPlatformBinding(productionPlatformBindingID, productionClusterID,
@@ -239,7 +262,7 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 		Keys: &staticPrivateKeySource{value: []byte("test-key")}, Kubernetes: &recordingCredentialKubernetes{}}
 	prerequisites := &ProductionPrerequisites{Identity: identity, Catalog: staticRuntimeBindingCatalog{values: authorities},
 		Credentials: credentials, Provider: staticHeadVerifier{head: head}, Protection: staticProtectionVerifier{}, RootApplications: staticRootApplicationSource{},
-		Foundation: staticFoundationProbe{}, MaximumCatalogAge: time.Minute}
+		RootRefresher: productionRuntimeRefresherStub{}, Foundation: staticFoundationProbe{}, MaximumCatalogAge: time.Minute}
 	proof, err := prerequisites.ObserveProductionPrerequisites(t.Context(), now)
 	if err != nil || proof.PlatformHead != head.Commit || proof.CredentialCount != 2 || proof.RootUID == "" {
 		t.Fatalf("proof=%#v err=%v", proof, err)
@@ -290,6 +313,30 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 	}}
 	if _, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now); !errors.Is(err, ErrPlatformRootNotReady) {
 		t.Fatalf("root spec mismatch accepted: %v", err)
+	}
+}
+
+func TestProductionPrerequisitesHardRefreshesExactStaleRootBeforeReadiness(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	platform, environment := productionBindings(t, now)
+	identity := productionIdentity(t, platform)
+	authorities := []RepositoryBindingAuthority{{Binding: platform, Authorized: true, CatalogObservedAt: now},
+		{Binding: environment, Authorized: true, CatalogObservedAt: now}}
+	head := gitprojection.VerifiedHead{BindingID: platform.ID, Repository: platform.Repository, TargetRef: platform.TargetRef,
+		Commit: platform.TargetHeadRevision, Source: gitprojection.ObservationPoll, ProviderRequest: "runtime-provider-head", ObservedAt: now}
+	credentials := &RepositoryCredentialController{Namespace: "argocd", GitHubAppID: identity.GitHubAppID,
+		Keys: &staticPrivateKeySource{value: []byte("test-key")}, Kubernetes: &recordingCredentialKubernetes{}}
+	root := &recoveringRootApplication{staleRevision: strings.Repeat("f", 40)}
+	prerequisites := &ProductionPrerequisites{Identity: identity, Catalog: staticRuntimeBindingCatalog{values: authorities},
+		Credentials: credentials, Provider: staticHeadVerifier{head: head}, Protection: staticProtectionVerifier{},
+		RootApplications: root, RootRefresher: root, Foundation: staticFoundationProbe{}, MaximumCatalogAge: time.Minute}
+
+	proof, err := prerequisites.ObserveProductionPrerequisites(t.Context(), now)
+	if err != nil || proof.PlatformHead != platform.TargetHeadRevision || proof.RootUID == "" {
+		t.Fatalf("proof=%#v err=%v", proof, err)
+	}
+	if root.refreshes != 1 {
+		t.Fatalf("stale exact root refreshes=%d, want 1", root.refreshes)
 	}
 }
 

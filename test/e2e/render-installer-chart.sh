@@ -26,7 +26,11 @@ jq -e . "${kp_chart}/values.schema.json" >/dev/null
 [[ -f "${kp_chart}/Chart.lock" ]]
 [[ -f "${kp_chart}/charts/kuberploy-argocd-0.1.0-rc.109.tgz" ]]
 [[ -f "${kp_chart}/charts/kuberploy-valkey-0.1.0-rc.109.tgz" ]]
-rg -U -- '--server-side=true --force-conflicts' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null
+rg -U -- '--server-side=false' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null
+if rg -U -- '--force-conflicts|--server-side=true' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null; then
+  echo "installer documentation must not force-take Argo Application managed fields" >&2
+  exit 1
+fi
 helm dependency list "${kp_chart}" | rg -F 'ok' >/dev/null
 
 helm lint "${kp_chart}" >/dev/null

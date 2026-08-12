@@ -485,6 +485,7 @@ type ProductionPrerequisites struct {
 	Provider          gitprojection.HeadVerifier
 	Protection        PlatformRepositoryProtectionVerifier
 	RootApplications  PlatformRootApplicationSource
+	RootRefresher     PlatformRootRefresher
 	Foundation        FoundationReadinessProbe
 	MaximumCatalogAge time.Duration
 	Now               func() time.Time
@@ -496,7 +497,7 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		maximumAge = DefaultArgoCatalogMaximumAge
 	}
 	if p == nil || p.Identity.Validate() != nil || p.Catalog == nil || p.Credentials == nil || p.Provider == nil || p.Protection == nil ||
-		p.RootApplications == nil || p.Foundation == nil || now.IsZero() || maximumAge <= 0 || maximumAge > time.Hour {
+		p.RootApplications == nil || p.RootRefresher == nil || p.Foundation == nil || now.IsZero() || maximumAge <= 0 || maximumAge > time.Hour {
 		return ProductionPrerequisiteProof{}, ErrInvalid
 	}
 	if err := p.Foundation.Probe(ctx); err != nil {
@@ -565,11 +566,19 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 	if err != nil {
 		return ProductionPrerequisiteProof{}, err
 	}
-	root, err := p.RootApplications.ObservePlatformRootApplication(ctx, expectation, now.UTC())
-	if err != nil {
-		return ProductionPrerequisiteProof{}, err
+	root, err := p.observePlatformRoot(ctx, expectation, now.UTC())
+	if errors.Is(err, ErrPlatformRootNotReady) {
+		// A verified Git write advances the shared branch before Argo has
+		// necessarily refreshed its cached target revision. Recover that exact
+		// handoff with the same closed metadata-only hard refresh used by the
+		// durable writer. Readiness remains fenced until the subsequent exact
+		// observation proves the new provider head Synced and Healthy.
+		if refreshErr := p.RootRefresher.RefreshPlatformRootApplication(ctx, expectation, now.UTC()); refreshErr != nil {
+			return ProductionPrerequisiteProof{}, errors.Join(ErrArgoRuntimePrerequisiteNotReady, refreshErr)
+		}
+		root, err = p.observePlatformRoot(ctx, expectation, now.UTC())
 	}
-	if err = root.validateFor(expectation, now.UTC()); err != nil {
+	if err != nil {
 		return ProductionPrerequisiteProof{}, err
 	}
 	proof := ProductionPrerequisiteProof{PlatformBindingID: platform.ID, PlatformHead: head.Commit,
@@ -579,6 +588,17 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady
 	}
 	return proof, nil
+}
+
+func (p *ProductionPrerequisites) observePlatformRoot(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	root, err := p.RootApplications.ObservePlatformRootApplication(ctx, expectation, now)
+	if err != nil {
+		return PlatformRootApplicationObservation{}, err
+	}
+	if err = root.validateFor(expectation, now); err != nil {
+		return PlatformRootApplicationObservation{}, err
+	}
+	return root, nil
 }
 
 // platformRootApplicationSpec is shared with the Kubernetes decoder so exact
