@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Personal and platform-owned projects can use strict runtime secrets while team-owned bindings retain exact database-enforced ownership.",
+  "summary": "Personal-project runtime-secret references now pass exact Git projection ownership validation and reach Argo desired state while forged team scopes remain blocked.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.105"
+  "version": "0.1.0-rc.106"
 }
