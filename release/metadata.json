@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Accepted VariableSet Git writes now recover exact commits through unrelated descendants without remaining in a requeue loop.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.102"
+  "version": "0.1.0-rc.103"
 }
