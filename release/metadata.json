@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "VariableSet Git writes now recover safely after uncertain publication without leaving durable operations running.",
+  "summary": "Middleware profile reads now reject missing, malformed, and duplicate workload targets without reaching persistence.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.100"
+  "version": "0.1.0-rc.101"
 }
