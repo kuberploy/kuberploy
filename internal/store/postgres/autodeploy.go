@@ -283,7 +283,7 @@ func (s *Store) ResolveVerifiedRelease(ctx context.Context, attemptID string) (a
 		JOIN build_release_projections p ON p.attempt_id=a.id AND p.state='succeeded' AND p.completed_at IS NOT NULL
 		JOIN build_definitions d ON d.id=a.definition_id AND d.project_id=a.project_id AND d.service_id=a.service_id
 		JOIN registry_releases rr ON rr.id=p.release_id AND rr.id=a.id AND rr.registry_target_id=d.registry_target_id
-			AND rr.service_id=a.service_id AND rr.succeeded_at IS NOT NULL AND rr.availability='present'
+			AND rr.service_id=a.service_id::text AND rr.succeeded_at IS NOT NULL AND rr.availability='present'
 		WHERE a.id=$1 AND a.state='succeeded' AND a.completed_at IS NOT NULL`, attemptID).Scan(&release.AttemptID,
 		&release.DefinitionID, &release.DefinitionDigest, &release.ProjectID, &release.ApplicationID, &release.ReleaseID,
 		&release.Image, &imageDigest, &release.CommitSHA, &release.CompletedAt, &registryDigest)

@@ -75,6 +75,24 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer management.Close()
+	imageReference := "registry.test/apps/app@" + digest
+	if _, err = pool.Exec(ctx, `UPDATE build_attempts SET result=jsonb_build_object('image',jsonb_build_object(
+		'reference',$2::text,'digest',$3::text,'platforms',jsonb_build_array('linux/amd64'))) WHERE id=$1`, attempt, imageReference, digest); err != nil {
+		t.Fatal(err)
+	}
+	projectionLeaseUntil := now.Add(time.Minute)
+	if _, err = pool.Exec(ctx, `UPDATE build_release_projections SET state='processing',attempts=1,lease_owner='verified-release-fixture',
+		lease_until=$2,lease_epoch=1,updated_at=$1 WHERE attempt_id=$3`, now, projectionLeaseUntil, attempt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE build_release_projections SET state='succeeded',release_id=$1,lease_owner=NULL,lease_until=NULL,
+		completed_at=$2,updated_at=$2 WHERE attempt_id=$1 AND lease_owner='verified-release-fixture' AND lease_until=$3`, attempt, now.Add(time.Second), projectionLeaseUntil); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := management.ResolveVerifiedRelease(ctx, attempt)
+	if err != nil || verified.AttemptID != attempt || verified.ApplicationID != application || verified.Image != imageReference {
+		t.Fatalf("verified release=%#v err=%v", verified, err)
+	}
 	var policiesBefore, commandsBefore, auditsBefore int
 	if err = pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM auto_deploy_policies),(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy'),(SELECT count(*) FROM audit_events WHERE target_type='auto-deploy-policy')`).
 		Scan(&policiesBefore, &commandsBefore, &auditsBefore); err != nil {
