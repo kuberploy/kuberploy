@@ -194,7 +194,12 @@ func (s *Server) deactivateMiddlewareProfile(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) assignedMiddlewareProfiles(w http.ResponseWriter, r *http.Request) {
-	environmentID, applicationID := strings.TrimSpace(r.URL.Query().Get("environmentId")), strings.TrimSpace(r.URL.Query().Get("applicationId"))
+	environments, applications := r.URL.Query()["environmentId"], r.URL.Query()["applicationId"]
+	if len(environments) != 1 || len(applications) != 1 || !validUUID(environments[0]) || !validUUID(applications[0]) {
+		mappedMiddlewareProfileError(w, r, middlewareprofiles.ErrInvalid)
+		return
+	}
+	environmentID, applicationID := environments[0], applications[0]
 	actor := currentUser(r.Context()).ID
 	environment, err := s.store.GetEnvironmentForActor(r.Context(), actor, environmentID)
 	if err != nil {
@@ -234,7 +239,12 @@ func (s *Server) middlewareProfileCatalog(w http.ResponseWriter, r *http.Request
 		mappedMiddlewareRuntimeError(w, r, errMiddlewareRuntimeUnavailable)
 		return
 	}
-	environmentID, applicationID := strings.TrimSpace(r.URL.Query().Get("environmentId")), strings.TrimSpace(r.URL.Query().Get("applicationId"))
+	environments, applications := r.URL.Query()["environmentId"], r.URL.Query()["applicationId"]
+	if len(environments) != 1 || len(applications) != 1 || !validUUID(environments[0]) || !validUUID(applications[0]) {
+		mappedMiddlewareProfileError(w, r, middlewareprofiles.ErrInvalid)
+		return
+	}
+	environmentID, applicationID := environments[0], applications[0]
 	actor := currentUser(r.Context()).ID
 	environment, err := s.store.GetEnvironmentForActor(r.Context(), actor, environmentID)
 	if err != nil {

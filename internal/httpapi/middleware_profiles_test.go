@@ -126,3 +126,23 @@ func TestBasicAuthProfileNeverCrossesItsExactEnvironment(t *testing.T) {
 	}
 	response.Body.Close()
 }
+
+func TestMiddlewareProfileReadsRejectMissingMalformedAndDuplicateTargets(t *testing.T) {
+	f := newMiddlewareProfileAPI(t, nil)
+	f.bootstrap()
+
+	for _, path := range []string{
+		"/v1/middlewares",
+		"/v1/middlewares?environmentId=not-a-uuid&applicationId=55555555-5555-4555-8555-555555555555",
+		"/v1/middlewares?environmentId=33333333-3333-4333-8333-333333333333&applicationId=55555555-5555-4555-8555-555555555555&applicationId=66666666-6666-4666-8666-666666666666",
+		"/v1/middlewares/catalog",
+		"/v1/middlewares/catalog?environmentId=33333333-3333-4333-8333-333333333333&applicationId=not-a-uuid",
+	} {
+		response := f.request(http.MethodGet, path, "", nil)
+		if response.StatusCode != http.StatusUnprocessableEntity {
+			response.Body.Close()
+			t.Fatalf("GET %s status=%d, want 422", path, response.StatusCode)
+		}
+		response.Body.Close()
+	}
+}
