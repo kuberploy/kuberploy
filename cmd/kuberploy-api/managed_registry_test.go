@@ -13,6 +13,12 @@ import (
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
+type managedRegistryAPIStoreStub struct{ *memory.Store }
+
+func (managedRegistryAPIStoreStub) RefreshRegistryProtection(context.Context, string, string, time.Time, bool) error {
+	return nil
+}
+
 func apiRegistryConfig() registry.RuntimeConfig {
 	return registry.RuntimeConfig{
 		Enabled: true, TargetID: "11111111-1111-4111-8111-111111111111",
@@ -28,7 +34,7 @@ func apiRegistryConfig() registry.RuntimeConfig {
 }
 
 func TestManagedRegistryAPIConstructsLocalManagementAndExactProbe(t *testing.T) {
-	store := memory.New()
+	store := managedRegistryAPIStoreStub{memory.New()}
 	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	if err := store.BootstrapAdmin(context.Background(), admin, "hash", make([]byte, 32), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -68,7 +74,7 @@ func TestManagedRegistryAPIConstructsLocalManagementAndExactProbe(t *testing.T) 
 }
 
 func TestManagedRegistryAPIRejectsPartialConfiguration(t *testing.T) {
-	_, err := newManagedRegistryAPI(registry.RuntimeConfig{Enabled: true}, memory.New())
+	_, err := newManagedRegistryAPI(registry.RuntimeConfig{Enabled: true}, managedRegistryAPIStoreStub{memory.New()})
 	if err == nil {
 		t.Fatal("partial managed registry configuration was accepted")
 	}

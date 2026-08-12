@@ -74,7 +74,7 @@ func newManagedRegistryRuntime(ctx context.Context, host string, config registry
 	if err != nil {
 		return nil, err
 	}
-	coordinator := registry.NewService(database)
+	coordinator := registry.NewService(database, registry.WithProtectionRefresher(database))
 	executor, err := registry.NewCleanupExecutor(coordinator, deleter, maintenance, maintenance, registry.DefaultCleanupExecutorConfig())
 	if err != nil {
 		return nil, err

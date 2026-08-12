@@ -442,6 +442,18 @@ func registryAdvisoryLock(ctx context.Context, tx pgx.Tx, parts ...string) error
 }
 
 func (s *Store) ReplaceRegistryProtectionSnapshot(ctx context.Context, snapshot domain.RegistryProtectionSnapshot) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err = replaceRegistryProtectionSnapshotTx(ctx, tx, snapshot); err != nil {
+		return err
+	}
+	return classify(tx.Commit(ctx))
+}
+
+func replaceRegistryProtectionSnapshotTx(ctx context.Context, tx pgx.Tx, snapshot domain.RegistryProtectionSnapshot) error {
 	snapshot.Observation.ObservedAt = databaseTime(snapshot.Observation.ObservedAt)
 	snapshot.Observation.SnapshotDigest = base.RegistryProtectionSnapshotDigest(snapshot)
 	observation := snapshot.Observation
@@ -477,22 +489,17 @@ func (s *Store) ReplaceRegistryProtectionSnapshot(ctx context.Context, snapshot 
 			reference.ObservedAt = databaseTime(reference.ObservedAt)
 		}
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	if err = registryAdvisoryLock(ctx, tx, observation.RegistryTargetID, observation.ServiceID, string(observation.Authority)); err != nil {
+	if err := registryAdvisoryLock(ctx, tx, observation.RegistryTargetID, observation.ServiceID, string(observation.Authority)); err != nil {
 		return err
 	}
 	var currentRevision, currentDigest string
-	err = tx.QueryRow(ctx, `SELECT revision,snapshot_digest FROM registry_authority_observations
+	err := tx.QueryRow(ctx, `SELECT revision,snapshot_digest FROM registry_authority_observations
 		WHERE registry_target_id=$1 AND service_id=$2 AND authority=$3 FOR UPDATE`,
 		observation.RegistryTargetID, observation.ServiceID, observation.Authority).
 		Scan(&currentRevision, &currentDigest)
 	if err == nil && currentRevision == observation.Revision {
 		if currentDigest == observation.SnapshotDigest {
-			return tx.Commit(ctx)
+			return nil
 		}
 		return base.ErrConflict
 	}
@@ -527,7 +534,7 @@ func (s *Store) ReplaceRegistryProtectionSnapshot(ctx context.Context, snapshot 
 	if err != nil {
 		return classify(err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *Store) PutRegistryPin(ctx context.Context, reference domain.RegistryArtifactReference) error {

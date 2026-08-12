@@ -11,6 +11,7 @@ import (
 
 type managedRegistryAPIStore interface {
 	registry.ManagementStore
+	registry.ProtectionRefresher
 	registry.RuntimeReadinessStore
 	registry.RuntimeReadinessTargetCatalog
 	PutRegistryTarget(context.Context, domain.RegistryTarget) (domain.RegistryTarget, error)
@@ -25,7 +26,7 @@ func newManagedRegistryAPI(config registry.RuntimeConfig, database managedRegist
 	if database == nil || config.Validate() != nil {
 		return nil, fmt.Errorf("invalid managed registry API configuration")
 	}
-	options := []registry.ManagementOption{}
+	options := []registry.ManagementOption{registry.WithManagementProtectionRefresher(database)}
 	if config.Enabled {
 		target, err := config.ManagedTarget()
 		if err != nil {

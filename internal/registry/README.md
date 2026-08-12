@@ -24,6 +24,17 @@ operation checkpoints. Exact snapshot digests bind catalog revisions to their
 manifest/index/blob graphs and authority revisions to their reference sets.
 Missing, duplicate, stale, dangling, or cyclic input fails closed.
 
+Cleanup preview synchronously derives those three checkpoints from one
+serializable PostgreSQL snapshot: the current valid document in every active
+environment Git binding, the fresh `Synced`/`Healthy` Argo observation joined
+back to its exact historical config revision, and every queued/running
+deployment operation's immutable image. The API performs this only after
+authorizing the caller and reloads the authorized lifecycle view afterward.
+Worker claim and every per-item deletion authorization repeat the derivation.
+All three checkpoints change atomically; a source change invalidates the plan
+before provider deletion, while missing or contradictory sources publish an
+incomplete checkpoint and block cleanup.
+
 The snapshot token covers the full graph and all protection roots. Claiming a
 preview rechecks that token. Each destructive item then rechecks the authority
 token while holding durable registry/repository leases. Authorization changes

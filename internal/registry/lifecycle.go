@@ -36,6 +36,7 @@ const (
 
 type Service struct {
 	store             store.RegistryStore
+	protection        ProtectionRefresher
 	now               func() time.Time
 	newID             func() string
 	maxObservationAge time.Duration
@@ -58,6 +59,10 @@ func WithMaxObservationAge(max time.Duration) Option {
 	return func(s *Service) { s.maxObservationAge = max }
 }
 
+func WithProtectionRefresher(refresher ProtectionRefresher) Option {
+	return func(s *Service) { s.protection = refresher }
+}
+
 func NewService(repository store.RegistryStore, options ...Option) *Service {
 	s := &Service{
 		store:             repository,
@@ -73,6 +78,11 @@ func NewService(repository store.RegistryStore, options ...Option) *Service {
 
 func (s *Service) Preview(ctx context.Context, targetID, serviceID string) (domain.RegistryCleanupPlan, error) {
 	now := s.now().UTC()
+	if s.protection != nil {
+		if err := s.protection.RefreshRegistryProtection(ctx, targetID, serviceID, now, true); err != nil {
+			return domain.RegistryCleanupPlan{}, err
+		}
+	}
 	snapshot, err := s.store.RegistryLifecycleSnapshot(ctx, targetID, serviceID, now)
 	if err != nil {
 		return domain.RegistryCleanupPlan{}, err
@@ -87,6 +97,9 @@ func (s *Service) Preview(ctx context.Context, targetID, serviceID string) (doma
 }
 
 func (s *Service) Claim(ctx context.Context, planID, owner string, lease time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+	if err := s.refreshPlanProtection(ctx, planID); err != nil {
+		return domain.RegistryCleanupPlan{}, false, err
+	}
 	return s.store.ClaimRegistryCleanupPlan(ctx, planID, owner, s.now().UTC(), lease)
 }
 
@@ -95,7 +108,21 @@ func (s *Service) Renew(ctx context.Context, planID, owner string, lease time.Du
 }
 
 func (s *Service) AuthorizeItem(ctx context.Context, planID string, ordinal int, owner string) (domain.RegistryCleanupItem, error) {
+	if err := s.refreshPlanProtection(ctx, planID); err != nil {
+		return domain.RegistryCleanupItem{}, err
+	}
 	return s.store.AuthorizeRegistryCleanupItem(ctx, planID, ordinal, owner, s.now().UTC())
+}
+
+func (s *Service) refreshPlanProtection(ctx context.Context, planID string) error {
+	if s.protection == nil {
+		return nil
+	}
+	plan, err := s.store.RegistryCleanupPlan(ctx, planID)
+	if err != nil {
+		return err
+	}
+	return s.protection.RefreshRegistryProtection(ctx, plan.RegistryTargetID, plan.ServiceID, s.now().UTC(), false)
 }
 
 func (s *Service) RecordItemResult(ctx context.Context, planID string, ordinal int, owner string, result domain.RegistryCleanupItemResult) error {

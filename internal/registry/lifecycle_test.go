@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"slices"
@@ -11,6 +12,45 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
+
+type protectionServiceStore struct {
+	store.RegistryStore
+	snapshot domain.RegistryLifecycleSnapshot
+	plan     domain.RegistryCleanupPlan
+}
+
+func (s *protectionServiceStore) RegistryLifecycleSnapshot(context.Context, string, string, time.Time) (domain.RegistryLifecycleSnapshot, error) {
+	return s.snapshot, nil
+}
+
+func (s *protectionServiceStore) SaveRegistryCleanupPlan(_ context.Context, plan domain.RegistryCleanupPlan) (domain.RegistryCleanupPlan, bool, error) {
+	s.plan = plan
+	return plan, false, nil
+}
+
+func (s *protectionServiceStore) RegistryCleanupPlan(context.Context, string) (domain.RegistryCleanupPlan, error) {
+	return s.plan, nil
+}
+
+func (s *protectionServiceStore) ClaimRegistryCleanupPlan(context.Context, string, string, time.Time, time.Duration) (domain.RegistryCleanupPlan, bool, error) {
+	return s.plan, true, nil
+}
+
+func (s *protectionServiceStore) AuthorizeRegistryCleanupItem(context.Context, string, int, string, time.Time) (domain.RegistryCleanupItem, error) {
+	return s.plan.Items[0], nil
+}
+
+type protectionRefreshCall struct {
+	targetID, serviceID string
+	forceFresh          bool
+}
+
+type protectionRefresherStub struct{ calls []protectionRefreshCall }
+
+func (s *protectionRefresherStub) RefreshRegistryProtection(_ context.Context, targetID, serviceID string, _ time.Time, forceFresh bool) error {
+	s.calls = append(s.calls, protectionRefreshCall{targetID: targetID, serviceID: serviceID, forceFresh: forceFresh})
+	return nil
+}
 
 func digest(character string) string { return "sha256:" + strings.Repeat(character, 64) }
 
@@ -137,6 +177,31 @@ func TestBuildCleanupPlanProtectsEveryAuthorityAndOCIReachability(t *testing.T) 
 	}
 	if !plan.Summary.CacheQuotaSatisfied || plan.Summary.CacheBytesBefore != 300 || plan.Summary.CacheBytesAfter != 200 {
 		t.Fatalf("summary=%#v", plan.Summary)
+	}
+}
+
+func TestServiceRefreshesProtectionAtEveryDestructiveBoundary(t *testing.T) {
+	now := time.Date(2026, 8, 13, 2, 0, 0, 0, time.UTC)
+	repository := &protectionServiceStore{snapshot: fixtureSnapshot(now)}
+	refresher := &protectionRefresherStub{}
+	service := NewService(repository, WithClock(func() time.Time { return now }), WithProtectionRefresher(refresher))
+	plan, err := service.Preview(t.Context(), repository.snapshot.Target.ID, repository.snapshot.Policy.ServiceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, claimErr := service.Claim(t.Context(), plan.ID, "worker", time.Minute); claimErr != nil || !claimed {
+		t.Fatalf("claim=%t err=%v", claimed, claimErr)
+	}
+	if _, err = service.AuthorizeItem(t.Context(), plan.ID, 0, "worker"); err != nil {
+		t.Fatal(err)
+	}
+	want := []protectionRefreshCall{
+		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: true},
+		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: false},
+		{targetID: repository.snapshot.Target.ID, serviceID: repository.snapshot.Policy.ServiceID, forceFresh: false},
+	}
+	if !reflect.DeepEqual(refresher.calls, want) {
+		t.Fatalf("refresh calls=%#v want=%#v", refresher.calls, want)
 	}
 }
 

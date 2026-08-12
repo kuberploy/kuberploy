@@ -37,6 +37,7 @@ type CleanupPlanExecutor interface {
 type Management struct {
 	store             ManagementStore
 	executor          CleanupPlanExecutor
+	protection        ProtectionRefresher
 	now               func() time.Time
 	newID             func() string
 	managedTarget     *domain.RegistryTarget
@@ -65,6 +66,10 @@ func WithManagedTarget(target domain.RegistryTarget) ManagementOption {
 
 func WithManagementObservationAge(max time.Duration) ManagementOption {
 	return func(service *Management) { service.maxObservationAge = max }
+}
+
+func WithManagementProtectionRefresher(refresher ProtectionRefresher) ManagementOption {
+	return func(service *Management) { service.protection = refresher }
 }
 
 func NewManagement(repository ManagementStore, executor CleanupPlanExecutor, options ...ManagementOption) *Management {
@@ -191,7 +196,8 @@ func (s *Management) PreviewCleanup(ctx context.Context, actor, key, fingerprint
 	}
 	applicationID = strings.TrimSpace(applicationID)
 	targetID = strings.TrimSpace(targetID)
-	snapshots, err := s.store.RegistryLifecycleSnapshotsForActor(ctx, actor, applicationID, s.now().UTC())
+	now := s.now().UTC()
+	snapshots, err := s.store.RegistryLifecycleSnapshotsForActor(ctx, actor, applicationID, now)
 	if err != nil {
 		return store.Result[domain.RegistryCleanupPlan]{}, err
 	}
@@ -208,7 +214,28 @@ func (s *Management) PreviewCleanup(ctx context.Context, actor, key, fingerprint
 	if selected.Target.Mode != domain.RegistryTargetManaged {
 		return store.Result[domain.RegistryCleanupPlan]{}, store.ErrRegistryExternalLifecycle
 	}
-	now := s.now().UTC()
+	if s.protection != nil {
+		if err = s.protection.RefreshRegistryProtection(ctx, targetID, applicationID, now, true); err != nil {
+			return store.Result[domain.RegistryCleanupPlan]{}, err
+		}
+		// Reload after the exact source-derived checkpoint is durable. This also
+		// reauthorizes the caller and prevents constructing a plan from the stale
+		// pre-refresh view.
+		snapshots, err = s.store.RegistryLifecycleSnapshotsForActor(ctx, actor, applicationID, now)
+		if err != nil {
+			return store.Result[domain.RegistryCleanupPlan]{}, err
+		}
+		selected = nil
+		for index := range snapshots {
+			if snapshots[index].Target.ID == targetID {
+				selected = &snapshots[index]
+				break
+			}
+		}
+		if selected == nil || selected.Target.Mode != domain.RegistryTargetManaged {
+			return store.Result[domain.RegistryCleanupPlan]{}, store.ErrNotFound
+		}
+	}
 	plan, err := BuildCleanupPlan(*selected, now, s.maxObservationAge)
 	if err != nil {
 		return store.Result[domain.RegistryCleanupPlan]{}, err
