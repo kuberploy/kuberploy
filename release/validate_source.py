@@ -148,6 +148,54 @@ def main() -> None:
     if action_count < 6:
         raise SystemExit("release workflow unexpectedly contains too few pinned actions")
 
+    ci_workflow_text = (args.root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    required_ci_controls = (
+        "  migration:\n",
+        "    name: Prisma migration\n",
+        "    runs-on: ubuntu-26.04\n",
+        "        run: make prisma-migration-test\n",
+    )
+    missing_ci_controls = [control.strip() for control in required_ci_controls if control not in ci_workflow_text]
+    if missing_ci_controls:
+        raise SystemExit(
+            "CI does not test the production Prisma migration image: "
+            + ", ".join(missing_ci_controls)
+        )
+    checkout_count = ci_workflow_text.count("uses: actions/checkout@v7")
+    if checkout_count != 4 or ci_workflow_text.count("persist-credentials: false") != checkout_count:
+        raise SystemExit("every CI checkout must disable persisted Git credentials")
+    if ci_workflow_text.count("runs-on: ubuntu-26.04") != 4 or "ubuntu-latest" in ci_workflow_text:
+        raise SystemExit("every CI job must use the explicit Ubuntu 26.04 runner line")
+
+    dependabot_text = (args.root / ".github/dependabot.yml").read_text(encoding="utf-8")
+
+    def has_dependabot_entry(ecosystem: str, directory: str) -> bool:
+        return re.search(
+            rf"(?ms)^  - package-ecosystem: {re.escape(ecosystem)}\n"
+            rf"(?:(?!^  - package-ecosystem:).)*?^    directory: {re.escape(directory)}$",
+            dependabot_text,
+        ) is not None
+
+    required_dependabot_entries = (
+        ("gomod", "/"),
+        ("gomod", "/release/tools"),
+        ("npm", "/web"),
+        ("npm", "/migrations"),
+        ("github-actions", "/"),
+        ("docker", "/build/package"),
+        ("docker", "/web"),
+    )
+    missing_dependabot_entries = [
+        f"{ecosystem}:{directory}"
+        for ecosystem, directory in required_dependabot_entries
+        if not has_dependabot_entry(ecosystem, directory)
+    ]
+    if missing_dependabot_entries:
+        raise SystemExit(
+            "Dependabot does not cover every shipped dependency surface: "
+            + ", ".join(missing_dependabot_entries)
+        )
+
     required_release_controls = (
         "github.ref_protected == true",
         "environment: release",

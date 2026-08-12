@@ -24,10 +24,12 @@ def main() -> None:
     root = Path(__file__).resolve().parent.parent
     workflow = (root / ".github/workflows/release.yml").read_text(encoding="utf-8")
     ci_workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    dependabot = (root / ".github/dependabot.yml").read_text(encoding="utf-8")
     with tempfile.TemporaryDirectory(prefix="kuberploy-validate-source-") as temporary:
         fixture = Path(temporary)
         (fixture / ".github/workflows").mkdir(parents=True)
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
+        (fixture / ".github/dependabot.yml").write_text(dependabot, encoding="utf-8")
         (fixture / "release").mkdir()
         for name in ("build", "charts", "migrations", "scripts", "web"):
             os.symlink(root / name, fixture / name, target_is_directory=True)
@@ -47,6 +49,28 @@ def main() -> None:
         ):
             raise SystemExit("validator accepted a non-major action selector in ci.yml")
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
+
+        (fixture / ".github/workflows/ci.yml").write_text(
+            ci_workflow.replace("        run: make prisma-migration-test\n", "", 1),
+            encoding="utf-8",
+        )
+        missing_migration_ci = run_validator(root, fixture, workflow)
+        if missing_migration_ci.returncode == 0 or "production Prisma migration image" not in (
+            missing_migration_ci.stdout + missing_migration_ci.stderr
+        ):
+            raise SystemExit("validator accepted CI without the production migration-image test")
+        (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
+
+        (fixture / ".github/dependabot.yml").write_text(
+            dependabot.replace("    directory: /migrations\n", "    directory: /missing-migrations\n", 1),
+            encoding="utf-8",
+        )
+        missing_dependabot = run_validator(root, fixture, workflow)
+        if missing_dependabot.returncode == 0 or "every shipped dependency surface" not in (
+            missing_dependabot.stdout + missing_dependabot.stderr
+        ):
+            raise SystemExit("validator accepted incomplete Dependabot coverage")
+        (fixture / ".github/dependabot.yml").write_text(dependabot, encoding="utf-8")
 
         source_date_epoch = "SOURCE_DATE_EPOCH=${{ needs.release-gate.outputs.source_date_epoch }}"
         cases = (

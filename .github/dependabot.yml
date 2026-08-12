@@ -9,6 +9,15 @@ updates:
       go-runtime:
         patterns: ["*"]
 
+  - package-ecosystem: gomod
+    directory: /release/tools
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      release-tools:
+        patterns: ["*"]
+
   - package-ecosystem: npm
     directory: /web
     schedule:
@@ -25,6 +34,19 @@ updates:
       - dependency-name: "@types/node"
         versions: [">=27"]
 
+  - package-ecosystem: npm
+    directory: /migrations
+    schedule:
+      interval: weekly
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 10
+    groups:
+      migration-tooling:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "prisma"
+        versions: [">=8"]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
@@ -32,10 +54,21 @@ updates:
     open-pull-requests-limit: 10
 
   - package-ecosystem: docker
-    directory: /
+    directory: /build/package
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    ignore:
+      - dependency-name: "alpine"
+        versions: [">=3.25"]
+      - dependency-name: "docker"
+        versions: [">=30"]
+      - dependency-name: "golang"
+        versions: [">=1.27"]
+      - dependency-name: "node"
+        versions: [">=27"]
+      - dependency-name: "registry"
+        versions: [">=4"]
 
   - package-ecosystem: docker
     directory: /web
@@ -47,3 +80,5 @@ updates:
       # changes and the complete toolchain matrix has passed.
       - dependency-name: node
         versions: [">=27"]
+      - dependency-name: nginx
+        versions: [">=1.32"]
