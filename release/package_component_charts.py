@@ -97,7 +97,6 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     opener = urllib.request.build_opener(HTTPSOnlyRedirect, urllib.request.HTTPSHandler(context=context))
     request = urllib.request.Request(url, headers={"User-Agent": "kuberploy-release/1"})
-    digest = hashlib.sha256()
     size = 0
     try:
         with opener.open(request, timeout=60) as response, destination.open("xb") as output:
@@ -111,11 +110,41 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
                 size += len(chunk)
                 if size > MAX_UPSTREAM_BYTES:
                     raise ValueError("upstream chart is larger than the release limit")
-                digest.update(chunk)
                 output.write(chunk)
-    except Exception:
+    except Exception as download_error:
         destination.unlink(missing_ok=True)
-        raise
+        parsed = urllib.parse.urlsplit(url)
+        parts = parsed.path.strip("/").split("/")
+        gh = shutil.which("gh")
+        if (
+            gh is None
+            or parsed.hostname != "github.com"
+            or parsed.query
+            or parsed.fragment
+            or len(parts) != 6
+            or parts[2:4] != ["releases", "download"]
+            or parts[5] != destination.name
+        ):
+            raise download_error
+        repository = f"{parts[0]}/{parts[1]}"
+        try:
+            subprocess.run(
+                [gh, "release", "download", parts[4], "--repo", repository, "--pattern", destination.name,
+                 "--dir", str(destination.parent), "--clobber"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        except subprocess.CalledProcessError as fallback_error:
+            raise RuntimeError(f"GitHub release fallback failed: {fallback_error.stderr.strip()}") from download_error
+    if not destination.is_file() or destination.stat().st_size > MAX_UPSTREAM_BYTES:
+        destination.unlink(missing_ok=True)
+        raise ValueError("upstream chart is absent or larger than the release limit")
+    digest = hashlib.sha256()
+    with destination.open("rb") as artifact:
+        while chunk := artifact.read(1024 * 1024):
+            digest.update(chunk)
     if digest.hexdigest() != expected_sha256:
         destination.unlink(missing_ok=True)
         raise ValueError(f"upstream chart checksum mismatch for {destination.name}")
