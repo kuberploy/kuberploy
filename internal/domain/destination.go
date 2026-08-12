@@ -19,6 +19,10 @@ func DeriveEnvironmentDestination(project Project, environmentSlug string) (stri
 		prefix := strings.TrimRight(candidate[:52], "-")
 		namespace = prefix + "-" + suffix
 	}
-	idPart := strings.ReplaceAll(strings.ToLower(project.ID), "-", "")
-	return namespace, "kp-p-" + idPart
+	// One Argo AppProject owns one environment destination. Reusing a
+	// project-wide AppProject in every environment manifest makes Argo CD see
+	// the same resource more than once as soon as a project has two
+	// environments. The namespace is already a server-derived, globally unique
+	// DNS label, so it is also the stable environment-scoped AppProject name.
+	return namespace, namespace
 }

@@ -9,6 +9,12 @@ import (
 	"time"
 )
 
+// GitHub's 2026-03-10 pull-request response has been observed returning a
+// null merge_commit_sha for an already merged PR. The still-supported prior
+// API version returns the authoritative merge SHA. Keep this explicit and
+// narrow to same-PR merged-receipt recovery.
+const pullRequestMergeCompatibilityAPIVersion = "2022-11-28"
+
 type PullRequest struct {
 	Repository    RepositoryIdentity
 	Number        int64
@@ -87,6 +93,9 @@ func (c *Client) FindPullRequest(ctx context.Context, token InstallationToken, r
 	if len(response) != 1 {
 		return PullRequest{}, false, ErrProviderResponse
 	}
+	if err := c.fillMissingMergeRevision(ctx, token, repository, &response[0]); err != nil {
+		return PullRequest{}, false, err
+	}
 	pullRequest, err := parsePullRequest(response[0], repository, targetRef, headRef, c.clock.Now().UTC())
 	return pullRequest, err == nil, err
 }
@@ -107,7 +116,37 @@ func (c *Client) GetPullRequest(ctx context.Context, token InstallationToken, re
 		return PullRequest{}, ErrProviderResponse
 	}
 	baseRef, headRef := "refs/heads/"+response.Base.Ref, "refs/heads/"+response.Head.Ref
+	if err := c.fillMissingMergeRevision(ctx, token, repository, &response); err != nil {
+		return PullRequest{}, err
+	}
 	return parsePullRequest(response, repository, baseRef, headRef, c.clock.Now().UTC())
+}
+
+// GitHub may omit merge_commit_sha from a closed merged pull request even
+// though merged_at is authoritative. Re-read that exact PR through the prior
+// supported API contract and accept only an otherwise byte-identical identity.
+func (c *Client) fillMissingMergeRevision(ctx context.Context, token InstallationToken, repository RepositoryIdentity, response *apiPullRequest) error {
+	if response == nil || response.MergedAt == nil || response.MergeCommitSHA != "" {
+		return nil
+	}
+	if response.State != "closed" || response.Number <= 0 {
+		return ErrProviderResponse
+	}
+	var compatibility apiPullRequest
+	if err := c.doJSONVersion(ctx, http.MethodGet, token.credential,
+		[]string{"repos", repository.OwnerLogin, repository.Name, "pulls", strconv.FormatInt(response.Number, 10)}, nil, nil,
+		http.StatusOK, &compatibility, pullRequestMergeCompatibilityAPIVersion); err != nil {
+		return err
+	}
+	if compatibility.Number != response.Number || compatibility.HTMLURL != response.HTMLURL || compatibility.State != response.State ||
+		compatibility.MergedAt == nil || !compatibility.MergedAt.Equal(*response.MergedAt) ||
+		compatibility.Head.Ref != response.Head.Ref || compatibility.Head.SHA != response.Head.SHA ||
+		compatibility.Head.Repo != response.Head.Repo || compatibility.Base.Ref != response.Base.Ref ||
+		compatibility.Base.Repo != response.Base.Repo || !builderObjectIDPattern.MatchString(compatibility.MergeCommitSHA) {
+		return ErrProviderResponse
+	}
+	response.MergeCommitSHA = compatibility.MergeCommitSHA
+	return nil
 }
 
 func (c *Client) IsCommitAncestor(ctx context.Context, token InstallationToken, repository RepositoryIdentity, ancestor, descendant string) (bool, error) {

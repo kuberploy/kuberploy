@@ -200,6 +200,17 @@ func ParseAndValidate(raw []byte) (map[string]any, domain.WorkloadRuntime, []Dia
 	return parsed, runtime, diagnostics
 }
 
+// MaterializedImage returns the exact immutable image selected by a validated
+// image-mode AppConfig. Callers must still reject any ParseAndValidate
+// diagnostics before trusting this projection.
+func MaterializedImage(parsed map[string]any) (string, bool) {
+	mode, modeOK := stringAt(parsed, "/spec/delivery/mode")
+	repository, repositoryOK := stringAt(parsed, "/spec/delivery/release/repository")
+	digest, digestOK := stringAt(parsed, "/spec/delivery/release/digest")
+	image := repository + "@" + digest
+	return image, modeOK && mode == "image" && repositoryOK && digestOK && autoDeployImageRE.MatchString(image)
+}
+
 // ValidateBinding is the final execution-boundary defense for durable
 // operation snapshots. Schema-valid YAML is still rejected unless all
 // platform/release-owned identity and image fields match server-resolved data.

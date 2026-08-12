@@ -9,12 +9,16 @@ func TestEnvironmentDestinationsAreReadableBoundedAndProjectIsolated(t *testing.
 	first := Project{ID: "11111111-1111-4111-8111-111111111111", Slug: "payments"}
 	second := Project{ID: "22222222-2222-4222-8222-222222222222", Slug: "payments-copy"}
 	namespace, argoProject := DeriveEnvironmentDestination(first, "dev")
-	if namespace != "kp-payments-dev" || argoProject != "kp-p-11111111111141118111111111111111" {
+	if namespace != "kp-payments-dev" || argoProject != namespace {
 		t.Fatalf("unexpected short destinations: %q %q", namespace, argoProject)
 	}
 	_, otherArgoProject := DeriveEnvironmentDestination(second, "dev")
 	if argoProject == otherArgoProject {
 		t.Fatal("different projects shared an Argo CD boundary")
+	}
+	_, productionArgoProject := DeriveEnvironmentDestination(first, "production")
+	if argoProject == productionArgoProject {
+		t.Fatal("environments shared an Argo CD boundary")
 	}
 
 	longProject := first

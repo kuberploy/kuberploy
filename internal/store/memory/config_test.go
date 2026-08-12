@@ -2,10 +2,13 @@ package memory
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
@@ -63,5 +66,49 @@ func TestDeploymentAcceptanceSnapshotsConfigAndGETIsReadOnly(t *testing.T) {
 	defer store.mu.Unlock()
 	if len(store.deployments[legacy.ID].ConfigRaw) != 0 {
 		t.Fatal("read-only GET mutated missing projection")
+	}
+}
+
+func TestDeploymentConfigSaveAdvancesMaterializedImage(t *testing.T) {
+	ctx := t.Context()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	project, _ := store.CreateProject(ctx, admin.ID, "image-project", "image-project", domain.CreateProject{Name: "Image", Slug: "image"})
+	environment, _ := store.CreateEnvironment(ctx, admin.ID, "image-environment", "image-environment", domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Dev", Slug: "dev"})
+	application, _ := store.CreateApplication(ctx, admin.ID, "image-application", "image-application", domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	initialImage := "registry.example/api@sha256:" + strings.Repeat("a", 64)
+	deployment, _, err := store.CreateDeployment(ctx, admin.ID, "image-deployment", "image-deployment", "request",
+		domain.CreateDeployment{EnvironmentID: environment.Value.ID, ApplicationID: application.Value.ID, Image: initialImage, Runtime: domain.DefaultWorkloadRuntime(8080, nil)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := store.GetDeploymentConfigForActor(ctx, admin.ID, deployment.Value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, intentDigest, diagnostics := appconfig.AutoDeployIntentTemplate(config.RawYAML)
+	if len(diagnostics) != 0 {
+		t.Fatalf("intent diagnostics=%#v", diagnostics)
+	}
+	updatedImage := "registry.example/api@sha256:" + strings.Repeat("b", 64)
+	candidate := appconfig.ApplyAutoDeployImage(config.RawYAML, intent, intentDigest, updatedImage)
+	if len(candidate.Diagnostics) != 0 {
+		t.Fatalf("candidate diagnostics=%#v", candidate.Diagnostics)
+	}
+	tokenHash := sha256.Sum256([]byte("image-preview-token"))
+	if err = store.CreateDeploymentConfigPreview(ctx, admin.ID, domain.CreateConfigPreview{DeploymentID: deployment.Value.ID,
+		BaseETag: config.ETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash, CandidateRaw: candidate.Raw,
+		Runtime: candidate.Runtime, ExpiresAt: time.Now().Add(time.Hour)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saved, operation, err := store.SaveDeploymentConfig(ctx, admin.ID, "image-save", "image-save", "request", domain.SaveDeploymentConfig{
+		DeploymentID: deployment.Value.ID, BaseETag: config.ETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash,
+		RawYAML: candidate.Raw, Runtime: domain.WorkloadRuntime{}}, nil)
+	if err != nil || saved.Value.Image != updatedImage {
+		t.Fatalf("saved image=%q err=%v", saved.Value.Image, err)
+	}
+	snapshot, err := store.GetDeploymentForOperation(ctx, operation.ID)
+	if err != nil || snapshot.Image != updatedImage {
+		t.Fatalf("operation image=%q err=%v", snapshot.Image, err)
 	}
 }

@@ -17,18 +17,27 @@ import (
 )
 
 func runtimeFromExactAppConfig(raw, expectedHash []byte) (domain.WorkloadRuntime, error) {
+	runtime, _, err := runtimeAndImageFromExactAppConfig(raw, expectedHash)
+	return runtime, err
+}
+
+func runtimeAndImageFromExactAppConfig(raw, expectedHash []byte) (domain.WorkloadRuntime, string, error) {
 	if len(raw) == 0 {
-		return domain.WorkloadRuntime{}, base.ErrPreconditionFailed
+		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
 	digest := sha256.Sum256(raw)
 	if len(expectedHash) != sha256.Size || !bytes.Equal(digest[:], expectedHash) {
-		return domain.WorkloadRuntime{}, base.ErrPreconditionFailed
+		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
-	_, runtime, diagnostics := appconfig.ParseAndValidate(raw)
+	parsed, runtime, diagnostics := appconfig.ParseAndValidate(raw)
 	if len(diagnostics) != 0 || len(domain.ValidateWorkloadRuntime(runtime)) != 0 {
-		return domain.WorkloadRuntime{}, base.ErrPreconditionFailed
+		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
-	return runtime, nil
+	image, ok := appconfig.MaterializedImage(parsed)
+	if !ok {
+		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
+	}
+	return runtime, image, nil
 }
 
 // validateRuntimeSecretReferencesTx re-resolves the immutable AppConfig's

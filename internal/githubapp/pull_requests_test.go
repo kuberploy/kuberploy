@@ -115,6 +115,73 @@ func TestFindPullRequestRejectsMultipleOrSubstitutedMatches(t *testing.T) {
 	}
 }
 
+func TestGetMergedPullRequestUsesExactCompatibilityReceiptWhenGitHubOmitsMergeSHA(t *testing.T) {
+	now := time.Date(2026, 8, 12, 11, 5, 0, 0, time.UTC)
+	mergedAt := now.Add(-time.Minute)
+	repository := testRepositories[1]
+	headSHA, targetSHA := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	calls := 0
+	client := pullRequestClient(t, now, func(request *http.Request) (*http.Response, error) {
+		calls++
+		switch calls {
+		case 1:
+			if request.URL.Path != "/repositories/101" {
+				t.Fatalf("identity path=%s", request.URL.Path)
+			}
+			return httpResponse(http.StatusOK, marshalFixture(t, apiRepositoryFixture(repository, "Organization")), nil), nil
+		case 2:
+			if request.URL.Path != "/repos/kuberploy/service/pulls/7" {
+				t.Fatalf("pull request path=%s", request.URL.Path)
+			}
+			if got := request.Header.Get("X-GitHub-Api-Version"); got != validTestConfig(t).APIVersion {
+				t.Fatalf("current API version=%q", got)
+			}
+			return httpResponse(http.StatusOK, marshalFixture(t, pullRequestFixture(repository, 7, "closed", &mergedAt, headSHA, "")), nil), nil
+		case 3:
+			if request.URL.Path != "/repos/kuberploy/service/pulls/7" {
+				t.Fatalf("compatibility PR path=%s", request.URL.Path)
+			}
+			if got := request.Header.Get("X-GitHub-Api-Version"); got != pullRequestMergeCompatibilityAPIVersion {
+				t.Fatalf("compatibility API version=%q", got)
+			}
+			return httpResponse(http.StatusOK, marshalFixture(t, pullRequestFixture(repository, 7, "closed", &mergedAt, headSHA, targetSHA)), nil), nil
+		default:
+			t.Fatalf("unexpected provider call %d", calls)
+			return nil, nil
+		}
+	})
+	result, err := client.GetPullRequest(t.Context(), pullRequestToken(now), repository, 7)
+	if err != nil || !result.Merged || result.MergeRevision != targetSHA || result.HeadRevision != headSHA || calls != 3 {
+		t.Fatalf("result=%#v calls=%d err=%v", result, calls, err)
+	}
+}
+
+func TestMissingMergeSHAFallbackRejectsSubstitutedPullRequestIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 12, 11, 5, 0, 0, time.UTC)
+	mergedAt := now.Add(-time.Minute)
+	repository := testRepositories[1]
+	calls := 0
+	client := pullRequestClient(t, now, func(request *http.Request) (*http.Response, error) {
+		calls++
+		switch calls {
+		case 1:
+			return httpResponse(http.StatusOK, marshalFixture(t, apiRepositoryFixture(repository, "Organization")), nil), nil
+		case 2:
+			return httpResponse(http.StatusOK, marshalFixture(t, pullRequestFixture(repository, 7, "closed", &mergedAt, strings.Repeat("a", 40), "")), nil), nil
+		case 3:
+			fixture := pullRequestFixture(repository, 7, "closed", &mergedAt, strings.Repeat("a", 40), strings.Repeat("b", 40))
+			fixture["head"].(map[string]any)["ref"] = "substituted"
+			return httpResponse(http.StatusOK, marshalFixture(t, fixture), nil), nil
+		default:
+			t.Fatalf("unexpected provider call %d", calls)
+			return nil, nil
+		}
+	})
+	if _, err := client.GetPullRequest(t.Context(), pullRequestToken(now), repository, 7); !errors.Is(err, ErrProviderResponse) {
+		t.Fatalf("substituted pull request accepted: %v", err)
+	}
+}
+
 func TestCommitAncestryRequiresExactCompareProof(t *testing.T) {
 	now := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
 	repository := testRepositories[1]

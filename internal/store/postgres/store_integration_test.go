@@ -356,7 +356,16 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if string(configState.RawYAML) != string(initialOperationInput.ConfigRaw) {
 		t.Fatalf("current config differs from accepted operation snapshot")
 	}
-	candidate := appconfig.Apply(configState.RawYAML, appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/replicas", Value: 2}}})
+	intent, intentDigest, intentDiagnostics := appconfig.AutoDeployIntentTemplate(configState.RawYAML)
+	if len(intentDiagnostics) != 0 {
+		t.Fatalf("intent diagnostics=%#v", intentDiagnostics)
+	}
+	updatedImage := "registry.test/api@sha256:" + strings.Repeat("b", 64)
+	imageCandidate := appconfig.ApplyAutoDeployImage(configState.RawYAML, intent, intentDigest, updatedImage)
+	if len(imageCandidate.Diagnostics) != 0 {
+		t.Fatalf("image candidate diagnostics=%#v", imageCandidate.Diagnostics)
+	}
+	candidate := appconfig.Apply(imageCandidate.Raw, appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/replicas", Value: 2}}})
 	if len(candidate.Diagnostics) != 0 {
 		t.Fatalf("candidate diagnostics=%#v", candidate.Diagnostics)
 	}
@@ -373,7 +382,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatalf("save config result=%#v op=%#v err=%v", saved, configOperation, err)
 	}
 	exact, err := st.GetDeploymentForOperation(ctx, configOperation.ID)
-	if err != nil || string(exact.ConfigRaw) != string(candidate.Raw) || exact.Image != deployment.Value.Image {
+	if err != nil || string(exact.ConfigRaw) != string(candidate.Raw) || exact.Image != updatedImage || saved.Value.Image != updatedImage {
 		t.Fatalf("exact config snapshot=%q image=%q err=%v", exact.ConfigRaw, exact.Image, err)
 	}
 	replayedConfig, replayedOperation, err := st.SaveDeploymentConfig(ctx, developer.ID, "config-save", "config-save", "request", domain.SaveDeploymentConfig{DeploymentID: deployment.Value.ID, BaseETag: configState.ETag, TokenHash: previewTokenHash[:]}, nil)

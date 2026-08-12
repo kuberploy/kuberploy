@@ -175,6 +175,38 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	_ = decodeYAML(t, setA)
 }
 
+func TestEachEnvironmentOwnsOneDistinctAppProject(t *testing.T) {
+	first, _ := targetFixture(t)
+	now := time.Now().UTC()
+	second := first
+	second.Environment.ID = "88888888-8888-4888-8888-888888888888"
+	second.Environment.Name, second.Environment.Slug = "Staging", "staging"
+	second.Environment.Namespace, second.Environment.ArgoProject = domain.DeriveEnvironmentDestination(second.Project, second.Environment.Slug)
+	binding, err := gitprojection.NewEnvironmentBinding("77777777-7777-4777-8777-777777777777", projectID, second.Environment.ID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "environments"},
+		"refs/heads/main", "kuberploy-git-writer", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.TargetHeadRevision, binding.IndexedRevision = strings.Repeat("a", 40), strings.Repeat("a", 40)
+	binding.TargetHeadObservedAt, binding.IndexedAt, binding.UpdatedAt = now, now, now
+	binding.ProjectionGeneration, binding.State = 1, gitprojection.BindingReady
+	second.Binding = binding
+	firstManifest, err := argo.RenderAppProject(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondManifest, err := argo.RenderAppProject(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstProject := decodeYAML(t, firstManifest)["metadata"].(map[string]any)["name"]
+	secondProject := decodeYAML(t, secondManifest)["metadata"].(map[string]any)["name"]
+	if firstProject == secondProject || firstProject != first.Environment.Namespace || secondProject != second.Environment.Namespace {
+		t.Fatalf("environment AppProjects overlap: first=%v second=%v", firstProject, secondProject)
+	}
+}
+
 func TestArgo35CRDSchemaSupportsClosedDigestPinnedOCIMultiSource(t *testing.T) {
 	helm, err := exec.LookPath("helm")
 	if err != nil {

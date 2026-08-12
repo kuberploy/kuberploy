@@ -65,11 +65,12 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	rows, err := m.pool.Query(ctx, `SELECT b.id::text,b.project_id::text,b.environment_id::text,
 	COALESCE(latest.id::text,''),COALESCE(previous_verified.id::text,''),COALESCE(precondition_command.id::text,'')
 	FROM git_repository_bindings b
+	JOIN environments e ON e.id=b.environment_id AND e.project_id=b.project_id
 	JOIN git_projection_generations generation
 	  ON generation.binding_id=b.id AND generation.generation=b.projection_generation
 	LEFT JOIN LATERAL (
 		SELECT command.id,command.state,command.environment_revision,command.environment_generation,
-		       command.chart_version,command.chart_digest,command.renderer_image
+		       command.chart_version,command.chart_digest,command.renderer_image,command.argo_project
 		FROM argo_desired_state_commands command
 		WHERE command.environment_id=b.environment_id
 		ORDER BY command.generation DESC LIMIT 1
@@ -97,10 +98,12 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	    WHERE live.environment_id=b.environment_id AND live.state IN ('pending','claimed','git-committed'))
 	  AND (latest.id IS NULL OR
 	    (latest.state='verified' AND
-	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation)) OR
+	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
+	       latest.argo_project<>e.argo_project)) OR
 	    (latest.state IN ('failed','superseded') AND
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
-	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3)))
+	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3 OR
+	       latest.argo_project<>e.argo_project)))
 	ORDER BY b.indexed_at,b.id
 	LIMIT 64`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage)
 	if err != nil {

@@ -71,7 +71,24 @@ func (c *Client) doJSON(
 	expectedStatus int,
 	responseBody any,
 ) error {
+	return c.doJSONVersion(ctx, method, auth, segments, query, requestBody, expectedStatus, responseBody, c.config.APIVersion)
+}
+
+func (c *Client) doJSONVersion(
+	ctx context.Context,
+	method string,
+	auth Credential,
+	segments []string,
+	query url.Values,
+	requestBody any,
+	expectedStatus int,
+	responseBody any,
+	apiVersion string,
+) error {
 	if auth.empty() || !validRawCredential(auth.Reveal()) {
+		return ErrTransport
+	}
+	if apiVersion != c.config.APIVersion && apiVersion != pullRequestMergeCompatibilityAPIVersion {
 		return ErrTransport
 	}
 	endpoint, err := c.endpoint(segments, query)
@@ -93,7 +110,7 @@ func (c *Client) doJSON(
 		return ErrTransport
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", c.config.APIVersion)
+	req.Header.Set("X-GitHub-Api-Version", apiVersion)
 	req.Header.Set("User-Agent", c.config.UserAgent)
 	req.Header.Set("Authorization", "Bearer "+auth.Reveal())
 	if requestBody != nil {

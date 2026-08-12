@@ -193,7 +193,8 @@ func (c DesiredStateCommand) Validate() error {
 	if !uuidRE.MatchString(c.ID) || c.Generation <= 0 || !uuidRE.MatchString(c.ProjectID) || !uuidRE.MatchString(c.EnvironmentID) ||
 		!uuidRE.MatchString(c.PlatformBindingID) || !uuidRE.MatchString(c.EnvironmentBindingID) || !commitRE.MatchString(c.EnvironmentRevision) ||
 		c.EnvironmentGeneration <= 0 || pathErr != nil || c.Path != commandPath ||
-		!kubeRE.MatchString(c.ArgoNamespace) || !kubeRE.MatchString(c.DestinationNamespace) || c.ArgoProject != ProjectName(c.ProjectID) ||
+		!kubeRE.MatchString(c.ArgoNamespace) || !kubeRE.MatchString(c.DestinationNamespace) ||
+		(c.ArgoProject != c.DestinationNamespace && c.ArgoProject != ProjectName(c.ProjectID)) ||
 		!commitRE.MatchString(c.BaseRevision) || !validPrecondition || !digestRE.MatchString(c.CatalogDigest) || c.Runtime.Validate() != nil ||
 		len(c.Content) == 0 || len(c.Content) > gitprojection.MaxDocumentBytes || c.ContentSHA256 != contentDigest(c.Content) ||
 		len(c.Message) == 0 || len(c.Message) > 512 || !utf8.ValidString(c.Message) || strings.ContainsAny(c.Message, "\x00\r") ||

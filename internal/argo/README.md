@@ -1,7 +1,9 @@
 # Argo reconciliation core
 
 The renderer generates deterministic, environment-scoped `AppProject`,
-`ApplicationSet`, and `Application` manifests. Project, destination cluster,
+`ApplicationSet`, and `Application` manifests. Every environment owns one
+distinct AppProject named from its server-derived namespace, so multiple
+environments in a project never emit the same Argo resource. Project, destination cluster,
 destination namespace, protected Git path, and Argo project are derived from
 server-owned project/environment identity. ApplicationSet list elements are
 trusted generated values, never fields read from tenant YAML.

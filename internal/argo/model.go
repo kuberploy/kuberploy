@@ -73,7 +73,7 @@ func (t EnvironmentTarget) Validate() error {
 		return ErrInvalid
 	}
 	namespace, argoProject := domain.DeriveEnvironmentDestination(t.Project, t.Environment.Slug)
-	if t.Environment.Namespace != namespace || t.Environment.ArgoProject != argoProject || t.Environment.ArgoProject != ProjectName(t.Project.ID) {
+	if t.Environment.Namespace != namespace || t.Environment.ArgoProject != argoProject {
 		return ErrInvalid
 	}
 	return nil

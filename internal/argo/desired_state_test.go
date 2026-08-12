@@ -138,7 +138,7 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 	wantPath := "clusters/" + desiredStateClusterID + "/argocd/environments/" + environmentID + ".yaml"
 	if command.Path != wantPath || command.BaseRevision != target.PlatformBinding.TargetHeadRevision ||
 		command.Precondition != gitprojection.MutationCreateIfAbsent || command.ExpectedETag != "" ||
-		command.DestinationNamespace != target.Environment.Environment.Namespace || command.ArgoProject != argo.ProjectName(projectID) {
+		command.DestinationNamespace != target.Environment.Environment.Namespace || command.ArgoProject != target.Environment.Environment.ArgoProject {
 		t.Fatalf("server-derived command is wrong: %#v", command)
 	}
 	body := string(command.Content)

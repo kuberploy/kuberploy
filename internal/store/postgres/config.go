@@ -212,7 +212,7 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	if !expires.After(now) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreviewExpired
 	}
-	candidateRuntime, err := runtimeFromExactAppConfig(in.RawYAML, in.CandidateHash)
+	candidateRuntime, candidateImage, err := runtimeAndImageFromExactAppConfig(in.RawYAML, in.CandidateHash)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
@@ -250,13 +250,14 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 		return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
 	}
 	d.Runtime = candidateRuntime
+	d.Image = candidateImage
 	d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
 	d.ConfigRaw, d.Generation, d.OperationID, d.State, d.UpdatedAt = append([]byte(nil), in.RawYAML...), generation, op.ID, "pending-git", now
 	environmentJSON, _ := json.Marshal(d.Environment)
 	runtimeJSON, _ := json.Marshal(d.Runtime)
 	newVersion := version + 1
 	newETag := domain.DeploymentConfigETag(d.ID, newVersion, d.ConfigRaw)
-	if _, err = tx.Exec(ctx, `UPDATE deployments SET replicas=$2,port=$3,environment=$4,runtime=$5,state='pending-git',operation_id=$6,generation=$7,config_raw=$8,config_etag=$9,config_version=$10,updated_at=$11 WHERE id=$1`, d.ID, d.Replicas, d.Port, environmentJSON, runtimeJSON, d.OperationID, generation, d.ConfigRaw, newETag, newVersion, now); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE deployments SET image=$2,replicas=$3,port=$4,environment=$5,runtime=$6,state='pending-git',operation_id=$7,generation=$8,config_raw=$9,config_etag=$10,config_version=$11,updated_at=$12 WHERE id=$1`, d.ID, d.Image, d.Replicas, d.Port, environmentJSON, runtimeJSON, d.OperationID, generation, d.ConfigRaw, newETag, newVersion, now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
 	}
 	if err = insertGitWriteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "config("+d.ApplicationID+"): save AppConfig", now); err != nil {

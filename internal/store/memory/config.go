@@ -3,10 +3,12 @@ package memory
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"reflect"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -91,10 +93,7 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 		return base.Result[domain.Deployment]{Value: replayedDeployment, Replay: true}, s.operations[old.operationID], nil
 	}
 	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
-	if err != nil || base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
-		if err == nil {
-			err = base.ErrPreconditionFailed
-		}
+	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	d, ok := s.deployments[in.DeploymentID]
@@ -119,13 +118,6 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 			return base.Result[domain.Deployment]{}, domain.Operation{}, err
 		}
 	}
-	if projection != nil {
-		resolution, resolutionErr := s.resolveProjectedVariablesLocked(projectionBinding, in.Runtime)
-		if resolutionErr != nil {
-			return base.Result[domain.Deployment]{}, domain.Operation{}, resolutionErr
-		}
-		in.Runtime = resolution.Runtime
-	}
 	previewKey := hex.EncodeToString(in.TokenHash)
 	preview, ok := s.configPreviews[previewKey]
 	if !ok || preview.ActorID != actor || preview.DeploymentID != d.ID || preview.BaseETag != in.BaseETag || !bytes.Equal(preview.CandidateHash, in.CandidateHash) {
@@ -142,6 +134,23 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 	if !preview.ExpiresAt.After(now) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreviewExpired
 	}
+	digest := sha256.Sum256(in.RawYAML)
+	parsed, exactRuntime, diagnostics := appconfig.ParseAndValidate(in.RawYAML)
+	exactImage, imageOK := appconfig.MaterializedImage(parsed)
+	if !bytes.Equal(digest[:], in.CandidateHash) || len(diagnostics) != 0 || !imageOK {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
+	in.Runtime = exactRuntime
+	if projection != nil {
+		resolution, resolutionErr := s.resolveProjectedVariablesLocked(projectionBinding, in.Runtime)
+		if resolutionErr != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, resolutionErr
+		}
+		in.Runtime = resolution.Runtime
+	}
+	if base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	for operationID, operation := range s.operations {
 		if operation.TargetID == d.ID && operation.Status == "queued" {
 			operation.Status, operation.UpdatedAt, operation.FinishedAt = "superseded", now, &now
@@ -153,6 +162,7 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 	opID := id.New()
 	op := domain.Operation{ID: opID, Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID, RequestID: requestID, Generation: d.Generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
 	d.Runtime = cloneRuntime(in.Runtime)
+	d.Image = exactImage
 	d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
 	d.ConfigRaw = append([]byte(nil), in.RawYAML...)
 	d.ConfigVersion++
