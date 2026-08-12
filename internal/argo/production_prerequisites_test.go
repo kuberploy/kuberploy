@@ -312,7 +312,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err = os.WriteFile(tokenFile, []byte("service-account-token"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	requests, deleteRequests := 0, 0
+	requests, deleteRequests, refreshRequests := 0, 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		if request.Header.Get("Authorization") != "Bearer service-account-token" {
@@ -321,6 +321,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 		switch request.Method {
 		case http.MethodPatch:
 			if request.URL.Path == "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/"+PlatformRootApplicationName {
+				refreshRequests++
 				if request.URL.RawQuery != "" || request.Header.Get("Content-Type") != "application/merge-patch+json" {
 					t.Errorf("unsafe root refresh request: %s headers=%v", request.URL.String(), request.Header)
 				}
@@ -361,6 +362,10 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 			if request.URL.Path != "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/"+PlatformRootApplicationName {
 				t.Errorf("unsafe root path: %s", request.URL.Path)
 			}
+			revision := expectation.ExpectedGitRevision
+			if refreshRequests == 1 {
+				revision = strings.Repeat("f", 40)
+			}
 			writer.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"metadata": map[string]any{"name": expectation.Name, "namespace": expectation.Namespace,
@@ -368,7 +373,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 					"labels":      map[string]string{"app.kubernetes.io/part-of": "kuberploy"},
 					"annotations": map[string]string{"kuberploy.io/repository-secret": expectation.RepositoryCredentialName}},
 				"spec": platformRootApplicationSpec(expectation),
-				"status": map[string]any{"sync": map[string]string{"status": "Synced", "revision": expectation.ExpectedGitRevision},
+				"status": map[string]any{"sync": map[string]string{"status": "Synced", "revision": revision},
 					"health": map[string]string{"status": "Healthy"}},
 			})
 		case http.MethodDelete:
@@ -397,7 +402,10 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || root.ObservedRevision != expectation.ExpectedGitRevision || root.SpecDigest != expectation.SpecDigest {
 		t.Fatalf("root=%#v err=%v", root, err)
 	}
-	if err = client.RefreshPlatformRootApplication(t.Context(), "argocd", PlatformRootApplicationName); err != nil {
+	if err = client.RefreshPlatformRootApplication(t.Context(), expectation, now); !errors.Is(err, ErrPlatformRootNotReady) {
+		t.Fatalf("stale provider head was accepted after refresh: %v", err)
+	}
+	if err = client.RefreshPlatformRootApplication(t.Context(), expectation, now); err != nil {
 		t.Fatalf("refresh root: %v", err)
 	}
 	revocation, err := client.DeleteRepositoryCredential(t.Context(), "argocd", apply.Name, platform.ID, now)
@@ -408,13 +416,15 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || !revocation.Absent {
 		t.Fatalf("NotFound did not acknowledge revocation: observation=%#v err=%v", revocation, err)
 	}
-	if requests != 5 {
-		t.Fatalf("requests=%d", requests)
+	if requests != 8 || refreshRequests != 2 {
+		t.Fatalf("requests=%d refreshes=%d", requests, refreshRequests)
 	}
 	if _, err = client.DeleteRepositoryCredential(t.Context(), "argocd", "attacker-secret", platform.ID, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("arbitrary Secret delete accepted: %v", err)
 	}
-	if err = client.RefreshPlatformRootApplication(t.Context(), "argocd", "attacker-root"); !errors.Is(err, ErrInvalid) {
+	invalidExpectation := expectation
+	invalidExpectation.Name = "attacker-root"
+	if err = client.RefreshPlatformRootApplication(t.Context(), invalidExpectation, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("arbitrary Application refresh accepted: %v", err)
 	}
 }

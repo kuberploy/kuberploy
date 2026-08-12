@@ -57,7 +57,7 @@ type productionRuntimeMaterializerStub struct {
 
 type productionRuntimeRefresherStub struct{}
 
-func (productionRuntimeRefresherStub) RefreshPlatformRootApplication(context.Context, string, string) error {
+func (productionRuntimeRefresherStub) RefreshPlatformRootApplication(context.Context, PlatformRootApplicationExpectation, time.Time) error {
 	return nil
 }
 

@@ -236,16 +236,20 @@ type rootApplicationEnvelopeWire struct {
 	} `json:"status"`
 }
 
-// RefreshPlatformRootApplication performs one closed metadata-only patch. It
-// cannot select another Application and does not invoke Argo's sync API; the
-// installer-owned automated policy still decides and executes reconciliation.
-func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.Context, namespace, name string) error {
-	if c == nil || c.http == nil || !kubeRE.MatchString(namespace) || name != PlatformRootApplicationName {
+// RefreshPlatformRootApplication performs one closed metadata-only patch and
+// then reads the exact root back. Acceptance requires the immutable root spec,
+// the verified provider revision, and Synced/Healthy status. It cannot select
+// another Application and does not invoke Argo's sync API; the installer-owned
+// automated policy remains the sole reconciliation executor. A stale read is a
+// retryable failure, so the durable command issues another hard refresh.
+func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) error {
+	expectedDigest, digestErr := expectation.expectedSpecDigest()
+	if c == nil || c.http == nil || digestErr != nil || expectedDigest != expectation.SpecDigest || now.IsZero() {
 		return ErrInvalid
 	}
 	body := []byte(`{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}`)
-	requestPath := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(namespace) +
-		"/applications/" + url.PathEscape(name)
+	requestPath := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(expectation.Namespace) +
+		"/applications/" + url.PathEscape(expectation.Name)
 	response, err := c.request(ctx, http.MethodPatch, requestPath, body, "application/merge-patch+json",
 		"application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1")
 	if err != nil {
@@ -259,11 +263,12 @@ func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.C
 	if err = decodeBoundedJSON(response.Body, maximumArgoRuntimeResponseBytes, &metadata, false); err != nil {
 		return err
 	}
-	if metadata.Metadata.Namespace != namespace || metadata.Metadata.Name != name || metadata.Metadata.UID == "" ||
+	if metadata.Metadata.Namespace != expectation.Namespace || metadata.Metadata.Name != expectation.Name || metadata.Metadata.UID == "" ||
 		metadata.Metadata.ResourceVersion == "" || metadata.Metadata.Annotations[argoHardRefreshAnnotation] != "hard" {
 		return ErrPlatformRootNotReady
 	}
-	return nil
+	_, err = c.ObservePlatformRootApplication(ctx, expectation, now.UTC())
+	return err
 }
 
 func (c *InClusterProductionClient) ObservePlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {

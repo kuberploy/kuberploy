@@ -22,10 +22,10 @@ func (f desiredStateVerifierFunc) VerifyTargetHead(ctx context.Context, binding 
 	return f(ctx, binding, source)
 }
 
-type desiredStateRefresherFunc func(context.Context, string, string) error
+type desiredStateRefresherFunc func(context.Context, argo.PlatformRootApplicationExpectation, time.Time) error
 
-func (f desiredStateRefresherFunc) RefreshPlatformRootApplication(ctx context.Context, namespace, name string) error {
-	return f(ctx, namespace, name)
+func (f desiredStateRefresherFunc) RefreshPlatformRootApplication(ctx context.Context, expectation argo.PlatformRootApplicationExpectation, now time.Time) error {
+	return f(ctx, expectation, now)
 }
 
 type failingDesiredStateHeartbeatStore struct {
@@ -161,8 +161,9 @@ func (f *desiredStateWriterFixture) provider(t *testing.T, override func(int, st
 
 func (f *desiredStateWriterFixture) writer(provider gitprojection.HeadVerifier) *argo.DesiredStateWriter {
 	return &argo.DesiredStateWriter{Store: f.commands, Bindings: f.bindings, ClaimGate: f.claimGate, Provider: provider, Manager: f.manager,
-		RootRefresher: desiredStateRefresherFunc(func(_ context.Context, namespace, name string) error {
-			if namespace != f.identity.ArgoNamespace || name != f.identity.RootApplicationName {
+		RootRefresher: desiredStateRefresherFunc(func(_ context.Context, expectation argo.PlatformRootApplicationExpectation, _ time.Time) error {
+			if expectation.Namespace != f.identity.ArgoNamespace || expectation.Name != f.identity.RootApplicationName ||
+				expectation.ExpectedGitRevision == "" {
 				return argo.ErrInvalid
 			}
 			return nil
@@ -377,9 +378,9 @@ func TestDesiredStateWriterRetriesRootRefreshBeforeTerminalSuccess(t *testing.T)
 	fixture := newDesiredStateWriterFixture(t)
 	writer := fixture.writer(fixture.provider(t, nil))
 	refreshCalls := 0
-	writer.RootRefresher = desiredStateRefresherFunc(func(_ context.Context, namespace, name string) error {
+	writer.RootRefresher = desiredStateRefresherFunc(func(_ context.Context, expectation argo.PlatformRootApplicationExpectation, _ time.Time) error {
 		refreshCalls++
-		if namespace != fixture.identity.ArgoNamespace || name != fixture.identity.RootApplicationName {
+		if expectation.Namespace != fixture.identity.ArgoNamespace || expectation.Name != fixture.identity.RootApplicationName {
 			return argo.ErrInvalid
 		}
 		return errors.New("transient Kubernetes API failure")

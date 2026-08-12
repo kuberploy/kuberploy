@@ -42,11 +42,13 @@ is allowed only while that exact projection tuple is active.
 
 The writer never calls the Argo sync API. It accepts only a server-derived
 protected platform GitHub App binding and path. After a provider-verified
-platform commit it performs one metadata-only hard-refresh patch on the exact
+platform commit it performs a metadata-only hard-refresh patch on the exact
 installer-owned root Application; narrow RBAC and a fail-closed admission
 policy reject a spec, label, owner, finalizer, unrelated-annotation, namespace,
-or name change. The durable command is completed only after that refresh is
-acknowledged, so crash recovery safely repeats it. After an
+or name change. The durable command is completed only after an exact read-back
+proves that root observed the verified provider head and is Synced/Healthy. A
+stale provider read or transient Kubernetes/Argo failure retains the Git
+receipt and retries the same bounded hard refresh. After an
 ambiguous push it locates the exact operation-trailer commit, verifies that it
 is an ancestor of the provider head, verifies the current protected path's
 exact bytes, and records the operation commit rather than a later descendant.

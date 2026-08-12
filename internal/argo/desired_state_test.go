@@ -115,11 +115,15 @@ func desiredStateTargetFixture(t *testing.T, now time.Time) (argo.DesiredStateTa
 
 func desiredStateIdentity(t *testing.T, target argo.DesiredStateTarget) argo.DesiredStateRuntimeIdentity {
 	t.Helper()
+	repositorySecretName, err := argo.RepositoryCredentialName(target.PlatformBinding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	identity, err := argo.DesiredStateRuntimeIdentityForConfig(argo.DesiredStateRuntimeConfig{
 		Enabled: true, GitHubAppID: target.PlatformBinding.Repository.InstallationID,
 		PlatformBindingID: target.PlatformBinding.ID, ClusterID: target.PlatformBinding.ClusterID,
-		ArgoNamespace: target.Environment.ArgoNamespace, RootApplicationName: "kuberploy-root",
-		RepositorySecretName: "kuberploy-platform-repository", Runtime: target.Environment.Runtime,
+		ArgoNamespace: target.Environment.ArgoNamespace, RootApplicationName: argo.PlatformRootApplicationName,
+		RepositorySecretName: repositorySecretName, Runtime: target.Environment.Runtime,
 		DigestEnforcement: argo.ChartDigestNativeOCI,
 	})
 	if err != nil {
