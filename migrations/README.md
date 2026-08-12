@@ -26,11 +26,13 @@ For a schema change:
 6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
 
-`001_initial` is the final pre-stable `0.1.0` baseline. It was regenerated from
-the fully qualified release-candidate schema after RC86. Databases created by
-older release candidates must be recreated; Kuberploy never guesses across a
-changed pre-stable migration checksum. After `0.1.0` is stable, this baseline is
-immutable and every change must use a new ordered migration.
+`001_initial` is the current release-candidate checkpoint, regenerated after
+RC86. Later RC fixes use ordinary ordered migrations so upgrades are exercised
+instead of silently changing an applied checksum. Only after the complete RC
+qualification passes will those pre-stable increments be reviewed and squashed
+into the final `0.1.0` baseline; that final reset requires recreating RC
+databases. After `0.1.0` is stable, its history is immutable and every change
+must use a new ordered migration.
 
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite

@@ -168,7 +168,7 @@ func (s *PostgreSQLStore) ClaimArtifact(ctx context.Context, owner, contract, co
 	var key ArtifactKey
 	err = tx.QueryRow(ctx, `SELECT environment_id::text,registry_target_id::text,profile_revision
 		FROM runtime_registry_pull_artifacts
-		WHERE active AND runtime_state<>'failed' AND next_observation_at<=$1
+		WHERE active AND (runtime_state<>'failed' OR last_failure_code='profile-mismatch') AND next_observation_at<=$1
 		  AND (lease_until IS NULL OR lease_until<=$1)
 		ORDER BY next_observation_at,environment_id,registry_target_id,profile_revision
 		FOR UPDATE SKIP LOCKED LIMIT 1`, now.UTC()).Scan(&key.EnvironmentID, &key.RegistryTargetID, &key.ProfileRevision)

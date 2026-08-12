@@ -125,6 +125,62 @@ func TestControllerTreatsLiveSecretMutationAsPermanent(t *testing.T) {
 	}
 }
 
+func TestControllerRecoversExactProfileMismatchAfterOperatorCorrection(t *testing.T) {
+	controller, store, reader, api, now, _ := newControllerFixture(t)
+	original := controller.Config
+	original.Profiles = append([]Profile(nil), controller.Config.Profiles...)
+	controller.Config.Profiles[0].Name = "rotated-profile"
+	mismatchedDigest, err := controller.Config.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	didWork, err := controller.Reconcile(t.Context(), mismatchedDigest)
+	if err != nil || !didWork || reader.called != 0 || api.called != 0 {
+		t.Fatalf("mismatch work=%t err=%v reads=%d calls=%d", didWork, err, reader.called, api.called)
+	}
+	desired, _ := Desired(original, testEnvironmentID, "tenant-a-dev", testTargetID)
+	failed, loadErr := store.Artifact(t.Context(), desired.ArtifactKey)
+	if loadErr != nil || failed.State != StateFailed || failed.LastFailureCode != profileMismatchFailureCode {
+		t.Fatalf("failed artifact=%#v err=%v", failed, loadErr)
+	}
+
+	controller.Config = original
+	recoveryAt := failed.NextObservationAt
+	controller.Now = func() time.Time { return recoveryAt }
+	recoveredDigest, err := controller.Config.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	didWork, err = controller.Reconcile(t.Context(), recoveredDigest)
+	if err != nil || !didWork || reader.called != 1 || api.called != 1 {
+		t.Fatalf("recovery work=%t err=%v reads=%d calls=%d", didWork, err, reader.called, api.called)
+	}
+	recovered, loadErr := store.Artifact(t.Context(), desired.ArtifactKey)
+	if loadErr != nil || recovered.State != StateReady || recovered.LastFailureCode != "" ||
+		recovered.ConsecutiveFailures != 0 || recovered.LastObservedAt == nil || !recovered.LastObservedAt.Equal(recoveryAt) {
+		t.Fatalf("recovered artifact=%#v err=%v now=%s", recovered, loadErr, now)
+	}
+}
+
+func TestControllerDoesNotReclaimOtherPermanentFailures(t *testing.T) {
+	controller, store, _, api, _, digest := newControllerFixture(t)
+	api.err = ErrConflict
+	didWork, err := controller.Reconcile(t.Context(), digest)
+	if err != nil || !didWork {
+		t.Fatalf("initial work=%t err=%v", didWork, err)
+	}
+	desired, _ := Desired(controller.Config, testEnvironmentID, "tenant-a-dev", testTargetID)
+	failed, loadErr := store.Artifact(t.Context(), desired.ArtifactKey)
+	if loadErr != nil || failed.State != StateFailed || failed.LastFailureCode != "secret-mutation" {
+		t.Fatalf("failed artifact=%#v err=%v", failed, loadErr)
+	}
+	controller.Now = func() time.Time { return failed.NextObservationAt }
+	didWork, err = controller.Reconcile(t.Context(), digest)
+	if err != nil || didWork || api.called != 1 {
+		t.Fatalf("terminal replay work=%t err=%v calls=%d", didWork, err, api.called)
+	}
+}
+
 func TestControllerRejectsWrongRuntimeDigestBeforeClaim(t *testing.T) {
 	controller, store, _, api, now, _ := newControllerFixture(t)
 	didWork, err := controller.Reconcile(t.Context(), "sha256:"+stringsOf('a', 64))

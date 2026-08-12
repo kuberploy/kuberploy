@@ -182,7 +182,7 @@ func (c *RuntimeController) Reconcile(ctx context.Context, configDigest string) 
 	if !configured || !c.Config.AllowsNamespace(lease.Artifact.Namespace) || profile.Name != lease.Artifact.ProfileName ||
 		profile.CredentialRef != lease.Artifact.PullCredentialRef || profile.Revision != lease.Artifact.ProfileRevision ||
 		lease.Artifact.SecretName != SecretName(lease.Artifact.Namespace, lease.Artifact.RegistryTargetID, profile.Revision) {
-		return c.permanentFailure(ctx, lease, "profile-mismatch")
+		return c.permanentFailure(ctx, lease, profileMismatchFailureCode)
 	}
 	workContext, heartbeat := c.startHeartbeat(ctx, lease)
 	material, readErr := c.Reader.ReadDockerConfig(workContext, profile)

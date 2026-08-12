@@ -108,16 +108,17 @@ make a local fixture pass.
 
 ## Database schema changes
 
-`migrations/prisma/migrations/001_initial/migration.sql` is the final reviewed
-`0.1.0` baseline, regenerated after RC86 qualification. Release-candidate
-databases from before this reset must be recreated. Do not edit the baseline
-after the first stable release. Add
-every later schema change as the next ordered, immutable native SQL migration,
+`migrations/prisma/migrations/001_initial/migration.sql` is the current RC
+checkpoint, regenerated after RC86. Do not edit an applied checkpoint during RC
+testing: add the next ordered native SQL migration, exercise the real upgrade,
 review the print-only `npm --prefix migrations run pull` output against the
 migrated disposable database, and bump `migrations.CurrentSchema` in the same
-change. Prisma is used only as the migration engine: PostgreSQL functions,
-triggers, deferred constraints, expression indexes, and checks remain
-authoritative native SQL; Kuberploy does not use Prisma Client.
+change. Once the complete RC qualification passes, review and squash all
+pre-stable increments into the final `0.1.0` baseline and recreate RC databases.
+After the first stable release, never rewrite that history. Prisma is used only
+as the migration engine: PostgreSQL functions, triggers, deferred constraints,
+expression indexes, and checks remain authoritative native SQL; Kuberploy does
+not use Prisma Client.
 
 The dedicated `kuberploy-migration` Helm hook runs `prisma migrate deploy`
 before install or upgrade. API and worker startup only verify the exact Prisma

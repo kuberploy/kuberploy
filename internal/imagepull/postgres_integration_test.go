@@ -35,6 +35,11 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 	targetID := "73333333-3333-4333-8333-333333333333"
 	namespace := "pull-integration-a"
 	pullRef := "runtime-pull/integration"
+	// Keep the fixed-identity integration test rerunnable after an interrupted
+	// process or a failed assertion whose best-effort cleanup could not finish.
+	_, _ = pool.Exec(ctx, `DELETE FROM runtime_registry_pull_artifacts WHERE environment_id=$1`, environmentID)
+	_, _ = pool.Exec(ctx, `DELETE FROM runtime_readiness
+		WHERE runtime_kind='runtime-registry-pull' AND scope_key='global' AND worker_id LIKE 'registry-pull-integration:%'`)
 	_, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug) VALUES($1,'pull integration','pull-integration')
 		ON CONFLICT(id) DO NOTHING`, projectID)
 	if err == nil {
@@ -108,6 +113,54 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 	old, err := store.Artifact(ctx, desired.ArtifactKey)
 	if err != nil || old.Active || old.State != StateReady {
 		t.Fatalf("retained old=%#v err=%v", old, err)
+	}
+	recoveryDigest := "sha256:" + stringsOf('c', 64)
+	recoveryLease, found, err := store.ClaimArtifact(ctx, "registry-pull-integration:recovery", RuntimeContract,
+		recoveryDigest, now.Add(2*time.Minute), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("recovery claim=%#v found=%t err=%v", recoveryLease, found, err)
+	}
+	failed, err := store.RecordArtifactRetry(ctx, recoveryLease, profileMismatchFailureCode, true,
+		now.Add(4*time.Minute), now.Add(2*time.Minute+time.Second))
+	if err != nil || failed.State != StateFailed {
+		t.Fatalf("profile mismatch=%#v err=%v", failed, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE runtime_registry_pull_artifacts
+		SET runtime_state='ready',last_failure_code='',consecutive_failures=0,
+		    last_observed_at=$4,observed_uid='76666666-6666-4666-8666-666666666666',
+		    observed_resource_version='forged',updated_at=$4
+		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=$3`,
+		environmentID, targetID, int64(2), now.Add(3*time.Minute)); err == nil {
+		t.Fatal("database accepted unleased profile-mismatch recovery")
+	}
+	reclaimed, found, err := store.ClaimArtifact(ctx, "registry-pull-integration:recovered", RuntimeContract,
+		recoveryDigest, now.Add(4*time.Minute), time.Minute)
+	if err != nil || !found || reclaimed.Artifact.LastFailureCode != profileMismatchFailureCode {
+		t.Fatalf("reclaimed=%#v found=%t err=%v", reclaimed, found, err)
+	}
+	if _, err = store.RecordArtifactReady(ctx, reclaimed, "75555555-5555-4555-8555-555555555555", "102",
+		now.Add(4*time.Minute+time.Second), now.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	terminalLease, found, err := store.ClaimArtifact(ctx, "registry-pull-integration:terminal", RuntimeContract,
+		recoveryDigest, now.Add(5*time.Minute), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("terminal claim=%#v found=%t err=%v", terminalLease, found, err)
+	}
+	terminal, err := store.RecordArtifactRetry(ctx, terminalLease, "secret-mutation", true,
+		now.Add(7*time.Minute), now.Add(5*time.Minute+time.Second))
+	if err != nil || terminal.State != StateFailed {
+		t.Fatalf("terminal artifact=%#v err=%v", terminal, err)
+	}
+	if _, found, err = store.ClaimArtifact(ctx, "registry-pull-integration:forged", RuntimeContract,
+		recoveryDigest, now.Add(7*time.Minute), time.Minute); err != nil || found {
+		t.Fatalf("other permanent failure became claimable: found=%t err=%v", found, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE runtime_registry_pull_artifacts
+		SET runtime_state='ready',updated_at=$4
+		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=$3`,
+		environmentID, targetID, int64(2), now.Add(7*time.Minute)); err == nil {
+		t.Fatal("database accepted recovery of a non-profile permanent failure")
 	}
 	if _, err = pool.Exec(ctx, `UPDATE runtime_registry_pull_artifacts SET namespace='default'
 		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=2`, environmentID, targetID); err == nil {

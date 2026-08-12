@@ -88,7 +88,8 @@ func (s *MemoryStore) ClaimArtifact(ctx context.Context, owner, contract, config
 	defer s.mu.Unlock()
 	keys := make([]ArtifactKey, 0, len(s.artifacts))
 	for key, artifact := range s.artifacts {
-		if artifact.Active && artifact.State != StateFailed && !artifact.NextObservationAt.After(now) &&
+		if artifact.Active && (artifact.State != StateFailed || artifact.LastFailureCode == profileMismatchFailureCode) &&
+			!artifact.NextObservationAt.After(now) &&
 			(artifact.LeaseUntil == nil || !artifact.LeaseUntil.After(now)) {
 			keys = append(keys, key)
 		}

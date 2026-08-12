@@ -246,6 +246,13 @@ const (
 	StateAwaiting RuntimeState = "awaiting"
 	StateReady    RuntimeState = "ready"
 	StateFailed   RuntimeState = "failed"
+
+	// profileMismatchFailureCode is the sole failed state that can be
+	// reclaimed. The controller revalidates the complete operator profile and
+	// derived Secret identity before reading credentials or mutating Kubernetes,
+	// so correcting operator configuration recovers without weakening other
+	// permanent-failure fences.
+	profileMismatchFailureCode = "profile-mismatch"
 )
 
 type Artifact struct {
