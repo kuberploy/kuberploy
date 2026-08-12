@@ -454,6 +454,7 @@ def main() -> None:
     )
     allowed_base_images = {
         "docker.io/alpine/helm:4.2",
+        "docker.io/docker/buildx-bin:0.36.1",
         "docker.io/library/alpine:3.24",
         "docker.io/library/docker:29-dind",
         "docker.io/library/golang:1.26-alpine3.24",
