@@ -114,6 +114,7 @@ func scanAttemptHistory(row scanner) (BuildAttempt, error) {
 		if err := decodeClosedJSON(resultJSON, &result); err != nil {
 			return BuildAttempt{}, ErrInvalid
 		}
+		normalizeLegacyCacheReuse(&result)
 		attempt.Result = &result
 	}
 	if err := validateStoredAttemptHistory(attempt); err != nil {

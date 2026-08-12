@@ -811,6 +811,15 @@ function safeBuildAttempt(attempt: BuildAttempt): BuildAttempt {
           platforms: [...(attempt.image.platforms ?? [])].slice(0, 2),
         }
       : undefined,
+    cacheReuse: [
+      "not-requested",
+      "unavailable",
+      "hit",
+      "miss",
+      "unknown",
+    ].includes(attempt.cacheReuse ?? "")
+      ? attempt.cacheReuse
+      : undefined,
     warnings: [...(attempt.warnings ?? [])].slice(0, 8),
     cacheReference: attempt.cacheReference,
     failureCode: attempt.failureCode,

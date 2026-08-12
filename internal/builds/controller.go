@@ -277,6 +277,11 @@ func validateBuildResult(result builder.BuildResult, cacheRef, logRef string) er
 		result.StartedAt.IsZero() || result.CompletedAt.Before(result.StartedAt) || result.CompletedAt.IsZero() {
 		return ErrInvalid
 	}
+	switch result.CacheReuse {
+	case builder.CacheReuseNotRequested, builder.CacheReuseUnavailable, builder.CacheReuseHit, builder.CacheReuseMiss, builder.CacheReuseUnknown:
+	default:
+		return ErrInvalid
+	}
 	seenPlatforms := map[string]struct{}{}
 	for _, platform := range result.Image.Platforms {
 		if platform != "linux/amd64" && platform != "linux/arm64" {
@@ -311,6 +316,15 @@ func validateBuildResult(result builder.BuildResult, cacheRef, logRef string) er
 		return ErrInvalid
 	}
 	return nil
+}
+
+// normalizeLegacyCacheReuse keeps pre-signal PostgreSQL results readable after
+// an upgrade without fabricating a hit or miss. New completion writes still
+// require one explicit closed value through validateBuildResult.
+func normalizeLegacyCacheReuse(result *builder.BuildResult) {
+	if result != nil && result.CacheReuse == "" {
+		result.CacheReuse = builder.CacheReuseUnknown
+	}
 }
 
 func addResultWarning(warnings []builder.Warning, warning builder.Warning) []builder.Warning {

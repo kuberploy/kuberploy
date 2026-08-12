@@ -54,6 +54,7 @@ const attempt: BuildAttempt = {
   gitRef: "refs/heads/main",
   generation: 1,
   state: "running",
+  cacheReuse: "hit",
   executionAttempts: 1,
   maxAttempts: 3,
   createdAt: "2026-08-09T00:00:00Z",
@@ -209,6 +210,7 @@ describe("source-build workspace", () => {
       screen.queryByRole("option", { name: /Restricted/ }),
     ).not.toBeInTheDocument();
     expect(await screen.findAllByText("main")).not.toHaveLength(0);
+    expect(screen.getByText("Registry cache: hit")).toBeInTheDocument();
     expect(screen.queryByText("refs/heads/main")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Create immutable definition" }),

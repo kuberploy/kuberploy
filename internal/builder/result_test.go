@@ -22,8 +22,9 @@ func TestMaximumValidBuildResultFitsKubernetesTerminationMessage(t *testing.T) {
 			Reference: strings.Repeat("c", 480) + ":generation-1000000000",
 			Digest:    "sha256:" + strings.Repeat("b", 64),
 		},
-		Warnings:  []Warning{WarningColdBuild, WarningCacheDegraded},
-		StartedAt: time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), CompletedAt: time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC),
+		CacheReuse: CacheReuseHit,
+		Warnings:   []Warning{WarningColdBuild, WarningCacheDegraded},
+		StartedAt:  time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC), CompletedAt: time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC),
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {

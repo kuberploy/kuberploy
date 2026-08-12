@@ -168,8 +168,9 @@ func completedProjectionAttempt(t *testing.T, mode RegistryMode, withCache bool)
 	digest := "sha256:" + strings.Repeat("c", 64)
 	result := builder.BuildResult{
 		APIVersion: builder.ProtocolVersion, OperationID: claimed.ID, Generation: claimed.Generation, Status: "Succeeded",
-		Image:    builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@" + digest, Digest: digest, Platforms: claimed.PlanRequest.Build.Platforms},
-		Warnings: []builder.Warning{}, StartedAt: clock.Add(time.Second), CompletedAt: completed,
+		Image:      builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@" + digest, Digest: digest, Platforms: claimed.PlanRequest.Build.Platforms},
+		CacheReuse: builder.CacheReuseHit,
+		Warnings:   []builder.Warning{}, StartedAt: clock.Add(time.Second), CompletedAt: completed,
 	}
 	cacheRef := ""
 	if withCache {

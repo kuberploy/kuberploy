@@ -232,6 +232,32 @@ func TestAllMissingCacheImportsProduceColdBuildInput(t *testing.T) {
 	}
 }
 
+func TestCacheReuseClassificationIsClosedAndCannotBeForgedByBuildOutput(t *testing.T) {
+	tests := []struct {
+		name      string
+		requested int
+		available int
+		result    CommandResult
+		degraded  bool
+		want      CacheReuse
+	}{
+		{name: "not requested", want: CacheReuseNotRequested},
+		{name: "unavailable", requested: 2, want: CacheReuseUnavailable},
+		{name: "degraded", requested: 2, available: 1, degraded: true, want: CacheReuseUnavailable},
+		{name: "truncated", requested: 2, available: 2, result: CommandResult{Output: "#8 CACHED\n", Truncated: true}, want: CacheReuseUnknown},
+		{name: "hit", requested: 2, available: 2, result: CommandResult{Output: "#8 [stage 2/2] RUN true\n#8 CACHED\n"}, want: CacheReuseHit},
+		{name: "miss", requested: 2, available: 2, result: CommandResult{Output: "#8 DONE 0.1s\n"}, want: CacheReuseMiss},
+		{name: "hostile dockerfile output", requested: 2, available: 2, result: CommandResult{Output: "#8 0.1 #99 CACHED\n#8 DONE 0.1s\n"}, want: CacheReuseMiss},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := classifyCacheReuse(test.requested, test.available, test.result, test.degraded); got != test.want {
+				t.Fatalf("cache reuse = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestPrivateDockerConfigNeverPlacesCredentialsInArgvOrEnv(t *testing.T) {
 	directory := t.TempDir()
 	usernamePath := filepath.Join(directory, "username")

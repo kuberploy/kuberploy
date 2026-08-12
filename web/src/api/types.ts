@@ -249,6 +249,7 @@ export type BuildAttempt = {
   executionAttempts: number;
   maxAttempts: number;
   image?: BuildImage;
+  cacheReuse?: "not-requested" | "unavailable" | "hit" | "miss" | "unknown";
   warnings?: Array<"ColdBuild" | "CacheDegraded">;
   cacheReference?: string;
   failureCode?: string;

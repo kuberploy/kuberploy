@@ -194,6 +194,37 @@ func TestCachePromotionFailureKeepsImageSuccessButNeverAdvertisesImport(t *testi
 	}
 }
 
+func TestBuildResultRequiresClosedCacheReuseOutcome(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("f", 64)
+	result := builder.BuildResult{
+		APIVersion: builder.ProtocolVersion, OperationID: "11111111-1111-4111-8111-111111111111", Generation: 1, Status: "Succeeded",
+		Image:      builder.Image{Reference: "registry.example.test/team/app@" + digest, Digest: digest, Platforms: []string{"linux/amd64"}},
+		CacheReuse: builder.CacheReuseHit, StartedAt: testNow, CompletedAt: testNow.Add(time.Second),
+	}
+	if err := validateBuildResult(result, "", ""); err != nil {
+		t.Fatalf("valid cache result rejected: %v", err)
+	}
+	for _, invalid := range []builder.CacheReuse{"", "raw-output", "Hit"} {
+		result.CacheReuse = invalid
+		if err := validateBuildResult(result, "", ""); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("cache reuse %q accepted: %v", invalid, err)
+		}
+	}
+}
+
+func TestLegacyStoredResultUsesUnknownCacheReuseWithoutFabricatingEvidence(t *testing.T) {
+	result := &builder.BuildResult{}
+	normalizeLegacyCacheReuse(result)
+	if result.CacheReuse != builder.CacheReuseUnknown {
+		t.Fatalf("legacy cache reuse = %q", result.CacheReuse)
+	}
+	result.CacheReuse = builder.CacheReuseHit
+	normalizeLegacyCacheReuse(result)
+	if result.CacheReuse != builder.CacheReuseHit {
+		t.Fatalf("explicit cache reuse changed to %q", result.CacheReuse)
+	}
+}
+
 func TestCancellationWinsConcurrentFailureAndSuccess(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow
@@ -208,7 +239,7 @@ func TestCancellationWinsConcurrentFailureAndSuccess(t *testing.T) {
 	if _, err = store.RequestCancel(context.Background(), claimed.ID, clock.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: claimed.ID, Generation: claimed.Generation, Status: "Succeeded", Image: builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("f", 64), Platforms: claimed.PlanRequest.Build.Platforms}, StartedAt: clock, CompletedAt: clock.Add(time.Second)}
+	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: claimed.ID, Generation: claimed.Generation, Status: "Succeeded", Image: builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("f", 64), Platforms: claimed.PlanRequest.Build.Platforms}, CacheReuse: builder.CacheReuseHit, StartedAt: clock, CompletedAt: clock.Add(time.Second)}
 	if err = store.CompleteAttempt(context.Background(), claimed.ID, "builder-race", BuildCompletion{Result: result, LogReference: "k8s://kuberploy-build-dind/pods/build-pod/containers/agent"}, clock.Add(2*time.Second)); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("success overrode cancellation: %v", err)
 	}
@@ -233,7 +264,7 @@ func TestExpiredLeaseCannotPublishResult(t *testing.T) {
 	if err = store.MarkAttemptRunning(context.Background(), claimed.ID, "stale-worker", clock); err != nil {
 		t.Fatal(err)
 	}
-	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: claimed.ID, Generation: claimed.Generation, Status: "Succeeded", Image: builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("f", 64), Platforms: claimed.PlanRequest.Build.Platforms}, StartedAt: clock, CompletedAt: clock.Add(time.Second)}
+	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: claimed.ID, Generation: claimed.Generation, Status: "Succeeded", Image: builder.Image{Reference: claimed.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("f", 64), Digest: "sha256:" + strings.Repeat("f", 64), Platforms: claimed.PlanRequest.Build.Platforms}, CacheReuse: builder.CacheReuseHit, StartedAt: clock, CompletedAt: clock.Add(time.Second)}
 	if err = store.CompleteAttempt(context.Background(), attempt.ID, "stale-worker", BuildCompletion{Result: result, LogReference: "k8s://kuberploy-build-dind/pods/build-pod/containers/agent"}, clock.Add(6*time.Second)); !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("expired lease published: %v", err)
 	}

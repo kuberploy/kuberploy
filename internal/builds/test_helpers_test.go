@@ -227,8 +227,9 @@ func (k *fakeKubernetes) Ensure(_ context.Context, workload BuildWorkload) (Work
 	if k.state == WorkloadSucceeded {
 		result := builder.BuildResult{
 			APIVersion: builder.ProtocolVersion, OperationID: workload.Attempt.ID, Generation: workload.Attempt.Generation, Status: "Succeeded",
-			Image:     builder.Image{Reference: workload.Attempt.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("c", 64), Digest: "sha256:" + strings.Repeat("c", 64), Platforms: workload.Attempt.PlanRequest.Build.Platforms},
-			StartedAt: testNow, CompletedAt: testNow.Add(time.Minute),
+			Image:      builder.Image{Reference: workload.Attempt.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("c", 64), Digest: "sha256:" + strings.Repeat("c", 64), Platforms: workload.Attempt.PlanRequest.Build.Platforms},
+			CacheReuse: builder.CacheReuseHit,
+			StartedAt:  testNow, CompletedAt: testNow.Add(time.Minute),
 		}
 		observation.Result, _ = json.Marshal(result)
 		observation.LogReference = "k8s://kuberploy-build-dind/pods/build-pod/containers/agent"

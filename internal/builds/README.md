@@ -62,7 +62,10 @@ receives the handoff.
    rotating endpoints.
    Cache export uses `mode=max`, OCI media types, and an image manifest. A
    confirmed cache promotion becomes `generation-N`; an unavailable candidate
-   records `CacheDegraded` and is never advertised.
+   records `CacheDegraded` and is never advertised. Successful agents also
+   publish one closed, non-secret cache reuse outcome (`hit`, `miss`,
+   `unavailable`, `not-requested`, or `unknown`); raw BuildKit output remains
+   private.
 8. A successful attempt atomically enqueues a lease-fenced release projection.
    The independent worker loop revalidates the immutable definition, registry
    target, service policy, repository scope, image digest and optional cache

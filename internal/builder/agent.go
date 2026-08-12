@@ -121,7 +121,9 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	}
 	a.reportProgress("Registry cache build started.")
 	cacheResult, cacheBuildErr := a.Executor.Execute(ctx, cacheInvocation)
-	if cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output) {
+	cacheDegraded := cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output)
+	cacheReuse := classifyCacheReuse(len(request.Cache.Imports), len(cacheImports), cacheResult, cacheDegraded)
+	if cacheDegraded {
 		warnings = addWarning(warnings, WarningCacheDegraded)
 		a.reportProgress("Registry cache degraded; continuing with the release build.")
 	} else {
@@ -174,6 +176,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 			Platforms: platforms,
 		},
 		Cache:       cache,
+		CacheReuse:  cacheReuse,
 		Warnings:    warnings,
 		StartedAt:   started,
 		CompletedAt: a.Now().UTC(),
@@ -244,6 +247,7 @@ func (a *Agent) buildInvocation(request BuildRequest, configDirectory, builderNa
 	}
 	args := a.dockerArgs(configDirectory,
 		"buildx", "build",
+		"--progress=plain",
 		"--builder", builderName,
 		"--file", dockerfilePath,
 		"--platform", strings.Join(request.Platforms, ","),
@@ -266,6 +270,7 @@ func (a *Agent) cacheInvocation(request BuildRequest, configDirectory, builderNa
 	}
 	args := a.dockerArgs(configDirectory,
 		"buildx", "build",
+		"--progress=plain",
 		"--builder", builderName,
 		"--file", dockerfilePath,
 		"--platform", strings.Join(request.Platforms, ","),
@@ -542,6 +547,49 @@ func outputShowsCacheDegradation(output string) bool {
 	mentionsCache := strings.Contains(lower, "cache import") || strings.Contains(lower, "cache export") || strings.Contains(lower, "cache-to") || strings.Contains(lower, "cache-from")
 	mentionsFailure := strings.Contains(lower, "warning") || strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "unavailable")
 	return mentionsCache && mentionsFailure
+}
+
+func classifyCacheReuse(requested, available int, result CommandResult, degraded bool) CacheReuse {
+	if requested == 0 {
+		return CacheReuseNotRequested
+	}
+	if available == 0 || degraded {
+		return CacheReuseUnavailable
+	}
+	if result.Truncated {
+		return CacheReuseUnknown
+	}
+	if outputShowsCacheHit(result.Output) {
+		return CacheReuseHit
+	}
+	return CacheReuseMiss
+}
+
+// outputShowsCacheHit recognizes only BuildKit's own plain-progress cache
+// marker. Dockerfile process output is prefixed with timing metadata, so an
+// untrusted build cannot create this exact line and forge the safe result.
+func outputShowsCacheHit(output string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) < len("#1 CACHED") || line[0] != '#' || !strings.HasSuffix(line, " CACHED") {
+			continue
+		}
+		digits := strings.TrimSuffix(strings.TrimPrefix(line, "#"), " CACHED")
+		if digits == "" {
+			continue
+		}
+		valid := true
+		for _, character := range digits {
+			if character < '0' || character > '9' {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveExistingCheckoutPath rejects symlinks in the checkout root and every

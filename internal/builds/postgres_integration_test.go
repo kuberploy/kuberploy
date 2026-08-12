@@ -235,7 +235,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.MarkAttemptRunning(ctx, attempt.ID, "postgres-builder", now); err != nil {
 		t.Fatal(err)
 	}
-	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: attempt.ID, Generation: attempt.Generation, Status: "Succeeded", Image: builder.Image{Reference: attempt.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("e", 64), Digest: "sha256:" + strings.Repeat("e", 64), Platforms: attempt.PlanRequest.Build.Platforms}, Cache: &builder.Cache{Reference: cacheReference(attempt), Digest: "sha256:" + strings.Repeat("f", 64)}, StartedAt: now, CompletedAt: now.Add(time.Minute)}
+	result := builder.BuildResult{APIVersion: builder.ProtocolVersion, OperationID: attempt.ID, Generation: attempt.Generation, Status: "Succeeded", Image: builder.Image{Reference: attempt.PlanRequest.Build.Destination.Repository + "@sha256:" + strings.Repeat("e", 64), Digest: "sha256:" + strings.Repeat("e", 64), Platforms: attempt.PlanRequest.Build.Platforms}, Cache: &builder.Cache{Reference: cacheReference(attempt), Digest: "sha256:" + strings.Repeat("f", 64)}, CacheReuse: builder.CacheReuseHit, StartedAt: now, CompletedAt: now.Add(time.Minute)}
 	if err = store.CompleteAttempt(ctx, attempt.ID, "postgres-builder", BuildCompletion{Result: result, CacheReference: cacheReference(attempt), LogReference: "k8s://kuberploy-build-dind/pods/build-pod/containers/agent"}, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}

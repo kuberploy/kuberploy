@@ -58,6 +58,7 @@ const attempt: BuildAttempt = {
     digest: `sha256:${"c".repeat(64)}`,
     platforms: ["linux/amd64", "linux/arm64"],
   },
+  cacheReuse: "hit",
   warnings: ["ColdBuild"],
   cacheReference: "registry.example.test/tenant/api:cache-generation-7",
   createdAt: "2026-08-09T00:00:00Z",
@@ -223,11 +224,28 @@ describe("GitHub source-build API client", () => {
     expect(repositories.items).toHaveLength(1);
     expect(definitions.items).toHaveLength(1);
     expect(attempts.items).toHaveLength(1);
+    expect(attempts.items[0]?.cacheReuse).toBe("hit");
     expect(
       JSON.stringify({ installations, repositories, definitions, attempts }),
     ).not.toMatch(
       /privateKey|checkoutToken|registryCredential|serviceAccount|profile-token|checkoutUrl|raw-build-log|sourceToken|registryPassword|password-leak|token-leak/,
     );
+  });
+
+  it("drops an unknown cache reuse value instead of expanding the closed projection", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            JSON.stringify({ ...attempt, cacheReuse: "raw-buildkit-output" }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+    );
+
+    expect((await api.buildAttempt(attempt.id)).cacheReuse).toBeUndefined();
   });
 
   it("uses caller-stable keys and sends only the closed mutation schema", async () => {

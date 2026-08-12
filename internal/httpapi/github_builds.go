@@ -630,6 +630,7 @@ type buildAttemptView struct {
 	ExecutionAttempts int                 `json:"executionAttempts"`
 	MaxAttempts       int                 `json:"maxAttempts"`
 	Image             *builder.Image      `json:"image,omitempty"`
+	CacheReuse        builder.CacheReuse  `json:"cacheReuse,omitempty"`
 	Warnings          []builder.Warning   `json:"warnings,omitempty"`
 	CacheReference    string              `json:"cacheReference,omitempty"`
 	FailureCode       string              `json:"failureCode,omitempty"`
@@ -905,7 +906,7 @@ func safeBuildAttempt(attempt builds.BuildAttempt) buildAttemptView {
 	if attempt.Result != nil {
 		image := attempt.Result.Image
 		image.Platforms = append([]string(nil), image.Platforms...)
-		view.Image, view.Warnings = &image, append([]builder.Warning(nil), attempt.Result.Warnings...)
+		view.Image, view.CacheReuse, view.Warnings = &image, attempt.Result.CacheReuse, append([]builder.Warning(nil), attempt.Result.Warnings...)
 	}
 	return view
 }

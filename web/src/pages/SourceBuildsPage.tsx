@@ -62,6 +62,9 @@ function BuildAttemptRow({
           {attempt.executionAttempts}/{attempt.maxAttempts} execution attempts ·{" "}
           {formatDate(attempt.updatedAt)}
         </small>
+        {attempt.cacheReuse ? (
+          <small>Registry cache: {attempt.cacheReuse.replace("-", " ")}</small>
+        ) : null}
       </div>
       <Link
         className="button button--secondary"

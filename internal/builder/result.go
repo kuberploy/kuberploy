@@ -17,21 +17,30 @@ const (
 
 type Warning string
 
+type CacheReuse string
+
 const (
 	WarningColdBuild     Warning = "ColdBuild"
 	WarningCacheDegraded Warning = "CacheDegraded"
+
+	CacheReuseNotRequested CacheReuse = "not-requested"
+	CacheReuseUnavailable  CacheReuse = "unavailable"
+	CacheReuseHit          CacheReuse = "hit"
+	CacheReuseMiss         CacheReuse = "miss"
+	CacheReuseUnknown      CacheReuse = "unknown"
 )
 
 type BuildResult struct {
-	APIVersion  string    `json:"apiVersion"`
-	OperationID string    `json:"operationId"`
-	Generation  int64     `json:"generation"`
-	Status      string    `json:"status"`
-	Image       Image     `json:"image"`
-	Cache       *Cache    `json:"cache,omitempty"`
-	Warnings    []Warning `json:"warnings"`
-	StartedAt   time.Time `json:"startedAt"`
-	CompletedAt time.Time `json:"completedAt"`
+	APIVersion  string     `json:"apiVersion"`
+	OperationID string     `json:"operationId"`
+	Generation  int64      `json:"generation"`
+	Status      string     `json:"status"`
+	Image       Image      `json:"image"`
+	Cache       *Cache     `json:"cache,omitempty"`
+	CacheReuse  CacheReuse `json:"cacheReuse"`
+	Warnings    []Warning  `json:"warnings"`
+	StartedAt   time.Time  `json:"startedAt"`
+	CompletedAt time.Time  `json:"completedAt"`
 }
 
 type Image struct {

@@ -506,9 +506,10 @@ func TestKubernetesAdapterCollectsBoundedResultAndConfirmsAgentCachePromotion(t 
 	cacheDigest := "sha256:" + strings.Repeat("d", 64)
 	result := builder.BuildResult{
 		APIVersion: builder.ProtocolVersion, OperationID: attempt.ID, Generation: attempt.Generation, Status: "Succeeded",
-		Image:    builder.Image{Reference: attempt.PlanRequest.Build.Destination.Repository + "@" + imageDigest, Digest: imageDigest, Platforms: attempt.PlanRequest.Build.Platforms},
-		Cache:    &builder.Cache{Reference: cacheReference(attempt), Digest: cacheDigest},
-		Warnings: []builder.Warning{}, StartedAt: testNow, CompletedAt: testNow.Add(time.Minute),
+		Image:      builder.Image{Reference: attempt.PlanRequest.Build.Destination.Repository + "@" + imageDigest, Digest: imageDigest, Platforms: attempt.PlanRequest.Build.Platforms},
+		Cache:      &builder.Cache{Reference: cacheReference(attempt), Digest: cacheDigest},
+		CacheReuse: builder.CacheReuseHit,
+		Warnings:   []builder.Warning{}, StartedAt: testNow, CompletedAt: testNow.Add(time.Minute),
 	}
 	encoded, _ := json.Marshal(result)
 	jobKey := resources.key(resourceJobs, attempt.JobNamespace, attempt.JobName)
