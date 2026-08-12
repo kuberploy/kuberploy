@@ -49,8 +49,24 @@ docker run --detach \
   --env DATABASE_URL="${kp_delayed_url}" \
   --env KUBERPLOY_MIGRATION_DATABASE_WAIT_SECONDS=60 \
   "${kp_image}" >/dev/null
-sleep 2
-docker logs "${kp_waiter}" 2>&1 | grep -q 'Waiting for the configured PostgreSQL endpoint'
+kp_waiter_announced=false
+for _ in $(seq 1 30); do
+  if docker logs "${kp_waiter}" 2>&1 | grep -q 'Waiting for the configured PostgreSQL endpoint'; then
+    kp_waiter_announced=true
+    break
+  fi
+  [[ "$(docker inspect --format '{{.State.Running}}' "${kp_waiter}")" == "true" ]] || {
+    docker logs "${kp_waiter}" >&2
+    printf 'Migration image exited before announcing its database wait\n' >&2
+    exit 1
+  }
+  sleep 1
+done
+[[ "${kp_waiter_announced}" == "true" ]] || {
+  docker logs "${kp_waiter}" >&2
+  printf 'Migration image did not announce its database wait in time\n' >&2
+  exit 1
+}
 docker run --detach --rm \
   --name "${kp_delayed_postgres}" \
   --network "${kp_network}" \
