@@ -31,8 +31,19 @@ def main() -> None:
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
         (fixture / ".github/dependabot.yml").write_text(dependabot, encoding="utf-8")
         (fixture / "release").mkdir()
-        for name in ("build", "charts", "migrations", "scripts", "web"):
+        for name in ("build", "charts", "scripts", "web"):
             os.symlink(root / name, fixture / name, target_is_directory=True)
+        (fixture / "migrations").mkdir()
+        os.symlink(
+            root / "migrations/prisma",
+            fixture / "migrations/prisma",
+            target_is_directory=True,
+        )
+        migration_package = (root / "migrations/package.json").read_text(encoding="utf-8")
+        (fixture / "migrations/package.json").write_text(
+            migration_package,
+            encoding="utf-8",
+        )
         os.symlink(root / "release/metadata.json", fixture / "release/metadata.json")
 
         baseline = run_validator(root, fixture, workflow)
@@ -71,6 +82,20 @@ def main() -> None:
         ):
             raise SystemExit("validator accepted incomplete Dependabot coverage")
         (fixture / ".github/dependabot.yml").write_text(dependabot, encoding="utf-8")
+
+        (fixture / "migrations/package.json").write_text(
+            migration_package.replace('"prisma@7.9.1": true', '"prisma@7.9.1": false', 1),
+            encoding="utf-8",
+        )
+        unsafe_prisma_scripts = run_validator(root, fixture, workflow)
+        if unsafe_prisma_scripts.returncode == 0 or "approve only the pinned Prisma" not in (
+            unsafe_prisma_scripts.stdout + unsafe_prisma_scripts.stderr
+        ):
+            raise SystemExit("validator accepted an altered Prisma install-script policy")
+        (fixture / "migrations/package.json").write_text(
+            migration_package,
+            encoding="utf-8",
+        )
 
         source_date_epoch = "SOURCE_DATE_EPOCH=${{ needs.release-gate.outputs.source_date_epoch }}"
         cases = (

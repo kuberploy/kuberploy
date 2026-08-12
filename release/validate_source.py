@@ -115,6 +115,11 @@ def main() -> None:
     migration_package = json.loads((args.root / "migrations/package.json").read_text(encoding="utf-8"))
     if migration_package.get("dependencies") != {"prisma": "7.9.1"}:
         raise SystemExit("migration package must contain only exact Prisma CLI 7.9.1")
+    if migration_package.get("allowScripts") != {
+        "@prisma/engines@7.9.1": True,
+        "prisma@7.9.1": True,
+    }:
+        raise SystemExit("migration package must approve only the pinned Prisma 7.9.1 install scripts")
     if "@prisma/client" in json.dumps(migration_package):
         raise SystemExit("migration-only package must not include Prisma Client")
     prisma_schema = (args.root / "migrations/prisma/schema.prisma").read_text(encoding="utf-8")
