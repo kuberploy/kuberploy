@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Qualification RC hardening clean-runner migrations, selected dependencies, and fail-closed stable promotion.",
+  "summary": "Argo desired-state crash recovery remains exact and converges after a newer Git projection activates.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.85"
+  "version": "0.1.0-rc.86"
 }
