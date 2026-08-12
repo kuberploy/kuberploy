@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${kp_root}/scripts/helm/download-locked-artifact.sh"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-edge-render.XXXXXX")"
 
 kp_cleanup() {
@@ -42,8 +43,7 @@ kp_stage_chart() {
       printf '%s checksum is not present in DEPENDENCIES.md\n' "${kp_name}" >&2
       exit 1
     }
-    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-      "${kp_url}" -o "${kp_target}/charts/${kp_filename}"
+    kp_download_locked_artifact "${kp_url}" "${kp_filename}" "${kp_target}/charts/${kp_filename}"
     kp_actual="$(shasum -a 256 "${kp_target}/charts/${kp_filename}" | awk '{print $1}')"
     [[ "${kp_actual}" == "${kp_checksum}" ]] || {
       printf '%s checksum mismatch: expected %s, got %s\n' "${kp_filename}" "${kp_checksum}" "${kp_actual}" >&2

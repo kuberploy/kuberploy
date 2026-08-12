@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${kp_root}/scripts/helm/download-locked-artifact.sh"
 kp_source="${kp_root}/charts/kuberploy-monitoring"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-monitoring-render.XXXXXX")"
 
@@ -45,26 +46,7 @@ while read -r kp_checksum kp_filename kp_url; do
     exit 1
   }
   kp_download="${kp_chart}/charts/${kp_filename}"
-  kp_partial="${kp_download}.partial"
-  if curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-    "${kp_url}" -o "${kp_partial}"; then
-    mv "${kp_partial}" "${kp_download}"
-  else
-    command -v gh >/dev/null 2>&1 || {
-      printf 'GitHub release download failed and gh fallback is unavailable\n' >&2
-      exit 1
-    }
-    kp_release_path="${kp_url#https://github.com/}"
-    kp_repository="${kp_release_path%%/releases/download/*}"
-    kp_release_path="${kp_release_path#*/releases/download/}"
-    kp_release_tag="${kp_release_path%%/*}"
-    [[ "${kp_repository}" == */* && -n "${kp_release_tag}" && "${kp_release_path#*/}" == "${kp_filename}" ]] || {
-      printf 'monitoring fallback URL is not one exact GitHub release asset\n' >&2
-      exit 1
-    }
-    gh release download "${kp_release_tag}" --repo "${kp_repository}" --pattern "${kp_filename}" \
-      --dir "${kp_chart}/charts" --clobber
-  fi
+  kp_download_locked_artifact "${kp_url}" "${kp_filename}" "${kp_download}"
   kp_actual="$(shasum -a 256 "${kp_chart}/charts/${kp_filename}" | awk '{print $1}')"
   [[ "${kp_actual}" == "${kp_checksum}" ]] || {
     printf '%s checksum mismatch: expected %s, got %s\n' "${kp_filename}" "${kp_checksum}" "${kp_actual}" >&2

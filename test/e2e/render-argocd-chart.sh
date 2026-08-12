@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 kp_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+source "${kp_root}/scripts/helm/download-locked-artifact.sh"
 kp_source="${kp_root}/charts/kuberploy-argocd"
 kp_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kuberploy-argocd-render.XXXXXX")"
 
@@ -25,7 +26,7 @@ cp -R "${kp_source}" "${kp_chart}"
 mkdir -p "${kp_chart}/charts"
 read -r kp_checksum kp_filename kp_url < <(awk 'NF && $1 !~ /^#/ {print}' "${kp_source}/testdata/upstream-artifacts.lock")
 [[ "${kp_checksum}" == "d08882d22d0c76e3174e005cc09abe300c70ba556aec76725a4410d172b9c1f3" ]]
-curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 "${kp_url}" -o "${kp_chart}/charts/${kp_filename}"
+kp_download_locked_artifact "${kp_url}" "${kp_filename}" "${kp_chart}/charts/${kp_filename}"
 [[ "$(shasum -a 256 "${kp_chart}/charts/${kp_filename}" | awk '{print $1}')" == "${kp_checksum}" ]]
 rg -F "${kp_checksum}" "${kp_root}/DEPENDENCIES.md" >/dev/null
 helm dependency list "${kp_chart}" | rg -F 'ok' >/dev/null

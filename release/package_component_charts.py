@@ -98,34 +98,20 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
     opener = urllib.request.build_opener(HTTPSOnlyRedirect, urllib.request.HTTPSHandler(context=context))
     request = urllib.request.Request(url, headers={"User-Agent": "kuberploy-release/1"})
     size = 0
-    try:
-        with opener.open(request, timeout=60) as response, destination.open("xb") as output:
-            final = urllib.parse.urlsplit(response.geturl())
-            if final.scheme != "https":
-                raise ValueError("upstream chart response must remain HTTPS")
-            content_length = response.headers.get("Content-Length")
-            if content_length is not None and int(content_length) > MAX_UPSTREAM_BYTES:
-                raise ValueError("upstream chart is larger than the release limit")
-            while chunk := response.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPSTREAM_BYTES:
-                    raise ValueError("upstream chart is larger than the release limit")
-                output.write(chunk)
-    except Exception as download_error:
-        destination.unlink(missing_ok=True)
-        parsed = urllib.parse.urlsplit(url)
-        parts = parsed.path.strip("/").split("/")
-        gh = shutil.which("gh")
-        if (
-            gh is None
-            or parsed.hostname != "github.com"
-            or parsed.query
-            or parsed.fragment
-            or len(parts) != 6
-            or parts[2:4] != ["releases", "download"]
-            or parts[5] != destination.name
-        ):
-            raise download_error
+    parsed = urllib.parse.urlsplit(url)
+    parts = parsed.path.strip("/").split("/")
+    gh = shutil.which("gh")
+    github_release = (
+        gh is not None
+        and parsed.hostname == "github.com"
+        and not parsed.query
+        and not parsed.fragment
+        and len(parts) == 6
+        and parts[2:4] == ["releases", "download"]
+        and parts[5] == destination.name
+    )
+    downloaded = False
+    if github_release:
         repository = f"{parts[0]}/{parts[1]}"
         try:
             subprocess.run(
@@ -136,8 +122,26 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-        except subprocess.CalledProcessError as fallback_error:
-            raise RuntimeError(f"GitHub release fallback failed: {fallback_error.stderr.strip()}") from download_error
+            downloaded = True
+        except subprocess.CalledProcessError:
+            destination.unlink(missing_ok=True)
+    if not downloaded:
+        try:
+            with opener.open(request, timeout=60) as response, destination.open("xb") as output:
+                final = urllib.parse.urlsplit(response.geturl())
+                if final.scheme != "https":
+                    raise ValueError("upstream chart response must remain HTTPS")
+                content_length = response.headers.get("Content-Length")
+                if content_length is not None and int(content_length) > MAX_UPSTREAM_BYTES:
+                    raise ValueError("upstream chart is larger than the release limit")
+                while chunk := response.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_UPSTREAM_BYTES:
+                        raise ValueError("upstream chart is larger than the release limit")
+                    output.write(chunk)
+        except Exception:
+            destination.unlink(missing_ok=True)
+            raise
     if not destination.is_file() or destination.stat().st_size > MAX_UPSTREAM_BYTES:
         destination.unlink(missing_ok=True)
         raise ValueError("upstream chart is absent or larger than the release limit")
