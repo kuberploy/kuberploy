@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Personal-project runtime-secret references now pass exact Git projection ownership validation and reach Argo desired state while forged team scopes remain blocked.",
+  "summary": "Protected Argo publication now retries hard refreshes until the exact verified provider revision is observed Synced and Healthy.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.106"
+  "version": "0.1.0-rc.107"
 }
