@@ -85,7 +85,12 @@ func (w *DesiredStateRuntimeWorker) ProcessOne(ctx context.Context) (bool, error
 	if w.ReportError != nil {
 		w.ReportError(work.Command.ID, failureCode, err)
 	}
-	if current.State == DesiredStateClaimed && IsPermanentDesiredStateError(err) {
+	// Once the immutable write-base receipt exists, the Git push may have
+	// succeeded even if its database acknowledgement did not. Never make that
+	// ambiguous recovery state terminal: a later worker (including one running
+	// a newer chart identity) must inspect the operation trailer and finish the
+	// exact durable command.
+	if current.State == DesiredStateClaimed && current.WriteBaseRevision == "" && IsPermanentDesiredStateError(err) {
 		_, finishErr := w.Store.FailDesiredState(ctx, lease, failureCode, now)
 		if finishErr != nil {
 			return true, errors.Join(err, finishErr)

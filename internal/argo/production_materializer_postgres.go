@@ -83,9 +83,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	LEFT JOIN LATERAL (
 		SELECT command.id
 		FROM argo_desired_state_commands command
-		WHERE command.environment_id=b.environment_id AND
-		      (command.state='verified' OR
-		       (command.state IN ('failed','superseded') AND command.write_base_revision<>''))
+		WHERE command.environment_id=b.environment_id AND command.state='verified'
 		ORDER BY command.generation DESC LIMIT 1
 	) precondition_command ON true
 	WHERE b.kind='environment' AND b.credential_mode='github-app' AND b.credential_secret_name=''

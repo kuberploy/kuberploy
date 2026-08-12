@@ -395,6 +395,35 @@ func TestDesiredStateWriterFinalizesCommittedReceiptAfterRuntimeRotation(t *test
 	}
 }
 
+func TestDesiredStateWriterFinalizesWriteBaseReceiptAfterRuntimeRotation(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	if _, err := fixture.commands.BindDesiredStateWriteBase(t.Context(), fixture.claim.Lease,
+		fixture.baseHead, fixture.providerNow, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	fixture.now = fixture.now.Add(time.Second)
+	if _, err := fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "worker-restarted", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	rotatedTarget := fixture.target
+	rotatedTarget.Environment.Runtime.ChartVersion = "1.2.4"
+	rotatedTarget.Environment.Runtime.ChartDigest = "sha256:" + strings.Repeat("e", 64)
+	rotatedIdentity := desiredStateIdentity(t, rotatedTarget)
+	work, err := fixture.commands.ClaimDesiredState(t.Context(), "argo-writer-worker-rotated", rotatedIdentity.DesiredStateWorkerIdentity,
+		fixture.now, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := fixture.writer(fixture.provider(t, nil))
+	writer.Identity = rotatedIdentity
+	verified, err := writer.CommitClaim(t.Context(), work.Lease)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.Runtime != fixture.command.Runtime ||
+		verified.WriteBaseRevision != fixture.baseHead {
+		t.Fatalf("runtime rotation stranded immutable write-base receipt: command=%#v err=%v", verified, err)
+	}
+}
+
 func TestDesiredStateWriterRejectsRecoveryWhenProtectedPathChanged(t *testing.T) {
 	fixture := newDesiredStateWriterFixture(t)
 	provider := fixture.provider(t, func(call int, actual string) string {
