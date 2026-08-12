@@ -339,7 +339,7 @@ func TestQueryRangeEnforcesBodySeriesSampleAndNumberLimits(t *testing.T) {
 		{name: "body", body: `{"status":"success","data":{"resultType":"matrix","result":[]}}` + strings.Repeat(" ", 128), options: Options{MaxResponseBytes: 64}},
 		{name: "series", body: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"namespace":"tenant"},"values":[]},{"metric":{"namespace":"tenant"},"values":[]}]}}`, options: Options{MaxSeries: 1}},
 		{name: "samples", body: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"namespace":"tenant"},"values":[[1800000000,"1"],[1800000060,"2"],[1800000120,"3"],[1800000180,"4"],[1800000240,"5"],[1800000300,"6"],[1800000360,"7"]]}]}}`, options: Options{MaxSamples: 6}},
-		{name: "nan", body: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"namespace":"tenant"},"values":[[1800000000,"NaN"]]}]}}`},
+		{name: "infinity", body: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"namespace":"tenant"},"values":[[1800000000,"+Inf"]]}]}}`},
 		{name: "trailing", body: `{"status":"success","data":{"resultType":"matrix","result":[]}} {}`},
 	}
 	for _, test := range tests {
@@ -362,6 +362,25 @@ func TestQueryRangeEnforcesBodySeriesSampleAndNumberLimits(t *testing.T) {
 				t.Fatalf("error=%v", err)
 			}
 		})
+	}
+}
+
+func TestQueryRangeTreatsCanonicalNaNAsABoundedGap(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"namespace":"tenant"},"values":[[1800000000,"NaN"],[1800000060,"0.095"]]}]}}`)
+	}))
+	defer server.Close()
+	client, err := NewClient(Options{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.QueryRange(context.Background(), Scope{Type: ScopeNamespace, Namespace: "tenant"}, MetricHTTPLatencyP95, queryWindow())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Series) != 1 || len(result.Series[0].Samples) != 1 || result.Series[0].Samples[0].Value != 0.095 {
+		t.Fatalf("result=%#v", result)
 	}
 }
 

@@ -589,6 +589,10 @@ func (c *Client) decodeMatrix(body []byte, expected map[string]string) ([]Series
 		}
 		samples := make([]Sample, 0, len(providerSeries.Values))
 		for _, pair := range providerSeries.Values {
+			totalSamples++
+			if totalSamples > c.maxSamples {
+				return nil, ErrUnsafeResponse
+			}
 			if len(pair) != 2 {
 				return nil, ErrUnsafeResponse
 			}
@@ -598,6 +602,13 @@ func (c *Client) decodeMatrix(body []byte, expected map[string]string) ([]Series
 				return nil, ErrUnsafeResponse
 			}
 			value, parseErr := strconv.ParseFloat(encoded, 64)
+			// Prometheus uses the exact string "NaN" for legitimate gaps, most
+			// notably histogram quantiles before a route receives traffic. Preserve
+			// the bounded series while omitting only those absent samples. Infinity
+			// and every other non-finite or malformed value remain fail-closed.
+			if encoded == "NaN" {
+				continue
+			}
 			if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 				return nil, ErrUnsafeResponse
 			}
@@ -608,10 +619,6 @@ func (c *Client) decodeMatrix(body []byte, expected map[string]string) ([]Series
 				nanos -= int64(time.Second)
 			}
 			samples = append(samples, Sample{Timestamp: time.Unix(int64(seconds), nanos).UTC(), Value: value})
-			totalSamples++
-			if totalSamples > c.maxSamples {
-				return nil, ErrUnsafeResponse
-			}
 		}
 		result = append(result, Series{Labels: labels, Samples: samples})
 	}
