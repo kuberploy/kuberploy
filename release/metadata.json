@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Qualification RC retaining kubelet samples and binding readiness to the installed edge release.",
+  "summary": "Qualification RC binding deterministic AppConfig previews to the operator-owned runtime identity.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.78"
+  "version": "0.1.0-rc.79"
 }
