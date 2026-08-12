@@ -634,6 +634,10 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		if err != nil {
 			return Binding{}, err
 		}
+		validatedDocuments, err = applyEffectiveConfigRevisions(validatedDocuments, previousDocuments, generation.HeadRevision)
+		if err != nil {
+			return Binding{}, err
+		}
 	}
 	for _, document := range validatedDocuments {
 		diagnostics := document.Diagnostics
@@ -644,9 +648,9 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		if marshalErr != nil {
 			return Binding{}, ErrInvalid
 		}
-		result, updateErr := tx.Exec(ctx, `UPDATE git_projected_documents SET valid=$4,diagnostics=$5
-			WHERE binding_id=$1 AND generation=$2 AND path=$3 AND blob_id=$6 AND source_revision=$7`,
-			binding.ID, generation.Number, document.Path, document.Valid, diagnosticsJSON, document.BlobID, generation.HeadRevision)
+		result, updateErr := tx.Exec(ctx, `UPDATE git_projected_documents SET config_revision=$4,valid=$5,diagnostics=$6
+			WHERE binding_id=$1 AND generation=$2 AND path=$3 AND blob_id=$7 AND source_revision=$8`,
+			binding.ID, generation.Number, document.Path, document.ConfigRevision, document.Valid, diagnosticsJSON, document.BlobID, generation.HeadRevision)
 		if updateErr != nil {
 			return Binding{}, classifyPostgres(updateErr)
 		}

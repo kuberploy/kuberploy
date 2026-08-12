@@ -14,6 +14,59 @@ func (fn appConfigPolicyFunc) ValidateAppConfigs(ctx context.Context, input AppC
 	return fn(ctx, input)
 }
 
+func TestEffectiveConfigRevisionTracksParentAndApplicationInputsOnly(t *testing.T) {
+	applicationID := "44444444-4444-4444-8444-444444444444"
+	appPath := "tenants/project/environments/environment/apps/application/app.yaml"
+	projectPath := "tenants/project/variables.yaml"
+	environmentPath := "tenants/project/environments/environment/variables.yaml"
+	firstHead, unrelatedHead := strings.Repeat("1", 40), strings.Repeat("2", 40)
+	parentHead, appHead := strings.Repeat("3", 40), strings.Repeat("4", 40)
+	document := func(path, appID, blob, configRevision string) Document {
+		return Document{Path: path, ApplicationID: appID, BlobID: strings.Repeat(blob, 40),
+			ContentSHA256: strings.Repeat(blob, 64), ConfigRevision: configRevision,
+			SchemaVersion: "v1alpha1", ParserVersion: "v1", Valid: true}
+	}
+	initial := []Document{
+		document(projectPath, "", "a", strings.Repeat("a", 40)),
+		document(environmentPath, "", "b", strings.Repeat("b", 40)),
+		document(appPath, applicationID, "c", strings.Repeat("c", 40)),
+	}
+	active, err := applyEffectiveConfigRevisions(initial, nil, firstHead)
+	if err != nil || active[2].ConfigRevision != firstHead {
+		t.Fatalf("initial dependency bundle did not bind the indexed head: %#v err=%v", active, err)
+	}
+
+	unrelated := []Document{
+		document(projectPath, "", "a", strings.Repeat("a", 40)),
+		document(environmentPath, "", "b", strings.Repeat("b", 40)),
+		document(appPath, applicationID, "c", strings.Repeat("c", 40)),
+	}
+	unrelated, err = applyEffectiveConfigRevisions(unrelated, active, unrelatedHead)
+	if err != nil || unrelated[2].ConfigRevision != firstHead {
+		t.Fatalf("unrelated Git commit changed effective config revision: %#v err=%v", unrelated, err)
+	}
+
+	parentChanged := []Document{
+		document(projectPath, "", "a", strings.Repeat("a", 40)),
+		document(environmentPath, "", "d", parentHead),
+		document(appPath, applicationID, "c", strings.Repeat("c", 40)),
+	}
+	parentChanged, err = applyEffectiveConfigRevisions(parentChanged, unrelated, parentHead)
+	if err != nil || parentChanged[2].ConfigRevision != parentHead {
+		t.Fatalf("parent VariableSet change did not advance application revision: %#v err=%v", parentChanged, err)
+	}
+
+	appChanged := []Document{
+		document(projectPath, "", "a", strings.Repeat("a", 40)),
+		document(environmentPath, "", "d", parentHead),
+		document(appPath, applicationID, "e", appHead),
+	}
+	appChanged, err = applyEffectiveConfigRevisions(appChanged, parentChanged, appHead)
+	if err != nil || appChanged[2].ConfigRevision != appHead {
+		t.Fatalf("application change did not advance effective revision: %#v err=%v", appChanged, err)
+	}
+}
+
 func TestMemoryActivationPersistsPolicyDiagnosticsAndRollsBackPolicyFailure(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Second)
 	store := NewMemoryStore()

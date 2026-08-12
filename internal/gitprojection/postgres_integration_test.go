@@ -124,7 +124,7 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	document, err := gitprojection.NewDocument(binding, generation.Number, pgApplication, head, head, strings.Repeat("b", 40), []byte("kind: AppConfig\n"), map[string]any{"nested": map[string]any{"value": "stable"}}, nil, now.Add(2*time.Second))
+	document, err := gitprojection.NewDocument(binding, generation.Number, pgApplication, head, strings.Repeat("9", 40), strings.Repeat("b", 40), []byte("kind: AppConfig\n"), map[string]any{"nested": map[string]any{"value": "stable"}}, nil, now.Add(2*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,6 +133,10 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	}
 	if _, err = store.ActivateGeneration(ctx, work.Lease, generation, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	effectiveDocument, err := store.Document(ctx, binding.ID, document.Path)
+	if err != nil || effectiveDocument.ConfigRevision != head {
+		t.Fatalf("PostgreSQL activation did not persist the effective dependency-bundle revision: %#v err=%v", effectiveDocument, err)
 	}
 	if err = store.FinishReconciliation(ctx, work.Lease, gitprojection.ReconciliationOutcome{LastCommit: head, NextPollAt: now.Add(time.Hour)}, now.Add(4*time.Second)); err != nil {
 		t.Fatal(err)

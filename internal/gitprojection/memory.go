@@ -479,6 +479,10 @@ func (s *MemoryStore) ActivateGeneration(ctx context.Context, lease Reconciliati
 		if err != nil {
 			return Binding{}, err
 		}
+		validatedDocuments, err = applyEffectiveConfigRevisions(validatedDocuments, previousDocuments, generation.HeadRevision)
+		if err != nil {
+			return Binding{}, err
+		}
 	}
 	for _, document := range validatedDocuments {
 		s.documents[generation.BindingID][generation.Number][document.Path] = document

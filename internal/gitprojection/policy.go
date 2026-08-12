@@ -163,6 +163,70 @@ func applyPolicyValidation(binding Binding, documents []Document, validation App
 	return result, nil
 }
 
+// applyEffectiveConfigRevisions binds each valid application document to a
+// commit that contains its complete three-file values input. Git records the
+// last commit that changed each individual path, but Argo consumes the project
+// VariableSet, environment VariableSet, and app.yaml from one target revision.
+// A parent change must therefore advance every application's effective config
+// revision even when app.yaml itself is byte-identical. Conversely, an
+// unrelated branch commit carries the prior effective revision forward so it
+// cannot cause a broad tenant rollout.
+func applyEffectiveConfigRevisions(current, previous []Document, head string) ([]Document, error) {
+	if !commitRE.MatchString(head) {
+		return nil, ErrInvalid
+	}
+	previousByPath := make(map[string]Document, len(previous))
+	for _, document := range previous {
+		if _, duplicate := previousByPath[document.Path]; duplicate {
+			return nil, ErrInvalid
+		}
+		previousByPath[document.Path] = document
+	}
+	currentParents := make(map[string]Document, 2)
+	previousParents := make(map[string]Document, 2)
+	for _, document := range current {
+		if document.ApplicationID == "" {
+			currentParents[document.Path] = document
+		}
+	}
+	for _, document := range previous {
+		if document.ApplicationID == "" {
+			previousParents[document.Path] = document
+		}
+	}
+	parentsChanged := len(currentParents) != len(previousParents)
+	if !parentsChanged {
+		for path, document := range currentParents {
+			prior, exists := previousParents[path]
+			if !exists || !sameEffectiveInput(document, prior) {
+				parentsChanged = true
+				break
+			}
+		}
+	}
+	result := make([]Document, len(current))
+	for index, document := range current {
+		document = cloneDocument(document)
+		if document.ApplicationID != "" && document.Valid {
+			prior, exists := previousByPath[document.Path]
+			if exists && prior.ApplicationID == document.ApplicationID && prior.Valid &&
+				!parentsChanged && sameEffectiveInput(document, prior) {
+				document.ConfigRevision = prior.ConfigRevision
+			} else {
+				document.ConfigRevision = head
+			}
+		}
+		result[index] = document
+	}
+	return result, nil
+}
+
+func sameEffectiveInput(left, right Document) bool {
+	return left.Path == right.Path && left.ApplicationID == right.ApplicationID &&
+		left.BlobID == right.BlobID && left.ContentSHA256 == right.ContentSHA256 &&
+		left.SchemaVersion == right.SchemaVersion && left.ParserVersion == right.ParserVersion
+}
+
 func validateResolvedVariableDependencies(binding Binding, documents []Document) error {
 	paths, err := DependencyPaths(binding)
 	if err != nil {
