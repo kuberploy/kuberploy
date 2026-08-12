@@ -174,7 +174,7 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 							"imagePullPolicy": "IfNotPresent",
 							"restartPolicy":   "Always",
 							"command":         []any{"/usr/local/bin/docker-init", "--", "/usr/local/bin/dockerd"},
-							"args":            []any{"--host=" + DefaultDockerSocket, "--group=65532", "--tls=false"},
+							"args":            []any{"--host=" + DefaultDockerSocket, "--group=65532", "--tls=false", "--feature=cdi=false"},
 							"env":             []any{map[string]any{"name": "DOCKER_TLS_CERTDIR"}},
 							"securityContext": map[string]any{"privileged": true, "runAsUser": int64(0), "runAsNonRoot": false},
 							"resources":       resources(request.DinDResources),

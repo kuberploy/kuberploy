@@ -182,6 +182,9 @@ func TestJobPlanPrivilegedOnlyDinDAndAgentWorkspaceReadOnly(t *testing.T) {
 	if !strings.Contains(string(encodedDinD), `"command":["/usr/local/bin/docker-init","--","/usr/local/bin/dockerd"]`) || strings.Contains(string(encodedDinD), "tcp://") {
 		t.Fatal("DinD did not bypass the image entrypoint's implicit TCP listener")
 	}
+	if !strings.Contains(string(encodedDinD), `"--feature=cdi=false"`) {
+		t.Fatal("DinD did not disable ambient CDI device discovery")
+	}
 	agent := pod["containers"].([]any)[0].(map[string]any)
 	if agent["terminationMessagePath"] != DefaultBuildResult || agent["terminationMessagePolicy"] != "File" {
 		t.Fatal("agent result is not bound to the exact Kubernetes termination message file")
