@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Qualification RC recovering protected Argo write receipts safely across runtime upgrades.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.83"
+  "version": "0.1.0-rc.84"
 }
