@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Existing-image tag resolution now accepts bounded OCI BuildKit attestations and normal image layer sizes without weakening digest verification.",
+  "summary": "Git publication now refreshes the exact Argo root immediately, and authenticated source pushes coalesce duplicate commit deliveries.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.98"
+  "version": "0.1.0-rc.99"
 }
