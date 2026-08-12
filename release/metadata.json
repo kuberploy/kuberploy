@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Source builds expose a closed cache-reuse outcome without revealing untrusted BuildKit output, including truthful legacy unknown results.",
+  "summary": "Auto-deploy resolves verified registry releases with an explicit PostgreSQL text-to-UUID identity comparison.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.94"
+  "version": "0.1.0-rc.95"
 }
