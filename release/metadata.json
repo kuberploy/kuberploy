@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Fresh-cluster bootstrap waits safely for managed Registry resources and verifies edge Services without hashing Kubernetes-allocated fields.",
+  "summary": "Already-installed GitHub Apps can be provider-verified and safely linked after a fresh database install.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.88"
+  "version": "0.1.0-rc.89"
 }
