@@ -83,6 +83,7 @@ func Render(identity EnvironmentIdentity, profile Profile) ([]byte, string, erro
 	labels := map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/environment-id": identity.EnvironmentID,
 		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v1"}
 	nsLabels := cloneLabels(labels)
+	nsLabels["kuberploy.io/runtime-namespace"] = "true"
 	nsLabels["pod-security.kubernetes.io/enforce"] = "restricted"
 	nsLabels["pod-security.kubernetes.io/enforce-version"] = profile.PSAVersion
 	nsLabels["pod-security.kubernetes.io/audit"] = "restricted"

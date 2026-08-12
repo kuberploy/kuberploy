@@ -2,7 +2,9 @@ package registry
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +15,49 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
+
+func TestDistributionObserverAcceptsExactBuildxAttestation(t *testing.T) {
+	const subjectDigest = "sha256:70e84cdc49c9bc20fb1150d17e1aa76cb71be6b3a891900439352aeea5fe1bd2"
+	body := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.docker.attestation.manifest.v1+json","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + subjectDigest + `","size":2185},"config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.in-toto+json","digest":"sha256:69ef63c3a804ea741a0bd0698984e6eb66fc35ff27513739442afde0e0d06c36","size":1390}]}`)
+	sum := sha256.Sum256(body)
+	digest := "sha256:" + fmt.Sprintf("%x", sum[:])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v2/kuberploy-qualification/image/manifests/"+digest {
+			t.Fatalf("path=%s", request.URL.Path)
+		}
+		w.Header().Set("Content-Type", ociManifestMediaType)
+		w.Header().Set("Docker-Content-Digest", digest)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	observer := testDistributionObserver(t, testManagedTarget(server.URL), nil)
+	manifest, present, err := observer.fetchManifest(t.Context(), "kuberploy-qualification/image", digest)
+	if err != nil || !present || manifest.kind != domain.RegistryManifestImage || len(manifest.children) != 0 || len(manifest.blobs) != 2 {
+		t.Fatalf("manifest=%+v present=%v err=%v", manifest, present, err)
+	}
+}
+
+func TestDistributionObserverRejectsUntrustedArtifactAndInlineData(t *testing.T) {
+	for name, body := range map[string][]byte{
+		"artifact":    []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example.unknown","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:70e84cdc49c9bc20fb1150d17e1aa76cb71be6b3a891900439352aeea5fe1bd2","size":2185},"config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[]}`),
+		"inline-data": []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e31="},"layers":[]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			sum := sha256.Sum256(body)
+			digest := "sha256:" + fmt.Sprintf("%x", sum[:])
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", ociManifestMediaType)
+				w.Header().Set("Docker-Content-Digest", digest)
+				_, _ = w.Write(body)
+			}))
+			defer server.Close()
+			observer := testDistributionObserver(t, testManagedTarget(server.URL), nil)
+			if _, _, err := observer.fetchManifest(t.Context(), "kuberploy-qualification/image", digest); !errors.Is(err, errRegistryObservation) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
 
 func testDistributionObserver(t *testing.T, target domain.RegistryTarget, transport http.RoundTripper) *DistributionObserver {
 	t.Helper()

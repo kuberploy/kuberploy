@@ -97,7 +97,7 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 		t.Fatalf("expected one exact pods/log rule, got %#v", observerRules)
 	}
 	content := string(first)
-	for _, required := range []string{"pod-security.kubernetes.io/enforce: restricted", "pod-security.kubernetes.io/enforce-version: v1.31", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
+	for _, required := range []string{"kuberploy.io/runtime-namespace: \"true\"", "pod-security.kubernetes.io/enforce: restricted", "pod-security.kubernetes.io/enforce-version: v1.31", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("manifest omitted %q\n%s", required, content)
 		}

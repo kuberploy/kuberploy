@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ const (
 	ociManifestMediaType        = "application/vnd.oci.image.manifest.v1+json"
 	dockerIndexMediaType        = "application/vnd.docker.distribution.manifest.list.v2+json"
 	dockerManifestMediaType     = "application/vnd.docker.distribution.manifest.v2+json"
+	dockerAttestationMediaType  = "application/vnd.docker.attestation.manifest.v1+json"
 	maximumObservedManifestBody = 4 << 20
 )
 
@@ -93,6 +95,7 @@ type distributionDescriptor struct {
 	Digest      string            `json:"digest"`
 	Size        int64             `json:"size"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+	Data        string            `json:"data,omitempty"`
 	Platform    *struct {
 		Architecture string `json:"architecture"`
 		OS           string `json:"os"`
@@ -414,14 +417,15 @@ func (o *DistributionObserver) fetchManifest(ctx context.Context, repository, di
 	mediaType := strings.TrimSpace(strings.Split(header.Get("Content-Type"), ";")[0])
 	var document distributionManifestDocument
 	if err = decodeBoundedDistributionJSON(body, &document); err != nil || document.SchemaVersion != 2 ||
-		document.MediaType != "" && document.MediaType != mediaType || document.ArtifactType != "" || document.Subject != nil {
+		document.MediaType != "" && document.MediaType != mediaType {
 		return observedManifest{}, false, errRegistryObservation
 	}
 	manifest := observedManifest{digest: digest, mediaType: mediaType, size: int64(len(body))}
 	switch mediaType {
 	case ociIndexMediaType, dockerIndexMediaType:
 		manifest.kind = domain.RegistryManifestIndex
-		if len(document.Manifests) == 0 || document.Config.Digest != "" || len(document.Layers) != 0 {
+		if len(document.Manifests) == 0 || document.Config.Digest != "" || len(document.Layers) != 0 ||
+			document.ArtifactType != "" || document.Subject != nil {
 			return observedManifest{}, false, errRegistryObservation
 		}
 		for _, child := range document.Manifests {
@@ -434,6 +438,16 @@ func (o *DistributionObserver) fetchManifest(ctx context.Context, repository, di
 		manifest.kind = domain.RegistryManifestImage
 		if !validBlobDescriptor(document.Config) || len(document.Manifests) != 0 {
 			return observedManifest{}, false, errRegistryObservation
+		}
+		if document.ArtifactType != "" || document.Subject != nil {
+			if document.ArtifactType != dockerAttestationMediaType || document.Subject == nil ||
+				!validManifestDescriptor(*document.Subject, false) {
+				return observedManifest{}, false, errRegistryObservation
+			}
+			// Docker Buildx publishes provenance as a standard OCI manifest whose
+			// subject is the image manifest. Validate the exact subject descriptor,
+			// but do not turn the reverse artifact relationship into an OCI index
+			// child edge. The enclosing index already retains both manifests.
 		}
 		manifest.blobs = append(manifest.blobs, document.Config)
 		for _, layer := range document.Layers {
@@ -449,7 +463,7 @@ func (o *DistributionObserver) fetchManifest(ctx context.Context, repository, di
 }
 
 func validManifestDescriptor(descriptor distributionDescriptor, platform bool) bool {
-	if !validDigest(descriptor.Digest) || descriptor.Size < 0 ||
+	if !validDigest(descriptor.Digest) || descriptor.Size < 0 || !validDescriptorData(descriptor) ||
 		(descriptor.MediaType != ociManifestMediaType && descriptor.MediaType != dockerManifestMediaType && descriptor.MediaType != ociIndexMediaType && descriptor.MediaType != dockerIndexMediaType) {
 		return false
 	}
@@ -457,11 +471,29 @@ func validManifestDescriptor(descriptor distributionDescriptor, platform bool) b
 		len(descriptor.Platform.OS) > 64 || len(descriptor.Platform.Architecture) > 64 || len(descriptor.Platform.Variant) > 64) {
 		return false
 	}
+	if !platform && descriptor.Platform != nil {
+		return false
+	}
 	return true
 }
 
 func validBlobDescriptor(descriptor distributionDescriptor) bool {
-	return validDigest(descriptor.Digest) && descriptor.Size >= 0 && descriptor.MediaType != "" && len(descriptor.MediaType) <= 256 && !strings.ContainsAny(descriptor.MediaType, "\x00\r\n")
+	return validDigest(descriptor.Digest) && descriptor.Size >= 0 && validDescriptorData(descriptor) && descriptor.MediaType != "" && len(descriptor.MediaType) <= 256 && !strings.ContainsAny(descriptor.MediaType, "\x00\r\n")
+}
+
+func validDescriptorData(descriptor distributionDescriptor) bool {
+	if descriptor.Data == "" {
+		return true
+	}
+	if descriptor.Size > maximumObservedManifestBody {
+		return false
+	}
+	decoded, err := base64.StdEncoding.Strict().DecodeString(descriptor.Data)
+	if err != nil {
+		return false
+	}
+	defer zeroBytes(decoded)
+	return int64(len(decoded)) == descriptor.Size && verifyDistributionDigest(decoded, descriptor.Digest) == nil
 }
 
 func (o *DistributionObserver) confirmBlob(ctx context.Context, repository string, descriptor distributionDescriptor) error {
