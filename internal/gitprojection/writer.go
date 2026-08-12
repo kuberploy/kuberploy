@@ -96,7 +96,8 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 		}
 		return "", err
 	}
-	if command.Validate(binding) != nil {
+	commandBinding := writeCommandBinding(command, binding)
+	if command.Validate(commandBinding) != nil {
 		return "", ErrInvalid
 	}
 	reservation, reservationErr := w.Store.PathReservation(ctx, binding.ID, binding.TargetRef, command.Path)
@@ -139,7 +140,7 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 	if head.Commit != command.Plan.BaseRevision {
 		return w.recoverCommit(ctx, binding, command, reservation, reservationErr, prepared, head)
 	}
-	if command.Plan.Validate(binding) != nil {
+	if command.Plan.Validate(commandBinding) != nil {
 		return "", ErrStale
 	}
 	duration := w.LeaseDuration
@@ -202,7 +203,7 @@ func (w *ProjectionWriter) PublishOperation(ctx context.Context, operationID str
 	if err != nil {
 		return PublicationResult{}, err
 	}
-	if command.Validate(binding) != nil {
+	if validatePersistedWriteCommand(command, binding) != nil {
 		return PublicationResult{}, ErrInvalid
 	}
 	publication, err := w.Publications.Publication(ctx, operationID)

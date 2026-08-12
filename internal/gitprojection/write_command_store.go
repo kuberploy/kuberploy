@@ -46,6 +46,17 @@ func equalWriteCommand(left, right WriteCommand) bool {
 	return reflect.DeepEqual(left, right)
 }
 
+func writeCommandBinding(command WriteCommand, binding Binding) Binding {
+	if command.Plan.VariableScope != "" {
+		binding.ParserVersion = command.Plan.PolicyVersion
+	}
+	return binding
+}
+
+func validatePersistedWriteCommand(command WriteCommand, binding Binding) error {
+	return command.Validate(writeCommandBinding(command, binding))
+}
+
 func (s *MemoryStore) WriteCommand(_ context.Context, operationID string) (WriteCommand, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -54,7 +65,7 @@ func (s *MemoryStore) WriteCommand(_ context.Context, operationID string) (Write
 		return WriteCommand{}, ErrNotFound
 	}
 	binding, exists := s.bindings[command.Plan.BindingID]
-	if !exists || command.Validate(binding) != nil {
+	if !exists || validatePersistedWriteCommand(command, binding) != nil {
 		return WriteCommand{}, ErrInvalid
 	}
 	return cloneWriteCommand(command), nil
@@ -169,7 +180,7 @@ func (s *PostgreSQLStore) WriteCommand(ctx context.Context, operationID string) 
 		return WriteCommand{}, err
 	}
 	binding, err := s.Binding(ctx, command.Plan.BindingID)
-	if err != nil || command.Validate(binding) != nil {
+	if err != nil || validatePersistedWriteCommand(command, binding) != nil {
 		return WriteCommand{}, ErrInvalid
 	}
 	return command, nil

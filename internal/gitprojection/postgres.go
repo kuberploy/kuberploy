@@ -979,11 +979,23 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 	if reservation.State == ReservationCommittedPendingIndex && reservation.CommittedRevision != committedRevision {
 		return PathReservation{}, ErrConflict
 	}
-	command, err := scanWriteCommand(tx.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment' FOR UPDATE`, operationID))
+	var commandKind string
+	if err = tx.QueryRow(ctx, `SELECT command_kind FROM git_write_commands WHERE operation_id=$1 FOR UPDATE`, operationID).Scan(&commandKind); err != nil {
+		return PathReservation{}, classifyPostgres(err)
+	}
+	var command WriteCommand
+	switch commandKind {
+	case "deployment":
+		command, err = scanWriteCommand(tx.QueryRow(ctx, `SELECT `+writeCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind=$2`, operationID, commandKind))
+	case "variable-set":
+		command, err = scanVariableWriteCommand(tx.QueryRow(ctx, `SELECT `+variableWriteCommandColumns+` FROM git_write_commands WHERE operation_id=$1 AND command_kind=$2`, operationID, commandKind))
+	default:
+		return PathReservation{}, ErrConflict
+	}
 	if err != nil {
 		return PathReservation{}, err
 	}
-	if command.Plan.BindingID != bindingID || command.TargetRef != targetRef || command.Path != documentPath ||
+	if validatePersistedWriteCommand(command, binding) != nil || command.Plan.BindingID != bindingID || command.TargetRef != targetRef || command.Path != documentPath ||
 		command.State != WriteCommandPending && command.CommittedRevision != committedRevision {
 		return PathReservation{}, ErrConflict
 	}
@@ -1015,12 +1027,21 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 		}
 		commandUpdated := false
 		if command.State == WriteCommandPending {
-			result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
-				indexed_generation=$4,indexed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='deployment' AND state='pending'`, operationID, committedRevision, now.UTC(), binding.ProjectionGeneration)
+			if commandKind == "variable-set" && command.PublicationMode == PublicationDirect {
+				result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3
+					WHERE operation_id=$1 AND command_kind=$4 AND state='pending'`, operationID, committedRevision, now.UTC(), commandKind)
+				if err == nil && result.RowsAffected() == 1 {
+					result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
+						WHERE operation_id=$1 AND command_kind=$4 AND state='git-committed'`, operationID, binding.ProjectionGeneration, now.UTC(), commandKind)
+				}
+			} else {
+				result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
+					indexed_generation=$4,indexed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind=$5 AND state='pending'`, operationID, committedRevision, now.UTC(), binding.ProjectionGeneration, commandKind)
+			}
 			commandUpdated = true
 		} else if command.State == WriteCommandGitCommitted {
 			result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='indexed',indexed_generation=$2,indexed_at=$3,updated_at=$3
-				WHERE operation_id=$1 AND command_kind='deployment' AND state='git-committed'`, operationID, binding.ProjectionGeneration, now.UTC())
+				WHERE operation_id=$1 AND command_kind=$4 AND state='git-committed'`, operationID, binding.ProjectionGeneration, now.UTC(), commandKind)
 			commandUpdated = true
 		}
 		if err != nil {
@@ -1039,8 +1060,12 @@ func (s *PostgreSQLStore) FinalizeVerifiedPath(ctx context.Context, bindingID, t
 			return PathReservation{}, ErrLeaseLost
 		}
 		if command.State == WriteCommandPending {
-			if _, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind='deployment' AND state='pending'`, operationID, committedRevision, now.UTC()); err != nil {
+			result, err = tx.Exec(ctx, `UPDATE git_write_commands SET state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3 WHERE operation_id=$1 AND command_kind=$4 AND state='pending'`, operationID, committedRevision, now.UTC(), commandKind)
+			if err != nil {
 				return PathReservation{}, err
+			}
+			if result.RowsAffected() != 1 {
+				return PathReservation{}, ErrConflict
 			}
 		}
 	}

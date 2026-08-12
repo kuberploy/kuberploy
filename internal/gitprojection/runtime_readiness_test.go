@@ -169,6 +169,46 @@ func TestFinalizeVerifiedPathConvergesWhenHeadWasIndexedBeforeReceipt(t *testing
 	}
 }
 
+func TestAcceptedVariableWriteCommandUsesPinnedParserVersion(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	binding := coordinatorBinding(t, now)
+	baseRevision := strings.Repeat("a", 40)
+	binding.ParserVersion = "variables/v1"
+	binding.TargetHeadRevision, binding.IndexedRevision, binding.ProjectionGeneration = baseRevision, baseRevision, 1
+	binding.TargetHeadObservedAt, binding.IndexedAt, binding.State, binding.UpdatedAt = now, now, BindingReady, now
+	if err := store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := DependencyPaths(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := WritePlan{BindingID: binding.ID, ProjectID: binding.ProjectID, EnvironmentID: binding.EnvironmentID,
+		BaseRevision: baseRevision, Precondition: MutationCreateIfAbsent, PolicyVersion: binding.ParserVersion,
+		VariableScope: "project", VariablePath: paths[0]}
+	command, err := NewVariableWriteCommand("55555555-5555-4555-8555-555555555555", "77777777-7777-4777-8777-777777777777",
+		plan, binding, []byte("variables:\n  REGION: ap-southeast-1\n"), "save project variables", "sha256:"+strings.Repeat("b", 64), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutWriteCommand(t.Context(), command); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	advanced := store.bindings[binding.ID]
+	advanced.ParserVersion, advanced.UpdatedAt = "variables/v2", now.Add(time.Second)
+	store.bindings[binding.ID] = advanced
+	store.mu.Unlock()
+	stored, err := store.WriteCommand(t.Context(), command.OperationID)
+	if err != nil || stored.Plan.PolicyVersion != "variables/v1" || stored.State != WriteCommandPending {
+		t.Fatalf("accepted command=%#v err=%v", stored, err)
+	}
+	if stored.Plan.Validate(writeCommandBinding(stored, advanced)) != nil {
+		t.Fatal("accepted command did not retain its immutable parser authority")
+	}
+}
+
 func TestActivationConvergesCommittedReservationThroughLaterHead(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Now().UTC().Truncate(time.Microsecond)

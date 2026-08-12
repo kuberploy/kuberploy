@@ -708,7 +708,7 @@ func (s *MemoryStore) FinalizeVerifiedPath(_ context.Context, bindingID, targetR
 		return PathReservation{}, ErrConflict
 	}
 	command, exists := s.writeCommands[operationID]
-	if !exists || command.Plan.BindingID != bindingID || command.Path != documentPath || command.TargetRef != targetRef {
+	if !exists || validatePersistedWriteCommand(command, binding) != nil || command.Plan.BindingID != bindingID || command.Path != documentPath || command.TargetRef != targetRef {
 		return PathReservation{}, ErrNotFound
 	}
 	if command.State != WriteCommandPending && command.CommittedRevision != committedRevision {

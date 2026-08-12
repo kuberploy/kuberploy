@@ -135,6 +135,96 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 		t.Fatalf("substituted replay fingerprint=%v", err)
 	}
 
+	// Direct VariableSet recovery may discover its exact commit only after an
+	// unrelated descendant was already indexed. PostgreSQL must preserve the
+	// required pending -> git-committed -> indexed transitions while releasing
+	// the durable path reservation in one transaction.
+	directEnvironment, err := store.CreateEnvironment(ctx, actorID, "variable-trigger-direct-environment-"+suffix, "sha256:"+strings.Repeat("6", 64),
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Direct", Slug: "direct-" + suffix, ProtectionPolicy: domain.EnvironmentDevelopment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directBindingResult, err := store.CreateEnvironmentGitBinding(ctx, actorID, "variable-trigger-direct-binding-"+suffix, "sha256:"+strings.Repeat("7", 64),
+		"variable-trigger-direct-binding-request-"+suffix, gitprojection.CreateEnvironmentBindingInput{
+			EnvironmentID: directEnvironment.Value.ID, LinkedInstallationID: installationCatalogID, LinkedRepositoryID: repositoryCatalogID, GitHubAppID: 277,
+			Repository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: installationNumber, RepositoryID: repositoryNumber,
+				Owner: "kuberploy", Name: "variable-trigger-" + suffix}, TargetRef: "refs/heads/main",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	directReadyAt := databaseTime(time.Now().UTC()).Add(time.Second)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,1,$2,$3,'active',$4,$4)`, directBindingResult.Value.ID, head, directBindingResult.Value.ParserVersion, directReadyAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE git_repository_bindings SET state='ready',target_head_revision=$2,indexed_revision=$2,
+		projection_generation=1,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`, directBindingResult.Value.ID, head, directReadyAt); err != nil {
+		t.Fatal(err)
+	}
+	directPaths, err := gitprojection.DependencyPaths(directBindingResult.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directPlan := gitprojection.WritePlan{BindingID: directBindingResult.Value.ID, ProjectID: project.Value.ID, EnvironmentID: directEnvironment.Value.ID,
+		BaseRevision: head, Precondition: gitprojection.MutationCreateIfAbsent, PolicyVersion: directBindingResult.Value.ParserVersion,
+		VariableScope: "environment", VariablePath: directPaths[1]}
+	directRaw := []byte("apiVersion: variables.kuberploy.io/v1alpha1\nkind: VariableSet\nvalues:\n  DIRECT: \"true\"\n")
+	directTokenHash, directCandidateHash := sha256.Sum256([]byte("variable-trigger-direct-preview-"+suffix)), sha256.Sum256(directRaw)
+	if err = store.CreateVariableSetPreview(ctx, actorID, directPlan, directTokenHash[:], directCandidateHash[:], time.Now().UTC().Add(10*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	directFingerprint := "sha256:" + strings.Repeat("8", 64)
+	directAccepted, err := store.SaveVariableSet(ctx, actorID, "variable-trigger-direct-save-"+suffix, directFingerprint,
+		"variable-trigger-direct-request-"+suffix, directPlan, directTokenHash[:], directCandidateHash[:], directRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directCommand, err := projectionStore.WriteCommand(ctx, directAccepted.Value.ID)
+	if err != nil || directCommand.PublicationMode != gitprojection.PublicationDirect {
+		t.Fatalf("direct command=%#v err=%v", directCommand, err)
+	}
+	directBinding, err := projectionStore.Binding(ctx, directPlan.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directReservationAt := directReadyAt.Add(time.Second)
+	directLeaseUntil := directReservationAt.Add(time.Minute)
+	directReservation := gitprojection.PathReservation{BindingID: directBinding.ID, TargetRef: directBinding.TargetRef, Path: directPlan.VariablePath,
+		OperationID: directAccepted.Value.ID, Owner: "variable-trigger-direct-writer", BaseRevision: directPlan.BaseRevision,
+		State: gitprojection.ReservationCandidate, LeaseUntil: &directLeaseUntil, CreatedAt: directReservationAt, UpdatedAt: directReservationAt}
+	if _, replay, acquireErr := projectionStore.AcquirePath(ctx, directReservation, directReservationAt, time.Minute); acquireErr != nil || replay {
+		t.Fatalf("direct variable reservation replay=%t err=%v", replay, acquireErr)
+	}
+	directOperationCommit, directDescendant := strings.Repeat("6", 40), strings.Repeat("7", 40)
+	directIndexedAt := directReservationAt.Add(time.Second)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,2,$2,$3,'active',$4,$4)`, directBinding.ID, directDescendant, directBinding.ParserVersion, directIndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE git_repository_bindings SET state='ready',target_head_revision=$2,indexed_revision=$2,
+		projection_generation=2,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`, directBinding.ID, directDescendant, directIndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	directBinding, err = projectionStore.Binding(ctx, directBinding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directWriteHead := gitprojection.VerifiedHead{BindingID: directBinding.ID, Repository: directBinding.Repository, TargetRef: directBinding.TargetRef,
+		Commit: directDescendant, Source: gitprojection.ObservationWrite, ProviderRequest: "variable-trigger-direct-recovery-" + suffix,
+		ObservedAt: directIndexedAt.Add(time.Second)}
+	if _, err = projectionStore.FinalizeVerifiedPath(ctx, directBinding.ID, directBinding.TargetRef, directPlan.VariablePath,
+		directAccepted.Value.ID, directOperationCommit, directWriteHead, directIndexedAt.Add(2*time.Second)); err != nil {
+		t.Fatalf("direct variable recovery could not converge: %v", err)
+	}
+	directStoredCommand, err := projectionStore.WriteCommand(ctx, directAccepted.Value.ID)
+	if err != nil || directStoredCommand.State != gitprojection.WriteCommandIndexed || directStoredCommand.CommittedRevision != directOperationCommit || directStoredCommand.IndexedGeneration != 2 {
+		t.Fatalf("recovered direct variable command=%#v err=%v", directStoredCommand, err)
+	}
+	if _, err = projectionStore.PathReservation(ctx, directBinding.ID, directBinding.TargetRef, directPlan.VariablePath); !errors.Is(err, gitprojection.ErrNotFound) {
+		t.Fatalf("direct variable recovery left path reservation: %v", err)
+	}
+
 	assertRejected := func(label, statement string, arguments ...any) {
 		t.Helper()
 		if _, execErr := store.pool.Exec(ctx, statement, arguments...); execErr == nil {
@@ -264,9 +354,41 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 	indexedAt := transitionAt.Add(time.Second)
-	if _, err = store.pool.Exec(ctx, `UPDATE git_write_commands SET state='indexed',committed_revision=$2,committed_at=$3,
-		indexed_generation=2,indexed_at=$4,updated_at=$4 WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, targetRevision, transitionAt, indexedAt); err != nil {
-		t.Fatalf("verified variable PR could not become indexed: %v", err)
+	currentBinding, err := projectionStore.Binding(ctx, plan.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseUntil := transitionAt.Add(time.Minute)
+	reservation := gitprojection.PathReservation{BindingID: plan.BindingID, TargetRef: currentBinding.TargetRef, Path: plan.VariablePath,
+		OperationID: accepted.Value.ID, Owner: "variable-trigger-writer", BaseRevision: plan.BaseRevision,
+		State: gitprojection.ReservationCandidate, LeaseUntil: &leaseUntil, CreatedAt: transitionAt, UpdatedAt: transitionAt}
+	if _, replay, acquireErr := projectionStore.AcquirePath(ctx, reservation, transitionAt, time.Minute); acquireErr != nil || replay {
+		t.Fatalf("variable reservation replay=%t err=%v", replay, acquireErr)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,2,$2,$3,'active',$4,$4)`, plan.BindingID, targetRevision, currentBinding.ParserVersion, indexedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `UPDATE git_repository_bindings SET state='ready',target_head_revision=$2,indexed_revision=$2,
+		projection_generation=2,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`, plan.BindingID, targetRevision, indexedAt); err != nil {
+		t.Fatal(err)
+	}
+	currentBinding, err = projectionStore.Binding(ctx, plan.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeHead := gitprojection.VerifiedHead{BindingID: currentBinding.ID, Repository: currentBinding.Repository, TargetRef: currentBinding.TargetRef,
+		Commit: targetRevision, Source: gitprojection.ObservationWrite, ProviderRequest: "variable-trigger-recovery-" + suffix, ObservedAt: indexedAt.Add(time.Second)}
+	if _, err = projectionStore.FinalizeVerifiedPath(ctx, currentBinding.ID, currentBinding.TargetRef, plan.VariablePath,
+		accepted.Value.ID, targetRevision, writeHead, indexedAt.Add(2*time.Second)); err != nil {
+		t.Fatalf("verified variable recovery could not become indexed: %v", err)
+	}
+	storedCommand, err := projectionStore.WriteCommand(ctx, accepted.Value.ID)
+	if err != nil || storedCommand.State != gitprojection.WriteCommandIndexed || storedCommand.CommittedRevision != targetRevision || storedCommand.IndexedGeneration != 2 {
+		t.Fatalf("recovered variable command=%#v err=%v", storedCommand, err)
+	}
+	if _, err = projectionStore.PathReservation(ctx, currentBinding.ID, currentBinding.TargetRef, plan.VariablePath); !errors.Is(err, gitprojection.ErrNotFound) {
+		t.Fatalf("verified variable recovery left path reservation: %v", err)
 	}
 	assertRejected("terminal indexed command mutation", `UPDATE git_write_commands SET updated_at=$2 WHERE operation_id=$1 AND command_kind='variable-set'`, accepted.Value.ID, indexedAt.Add(time.Second))
 }
