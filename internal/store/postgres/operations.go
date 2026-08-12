@@ -16,6 +16,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -150,9 +151,13 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	rawHash := sha256.Sum256(d.ConfigRaw)
-	exactRuntime, err := runtimeFromExactAppConfig(d.ConfigRaw, rawHash[:])
+	exactParsed, exactRuntime, _, err := appConfigMaterialFromExactAppConfig(d.ConfigRaw, rawHash[:])
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	}
+	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(exactParsed)
+	if refsErr != nil || (base.AppConfigUsesRuntimeSecrets(exactRuntime) || len(middlewareRefs) != 0) && referencePlan == nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	if projection != nil {
 		resolution, resolutionErr := resolveProjectedVariablesTx(ctx, tx, projectionBinding, exactRuntime)
@@ -185,7 +190,7 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	}
 	if projection != nil {
 		if err = replaceRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectionBinding, projectID, in.EnvironmentID,
-			in.ApplicationID, d.Runtime, d.ConfigRaw, requestID, now); err != nil {
+			in.ApplicationID, d.Runtime, middlewareRefs, d.ConfigRaw, requestID, now); err != nil {
 			return base.Result[domain.Deployment]{}, domain.Operation{}, err
 		}
 	}

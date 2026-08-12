@@ -71,6 +71,8 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 		args  []any
 	}{
 		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','store-secret',$2,$3)`, []any{actorID, "store-secret-" + suffix, now}},
+		{`INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at)
+			VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, []any{id.New(), actorID, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Store secret team',$2,$3,$4)`, []any{organizationID, "store-secret-team-" + suffix, actorID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Store secret project',$2,$3,$4)`, []any{projectID, "store-secret-project-" + suffix, organizationID, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "production-" + suffix, namespace, "kp-p-" + suffix, now}},
@@ -108,6 +110,51 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 	plan, err := secrets.ResolveWorkloadBindingReferences(ctx, secretStore, active.Binding.Scope, runtime)
 	if err != nil {
 		t.Fatal(err)
+	}
+	usersMaterial, err := secrets.NewMaterial(map[string][]byte{"users": []byte("developer:$2y$05$integration")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	basicAuth, err := service.Create(ctx, secrets.CreateRequest{ActorID: actorID, Scope: active.Binding.Scope,
+		Name: "basic-auth", Provider: secrets.ProviderSealedSecrets,
+		Deliveries: []secrets.Delivery{{SourceKey: "users", Kind: secrets.DeliveryFile,
+			FilePath: secrets.MiddlewareBasicAuthUsersPath, FileMode: 0o400}},
+		IdempotencyKey: "store-reference-basic-auth-0001", RequestID: "store-reference-basic-auth", Material: usersMaterial})
+	if err != nil {
+		t.Fatal(err)
+	}
+	basicAuthActive, err := service.ReconcileVersion(ctx, basicAuth.Version.ID, "store-reference-basic-auth-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	basicAuthRef := domain.SecretBindingRef{BindingID: basicAuthActive.Binding.ID, Name: basicAuthActive.Binding.Name, Key: "users", Version: 1}
+	combined, err := secrets.ResolveAppConfigBindingReferences(ctx, secretStore, active.Binding.Scope, runtime, []domain.SecretBindingRef{basicAuthRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	combinedDigest, err := combined.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	validationTx, err := st.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	txCatalog, err := secrets.NewPostgreSQLBindingReferenceCatalogTx(validationTx)
+	if err != nil {
+		validationTx.Rollback(ctx) //nolint:errcheck
+		t.Fatal(err)
+	}
+	if transactionResolved, resolveErr := secrets.ResolveAppConfigBindingReferences(ctx, txCatalog, active.Binding.Scope, runtime, []domain.SecretBindingRef{basicAuthRef}); resolveErr != nil || len(transactionResolved.Uses) != 2 {
+		validationTx.Rollback(ctx) //nolint:errcheck
+		t.Fatalf("transaction catalog combined plan=%#v err=%v", transactionResolved, resolveErr)
+	}
+	validated, err := validateRuntimeSecretReferencesTx(ctx, validationTx, actorID,
+		&base.AppConfigReferencePlan{RuntimeSecretDigest: combinedDigest}, projectID, environmentID, applicationID, runtime,
+		[]domain.SecretBindingRef{basicAuthRef})
+	validationTx.Rollback(ctx) //nolint:errcheck
+	if err != nil || len(validated.Uses) != 2 || len(validated.BindingVersions()) != 2 {
+		t.Fatalf("combined workload+BasicAuth transaction plan=%#v err=%v", validated, err)
 	}
 	binding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), projectID, environmentID,
 		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 11, RepositoryID: 22, Owner: "kuberploy", Name: "desired-state"},

@@ -57,9 +57,11 @@ type BuildLogAttemptCatalog interface {
 // from one exact candidate. PostgreSQL repeats the resolution inside the same
 // transaction as the Git write command before reconciling deletion guards.
 type AppConfigReferencePlan struct {
-	// RuntimeSecretDigest is the digest of the metadata-only exact resolution
-	// performed before entering the durable store. PostgreSQL re-resolves the
-	// immutable candidate under row locks and requires the same digest.
+	// RuntimeSecretDigest is the legacy field name for the digest of every
+	// metadata-only SecretBindingRef in the exact AppConfig, including workload
+	// environment values and reusable BasicAuth middleware. PostgreSQL
+	// re-resolves the immutable candidate under row locks and requires the same
+	// combined digest.
 	RuntimeSecretDigest string
 }
 

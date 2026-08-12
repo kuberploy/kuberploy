@@ -13,12 +13,14 @@ import (
 	"time"
 
 	accesspolicy "github.com/kuberploy/kuberploy/internal/access"
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/autodeploy"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitops"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	"github.com/kuberploy/kuberploy/internal/registry"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
@@ -473,6 +475,11 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 		}
 		d.Runtime = resolution.Runtime
 		d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
+	}
+	parsedConfig, _, configDiagnostics := appconfig.ParseAndValidate(configRaw)
+	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(parsedConfig)
+	if len(configDiagnostics) != 0 || refsErr != nil || (base.AppConfigUsesRuntimeSecrets(d.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	d.ConfigRaw, d.ConfigVersion = configRaw, configVersion
 	if err = s.putGitWriteCommandLocked(actor, opID, dID, projection, configRaw, "deploy("+in.ApplicationID+"): accept immutable release", now); err != nil {

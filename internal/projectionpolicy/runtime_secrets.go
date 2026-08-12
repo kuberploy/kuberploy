@@ -51,9 +51,12 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 	if err != nil {
 		return nil, err
 	}
-	plan, err := secrets.ResolveGitCurrentWorkloadBindingReferences(ctx, catalog, secretScope, runtime)
+	plan, err := secrets.ResolveGitCurrentAppConfigBindingReferences(ctx, catalog, secretScope, runtime, middlewareReferences)
 	if err != nil {
 		if semanticRuntimeSecretReferenceError(err) {
+			if secrets.IsMiddlewareReferenceError(err) {
+				return []gitprojection.Diagnostic{{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}}, nil
+			}
 			return []gitprojection.Diagnostic{{
 				Code:    "RuntimeSecretReferenceUnresolved",
 				Detail:  "A runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.",
@@ -61,19 +64,6 @@ func (p *RuntimeSecretReferencePolicy) ValidateCurrentTx(
 			}}, nil
 		}
 		return nil, err
-	}
-	if len(middlewareReferences) != 0 {
-		middlewarePlan, resolveErr := secrets.ResolveGitCurrentMiddlewareBindingReferences(ctx, catalog, secretScope, middlewareReferences)
-		if resolveErr != nil {
-			if semanticRuntimeSecretReferenceError(resolveErr) {
-				return []gitprojection.Diagnostic{{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret reference is unavailable, inactive, or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}}, nil
-			}
-			return nil, resolveErr
-		}
-		plan, err = secrets.MergeBindingReferencePlans(plan, middlewarePlan)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if err = secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, tx, plan, scope.Binding.ID, scope.Path, scope.SourceRevision, scope.ContentSHA256, runtimeSecretPolicyRequestID(scope), now.UTC()); err != nil {
 		if semanticRuntimeSecretReferenceError(err) {

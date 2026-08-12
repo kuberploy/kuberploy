@@ -5,10 +5,24 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"slices"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
+
+type middlewareReferenceError struct{ err error }
+
+func (e middlewareReferenceError) Error() string { return e.err.Error() }
+func (e middlewareReferenceError) Unwrap() error { return e.err }
+
+// IsMiddlewareReferenceError lets admission and projection preserve a precise
+// diagnostic while all errors.Is checks still see the underlying authority
+// failure.
+func IsMiddlewareReferenceError(err error) bool {
+	var target middlewareReferenceError
+	return errors.As(err, &target)
+}
 
 // BindingReferencePlan is a metadata-only snapshot of every runtime-secret use
 // in one exact AppConfig. It is safe to carry beside an immutable Git write
@@ -108,6 +122,42 @@ func MergeBindingReferencePlans(plans ...BindingReferencePlan) (BindingReference
 		return BindingReferencePlan{}, ErrInvalid
 	}
 	return merged, nil
+}
+
+// ResolveAppConfigBindingReferences resolves every secret-bearing surface of
+// one AppConfig into a single transaction-bound plan. Callers must not resolve
+// workload and middleware references independently because that could persist
+// only one family of deletion guards.
+func ResolveAppConfigBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, runtime domain.WorkloadRuntime, middlewareRefs []domain.SecretBindingRef) (BindingReferencePlan, error) {
+	workload, err := ResolveWorkloadBindingReferences(ctx, catalog, scope, runtime)
+	if err != nil {
+		return BindingReferencePlan{}, err
+	}
+	if len(middlewareRefs) == 0 {
+		return workload, nil
+	}
+	middleware, err := ResolveMiddlewareBindingReferences(ctx, catalog, scope, middlewareRefs)
+	if err != nil {
+		return BindingReferencePlan{}, middlewareReferenceError{err: err}
+	}
+	return MergeBindingReferencePlans(workload, middleware)
+}
+
+// ResolveGitCurrentAppConfigBindingReferences is the retained-version variant
+// used only while validating an already committed Git document.
+func ResolveGitCurrentAppConfigBindingReferences(ctx context.Context, catalog BindingReferenceCatalog, scope Scope, runtime domain.WorkloadRuntime, middlewareRefs []domain.SecretBindingRef) (BindingReferencePlan, error) {
+	workload, err := ResolveGitCurrentWorkloadBindingReferences(ctx, catalog, scope, runtime)
+	if err != nil {
+		return BindingReferencePlan{}, err
+	}
+	if len(middlewareRefs) == 0 {
+		return workload, nil
+	}
+	middleware, err := ResolveGitCurrentMiddlewareBindingReferences(ctx, catalog, scope, middlewareRefs)
+	if err != nil {
+		return BindingReferencePlan{}, middlewareReferenceError{err: err}
+	}
+	return MergeBindingReferencePlans(workload, middleware)
 }
 
 func (p BindingReferencePlan) Digest() (string, error) {

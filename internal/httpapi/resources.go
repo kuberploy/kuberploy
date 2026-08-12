@@ -457,7 +457,7 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 	}
 	references, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), actor, domain.Deployment{
 		EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID,
-	}, create.Runtime)
+	}, create.Runtime, nil)
 	if referenceErr != nil {
 		if runtimeSecretReferenceUnavailable(referenceErr) {
 			mappedSecretError(w, r, referenceErr)

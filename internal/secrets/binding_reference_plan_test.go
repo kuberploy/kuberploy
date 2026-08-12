@@ -63,6 +63,64 @@ func TestResolveWorkloadBindingReferencesProducesCanonicalSafePlan(t *testing.T)
 	}
 }
 
+func TestResolveAppConfigBindingReferencesAtomicallyIncludesBasicAuth(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	provider := &exactReferenceProvider{}
+	service := referenceService(store, provider)
+	workloadCreated, err := service.Create(ctx, createRequest(t, ProviderSealedSecrets, "reference-plan-value", "reference-appconfig-001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloadActive, err := service.ReconcileVersion(ctx, workloadCreated.Version.ID, "reference-appconfig-workload-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := NewMaterial(map[string][]byte{"users": []byte("developer:$2y$05$example")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	middlewareCreated, err := service.Create(ctx, CreateRequest{ActorID: testActor, Scope: testScope(), Name: "auth-users",
+		Provider: ProviderSealedSecrets, Deliveries: []Delivery{{SourceKey: "users", Kind: DeliveryFile,
+			FilePath: MiddlewareBasicAuthUsersPath, FileMode: 0o400}}, IdempotencyKey: "reference-appconfig-002",
+		RequestID: "reference-appconfig-basic-auth", Material: users})
+	if err != nil {
+		t.Fatal(err)
+	}
+	middlewareActive, err := service.ReconcileVersion(ctx, middlewareCreated.Version.ID, "reference-appconfig-middleware-ready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workloadRef := domain.SecretBindingRef{BindingID: workloadActive.Binding.ID, Name: workloadActive.Binding.Name, Key: "password", Version: 1}
+	middlewareRef := domain.SecretBindingRef{BindingID: middlewareActive.Binding.ID, Name: middlewareActive.Binding.Name, Key: "users", Version: 1}
+	plan, err := ResolveAppConfigBindingReferences(ctx, store, testScope(), referenceRuntime(workloadRef, "DATABASE_PASSWORD"), []domain.SecretBindingRef{middlewareRef})
+	if err != nil || plan.Validate() != nil || len(plan.Uses) != 2 || len(plan.BindingVersions()) != 2 {
+		t.Fatalf("combined plan=%#v err=%v", plan, err)
+	}
+	seenEnvironment, seenBasicAuth := false, false
+	for _, use := range plan.Uses {
+		seenEnvironment = seenEnvironment || use.BindingID == workloadActive.Binding.ID && use.Delivery.Kind == DeliveryEnvironment && use.Delivery.EnvironmentName == "DATABASE_PASSWORD"
+		seenBasicAuth = seenBasicAuth || use.BindingID == middlewareActive.Binding.ID && use.Delivery.Kind == DeliveryFile && use.Delivery.FilePath == MiddlewareBasicAuthUsersPath
+	}
+	if !seenEnvironment || !seenBasicAuth {
+		t.Fatalf("combined plan omitted reference family: %#v", plan.Uses)
+	}
+	workloadOnly, err := ResolveWorkloadBindingReferences(ctx, store, testScope(), referenceRuntime(workloadRef, "DATABASE_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combinedDigest, _ := plan.Digest()
+	workloadDigest, _ := workloadOnly.Digest()
+	if combinedDigest == workloadDigest {
+		t.Fatal("BasicAuth reference did not affect the immutable AppConfig reference digest")
+	}
+	invalidMiddlewareRef := middlewareRef
+	invalidMiddlewareRef.Key = "password"
+	if _, err = ResolveAppConfigBindingReferences(ctx, store, testScope(), referenceRuntime(workloadRef, "DATABASE_PASSWORD"), []domain.SecretBindingRef{invalidMiddlewareRef}); !errors.Is(err, ErrInvalid) || !IsMiddlewareReferenceError(err) {
+		t.Fatalf("middleware authority error lost its surface or cause: %v", err)
+	}
+}
+
 func TestResolveWorkloadBindingReferencesRejectsDeliveryAndScopeDrift(t *testing.T) {
 	ctx := context.Background()
 	store := NewMemoryStore()

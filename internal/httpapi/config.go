@@ -217,13 +217,8 @@ func (s *Server) validateDeploymentConfig(w http.ResponseWriter, r *http.Request
 		resolution, resolutionErr := resolveBundleVariables(bundle, candidate.Runtime)
 		if resolutionErr != nil {
 			candidate.Diagnostics = append(candidate.Diagnostics, appconfig.Diagnostic{Code: "VariableDependencyInvalid", Detail: "The exact inherited VariableSet snapshot is invalid.", Pointer: "/spec/runtime/env"})
-		} else if _, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime); referenceErr != nil {
-			candidate.Diagnostics = append(candidate.Diagnostics, runtimeSecretReferenceDiagnostic(referenceErr))
-		}
-	}
-	if len(candidate.Diagnostics) == 0 {
-		if referenceErr := s.validateMiddlewareSecretReferences(r.Context(), currentUser(r.Context()).ID, deployment, candidate.Parsed); referenceErr != nil {
-			candidate.Diagnostics = append(candidate.Diagnostics, appconfig.Diagnostic{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret binding is unavailable or not authorized for this exact application destination.", Pointer: "/spec/middlewares"})
+		} else if _, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime, candidate.Parsed); referenceErr != nil {
+			candidate.Diagnostics = append(candidate.Diagnostics, appConfigSecretReferenceDiagnostic(referenceErr))
 		}
 	}
 	resolution, _ := resolveBundleVariables(bundle, candidate.Runtime)
@@ -269,18 +264,13 @@ func (s *Server) previewDeploymentConfig(w http.ResponseWriter, r *http.Request)
 		candidate.Diagnostics = append(candidate.Diagnostics, appconfig.Diagnostic{Code: "VariableDependencyInvalid", Detail: "The exact inherited VariableSet snapshot is invalid.", Pointer: "/spec/runtime/env"})
 	}
 	if len(candidate.Diagnostics) == 0 {
-		references, err = s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime)
+		references, err = s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime, candidate.Parsed)
 		if err != nil {
 			if runtimeSecretReferenceUnavailable(err) {
 				mappedSecretError(w, r, err)
 				return
 			}
-			candidate.Diagnostics = append(candidate.Diagnostics, runtimeSecretReferenceDiagnostic(err))
-		}
-	}
-	if len(candidate.Diagnostics) == 0 {
-		if referenceErr := s.validateMiddlewareSecretReferences(r.Context(), currentUser(r.Context()).ID, deployment, candidate.Parsed); referenceErr != nil {
-			candidate.Diagnostics = append(candidate.Diagnostics, appconfig.Diagnostic{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret binding is unavailable or not authorized for this exact application destination.", Pointer: "/spec/middlewares"})
+			candidate.Diagnostics = append(candidate.Diagnostics, appConfigSecretReferenceDiagnostic(err))
 		}
 	}
 	if len(candidate.Diagnostics) > 0 {
@@ -469,17 +459,13 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{{Code: "VariableDependencyInvalid", Detail: "The exact inherited VariableSet snapshot is invalid.", Pointer: "/spec/runtime/env"}}})
 		return
 	}
-	references, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime)
+	references, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime, candidate.Parsed)
 	if referenceErr != nil {
 		if runtimeSecretReferenceUnavailable(referenceErr) {
 			mappedSecretError(w, r, referenceErr)
 			return
 		}
-		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{runtimeSecretReferenceDiagnostic(referenceErr)}})
-		return
-	}
-	if referenceErr = s.validateMiddlewareSecretReferences(r.Context(), currentUser(r.Context()).ID, deployment, candidate.Parsed); referenceErr != nil {
-		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret binding is unavailable or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}}})
+		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{appConfigSecretReferenceDiagnostic(referenceErr)}})
 		return
 	}
 	input.CandidateHash, input.RawYAML, input.Runtime = candidate.Hash, candidate.Raw, candidate.Runtime

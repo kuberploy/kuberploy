@@ -16,28 +16,28 @@ import (
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-func runtimeFromExactAppConfig(raw, expectedHash []byte) (domain.WorkloadRuntime, error) {
-	runtime, _, err := runtimeAndImageFromExactAppConfig(raw, expectedHash)
-	return runtime, err
+func runtimeAndImageFromExactAppConfig(raw, expectedHash []byte) (domain.WorkloadRuntime, string, error) {
+	_, runtime, image, err := appConfigMaterialFromExactAppConfig(raw, expectedHash)
+	return runtime, image, err
 }
 
-func runtimeAndImageFromExactAppConfig(raw, expectedHash []byte) (domain.WorkloadRuntime, string, error) {
+func appConfigMaterialFromExactAppConfig(raw, expectedHash []byte) (map[string]any, domain.WorkloadRuntime, string, error) {
 	if len(raw) == 0 {
-		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
+		return nil, domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
 	digest := sha256.Sum256(raw)
 	if len(expectedHash) != sha256.Size || !bytes.Equal(digest[:], expectedHash) {
-		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
+		return nil, domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
 	parsed, runtime, diagnostics := appconfig.ParseAndValidate(raw)
 	if len(diagnostics) != 0 || len(domain.ValidateWorkloadRuntime(runtime)) != 0 {
-		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
+		return nil, domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
 	image, ok := appconfig.MaterializedImage(parsed)
 	if !ok {
-		return domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
+		return nil, domain.WorkloadRuntime{}, "", base.ErrPreconditionFailed
 	}
-	return runtime, image, nil
+	return parsed, runtime, image, nil
 }
 
 // validateRuntimeSecretReferencesTx re-resolves the immutable AppConfig's
@@ -51,6 +51,7 @@ func validateRuntimeSecretReferencesTx(
 	referencePlan *base.AppConfigReferencePlan,
 	projectID, environmentID, applicationID string,
 	runtime domain.WorkloadRuntime,
+	middlewareRefs []domain.SecretBindingRef,
 ) (secrets.BindingReferencePlan, error) {
 	if tx == nil || referencePlan == nil || referencePlan.Validate() != nil || len(domain.ValidateWorkloadRuntime(runtime)) != 0 {
 		return secrets.BindingReferencePlan{}, base.ErrPreconditionFailed
@@ -72,7 +73,7 @@ func validateRuntimeSecretReferencesTx(
 	if err != nil {
 		return secrets.BindingReferencePlan{}, err
 	}
-	resolved, err := secrets.ResolveWorkloadBindingReferences(ctx, catalog, scope, runtime)
+	resolved, err := secrets.ResolveAppConfigBindingReferences(ctx, catalog, scope, runtime, middlewareRefs)
 	if err != nil {
 		return secrets.BindingReferencePlan{}, classifyRuntimeSecretReferenceError(err)
 	}
@@ -104,6 +105,7 @@ func replaceRuntimeSecretReferencesTx(
 	binding gitprojection.Binding,
 	projectID, environmentID, applicationID string,
 	runtime domain.WorkloadRuntime,
+	middlewareRefs []domain.SecretBindingRef,
 	raw []byte,
 	requestID string,
 	now time.Time,
@@ -111,7 +113,7 @@ func replaceRuntimeSecretReferencesTx(
 	if referencePlan == nil {
 		return removeRuntimeSecretReferencesTx(ctx, tx, actor, binding, projectID, environmentID, applicationID, raw, requestID, now)
 	}
-	resolved, err := validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, runtime)
+	resolved, err := validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, runtime, middlewareRefs)
 	if err != nil {
 		return err
 	}

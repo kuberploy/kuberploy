@@ -11,6 +11,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -72,7 +73,7 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 		gitPath, _ = gitprojection.ApplicationPath(projectionBinding, projection.ApplicationID)
 	}
 	if referencePlan != nil {
-		candidateRuntime, candidateErr := runtimeFromExactAppConfig(in.CandidateRaw, in.CandidateHash)
+		candidateParsed, candidateRuntime, _, candidateErr := appConfigMaterialFromExactAppConfig(in.CandidateRaw, in.CandidateHash)
 		if candidateErr != nil {
 			return candidateErr
 		}
@@ -83,18 +84,23 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 			}
 			candidateRuntime = resolution.Runtime
 		}
-		if _, candidateErr = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, candidateRuntime); candidateErr != nil {
+		middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(candidateParsed)
+		if refsErr != nil {
+			return base.ErrPreconditionFailed
+		}
+		if _, candidateErr = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, candidateRuntime, middlewareRefs); candidateErr != nil {
 			return candidateErr
 		}
 		if candidateErr = validateSchedulingRuntimeTx(ctx, tx, projectID, environmentID, applicationID, candidateRuntime); candidateErr != nil {
 			return candidateErr
 		}
 	} else if len(in.CandidateRaw) != 0 {
-		candidateRuntime, candidateErr := runtimeFromExactAppConfig(in.CandidateRaw, in.CandidateHash)
+		candidateParsed, candidateRuntime, _, candidateErr := appConfigMaterialFromExactAppConfig(in.CandidateRaw, in.CandidateHash)
 		if candidateErr != nil {
 			return candidateErr
 		}
-		if base.AppConfigUsesRuntimeSecrets(candidateRuntime) {
+		middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(candidateParsed)
+		if refsErr != nil || base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0 {
 			return base.ErrPreconditionFailed
 		}
 		if projection != nil {
@@ -212,11 +218,12 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	if !expires.After(now) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreviewExpired
 	}
-	candidateRuntime, candidateImage, err := runtimeAndImageFromExactAppConfig(in.RawYAML, in.CandidateHash)
+	candidateParsed, candidateRuntime, candidateImage, err := appConfigMaterialFromExactAppConfig(in.RawYAML, in.CandidateHash)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if base.AppConfigUsesRuntimeSecrets(candidateRuntime) && referencePlan == nil {
+	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(candidateParsed)
+	if refsErr != nil || (base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0) && referencePlan == nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	if projection != nil {
@@ -231,7 +238,7 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	}
 	if projection != nil {
 		if err = replaceRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectionBinding, projectID, environmentID,
-			applicationID, candidateRuntime, in.RawYAML, requestID, now); err != nil {
+			applicationID, candidateRuntime, middlewareRefs, in.RawYAML, requestID, now); err != nil {
 			return base.Result[domain.Deployment]{}, domain.Operation{}, err
 		}
 	}

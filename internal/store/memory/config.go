@@ -12,6 +12,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -34,7 +35,15 @@ func (s *Store) GetDeploymentConfigForActor(_ context.Context, actor, deployment
 
 func (s *Store) CreateDeploymentConfigPreview(_ context.Context, actor string, in domain.CreateConfigPreview, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) error {
 	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
-	if err != nil || base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
+	var middlewareRefs []domain.SecretBindingRef
+	var diagnostics []appconfig.Diagnostic
+	var refsErr error
+	if len(in.CandidateRaw) != 0 {
+		parsed, _, parsedDiagnostics := appconfig.ParseAndValidate(in.CandidateRaw)
+		diagnostics = parsedDiagnostics
+		middlewareRefs, refsErr = middlewareprofiles.AppConfigSecretReferences(parsed)
+	}
+	if err != nil || len(diagnostics) != 0 || refsErr != nil || (base.AppConfigUsesRuntimeSecrets(in.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
 		if err == nil {
 			err = base.ErrPreconditionFailed
 		}
@@ -137,7 +146,8 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 	digest := sha256.Sum256(in.RawYAML)
 	parsed, exactRuntime, diagnostics := appconfig.ParseAndValidate(in.RawYAML)
 	exactImage, imageOK := appconfig.MaterializedImage(parsed)
-	if !bytes.Equal(digest[:], in.CandidateHash) || len(diagnostics) != 0 || !imageOK {
+	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(parsed)
+	if !bytes.Equal(digest[:], in.CandidateHash) || len(diagnostics) != 0 || refsErr != nil || !imageOK {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	in.Runtime = exactRuntime
@@ -148,7 +158,7 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 		}
 		in.Runtime = resolution.Runtime
 	}
-	if base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
+	if (base.AppConfigUsesRuntimeSecrets(in.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	for operationID, operation := range s.operations {

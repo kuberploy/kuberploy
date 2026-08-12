@@ -92,14 +92,16 @@ func (b *runtimeSecretBackend) Versions(ctx context.Context, bindingID string) (
 // metadata before a preview or write. PostgreSQL repeats the same resolution
 // and secrets.bind authorization under row locks in the Git command
 // transaction; this result is only a TOCTOU-resistant digest expectation.
-func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string, deployment domain.Deployment, runtime domain.WorkloadRuntime) (*store.AppConfigReferencePlan, error) {
-	usesReferences := false
-	for _, variable := range runtime.Env {
-		if variable.ValueFrom != nil {
-			usesReferences = true
-			break
+func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string, deployment domain.Deployment, runtime domain.WorkloadRuntime, parsed map[string]any) (*store.AppConfigReferencePlan, error) {
+	middlewareRefs := []domain.SecretBindingRef(nil)
+	var err error
+	if parsed != nil {
+		middlewareRefs, err = middlewareprofiles.AppConfigSecretReferences(parsed)
+		if err != nil {
+			return nil, err
 		}
 	}
+	usesReferences := store.AppConfigUsesRuntimeSecrets(runtime) || len(middlewareRefs) != 0
 	// Ordinary AppConfigs must not acquire a runtime-secret dependency merely
 	// because the subsystem is configured. In particular, platform-owned
 	// projects legitimately have no team scope to resolve when there are no
@@ -142,7 +144,17 @@ func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string
 		}
 		authorized[bindingID] = struct{}{}
 	}
-	resolved, err := s.runtimeSecrets.ResolveReferences(ctx, scope, runtime)
+	for _, ref := range middlewareRefs {
+		if _, exists := authorized[ref.BindingID]; exists {
+			continue
+		}
+		target.ID = ref.BindingID
+		if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+			return nil, err
+		}
+		authorized[ref.BindingID] = struct{}{}
+	}
+	resolved, err := secrets.ResolveAppConfigBindingReferences(ctx, s.runtimeSecrets, scope, runtime, middlewareRefs)
 	if err != nil {
 		return nil, err
 	}
@@ -153,39 +165,11 @@ func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string
 	return &store.AppConfigReferencePlan{RuntimeSecretDigest: digest}, nil
 }
 
-func (s *Server) validateMiddlewareSecretReferences(ctx context.Context, actor string, deployment domain.Deployment, parsed map[string]any) error {
-	refs, err := middlewareprofiles.AppConfigSecretReferences(parsed)
-	if err != nil || len(refs) == 0 {
-		return err
+func appConfigSecretReferenceDiagnostic(err error) appconfig.Diagnostic {
+	if secrets.IsMiddlewareReferenceError(err) {
+		return appconfig.Diagnostic{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret binding is unavailable or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}
 	}
-	if s.runtimeSecrets == nil || s.runtimeSecretReadiness == nil || s.gitProjection == nil || s.gitReadiness == nil {
-		return secrets.ErrRuntimeUnavailable
-	}
-	probeContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if s.runtimeSecretReadiness.Probe(probeContext) != nil || s.gitReadiness.Probe(probeContext) != nil {
-		return secrets.ErrRuntimeUnavailable
-	}
-	scope, target, err := s.resolveSecretScope(ctx, deployment.ApplicationID, deployment.EnvironmentID, deployment.ApplicationID)
-	if err != nil {
-		return err
-	}
-	if !s.runtimeSecrets.AllowsNamespace(scope.Namespace) {
-		return secrets.ErrRuntimeUnavailable
-	}
-	authorized := map[string]struct{}{}
-	for _, ref := range refs {
-		if _, exists := authorized[ref.BindingID]; exists {
-			continue
-		}
-		target.ID = ref.BindingID
-		if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
-			return err
-		}
-		authorized[ref.BindingID] = struct{}{}
-	}
-	_, err = secrets.ResolveMiddlewareBindingReferences(ctx, s.runtimeSecrets, scope, refs)
-	return err
+	return runtimeSecretReferenceDiagnostic(err)
 }
 
 type secretValues map[string][]byte

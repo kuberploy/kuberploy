@@ -106,11 +106,8 @@ func (s *Server) SubmitAutoDeployment(ctx context.Context, submission autodeploy
 	if resolutionErr != nil {
 		return autodeploy.SubmissionReceipt{}, autodeploy.ErrConflict
 	}
-	references, err := s.resolveAppConfigReferencePlan(ctx, submission.ActorID, deployment, resolution.Runtime)
+	references, err := s.resolveAppConfigReferencePlan(ctx, submission.ActorID, deployment, resolution.Runtime, candidate.Parsed)
 	if err != nil {
-		return autodeploy.SubmissionReceipt{}, err
-	}
-	if err = s.validateMiddlewareSecretReferences(ctx, submission.ActorID, deployment, candidate.Parsed); err != nil {
 		return autodeploy.SubmissionReceipt{}, err
 	}
 	plan, err := s.gitProjection.PlanMutation(ctx, submission.ActorID, submission.EnvironmentID, submission.ApplicationID, bundle.ETag)
