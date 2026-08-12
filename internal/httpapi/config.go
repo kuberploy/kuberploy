@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -599,6 +600,11 @@ func effectiveRenderValues(parsed map[string]any, effective []variables.Effectiv
 	if err = decoder.Decode(&cloned); err != nil || cloned == nil {
 		return nil, appconfigpreview.ErrInvalid
 	}
+	clonedValue, err := normalizeRenderNumbers(cloned)
+	if err != nil {
+		return nil, appconfigpreview.ErrInvalid
+	}
+	cloned, _ = clonedValue.(map[string]any)
 	values := make(map[string]any)
 	for _, value := range effective {
 		if value.Value != nil {
@@ -615,6 +621,40 @@ func effectiveRenderValues(parsed map[string]any, effective []variables.Effectiv
 		return nil, appconfigpreview.ErrInvalid
 	}
 	return raw, nil
+}
+
+func normalizeRenderNumbers(value any) (any, error) {
+	switch typed := value.(type) {
+	case json.Number:
+		if integer, err := typed.Int64(); err == nil {
+			return integer, nil
+		}
+		decimal, err := typed.Float64()
+		if err != nil || math.IsNaN(decimal) || math.IsInf(decimal, 0) {
+			return nil, appconfigpreview.ErrInvalid
+		}
+		return decimal, nil
+	case map[string]any:
+		for key, nested := range typed {
+			normalized, err := normalizeRenderNumbers(nested)
+			if err != nil {
+				return nil, err
+			}
+			typed[key] = normalized
+		}
+		return typed, nil
+	case []any:
+		for index, nested := range typed {
+			normalized, err := normalizeRenderNumbers(nested)
+			if err != nil {
+				return nil, err
+			}
+			typed[index] = normalized
+		}
+		return typed, nil
+	default:
+		return value, nil
+	}
 }
 
 func (s *Server) externalDNSRouteDiagnostics(ctx context.Context, actor string, deployment domain.Deployment, candidate appconfig.Candidate) []appconfig.Diagnostic {
