@@ -319,6 +319,13 @@ spec:
       - PruneLast=true
       - RespectIgnoreDifferences=true
       - ServerSideApply=true
+      {{- if eq $item.key "registry" }}
+      # The registry route uses Traefik CRDs installed by the edge child
+      # Application. On an empty cluster those CRDs can appear after Argo has
+      # started the registry dry-run, so let the real apply wait for discovery
+      # instead of exhausting the child retry budget during bootstrap.
+      - SkipDryRunOnMissingResource=true
+      {{- end }}
 ---
 {{ end }}
 {{ end }}

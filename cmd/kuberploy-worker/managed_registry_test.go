@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9,6 +11,21 @@ import (
 )
 
 type registryReadinessRecorder struct{ acquisitions int }
+
+type registryInstallProbe struct {
+	checks atomic.Int32
+	ready  chan struct{}
+}
+
+func (p *registryInstallProbe) Inspect(ctx context.Context, _ registry.RuntimeConfig) (registry.ManagedRegistryStopProof, error) {
+	p.checks.Add(1)
+	select {
+	case <-p.ready:
+		return registry.ManagedRegistryStopProof{}, nil
+	default:
+		return registry.ManagedRegistryStopProof{}, errors.New("registry deployment is not installed")
+	}
+}
 
 func (r *registryReadinessRecorder) AcquireManagedRegistryReadiness(context.Context, registry.RuntimeWorkerObservation, time.Duration) (registry.RuntimeReadinessLease, error) {
 	r.acquisitions++
@@ -31,4 +48,33 @@ func TestManagedRegistryWorkerNeverHeartbeatsBeforeFullRuntimeValidation(t *test
 	if readiness.acquisitions != 0 {
 		t.Fatalf("invalid runtime published %d readiness observations", readiness.acquisitions)
 	}
+}
+
+func TestManagedRegistryWaitsForInstallBeforePublishingReadiness(t *testing.T) {
+	probe := &registryInstallProbe{ready: make(chan struct{})}
+	runtime := &managedRegistryRuntime{workloads: probe, config: registry.RuntimeConfig{Enabled: true}}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runtime.waitForManagedRegistry(ctx) }()
+
+	time.Sleep(20 * time.Millisecond)
+	if probe.checks.Load() == 0 {
+		t.Fatal("managed registry installation was not probed")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("registry wait stopped before installation: %v", err)
+	default:
+	}
+	close(probe.ready)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("registry wait failed after installation: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		cancel()
+		t.Fatal("registry wait did not observe installation")
+	}
+	cancel()
 }

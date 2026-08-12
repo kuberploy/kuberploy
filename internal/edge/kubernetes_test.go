@@ -2,6 +2,7 @@ package edge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -121,6 +122,31 @@ func TestObservedDeploymentVersionFallsBackOnlyToExplicitImageVersion(t *testing
 		if got := observedDeploymentVersion(map[string]string{"app.kubernetes.io/version": "latest"}, image); got != "" {
 			t.Fatalf("non-version image produced runtime version %q for %q", got, image)
 		}
+	}
+}
+
+func TestServiceDigestIgnoresOnlyKubernetesAllocatedDefaults(t *testing.T) {
+	desired := json.RawMessage(`{"ports":[{"name":"web","port":80,"protocol":"TCP","targetPort":"web"}],"selector":{"app":"edge"},"type":"LoadBalancer"}`)
+	live := json.RawMessage(`{"allocateLoadBalancerNodePorts":true,"clusterIP":"10.43.0.20","clusterIPs":["10.43.0.20"],"externalTrafficPolicy":"Cluster","internalTrafficPolicy":"Cluster","ipFamilies":["IPv4"],"ipFamilyPolicy":"SingleStack","ports":[{"name":"web","nodePort":30463,"port":80,"protocol":"TCP","targetPort":"web"}],"selector":{"app":"edge"},"sessionAffinity":"None","type":"LoadBalancer"}`)
+	normalized, err := normalizeServiceSpec(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonicalJSONDigest(normalized) != canonicalJSONDigest(desired) {
+		t.Fatalf("allocated Service fields changed desired digest: %s != %s", canonicalJSONDigest(normalized), canonicalJSONDigest(desired))
+	}
+
+	nonDefault := json.RawMessage(`{"allocateLoadBalancerNodePorts":false,"externalTrafficPolicy":"Local","ports":[{"name":"web","port":80,"protocol":"TCP","targetPort":"web"}],"selector":{"app":"edge"},"type":"LoadBalancer"}`)
+	normalized, err = normalizeServiceSpec(nonDefault)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projected map[string]any
+	if err = json.Unmarshal(normalized, &projected); err != nil {
+		t.Fatal(err)
+	}
+	if projected["allocateLoadBalancerNodePorts"] != false || projected["externalTrafficPolicy"] != "Local" {
+		t.Fatalf("operator Service choices were stripped: %#v", projected)
 	}
 }
 

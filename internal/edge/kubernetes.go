@@ -175,6 +175,10 @@ func (c *InClusterKubernetesReader) Service(ctx context.Context, namespace, name
 	if err := decodeRaw(object.Spec, &spec); err != nil {
 		return ServiceSnapshot{}, ErrConflict
 	}
+	normalizedSpec, err := normalizeServiceSpec(object.Spec)
+	if err != nil {
+		return ServiceSnapshot{}, ErrConflict
+	}
 	if len(object.Status.LoadBalancer.Ingress) > 16 {
 		return ServiceSnapshot{}, ErrConflict
 	}
@@ -194,8 +198,45 @@ func (c *InClusterKubernetesReader) Service(ctx context.Context, namespace, name
 		ingresses = append(ingresses, value)
 	}
 	return ServiceSnapshot{ObjectSnapshot: ObjectSnapshot{Name: name, Namespace: namespace, UID: object.Metadata.UID,
-		ResourceVersion: object.Metadata.ResourceVersion, Generation: object.Metadata.Generation, SpecDigest: canonicalJSONDigest(object.Spec)},
+		ResourceVersion: object.Metadata.ResourceVersion, Generation: object.Metadata.Generation, SpecDigest: canonicalJSONDigest(normalizedSpec)},
 		Type: spec.Type, LoadBalancerReady: len(ingresses) > 0, LoadBalancerIngress: ingresses}, nil
+}
+
+// normalizeServiceSpec removes only Kubernetes-allocated fields and known
+// server defaults. The profile digest is produced from the Helm-rendered
+// Service spec before admission, so cluster IPs and NodePorts can never be
+// stable inputs. Non-default operator choices remain part of the digest.
+func normalizeServiceSpec(raw json.RawMessage) ([]byte, error) {
+	var spec map[string]any
+	if err := decodeRaw(raw, &spec); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"clusterIP", "clusterIPs", "ipFamilies", "ipFamilyPolicy"} {
+		delete(spec, key)
+	}
+	defaults := map[string]any{
+		"allocateLoadBalancerNodePorts": true,
+		"externalTrafficPolicy":         "Cluster",
+		"internalTrafficPolicy":         "Cluster",
+		"sessionAffinity":               "None",
+	}
+	for key, value := range defaults {
+		if current, ok := spec[key]; ok && current == value {
+			delete(spec, key)
+		}
+	}
+	ports, ok := spec["ports"].([]any)
+	if !ok || len(ports) == 0 {
+		return nil, ErrConflict
+	}
+	for _, rawPort := range ports {
+		port, ok := rawPort.(map[string]any)
+		if !ok {
+			return nil, ErrConflict
+		}
+		delete(port, "nodePort")
+	}
+	return json.Marshal(spec)
 }
 
 func (c *InClusterKubernetesReader) IngressClass(ctx context.Context, name string) (ObjectSnapshot, error) {

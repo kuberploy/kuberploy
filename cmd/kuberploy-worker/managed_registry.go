@@ -14,7 +14,11 @@ import (
 )
 
 type managedRegistryRuntime struct {
-	controller             *registry.RuntimeController
+	controller *registry.RuntimeController
+	workloads  interface {
+		Inspect(context.Context, registry.RuntimeConfig) (registry.ManagedRegistryStopProof, error)
+	}
+	config                 registry.RuntimeConfig
 	readiness              registry.RuntimeReadinessStore
 	identity               registry.RuntimeIdentity
 	workerID               string
@@ -66,9 +70,6 @@ func newManagedRegistryRuntime(ctx context.Context, host string, config registry
 	if err != nil {
 		return nil, err
 	}
-	if _, err = workloads.Inspect(ctx, config); err != nil {
-		return nil, err
-	}
 	maintenance, err := registry.NewKubernetesMaintenanceAdapter(database, database, workloads, config, maintenanceConfig)
 	if err != nil {
 		return nil, err
@@ -91,16 +92,19 @@ func newManagedRegistryRuntime(ctx context.Context, host string, config registry
 	if err != nil {
 		return nil, err
 	}
-	return &managedRegistryRuntime{controller: controller, readiness: database, identity: identity,
+	return &managedRegistryRuntime{controller: controller, workloads: workloads, config: config, readiness: database, identity: identity,
 		workerID: workerLeaseOwner(host+"/"+strconv.Itoa(os.Getpid()), "registry-ready"), startedAt: time.Now().UTC(),
 		prerequisitesValidated: true}, nil
 }
 
 func (r *managedRegistryRuntime) Run(ctx context.Context) error {
-	if r == nil || r.controller == nil || r.readiness == nil || r.workerID == "" || !r.prerequisitesValidated {
+	if r == nil || r.controller == nil || r.workloads == nil || r.config.Validate() != nil || r.readiness == nil || r.workerID == "" || !r.prerequisitesValidated {
 		return fmt.Errorf("managed registry runtime is not configured")
 	}
 	if err := r.controller.ValidateRuntime(); err != nil {
+		return err
+	}
+	if err := r.waitForManagedRegistry(ctx); err != nil {
 		return err
 	}
 	observedAt := time.Now().UTC()
@@ -125,6 +129,28 @@ func (r *managedRegistryRuntime) Run(ctx context.Context) error {
 		return second
 	}
 	return ctx.Err()
+}
+
+// waitForManagedRegistry keeps the worker available while Argo installs the
+// managed registry on a fresh cluster. Readiness is deliberately not acquired
+// until the exact operator-owned Deployment/PVC/ConfigMap identity exists.
+func (r *managedRegistryRuntime) waitForManagedRegistry(ctx context.Context) error {
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	lastReport := time.Time{}
+	for {
+		if _, err := r.workloads.Inspect(ctx, r.config); err == nil {
+			return nil
+		} else if lastReport.IsZero() || time.Since(lastReport) >= 30*time.Second {
+			slog.Info("managed registry is not installed yet; readiness remains withheld", "error", err)
+			lastReport = time.Now()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *managedRegistryRuntime) heartbeat(ctx context.Context, lease registry.RuntimeReadinessLease) error {
