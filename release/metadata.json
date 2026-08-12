@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Runtime-secret rotation preserves byte-identical AppConfig across unrelated Git descendants while changed configuration remains active-version-only.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.109"
+  "version": "0.1.0-rc.110"
 }
