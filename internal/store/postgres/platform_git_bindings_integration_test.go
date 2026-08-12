@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
@@ -21,14 +22,20 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := t.Context()
+	migrationPool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, migrationPool); err != nil {
+		migrationPool.Close()
+		t.Fatal(err)
+	}
+	migrationPool.Close()
 	st, err := Open(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
-		t.Fatal(err)
-	}
 
 	adminID, viewerID, installationID, repositoryID := id.New(), id.New(), id.New(), id.New()
 	clusterID, concurrentClusterID, rejectedClusterID := id.New(), id.New(), id.New()
@@ -119,6 +126,7 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 	}
 
 	concurrent := input
+	concurrent.BindingID = id.New()
 	concurrent.ClusterID = concurrentClusterID
 	results := make(chan error, 2)
 	var start sync.WaitGroup

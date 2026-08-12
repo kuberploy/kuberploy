@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -54,14 +55,20 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := t.Context()
+	migrationPool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, migrationPool); err != nil {
+		migrationPool.Close()
+		t.Fatal(err)
+	}
+	migrationPool.Close()
 	st, err := Open(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err = testdb.ApplyMigrations(ctx, st.pool); err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC().Add(-time.Minute)
 	actorID, organizationID, projectID, environmentID, applicationID := id.New(), id.New(), id.New(), id.New(), id.New()
 	suffix := strings.ReplaceAll(projectID, "-", "")[:12]
@@ -155,6 +162,29 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 	validationTx.Rollback(ctx) //nolint:errcheck
 	if err != nil || len(validated.Uses) != 2 || len(validated.BindingVersions()) != 2 {
 		t.Fatalf("combined workload+BasicAuth transaction plan=%#v err=%v", validated, err)
+	}
+	// Exercise the final projection transaction, not only the read-only
+	// catalog: both environment and file deliveries must survive the exact
+	// metadata recheck and become deletion guards atomically.
+	combinedReferenceID := "store-reference-combined-" + suffix
+	combinedTx, err := st.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = secrets.ReplaceIndexedGitCurrentReferencesTx(ctx, combinedTx, combined, id.New(), combinedReferenceID,
+		strings.Repeat("9", 40), "sha256:"+strings.Repeat("8", 64), "store-reference-combined", now.Add(2*time.Second)); err != nil {
+		combinedTx.Rollback(ctx) //nolint:errcheck
+		t.Fatal(err)
+	}
+	if err = combinedTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, bindingID := range []string{active.Binding.ID, basicAuthActive.Binding.ID} {
+		var count int
+		if err = st.pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references
+			WHERE binding_id=$1 AND kind='git-current' AND reference_id=$2`, bindingID, combinedReferenceID).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("combined git-current reference binding=%s count=%d err=%v", bindingID, count, err)
+		}
 	}
 	binding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), projectID, environmentID,
 		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 11, RepositoryID: 22, Owner: "kuberploy", Name: "desired-state"},

@@ -36,11 +36,14 @@ func validateBindingReferencePlanTx(ctx context.Context, tx pgx.Tx, plan Binding
 			b.name,b.provider,b.purpose,b.state,b.active_version,
 			v.id::text,v.provider,v.target_secret_type,v.state,v.provider_object_name,v.target_secret_name,v.manifest_digest,v.sealed_key_fingerprint,v.ciphertext_digest,
 			(SELECT count(*) FROM secret_binding_deliveries d
-			 WHERE d.binding_id=b.id AND d.version_id=v.id AND d.source_key=$3 AND d.kind='environment' AND d.environment_name=$4)
+			 WHERE d.binding_id=b.id AND d.version_id=v.id AND d.source_key=$3 AND d.kind=$4
+			 AND (($4='environment' AND d.environment_name=$5 AND d.file_path IS NULL AND d.file_mode IS NULL)
+			   OR ($4='file' AND d.environment_name IS NULL AND d.file_path=$6 AND d.file_mode=$7)))
 			FROM secret_bindings b
 			JOIN secret_binding_versions v ON v.binding_id=b.id AND v.version_number=$2
 			WHERE b.id=$1
-			FOR UPDATE OF b,v`, use.BindingID, use.Version, use.Key, use.Delivery.EnvironmentName).Scan(
+			FOR UPDATE OF b,v`, use.BindingID, use.Version, use.Key, string(use.Delivery.Kind), use.Delivery.EnvironmentName,
+			use.Delivery.FilePath, int(use.Delivery.FileMode)).Scan(
 			&organizationID, &projectID, &environmentID, &applicationID, &namespace,
 			&bindingName, &bindingProvider, &bindingPurpose, &bindingState, &activeVersion,
 			&versionID, &versionProvider, &versionTargetType, &versionState, &objectName, &targetName, &manifestDigest, &sealingFingerprint, &ciphertextDigest,
