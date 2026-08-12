@@ -467,12 +467,20 @@ func validManifestDescriptor(descriptor distributionDescriptor, platform bool) b
 		(descriptor.MediaType != ociManifestMediaType && descriptor.MediaType != dockerManifestMediaType && descriptor.MediaType != ociIndexMediaType && descriptor.MediaType != dockerIndexMediaType) {
 		return false
 	}
-	if platform && descriptor.Platform != nil && (descriptor.Platform.OS == "" || descriptor.Platform.Architecture == "" ||
-		len(descriptor.Platform.OS) > 64 || len(descriptor.Platform.Architecture) > 64 || len(descriptor.Platform.Variant) > 64) {
-		return false
-	}
-	if !platform && descriptor.Platform != nil {
-		return false
+	if descriptor.Platform != nil {
+		if !platform || len(descriptor.Platform.OS) > 64 || len(descriptor.Platform.Architecture) > 64 || len(descriptor.Platform.Variant) > 64 {
+			return false
+		}
+		// BuildKit's historical local-cache index uses this exact non-runtime
+		// marker. It carries no selectable architecture, but its child digest is
+		// still an ordinary verified OCI manifest. Keep every other partial
+		// platform descriptor fail-closed.
+		if descriptor.Platform.OS == "darwin" && descriptor.Platform.Architecture == "" && descriptor.Platform.Variant == "" {
+			return true
+		}
+		if descriptor.Platform.OS == "" || descriptor.Platform.Architecture == "" {
+			return false
+		}
 	}
 	return true
 }

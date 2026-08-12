@@ -169,10 +169,10 @@ spec:
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               label_replace(
                 label_replace(
-                  rate(traefik_service_requests_total{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
-                  "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  rate(traefik_service_requests_total{exported_service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                  "namespace", "$1", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                 ),
-                "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                "service", "$2", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
               )
               * on (namespace, service)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -208,10 +208,10 @@ spec:
             sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
               label_replace(
                 label_replace(
-                  rate(traefik_service_requests_total{code=~"5..", service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
-                  "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  rate(traefik_service_requests_total{code=~"5..", exported_service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                  "namespace", "$1", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                 ),
-                "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                "service", "$2", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
               )
               * on (namespace, service)
                 group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -231,10 +231,10 @@ spec:
               sum by (namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
                 label_replace(
                   label_replace(
-                    rate(traefik_service_requests_total{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
-                    "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                    rate(traefik_service_requests_total{exported_service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                    "namespace", "$1", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                   ),
-                  "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  "service", "$2", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                 )
                 * on (namespace, service)
                   group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)
@@ -258,10 +258,10 @@ spec:
               sum by (le, namespace, kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service) (
                 label_replace(
                   label_replace(
-                    rate(traefik_service_request_duration_seconds_bucket{service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
-                    "namespace", "$1", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                    rate(traefik_service_request_duration_seconds_bucket{exported_service=~".+-kp-a-[a-f0-9]{16}-.+@kubernetes"}[5m]),
+                    "namespace", "$1", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                   ),
-                  "service", "$2", "service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
+                  "service", "$2", "exported_service", "^(.+)-(kp-a-[a-f0-9]{16})-(.+)@kubernetes$"
                 )
                 * on (namespace, service)
                   group_left (kuberploy_project, kuberploy_environment, kuberploy_application, kuberploy_service)

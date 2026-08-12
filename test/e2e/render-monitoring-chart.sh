@@ -230,6 +230,11 @@ done
 [[ "$(grep -c 'exported_namespace' <<<"${kp_rule_exprs}")" -ge "7" ]]
 [[ "$(grep -c 'exported_pod' <<<"${kp_rule_exprs}")" -ge "3" ]]
 [[ "$(grep -c 'exported_service' <<<"${kp_rule_exprs}")" -ge "3" ]]
+[[ "$(grep -c 'exported_service=~' <<<"${kp_rule_exprs}")" -eq "4" ]]
+if rg -N 'traefik_service_[^{]+\{[^}]*\bservice=~' <<<"${kp_rule_exprs}" >/dev/null; then
+  printf 'HTTP recording rules matched Prometheus target service instead of Traefik exported_service\n' >&2
+  exit 1
+fi
 if grep -E 'or[[:space:]]+vector\(0\)' <<<"${kp_rule_exprs}" >/dev/null; then
   printf 'HTTP recording rules must remain empty when Traefik metrics are absent\n' >&2
   exit 1
@@ -250,7 +255,7 @@ kp_query_policy="$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.n
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.82,monitoring,kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.operatorArgumentsSHA256' "${kp_tmp}/managed.yaml")" == "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.upstreamChartSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b2d83d41bbc11bd5a1877fe07f0957af2edacd4c1c38e6ef90effa364274ad63" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:0058f63c0c000cc9e491f3775c830554fa7a1bf10d0b86de7e3f8d61e9b09879" ]]
 
 if rg -n 'kind: (Ingress|HTTPRoute)|type: (LoadBalancer|NodePort)|grafana/grafana' "${kp_tmp}/managed.yaml"; then
   printf 'managed monitoring rendered a public route, public Service, or Grafana\n' >&2

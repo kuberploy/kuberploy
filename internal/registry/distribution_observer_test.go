@@ -59,6 +59,25 @@ func TestDistributionObserverRejectsUntrustedArtifactAndInlineData(t *testing.T)
 	}
 }
 
+func TestDistributionObserverBoundsBuildKitLegacyCachePlatformMarker(t *testing.T) {
+	descriptor := distributionDescriptor{MediaType: ociManifestMediaType, Digest: "sha256:" + strings.Repeat("a", 64), Size: 1}
+	descriptor.Platform = &struct {
+		Architecture string `json:"architecture"`
+		OS           string `json:"os"`
+		Variant      string `json:"variant"`
+	}{OS: "darwin"}
+	if !validManifestDescriptor(descriptor, true) {
+		t.Fatal("exact BuildKit legacy cache marker was rejected")
+	}
+	descriptor.Platform.OS = "linux"
+	if validManifestDescriptor(descriptor, true) {
+		t.Fatal("arbitrary partial platform marker was accepted")
+	}
+	if validManifestDescriptor(descriptor, false) {
+		t.Fatal("platform metadata was accepted outside an index child")
+	}
+}
+
 func testDistributionObserver(t *testing.T, target domain.RegistryTarget, transport http.RoundTripper) *DistributionObserver {
 	t.Helper()
 	config := DefaultDistributionObserverConfig()
