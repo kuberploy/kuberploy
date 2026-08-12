@@ -243,7 +243,28 @@ func (b *buildBackend) Retry(ctx context.Context, actorID, sourceAttemptID, key,
 	if resourceID != retryID {
 		return builds.BuildAttempt{}, false, builds.ErrConflict
 	}
-	attempt, retryReplay, err := b.store.RetryAttempt(ctx, sourceAttemptID, retryID, claimKey, now)
+	if commandReplay {
+		if existing, getErr := b.store.Attempt(ctx, retryID); getErr == nil {
+			if existing.DeliveryClaimKey != claimKey || existing.DefinitionID != source.DefinitionID {
+				return builds.BuildAttempt{}, false, builds.ErrConflict
+			}
+			return existing, true, nil
+		} else if !errors.Is(getErr, builds.ErrNotFound) {
+			return builds.BuildAttempt{}, false, getErr
+		}
+	}
+	definition, err := b.store.Definition(ctx, source.DefinitionID)
+	if err != nil {
+		return builds.BuildAttempt{}, false, err
+	}
+	resolution, err := b.resolver.ResolveBuildDefinition(ctx, actorID, definition.ProjectID, definition.ServiceID, definition.Spec.Registry.TargetID)
+	if err != nil {
+		return builds.BuildAttempt{}, false, err
+	}
+	if resolution.Registry.TargetID != definition.Spec.Registry.TargetID {
+		return builds.BuildAttempt{}, false, builds.ErrUnauthorized
+	}
+	attempt, retryReplay, err := b.store.RetryAttempt(ctx, sourceAttemptID, retryID, claimKey, resolution.Execution, now)
 	return attempt, commandReplay || retryReplay, err
 }
 func (b *buildBackend) clock() time.Time {

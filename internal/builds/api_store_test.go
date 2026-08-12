@@ -61,13 +61,15 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 
 	retryClaim := strings.Repeat("c", 64)
 	retryID := RetryAttemptID(retryClaim, definition.ID)
+	currentExecution := definition.Spec.Execution
+	currentExecution.BuilderAgentImage = "registry.test/system/builder-agent@sha256:" + strings.Repeat("9", 64)
 	inserted.Store(0)
 	replayed.Store(0)
 	for range 32 {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			attempt, replay, retryErr := store.RetryAttempt(ctx, source.ID, retryID, retryClaim, completed.Add(time.Minute))
+			attempt, replay, retryErr := store.RetryAttempt(ctx, source.ID, retryID, retryClaim, currentExecution, completed.Add(time.Minute))
 			if retryErr != nil || attempt.ID != retryID || attempt.DeliveryClaimKey != retryClaim {
 				t.Errorf("retry attempt=%#v replay=%v err=%v", attempt, replay, retryErr)
 				return
@@ -87,6 +89,9 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	if err != nil || retry.State != AttemptQueued || retry.Generation != 2 || retry.CommitSHA != source.CommitSHA || retry.GitRef != source.GitRef || retry.DefinitionDigest != source.DefinitionDigest {
 		t.Fatalf("retry changed immutable source: %#v err=%v", retry, err)
 	}
+	if retry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage || retry.PlanRequest.AgentImage == source.PlanRequest.AgentImage {
+		t.Fatalf("retry agent image=%q, want refreshed operator runtime %q", retry.PlanRequest.AgentImage, currentExecution.BuilderAgentImage)
+	}
 	store.mu.Lock()
 	message, outboxOK := store.outbox[retryID]
 	_, claimOK := store.claims[claimMapKey("github-delivery", retryClaim)]
@@ -95,7 +100,7 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	if !outboxOK || message.TraceID != retryClaim || !claimOK || !receiptOK || receipt.State != DeliveryEnqueued {
 		t.Fatalf("retry durability outbox=%#v claim=%v receipt=%#v", message, claimOK, receipt)
 	}
-	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, strings.Repeat("d", 64), completed.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
+	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, strings.Repeat("d", 64), currentExecution, completed.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("existing retry rebound to a different durable claim: %v", err)
 	}
 }

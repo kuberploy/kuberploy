@@ -128,7 +128,7 @@ func (s *MemoryStore) ClaimAPICommand(_ context.Context, actorID, operation, sco
 	return resourceID, false, nil
 }
 
-func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAttemptID, claimKey string, now time.Time) (BuildAttempt, bool, error) {
+func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAttemptID, claimKey string, execution ExecutionSettings, now time.Time) (BuildAttempt, bool, error) {
 	if !uuidRE.MatchString(sourceAttemptID) || !uuidRE.MatchString(retryAttemptID) || !regexpHex64(claimKey) || now.IsZero() {
 		return BuildAttempt{}, false, ErrInvalid
 	}
@@ -159,7 +159,7 @@ func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAtte
 	generationKey := serviceKey(definition.ProjectID, definition.ServiceID)
 	generation := s.serviceGeneration[generationKey] + 1
 	imports := s.cacheImportsLocked(definition, generation)
-	attempt, err := newAttempt(definition, repository, EnqueuePush{ClaimKey: claimKey, CommitSHA: source.CommitSHA, GitRef: source.GitRef, ResolvedAt: now.UTC()}, generation, imports, now)
+	attempt, err := newAttemptWithExecution(definition, execution, repository, EnqueuePush{ClaimKey: claimKey, CommitSHA: source.CommitSHA, GitRef: source.GitRef, ResolvedAt: now.UTC()}, generation, imports, now)
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}

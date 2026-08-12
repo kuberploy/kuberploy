@@ -372,15 +372,20 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	manualRetryKey := "postgres-manual-retry-01"
 	manualClaimKey := APICommandClaimKey(userID, APICommandAttemptRetry, cancelled.ID, manualRetryKey)
 	manualRetryID := RetryAttemptID(manualClaimKey, cancelled.DefinitionID)
+	currentExecution := definition.Spec.Execution
+	currentExecution.BuilderAgentImage = "registry.test/system/builder-agent@sha256:" + strings.Repeat("9", 64)
 	if got, replay, claimErr := store.ClaimAPICommand(ctx, userID, APICommandAttemptRetry, cancelled.ID, manualRetryKey,
 		"sha256:"+strings.Repeat("4", 64), manualRetryID, cancelRetryAt.Add(time.Minute)); claimErr != nil || replay || got != manualRetryID {
 		t.Fatalf("manual retry claim resource=%q replay=%v err=%v", got, replay, claimErr)
 	}
-	manualRetry, replay, err := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, cancelRetryAt.Add(time.Minute))
+	manualRetry, replay, err := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, currentExecution, cancelRetryAt.Add(time.Minute))
 	if err != nil || replay || manualRetry.ID != manualRetryID || manualRetry.Generation <= cancelled.Generation || manualRetry.CommitSHA != cancelled.CommitSHA || manualRetry.GitRef != cancelled.GitRef {
 		t.Fatalf("manual retry=%#v replay=%v err=%v", manualRetry, replay, err)
 	}
-	if replayedRetry, replay, retryErr := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, cancelRetryAt.Add(2*time.Minute)); retryErr != nil || !replay || replayedRetry.ID != manualRetry.ID {
+	if manualRetry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage || manualRetry.PlanRequest.AgentImage == cancelled.PlanRequest.AgentImage {
+		t.Fatalf("manual retry agent image=%q, want refreshed operator runtime %q", manualRetry.PlanRequest.AgentImage, currentExecution.BuilderAgentImage)
+	}
+	if replayedRetry, replay, retryErr := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, definition.Spec.Execution, cancelRetryAt.Add(2*time.Minute)); retryErr != nil || !replay || replayedRetry.ID != manualRetry.ID || replayedRetry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage {
 		t.Fatalf("manual retry replay=%#v replay=%v err=%v", replayedRetry, replay, retryErr)
 	}
 

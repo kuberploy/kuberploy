@@ -24,7 +24,7 @@ type APIStore interface {
 	DefinitionsForService(context.Context, string) ([]BuildDefinition, error)
 	AttemptsForService(context.Context, string, int) ([]BuildAttempt, error)
 	ClaimAPICommand(context.Context, string, string, string, string, string, string, time.Time) (string, bool, error)
-	RetryAttempt(context.Context, string, string, string, time.Time) (BuildAttempt, bool, error)
+	RetryAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
 }
 
 func APICommandClaimKey(actorID, operation, scopeID, idempotencyKey string) string {

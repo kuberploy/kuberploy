@@ -177,7 +177,7 @@ func (s *PostgreSQLStore) ClaimAPICommand(ctx context.Context, actorID, operatio
 	return storedResource, true, tx.Commit(ctx)
 }
 
-func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, retryAttemptID, claimKey string, now time.Time) (BuildAttempt, bool, error) {
+func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, retryAttemptID, claimKey string, execution ExecutionSettings, now time.Time) (BuildAttempt, bool, error) {
 	if !uuidRE.MatchString(sourceAttemptID) || !uuidRE.MatchString(retryAttemptID) || !regexpHex64(claimKey) || now.IsZero() {
 		return BuildAttempt{}, false, ErrInvalid
 	}
@@ -233,7 +233,7 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}
-	attempt, err := newAttempt(definition, repository, EnqueuePush{ClaimKey: claimKey, CommitSHA: source.CommitSHA, GitRef: source.GitRef, ResolvedAt: now.UTC()}, generation, imports, now)
+	attempt, err := newAttemptWithExecution(definition, execution, repository, EnqueuePush{ClaimKey: claimKey, CommitSHA: source.CommitSHA, GitRef: source.GitRef, ResolvedAt: now.UTC()}, generation, imports, now)
 	if err != nil || attempt.ID != retryAttemptID {
 		return BuildAttempt{}, false, ErrInvalid
 	}
