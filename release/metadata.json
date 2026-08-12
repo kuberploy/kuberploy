@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Final pre-stable Prisma baseline starts fresh with the fully qualified RC86 schema and unchanged PostgreSQL authority.",
+  "summary": "Fresh-cluster bootstrap waits safely for managed Registry resources and verifies edge Services without hashing Kubernetes-allocated fields.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.87"
+  "version": "0.1.0-rc.88"
 }
