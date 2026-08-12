@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Git publication now refreshes the exact Argo root immediately, and authenticated source pushes coalesce duplicate commit deliveries.",
+  "summary": "VariableSet Git writes now recover safely after uncertain publication without leaving durable operations running.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.99"
+  "version": "0.1.0-rc.100"
 }
