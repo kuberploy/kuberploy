@@ -261,3 +261,111 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 		t.Fatalf("stored command=%#v err=%v", storedCommand, err)
 	}
 }
+
+func TestPostgreSQLDependencyInvalidationSchedulesSameHeadReindex(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := t.Context()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	const (
+		projectID     = "a2000000-0000-4000-8000-000000000001"
+		environmentID = "a2000000-0000-4000-8000-000000000002"
+		bindingID     = "a2000000-0000-4000-8000-000000000003"
+		applicationID = "a2000000-0000-4000-8000-000000000005"
+	)
+	cleanup := func(cleanupContext context.Context) {
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=$1`, bindingID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM applications WHERE id=$1`, applicationID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, environmentID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM projects WHERE id=$1`, projectID)
+	}
+	cleanup(ctx)
+	defer cleanup(context.Background())
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Dependency refresh','dependency-refresh',$2)`, projectID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
+		VALUES($1,$2,'Dependency refresh','dependency-refresh','kp-dependency-refresh','kp-p-a2000000000040008000000000000001',$3)`, environmentID, projectID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)
+		VALUES($1,$2,'Dependency refresh','dependency-refresh',$3)`, applicationID, projectID, now); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := gitprojection.NewGitHubEnvironmentBinding(bindingID, projectID, environmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 9_200_000_000_000_101, RepositoryID: 9_200_000_000_000_102, Owner: "kuberploy", Name: "dependency-refresh"}, "refs/heads/main", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := gitprojection.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutBinding(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+	work, err := store.ClaimReconciliation(ctx, "dependency-refresh-worker", now, 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.Repeat("d", 40)
+	binding, _, err = store.RecordVerifiedHead(ctx, verified(binding, head, "dependency-refresh-head", now.Add(time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := store.BeginGeneration(ctx, work.Lease, head, binding.ParserVersion, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileTarget := "a2000000-0000-4000-8000-000000000004"
+	document, err := gitprojection.NewDocument(binding, generation.Number, applicationID, head, head,
+		strings.Repeat("e", 40), []byte("kind: AppConfig\n"), map[string]any{"spec": map[string]any{"delivery": map[string]any{
+			"registryPull": map[string]any{"targetId": profileTarget, "profileName": "managed-registry", "profileRevision": float64(5)},
+		}}}, nil, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDocuments(ctx, generation, []gitprojection.Document{document}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateGeneration(ctx, work.Lease, generation, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, now.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishReconciliation(ctx, work.Lease, gitprojection.ReconciliationOutcome{LastCommit: head, NextPollAt: now.Add(time.Hour)}, now.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE git_projected_documents
+		SET valid=false,diagnostics='[{"code":"RegistryPullProfileMismatch","detail":"profile changed","pointer":"/spec/delivery/registryPull"}]'::jsonb
+		WHERE binding_id=$1 AND generation=$2 AND path=$3`, bindingID, generation.Number, document.Path); err != nil {
+		t.Fatal(err)
+	}
+	invalidateAt := now.Add(5 * time.Second)
+	invalidatedMatch, err := store.InvalidateMatchingProfileMismatch(ctx, environmentID, profileTarget, "managed-registry", 5, invalidateAt)
+	if err != nil || !invalidatedMatch {
+		t.Fatalf("invalidated=%t err=%v", invalidatedMatch, err)
+	}
+	invalidated, err := store.Binding(ctx, bindingID)
+	if err != nil || invalidated.State != gitprojection.BindingIndexing || invalidated.TargetHeadRevision != head || invalidated.IndexedRevision != head {
+		t.Fatalf("invalidated=%#v err=%v", invalidated, err)
+	}
+	reindex, err := store.ClaimReconciliation(ctx, "dependency-refresh-worker", now.Add(6*time.Second), 2*time.Minute)
+	if err != nil || !reindex.BindingChanged || reindex.Binding.State != gitprojection.BindingIndexing || reindex.Binding.TargetHeadRevision != head {
+		t.Fatalf("reindex=%#v err=%v", reindex, err)
+	}
+	if invalidatedMatch, err = store.InvalidateMatchingProfileMismatch(ctx, environmentID, profileTarget, "managed-registry", 5, now.Add(7*time.Second)); err != nil || invalidatedMatch {
+		t.Fatalf("non-ready projection invalidated=%t err=%v", invalidatedMatch, err)
+	}
+	if err = store.ReleaseReconciliation(ctx, reindex.Lease, now.Add(7*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+}

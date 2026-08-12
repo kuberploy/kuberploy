@@ -15,6 +15,13 @@ type SecretAPI interface {
 	EnsureImagePullSecret(context.Context, SecretRequest) (SecretObservation, error)
 }
 
+// ProjectionInvalidator fail-closes an environment Git projection before a
+// corrected operator profile makes a previously invalid AppConfig usable.
+// Reindexing the same verified Git head then re-runs every current policy.
+type ProjectionInvalidator interface {
+	InvalidateMatchingProfileMismatch(context.Context, string, string, string, int64, time.Time) (bool, error)
+}
+
 type SecretRequest struct {
 	DesiredArtifact
 	RegistryServer string
@@ -50,6 +57,7 @@ type RuntimeController struct {
 	Store       Store
 	Reader      MaterialReader
 	Secrets     SecretAPI
+	Projections ProjectionInvalidator
 	Config      RuntimeConfig
 	WorkerID    string
 	WorkerEpoch int64
@@ -58,7 +66,7 @@ type RuntimeController struct {
 }
 
 func (c *RuntimeController) Validate() error {
-	if c == nil || c.Store == nil || c.Reader == nil || c.Secrets == nil || c.Config.Validate() != nil ||
+	if c == nil || c.Store == nil || c.Reader == nil || c.Secrets == nil || c.Projections == nil || c.Config.Validate() != nil ||
 		!c.Config.Enabled || !workerIDPattern.MatchString(c.WorkerID) || c.WorkerEpoch <= 0 {
 		return ErrUnavailable
 	}
@@ -220,6 +228,12 @@ func (c *RuntimeController) Reconcile(ctx context.Context, configDigest string) 
 		return c.permanentFailure(ctx, latest, "secret-observation-mismatch")
 	}
 	now := c.now()
+	if latest.Artifact.State == StateReady || latest.Artifact.State == StateFailed && latest.Artifact.LastFailureCode == profileMismatchFailureCode {
+		if _, err = c.Projections.InvalidateMatchingProfileMismatch(ctx, latest.Artifact.EnvironmentID, latest.Artifact.RegistryTargetID,
+			latest.Artifact.ProfileName, latest.Artifact.ProfileRevision, now); err != nil {
+			return true, err
+		}
+	}
 	_, err = c.Store.RecordArtifactReady(ctx, latest, observation.UID, observation.ResourceVersion, now, now.Add(c.Config.PollInterval))
 	return true, err
 }

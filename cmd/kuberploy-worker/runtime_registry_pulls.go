@@ -21,11 +21,11 @@ type runtimeRegistryPullRuntime struct {
 	store      runtimeRegistryPullStore
 }
 
-func newRuntimeRegistryPullRuntime(ctx context.Context, databaseURL, host string, config imagepull.RuntimeConfig) (*runtimeRegistryPullRuntime, error) {
+func newRuntimeRegistryPullRuntime(ctx context.Context, databaseURL, host string, config imagepull.RuntimeConfig, projection *gitProjectionRuntime) (*runtimeRegistryPullRuntime, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
-	if config.Validate() != nil {
+	if config.Validate() != nil || projection == nil || projection.store == nil {
 		return nil, imagepull.ErrUnavailable
 	}
 	store, err := imagepull.OpenPostgreSQLStore(ctx, databaseURL)
@@ -39,7 +39,8 @@ func newRuntimeRegistryPullRuntime(ctx context.Context, databaseURL, host string
 	}
 	startedAt := time.Now().UTC()
 	workerID := "runtime-pull-worker:" + host + ":" + strconv.Itoa(os.Getpid()) + ":" + strconv.FormatInt(startedAt.UnixNano(), 36)
-	runtime, err := buildRuntimeRegistryPullRuntime(config, store, imagepull.NewProjectedMaterialReader(), secretAPI, workerID, 1, startedAt)
+	runtime, err := buildRuntimeRegistryPullRuntime(config, store, imagepull.NewProjectedMaterialReader(), secretAPI,
+		projection.store, workerID, 1, startedAt)
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -52,14 +53,15 @@ func buildRuntimeRegistryPullRuntime(
 	store runtimeRegistryPullStore,
 	reader imagepull.MaterialReader,
 	secretAPI imagepull.SecretAPI,
+	projections imagepull.ProjectionInvalidator,
 	workerID string,
 	workerEpoch int64,
 	now time.Time,
 ) (*runtimeRegistryPullRuntime, error) {
-	if config.Validate() != nil || !config.Enabled || store == nil || reader == nil || secretAPI == nil || now.IsZero() {
+	if config.Validate() != nil || !config.Enabled || store == nil || reader == nil || secretAPI == nil || projections == nil || now.IsZero() {
 		return nil, imagepull.ErrUnavailable
 	}
-	controller := &imagepull.RuntimeController{Store: store, Reader: reader, Secrets: secretAPI, Config: config,
+	controller := &imagepull.RuntimeController{Store: store, Reader: reader, Secrets: secretAPI, Projections: projections, Config: config,
 		WorkerID: workerID, WorkerEpoch: workerEpoch, Now: func() time.Time { return time.Now().UTC() },
 		ReportError: func(loop string, err error) {
 			slog.Warn("runtime registry-pull worker iteration failed", "loop", loop, "error", err)

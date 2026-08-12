@@ -26,6 +26,25 @@ type controllerSecretAPI struct {
 	captured    []byte
 }
 
+type controllerProjectionInvalidator struct {
+	called        int
+	environmentID string
+	targetID      string
+	profileName   string
+	revision      int64
+	invalidated   bool
+	err           error
+}
+
+func (i *controllerProjectionInvalidator) InvalidateMatchingProfileMismatch(_ context.Context, environmentID, targetID, profileName string, revision int64, _ time.Time) (bool, error) {
+	i.called++
+	i.environmentID = environmentID
+	i.targetID = targetID
+	i.profileName = profileName
+	i.revision = revision
+	return i.invalidated, i.err
+}
+
 func (a *controllerSecretAPI) EnsureImagePullSecret(_ context.Context, request SecretRequest) (SecretObservation, error) {
 	a.called++
 	a.captured = request.DockerConfig
@@ -47,7 +66,7 @@ func newControllerFixture(t *testing.T) (*RuntimeController, *MemoryStore, *cont
 	reader := &controllerMaterialReader{value: []byte(`{"auths":{"registry.example.test:5000":{"auth":"dXNlcjpwYXNz"}}}`)}
 	api := &controllerSecretAPI{observation: SecretObservation{Namespace: desired.Namespace, Name: desired.SecretName,
 		UID: "44444444-4444-4444-8444-444444444444", ResourceVersion: "123"}}
-	controller := &RuntimeController{Store: store, Reader: reader, Secrets: api, Config: config,
+	controller := &RuntimeController{Store: store, Reader: reader, Secrets: api, Projections: &controllerProjectionInvalidator{}, Config: config,
 		WorkerID: "registry-pull-worker:one", WorkerEpoch: 1, Now: func() time.Time { return now }}
 	digest, _ := config.Digest()
 	return controller, store, reader, api, now, digest
@@ -67,6 +86,17 @@ func TestControllerReconcilesExactSecretAndClearsMaterial(t *testing.T) {
 	if err != nil || artifact.State != StateReady || artifact.LastObservedAt == nil || !artifact.LastObservedAt.Equal(now) ||
 		artifact.ObservedUID != api.observation.UID || artifact.LeaseOwner != "" {
 		t.Fatalf("artifact=%#v err=%v", artifact, err)
+	}
+	invalidator := controller.Projections.(*controllerProjectionInvalidator)
+	if invalidator.called != 0 {
+		t.Fatalf("initial awaiting artifact invalidated projection: %#v", invalidator)
+	}
+	controller.Now = func() time.Time { return artifact.NextObservationAt }
+	if didWork, err = controller.Reconcile(t.Context(), digest); err != nil || !didWork {
+		t.Fatalf("ready observation work=%t err=%v", didWork, err)
+	}
+	if invalidator.called != 1 || invalidator.environmentID != testEnvironmentID || invalidator.targetID != testTargetID {
+		t.Fatalf("ready artifact did not inspect stale projection: %#v", invalidator)
 	}
 }
 
@@ -159,6 +189,36 @@ func TestControllerRecoversExactProfileMismatchAfterOperatorCorrection(t *testin
 	if loadErr != nil || recovered.State != StateReady || recovered.LastFailureCode != "" ||
 		recovered.ConsecutiveFailures != 0 || recovered.LastObservedAt == nil || !recovered.LastObservedAt.Equal(recoveryAt) {
 		t.Fatalf("recovered artifact=%#v err=%v now=%s", recovered, loadErr, now)
+	}
+	invalidator := controller.Projections.(*controllerProjectionInvalidator)
+	if invalidator.called != 1 || invalidator.environmentID != testEnvironmentID || invalidator.targetID != testTargetID ||
+		invalidator.profileName != original.Profiles[0].Name || invalidator.revision != original.Profiles[0].Revision {
+		t.Fatalf("projection invalidation=%#v", invalidator)
+	}
+}
+
+func TestControllerKeepsRecoveredArtifactFailedWhenProjectionInvalidationFails(t *testing.T) {
+	controller, store, _, _, _, _ := newControllerFixture(t)
+	original := controller.Config
+	original.Profiles = append([]Profile(nil), controller.Config.Profiles...)
+	controller.Config.Profiles[0].Name = "rotated-profile"
+	mismatchedDigest, _ := controller.Config.Digest()
+	if worked, err := controller.Reconcile(t.Context(), mismatchedDigest); err != nil || !worked {
+		t.Fatalf("profile mismatch work=%t err=%v", worked, err)
+	}
+	desired, _ := Desired(original, testEnvironmentID, "tenant-a-dev", testTargetID)
+	failed, _ := store.Artifact(t.Context(), desired.ArtifactKey)
+	controller.Config = original
+	controller.Now = func() time.Time { return failed.NextObservationAt }
+	controller.Projections.(*controllerProjectionInvalidator).err = errors.New("projection unavailable")
+	recoveredDigest, _ := controller.Config.Digest()
+	worked, err := controller.Reconcile(t.Context(), recoveredDigest)
+	if !worked || err == nil {
+		t.Fatalf("work=%t err=%v", worked, err)
+	}
+	artifact, loadErr := store.Artifact(t.Context(), desired.ArtifactKey)
+	if loadErr != nil || artifact.State != StateFailed || artifact.LastFailureCode != profileMismatchFailureCode || artifact.LastObservedAt != nil {
+		t.Fatalf("artifact=%#v err=%v", artifact, loadErr)
 	}
 }
 

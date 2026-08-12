@@ -55,8 +55,14 @@ Application for an AppConfig that references the pull profile.
 Infrastructure failures while reading projected credentials or calling the
 Kubernetes API persist bounded retry state and stop the worker so its readiness
 lease expires. Semantic credential or live-object mutation failures are
-terminal for that profile revision; operators rotate to a new revision after
-correcting the source.
+terminal for that profile revision. The sole recoverable semantic failure is an
+operator profile mismatch: after the exact configured profile is corrected, a
+lease-fenced worker may reconcile the immutable Secret. Before it records the
+artifact Ready, it invalidates only an active same-environment Git projection
+whose current document still contains the matching target, profile name,
+revision, and `RegistryPullProfileMismatch` diagnostic. The projection worker
+then revalidates the same provider-verified Git head. Periodic observation of an
+already-valid profile does not invalidate or reindex Git.
 
 ## Production integration status
 

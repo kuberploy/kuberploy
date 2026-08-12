@@ -247,7 +247,7 @@ func run() error {
 		}
 		return err
 	}
-	runtimeRegistryPulls, err := newRuntimeRegistryPullRuntime(ctx, databaseURL, host, runtimeRegistryPullConfig)
+	runtimeRegistryPulls, err := newRuntimeRegistryPullRuntime(ctx, databaseURL, host, runtimeRegistryPullConfig, gitProjection)
 	if err != nil {
 		if runtimeSecrets != nil {
 			runtimeSecrets.Close()

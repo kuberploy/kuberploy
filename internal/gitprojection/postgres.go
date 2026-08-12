@@ -176,6 +176,70 @@ func (s *PostgreSQLStore) SetBindingState(ctx context.Context, id, expectedHead 
 	return nil
 }
 
+// InvalidateMatchingProfileMismatch forces same-head policy revalidation only
+// when the active document still carries the exact corrected registry profile
+// diagnostic. Already-valid projections remain untouched on periodic Secret
+// observation.
+func (s *PostgreSQLStore) InvalidateMatchingProfileMismatch(ctx context.Context, environmentID, targetID, profileName string, profileRevision int64, now time.Time) (bool, error) {
+	if s == nil || s.pool == nil || !uuidRE.MatchString(environmentID) || !uuidRE.MatchString(targetID) ||
+		!nameRE.MatchString(profileName) || profileRevision <= 0 || now.IsZero() {
+		return false, ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err := tx.Query(ctx, `SELECT `+bindingColumns+` FROM git_repository_bindings
+		WHERE kind='environment' AND environment_id=$1 AND state='ready' AND target_head_revision=indexed_revision
+		AND EXISTS (
+			SELECT 1 FROM git_projected_documents d
+			WHERE d.binding_id=git_repository_bindings.id AND d.generation=git_repository_bindings.projection_generation
+			AND NOT d.valid AND d.diagnostics @> '[{"code":"RegistryPullProfileMismatch"}]'::jsonb
+			AND d.parsed #>> '{spec,delivery,registryPull,targetId}'=$2
+			AND d.parsed #>> '{spec,delivery,registryPull,profileName}'=$3
+			AND d.parsed #>> '{spec,delivery,registryPull,profileRevision}'=$4::text
+		) ORDER BY id FOR UPDATE`, environmentID, targetID, profileName, fmt.Sprintf("%d", profileRevision))
+	if err != nil {
+		return false, classifyPostgres(err)
+	}
+	bindings := make([]Binding, 0, 1)
+	for rows.Next() {
+		binding, scanErr := scanBinding(rows)
+		if scanErr != nil {
+			rows.Close()
+			return false, scanErr
+		}
+		bindings = append(bindings, binding)
+	}
+	rows.Close()
+	if err = rows.Err(); err != nil {
+		return false, classifyPostgres(err)
+	}
+	if len(bindings) == 0 {
+		if err = tx.Commit(ctx); err != nil {
+			return false, classifyPostgres(err)
+		}
+		return false, nil
+	}
+	if len(bindings) != 1 || bindings[0].State != BindingReady || bindings[0].TargetHeadRevision == "" ||
+		bindings[0].TargetHeadRevision != bindings[0].IndexedRevision || now.Before(bindings[0].UpdatedAt) {
+		return false, ErrConflict
+	}
+	result, err := tx.Exec(ctx, `UPDATE git_repository_bindings SET state='indexing',updated_at=$2
+		WHERE id=$1 AND state='ready' AND target_head_revision=indexed_revision AND updated_at<=$2`, bindings[0].ID, now.UTC())
+	if err != nil {
+		return false, classifyPostgres(err)
+	}
+	if result.RowsAffected() != 1 {
+		return false, ErrConflict
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, classifyPostgres(err)
+	}
+	return true, nil
+}
+
 func (s *PostgreSQLStore) RecordVerifiedHead(ctx context.Context, head VerifiedHead) (Binding, bool, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {

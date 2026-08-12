@@ -28,6 +28,12 @@ func (runtimePullSecretAPI) EnsureImagePullSecret(context.Context, imagepull.Sec
 	return imagepull.SecretObservation{}, imagepull.ErrUnavailable
 }
 
+type runtimePullProjectionInvalidator struct{}
+
+func (runtimePullProjectionInvalidator) InvalidateMatchingProfileMismatch(context.Context, string, string, string, int64, time.Time) (bool, error) {
+	return false, nil
+}
+
 func workerRuntimePullConfig(t *testing.T) imagepull.RuntimeConfig {
 	t.Helper()
 	config := imagepull.DefaultRuntimeConfig()
@@ -43,7 +49,7 @@ func workerRuntimePullConfig(t *testing.T) imagepull.RuntimeConfig {
 }
 
 func TestRuntimeRegistryPullDefaultsOffWithoutDependencies(t *testing.T) {
-	runtime, err := newRuntimeRegistryPullRuntime(t.Context(), "not-a-database-url", "bad host", imagepull.RuntimeConfig{})
+	runtime, err := newRuntimeRegistryPullRuntime(t.Context(), "not-a-database-url", "bad host", imagepull.RuntimeConfig{}, nil)
 	if err != nil || runtime != nil {
 		t.Fatalf("runtime=%#v err=%v", runtime, err)
 	}
@@ -53,7 +59,7 @@ func TestRuntimeRegistryPullConstructionIsExactAndClosesStore(t *testing.T) {
 	config := workerRuntimePullConfig(t)
 	store := &runtimePullStore{MemoryStore: imagepull.NewMemoryStore()}
 	now := time.Date(2026, 8, 9, 4, 30, 0, 0, time.UTC)
-	runtime, err := buildRuntimeRegistryPullRuntime(config, store, runtimePullReader{}, runtimePullSecretAPI{}, "runtime-pull-worker:test", 1, now)
+	runtime, err := buildRuntimeRegistryPullRuntime(config, store, runtimePullReader{}, runtimePullSecretAPI{}, runtimePullProjectionInvalidator{}, "runtime-pull-worker:test", 1, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,10 +71,10 @@ func TestRuntimeRegistryPullConstructionIsExactAndClosesStore(t *testing.T) {
 		t.Fatal("store was not closed")
 	}
 
-	if _, err = buildRuntimeRegistryPullRuntime(config, store, nil, runtimePullSecretAPI{}, "runtime-pull-worker:test", 1, now); !errors.Is(err, imagepull.ErrUnavailable) {
+	if _, err = buildRuntimeRegistryPullRuntime(config, store, nil, runtimePullSecretAPI{}, runtimePullProjectionInvalidator{}, "runtime-pull-worker:test", 1, now); !errors.Is(err, imagepull.ErrUnavailable) {
 		t.Fatalf("nil reader = %v", err)
 	}
-	if _, err = buildRuntimeRegistryPullRuntime(config, store, runtimePullReader{}, runtimePullSecretAPI{}, "short", 1, now); !errors.Is(err, imagepull.ErrUnavailable) {
+	if _, err = buildRuntimeRegistryPullRuntime(config, store, runtimePullReader{}, runtimePullSecretAPI{}, runtimePullProjectionInvalidator{}, "short", 1, now); !errors.Is(err, imagepull.ErrUnavailable) {
 		t.Fatalf("short worker identity = %v", err)
 	}
 }
