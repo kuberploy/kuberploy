@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Accepted VariableSet Git writes now recover exact commits through unrelated descendants without remaining in a requeue loop.",
+  "summary": "Personal and platform-owned projects can use strict runtime secrets while team-owned bindings retain exact database-enforced ownership.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.103"
+  "version": "0.1.0-rc.104"
 }
