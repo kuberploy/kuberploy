@@ -121,6 +121,35 @@ func RegistryCleanupPlanDigest(plan domain.RegistryCleanupPlan) string {
 	})
 }
 
+// RegistryCleanupPlanCanResumeOfflineSweep identifies the only terminal
+// cleanup shape that is safe to retry. Every manifest deletion must already be
+// durably complete and every unfinished item must be an authorized blob from
+// the exact prior offline sweep. The executor reuses the immutable plan and
+// candidate-set digests, then performs a fresh physical reachability
+// checkpoint while the registry is stopped before garbage collection.
+func RegistryCleanupPlanCanResumeOfflineSweep(plan domain.RegistryCleanupPlan) bool {
+	if plan.State != "failed" || plan.Failure == "" {
+		return false
+	}
+	pendingBlobs := 0
+	for _, item := range plan.Items {
+		if item.Disposition != domain.RegistryCleanupDelete {
+			continue
+		}
+		switch item.State {
+		case "deleted":
+		case "deleting":
+			if item.ResourceKind != "blob" || item.Action != "garbage-collect-blob" {
+				return false
+			}
+			pendingBlobs++
+		default:
+			return false
+		}
+	}
+	return pendingBlobs > 0
+}
+
 // RegistryCatalogSnapshotDigest binds a catalog revision to its exact graph.
 // Observation IDs and the digest field itself are excluded so a retried writer
 // can prove idempotency even when the store assigned the observation UUID.

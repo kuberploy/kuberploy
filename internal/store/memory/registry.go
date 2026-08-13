@@ -531,6 +531,26 @@ func (s *Store) ClaimRegistryCleanupPlan(_ context.Context, planID, owner string
 		}
 		return clonePlan(plan), true, nil
 	}
+	if base.RegistryCleanupPlanCanResumeOfflineSweep(plan) {
+		repositories := cleanupLeaseRepositories(plan)
+		for _, repository := range repositories {
+			lease, exists := s.registryLeases[registryScopeKey(plan.RegistryTargetID, repository)]
+			if exists && lease.until.After(now) && (lease.planID != plan.ID || lease.owner != owner) {
+				return domain.RegistryCleanupPlan{}, false, base.ErrConflict
+			}
+		}
+		until := now.Add(leaseDuration)
+		for _, repository := range repositories {
+			s.registryLeases[registryScopeKey(plan.RegistryTargetID, repository)] = registryCleanupLease{planID: plan.ID, owner: owner, until: until}
+		}
+		claimed := now.UTC()
+		plan.State = "executing"
+		plan.ClaimedAt = &claimed
+		plan.CompletedAt = nil
+		plan.Failure = ""
+		s.registryPlans[planID] = plan
+		return clonePlan(plan), true, nil
+	}
 	if plan.State != "preview" {
 		return clonePlan(plan), false, base.ErrConflict
 	}

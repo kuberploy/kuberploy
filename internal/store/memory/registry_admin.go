@@ -262,7 +262,7 @@ func (s *Store) PrepareRegistryCleanupExecutionForActor(_ context.Context, actor
 		}
 		return base.Result[domain.RegistryCleanupPlan]{Value: clonePlan(current), Replay: true}, nil
 	}
-	if plan.State != "preview" {
+	if plan.State != "preview" && !base.RegistryCleanupPlanCanResumeOfflineSweep(plan) {
 		return base.Result[domain.RegistryCleanupPlan]{}, base.ErrConflict
 	}
 	s.idempotency[idemIdentity] = idemRecord{fingerprint: fingerprint, typ: "registry-cleanup-plan", resourceID: plan.ID}

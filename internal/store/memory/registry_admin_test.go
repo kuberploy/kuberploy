@@ -120,6 +120,33 @@ func TestRegistryApplicationWrappersAreScopedReplaySafeAndManagedOnly(t *testing
 	if err != nil || !preparedReplay.Replay || st.AuditCount() != auditsBefore+3 {
 		t.Fatalf("execute replay=%#v audits=%d err=%v", preparedReplay, st.AuditCount(), err)
 	}
+	st.mu.Lock()
+	failed := st.registryPlans[plan.ID]
+	failed.State = "failed"
+	failed.Failure = "managed registry cleanup execution failed"
+	pendingBlobs := 0
+	for index := range failed.Items {
+		if failed.Items[index].Disposition != domain.RegistryCleanupDelete {
+			continue
+		}
+		failed.Items[index].State = "deleted"
+		if failed.Items[index].ResourceKind == "blob" {
+			failed.Items[index].State = "deleting"
+			pendingBlobs++
+		}
+	}
+	if pendingBlobs == 0 {
+		failed.Items = append(failed.Items, domain.RegistryCleanupItem{
+			Ordinal: len(failed.Items), Repository: "*", ResourceKind: "blob", Digest: registryDigest("f"),
+			Disposition: domain.RegistryCleanupDelete, Action: "garbage-collect-blob", State: "deleting",
+		})
+	}
+	st.registryPlans[plan.ID] = failed
+	st.mu.Unlock()
+	preparedRecovery, err := st.PrepareRegistryCleanupExecutionForActor(ctx, "project-admin", "execute-recovery", "execute-recovery-fingerprint", "request-execute-recovery", seed.serviceID, plan.ID)
+	if err != nil || preparedRecovery.Replay || !base.RegistryCleanupPlanCanResumeOfflineSweep(preparedRecovery.Value) || st.AuditCount() != auditsBefore+4 {
+		t.Fatalf("recovery=%#v audits=%d err=%v", preparedRecovery, st.AuditCount(), err)
+	}
 
 	externalID := "66666666-6666-4666-8666-666666666666"
 	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{ID: externalID, Name: "external", Mode: domain.RegistryTargetExternal, Endpoint: "external.test", RepositoryPrefix: "tenant"}); err != nil {

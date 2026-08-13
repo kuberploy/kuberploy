@@ -243,6 +243,48 @@ func TestRegistryPlanClaimFailsAfterProtectionChange(t *testing.T) {
 	}
 }
 
+func TestRegistryFailedOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
+	seed := seedManagedRegistry(t)
+	ctx := context.Background()
+	lifecycle := registry.NewService(seed.store, registry.WithClock(func() time.Time { return seed.now }), registry.WithMaxObservationAge(time.Hour), registry.WithIDGenerator(func() string { return "78787878-7878-4878-8878-787878787878" }))
+	plan, err := lifecycle.Preview(ctx, seed.targetID, seed.serviceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed.store.mu.Lock()
+	failed := seed.store.registryPlans[plan.ID]
+	failed.State = "failed"
+	failed.Failure = "managed registry cleanup execution failed"
+	completed := seed.now
+	failed.CompletedAt = &completed
+	pending := 0
+	for index := range failed.Items {
+		if failed.Items[index].Disposition != domain.RegistryCleanupDelete {
+			continue
+		}
+		failed.Items[index].State = "deleted"
+		if failed.Items[index].ResourceKind == "blob" {
+			failed.Items[index].State = "deleting"
+			pending++
+		}
+	}
+	seed.store.registryPlans[plan.ID] = failed
+	seed.store.mu.Unlock()
+	if pending == 0 {
+		t.Fatal("fixture has no offline sweep candidates")
+	}
+
+	recovered, claimed, err := lifecycle.Claim(ctx, plan.ID, "recovery-worker", time.Minute)
+	if err != nil || !claimed || recovered.State != "executing" || recovered.Failure != "" || recovered.CompletedAt != nil {
+		t.Fatalf("recovered=%#v claimed=%v err=%v", recovered, claimed, err)
+	}
+	for _, item := range recovered.Items {
+		if item.ResourceKind == "blob" && item.Disposition == domain.RegistryCleanupDelete && item.State != "deleting" {
+			t.Fatalf("candidate state changed during recovery: %#v", item)
+		}
+	}
+}
+
 func TestRegistryExternalModeCannotPersistLifecyclePlan(t *testing.T) {
 	ctx := context.Background()
 	st := New()

@@ -202,6 +202,65 @@ func TestAcquireRegistryMaintenanceAcceptsMatchingUUIDTarget(t *testing.T) {
 	}
 }
 
+func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := databaseTime(time.Now().UTC())
+	targetID, planID := id.New(), id.New()
+	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{
+		ID: targetID, Name: "sweep-recovery-" + targetID, Mode: domain.RegistryTargetManaged,
+		Endpoint: "https://registry-sweep-recovery.integration.test", RepositoryPrefix: "integration",
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at,claimed_at,completed_at,failure
+	) VALUES($1,$2,'service','snapshot','authority',$3,'failed','{}','{}','{}',$4,$4,$4,
+		'managed registry cleanup execution failed')`, planID, targetID, postgresRegistryDigest("e"), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_items(
+		plan_id,ordinal,repository,resource_kind,digest,disposition,action,estimated_bytes,reasons,state,updated_at
+	) VALUES
+		($1,0,'integration/service','release-manifest',$2,'delete','delete-manifest',1,'["retention-eligible"]','deleted',$4),
+		($1,1,'*','blob',$3,'delete','garbage-collect-blob',1,'["globally-unreachable"]','deleting',$4)`,
+		planID, postgresRegistryDigest("a"), postgresRegistryDigest("b"), now); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, planID, "sweep-recovery-worker", now.Add(time.Second), time.Minute)
+	if err != nil || !claimed || recovered.State != "executing" || recovered.Failure != "" || recovered.CompletedAt != nil {
+		t.Fatalf("recovered=%#v claimed=%v err=%v", recovered, claimed, err)
+	}
+	var state, failure string
+	var completedAt *time.Time
+	if err = st.pool.QueryRow(ctx, `SELECT state,failure,completed_at FROM registry_cleanup_plans WHERE id=$1`, planID).Scan(&state, &failure, &completedAt); err != nil {
+		t.Fatal(err)
+	}
+	if state != "executing" || failure != "" || completedAt != nil {
+		t.Fatalf("persisted state=%q failure=%q completedAt=%v", state, failure, completedAt)
+	}
+}
+
 func TestManagedRegistryRuntimeReadinessSQLFencingAndExactMatch(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

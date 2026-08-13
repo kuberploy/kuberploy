@@ -270,7 +270,7 @@ func (s *Management) ExecuteCleanup(ctx context.Context, actor, key, fingerprint
 	if prepared.Value.ID != planID || prepared.Value.ServiceID != applicationID {
 		return store.Result[domain.RegistryCleanupPlan]{}, ErrRegistryManagementInvalid
 	}
-	if prepared.Value.State == "preview" || prepared.Value.State == "executing" {
+	if prepared.Value.State == "preview" || prepared.Value.State == "executing" || store.RegistryCleanupPlanCanResumeOfflineSweep(prepared.Value) {
 		if err = s.executor.Execute(ctx, planID, cleanupExecutionOwner(actor, key)); err != nil {
 			current, loadErr := s.store.RegistryCleanupPlanForActor(ctx, actor, planID)
 			if loadErr == nil {

@@ -432,12 +432,12 @@ func (s *Store) PrepareRegistryCleanupExecutionForActor(ctx context.Context, act
 		}
 		return base.Result[domain.RegistryCleanupPlan]{Value: current, Replay: true}, nil
 	}
-	if state != "preview" {
-		return base.Result[domain.RegistryCleanupPlan]{}, base.ErrConflict
-	}
 	plan, err := registryCleanupPlan(ctx, tx, planID)
 	if err != nil {
 		return base.Result[domain.RegistryCleanupPlan]{}, err
+	}
+	if state != "preview" && !base.RegistryCleanupPlanCanResumeOfflineSweep(plan) {
+		return base.Result[domain.RegistryCleanupPlan]{}, base.ErrConflict
 	}
 	if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "registry-cleanup-plan", plan.ID, nil); err != nil {
 		return base.Result[domain.RegistryCleanupPlan]{}, classify(err)

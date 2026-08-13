@@ -21,8 +21,9 @@ import (
 )
 
 type registryHTTPExecutor struct {
-	coordinator *registry.Service
-	calls       int
+	coordinator       *registry.Service
+	calls             int
+	failBlobSweepOnce bool
 }
 
 type registryHTTPReadiness struct{ err error }
@@ -36,13 +37,27 @@ func (e *registryHTTPExecutor) Execute(ctx context.Context, planID, owner string
 		return err
 	}
 	for _, blobPass := range []bool{false, true} {
+		items := make([]domain.RegistryCleanupItem, 0)
 		for _, item := range plan.Items {
 			if item.Disposition != domain.RegistryCleanupDelete || (item.ResourceKind == "blob") != blobPass || item.State == "deleted" {
 				continue
 			}
-			if _, err = e.coordinator.AuthorizeItem(ctx, planID, item.Ordinal, owner); err != nil {
+			if item.State == "planned" {
+				item, err = e.coordinator.AuthorizeItem(ctx, planID, item.Ordinal, owner)
+				if err != nil {
+					return err
+				}
+			}
+			items = append(items, item)
+		}
+		if blobPass && e.failBlobSweepOnce {
+			e.failBlobSweepOnce = false
+			if err = e.coordinator.Finish(ctx, planID, owner, false, "managed registry cleanup execution failed"); err != nil {
 				return err
 			}
+			return errors.New("simulated offline sweep acquisition failure")
+		}
+		for _, item := range items {
 			if err = e.coordinator.RecordItemResult(ctx, planID, item.Ordinal, owner, domain.RegistryCleanupItemResult{State: "deleted", ProviderMessage: "test provider confirmed absence"}); err != nil {
 				return err
 			}
@@ -350,6 +365,37 @@ func TestRegistryHTTPManagedLifecycleIsMetadataOnlyBoundedAndReplaySafe(t *testi
 	readRegistryBody(t, response, http.StatusOK)
 	if response.Header.Get("Idempotent-Replay") != "true" || f.executor.calls != 1 || f.store.AuditCount() != auditsBeforeExecute+1 {
 		t.Fatalf("execute replay header=%q calls=%d audits=%d", response.Header.Get("Idempotent-Replay"), f.executor.calls, f.store.AuditCount())
+	}
+}
+
+func TestRegistryHTTPRetriesExactFailedOfflineSweepPlan(t *testing.T) {
+	f := newRegistryAPI(t, true)
+	target := f.createTarget("managed-recovery", "managed", "registry-recovery-target")
+	f.putPolicy(target.ID, "registry-recovery-policy", 1)
+	f.seedManagedInventory(target)
+
+	response := f.request(http.MethodPost, "/v1/applications/"+f.application.ID+"/registry/cleanup-previews", "registry-recovery-preview", map[string]string{"targetId": target.ID})
+	previewBody := readRegistryBody(t, response, http.StatusCreated)
+	var preview struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(previewBody, &preview); err != nil || preview.ID == "" {
+		t.Fatalf("preview=%s err=%v", previewBody, err)
+	}
+	f.executor.failBlobSweepOnce = true
+	response = f.request(http.MethodPost, "/v1/registry-cleanup-plans/"+preview.ID+"/executions", "registry-recovery-first", map[string]string{"confirmation": preview.ID})
+	readRegistryBody(t, response, http.StatusInternalServerError)
+
+	response = f.request(http.MethodGet, "/v1/registry-cleanup-plans/"+preview.ID, "", nil)
+	failedBody := readRegistryBody(t, response, http.StatusOK)
+	if !bytes.Contains(failedBody, []byte(`"state":"failed"`)) || !bytes.Contains(failedBody, []byte(`"resourceKind":"blob"`)) || !bytes.Contains(failedBody, []byte(`"state":"deleting"`)) {
+		t.Fatalf("failed sweep was not durably recoverable: %s", failedBody)
+	}
+
+	response = f.request(http.MethodPost, "/v1/registry-cleanup-plans/"+preview.ID+"/executions", "registry-recovery-second", map[string]string{"confirmation": preview.ID})
+	recoveredBody := readRegistryBody(t, response, http.StatusOK)
+	if !bytes.Contains(recoveredBody, []byte(`"state":"succeeded"`)) || f.executor.calls != 2 {
+		t.Fatalf("recovery=%s calls=%d", recoveredBody, f.executor.calls)
 	}
 }
 

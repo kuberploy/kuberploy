@@ -211,6 +211,24 @@ func (s *Store) ClaimRegistryCleanupPlan(ctx context.Context, planID, owner stri
 		}
 		return plan, false, nil
 	}
+	if base.RegistryCleanupPlanCanResumeOfflineSweep(plan) {
+		if err = acquireRegistryCleanupLeases(ctx, tx, plan, owner, now, leaseDuration); err != nil {
+			return domain.RegistryCleanupPlan{}, false, err
+		}
+		_, err = tx.Exec(ctx, `UPDATE registry_cleanup_plans SET state='executing',
+			claimed_at=$2,completed_at=NULL,failure='' WHERE id=$1 AND state='failed'`, planID, now)
+		if err != nil {
+			return domain.RegistryCleanupPlan{}, false, classify(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return domain.RegistryCleanupPlan{}, false, err
+		}
+		plan.State = "executing"
+		plan.ClaimedAt = &now
+		plan.CompletedAt = nil
+		plan.Failure = ""
+		return plan, true, nil
+	}
 	if plan.State != "preview" {
 		return plan, false, base.ErrConflict
 	}
