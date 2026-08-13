@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup safely resumes exact failed offline blob sweeps.",
+  "summary": "Managed registry workers now poll and resume exact recoverable failed offline blob sweeps.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.117"
+  "version": "0.1.0-rc.118"
 }
