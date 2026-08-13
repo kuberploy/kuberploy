@@ -34,8 +34,8 @@ done
 
 jq -e . "${kp_chart}/values.schema.json" >/dev/null
 [[ -f "${kp_chart}/Chart.lock" ]]
-[[ -f "${kp_chart}/charts/kuberploy-argocd-0.1.0-rc.149.tgz" ]]
-[[ -f "${kp_chart}/charts/kuberploy-valkey-0.1.0-rc.149.tgz" ]]
+[[ -f "${kp_chart}/charts/kuberploy-argocd-0.1.0-rc.151.tgz" ]]
+[[ -f "${kp_chart}/charts/kuberploy-valkey-0.1.0-rc.151.tgz" ]]
 rg -U -- '--server-side=false' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null
 if rg -U -- '--force-conflicts|--server-side=true' "${kp_root}/README.md" "${kp_chart}/README.md" >/dev/null; then
   echo "installer documentation must not force-take Argo Application managed fields" >&2
@@ -69,11 +69,11 @@ done
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .metadata.name' "${kp_tmp}/managed.yaml")" == "kuberploy-postgresql" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.destination.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-system" ]]
-[[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[0].targetRevision' "${kp_tmp}/managed.yaml")" == "0.1.0-rc.149" ]]
+[[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[0].targetRevision' "${kp_tmp}/managed.yaml")" == "0.1.0-rc.151" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[0].repoURL' "${kp_tmp}/managed.yaml")" == "ghcr.io/kuberploy/charts" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[0].chart' "${kp_tmp}/managed.yaml")" == "kuberploy-postgresql" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[1].repoURL' "${kp_tmp}/managed.yaml")" == "https://github.com/kuberploy/kuberploy.git" ]]
-[[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[1].targetRevision' "${kp_tmp}/managed.yaml")" == "v0.1.0-rc.149" ]]
+[[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[1].targetRevision' "${kp_tmp}/managed.yaml")" == "v0.1.0-rc.151" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[1].ref' "${kp_tmp}/managed.yaml")" == "values" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | has(.spec.source)' "${kp_tmp}/managed.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Application") | .spec.sources[0].helm.valuesObject.postgresqlFoundation.managed' "${kp_tmp}/managed.yaml")" == "true" ]]
@@ -107,10 +107,10 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
   --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 \
   --set components.controlPlane.enabled=true \
   --set components.controlPlane.mode=managed \
-  --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.149 \
+  --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.151 \
   --set components.valkey.enabled=true \
   --set components.valkey.mode=managed \
-  --set-string components.valkey.expectedPackageVersion=0.1.0-rc.149 \
+  --set-string components.valkey.expectedPackageVersion=0.1.0-rc.151 \
   >"${kp_tmp}/control-plane.yaml"
 kp_expand_installer_applications "${kp_tmp}/control-plane.yaml"
 [[ "$(yq eval-all '[select(.kind == "Application")] | length' "${kp_tmp}/control-plane.yaml" | tail -1)" == "2" ]]
@@ -148,7 +148,7 @@ kp_all_args=()
 for kp_component in controlPlane postgresql valkey edge certManager externalDNS externalSecrets sealedSecrets monitoring builder registry; do
   kp_all_args+=(--set "components.${kp_component}.enabled=true")
   kp_all_args+=(--set "components.${kp_component}.mode=managed")
-  kp_all_args+=(--set-string "components.${kp_component}.expectedPackageVersion=0.1.0-rc.149")
+  kp_all_args+=(--set-string "components.${kp_component}.expectedPackageVersion=0.1.0-rc.151")
 done
 kp_all_args+=(--set bootstrap.controlPlaneToken.mode=generated)
 kp_all_args+=(--set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32)
@@ -209,22 +209,22 @@ kp_platform_args=(
   --set-string cluster.kubeAPIServerCIDRs[0]=10.43.0.1/32
   --set components.controlPlane.enabled=true
   --set components.controlPlane.mode=managed
-  --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.151
   --set components.valkey.enabled=true
   --set components.valkey.mode=managed
-  --set-string components.valkey.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.valkey.expectedPackageVersion=0.1.0-rc.151
   --set components.edge.enabled=true
   --set components.edge.mode=managed
-  --set-string components.edge.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.edge.expectedPackageVersion=0.1.0-rc.151
   --set components.certManager.enabled=true
   --set components.certManager.mode=managed
-  --set-string components.certManager.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.certManager.expectedPackageVersion=0.1.0-rc.151
   --set components.sealedSecrets.enabled=true
   --set components.sealedSecrets.mode=managed
-  --set-string components.sealedSecrets.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.sealedSecrets.expectedPackageVersion=0.1.0-rc.151
   --set components.monitoring.enabled=true
   --set components.monitoring.mode=managed
-  --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.151
   --set publicEndpoint.enabled=true
   --set-string publicEndpoint.hostname=kuberploy.example.com
 )
@@ -268,7 +268,7 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
 kp_github_args=(
   --set components.builder.enabled=true
   --set components.builder.mode=managed
-  --set-string components.builder.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.builder.expectedPackageVersion=0.1.0-rc.151
   --set integrations.github.enabled=true
   --set integrations.github.appID=123456
   --set-string integrations.github.clientID=Iv1_KuberployClient
@@ -300,12 +300,12 @@ kp_expand_installer_applications "${kp_tmp}/github-platform.yaml"
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.buildLogs.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.githubApp.secretRef.name' "${kp_tmp}/github-platform.yaml")" == "kuberploy-github-app" ]]
-[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.149" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.gitProjection.chartVersion' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.151" ]]
 
 kp_registry_pull_args=(
   --set components.registry.enabled=true
   --set components.registry.mode=managed
-  --set-string components.registry.expectedPackageVersion=0.1.0-rc.149
+  --set-string components.registry.expectedPackageVersion=0.1.0-rc.151
   --set integrations.registry.enabled=true
   --set-string integrations.registry.targetID=55555555-5555-4555-8555-555555555555
   --set-string integrations.registry.targetName=Managed-registry
@@ -368,7 +368,7 @@ fi
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.autoDeploy.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.enabled' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.builder.networkPolicy.registryEgressCIDRs[0]' "${kp_tmp}/github-platform.yaml")" == "192.0.2.12/32" ]]
-[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].targetRevision' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.149" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].targetRevision' "${kp_tmp}/github-platform.yaml")" == "0.1.0-rc.151" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-builder") | .spec.sources[0].helm.valuesObject.enabled' "${kp_tmp}/github-platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[].namespace] | contains(["kuberploy-build-dind"])' "${kp_tmp}/github-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[].namespace] | contains(["argocd"])' "${kp_tmp}/github-platform.yaml")" == "true" ]]
@@ -380,7 +380,7 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
   -f "${kp_tmp}/github-control-values.yaml" \
   --set-string components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@sha256:1111111111111111111111111111111111111111111111111111111111111111 \
   --set-string components.worker.image.reference=ghcr.io/kuberploy/kuberploy-worker@sha256:2222222222222222222222222222222222222222222222222222222222222222 \
-  --set-string builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.149 \
+  --set-string builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.151 \
   >"${kp_tmp}/github-control.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GITHUB_BUILDS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILD_LOGS_ENABLED' "${kp_tmp}/github-control.yaml")" == "true" ]]
@@ -422,9 +422,9 @@ kp_expect_reject() {
 
 kp_expect_reject "mutable source revision" --set-string source.valuesRevision=main
 kp_expect_reject "opaque hash source revision" --set-string source.valuesRevision=1111111111111111111111111111111111111111
-kp_expect_reject "unprefixed source revision" --set-string source.valuesRevision=0.1.0-rc.149
+kp_expect_reject "unprefixed source revision" --set-string source.valuesRevision=0.1.0-rc.151
 kp_expect_reject "missing package version" --set-string components.postgresql.expectedPackageVersion=
-kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.149
+kp_expect_reject "unsupported adopted monitoring" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.monitoring.enabled=true --set components.monitoring.mode=adopted --set components.monitoring.adoptionConfirmed=true --set-string components.monitoring.expectedPackageVersion=0.1.0-rc.151
 kp_expect_reject "value file outside pinned installer directory" --set-string components.postgresql.valueFiles[0]=secrets.yaml
 kp_expect_reject "value file traversal below installer prefix" --set-string components.postgresql.valueFiles[0]=examples/installer/../../../secrets.yaml
 kp_expect_reject "arbitrary inline child values" --set components.postgresql.values.password=do-not-store
@@ -432,10 +432,10 @@ kp_expect_reject "disabled Argo with active child" --set bootstrap.argoCD.enable
 kp_expect_reject "managed Argo without installer-owned Valkey" --set bootstrap.valkey.enabled=false
 kp_expect_reject "managed Argo without either CRD owner" --set argoCD.argoFoundation.argoCD.crdsPreinstalledByParent=false
 kp_expect_reject "managed Argo with duplicate CRD owners" --set argoCD.argo-cd.crds.install=true
-kp_expect_reject "control plane without explicit bootstrap token authority" --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.149 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.149
-kp_expect_reject "generated token without exact API CIDR" --set bootstrap.controlPlaneToken.mode=generated --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.149 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.149
-kp_expect_reject "precreated token with dormant API CIDR" --set bootstrap.controlPlaneToken.mode=precreated --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.149 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.149
-kp_expect_reject "managed edge without exact cluster API CIDR" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.edge.enabled=true --set components.edge.mode=managed --set-string components.edge.expectedPackageVersion=0.1.0-rc.149
+kp_expect_reject "control plane without explicit bootstrap token authority" --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.151 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.151
+kp_expect_reject "generated token without exact API CIDR" --set bootstrap.controlPlaneToken.mode=generated --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.151 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.151
+kp_expect_reject "precreated token with dormant API CIDR" --set bootstrap.controlPlaneToken.mode=precreated --set-string bootstrap.controlPlaneToken.kubeAPIServerCIDRs[0]=10.43.0.1/32 --set components.controlPlane.enabled=true --set components.controlPlane.mode=managed --set-string components.controlPlane.expectedPackageVersion=0.1.0-rc.151 --set components.valkey.enabled=true --set components.valkey.mode=managed --set-string components.valkey.expectedPackageVersion=0.1.0-rc.151
+kp_expect_reject "managed edge without exact cluster API CIDR" --set components.postgresql.enabled=false --set components.postgresql.mode=disabled --set-string components.postgresql.expectedPackageVersion= --set-json components.postgresql.valueFiles=[] --set components.edge.enabled=true --set components.edge.mode=managed --set-string components.edge.expectedPackageVersion=0.1.0-rc.151
 kp_expect_reject "public endpoint without edge" --set publicEndpoint.enabled=true --set-string publicEndpoint.hostname=kuberploy.example.com
 kp_expect_reject "disabled public endpoint with dormant hostname" --set-string publicEndpoint.hostname=kuberploy.example.com
 kp_expect_reject "public TLS without Secret" "${kp_platform_args[@]}" --set publicEndpoint.tls.enabled=true
@@ -445,7 +445,7 @@ kp_expect_reject "GitHub without builder component" "${kp_platform_args[@]}" --s
 kp_expect_reject "dormant registry identity" --set-string integrations.registry.authSecretName=registry-auth
 kp_expect_reject "dormant registry pull identity" --set-string integrations.registry.runtimePull.targetID=55555555-5555-4555-8555-555555555555
 kp_expect_reject "registry integration without registry component" --set integrations.registry.enabled=true --set-string integrations.registry.authSecretName=registry-auth --set-string integrations.registry.secretRevision=v1 --set-string integrations.registry.exposureMode=ingress --set-string integrations.registry.endpoint=registry.example.com --set-string integrations.registry.tlsSecretName=registry-tls --set-string integrations.registry.clusterIssuerName=kuberploy-letsencrypt-production
-kp_expect_reject "managed registry without registry integration" --set components.registry.enabled=true --set components.registry.mode=managed --set-string components.registry.expectedPackageVersion=0.1.0-rc.149
+kp_expect_reject "managed registry without registry integration" --set components.registry.enabled=true --set components.registry.mode=managed --set-string components.registry.expectedPackageVersion=0.1.0-rc.151
 
 if helm template kuberploy-installer "${kp_chart}" --namespace argocd -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'installer accepted the wrong bootstrap namespace\n' >&2

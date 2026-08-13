@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed monitoring now receives exact Kubernetes API endpoint egress and every metrics query re-attests the installed stack, rules, and scrape targets before provider access.",
+  "summary": "Durable Argo rollout observations now advance on every authoritative poll, so same-revision health transitions converge without waiting for a new Argo reconciliation timestamp.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.149"
+  "version": "0.1.0-rc.151"
 }
