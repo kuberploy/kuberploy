@@ -3,10 +3,34 @@ package observability
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
-const managedChartVersionForTest = "0.1.0-rc.148"
+func TestManagedQueryFailsClosedBeforeProviderQueryWhenAttestationIsUnavailable(t *testing.T) {
+	t.Parallel()
+	providerCalls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		providerCalls++
+	}))
+	defer server.Close()
+	client, err := NewClient(Options{BaseURL: server.URL, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewManagedService(client, fixedManagedObserver{err: ErrUnavailable}, managedChartVersionForTest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.QueryRange(context.Background(), Scope{Type: ScopeGlobal}, MetricReplicasReady, Range{From: time.Now().Add(-time.Minute), To: time.Now(), Step: 15 * time.Second})
+	if !errors.Is(err, ErrUnavailable) || providerCalls != 0 {
+		t.Fatalf("error=%v providerCalls=%d", err, providerCalls)
+	}
+}
+
+const managedChartVersionForTest = "0.1.0-rc.149"
 
 type fixedManagedObserver struct {
 	snapshot ManagedMonitoringSnapshot
@@ -126,7 +150,7 @@ func TestManagedSnapshotAttestationBindsRunningReleaseVersion(t *testing.T) {
 	if err := validateManagedSnapshot(snapshot, "0.1.0-rc.10"); !errors.Is(err, ErrUnsafeResponse) {
 		t.Fatalf("substituted release version error=%v", err)
 	}
-	for _, invalid := range []string{"", "dev", "v0.1.0-rc.148", "0.1.0+build", "0.1.0-rc.148-extra"} {
+	for _, invalid := range []string{"", "dev", "v0.1.0-rc.149", "0.1.0+build", "0.1.0-rc.149-extra"} {
 		if validManagedChartVersion(invalid) {
 			t.Fatalf("invalid managed chart version accepted: %q", invalid)
 		}

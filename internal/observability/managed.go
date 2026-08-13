@@ -153,6 +153,12 @@ func (s *ManagedService) QueryRange(ctx context.Context, scope Scope, metric Met
 	if s == nil || s.client == nil {
 		return Result{}, ErrUnavailable
 	}
+	// Managed mode must not serve queries when the exact installed release,
+	// recording rules, or protected scrape targets are stale. Capability probes
+	// are advisory and may race a later query, so enforce the same boundary here.
+	if err := s.Probe(ctx); err != nil {
+		return Result{}, err
+	}
 	return s.client.QueryRange(ctx, scope, metric, queryRange)
 }
 

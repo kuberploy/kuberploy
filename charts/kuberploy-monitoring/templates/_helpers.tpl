@@ -31,8 +31,21 @@ kuberploy.io/ownership-boundary: monitoring-only
 {{- if not .Values.monitoring.networkPolicy.enabled -}}
   {{- fail "monitoring NetworkPolicies may not be disabled" -}}
 {{- end -}}
-{{- if ne (sha256sum (toJson .Values.monitoring)) "7b835a7ee3c5e0e6400230fe84a739f8bef96373e1c46d0a22ac0daa90574d2d" -}}
+{{- $monitoringGuard := deepCopy .Values.monitoring -}}
+{{- $_ := unset $monitoringGuard.networkPolicy "kubeAPIServerCIDRs" -}}
+{{- if ne (sha256sum (toJson $monitoringGuard)) "7b835a7ee3c5e0e6400230fe84a739f8bef96373e1c46d0a22ac0daa90574d2d" -}}
   {{- fail "monitoring ownership and query-client selectors are immutable" -}}
+{{- end -}}
+{{- if empty .Values.monitoring.networkPolicy.kubeAPIServerCIDRs -}}
+  {{- fail "managed Prometheus discovery requires exact Kubernetes API server CIDRs" -}}
+{{- end -}}
+{{- $seenAPICIDRs := dict -}}
+{{- range $cidr := .Values.monitoring.networkPolicy.kubeAPIServerCIDRs -}}
+  {{- if not (or (regexMatch "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32$" $cidr) (regexMatch "^[0-9A-Fa-f:]+/128$" $cidr)) -}}
+    {{- fail "monitoring Kubernetes API server CIDRs must be exact IPv4 /32 or IPv6 /128 identities" -}}
+  {{- end -}}
+  {{- if hasKey $seenAPICIDRs $cidr -}}{{ fail "monitoring Kubernetes API server CIDRs must be unique" }}{{- end -}}
+  {{- $_ := set $seenAPICIDRs $cidr true -}}
 {{- end -}}
 {{- $stack := index .Values "kube-prometheus-stack" -}}
 {{- $guarded := deepCopy $stack -}}

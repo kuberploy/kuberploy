@@ -4,6 +4,9 @@ monitoring:
     create: true
   networkPolicy:
     enabled: true
+    # Installer replaces this with the cluster's exact Service and/or node API
+    # identities. The K3s service default keeps the standalone chart lintable.
+    kubeAPIServerCIDRs: [10.43.0.1/32]
     queryClient:
       namespaceLabel:
         kuberploy.io/control-plane-namespace: "true"

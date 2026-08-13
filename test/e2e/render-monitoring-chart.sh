@@ -249,11 +249,12 @@ kp_query_policy="$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.n
 [[ "$(yq '.spec.ingress[0].ports[0].port' <<<"${kp_query_policy}")" == "9090" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[]? | select(.namespaceSelector == {})] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[]?.ipBlock] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/managed.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","10.43.0.1/32"]' ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .immutable' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .metadata.annotations."argocd.argoproj.io/sync-options"' "${kp_tmp}/managed.yaml")" == "Force=true,Replace=true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | (.data | length)' "${kp_tmp}/managed.yaml")" == "24" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.ignoreNamespaceSelectors + "," + .data.serviceMonitorFilesystemAccess' "${kp_tmp}/managed.yaml")" == "false,kubelet-service-account-token+cluster-ca" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.148,monitoring,kuberploy-monitoring" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.149,monitoring,kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.operatorArgumentsSHA256' "${kp_tmp}/managed.yaml")" == "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.upstreamChartSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:0058f63c0c000cc9e491f3775c830554fa7a1bf10d0b86de7e3f8d61e9b09879" ]]
@@ -277,6 +278,10 @@ kp_expect_reject 'wrong release namespace' --namespace other-namespace
 kp_expect_reject 'wrong release identity' --name-template other-monitoring
 kp_expect_reject 'managed monitoring disabled' --set monitoring.managed=false
 kp_expect_reject 'NetworkPolicy disabled' --set monitoring.networkPolicy.enabled=false
+kp_expect_reject 'missing Kubernetes API identity' --set 'monitoring.networkPolicy.kubeAPIServerCIDRs={}'
+kp_expect_reject 'broad Kubernetes API identity' --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.0/24'
+kp_expect_reject 'duplicate Kubernetes API identity' --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[1]=10.43.0.1/32'
+kp_expect_reject 'schema-bypass broad Kubernetes API identity' --skip-schema-validation --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0'
 kp_expect_reject 'query namespace trust label changed' --set-string 'monitoring.networkPolicy.queryClient.namespaceLabel.kuberploy\.io/control-plane-namespace=false'
 kp_expect_reject 'Grafana enabled' --set 'kube-prometheus-stack.grafana.enabled=true'
 kp_expect_reject 'public Prometheus Service' --set-string 'kube-prometheus-stack.prometheus.service.type=LoadBalancer'

@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Pre-stable Prisma history is squashed into one readable baseline with independent database scope constraints; release-candidate databases must be recreated before stable qualification.",
+  "summary": "Managed monitoring now receives exact Kubernetes API endpoint egress and every metrics query re-attests the installed stack, rules, and scrape targets before provider access.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.148"
+  "version": "0.1.0-rc.149"
 }

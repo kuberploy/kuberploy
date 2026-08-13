@@ -92,6 +92,8 @@
   {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- else if eq $item.key "sealedSecrets" -}}
   {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+{{- else if eq $item.key "monitoring" -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "monitoring" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.components.monitoring.enabled -}}
   {{- $monitoringValues := dict

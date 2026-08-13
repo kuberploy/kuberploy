@@ -19,6 +19,13 @@ with `app.kubernetes.io/name=kuberploy` and
 `kuberploy.io/control-plane-namespace=true`. This label is an administrator
 owned namespace trust decision; a tenant must never be allowed to set it.
 
+`monitoring.networkPolicy.kubeAPIServerCIDRs` must contain the cluster's exact
+API Service and/or node endpoint identities as `/32` or `/128` CIDRs. The
+installer derives this value from `cluster.kubeAPIServerCIDRs`. This explicit
+allowlist is required because some Kubernetes distributions apply Service DNAT
+before egress policy evaluation; the three default private ranges alone cannot
+authorize a public node API endpoint.
+
 ServiceMonitor and PodMonitor discovery requires both:
 
 - the object's namespace label `kuberploy.io/monitoring-namespace=true`; and
