@@ -404,6 +404,31 @@ func TestCleanupExecutorReturnsExplicitUnavailableMaintenanceAdapter(t *testing.
 	}
 }
 
+func TestCleanupExecutorTerminatesStaleOfflineSweepBeforeMaintenance(t *testing.T) {
+	now := time.Date(2026, 8, 9, 3, 0, 0, 0, time.UTC)
+	plan := executorPlan("deleted", "deleting", "deleting")
+	coordinator := &fakeCleanupCoordinator{plan: plan, recordErrorAt: -1}
+	deleter := &fakeManifestDeleter{target: executorTarget(), result: ManifestAlreadyMissing}
+	maintenance := &fakeMaintenanceAdapter{err: store.ErrRegistrySnapshotStale}
+	executor := newTestExecutor(t, coordinator, deleter, maintenance, &fakeCheckpointProvider{}, now)
+
+	err := executor.Execute(context.Background(), plan.ID, "worker-1")
+	if !errors.Is(err, store.ErrRegistrySnapshotStale) {
+		t.Fatalf("err = %v", err)
+	}
+	if !coordinator.finished || coordinator.succeeded || len(coordinator.records) != 2 {
+		t.Fatalf("finished=%t succeeded=%t records=%#v", coordinator.finished, coordinator.succeeded, coordinator.records)
+	}
+	for _, item := range coordinator.plan.Items[1:] {
+		if item.State != "failed" || item.ProviderMessage != "managed registry cleanup failed" {
+			t.Fatalf("stale item = %#v", item)
+		}
+	}
+	if store.RegistryCleanupPlanCanResumeOfflineSweep(coordinator.plan) {
+		t.Fatal("terminal stale sweep remained resumable")
+	}
+}
+
 func TestCleanupExecutorRestoresAfterPartialMaintenanceEntryFailure(t *testing.T) {
 	now := time.Date(2026, 8, 9, 3, 0, 0, 0, time.UTC)
 	plan := executorPlan("deleted", "planned")

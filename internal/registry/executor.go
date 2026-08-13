@@ -206,6 +206,13 @@ func (e *CleanupExecutor) Execute(ctx context.Context, planID, owner string) err
 		}
 		blobItems = cleanupBlobItems(plan.Items)
 		if err = e.runOfflineGC(runContext, plan, owner, manifestDeletesCompletedAt, blobItems); err != nil {
+			if errors.Is(err, store.ErrRegistrySnapshotStale) {
+				// This immutable plan can never become authoritative again. Mark
+				// every unfinished blob terminal so the worker does not retry the
+				// same stale sweep forever. No registry mutation occurred because
+				// the maintenance adapter checks this before taking its lease.
+				return fail(err, blobItems...)
+			}
 			// A sweep may have completed before a receipt or one of the durable
 			// item records failed. Do not guess per-blob outcomes here; a fresh
 			// plan/checkpoint (or an idempotent receipt replay) reconciles them.

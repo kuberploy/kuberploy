@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/kuberploy/kuberploy/internal/store"
 )
 
 var (
@@ -293,6 +295,9 @@ func validSafeIdentity(value string) bool {
 func maintenanceError(operation string, err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, store.ErrRegistrySnapshotStale) {
+		return store.ErrRegistrySnapshotStale
 	}
 	if errors.Is(err, ErrRegistryMaintenanceUnavailable) || errors.Is(err, ErrRegistryMaintenanceInvalid) ||
 		errors.Is(err, ErrRegistryCheckpointIncomplete) || errors.Is(err, ErrRegistryGCSweepUnconfirmed) {
