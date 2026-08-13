@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup records exact fresh-checkpoint absence after a lost completed GC receipt without rerunning the sweep.",
+  "summary": "Managed registry cleanup retains the exact prior sweep marker and uses a fresh absence checkpoint to repair a lost GC receipt without rerunning the sweep.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.128"
+  "version": "0.1.0-rc.129"
 }
