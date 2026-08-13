@@ -331,16 +331,28 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 		PlanDigest: request.PlanDigest, ExecutionKey: request.ExecutionKey, CandidateSetDigest: request.CandidateSetDigest,
 		CandidateDigests: append([]string(nil), request.CandidateDigests...), NotBefore: proof.ObservedAt}
 	physical, evidence, err := s.adapter.workloads.Checkpoint(ctx, s.adapter.runtime, helperRequest)
-	if err != nil || validatePhysicalCheckpoint(physical, helperRequest, s.adapter.now()) != nil {
-		return RegistryReachabilityCheckpoint{}, ErrRegistryCheckpointIncomplete
+	if err != nil {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-scan")
+	}
+	if validatePhysicalCheckpoint(physical, helperRequest, s.adapter.now()) != nil {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("physical-proof")
 	}
 	plan, err := s.adapter.registry.RegistryCleanupPlan(ctx, s.plan.ID)
-	if err != nil || plan.State != "executing" || plan.PlanDigest != s.plan.PlanDigest || plan.RegistryTargetID != s.lease.TargetID {
-		return RegistryReachabilityCheckpoint{}, ErrRegistryCheckpointIncomplete
+	if err != nil {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("plan-load")
+	}
+	if plan.State != "executing" || plan.PlanDigest != s.plan.PlanDigest || plan.RegistryTargetID != s.lease.TargetID {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("plan-identity")
 	}
 	snapshot, err := s.adapter.registry.RegistryLifecycleSnapshot(ctx, plan.RegistryTargetID, plan.ServiceID, s.adapter.now())
-	if err != nil || store.RegistryAuthorityToken(snapshot) != plan.AuthorityToken || !completeRegistryAuthorities(snapshot, s.adapter.now()) {
-		return RegistryReachabilityCheckpoint{}, ErrRegistryCheckpointIncomplete
+	if err != nil {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("authority-load")
+	}
+	if store.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("authority-changed")
+	}
+	if !completeRegistryAuthorities(snapshot, s.adapter.now()) {
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("authority-incomplete")
 	}
 	authorityRevision := "authority-" + strings.TrimPrefix(plan.AuthorityToken, "sha256:")[:24]
 	checkpoint := RegistryReachabilityCheckpoint{
@@ -357,13 +369,17 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 	}
 	lease, err = s.adapter.store.RecordRegistryCheckpoint(ctx, lease, checkpoint.Revision, checkpoint.GraphDigest, checkpoint.ObservedAt, s.adapter.now())
 	if err != nil {
-		return RegistryReachabilityCheckpoint{}, err
+		return RegistryReachabilityCheckpoint{}, checkpointCaptureFailure("receipt")
 	}
 	s.mu.Lock()
 	s.lease = lease
 	s.mu.Unlock()
 	_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, evidence)
 	return checkpoint, nil
+}
+
+func checkpointCaptureFailure(stage string) error {
+	return fmt.Errorf("%w: %s", ErrRegistryCheckpointIncomplete, stage)
 }
 
 func validatePhysicalCheckpoint(checkpoint physicalReachabilityCheckpoint, request maintenanceHelperRequest, now time.Time) error {

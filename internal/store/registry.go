@@ -62,18 +62,45 @@ func RegistrySnapshotToken(snapshot domain.RegistryLifecycleSnapshot) string {
 	return digestJSON(view)
 }
 
-// RegistryAuthorityToken fingerprints protection authorities and root records
-// but excludes the catalog graph. A cleanup execution updates this token after
-// each of its own successful catalog mutation, while any concurrent pin,
-// release, build-cache, Git, runtime, operation, policy, or observation change
-// still makes the next item fail closed.
+// RegistryAuthorityToken fingerprints semantic protection authorities and root
+// records while excluding the observed catalog graph and liveness-only refresh
+// metadata. A cleanup execution updates this token after each of its own
+// successful catalog mutation; any concurrent pin, release, build-cache, Git,
+// runtime, operation, policy, or authority-completeness change still makes the
+// next item fail closed.
 func RegistryAuthorityToken(snapshot domain.RegistryLifecycleSnapshot) string {
+	type authorityState struct {
+		Authority domain.RegistryAuthority
+		Complete  bool
+	}
+	type authorityTokenView struct {
+		Target      domain.RegistryTarget
+		Policy      domain.ServiceRegistryPolicy
+		Authorities []authorityState
+		References  []domain.RegistryArtifactReference
+		Releases    []domain.RegistryRelease
+		Caches      []domain.RegistryCacheGeneration
+	}
 	view := canonicalRegistrySnapshot(snapshot)
-	view.Manifests = nil
-	view.Blobs = nil
-	view.Children = nil
-	view.BlobLinks = nil
-	return digestJSON(view)
+	authorities := make([]authorityState, 0, len(view.Authorities))
+	for _, observation := range view.Authorities {
+		authorities = append(authorities, authorityState{Authority: observation.Authority, Complete: observation.Complete})
+	}
+	// Observation timestamps and revision counters are liveness evidence, not
+	// protection content. Preview and claim validate their freshness separately.
+	// Excluding them here lets an unchanged observer refresh run concurrently
+	// without invalidating an offline sweep. Repository bytes cannot change while
+	// the managed registry is stopped, and the physical checkpoint independently
+	// scans the complete on-disk graph before GC. References retain their exact
+	// source revisions and creation times so any real Git/runtime/operation root
+	// change still invalidates the next destructive step.
+	for index := range view.References {
+		view.References[index].ObservedAt = time.Time{}
+	}
+	return digestJSON(authorityTokenView{
+		Target: view.Target, Policy: view.Policy, Authorities: authorities,
+		References: view.References, Releases: view.Releases, Caches: view.Caches,
+	})
 }
 
 func RegistryCleanupPlanDigest(plan domain.RegistryCleanupPlan) string {

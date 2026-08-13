@@ -295,7 +295,7 @@ func (e *CleanupExecutor) runOfflineGC(ctx context.Context, plan domain.Registry
 	providerCheckpointRequest.CandidateDigests = append([]string(nil), checkpointRequest.CandidateDigests...)
 	checkpoint, err := e.checkpoints.Capture(ctx, providerCheckpointRequest)
 	if err != nil {
-		return fmt.Errorf("%w: checkpoint capture failed", ErrRegistryCheckpointIncomplete)
+		return fmt.Errorf("%w: checkpoint capture failed: %v", ErrRegistryCheckpointIncomplete, err)
 	}
 	if err = validateReachabilityCheckpoint(checkpoint, checkpointRequest, e.now().UTC()); err != nil {
 		return err
