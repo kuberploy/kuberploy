@@ -106,6 +106,15 @@ func (s OCIHTTPPackageSource) Fetch(ctx context.Context, approval Approval) (Cha
 	}
 	session := ociFetchSession{source: s, client: &client, host: host, repository: repository}
 	defer session.destroy()
+	if s.Credentials != nil {
+		session.credential, err = s.Credentials.AcquireOCIRegistryCredential(ctx, host, repository)
+		if err != nil {
+			return ChartArtifact{}, ErrOCIUnauthorized
+		}
+		if session.credential != nil && session.credential.validate(time.Now().UTC()) != nil {
+			return ChartArtifact{}, ErrOCIUnauthorized
+		}
+	}
 	manifestURL := "https://" + host + "/v2/" + repository + "/manifests/" + url.PathEscape(approval.ManifestDigest)
 	manifestBytes, header, err := session.get(ctx, manifestURL, OCIManifestMediaType, maximumOCIManifest)
 	if err != nil {
@@ -161,11 +170,16 @@ type ociFetchSession struct {
 	host       string
 	repository string
 	token      []byte
+	credential *OCIRegistryCredential
 }
 
 func (s *ociFetchSession) destroy() {
 	clear(s.token)
 	s.token = nil
+	if s.credential != nil {
+		s.credential.Destroy()
+		s.credential = nil
+	}
 }
 
 func (s *ociFetchSession) get(ctx context.Context, requestURL, accept string, maximum int) ([]byte, http.Header, error) {
@@ -219,6 +233,8 @@ func (s *ociFetchSession) request(ctx context.Context, requestURL, accept string
 	request.Header.Set("User-Agent", "kuberploy-helm-fetcher/"+ProtectedGitPolicy)
 	if len(s.token) != 0 {
 		request.Header.Set("Authorization", "Bearer "+string(s.token))
+	} else if s.credential != nil && len(s.credential.Username) != 0 && s.credential.AuthHost == s.host {
+		request.SetBasicAuth(string(s.credential.Username), string(s.credential.Password))
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
@@ -262,22 +278,14 @@ func (s *ociFetchSession) authorize(ctx context.Context, header string) error {
 		return ErrOCIUnauthorized
 	}
 	request.Header.Set("Accept", "application/json")
-	var credential *OCIRegistryCredential
-	if s.source.Credentials != nil {
-		credential, err = s.source.Credentials.AcquireOCIRegistryCredential(ctx, s.host, s.repository)
-		if err != nil {
+	if s.credential != nil {
+		if s.credential.AuthHost != realm.Host {
 			return ErrOCIUnauthorized
 		}
-		if credential != nil {
-			defer credential.Destroy()
-			if credential.validate(time.Now().UTC()) != nil || credential.AuthHost != realm.Host {
-				return ErrOCIUnauthorized
-			}
-			if len(credential.BearerToken) != 0 {
-				request.Header.Set("Authorization", "Bearer "+string(credential.BearerToken))
-			} else {
-				request.SetBasicAuth(string(credential.Username), string(credential.Password))
-			}
+		if len(s.credential.BearerToken) != 0 {
+			request.Header.Set("Authorization", "Bearer "+string(s.credential.BearerToken))
+		} else {
+			request.SetBasicAuth(string(s.credential.Username), string(s.credential.Password))
 		}
 	}
 	response, err := s.client.Do(request)

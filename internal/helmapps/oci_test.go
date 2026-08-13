@@ -174,6 +174,34 @@ func TestOCIHTTPPackageSourceTransportsBearerCredentialOnlyToExactAuthHost(t *te
 	}
 }
 
+func TestOCIHTTPPackageSourceUsesBasicCredentialOnlyForExactRegistryHost(t *testing.T) {
+	fixture := newOCIRegistryFixture(t, false)
+	fixture.requireAuth = true
+	provider := &recordingOCICredentialProvider{host: fixture.host, repository: fixture.repository,
+		credential: &OCIRegistryCredential{Username: []byte("registry-user"), Password: []byte("registry-password"),
+			AuthHost: fixture.host, ExpiresAt: time.Now().UTC().Add(time.Hour)}}
+	original := fixture.server.Config.Handler
+	fixture.server.Config.Handler = http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/token" {
+			username, password, ok := request.BasicAuth()
+			if !ok || username != "registry-user" || password != "registry-password" {
+				writer.Header().Set("WWW-Authenticate", `Basic realm="registry"`)
+				writer.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			fixture.requireAuth = false
+			defer func() { fixture.requireAuth = true }()
+		}
+		original.ServeHTTP(writer, request)
+	})
+	if _, err := fixture.source(provider).Fetch(t.Context(), fixture.approval); err != nil {
+		t.Fatalf("fetch exact Basic registry: %v", err)
+	}
+	if provider.calls.Load() != 1 || fixture.tokenRequests.Load() != 0 {
+		t.Fatalf("credential calls=%d token calls=%d", provider.calls.Load(), fixture.tokenRequests.Load())
+	}
+}
+
 func (f *ociRegistryFixture) rejectRegistryAuthorization(writer http.ResponseWriter, request *http.Request) bool {
 	if !f.requireAuth || request.Header.Get("Authorization") == "Bearer "+testOCIToken {
 		return false
