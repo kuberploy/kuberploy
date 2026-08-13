@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Builder-wide private egress is validated by a dedicated exact RFC1918 admission contract, while per-build egress remains restricted to the configured controller identity.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.146"
+  "version": "0.1.0-rc.147"
 }

@@ -74,8 +74,9 @@ grep -q 'secrets' "${kp_tmp}/install.yaml"
 
 [[ "$(grep -c '^kind: Namespace$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 [[ "$(grep -c '^kind: ResourceQuota$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
-[[ "$(grep -c '^kind: ValidatingAdmissionPolicy$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
-[[ "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "${kp_tmp}/builder-enabled.yaml")" -eq 6 ]]
+[[ "$(grep -c '^kind: ValidatingAdmissionPolicy$' "${kp_tmp}/builder-enabled.yaml")" -eq 7 ]]
+[[ "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "${kp_tmp}/builder-enabled.yaml")" -eq 7 ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.validations[].expression]' "${kp_tmp}/builder-enabled.yaml" | grep -c '10.0.0.0/8.*172.16.0.0/12.*192.168.0.0/16')" -eq 1 ]]
 [[ "$(grep -c '^kind: Job$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 grep -q 'ghcr.io/kuberploy/kuberploy-builder-agent@sha256:' "${kp_tmp}/builder-enabled.yaml"
 grep -q 'KUBERPLOY_GITHUB_BUILDS_ENABLED: "true"' "${kp_tmp}/github-builder-enabled.yaml"
