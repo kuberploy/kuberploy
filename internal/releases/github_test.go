@@ -232,3 +232,46 @@ func TestServiceCachesAndRevalidatesWithETag(t *testing.T) {
 		t.Fatalf("revalidation failed %#v %#v", first, second)
 	}
 }
+
+func TestExplicitRCManifestAndOrderingAreAcceptedWithoutWeakeningStableRanges(t *testing.T) {
+	manifest := validManifest()
+	version := "1.1.0-rc.153"
+	manifest.Release.Version = version
+	manifest.Release.Tag = "v" + version
+	manifest.Release.NotesURL = "https://github.com/kuberploy/kuberploy/releases/tag/v" + version
+	manifest.Versions = domain.ManifestVersions{Kuberploy: version, API: version, Worker: version, Web: version, Migration: version, Upgrader: version, BuilderAgent: version, Chart: version}
+	manifest.Artifacts.Chart.Version = version
+	manifest.Artifacts.Chart.OCIReference = "ghcr.io/kuberploy/charts/kuberploy:" + version
+	manifest.Artifacts.Chart.Package = "kuberploy-" + version + ".tgz"
+	for index := range manifest.Artifacts.ComponentCharts {
+		chart := &manifest.Artifacts.ComponentCharts[index]
+		chart.Version = version
+		chart.OCIReference = "ghcr.io/kuberploy/charts/" + chart.Name + ":" + version
+		chart.Package = chart.Name + "-" + version + ".tgz"
+	}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if _, err = ParseExactManifest(raw, "sha256:"+hex.EncodeToString(sum[:])); err != nil {
+		t.Fatalf("explicit RC manifest rejected: %v", err)
+	}
+	for _, comparison := range []struct {
+		a, b string
+		want int
+	}{{"1.1.0-rc.152", "1.1.0-rc.153", -1}, {"1.1.0-rc.153", "1.1.0", -1}, {"1.1.0", "1.1.0-rc.153", 1}} {
+		got, compareErr := CompareVersions(comparison.a, comparison.b)
+		if compareErr != nil || got != comparison.want {
+			t.Fatalf("CompareVersions(%q,%q)=%d,%v want %d", comparison.a, comparison.b, got, compareErr, comparison.want)
+		}
+	}
+	if compatible, rangeErr := SupportsUpgrade("0.1.0-rc.152", ">=0.1.0 <0.2.0"); rangeErr != nil || !compatible {
+		t.Fatalf("RC qualification range compatible=%v err=%v", compatible, rangeErr)
+	}
+	for _, invalid := range []string{"1.1.0-rc.0", "1.1.0-beta.1", "1.1.0-rc.1+meta"} {
+		if ValidReleaseVersion(invalid) {
+			t.Fatalf("unsupported release version %q accepted", invalid)
+		}
+	}
+}

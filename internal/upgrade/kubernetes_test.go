@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/releases"
 )
 
 type fakeJobAPI struct {
@@ -100,95 +101,42 @@ func validExecutableRequest() ExecutableRequest {
 	sum := sha256.Sum256(manifestBytes)
 	manifestDigest := "sha256:" + hex.EncodeToString(sum[:])
 	operationID := "11111111-2222-4333-8444-555555555555"
-	return ExecutableRequest{OperationID: operationID, Generation: 2, JobName: JobName(operationID, 2), Namespace: "kuberploy-system", ReleaseName: "kuberploy", TargetVersion: version, ManifestDigest: manifestDigest, ManifestBytes: manifestBytes}
+	return ExecutableRequest{OperationID: operationID, Generation: 2, JobName: JobName(operationID, 2), Namespace: "kuberploy-system", ReleaseName: "kuberploy-installer", TargetVersion: version, ManifestDigest: manifestDigest, ManifestBytes: manifestBytes}
 }
 
-func TestKubernetesRunnerCreatesSecureDigestPinnedJobAndReconciles(t *testing.T) {
+func TestKubernetesRunnerRejectsLegacyChildAndUnavailableInstallerMutation(t *testing.T) {
 	request := validExecutableRequest()
-	jobs := &fakeJobAPI{completeAtGet: 2}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName, ActiveDeadlineSeconds: 900, PollInterval: time.Millisecond}
-	result, err := runner.Run(context.Background(), request)
+	jobs := &fakeJobAPI{}
+
+	legacy := request
+	legacy.ReleaseName = "kuberploy"
+	legacyRunner := KubernetesRunner{Jobs: jobs, Namespace: legacy.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: legacy.ReleaseName}
+	if _, err := legacyRunner.Run(context.Background(), legacy); err == nil || !strings.Contains(err.Error(), "legacy child Helm upgrade is disabled") {
+		t.Fatalf("legacy child rejection err=%v", err)
+	}
+
+	installerRunner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName}
+	if _, err := installerRunner.Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), "durable installer desired-state contract") {
+		t.Fatalf("installer mutation rejection err=%v", err)
+	}
+	if jobs.creates != 0 || jobs.gets != 0 {
+		t.Fatalf("disabled platform lifecycle touched Jobs: gets=%d creates=%d", jobs.gets, jobs.creates)
+	}
+}
+
+func TestInstallerChartSelectsOnlyExactManifestArtifact(t *testing.T) {
+	request := validExecutableRequest()
+	manifest, err := releases.ParseExactManifest(request.ManifestBytes, request.ManifestDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.RunnerRef != request.JobName || jobs.creates != 1 || jobs.job == nil {
-		t.Fatalf("result=%#v creates=%d", result, jobs.creates)
+	chart, err := installerChart(manifest)
+	if err != nil || chart.Name != "kuberploy-installer" || !strings.Contains(chart.OCIReference, "/kuberploy-installer:") {
+		t.Fatalf("chart=%#v err=%v", chart, err)
 	}
-	job := jobs.job
-	container := job.Spec.Template.Spec.Containers[0]
-	artifactDigest := "sha256:" + strings.Repeat("a", 64)
-	if container.Image != "ghcr.io/kuberploy/kuberploy-upgrader@"+artifactDigest {
-		t.Fatalf("untrusted upgrader image %q", container.Image)
-	}
-	args := strings.Join(container.Args, " ")
-	for _, want := range []string{"oci://ghcr.io/kuberploy/charts/kuberploy@" + artifactDigest, "--reuse-values", "--rollback-on-failure", "components.api.image.reference=ghcr.io/kuberploy/kuberploy-api@" + artifactDigest, "components.migration.image.reference=ghcr.io/kuberploy/kuberploy-migration@" + artifactDigest, "builder.builderAgentImage=ghcr.io/kuberploy/kuberploy-builder-agent@" + artifactDigest} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("Helm args missing %q: %s", want, args)
-		}
-	}
-	if *job.Spec.Template.Spec.AutomountServiceAccountToken || container.SecurityContext.Privileged == nil || *container.SecurityContext.Privileged {
-		t.Fatal("upgrade Job is not unprivileged and token-explicit")
-	}
-	projections := job.Spec.Template.Spec.Volumes[1].Projected.Sources
-	if token := projections[0].ServiceAccountToken; token == nil || token.Audience != "https://kubernetes.default.svc.cluster.local" || token.ExpirationSeconds == nil || *token.ExpirationSeconds > 900 {
-		t.Fatalf("unsafe projected token %#v", token)
-	}
-	encoded, err := json.Marshal(job)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), `"Name"`) || !strings.Contains(string(encoded), `"name":"HOME"`) {
-		t.Fatalf("Job does not use Kubernetes JSON field names: %s", encoded)
-	}
-	if strings.Contains(string(encoded), "ttlSecondsAfterFinished") {
-		t.Fatalf("upgrade Job must remain available for restart reconciliation: %s", encoded)
-	}
-	// A replacement worker observes the terminal deterministic Job and must not
-	// create or execute another Helm upgrade.
-	result, err = runner.Run(context.Background(), request)
-	if err != nil || result.RunnerRef != request.JobName || jobs.creates != 1 {
-		t.Fatalf("idempotent reconcile result=%#v creates=%d err=%v", result, jobs.creates, err)
-	}
-}
-
-func TestKubernetesRunnerCreatesBoundedHelmRollbackJob(t *testing.T) {
-	request := validExecutableRequest()
-	request.Action = "rollback"
-	request.HelmRevision = 4
-	jobs := &fakeJobAPI{completeAtGet: 2}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName, PollInterval: time.Millisecond}
-	result, err := runner.Run(context.Background(), request)
-	if err != nil || result.RunnerRef != request.JobName || jobs.job == nil {
-		t.Fatalf("result=%#v err=%v", result, err)
-	}
-	args := jobs.job.Spec.Template.Spec.Containers[0].Args
-	if got := strings.Join(args, " "); !strings.HasPrefix(got, "rollback kuberploy 4 --namespace kuberploy-system ") || strings.Contains(got, "--set-string") || strings.Contains(got, "--rollback-on-failure") {
-		t.Fatalf("unsafe rollback args: %s", got)
-	}
-	if jobs.job.Metadata.Annotations[actionAnnotation] != "rollback" || jobs.job.Metadata.Annotations[helmRevisionAnnotation] != "4" {
-		t.Fatalf("rollback annotations=%#v", jobs.job.Metadata.Annotations)
-	}
-
-	invalid := request
-	invalid.HelmRevision = 0
-	if _, err = runner.Run(context.Background(), invalid); err == nil || !strings.Contains(err.Error(), "invalid Helm revision") {
-		t.Fatalf("invalid revision err=%v", err)
-	}
-}
-
-func TestKubernetesRunnerRequeuesObservationOutageAndRecoversSameJob(t *testing.T) {
-	request := validExecutableRequest()
-	jobs := &fakeJobAPI{getErrAt: 2}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName, PollInterval: time.Millisecond}
-	result, err := runner.Run(context.Background(), request)
-	if err != nil || !result.Pending || result.RunnerRef != request.JobName || jobs.creates != 1 {
-		t.Fatalf("pending result=%#v creates=%d err=%v", result, jobs.creates, err)
-	}
-	jobs.getErrAt = 0
-	jobs.completeAtGet = jobs.gets + 1
-	result, err = runner.Run(context.Background(), request)
-	if err != nil || result.Pending || result.RunnerRef != request.JobName || jobs.creates != 1 {
-		t.Fatalf("recovered result=%#v creates=%d err=%v", result, jobs.creates, err)
+	manifest.Artifacts.ComponentCharts = manifest.Artifacts.ComponentCharts[:1]
+	if _, err = installerChart(manifest); err == nil {
+		t.Fatal("missing exact installer artifact was accepted")
 	}
 }
 
@@ -203,54 +151,6 @@ func TestKubernetesRunnerRejectsTamperedExactManifestBytes(t *testing.T) {
 	}
 	if jobs.creates != 0 {
 		t.Fatalf("tampered manifest created %d Jobs", jobs.creates)
-	}
-}
-
-func TestKubernetesRunnerRejectsConflictingExistingJob(t *testing.T) {
-	request := validExecutableRequest()
-	jobs := &fakeJobAPI{}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName, PollInterval: time.Millisecond}
-	desired, err := runner.desiredJob(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	desired.Spec.Template.Spec.Containers[0].Image = "example.invalid/attacker@" + request.ManifestDigest
-	desired.Status = JobStatus{Succeeded: 1}
-	jobs.job = &desired
-	if _, err = runner.Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), "spec differs") {
-		t.Fatalf("expected conflicting Job rejection, got %v", err)
-	}
-}
-
-func TestKubernetesRunnerRejectsMutatedNetworkPolicyLabel(t *testing.T) {
-	request := validExecutableRequest()
-	jobs := &fakeJobAPI{}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName}
-	job, err := runner.desiredJob(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	job.Spec.Template.Metadata.Labels["app.kubernetes.io/component"] = "worker"
-	job.Status.Succeeded = 1
-	jobs.job = &job
-	if _, err = runner.Run(context.Background(), request); err == nil || !strings.Contains(err.Error(), "template label") {
-		t.Fatalf("expected mutated template label rejection, got %v", err)
-	}
-}
-
-func TestKubernetesRunnerPersistsFailedTerminalState(t *testing.T) {
-	request := validExecutableRequest()
-	jobs := &fakeJobAPI{}
-	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName}
-	job, err := runner.desiredJob(request)
-	if err != nil {
-		t.Fatal(err)
-	}
-	job.Status.Conditions = []JobCondition{{Type: "Failed", Status: "True", Reason: "BackoffLimitExceeded", Message: "Helm exited 1"}}
-	jobs.job = &job
-	_, err = runner.Run(context.Background(), request)
-	if err == nil || !strings.Contains(err.Error(), "Helm exited 1") || errors.Is(err, context.Canceled) {
-		t.Fatalf("expected terminal Helm failure, got %v", err)
 	}
 }
 

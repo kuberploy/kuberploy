@@ -95,6 +95,58 @@ function renderApplication(capabilities: Capabilities) {
 }
 
 describe("application rollout truth", () => {
+  it("shows only the authoritative Argo observed revision", async () => {
+    const authoritativeRevision = "d".repeat(40);
+    const staleStatusRevision = "b".repeat(40);
+    const staleDeploymentRevision = "c".repeat(40);
+    vi.mocked(api.deployment).mockResolvedValue({
+      ...(await api.deployment("deployment-production")),
+      observedRevision: staleDeploymentRevision,
+    });
+    vi.mocked(api.deploymentStatus).mockResolvedValue({
+      state: "git-committed",
+      operationStatus: "succeeded",
+      desiredRevision: "a".repeat(40),
+      observedRevision: staleStatusRevision,
+      argoObservedRevision: authoritativeRevision,
+      argoSyncStatus: "synced",
+      rolloutHealth: "healthy",
+    });
+
+    renderApplication({ features: {}, capabilities: [] });
+
+    const observed = (await screen.findByText("Observed revision"))
+      .parentElement;
+    expect(observed).toHaveTextContent(authoritativeRevision);
+    expect(observed).not.toHaveTextContent(staleStatusRevision);
+    expect(observed).not.toHaveTextContent(staleDeploymentRevision);
+  });
+
+  it("fails closed when no authoritative Argo revision is observed", async () => {
+    const staleStatusRevision = "b".repeat(40);
+    const staleDeploymentRevision = "c".repeat(40);
+    vi.mocked(api.deployment).mockResolvedValue({
+      ...(await api.deployment("deployment-production")),
+      observedRevision: staleDeploymentRevision,
+    });
+    vi.mocked(api.deploymentStatus).mockResolvedValue({
+      state: "git-committed",
+      operationStatus: "succeeded",
+      desiredRevision: "a".repeat(40),
+      observedRevision: staleStatusRevision,
+      argoSyncStatus: "unknown",
+      rolloutHealth: "unknown",
+    });
+
+    renderApplication({ features: {}, capabilities: [] });
+
+    const observed = (await screen.findByText("Observed revision"))
+      .parentElement;
+    expect(observed).toHaveTextContent("Not reported");
+    expect(observed).not.toHaveTextContent(staleStatusRevision);
+    expect(observed).not.toHaveTextContent(staleDeploymentRevision);
+  });
+
   it("shows protected pull-request review without treating its candidate as desired", async () => {
     vi.mocked(api.deploymentStatus).mockResolvedValue({
       state: "review-pending",

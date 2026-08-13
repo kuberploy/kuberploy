@@ -52,12 +52,17 @@ type JobAPI interface {
 }
 
 type KubernetesRunner struct {
-	Jobs                  JobAPI
-	Namespace             string
-	ServiceAccount        string
-	ReleaseName           string
-	ActiveDeadlineSeconds int64
-	PollInterval          time.Duration
+	Jobs           JobAPI
+	Namespace      string
+	ServiceAccount string
+	ReleaseName    string
+	// installerDesiredStateContract is reserved for the future bounded
+	// installer-owned mutation path. Production construction deliberately
+	// leaves it false; the current Helm Job cannot propagate every verified
+	// child artifact identity and therefore must fail closed.
+	installerDesiredStateContract bool
+	ActiveDeadlineSeconds         int64
+	PollInterval                  time.Duration
 }
 
 func (r KubernetesRunner) Run(ctx context.Context, request ExecutableRequest) (Result, error) {
@@ -124,6 +129,9 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	if request.Namespace != r.Namespace || request.ReleaseName != r.ReleaseName {
 		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade request namespace or Helm release does not match runner configuration")
 	}
+	if request.ReleaseName != "kuberploy-installer" {
+		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("legacy child Helm upgrade is disabled; only the kuberploy-installer release can own platform lifecycle")
+	}
 	if !uuidRE.MatchString(request.OperationID) || request.Generation < 1 || request.JobName != JobName(request.OperationID, request.Generation) {
 		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade request has an invalid operation identity")
 	}
@@ -136,6 +144,12 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	}
 	if request.TargetVersion != manifest.Release.Version {
 		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade target does not match its verified manifest identity")
+	}
+	if _, err = installerChart(manifest); err != nil {
+		return KubernetesJob{}, domain.ReleaseManifest{}, err
+	}
+	if !r.installerDesiredStateContract {
+		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("automated installer upgrade and rollback are disabled until a durable installer desired-state contract can propagate every verified artifact identity")
 	}
 	if request.Action == "" {
 		request.Action = "upgrade"
@@ -161,7 +175,10 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	for _, image := range images {
 		imageRefs[image.Component] = image.Reference + "@" + image.Digest
 	}
-	chart := manifest.Artifacts.Chart
+	chart, err := installerChart(manifest)
+	if err != nil {
+		return KubernetesJob{}, domain.ReleaseManifest{}, err
+	}
 	chartRepository := strings.TrimSuffix(chart.OCIReference, ":"+chart.Version)
 	chartReference := "oci://" + chartRepository + "@" + chart.OCIDigest
 	timeout := strconv.FormatInt(deadline-30, 10) + "s"
@@ -171,13 +188,6 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 			"upgrade", request.ReleaseName, chartReference,
 			"--namespace", request.Namespace,
 			"--reuse-values",
-			"--set-string", "global.requireImageDigest=true",
-			"--set-string", "components.api.image.reference=" + imageRefs["api"],
-			"--set-string", "components.worker.image.reference=" + imageRefs["worker"],
-			"--set-string", "components.web.image.reference=" + imageRefs["web"],
-			"--set-string", "components.migration.image.reference=" + imageRefs["migration"],
-			"--set-string", "upgrade.image.reference=" + imageRefs["upgrader"],
-			"--set-string", "builder.builderAgentImage=" + imageRefs["builder-agent"],
 			"--wait", "--wait-for-jobs", "--cleanup-on-fail", "--rollback-on-failure",
 			"--timeout", timeout, "--history-max", "10",
 		}
@@ -258,6 +268,15 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	fingerprint := sha256.Sum256(fingerprintBody)
 	job.Metadata.Annotations[jobSpecDigestAnnotation] = "sha256:" + hex.EncodeToString(fingerprint[:])
 	return job, manifest, nil
+}
+
+func installerChart(manifest domain.ReleaseManifest) (domain.ManifestChart, error) {
+	for _, chart := range manifest.Artifacts.ComponentCharts {
+		if chart.Name == "kuberploy-installer" {
+			return chart, nil
+		}
+	}
+	return domain.ManifestChart{}, errors.New("verified manifest does not contain the installer chart")
 }
 
 func reconcilePending(jobName, code, detail string) Result {

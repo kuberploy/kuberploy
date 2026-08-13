@@ -555,12 +555,19 @@ spec:
           type: RuntimeDefault
       containers:
         {{- range $application := $enabledApplications }}
-        - name: {{ printf "verify-%s" ($application.component | kebabcase) }}
+        {{- $checks := list
+          (dict "name" "desired-revision" "path" ".spec.sources[0].targetRevision" "expected" $application.targetPackageVersion)
+          (dict "name" "observed-revision" "path" ".status.sync.revisions[0]" "expected" $application.targetPackageVersion)
+          (dict "name" "sync" "path" ".status.sync.status" "expected" "Synced")
+          (dict "name" "health" "path" ".status.health.status" "expected" "Healthy")
+        -}}
+        {{- range $check := $checks }}
+        - name: {{ printf "verify-%s-%s" ($application.component | kebabcase) $check.name }}
           image: {{ $.Values.bootstrap.applicationReconcilerImage | quote }}
           imagePullPolicy: IfNotPresent
           args:
             - wait
-            - {{ printf "--for=jsonpath={.spec.sources[0].targetRevision}{.status.sync.revisions[0]}{.status.sync.status}{.status.health.status}=%s%sSyncedHealthy" $application.targetPackageVersion $application.targetPackageVersion | quote }}
+            - {{ printf "--for=jsonpath={%s}=%s" $check.path $check.expected | quote }}
             - --timeout=600s
             - {{ printf "applications.argoproj.io/%s" $application.name | quote }}
           securityContext:
@@ -575,5 +582,6 @@ spec:
             limits:
               cpu: 50m
               memory: 64Mi
+        {{- end }}
         {{- end }}
 {{- end }}

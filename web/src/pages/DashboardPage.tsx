@@ -104,34 +104,38 @@ export function DashboardPage() {
         {[
           [
             "GitOps",
-            dashboardFeatureState(capabilities.data?.featureStates, [
-              "gitops",
-              "git",
-            ]),
+            dashboardFeatureState(
+              capabilities.data?.featureStates,
+              capabilities.data?.features,
+              ["gitops", "git"],
+              Boolean(capabilities.error),
+            ),
           ],
           [
             "Argo CD",
-            dashboardFeatureState(capabilities.data?.featureStates, [
-              "argoCD",
-              "argo",
-            ]),
+            dashboardFeatureState(
+              capabilities.data?.featureStates,
+              capabilities.data?.features,
+              ["argoCD", "argo"],
+              Boolean(capabilities.error),
+            ),
           ],
           [
             "Edge",
-            dashboardFeatureState(capabilities.data?.featureStates, [
-              "traefik",
-              "edge",
-            ]),
+            dashboardFeatureState(
+              capabilities.data?.featureStates,
+              capabilities.data?.features,
+              ["traefik", "edge"],
+              Boolean(capabilities.error),
+            ),
           ],
           [
             "Monitoring",
-            monitoring.data?.available
-              ? "healthy"
-              : monitoring.data?.status === "unavailable"
-                ? "unavailable"
-                : monitoring.data?.mode === "disabled"
-                  ? "disabled"
-                  : "pending",
+            dashboardMonitoringState(
+              monitoring.data,
+              Boolean(monitoring.error),
+              monitoring.isPending,
+            ),
           ],
         ].map(([label, state]) => (
           <div className="summary-strip__item" key={label}>
@@ -247,8 +251,35 @@ export function DashboardPage() {
 
 function dashboardFeatureState(
   states: Record<string, "disabled" | "unavailable" | "healthy"> | undefined,
+  features: Record<string, boolean> | undefined,
   names: string[],
-) {
+  failed: boolean,
+): "disabled" | "unavailable" | "healthy" | "pending" {
+  if (failed) return "unavailable";
   const key = names.find((name) => states?.[name]);
-  return key ? states![key]! : "pending";
+  if (key) return states![key]!;
+  if (!features) return "pending";
+  const feature = names.find((name) => name in features);
+  if (!feature) return "pending";
+  return features[feature] ? "healthy" : "disabled";
+}
+
+function dashboardMonitoringState(
+  status:
+    | {
+        mode?: string;
+        status?: string;
+        available?: boolean;
+      }
+    | undefined,
+  failed: boolean,
+  pending: boolean,
+): "disabled" | "unavailable" | "healthy" | "pending" {
+  if (failed) return "unavailable";
+  if (pending) return "pending";
+  if (status?.available || status?.status === "available") return "healthy";
+  if (status?.status === "unavailable") return "unavailable";
+  if (status?.mode === "disabled" || status?.status === "disabled")
+    return "disabled";
+  return "unavailable";
 }

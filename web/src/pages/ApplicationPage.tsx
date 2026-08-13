@@ -374,10 +374,7 @@ export function ApplicationPage() {
                       <dt>Observed revision</dt>
                       <dd>
                         <code>
-                          {status.data?.argoObservedRevision ??
-                            status.data?.observedRevision ??
-                            deployment.data.observedRevision ??
-                            "Not reported"}
+                          {status.data?.argoObservedRevision ?? "Not reported"}
                         </code>
                       </dd>
                     </div>

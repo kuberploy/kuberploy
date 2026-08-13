@@ -81,16 +81,11 @@ export function SetupPage() {
         monitoring.data?.message ??
         "Managed, existing, or explicitly disabled monitoring.",
       icon: "metrics",
-      state: monitoring.data?.available
-        ? "healthy"
-        : monitoring.data?.status === "unavailable"
-          ? "unavailable"
-          : monitoring.data?.mode === "disabled"
-            ? "disabled"
-            : monitoring.error
-              ? "unavailable"
-              : "pending",
-      label: monitoring.data?.mode,
+      state: monitoringState(
+        monitoring.data,
+        Boolean(monitoring.error),
+        monitoring.isPending,
+      ),
     },
     {
       name: "Builder",
@@ -186,6 +181,26 @@ export function SetupPage() {
       )}
     </div>
   );
+}
+
+function monitoringState(
+  status:
+    | {
+        mode?: string;
+        status?: string;
+        available?: boolean;
+      }
+    | undefined,
+  failed: boolean,
+  pending: boolean,
+): "disabled" | "unavailable" | "healthy" | "pending" {
+  if (failed) return "unavailable";
+  if (pending) return "pending";
+  if (status?.available || status?.status === "available") return "healthy";
+  if (status?.status === "unavailable") return "unavailable";
+  if (status?.mode === "disabled" || status?.status === "disabled")
+    return "disabled";
+  return "unavailable";
 }
 
 function featureState(

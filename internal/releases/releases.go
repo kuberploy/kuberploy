@@ -104,11 +104,13 @@ func (s *Service) Latest(ctx context.Context) (Snapshot, error) {
 }
 
 var stableVersionRE = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+var releaseVersionRE = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-rc\.([1-9][0-9]*))?$`)
 var sha256RE = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 var commitRE = regexp.MustCompile(`^[a-f0-9]{40}$`)
 var schemaNameRE = regexp.MustCompile(`^[0-9]{3}_[a-z0-9_]+$`)
 
-func ValidStableVersion(v string) bool { return stableVersionRE.MatchString(v) }
+func ValidStableVersion(v string) bool  { return stableVersionRE.MatchString(v) }
+func ValidReleaseVersion(v string) bool { return releaseVersionRE.MatchString(v) }
 func CompareVersions(a, b string) (int, error) {
 	pa, err := versionParts(a)
 	if err != nil {
@@ -118,29 +120,54 @@ func CompareVersions(a, b string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for i := range pa {
-		if pa[i] < pb[i] {
+	for i := 0; i < 3; i++ {
+		if pa.core[i] < pb.core[i] {
 			return -1, nil
 		}
-		if pa[i] > pb[i] {
+		if pa.core[i] > pb.core[i] {
 			return 1, nil
 		}
 	}
-	return 0, nil
-}
-func versionParts(v string) ([3]uint64, error) {
-	v = strings.TrimPrefix(v, "v")
-	m := stableVersionRE.FindStringSubmatch(v)
-	if m == nil {
-		return [3]uint64{}, fmt.Errorf("invalid stable semantic version %q", v)
+	if pa.rc == pb.rc {
+		return 0, nil
 	}
-	var p [3]uint64
-	for i := range p {
+	if pa.rc == 0 {
+		return 1, nil
+	}
+	if pb.rc == 0 {
+		return -1, nil
+	}
+	if pa.rc < pb.rc {
+		return -1, nil
+	}
+	return 1, nil
+}
+
+type releaseVersion struct {
+	core [3]uint64
+	rc   uint64
+}
+
+func versionParts(v string) (releaseVersion, error) {
+	v = strings.TrimPrefix(v, "v")
+	m := releaseVersionRE.FindStringSubmatch(v)
+	if m == nil {
+		return releaseVersion{}, fmt.Errorf("invalid release semantic version %q", v)
+	}
+	var p releaseVersion
+	for i := range p.core {
 		n, err := strconv.ParseUint(m[i+1], 10, 64)
 		if err != nil {
 			return p, err
 		}
-		p[i] = n
+		p.core[i] = n
+	}
+	if m[4] != "" {
+		var err error
+		p.rc, err = strconv.ParseUint(m[4], 10, 64)
+		if err != nil {
+			return p, err
+		}
 	}
 	return p, nil
 }
@@ -164,11 +191,15 @@ func SupportsUpgrade(version, value string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	low, err := CompareVersions(version, minimum)
+	installed := strings.TrimPrefix(version, "v")
+	if parts := releaseVersionRE.FindStringSubmatch(installed); parts != nil && parts[4] != "" {
+		installed = strings.Join(parts[1:4], ".")
+	}
+	low, err := CompareVersions(installed, minimum)
 	if err != nil {
 		return false, err
 	}
-	high, err := CompareVersions(version, maximum)
+	high, err := CompareVersions(installed, maximum)
 	if err != nil {
 		return false, err
 	}
@@ -185,8 +216,8 @@ func ValidateManifest(m domain.ReleaseManifest) error {
 	if m.SchemaVersion != "1.0.0" {
 		return errors.New("manifest schemaVersion must be 1.0.0")
 	}
-	if !ValidStableVersion(m.Release.Version) || m.Release.Tag != "v"+m.Release.Version || m.Release.CreatedAt.IsZero() {
-		return errors.New("manifest version must be stable semantic version")
+	if !ValidReleaseVersion(m.Release.Version) || m.Release.Tag != "v"+m.Release.Version || m.Release.CreatedAt.IsZero() {
+		return errors.New("manifest version must be a stable or explicit RC semantic version")
 	}
 	if m.Source.Repository != "kuberploy/kuberploy" || !commitRE.MatchString(m.Source.Commit) {
 		return errors.New("manifest source must be an exact kuberploy/kuberploy commit")

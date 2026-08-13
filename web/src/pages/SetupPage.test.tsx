@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { SetupPage } from "./SetupPage";
@@ -89,5 +89,11 @@ describe("Setup page", () => {
       (await screen.findAllByText("Unavailable")).length,
     ).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("Disabled").length).toBeGreaterThanOrEqual(2);
+    const prometheus = screen
+      .getByText("Prometheus")
+      .closest<HTMLElement>(".system-list__row");
+    expect(prometheus).not.toBeNull();
+    expect(within(prometheus!).getByText("Unavailable")).toBeVisible();
+    expect(within(prometheus!).queryByText("Pending")).not.toBeInTheDocument();
   });
 });

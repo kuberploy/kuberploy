@@ -55,4 +55,37 @@ describe("dashboard platform health", () => {
       expect(health).toHaveTextContent("MonitoringUnavailable");
     });
   });
+
+  it("falls back to feature flags and fails closed on status errors", async () => {
+    vi.spyOn(api, "projects").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "operations").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      actions: [],
+      features: { gitops: true, argoCD: false, edge: false },
+    });
+    vi.spyOn(api, "monitoringStatus").mockRejectedValue(
+      new Error("monitoring unavailable"),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DashboardPage />
+      </QueryClientProvider>,
+    );
+
+    const health = await screen.findByRole("region", {
+      name: "Platform health",
+    });
+    await waitFor(() => {
+      expect(health).toHaveTextContent("GitOpsHealthy");
+      expect(health).toHaveTextContent("Argo CDDisabled");
+      expect(health).toHaveTextContent("EdgeDisabled");
+      expect(health).toHaveTextContent("MonitoringUnavailable");
+    });
+  });
 });
