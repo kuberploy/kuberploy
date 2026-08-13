@@ -49,7 +49,7 @@ diff -u "${kp_tmp}/eso-managed.yaml" "${kp_tmp}/eso-managed-again.yaml" >/dev/nu
 [[ "$(yq eval-all '[select(.kind == "Namespace")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "PodDisruptionBudget")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "4" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Secret") | .metadata.name' "${kp_tmp}/eso-managed.yaml")" == "kuberploy-external-secrets-webhook" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret" and ((.data // {}) | length) != 0)] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "0" ]]
@@ -104,7 +104,7 @@ diff -u "${kp_tmp}/sealed-managed.yaml" "${kp_tmp}/sealed-managed-again.yaml" >/
 
 [[ "$(yq eval-all '[select(.kind == "Namespace")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "1" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "2" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Ingress")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Service" and .spec.type != "ClusterIP")] | length' "${kp_tmp}/sealed-managed.yaml" | tail -1)" == "0" ]]

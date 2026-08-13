@@ -89,9 +89,10 @@ grep -F 'addr: :5000' <<<"${kp_config}" >/dev/null
 grep -F 'certificate: /tls/tls.crt' <<<"${kp_config}" >/dev/null
 grep -F 'key: /tls/tls.key' <<<"${kp_config}" >/dev/null
 
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[].namespaceSelector.matchLabels."kubernetes.io/metadata.name"] | sort | join(",")' "${kp_auth_render}" | tail -1)" == "kuberploy,kuberploy-build" ]]
-[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_auth_render}")" == "0" ]]
-[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_auth_render}")" == "registry" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_auth_render}" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.ingress[].from[].namespaceSelector.matchLabels."kubernetes.io/metadata.name"] | sort | join(",")' "${kp_auth_render}" | tail -1)" == "kuberploy,kuberploy-build" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.egress | length' "${kp_auth_render}")" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_auth_render}")" == "registry" ]]
 
 if yq eval-all 'select(.kind == "Secret" or .kind == "Job" or .kind == "CronJob" or (.kind == "Service" and .spec.type != "ClusterIP")) | .kind' "${kp_auth_render}" | grep -q .; then
   printf 'registry chart rendered a forbidden Secret, direct exposure, or GC workload\n' >&2

@@ -34,7 +34,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "StatefulSet")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Service")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-postgresql-default-deny") | .spec.podSelector.matchLabels' "${kp_tmp}/managed.yaml" | jq -cS .)" == '{"app.kubernetes.io/instance":"postgresql","app.kubernetes.io/name":"kuberploy-postgresql"}' ]]
 [[ "$(yq eval-all 'select(.kind == "Service") | .spec.type' "${kp_tmp}/managed.yaml" | tail -1)" == "ClusterIP" ]]
 [[ "$(yq eval-all 'select(.kind == "StatefulSet") | .spec.replicas' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]

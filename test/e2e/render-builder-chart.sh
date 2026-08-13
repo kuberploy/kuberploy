@@ -39,11 +39,12 @@ yq eval-all 'true' "${kp_render}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].namespace' "${kp_render}")" == "kuberploy-system" ]]
 [[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].name' "${kp_render}")" == "kuberploy-controller" ]]
 [[ "$(yq eval-all '[select(.kind == "RoleBinding") | .subjects[] | select(.name == "kuberploy-build-pod")] | length' "${kp_render}" | tail -1)" == "0" ]]
-[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.ingress | length' "${kp_render}")" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_render}" | tail -1)" == "2" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "default-deny") | .spec.ingress | length' "${kp_render}")" == "0" ]]
 kp_default_deny_expression="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-default-deny$"))) | .spec.validations[0].expression' "${kp_render}")"
 grep -F '!has(object.spec.ingress) || object.spec.ingress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
 grep -F '!has(object.spec.egress) || object.spec.egress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
-[[ "$(yq eval-all 'select(.kind == "NetworkPolicy") | .spec.egress | length' "${kp_render}")" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "default-deny") | .spec.egress | length' "${kp_render}")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy")] | length' "${kp_render}" | tail -1)" == "6" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail")] | length' "${kp_render}" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "6" ]]
@@ -66,7 +67,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.144'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.145'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \

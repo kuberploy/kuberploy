@@ -208,7 +208,7 @@ yq eval-all 'true' "${kp_tmp}/cert.yaml" >/dev/null
 [[ "$(kp_count_kind TLSStore "${kp_tmp}/cert.yaml")" == "0" ]]
 [[ "$(kp_count_kind Secret "${kp_tmp}/cert.yaml")" == "0" ]]
 [[ "$(kp_count_kind Certificate "${kp_tmp}/cert.yaml")" == "0" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "4" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "cert-controller") | .spec.egress[].to[].ipBlock.cidr | select(. == "0.0.0.0/0")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "cert-controller") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0") | .ports' "${kp_tmp}/cert.yaml")" == '[{"port":80,"protocol":"TCP"},{"port":443,"protocol":"TCP"}]' ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name == "cert-webhook" or .metadata.name == "cert-cainjector")) | .spec.egress[].to[].ipBlock.cidr | select(. == "0.0.0.0/0" or . == "::/0")] | length' "${kp_tmp}/cert.yaml" | tail -1)" == "0" ]]
@@ -281,7 +281,7 @@ yq eval-all 'true' "${kp_tmp}/dns.yaml" >/dev/null
 [[ "$(kp_count_kind Deployment "${kp_tmp}/dns.yaml")" == "1" ]]
 [[ "$(kp_count_kind Namespace "${kp_tmp}/dns.yaml")" == "0" ]]
 [[ "$(kp_count_kind Secret "${kp_tmp}/dns.yaml")" == "0" ]]
-[[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/dns.yaml")" == "1" ]]
+[[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/dns.yaml")" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_tmp}/dns.yaml")" == 'registry.k8s.io/external-dns/external-dns:v0.21.0' ]]
 kp_dns_args="$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].args[]' "${kp_tmp}/dns.yaml")"
 for kp_arg in \
