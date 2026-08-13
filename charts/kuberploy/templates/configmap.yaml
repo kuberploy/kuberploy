@@ -783,7 +783,7 @@ data:
   {{- end }}
   KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON: {{ toJson $runtimeCredentialProfiles | quote }}
   {{- end }}
-  KUBERPLOY_HELM_PACKAGE_CACHE_BYTES: {{ .Values.config.helmApplications.packageCacheBytes | quote }}
+  KUBERPLOY_HELM_PACKAGE_CACHE_BYTES: {{ int64 .Values.config.helmApplications.packageCacheBytes | quote }}
   KUBERPLOY_HELM_ARGO_NAMESPACE: {{ .Values.config.argoDesiredState.namespace | quote }}
   {{- end }}
   {{- if .Values.config.environmentFoundation.enabled }}
