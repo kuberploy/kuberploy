@@ -100,12 +100,16 @@ func registryProtectionDeployments(ctx context.Context, q registryDB, serviceID 
 func registryGitProtectionInputs(ctx context.Context, q registryDB, serviceID string, deployments []registryProtectionDeployment) ([]registry.ProtectionInput, bool, error) {
 	inputs := make([]registry.ProtectionInput, 0, len(deployments))
 	for _, deployment := range deployments {
+		// This is a protection-only read: a dependency-readiness diagnostic may
+		// make the unchanged current document invalid, but preserving its exact
+		// parseable image is still safe. BuildProtectionSnapshot independently
+		// rejects malformed images and same-target repository substitution.
 		rows, err := q.Query(ctx, `SELECT b.state,d.config_revision,
 			d.parsed #>> '{spec,delivery,release,repository}',
 			d.parsed #>> '{spec,delivery,release,digest}',d.indexed_at
 			FROM git_repository_bindings b
 			JOIN git_projected_documents d ON d.binding_id=b.id AND d.generation=b.projection_generation
-			WHERE b.kind='environment' AND b.environment_id=$1 AND d.application_id=$2 AND d.valid=true
+			WHERE b.kind='environment' AND b.environment_id=$1 AND d.application_id=$2
 			ORDER BY d.path`, deployment.environmentID, serviceID)
 		if err != nil {
 			return nil, false, err

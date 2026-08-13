@@ -125,6 +125,22 @@ func TestRefreshRegistryProtectionFromExactDurableSources(t *testing.T) {
 	assertProtection(domain.RegistryAuthorityRuntime, true, digestA)
 	assertProtection(domain.RegistryAuthorityOperations, true, digestC)
 
+	// A dependency-readiness outage can make an otherwise parseable current
+	// AppConfig document invalid while the Git head remains unchanged. The
+	// safety poll will not manufacture a new generation for that same head.
+	// Cleanup protection must still preserve the exact immutable image parsed
+	// from the current Git document; validity continues to gate deployment, not
+	// this protection-only, fail-safe root.
+	if _, err = st.pool.Exec(ctx, `UPDATE git_projected_documents SET valid=false,
+		diagnostics='[{"code":"TraefikRuntimeUnobserved"}]'
+		WHERE binding_id=$1 AND generation=2 AND application_id=$2`, bindingID, applicationID); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.RefreshRegistryProtection(ctx, targetID, applicationID, secondAt.Add(time.Second), true); err != nil {
+		t.Fatal(err)
+	}
+	assertProtection(domain.RegistryAuthorityGitIntent, true, digestB)
+
 	if _, err = st.pool.Exec(ctx, `UPDATE operations SET status='succeeded',finished_at=$2,updated_at=$2 WHERE id=$1`, activeOperationID, secondAt); err != nil {
 		t.Fatal(err)
 	}
