@@ -169,6 +169,7 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.targetName' "${kp_tmp}/all-components.yaml")" == "Managed registry" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.endpoint' "${kp_tmp}/all-components.yaml")" == "https://registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.credentialSecret.name' "${kp_tmp}/all-components.yaml")" == "registry-lifecycle" ]]
+[[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | [.spec.destinations[] | select(.server == "https://kubernetes.default.svc") | .namespace] | contains(["kuberploy-helm-renderer"])' "${kp_tmp}/all-components.yaml")" == "true" ]]
 [[ "$(yq eval-all -o=json 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.networkPolicy.allowedNamespaces' "${kp_tmp}/all-components.yaml" | jq -c .)" == '["kuberploy-build-dind","kuberploy-system"]' ]]
 
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system \
