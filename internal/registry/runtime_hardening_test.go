@@ -193,6 +193,13 @@ func TestMaintenanceJobAdoptionRejectsMutation(t *testing.T) {
 	actual := cloneRegistryTestJSON(t, expected)
 	metadata := actual["metadata"].(map[string]any)
 	metadata["uid"], metadata["resourceVersion"] = "job-uid", "12"
+	templateMetadata, _ := nestedMap(actual, "spec", "template", "metadata")
+	templateLabels := templateMetadata["labels"].(map[string]any)
+	jobName := metadata["name"].(string)
+	templateLabels["batch.kubernetes.io/controller-uid"] = "job-uid"
+	templateLabels["controller-uid"] = "job-uid"
+	templateLabels["batch.kubernetes.io/job-name"] = jobName
+	templateLabels["job-name"] = jobName
 	if err = validateRegistryMaintenanceJob(actual, expected, config, inputDigest); err != nil {
 		t.Fatal(err)
 	}
@@ -210,6 +217,14 @@ func TestMaintenanceJobAdoptionRejectsMutation(t *testing.T) {
 			spec, _ := nestedMap(value, "spec", "template", "spec")
 			container := spec["containers"].([]any)[0].(map[string]any)
 			container["securityContext"].(map[string]any)["allowPrivilegeEscalation"] = true
+		},
+		func(value map[string]any) {
+			metadata, _ := nestedMap(value, "spec", "template", "metadata")
+			metadata["labels"].(map[string]any)["batch.kubernetes.io/controller-uid"] = "attacker"
+		},
+		func(value map[string]any) {
+			metadata, _ := nestedMap(value, "spec", "template", "metadata")
+			metadata["labels"].(map[string]any)["attacker.example/injected"] = "true"
 		},
 	}
 	for index, mutate := range mutations {

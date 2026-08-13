@@ -664,15 +664,16 @@ func validateRegistryMaintenanceJob(actual, expected map[string]any, runtime Run
 	}
 	actualSpec, _ := actual["spec"].(map[string]any)
 	expectedSpec, _ := expected["spec"].(map[string]any)
-	// Server-populated selector and template labels are ignored; every
-	// operator-controlled field is compared through a canonical closed view.
-	if !equalMaintenanceJobSpec(actualSpec, expectedSpec) {
+	// Server-populated selector is ignored. Template labels accept only the
+	// exact four Job-controller identities in addition to the closed input set.
+	name, _ := expectedMetadata["name"].(string)
+	if !equalMaintenanceJobSpec(actualSpec, expectedSpec, name, uid) {
 		return ErrRegistryMaintenanceInvalid
 	}
 	return nil
 }
 
-func equalMaintenanceJobSpec(actual, expected map[string]any) bool {
+func equalMaintenanceJobSpec(actual, expected map[string]any, name, uid string) bool {
 	keys := []string{"backoffLimit", "activeDeadlineSeconds", "completions", "parallelism"}
 	for _, key := range keys {
 		if actual[key] != expected[key] {
@@ -689,15 +690,30 @@ func equalMaintenanceJobSpec(actual, expected map[string]any) bool {
 	if !okA || !okE {
 		return false
 	}
-	view := func(template map[string]any, spec map[string]any) any {
-		metadata, _ := template["metadata"].(map[string]any)
+	view := func(spec map[string]any) any {
 		return map[string]any{"serviceAccountName": spec["serviceAccountName"], "automountServiceAccountToken": spec["automountServiceAccountToken"],
 			"restartPolicy": spec["restartPolicy"], "enableServiceLinks": spec["enableServiceLinks"], "securityContext": spec["securityContext"],
-			"containers": spec["containers"], "volumes": spec["volumes"], "labels": metadata["labels"]}
+			"containers": spec["containers"], "volumes": spec["volumes"]}
 	}
-	left, _ := json.Marshal(view(actualTemplate, aSpec))
-	right, _ := json.Marshal(view(expectedTemplate, eSpec))
-	return bytes.Equal(left, right)
+	left, _ := json.Marshal(view(aSpec))
+	right, _ := json.Marshal(view(eSpec))
+	if !bytes.Equal(left, right) {
+		return false
+	}
+	actualMetadata, _ := actualTemplate["metadata"].(map[string]any)
+	expectedMetadata, _ := expectedTemplate["metadata"].(map[string]any)
+	actualLabels, _ := actualMetadata["labels"].(map[string]any)
+	expectedLabels, _ := expectedMetadata["labels"].(map[string]any)
+	if len(actualLabels) != len(expectedLabels)+4 || name == "" || uid == "" {
+		return false
+	}
+	for key, value := range expectedLabels {
+		if actualLabels[key] != value {
+			return false
+		}
+	}
+	return actualLabels["batch.kubernetes.io/controller-uid"] == uid && actualLabels["controller-uid"] == uid &&
+		actualLabels["batch.kubernetes.io/job-name"] == name && actualLabels["job-name"] == name
 }
 
 func equalRegistryJSON(left, right any) bool {
