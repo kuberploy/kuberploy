@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup fences semantic protection roots without failing on unchanged observation refreshes.",
+  "summary": "Managed registry cleanup resumes exact failed offline GC candidates and recovers completed helper jobs without a second sweep.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.126"
+  "version": "0.1.0-rc.127"
 }
