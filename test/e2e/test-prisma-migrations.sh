@@ -106,7 +106,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'6\n102\n65\n70\n735\n10\n2'
+kp_expected_counts=$'1\n102\n65\n70\n736\n10\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -159,18 +159,25 @@ docker exec "${kp_postgres}" psql --username postgres --dbname fresh --set ON_ER
   \$\$;
 " >/dev/null
 
-# Prove migration 003 repairs a real preexisting project-wide AppProject value
-# and is idempotent when its SQL is replayed by an operator during recovery.
+# The pre-stable migration history is squashed, so fresh databases enforce the
+# environment-scoped AppProject identity directly instead of repairing an old
+# release-candidate row later.
 docker exec "${kp_postgres}" psql --username postgres --dbname fresh --set ON_ERROR_STOP=1 --command "
   INSERT INTO projects(id,name,slug) VALUES
     ('11111111-1111-4111-8111-111111111111','Payments','payments');
   INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES
-    ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','Production','production','kp-payments-production','kp-p-11111111111141118111111111111111');
+    ('22222222-2222-4222-8222-222222222222','11111111-1111-4111-8111-111111111111','Production','production','kp-payments-production','kp-payments-production');
+  DO \$\$
+  BEGIN
+    BEGIN
+      INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES
+        ('33333333-3333-4333-8333-333333333333','11111111-1111-4111-8111-111111111111','Forged','forged','kp-payments-forged','kp-project-wide');
+      RAISE EXCEPTION 'environment accepted a project-wide Argo identity';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END
+  \$\$;
 " >/dev/null
-docker exec --interactive "${kp_postgres}" psql --username postgres --dbname fresh --set ON_ERROR_STOP=1 \
-  <"${kp_root}/migrations/prisma/migrations/003_environment_scoped_argo_projects/migration.sql" >/dev/null
-docker exec --interactive "${kp_postgres}" psql --username postgres --dbname fresh --set ON_ERROR_STOP=1 \
-  <"${kp_root}/migrations/prisma/migrations/003_environment_scoped_argo_projects/migration.sql" >/dev/null
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname fresh --tuples-only --no-align --command "SELECT argo_project FROM environments WHERE id='22222222-2222-4222-8222-222222222222'")" == "kp-payments-production" ]]
 
 docker exec "${kp_postgres}" createdb --username postgres legacy

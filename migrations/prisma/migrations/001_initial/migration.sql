@@ -76,6 +76,29 @@ $$;
 
 
 --
+-- Name: enforce_secret_binding_scope(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_secret_binding_scope() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    durable_organization_id uuid;
+BEGIN
+    SELECT team_id INTO durable_organization_id
+      FROM public.projects
+      WHERE id=NEW.project_id
+      FOR KEY SHARE;
+    IF NOT FOUND OR NEW.organization_id IS DISTINCT FROM durable_organization_id THEN
+        RAISE EXCEPTION 'Secret binding organization does not match project ownership'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: enforce_secret_binding_version_target(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -841,7 +864,8 @@ BEGIN
        NEW.maintenance_mode IS NULL AND NEW.deployment_uid='' AND
        NEW.original_replicas IS NULL AND NEW.checkpoint_revision='' AND
        NEW.checkpoint_digest='' AND NEW.checkpoint_observed_at IS NULL AND
-       NEW.sweep_job_uid='' AND NEW.restored_at IS NULL AND NEW.released_at IS NULL
+       NEW.sweep_job_uid=OLD.sweep_job_uid AND
+       NEW.restored_at IS NULL AND NEW.released_at IS NULL
     ) THEN
         RAISE EXCEPTION 'Released registry maintenance may only be reacquired for a fresh replay checkpoint'
             USING ERRCODE='23514';
@@ -2520,7 +2544,7 @@ CREATE FUNCTION public.validate_registry_runtime_maintenance_target() RETURNS tr
     AS $$
 DECLARE
     target_mode text;
-    plan_target text;
+    plan_target uuid;
 BEGIN
     SELECT mode INTO target_mode FROM registry_targets WHERE id=NEW.registry_target_id;
     SELECT registry_target_id INTO plan_target FROM registry_cleanup_plans WHERE id=NEW.plan_id;
@@ -2754,8 +2778,17 @@ BEGIN
                 USING ERRCODE='23514';
         END IF;
         IF OLD.runtime_state='failed' AND NEW.runtime_state<>'failed' THEN
-            RAISE EXCEPTION 'Failed runtime registry pull artifacts are terminal'
-                USING ERRCODE='23514';
+            IF OLD.last_failure_code<>'profile-mismatch' OR
+               OLD.lease_owner IS NULL OR OLD.worker_contract<>'registry-pull.v1' OR
+               OLD.worker_config_digest IS NULL OR NEW.runtime_state<>'ready' OR
+               NEW.lease_owner IS NOT NULL OR NEW.worker_contract IS NOT NULL OR
+               NEW.worker_config_digest IS NOT NULL OR NEW.lease_epoch<>OLD.lease_epoch OR
+               NEW.last_failure_code<>'' OR NEW.consecutive_failures<>0 OR
+               NEW.last_observed_at IS NULL OR NEW.observed_uid='' OR
+               NEW.observed_resource_version='' THEN
+                RAISE EXCEPTION 'Failed runtime registry pull artifacts are terminal'
+                    USING ERRCODE='23514';
+            END IF;
         END IF;
         IF NEW.updated_at<OLD.updated_at OR
            (OLD.last_observed_at IS NOT NULL AND NEW.last_observed_at IS NOT NULL AND
@@ -3804,6 +3837,7 @@ CREATE TABLE public.environments (
     argo_project text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     protection_policy text DEFAULT 'protected'::text NOT NULL,
+    CONSTRAINT environments_argo_project_check CHECK ((argo_project = namespace)),
     CONSTRAINT environments_protection_policy_check CHECK ((protection_policy = ANY (ARRAY['development'::text, 'protected'::text])))
 );
 
@@ -5566,7 +5600,7 @@ CREATE TABLE public.secret_binding_versions (
 
 CREATE TABLE public.secret_bindings (
     id uuid NOT NULL,
-    organization_id uuid NOT NULL,
+    organization_id uuid,
     project_id uuid NOT NULL,
     environment_id uuid NOT NULL,
     application_id uuid NOT NULL,
@@ -8331,6 +8365,13 @@ CREATE TRIGGER secret_binding_events_protect BEFORE DELETE OR UPDATE ON public.s
 --
 
 CREATE TRIGGER secret_binding_references_no_update BEFORE UPDATE ON public.secret_binding_references FOR EACH ROW EXECUTE FUNCTION public.reject_secret_binding_reference_update();
+
+
+--
+-- Name: secret_bindings secret_bindings_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER secret_bindings_scope BEFORE INSERT OR UPDATE ON public.secret_bindings FOR EACH ROW EXECUTE FUNCTION public.enforce_secret_binding_scope();
 
 
 --
