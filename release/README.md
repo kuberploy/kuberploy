@@ -114,7 +114,12 @@ and the current
 Release packaging writes deterministic `.tgz` files using the tagged commit
 time and predicts each Helm OCI manifest digest locally. Manifest generation,
 semantic validation, and checksums all finish before any canonical OCI chart
-tag is published. On a rerun, every existing chart version is pulled and
+tag is published. Before the installer is packaged, the release packager
+computes the exact `kuberploy-runtime` OCI digest and embeds its semantic
+version, digest, and consistency lock in installer chart metadata. The release
+validator requires that lock to equal the runtime entry in
+`release-manifest.json`; it is never an operator Helm value. On a rerun, every
+existing chart version is pulled and
 reused only when both its manifest digest and package bytes match the locally
 generated artifact; any mismatch is rejected without pushing over the tag. An existing
 GitHub release, including a draft left by an interrupted run, is also rejected

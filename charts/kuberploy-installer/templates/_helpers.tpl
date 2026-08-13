@@ -183,17 +183,23 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- end -}}
 
 {{- $github := .Values.integrations.github -}}
+{{- if hasKey $github "runtimeChartDigest" -}}{{ fail "integrations.github.runtimeChartDigest was removed; the installer release owns the runtime chart lock" }}{{- end -}}
 {{- if $github.enabled -}}
   {{- if or (not .Values.components.controlPlane.enabled) (not .Values.components.builder.enabled) -}}{{ fail "GitHub integration requires enabled controlPlane and builder components" }}{{- end -}}
   {{- if or (not $public.enabled) (not $public.tls.enabled) -}}{{ fail "GitHub integration requires the public HTTPS endpoint" }}{{- end -}}
-  {{- if or (le (int64 $github.appID) 0) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{5,127}$" $github.clientID)) (not (regexMatch "^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$" $github.appSlug)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.secretName)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.clusterID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.platformBindingID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.argoNamespace)) (not (regexMatch "^v1[.](?:2[5-9]|[3-9][0-9])$" $github.psaVersion)) (not (regexMatch "^sha256:[0-9a-f]{64}$" $github.runtimeChartDigest)) (not (regexMatch "^[^\\s@]+:v0\\.32\\.2$" $github.buildKitImage)) -}}{{ fail "GitHub/GitOps integration identities, runtime lock, and BuildKit image are invalid" }}{{- end -}}
+  {{- if or (le (int64 $github.appID) 0) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_-]{5,127}$" $github.clientID)) (not (regexMatch "^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$" $github.appSlug)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.secretName)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.clusterID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $github.platformBindingID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $github.argoNamespace)) (not (regexMatch "^v1[.](?:2[5-9]|[3-9][0-9])$" $github.psaVersion)) (not (regexMatch "^[^\\s@]+:v0\\.32\\.2$" $github.buildKitImage)) -}}{{ fail "GitHub/GitOps integration identities and BuildKit image are invalid" }}{{- end -}}
+  {{- $runtimeVersion := index .Chart.Annotations "kuberploy.io/runtime-chart-version" | default "" -}}
+  {{- $runtimeDigest := index .Chart.Annotations "kuberploy.io/runtime-chart-digest" | default "" -}}
+  {{- $runtimeLock := index .Chart.Annotations "kuberploy.io/runtime-chart-lock" | default "" -}}
+  {{- $expectedRuntimeLock := printf "kuberploy-runtime-lock-v1|%s|%s" $runtimeVersion $runtimeDigest | sha256sum | printf "sha256:%s" -}}
+  {{- if or (ne $runtimeVersion .Chart.Version) (not (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$" $runtimeVersion)) (not (regexMatch "^sha256:[0-9a-f]{64}$" $runtimeDigest)) (ne $runtimeLock $expectedRuntimeLock) -}}{{ fail "installer release runtime chart lock is absent, malformed, or inconsistent" }}{{- end -}}
   {{- $rootBootstrap := .Values.argoCD.argoFoundation.bootstrap -}}
   {{- if or (not $rootBootstrap.enabled) (ne $rootBootstrap.clusterID $github.clusterID) (ne $rootBootstrap.bindingID $github.platformBindingID) -}}{{ fail "GitHub desired-state integration requires the exact platform root bootstrap binding" }}{{- end -}}
   {{- if or (empty $github.controlPlaneEgressCIDRs) (empty $github.sourceEgressCIDRs) (empty $github.registryEgressCIDRs) -}}{{ fail "GitHub integration requires exact control-plane, source, and registry egress CIDRs" }}{{- end -}}
   {{- range concat $github.controlPlaneEgressCIDRs $github.sourceEgressCIDRs $github.registryEgressCIDRs -}}
     {{- if or (has . (list "0.0.0.0/0" "::/0")) (not (regexMatch "(?:/32|/128)$" .)) -}}{{ fail "GitHub integration egress accepts only exact /32 or /128 hosts" }}{{- end -}}
   {{- end -}}
-{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (ne $github.platformBindingID "") (ne $github.argoNamespace "") (ne $github.psaVersion "") (ne $github.runtimeChartDigest "") (ne $github.buildKitImage "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) -}}
+{{- else if or (ne (int64 $github.appID) 0) (ne $github.clientID "") (ne $github.appSlug "") (ne $github.secretName "") (ne $github.clusterID "") (ne $github.platformBindingID "") (ne $github.argoNamespace "") (ne $github.psaVersion "") (ne $github.buildKitImage "") (not (empty $github.controlPlaneEgressCIDRs)) (not (empty $github.sourceEgressCIDRs)) (not (empty $github.registryEgressCIDRs)) -}}
   {{- fail "disabled GitHub integration rejects dormant configuration" -}}
 {{- end -}}
 

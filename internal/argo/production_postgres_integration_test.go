@@ -286,6 +286,40 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if registry.calls != beforeCalls {
 		t.Fatal("mutable registry freshness was consulted after durable Git commit")
 	}
+	verified, err := argoStore.CompleteDesiredStateVerified(ctx, *committed.Lease, committedRevision, receiptAt.Add(2*time.Second))
+	if err != nil || verified.State != DesiredStateVerified {
+		t.Fatalf("complete verified command=%#v err=%v", verified, err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
+		VALUES($1,2,$2,$3,$4,$4,$5,$6,$7,$8,true,$9,$10,$11,$12)`, binding.ID, document.Path, applicationID,
+		advancedRevision, strings.Repeat("4", 40), document.ContentSHA256, document.Raw, parsedJSON,
+		diagnosticsJSON, document.SchemaVersion, document.ParserVersion, receiptAt.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rotatedIdentity, err := DesiredStateRuntimeIdentityForConfig(DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1001,
+		PlatformBindingID: platform.ID, ClusterID: clusterID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
+		RepositorySecretName: credentialName, Runtime: RuntimeLock{ChartRepository: "oci://registry.example.test/kuberploy/charts", ChartName: "kuberploy-runtime",
+			ChartVersion: identity.Runtime.ChartVersion, ChartDigest: identity.Runtime.ChartDigest, RendererImage: identity.Runtime.RendererImage},
+		DigestEnforcement: ChartDigestNativeOCI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedMaterializer, err := NewPostgreSQLDesiredStateMaterializer(pool, argoStore, projectionStore, gate, registry, rotatedIdentity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotatedMaterializer.newID = func() string { return "8e222222-2222-4222-8222-222222222222" }
+	created, err = rotatedMaterializer.MaterializeDesiredStateOnce(ctx, receiptAt.Add(4*time.Second))
+	if err != nil || !created {
+		t.Fatalf("verified desired state did not rotate with runtime lock: created=%v err=%v", created, err)
+	}
+	rotated, err := argoStore.LatestDesiredState(ctx, projectID, environmentID)
+	if err != nil || rotated.ChartVersion != rotatedIdentity.Runtime.ChartVersion || rotated.ChartDigest != rotatedIdentity.Runtime.ChartDigest || rotated.RendererImage != rotatedIdentity.Runtime.RendererImage {
+		t.Fatalf("rotated runtime lock command=%#v err=%v", rotated, err)
+	}
+	if created, err = rotatedMaterializer.MaterializeDesiredStateOnce(ctx, receiptAt.Add(5*time.Second)); err != nil || created {
+		t.Fatalf("duplicate runtime-lock rotation created=%v err=%v", created, err)
+	}
 
 	catalog, err := NewPostgreSQLRuntimeBindingCatalog(pool)
 	if err != nil {

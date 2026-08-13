@@ -93,6 +93,8 @@
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.integrations.github.enabled -}}
   {{- $github := $root.Values.integrations.github -}}
+  {{- $runtimeChartVersion := index $root.Chart.Annotations "kuberploy.io/runtime-chart-version" -}}
+  {{- $runtimeChartDigest := index $root.Chart.Annotations "kuberploy.io/runtime-chart-digest" -}}
   {{- $githubValues := dict
     "config" (dict
       "githubApp" (dict "enabled" true "appID" $github.appID "clientID" $github.clientID "appSlug" $github.appSlug "secretRef" (dict "name" $github.secretName))
@@ -101,7 +103,7 @@
       "platformGitBinding" (dict "enabled" true "bindingID" $github.platformBindingID "clusterID" $github.clusterID)
       "argoObservation" (dict "enabled" true "namespace" $github.argoNamespace "pollIntervalSeconds" 30)
       "environmentFoundation" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "psaVersion" $github.psaVersion "pollIntervalSeconds" 1)
-      "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $component.expectedPackageVersion "runtimeChartDigest" $github.runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
+      "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $runtimeChartVersion "runtimeChartDigest" $runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
       "autoDeploy" (dict "enabled" true)
     )
     "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))

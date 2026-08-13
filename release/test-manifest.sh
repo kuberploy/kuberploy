@@ -68,12 +68,14 @@ python3 "${kp_root}/release/package_component_charts.py" \
   --destination "${kp_tmp}/component-charts" \
   --version "${kp_version}" \
   --source-date-epoch "${kp_source_date_epoch}" \
+  --created-at "2026-08-06T00:00:00Z" \
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}" >/dev/null
 python3 "${kp_root}/release/package_component_charts.py" \
   --root "${kp_root}" \
   --destination "${kp_tmp}/component-charts-again" \
   --version "${kp_version}" \
   --source-date-epoch "${kp_source_date_epoch}" \
+  --created-at "2026-08-06T00:00:00Z" \
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}" >/dev/null
 diff -qr "${kp_tmp}/component-charts" "${kp_tmp}/component-charts-again" >/dev/null || {
   printf 'component chart staging is not reproducible\n' >&2
@@ -202,6 +204,24 @@ PY
 if "${kp_root}/release/validate-manifest.sh" \
   "${kp_assets}/builder-mismatch-manifest.json" "${kp_assets}" "${kp_tag}" "${kp_commit}" >/dev/null 2>&1; then
   printf 'release validator accepted a builder digest that differs from the embedded chart\n' >&2
+  exit 1
+fi
+
+cp "${kp_assets}/release-manifest.json" "${kp_assets}/runtime-mismatch-manifest.json"
+python3 - "${kp_assets}/runtime-mismatch-manifest.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+value = json.loads(path.read_text(encoding="utf-8"))
+runtime = next(chart for chart in value["artifacts"]["componentCharts"] if chart["name"] == "kuberploy-runtime")
+runtime["ociDigest"] = "sha256:" + ("9" * 64)
+path.write_text(json.dumps(value), encoding="utf-8")
+PY
+if "${kp_root}/release/validate-manifest.sh" \
+  "${kp_assets}/runtime-mismatch-manifest.json" "${kp_assets}" "${kp_tag}" "${kp_commit}" >/dev/null 2>&1; then
+  printf 'release validator accepted an installer runtime lock that differs from the release manifest\n' >&2
   exit 1
 fi
 

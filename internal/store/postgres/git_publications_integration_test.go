@@ -171,14 +171,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 		t.Fatalf("store merge-pending publication=%#v err=%v", mergePending, err)
 	}
 	targetRevision := strings.Repeat("f", 40)
-	verifiedAt := mergePending.UpdatedAt.Add(time.Second)
-	mergeVerified, err := mergePending.WithVerifiedMerge(targetRevision, verifiedAt)
-	if err != nil {
-		t.Fatalf("merge-verified publication=%#v err=%v", mergeVerified, err)
-	}
-	if err = st.CompareAndSwapPublication(ctx, mergePending, mergeVerified); err != nil {
-		t.Fatalf("store merge-verified publication=%#v err=%v", mergeVerified, err)
-	}
+	indexingAt := mergePending.UpdatedAt
 	var state, desiredRevision string
 	if err = st.pool.QueryRow(ctx, `SELECT state,desired_revision FROM deployments WHERE id=$1`, operation.TargetID).Scan(&state, &desiredRevision); err != nil {
 		t.Fatal(err)
@@ -201,21 +194,21 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	}
 	projectionBinding, _, err = projectionStore.RecordVerifiedHead(ctx, gitprojection.VerifiedHead{
 		BindingID: projectionBinding.ID, Repository: projectionBinding.Repository, TargetRef: projectionBinding.TargetRef,
-		Commit: targetRevision, Source: gitprojection.ObservationPoll, ProviderRequest: "protected-merge-target", ObservedAt: verifiedAt.Add(time.Second),
+		Commit: targetRevision, Source: gitprojection.ObservationPoll, ProviderRequest: "protected-merge-target", ObservedAt: indexingAt.Add(time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err := projectionStore.ClaimReconciliation(ctx, "protected-index-proof", verifiedAt.Add(2*time.Second), time.Minute)
+	work, err := projectionStore.ClaimReconciliation(ctx, "protected-index-proof", indexingAt.Add(2*time.Second), time.Minute)
 	if err != nil || work.Binding.ID != projectionBinding.ID {
 		t.Fatalf("claim=%#v err=%v", work, err)
 	}
-	badGeneration, err := projectionStore.BeginGeneration(ctx, work.Lease, targetRevision, projectionBinding.ParserVersion, verifiedAt.Add(3*time.Second))
+	badGeneration, err := projectionStore.BeginGeneration(ctx, work.Lease, targetRevision, projectionBinding.ParserVersion, indexingAt.Add(3*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	badDocument, err := gitprojection.NewDocument(projectionBinding, badGeneration.Number, application.Value.ID,
-		targetRevision, targetRevision, strings.Repeat("1", 40), []byte("kind: AppConfig\nmetadata: {}\n"), nil, nil, verifiedAt.Add(3*time.Second))
+		targetRevision, targetRevision, strings.Repeat("1", 40), []byte("kind: AppConfig\nmetadata: {}\n"), nil, nil, indexingAt.Add(3*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +219,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	if err = policyInput.Validate(); err != nil {
 		t.Fatalf("policy input invalid before activation: %#v: %v", policyInput, err)
 	}
-	if _, err = projectionStore.ActivateGeneration(ctx, work.Lease, badGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, verifiedAt.Add(4*time.Second)); err != nil {
+	if _, err = projectionStore.ActivateGeneration(ctx, work.Lease, badGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, indexingAt.Add(4*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	command, err = projectionStore.WriteCommand(ctx, operation.ID)
@@ -240,8 +233,8 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 		t.Fatalf("mismatched indexed bytes advanced deployment: state=%q desired=%q", state, desiredRevision)
 	}
 	if err = projectionStore.FinishReconciliation(ctx, work.Lease, gitprojection.ReconciliationOutcome{
-		LastCommit: targetRevision, NextPollAt: verifiedAt.Add(time.Hour),
-	}, verifiedAt.Add(5*time.Second)); err != nil {
+		LastCommit: targetRevision, NextPollAt: indexingAt.Add(time.Hour),
+	}, indexingAt.Add(5*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -251,34 +244,43 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	descendantRevision := strings.Repeat("9", 40)
 	projectionBinding, _, err = projectionStore.RecordVerifiedHead(ctx, gitprojection.VerifiedHead{
 		BindingID: projectionBinding.ID, Repository: projectionBinding.Repository, TargetRef: projectionBinding.TargetRef,
-		Commit: descendantRevision, Source: gitprojection.ObservationPoll, ProviderRequest: "protected-merge-descendant", ObservedAt: verifiedAt.Add(6 * time.Second),
+		Commit: descendantRevision, Source: gitprojection.ObservationPoll, ProviderRequest: "protected-merge-descendant", ObservedAt: indexingAt.Add(6 * time.Second),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	work, err = projectionStore.ClaimReconciliation(ctx, "protected-index-proof", verifiedAt.Add(7*time.Second), time.Minute)
+	work, err = projectionStore.ClaimReconciliation(ctx, "protected-index-proof", indexingAt.Add(7*time.Second), time.Minute)
 	if err != nil || work.Binding.ID != projectionBinding.ID {
 		t.Fatalf("descendant claim=%#v err=%v", work, err)
 	}
-	exactGeneration, err := projectionStore.BeginGeneration(ctx, work.Lease, descendantRevision, projectionBinding.ParserVersion, verifiedAt.Add(8*time.Second))
+	exactGeneration, err := projectionStore.BeginGeneration(ctx, work.Lease, descendantRevision, projectionBinding.ParserVersion, indexingAt.Add(8*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	exactDocument, err := gitprojection.NewDocument(projectionBinding, exactGeneration.Number, application.Value.ID,
-		descendantRevision, descendantRevision, strings.Repeat("2", 40), command.Content, nil, nil, verifiedAt.Add(8*time.Second))
+		descendantRevision, descendantRevision, strings.Repeat("2", 40), command.Content, nil, nil, indexingAt.Add(8*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = projectionStore.PutDocuments(ctx, exactGeneration, []gitprojection.Document{exactDocument}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = projectionStore.ActivateGeneration(ctx, work.Lease, exactGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, verifiedAt.Add(9*time.Second)); err != nil {
+	if _, err = projectionStore.ActivateGeneration(ctx, work.Lease, exactGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, indexingAt.Add(9*time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	command, err = projectionStore.WriteCommand(ctx, operation.ID)
+	if err != nil || command.State != gitprojection.WriteCommandPending {
+		t.Fatalf("generation advanced before provider verification: command=%#v err=%v", command, err)
+	}
+	verifiedAt := indexingAt.Add(10 * time.Second)
+	mergeVerified, err := mergePending.WithVerifiedMerge(targetRevision, verifiedAt)
+	if err != nil || st.CompareAndSwapPublication(ctx, mergePending, mergeVerified) != nil {
+		t.Fatalf("late merge verification publication=%#v err=%v", mergeVerified, err)
 	}
 	command, err = projectionStore.WriteCommand(ctx, operation.ID)
 	if err != nil || command.State != gitprojection.WriteCommandIndexed || command.CommittedRevision != targetRevision ||
 		command.IndexedGeneration != exactGeneration.Number {
-		t.Fatalf("exact protected command=%#v err=%v", command, err)
+		t.Fatalf("late provider convergence command=%#v err=%v", command, err)
 	}
 	if err = st.pool.QueryRow(ctx, `SELECT state,desired_revision FROM deployments WHERE id=$1`, operation.TargetID).Scan(&state, &desiredRevision); err != nil {
 		t.Fatal(err)

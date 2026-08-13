@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 )
 
@@ -68,6 +69,22 @@ func (s *Store) CompareAndSwapPublication(_ context.Context, previous, next gitp
 		if deployment, exists := s.deployments[operation.TargetID]; exists && deployment.OperationID == operation.ID && deployment.Generation == operation.Generation {
 			deployment.State = protectedDeploymentState(next)
 			deployment.UpdatedAt = next.UpdatedAt
+			if next.State == gitpublication.StateMergeVerified {
+				command, commandExists := s.gitWriteCommands[next.OperationID]
+				binding, bindingExists := s.gitBindings[command.Plan.EnvironmentID]
+				document, documentExists := s.gitDocuments[memoryGitDocumentKey(next.BindingID, command.Path)]
+				if commandExists && bindingExists && documentExists && command.PublicationMode == gitprojection.PublicationPullRequest &&
+					command.State == gitprojection.WriteCommandPending && command.Plan.BindingID == next.BindingID && command.TargetRef == next.TargetRef &&
+					binding.ID == next.BindingID && binding.State == gitprojection.BindingReady && binding.TargetHeadRevision == binding.IndexedRevision &&
+					binding.ProjectionGeneration > 0 && document.Generation == binding.ProjectionGeneration && document.Valid &&
+					document.Path == command.Path && document.ContentSHA256 == command.ContentSHA256 && string(document.Raw) == string(command.Content) {
+					indexedAt := next.UpdatedAt.UTC()
+					command.State, command.CommittedRevision, command.CommittedAt = gitprojection.WriteCommandIndexed, next.TargetRevision, &indexedAt
+					command.IndexedGeneration, command.IndexedAt, command.UpdatedAt = binding.ProjectionGeneration, &indexedAt, indexedAt
+					s.gitWriteCommands[next.OperationID] = command
+					deployment.State, deployment.DesiredRevision = "git-committed", next.TargetRevision
+				}
+			}
 			s.deployments[deployment.ID] = deployment
 		}
 	}

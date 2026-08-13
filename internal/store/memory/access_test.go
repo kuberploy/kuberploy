@@ -455,3 +455,72 @@ func TestExplicitTeamGrantAppliesToCurrentMembersAndRevokesSessions(t *testing.T
 		t.Fatalf("deleted team grant retained project access: %v", err)
 	}
 }
+
+func TestTeamSubjectOrganizationGrantDelegatesExactTeamAdministration(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	manager, _ := invitedUser(t, store, admin, "Delegated manager", "team-grant-manager")
+	targetMember, _ := invitedUser(t, store, admin, "Target member", "team-grant-target-member")
+	subjectTeam, err := store.CreateTeam(ctx, admin.ID, "delegated-subject-team", "delegated-subject-team", "request", domain.CreateTeam{Name: "Delegated managers", Slug: "delegated-managers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, subjectTeam.Value.ID, "delegated-manager-member", "delegated-manager-member", "request", domain.AddTeamMember{UserID: manager.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	targetTeam, err := store.CreateTeam(ctx, admin.ID, "delegated-target-team", "delegated-target-team", "request", domain.CreateTeam{Name: "Delegated target", Slug: "delegated-target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetProject, err := store.CreateProject(ctx, admin.ID, "delegated-target-project", "delegated-target-project", domain.CreateProject{Name: "Delegated project", Slug: "delegated-project", TeamID: targetTeam.Value.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	managerSession := issueSession(t, store, manager.ID, "delegated-manager-before-grant")
+	grant, err := store.CreateProjectAccessGrant(ctx, admin.ID, "delegated-organization-grant", "delegated-organization-grant", "request", domain.CreateAccessGrant{
+		ProjectID: targetProject.Value.ID, SubjectTeamID: subjectTeam.Value.ID, Role: domain.RoleOrganizationAdmin,
+		ScopeType: domain.ScopeTeam, ScopeID: targetTeam.Value.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UserBySession(ctx, managerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team organization grant retained stale manager session: %v", err)
+	}
+	teams, err := store.ListTeamsForActor(ctx, manager.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundTarget := false
+	for _, team := range teams {
+		foundTarget = foundTarget || team.ID == targetTeam.Value.ID
+	}
+	if !foundTarget {
+		t.Fatalf("delegated target team omitted from catalog: %#v", teams)
+	}
+	if _, err = store.AddTeamMember(ctx, manager.ID, targetTeam.Value.ID, "delegated-target-member", "delegated-target-member", "request", domain.AddTeamMember{UserID: targetMember.ID, Role: "member"}); err != nil {
+		t.Fatalf("team-subject organization administrator could not add member: %v", err)
+	}
+	users, err := store.ListUsersForActor(ctx, manager.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundMember := false
+	for _, user := range users {
+		foundMember = foundMember || user.ID == targetMember.ID
+	}
+	if !foundMember {
+		t.Fatalf("delegated target member omitted from safe directory: %#v", users)
+	}
+	managerSession = issueSession(t, store, manager.ID, "delegated-manager-before-delete")
+	if _, err = store.DeleteProjectAccessGrant(ctx, admin.ID, targetProject.Value.ID, grant.Value.ID, "delegated-organization-delete", "delegated-organization-delete", "request"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UserBySession(ctx, managerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team organization grant deletion retained stale manager session: %v", err)
+	}
+	if _, err = store.AddTeamMember(ctx, manager.ID, targetTeam.Value.ID, "delegated-after-delete", "delegated-after-delete", "request", domain.AddTeamMember{UserID: manager.ID, Role: "member"}); !errors.Is(err, base.ErrForbidden) {
+		t.Fatalf("deleted team-subject organization grant retained administration: %v", err)
+	}
+}

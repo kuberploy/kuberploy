@@ -130,6 +130,13 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def chart_annotation(text: str, key: str) -> str:
+    match = re.search(rf'(?m)^  {re.escape(key)}:\s*"([^"\\n]+)"\s*$', text)
+    if match is None:
+        raise ValueError(f"Chart.yaml annotation is absent: {key}")
+    return match.group(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("manifest", type=Path)
@@ -264,6 +271,7 @@ def main() -> None:
     )
     component_charts = manifest["artifacts"]["componentCharts"]
     require([item["name"] for item in component_charts] == list(component_names), "component chart order/names mismatch")
+    runtime_chart = next(item for item in component_charts if item["name"] == "kuberploy-runtime")
     builder_image = next(image for image in images if image["component"] == "builder-agent")
     for item in component_charts:
         name = item["name"]
@@ -286,6 +294,15 @@ def main() -> None:
         source = args.root / "charts" / name
         lock = source / "testdata" / "upstream-artifacts.lock"
         if name == "kuberploy-installer":
+            runtime_version = chart_annotation(component_metadata, "kuberploy.io/runtime-chart-version")
+            runtime_digest = chart_annotation(component_metadata, "kuberploy.io/runtime-chart-digest")
+            runtime_lock = chart_annotation(component_metadata, "kuberploy.io/runtime-chart-lock")
+            expected_runtime_lock = "sha256:" + hashlib.sha256(
+                f"kuberploy-runtime-lock-v1|{runtime_version}|{runtime_digest}".encode("utf-8")
+            ).hexdigest()
+            require(runtime_version == runtime_chart["version"], "installer runtime chart version differs from release manifest")
+            require(runtime_digest == runtime_chart["ociDigest"], "installer runtime chart digest differs from release manifest")
+            require(runtime_lock == expected_runtime_lock, "installer runtime chart lock is inconsistent")
             expected_dependencies = {}
             for dependency_component in ("kuberploy-argocd", "kuberploy-valkey"):
                 dependency_name = f"{dependency_component}-{version}.tgz"

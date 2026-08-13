@@ -160,9 +160,70 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if _, err = st.UserBySession(ctx, developerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("stale session survived grant revision change: %v", err)
 	}
+	managerInvite := sha256.Sum256([]byte("integration-team-manager-invitation"))
+	if _, err = st.CreateUserInvitation(ctx, admin.ID, "Team manager", managerInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
+		t.Fatal(err)
+	}
+	managerSession := sha256.Sum256([]byte("integration-team-manager-session"))
+	manager, err := st.AcceptUserInvitation(ctx, managerInvite[:], "Team manager", strings.Repeat("m", 64), managerSession[:], time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	managerTeam, err := st.CreateTeam(ctx, admin.ID, "manager-team", "manager-team", "request", domain.CreateTeam{Name: "Manager team", Slug: "manager-team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.AddTeamMember(ctx, admin.ID, managerTeam.Value.ID, "manager-member", "manager-member", "request", domain.AddTeamMember{UserID: manager.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
 	project, err := st.CreateProject(ctx, admin.ID, "project", "project", domain.CreateProject{Name: "Team project", Slug: "team-project", TeamID: team.Value.ID})
 	if err != nil {
 		t.Fatal(err)
+	}
+	managerGrant, err := st.CreateProjectAccessGrant(ctx, admin.ID, "team-subject-manager", "team-subject-manager", "request", domain.CreateAccessGrant{
+		ProjectID: project.Value.ID, SubjectTeamID: managerTeam.Value.ID, Role: domain.RoleOrganizationAdmin,
+		ScopeType: domain.ScopeTeam, ScopeID: team.Value.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.UserBySession(ctx, managerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team-subject grant retained stale PostgreSQL session: %v", err)
+	}
+	teams, err := st.ListTeamsForActor(ctx, manager.ID)
+	if err != nil || len(teams) != 2 {
+		t.Fatalf("team-subject manager teams=%#v err=%v", teams, err)
+	}
+	visibleUsers, err := st.ListUsersForActor(ctx, manager.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundDeveloper := false
+	for _, user := range visibleUsers {
+		foundDeveloper = foundDeveloper || user.ID == developer.ID
+	}
+	if !foundDeveloper {
+		t.Fatalf("team-subject manager directory omitted target member: %#v", visibleUsers)
+	}
+	if _, err = st.AddTeamMember(ctx, manager.ID, team.Value.ID, "team-manager-add", "team-manager-add", "request", domain.AddTeamMember{UserID: manager.ID, Role: "member"}); err != nil {
+		t.Fatalf("team-subject organization administrator could not add member: %v", err)
+	}
+	var managerRevision int64
+	if err = st.pool.QueryRow(ctx, `SELECT grant_revision FROM users WHERE id=$1`, manager.ID).Scan(&managerRevision); err != nil {
+		t.Fatal(err)
+	}
+	currentManagerSession := sha256.Sum256([]byte("integration-current-team-manager-session"))
+	if _, err = st.pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,grant_revision,expires_at) VALUES($1,$2,$3,$4)`, currentManagerSession[:], manager.ID, managerRevision, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if replay, deleteErr := st.DeleteProjectAccessGrant(ctx, admin.ID, project.Value.ID, managerGrant.Value.ID, "delete-team-subject-manager", "delete-team-subject-manager", "request"); deleteErr != nil || replay {
+		t.Fatalf("delete team-subject grant replay=%t err=%v", replay, deleteErr)
+	}
+	if _, err = st.UserBySession(ctx, currentManagerSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team-subject grant deletion retained PostgreSQL session: %v", err)
+	}
+	if err = st.RemoveTeamMember(ctx, manager.ID, team.Value.ID, manager.ID, "request"); !errors.Is(err, base.ErrForbidden) {
+		t.Fatalf("revoked team-subject grant retained administration: %v", err)
 	}
 	adminAudit, err := st.ListAuditEventsForActor(ctx, admin.ID, domain.AuditEventQuery{Action: "project.create", Limit: 20})
 	if err != nil || len(adminAudit) == 0 {

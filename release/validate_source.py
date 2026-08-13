@@ -405,6 +405,7 @@ def main() -> None:
         "--migration-image \"ghcr.io/kuberploy/kuberploy-migration@${MIGRATION_DIGEST}\"",
         "--builder-agent-image \"ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}\"",
         "--source-date-epoch \"${SOURCE_DATE_EPOCH}\"",
+        "--created-at \"${CREATED_AT}\"",
         "release/package_chart_archive.py",
         "release/package_component_charts.py",
         "release/chart_oci_digest.py",

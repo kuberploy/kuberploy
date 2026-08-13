@@ -70,7 +70,8 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	  ON generation.binding_id=b.id AND generation.generation=b.projection_generation
 	LEFT JOIN LATERAL (
 		SELECT command.id,command.state,command.environment_revision,command.environment_generation,
-		       command.chart_version,command.chart_digest,command.renderer_image,command.argo_project
+		       command.chart_repository,command.chart_name,command.chart_version,command.chart_digest,
+		       command.renderer_image,command.chart_digest_enforcement,command.argo_project
 		FROM argo_desired_state_commands command
 		WHERE command.environment_id=b.environment_id
 		ORDER BY command.generation DESC LIMIT 1
@@ -99,13 +100,17 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	  AND (latest.id IS NULL OR
 	    (latest.state='verified' AND
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
+	       latest.chart_repository<>$1 OR latest.chart_name<>$2 OR latest.chart_version<>$3 OR
+	       latest.chart_digest<>$4 OR latest.renderer_image<>$5 OR latest.chart_digest_enforcement<>$6 OR
 	       latest.argo_project<>e.argo_project)) OR
 	    (latest.state IN ('failed','superseded') AND
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
-	       latest.chart_version<>$1 OR latest.chart_digest<>$2 OR latest.renderer_image<>$3 OR
+	       latest.chart_repository<>$1 OR latest.chart_name<>$2 OR latest.chart_version<>$3 OR
+	       latest.chart_digest<>$4 OR latest.renderer_image<>$5 OR latest.chart_digest_enforcement<>$6 OR
 	       latest.argo_project<>e.argo_project)))
 	ORDER BY b.indexed_at,b.id
-	LIMIT 64`, m.identity.Runtime.ChartVersion, m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage)
+	LIMIT 64`, m.identity.Runtime.ChartRepository, m.identity.Runtime.ChartName, m.identity.Runtime.ChartVersion,
+		m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage, m.identity.DigestEnforcement)
 	if err != nil {
 		return false, classifyPostgres(err)
 	}

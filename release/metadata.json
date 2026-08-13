@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Direct per-service scheduling, StatefulSet runtime controls, team grants, exact rollout status, and installer-owned upgrade and rollback health gates close the RC parity review.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.153"
+  "version": "0.1.0-rc.154"
 }

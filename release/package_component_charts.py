@@ -9,11 +9,13 @@ import re
 import shutil
 import ssl
 import subprocess
+import tempfile
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from chart_oci_digest import chart_oci_digest
 from package_chart_archive import package_chart_archive
 from validate_semantics import yaml_scalar
 
@@ -154,12 +156,43 @@ def fetch(url: str, destination: Path, expected_sha256: str) -> None:
         raise ValueError(f"upstream chart checksum mismatch for {destination.name}")
 
 
-def stage_installer_dependencies(destination_root: Path, destination: Path, version: str, source_date_epoch: int) -> None:
+def release_lock(version: str, digest: str) -> str:
+    return "sha256:" + hashlib.sha256(
+        f"kuberploy-runtime-lock-v1|{version}|{digest}".encode("utf-8")
+    ).hexdigest()
+
+
+def stage_installer_dependencies(
+    destination_root: Path,
+    destination: Path,
+    version: str,
+    runtime_digest: str,
+    source_date_epoch: int,
+) -> None:
     chart = destination / "Chart.yaml"
     chart_text = chart.read_text(encoding="utf-8")
     chart_text, count = re.subn(r'(?m)^(    version:)\s*.*$', rf'\1 {version}', chart_text)
     if count != 2:
         raise SystemExit("installer must declare exactly two nested dependency versions")
+    if not DIGEST_REFERENCE.fullmatch(f"runtime@{runtime_digest}"):
+        raise SystemExit("installer runtime chart digest must be an exact SHA-256 OCI digest")
+    if any(
+        key in chart_text
+        for key in (
+            "kuberploy.io/runtime-chart-version:",
+            "kuberploy.io/runtime-chart-digest:",
+            "kuberploy.io/runtime-chart-lock:",
+        )
+    ):
+        raise SystemExit("installer source chart must not contain a precomputed runtime release lock")
+    annotations = (
+        f'  kuberploy.io/runtime-chart-version: "{version}"\n'
+        f'  kuberploy.io/runtime-chart-digest: "{runtime_digest}"\n'
+        f'  kuberploy.io/runtime-chart-lock: "{release_lock(version, runtime_digest)}"\n'
+    )
+    chart_text, count = re.subn(r"(?m)^annotations:\s*$", "annotations:\n" + annotations.rstrip("\n"), chart_text)
+    if count != 1:
+        raise SystemExit("installer Chart.yaml must contain exactly one annotations mapping")
     chart.write_text(chart_text, encoding="utf-8")
 
     # Helm computes the dependency metadata digest. The generated dependency
@@ -199,7 +232,15 @@ def stage_installer_dependencies(destination_root: Path, destination: Path, vers
     )
 
 
-def stage_chart(root: Path, destination_root: Path, name: str, version: str, builder_image: str, source_date_epoch: int) -> Path:
+def stage_chart(
+    root: Path,
+    destination_root: Path,
+    name: str,
+    version: str,
+    builder_image: str,
+    source_date_epoch: int,
+    runtime_digest: str = "",
+) -> Path:
     source = root / "charts" / name
     if not source.is_dir() or yaml_scalar((source / "Chart.yaml").read_text(encoding="utf-8"), ("name",)) != name:
         raise SystemExit(f"invalid component chart source: {name}")
@@ -224,7 +265,7 @@ def stage_chart(root: Path, destination_root: Path, name: str, version: str, bui
         values.write_text(text, encoding="utf-8")
 
     if name == "kuberploy-installer":
-        stage_installer_dependencies(destination_root, destination, version, source_date_epoch)
+        stage_installer_dependencies(destination_root, destination, version, runtime_digest, source_date_epoch)
         return destination
 
     upstreams = locked_upstreams(source)
@@ -246,6 +287,7 @@ def main() -> None:
     parser.add_argument("--version", required=True)
     parser.add_argument("--builder-agent-image", required=True)
     parser.add_argument("--source-date-epoch", required=True, type=int)
+    parser.add_argument("--created-at", required=True)
     args = parser.parse_args()
 
     if not SEMVER.fullmatch(args.version):
@@ -259,8 +301,22 @@ def main() -> None:
     args.destination.mkdir(parents=True)
     # Stage the independently published wrappers before the installer so its
     # nested packages are byte-identical to the standalone release artifacts.
-    for name in tuple(item for item in COMPONENT_CHARTS if item != "kuberploy-installer") + ("kuberploy-installer",):
+    for name in tuple(item for item in COMPONENT_CHARTS if item != "kuberploy-installer"):
         stage_chart(args.root, args.destination, name, args.version, args.builder_agent_image, args.source_date_epoch)
+    with tempfile.TemporaryDirectory(prefix="kuberploy-runtime-lock-") as temporary:
+        runtime_package = Path(temporary) / f"kuberploy-runtime-{args.version}.tgz"
+        runtime_chart = args.destination / "kuberploy-runtime"
+        package_chart_archive(runtime_chart, runtime_package, args.source_date_epoch)
+        runtime_digest = chart_oci_digest(runtime_chart / "Chart.yaml", runtime_package, args.created_at)
+    stage_chart(
+        args.root,
+        args.destination,
+        "kuberploy-installer",
+        args.version,
+        args.builder_agent_image,
+        args.source_date_epoch,
+        runtime_digest,
+    )
     print(args.destination)
 
 

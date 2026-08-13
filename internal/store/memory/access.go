@@ -325,9 +325,7 @@ func (s *Store) ListTeamsForActor(_ context.Context, actor string) ([]domain.Tea
 	defer s.mu.Unlock()
 	var out []domain.Team
 	for teamID, team := range s.teams {
-		if s.isAdminLocked(actor) {
-			out = append(out, team)
-		} else if _, ok := s.memberships[teamID][actor]; ok {
+		if s.canAccessTeamLocked(actor, teamID) {
 			out = append(out, team)
 		}
 	}

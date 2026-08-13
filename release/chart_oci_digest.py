@@ -126,22 +126,16 @@ def parse_chart(path: Path) -> tuple[dict[str, object], dict[str, str]]:
     return metadata, annotations
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--chart", required=True, type=Path)
-    parser.add_argument("--package", required=True, type=Path)
-    parser.add_argument("--created-at", required=True)
-    args = parser.parse_args()
-
+def chart_oci_digest(chart: Path, package_path: Path, created_at_text: str) -> str:
     try:
-        created_at = datetime.fromisoformat(args.created_at.replace("Z", "+00:00"))
+        created_at = datetime.fromisoformat(created_at_text.replace("Z", "+00:00"))
     except ValueError as error:
         raise SystemExit(f"invalid created-at timestamp: {error}") from error
-    if created_at.tzinfo is None or created_at.isoformat(timespec="seconds").replace("+00:00", "Z") != args.created_at:
+    if created_at.tzinfo is None or created_at.isoformat(timespec="seconds").replace("+00:00", "Z") != created_at_text:
         raise SystemExit("created-at must be a canonical UTC RFC3339 timestamp")
 
-    metadata, chart_annotations = parse_chart(args.chart)
-    package = args.package.read_bytes()
+    metadata, chart_annotations = parse_chart(chart)
+    package = package_path.read_bytes()
     config = compact_json(metadata)
     config_descriptor = {
         "mediaType": CONFIG_MEDIA_TYPE,
@@ -154,7 +148,7 @@ def main() -> None:
         "size": len(package),
     }
     annotations = {
-        "org.opencontainers.image.created": args.created_at,
+        "org.opencontainers.image.created": created_at_text,
         "org.opencontainers.image.description": str(metadata["description"]),
         "org.opencontainers.image.title": str(metadata["name"]),
         "org.opencontainers.image.version": str(metadata["version"]),
@@ -166,7 +160,16 @@ def main() -> None:
         "layers": [chart_descriptor],
         "annotations": dict(sorted(annotations.items())),
     }
-    print(digest(compact_json(manifest)))
+    return digest(compact_json(manifest))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--chart", required=True, type=Path)
+    parser.add_argument("--package", required=True, type=Path)
+    parser.add_argument("--created-at", required=True)
+    args = parser.parse_args()
+    print(chart_oci_digest(args.chart, args.package, args.created_at))
 
 
 if __name__ == "__main__":

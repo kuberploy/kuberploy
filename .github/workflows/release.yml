@@ -490,6 +490,7 @@ jobs:
             --destination release-dist/component-charts \
             --version "${VERSION}" \
             --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+            --created-at "${CREATED_AT}" \
             --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}"
           kp_component_chart_args=()
           kp_component_packages=()
@@ -674,7 +675,9 @@ jobs:
               echo "OCI chart ${kp_name} digest mismatch: expected ${kp_expected_digest}, got ${kp_published_digest}" >&2
               exit 1
             }
-          done < <(jq -c '.artifacts.chart, .artifacts.componentCharts[]' release-dist/release-manifest.json)
+          done < <(jq -c \
+            '(.artifacts.componentCharts[] | select(.name == "kuberploy-runtime")), .artifacts.chart, (.artifacts.componentCharts[] | select(.name != "kuberploy-runtime"))' \
+            release-dist/release-manifest.json)
       - name: Create draft and publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

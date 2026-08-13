@@ -56,6 +56,33 @@ func effectiveBindings(ctx context.Context, q accessQuerier, actor string) ([]do
 	return bindings, rows.Err()
 }
 
+func teamIDsWithPermission(bindings []domain.AccessBinding, permission domain.Permission) []string {
+	seen := map[string]struct{}{}
+	for _, binding := range bindings {
+		if binding.ScopeType != domain.ScopeTeam || binding.ScopeID == "" {
+			continue
+		}
+		target := domain.AccessTarget{Type: "team", ID: binding.ScopeID, TeamID: binding.ScopeID}
+		if accesspolicy.HasPermission([]domain.AccessBinding{binding}, target, permission) {
+			seen[binding.ScopeID] = struct{}{}
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for teamID := range seen {
+		ids = append(ids, teamID)
+	}
+	return ids
+}
+
+func actorCanManageTeam(ctx context.Context, q accessQuerier, actor, teamID string) (bool, error) {
+	bindings, err := effectiveBindings(ctx, q, actor)
+	if err != nil {
+		return false, err
+	}
+	target := domain.AccessTarget{Type: "team", ID: teamID, TeamID: teamID}
+	return accesspolicy.HasPermission(bindings, target, domain.PermissionGrantsManage), nil
+}
+
 func resolveAccessTarget(ctx context.Context, q rowQuerier, target domain.AccessTarget) (domain.AccessTarget, error) {
 	var resolved domain.AccessTarget
 	resolved.Type, resolved.ID = target.Type, target.ID
@@ -301,20 +328,19 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 		WHERE NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
 	args := []any{}
 	if !admin {
-		var owner bool
-		if err = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_memberships WHERE user_id=$1 AND role='owner') OR EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='organization-admin' AND scope_type='team')`, actor).Scan(&owner); err != nil {
-			return nil, err
+		bindings, bindingErr := effectiveBindings(ctx, s.pool, actor)
+		if bindingErr != nil {
+			return nil, bindingErr
 		}
-		if !owner {
+		managedTeamIDs := teamIDsWithPermission(bindings, domain.PermissionGrantsManage)
+		if len(managedTeamIDs) == 0 {
 			return nil, base.ErrForbidden
 		}
 		query = `SELECT DISTINCT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
 			FROM team_memberships visible JOIN users u ON u.id=visible.user_id
-			WHERE visible.team_id IN (
-				SELECT team_id FROM team_memberships WHERE user_id=$1 AND role='owner'
-				UNION SELECT scope_id::uuid FROM access_grants WHERE subject_user_id=$1 AND role='organization-admin' AND scope_type='team'
-			) AND NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
-		args = append(args, actor)
+			WHERE visible.team_id::text=ANY($1)
+			AND NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
+		args = append(args, managedTeamIDs)
 	}
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -384,11 +410,25 @@ func getTeam(ctx context.Context, q rowQuerier, teamID string) (domain.Team, err
 }
 
 func (s *Store) ListTeamsForActor(ctx context.Context, actor string) ([]domain.Team, error) {
-	rows, err := s.pool.Query(ctx, `SELECT t.id,t.name,t.slug,t.created_at FROM teams t WHERE
-		EXISTS(SELECT 1 FROM access_grants g WHERE g.subject_user_id=$1 AND g.role='platform-admin' AND g.scope_type='platform' AND g.scope_id='platform') OR
-		EXISTS(SELECT 1 FROM team_memberships m WHERE m.team_id=t.id AND m.user_id=$1) OR
-		EXISTS(SELECT 1 FROM access_grants g WHERE g.subject_user_id=$1 AND g.scope_type='team' AND g.scope_id=t.id::text)
-        ORDER BY t.created_at,t.id`, actor)
+	admin, err := actorIsAdmin(ctx, s.pool, actor)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT t.id,t.name,t.slug,t.created_at FROM teams t ORDER BY t.created_at,t.id`
+	args := []any{}
+	if !admin {
+		bindings, bindingErr := effectiveBindings(ctx, s.pool, actor)
+		if bindingErr != nil {
+			return nil, bindingErr
+		}
+		visibleTeamIDs := teamIDsWithPermission(bindings, domain.PermissionResourcesRead)
+		if len(visibleTeamIDs) == 0 {
+			return []domain.Team{}, nil
+		}
+		query = `SELECT t.id,t.name,t.slug,t.created_at FROM teams t WHERE t.id::text=ANY($1) ORDER BY t.created_at,t.id`
+		args = append(args, visibleTeamIDs)
+	}
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -454,17 +494,17 @@ func (s *Store) AddTeamMember(ctx context.Context, actor, teamID, key, fingerpri
 	if err = tx.QueryRow(ctx, `SELECT id FROM teams WHERE id=$1 FOR UPDATE`, teamID).Scan(&lockedTeamID); err != nil {
 		return base.Result[domain.TeamMember]{}, classify(err)
 	}
-	var authorized, targetExists bool
-	err = tx.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='platform-admin' AND scope_type='platform' AND scope_id='platform') OR
-		EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$2 AND user_id=$1 AND role='owner') OR
-		EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='organization-admin' AND scope_type='team' AND scope_id=$2::text),
-		EXISTS(SELECT 1 FROM users WHERE id=$3 AND NOT EXISTS(SELECT 1 FROM service_accounts WHERE id=$3))`, actor, teamID, in.UserID).Scan(&authorized, &targetExists)
+	authorized, err := actorCanManageTeam(ctx, tx, actor, teamID)
 	if err != nil {
 		return base.Result[domain.TeamMember]{}, err
 	}
 	if !authorized {
 		return base.Result[domain.TeamMember]{}, base.ErrForbidden
+	}
+	var targetExists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM service_accounts WHERE id=$1))`, in.UserID).Scan(&targetExists)
+	if err != nil {
+		return base.Result[domain.TeamMember]{}, err
 	}
 	if !targetExists {
 		return base.Result[domain.TeamMember]{}, base.ErrNotFound
@@ -519,11 +559,8 @@ func (s *Store) RemoveTeamMember(ctx context.Context, actor, teamID, userID, req
 	if err = tx.QueryRow(ctx, `SELECT id FROM teams WHERE id=$1 FOR UPDATE`, teamID).Scan(&lockedTeamID); err != nil {
 		return classify(err)
 	}
-	var authorized bool
-	if err = tx.QueryRow(ctx, `SELECT
-		EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='platform-admin' AND scope_type='platform' AND scope_id='platform') OR
-		EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$2 AND user_id=$1 AND role='owner') OR
-		EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='organization-admin' AND scope_type='team' AND scope_id=$2::text)`, actor, teamID).Scan(&authorized); err != nil {
+	authorized, err := actorCanManageTeam(ctx, tx, actor, teamID)
+	if err != nil {
 		return err
 	}
 	if !authorized {
@@ -745,7 +782,8 @@ func (s *Store) UpdateGitHubInstallationSharing(ctx context.Context, actor, inst
 	}
 	currentOwner := false
 	if installation.TeamID != "" {
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2 AND role='owner') OR EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$2 AND role='organization-admin' AND scope_type='team' AND scope_id=$1::text)`, installation.TeamID, actor).Scan(&currentOwner); err != nil {
+		currentOwner, err = actorCanManageTeam(ctx, tx, actor, installation.TeamID)
+		if err != nil {
 			return domain.GitHubInstallation{}, err
 		}
 	}
@@ -753,9 +791,9 @@ func (s *Store) UpdateGitHubInstallationSharing(ctx context.Context, actor, inst
 		return domain.GitHubInstallation{}, base.ErrForbidden
 	}
 	if in.Visibility == "team" {
-		targetOwner := false
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_memberships WHERE team_id=$1 AND user_id=$2 AND role='owner') OR EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$2 AND role='organization-admin' AND scope_type='team' AND scope_id=$1::text)`, in.TeamID, actor).Scan(&targetOwner); err != nil {
-			return domain.GitHubInstallation{}, err
+		targetOwner, manageErr := actorCanManageTeam(ctx, tx, actor, in.TeamID)
+		if manageErr != nil {
+			return domain.GitHubInstallation{}, manageErr
 		}
 		if !admin && !targetOwner {
 			return domain.GitHubInstallation{}, base.ErrForbidden

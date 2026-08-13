@@ -129,6 +129,30 @@ func TestProjectionAcceptancePersistsExactCreateUpdateAndConfigCommands(t *testi
 	if err = st.PutProjectionDocument(ctx, document); err != nil {
 		t.Fatal(err)
 	}
+	// The indexer may activate the exact document before GitHub's independent
+	// merge verification arrives. The CAS must converge that ordering without
+	// requiring another projection generation.
+	mergedAt := opened.UpdatedAt.Add(time.Second)
+	mergePending, err := opened.WithPullRequest(gitpublication.PullRequestObservation{
+		Repository: opened.Repository, Number: opened.PullRequestNumber, URL: opened.PullRequestURL,
+		TargetRef: opened.TargetRef, HeadRef: opened.CandidateRef, HeadRevision: opened.CandidateRevision,
+		State: gitpublication.PullRequestClosed, Merged: true, MergeRevision: strings.Repeat("9", 40), ObservedAt: mergedAt,
+	}, mergedAt)
+	if err != nil || st.CompareAndSwapPublication(ctx, opened, mergePending) != nil {
+		t.Fatalf("merge pending=%#v err=%v", mergePending, err)
+	}
+	verifiedAt := mergePending.UpdatedAt.Add(time.Second)
+	mergeVerified, err := mergePending.WithVerifiedMerge(strings.Repeat("7", 40), verifiedAt)
+	if err != nil || st.CompareAndSwapPublication(ctx, mergePending, mergeVerified) != nil {
+		t.Fatalf("merge verified=%#v err=%v", mergeVerified, err)
+	}
+	command, err = st.AcceptedGitWriteCommand(createOperation.ID)
+	protectedDeployment, deploymentErr := st.GetDeployment(ctx, created.Value.ID)
+	if err != nil || deploymentErr != nil || command.State != gitprojection.WriteCommandIndexed ||
+		command.CommittedRevision != mergeVerified.TargetRevision || command.IndexedGeneration != binding.ProjectionGeneration ||
+		protectedDeployment.State != "git-committed" || protectedDeployment.DesiredRevision != mergeVerified.TargetRevision {
+		t.Fatalf("late provider convergence command=%#v deployment=%#v commandErr=%v deploymentErr=%v", command, protectedDeployment, err, deploymentErr)
+	}
 	etag, err := gitprojection.StrongETag(binding, []gitprojection.Document{document}, nil, chartDigest, "appconfig-v1alpha1")
 	if err != nil {
 		t.Fatal(err)

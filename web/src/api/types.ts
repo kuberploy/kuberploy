@@ -358,10 +358,8 @@ export type AccessRole =
 export type AccessScopeType =
   "platform" | "team" | "project" | "environment" | "namespace" | "application";
 
-export type AccessGrant = {
+type AccessGrantFields = {
   id: string;
-  subjectUserId?: string;
-  subjectTeamId?: string;
   role: AccessRole;
   scopeType: AccessScopeType;
   scopeId: string;
@@ -370,6 +368,12 @@ export type AccessGrant = {
   createdBy: string;
   createdAt: string;
 };
+
+export type AccessGrant = AccessGrantFields &
+  (
+    | { subjectUserId: string; subjectTeamId?: never }
+    | { subjectTeamId: string; subjectUserId?: never }
+  );
 
 export type ServiceAccountRole = "viewer" | "developer" | "project-admin";
 
