@@ -492,6 +492,13 @@ func testPostgresReleaseServiceTransaction(t *testing.T, ctx context.Context, tx
 		retried.ParentRevisionID != created.ID || retried.ValuesDigest != created.ValuesDigest {
 		t.Fatalf("transactional release retry: %+v replay=%v err=%v", retried, replay, err)
 	}
+	status, err := scanReleaseStatus(tx.QueryRow(ctx, releaseStatusSelect+`
+		JOIN helm_release_heads head ON head.revision_id=release.id
+		WHERE head.environment_id=$1 AND head.application_id=$2 AND release.project_id=$3`,
+		target.EnvironmentID, target.ApplicationID, target.ProjectID))
+	if err != nil || status.Revision.ID != retried.ID || status.Phase != ReleasePhaseRendering {
+		t.Fatalf("transactional release status: %+v err=%v", status, err)
+	}
 }
 
 type helmReleaseInsert struct {

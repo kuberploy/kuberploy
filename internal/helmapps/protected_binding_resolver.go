@@ -120,7 +120,8 @@ func (r *PostgresProtectedBindingResolver) ResolveProtectedBinding(ctx context.C
 	if len(environments) == 1 {
 		generationRows, queryErr := tx.Query(ctx, `SELECT binding_id::text,generation,head_revision,
 			parser_version,state,started_at,activated_at FROM git_projection_generations
-			WHERE binding_id=$1 AND state='active' ORDER BY generation DESC LIMIT 2`, environments[0].ID)
+			WHERE binding_id=$1 AND generation=$2 AND state='active' LIMIT 2`, environments[0].ID,
+			environments[0].ProjectionGeneration)
 		if queryErr != nil {
 			return ProtectedBindingSnapshot{}, classifyPostgres(queryErr)
 		}

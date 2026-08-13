@@ -420,12 +420,12 @@ func scanReleaseRevision(row rowScanner) (ReleaseRevision, error) {
 	return revision, err
 }
 
-const releaseStatusSelect = `SELECT id::text,generation,project_id::text,
-	environment_id::text,application_id::text,release_name,action,desired_enabled,
-	COALESCE(parent_revision_id::text,''),COALESCE(rollback_source_revision_id::text,''),
-	COALESCE(base_intent_id::text,''),approval_id::text,approval_revision,
-	COALESCE(render_command_id::text,''),values_yaml,values_digest,intent_digest,
-	actor_id::text,idempotency_key,request_id,release.created_at,
+const releaseStatusSelect = `SELECT release.id::text,release.generation,release.project_id::text,
+	release.environment_id::text,release.application_id::text,release.release_name,release.action,release.desired_enabled,
+	COALESCE(release.parent_revision_id::text,''),COALESCE(release.rollback_source_revision_id::text,''),
+	COALESCE(release.base_intent_id::text,''),release.approval_id::text,release.approval_revision,
+	COALESCE(release.render_command_id::text,''),release.values_yaml,release.values_digest,release.intent_digest,
+	release.actor_id::text,release.idempotency_key,release.request_id,release.created_at,
 	COALESCE(render.state,''),COALESCE(render.last_failure_code,''),
 	COALESCE(payload.id::text,''),COALESCE(payload.state,''),
 	COALESCE(payload.committed_revision,''),COALESCE(payload.last_failure_code,''),

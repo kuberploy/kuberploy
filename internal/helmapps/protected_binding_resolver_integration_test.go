@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
@@ -58,6 +59,41 @@ func TestPostgresProtectedBindingResolverRejectsStaleOrSubstitutedSnapshots(t *t
 		resolved.EnvironmentRevision != fixture.environmentHead || resolved.EnvironmentGeneration != 1 ||
 		resolved.PlannedBaseRevision != fixture.platformHead {
 		t.Fatalf("resolved=%#v err=%v", resolved, err)
+	}
+	// Activated generations are immutable history. A binding may therefore have
+	// many rows whose state is active; only its exact projection_generation is
+	// current authority.
+	history, err := outer.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	historyHead := strings.Repeat("4", 40)
+	if _, err = history.Exec(ctx, `INSERT INTO git_projection_generations(
+		binding_id,generation,head_revision,parser_version,state,started_at,activated_at
+	) SELECT binding_id,2,$2,parser_version,'active',$3,$3
+		FROM git_projection_generations WHERE binding_id=$1 AND generation=1`,
+		fixture.environmentBindingID, historyHead, fixture.now.Add(time.Second)); err != nil {
+		_ = history.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = history.Exec(ctx, `UPDATE git_repository_bindings SET
+		target_head_revision=$2,indexed_revision=$2,projection_generation=2,
+		target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+		fixture.environmentBindingID, historyHead, fixture.now.Add(time.Second)); err != nil {
+		_ = history.Rollback(ctx)
+		t.Fatal(err)
+	}
+	historyResolver := &PostgresProtectedBindingResolver{
+		begin: nestedProtectedResolverBeginner{tx: history}, config: config,
+	}
+	historyResolved, historyErr := historyResolver.ResolveProtectedBinding(ctx, target)
+	if historyErr != nil || historyResolved.EnvironmentGeneration != 2 ||
+		historyResolved.EnvironmentRevision != historyHead {
+		_ = history.Rollback(ctx)
+		t.Fatalf("historical active generation selected: resolved=%#v err=%v", historyResolved, historyErr)
+	}
+	if err = history.Rollback(ctx); err != nil {
+		t.Fatal(err)
 	}
 	wantCatalog, err := protectedCatalogDigest([]ApprovalDocument{releaseApprovalDocumentFromPGFixture(t, fixture)})
 	if err != nil || resolved.CatalogDigest != wantCatalog {
