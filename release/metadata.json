@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry offline cleanup now traverses validated platform descriptors in ordinary OCI indexes.",
+  "summary": "Managed registry cleanup rejects stale recovery before taking the registry offline.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.120"
+  "version": "0.1.0-rc.121"
 }
