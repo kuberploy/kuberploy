@@ -393,15 +393,15 @@ func (e KubernetesRenderExecutor) Render(ctx context.Context, plan RenderPlan, i
 	}
 	for _, configMap := range workload.ConfigMaps {
 		if _, err = e.ensure(ctx, rendererConfigMaps, configMap, false); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("ensure renderer ConfigMap: %w", err)
 		}
 	}
 	if _, err = e.ensure(ctx, rendererNetworkPolicies, workload.NetworkPolicy, false); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ensure renderer NetworkPolicy: %w", err)
 	}
 	liveJob, err := e.ensure(ctx, rendererJobs, workload.Job, true)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ensure renderer Job: %w", err)
 	}
 	ticker := time.NewTicker(e.Config.PollInterval)
 	defer ticker.Stop()
@@ -421,24 +421,27 @@ func (e KubernetesRenderExecutor) Render(ctx context.Context, plan RenderPlan, i
 				if err == nil {
 					err = ErrConflict
 				}
-				return nil, err
+				return nil, fmt.Errorf("observe renderer Job: %w", err)
 			}
 		}
 	}
 	pods, err := e.API.ListJobPods(ctx, workload.Namespace, workload.Name)
-	if err != nil || len(pods) != 1 || !rendererPodOwnedByJob(pods[0], liveJob, workload) {
+	if err != nil {
+		return nil, fmt.Errorf("list renderer Pods: %w", err)
+	}
+	if len(pods) != 1 || !rendererPodOwnedByJob(pods[0], liveJob, workload) {
 		return nil, ErrUnavailable
 	}
 	podName := rendererObjectName(pods[0])
 	output, err := e.API.PodLogs(ctx, workload.Namespace, podName, RendererContainerName, MaximumOutputSize+1)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read renderer Pod logs: %w", err)
 	}
 	if len(output) == 0 || len(output) > MaximumOutputSize {
 		return nil, ErrUnsafeChart
 	}
-	if err = e.cleanup(ctx, workload, liveJob); err != nil {
-		return nil, err
+	if err = e.cleanup(ctx, workload); err != nil {
+		return nil, fmt.Errorf("clean renderer workload: %w", err)
 	}
 	return append([]byte(nil), output...), nil
 }
@@ -461,22 +464,22 @@ func (e KubernetesRenderExecutor) ensure(ctx context.Context, resource rendererK
 	return live, nil
 }
 
-func (e KubernetesRenderExecutor) cleanup(ctx context.Context, workload KubernetesRenderWorkload, liveJob map[string]any) error {
+func (e KubernetesRenderExecutor) cleanup(ctx context.Context, workload KubernetesRenderWorkload) error {
 	for _, item := range []struct {
 		resource rendererKubernetesResource
 		object   map[string]any
 		policy   string
 	}{
-		{rendererJobs, liveJob, "Foreground"},
+		{rendererJobs, workload.Job, "Foreground"},
 		{rendererNetworkPolicies, workload.NetworkPolicy, "Background"},
 	} {
 		if err := e.deleteExact(ctx, item.resource, item.object, item.policy); err != nil && !errors.Is(err, ErrRendererObjectNotFound) {
-			return err
+			return fmt.Errorf("delete renderer %s: %w", item.resource, err)
 		}
 	}
 	for _, configMap := range workload.ConfigMaps {
 		if err := e.deleteExact(ctx, rendererConfigMaps, configMap, "Background"); err != nil && !errors.Is(err, ErrRendererObjectNotFound) {
-			return err
+			return fmt.Errorf("delete renderer ConfigMap %s: %w", rendererObjectName(configMap), err)
 		}
 	}
 	return nil

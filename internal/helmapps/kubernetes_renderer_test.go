@@ -261,6 +261,19 @@ func (f *fakeRendererKubernetesAPI) Create(_ context.Context, resource rendererK
 	live := cloneRendererMap(object).(map[string]any)
 	if resource == rendererJobs {
 		f.createdJobs = append(f.createdJobs, rendererObjectName(live))
+		controllerUID := "controller-" + rendererObjectName(live)
+		live["spec"].(map[string]any)["selector"] = map[string]any{"matchLabels": map[string]any{
+			"batch.kubernetes.io/controller-uid": controllerUID,
+		}}
+		labels := live["spec"].(map[string]any)["template"].(map[string]any)["metadata"].(map[string]any)["labels"].(map[string]any)
+		for key, value := range map[string]any{
+			"batch.kubernetes.io/controller-uid": controllerUID,
+			"batch.kubernetes.io/job-name":       rendererObjectName(live),
+			"controller-uid":                     controllerUID,
+			"job-name":                           rendererObjectName(live),
+		} {
+			labels[key] = value
+		}
 		live["status"] = map[string]any{"conditions": []any{map[string]any{"type": "Complete", "status": "True"}}}
 	}
 	f.put(resource, live)
