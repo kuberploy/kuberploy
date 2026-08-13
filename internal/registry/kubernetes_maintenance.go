@@ -178,6 +178,7 @@ type kubernetesMaintenanceSession struct {
 	cancelHeartbeat  context.CancelFunc
 	heartbeatDone    chan struct{}
 	heartbeatErr     error
+	checkpointJob    RegistryMaintenanceJobEvidence
 }
 
 func (s *kubernetesMaintenanceSession) heartbeat() {
@@ -374,6 +375,7 @@ func (s *kubernetesMaintenanceSession) capture(ctx context.Context, request Reac
 	}
 	s.mu.Lock()
 	s.lease = lease
+	s.checkpointJob = evidence
 	s.mu.Unlock()
 	_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, evidence)
 	return checkpoint, nil
@@ -456,7 +458,33 @@ func (s *kubernetesMaintenanceSession) GarbageCollect(ctx context.Context, reque
 		if err != nil {
 			return GCSweepResult{}, err
 		}
-		return GCSweepResult{}, ErrRegistryGCSweepUnconfirmed
+		// Begin may have committed before a completed helper result was receipted,
+		// while the short-lived Job was later removed. A fresh registry-wide
+		// checkpoint is stronger than rerunning Distribution GC: when every exact
+		// candidate is explicitly absent, record a truthful no-op replay receipt
+		// backed by that checkpoint Job. Never execute GC twice to repair transport.
+		s.mu.Lock()
+		checkpointJob := s.checkpointJob
+		s.mu.Unlock()
+		if !checkpointProvesCandidatesAbsent(request.Checkpoint, request.CandidateDigests) ||
+			checkpointJob.UID == "" || checkpointJob.CompletedAt.Before(checkpointJob.StartedAt) {
+			return GCSweepResult{}, ErrRegistryGCSweepUnconfirmed
+		}
+		sweep := GCSweepResult{TargetID: request.TargetID, ExecutionKey: request.ExecutionKey,
+			CandidateSetDigest: request.CandidateSetDigest, CheckpointRevision: request.Checkpoint.Revision,
+			ProviderSweepID: "absent-" + strings.TrimPrefix(request.ExecutionKey, "sha256:")[:24],
+			Complete:        true, Replay: true, StartedAt: checkpointJob.StartedAt, CompletedAt: checkpointJob.CompletedAt}
+		if validateGCSweepResult(sweep, request, request.Checkpoint.ObservedAt, s.adapter.now()) != nil {
+			return GCSweepResult{}, ErrRegistryGCSweepUnconfirmed
+		}
+		receipt = sweepReceipt(lease, sweep, checkpointJob)
+		if err = s.adapter.store.CompleteRegistryGCSweep(ctx, lease, receipt, s.adapter.now()); err != nil {
+			return GCSweepResult{}, err
+		}
+		s.mu.Lock()
+		s.lease.State = "swept"
+		s.mu.Unlock()
+		return sweep, nil
 	}
 	sweep, evidence, err := s.adapter.workloads.Sweep(ctx, s.adapter.runtime, helperRequest)
 	if errors.Is(err, ErrRegistryGCSweepUnconfirmed) {
@@ -487,6 +515,29 @@ func (s *kubernetesMaintenanceSession) GarbageCollect(ctx context.Context, reque
 	s.mu.Unlock()
 	_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, evidence)
 	return sweep, nil
+}
+
+func checkpointProvesCandidatesAbsent(checkpoint RegistryReachabilityCheckpoint, candidates []string) bool {
+	if !checkpoint.RegistryWide || !checkpoint.InventoryComplete || !checkpoint.ReachabilityComplete ||
+		len(checkpoint.Blobs) != len(candidates) {
+		return false
+	}
+	rows := make(map[string]RegistryBlobReachability, len(checkpoint.Blobs))
+	for _, row := range checkpoint.Blobs {
+		if !validDigest(row.Digest) || row.Present || row.Reachable {
+			return false
+		}
+		if _, exists := rows[row.Digest]; exists {
+			return false
+		}
+		rows[row.Digest] = row
+	}
+	for _, candidate := range candidates {
+		if _, exists := rows[candidate]; !exists {
+			return false
+		}
+	}
+	return true
 }
 
 func sameRecoveredSweepIdentity(oldRequest maintenanceHelperRequest, sweep GCSweepResult, plan domain.RegistryCleanupPlan, request GCSweepRequest) bool {

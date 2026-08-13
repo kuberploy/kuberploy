@@ -14,6 +14,24 @@ type preparedMaintenanceStore struct {
 	store.RegistryRuntimeStore
 }
 
+type replayedSweepStore struct {
+	store.RegistryRuntimeStore
+	receipt store.RegistryGCSweepReceipt
+}
+
+func (s *replayedSweepStore) RegistryGCSweepReceipt(context.Context, store.RegistryMaintenanceLease, time.Time) (store.RegistryGCSweepReceipt, bool, error) {
+	return store.RegistryGCSweepReceipt{}, false, nil
+}
+
+func (s *replayedSweepStore) BeginRegistryGCSweep(_ context.Context, _ store.RegistryMaintenanceLease, _ string, _ time.Time) (store.RegistryGCSweepReceipt, bool, error) {
+	return store.RegistryGCSweepReceipt{}, true, nil
+}
+
+func (s *replayedSweepStore) CompleteRegistryGCSweep(_ context.Context, _ store.RegistryMaintenanceLease, receipt store.RegistryGCSweepReceipt, _ time.Time) error {
+	s.receipt = receipt
+	return nil
+}
+
 func (preparedMaintenanceStore) PrepareRegistryMaintenanceStop(_ context.Context, lease store.RegistryMaintenanceLease, uid string, replicas int32, _ time.Time) (store.RegistryMaintenanceLease, error) {
 	lease.DeploymentUID = uid
 	lease.OriginalReplicas = replicas
@@ -110,5 +128,68 @@ func TestRecoveredSweepRequiresExactImmutableIdentity(t *testing.T) {
 		if sameRecoveredSweepIdentity(changedRequest, changedSweep, changedPlan, changedGCRequest) {
 			t.Fatalf("recovered sweep mutation %d accepted", index)
 		}
+	}
+}
+
+func TestCheckpointProvesExactCandidatesAbsent(t *testing.T) {
+	digestA := "sha256:" + repeatHex("a", 64)
+	digestB := "sha256:" + repeatHex("b", 64)
+	checkpoint := RegistryReachabilityCheckpoint{RegistryWide: true, InventoryComplete: true, ReachabilityComplete: true,
+		Blobs: []RegistryBlobReachability{{Digest: digestA}, {Digest: digestB}}}
+	if !checkpointProvesCandidatesAbsent(checkpoint, []string{digestA, digestB}) {
+		t.Fatal("exact absent candidates were not proven")
+	}
+	mutations := []func(*RegistryReachabilityCheckpoint, *[]string){
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.RegistryWide = false },
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.InventoryComplete = false },
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.ReachabilityComplete = false },
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.Blobs[0].Present = true },
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.Blobs[0].Reachable = true },
+		func(value *RegistryReachabilityCheckpoint, _ *[]string) { value.Blobs[1].Digest = digestA },
+		func(_ *RegistryReachabilityCheckpoint, candidates *[]string) {
+			(*candidates)[1] = "sha256:" + repeatHex("c", 64)
+		},
+	}
+	for index, mutate := range mutations {
+		changed := checkpoint
+		changed.Blobs = append([]RegistryBlobReachability(nil), checkpoint.Blobs...)
+		candidates := []string{digestA, digestB}
+		mutate(&changed, &candidates)
+		if checkpointProvesCandidatesAbsent(changed, candidates) {
+			t.Fatalf("checkpoint mutation %d accepted", index)
+		}
+	}
+}
+
+func TestGarbageCollectReplayUsesFreshAbsentCheckpointWithoutSecondSweep(t *testing.T) {
+	now := time.Now().UTC()
+	targetID := "11111111-1111-4111-8111-111111111111"
+	planID := "22222222-2222-4222-8222-222222222222"
+	executionKey := "sha256:" + repeatHex("3", 64)
+	digest := "sha256:" + repeatHex("4", 64)
+	candidateSetDigest, candidates, err := cleanupCandidateSetDigest([]string{digest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint := RegistryReachabilityCheckpoint{TargetID: targetID, PlanID: planID,
+		ExecutionKey: executionKey, CandidateSetDigest: candidateSetDigest, Revision: "physical-current",
+		RegistryWide: true, InventoryComplete: true, ReachabilityComplete: true, ObservedAt: now.Add(-time.Second),
+		Blobs: []RegistryBlobReachability{{Digest: digest}}}
+	lease := store.RegistryMaintenanceLease{TargetID: targetID, PlanID: planID, ExecutionKey: executionKey,
+		CandidateSetDigest: candidateSetDigest, Owner: "worker", Epoch: 2, Until: now.Add(time.Minute),
+		State: "sweeping", CheckpointRevision: checkpoint.Revision, SweepJobUID: "prior-gc-job"}
+	repository := &replayedSweepStore{}
+	session := &kubernetesMaintenanceSession{adapter: &KubernetesMaintenanceAdapter{store: repository, now: func() time.Time { return now }},
+		lease: lease, plan: domain.RegistryCleanupPlan{ID: planID, RegistryTargetID: targetID}, candidates: candidates,
+		checkpointJob: RegistryMaintenanceJobEvidence{Name: "checkpoint-job", UID: "checkpoint-job-uid",
+			StartedAt: now.Add(-2 * time.Second), CompletedAt: now.Add(-time.Second)}}
+	result, err := session.GarbageCollect(context.Background(), GCSweepRequest{TargetID: targetID, PlanID: planID,
+		ExecutionKey: executionKey, CandidateSetDigest: candidateSetDigest, CandidateDigests: candidates, Checkpoint: checkpoint})
+	if err != nil || !result.Complete || !result.Replay || result.ProviderSweepID == "" {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	if repository.receipt.HelperJobUID != "checkpoint-job-uid" || repository.receipt.ProviderSweepID != result.ProviderSweepID ||
+		repository.receipt.CheckpointRevision != checkpoint.Revision {
+		t.Fatalf("receipt=%+v", repository.receipt)
 	}
 }
