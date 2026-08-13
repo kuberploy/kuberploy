@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup rejects stale recovery before taking the registry offline.",
+  "summary": "Managed registry cleanup terminally rejects stale offline sweeps without retrying or stopping the registry.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.121"
+  "version": "0.1.0-rc.122"
 }
