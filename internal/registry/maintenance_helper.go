@@ -251,7 +251,7 @@ func scanRegistryStorageAt(ctx context.Context, root string, request maintenance
 		switch document.MediaType {
 		case ociIndexMediaType, dockerIndexMediaType:
 			for _, child := range document.Manifests {
-				if !validManifestDescriptor(child, false) {
+				if !validManifestDescriptor(child, true) {
 					return physicalReachabilityCheckpoint{}, ErrRegistryCheckpointIncomplete
 				}
 				queue = append(queue, child.Digest)

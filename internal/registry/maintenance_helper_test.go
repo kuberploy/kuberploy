@@ -19,17 +19,21 @@ func TestPhysicalRegistryCheckpointProvesExplicitReachability(t *testing.T) {
 	manifestBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":%q,"size":%d},"layers":[]}`,
 		ociManifestMediaType, configDigest, len(configBody)))
 	manifestDigest := digestBytes(manifestBody)
+	indexBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"manifests":[{"mediaType":%q,"digest":%q,"size":%d,"platform":{"os":"linux","architecture":"amd64"}}]}`,
+		ociIndexMediaType, ociManifestMediaType, manifestDigest, len(manifestBody)))
+	indexDigest := digestBytes(indexBody)
 	danglingBody := []byte("unreachable-blob")
 	danglingDigest := digestBytes(danglingBody)
 	writeRegistryBlobForTest(t, base, configDigest, configBody)
 	writeRegistryBlobForTest(t, base, manifestDigest, manifestBody)
+	writeRegistryBlobForTest(t, base, indexDigest, indexBody)
 	writeRegistryBlobForTest(t, base, danglingDigest, danglingBody)
 	revisionLink := filepath.Join(base, "repositories", "kuberploy", "service", "_manifests", "revisions", "sha256",
-		manifestDigest[len("sha256:"):], "link")
+		indexDigest[len("sha256:"):], "link")
 	if err := os.MkdirAll(filepath.Dir(revisionLink), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(revisionLink, []byte(manifestDigest), 0o600); err != nil {
+	if err := os.WriteFile(revisionLink, []byte(indexDigest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	candidateDigest, candidates, err := cleanupCandidateSetDigest([]string{danglingDigest, configDigest})
