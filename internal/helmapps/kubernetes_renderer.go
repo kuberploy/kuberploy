@@ -213,7 +213,7 @@ func rendererLabels(plan RenderPlan, invocation RenderInvocation, specDigest str
 		"kuberploy.io/helm-render-attempt": strconv.Itoa(invocation.Attempt),
 		"kuberploy.io/helm-render-pass":    strconv.Itoa(invocation.Pass),
 		"kuberploy.io/helm-render-input":   strings.TrimPrefix(plan.InputDigest, "sha256:")[:32],
-		"kuberploy.io/helm-render-spec":    specDigest,
+		"kuberploy.io/helm-render-spec":    rendererDigestLabel(specDigest),
 	}
 }
 
@@ -223,6 +223,17 @@ func rendererJobName(invocation RenderInvocation) string {
 }
 
 func rendererUUIDLabel(value string) string { return strings.ReplaceAll(value, "-", "") }
+
+// Kubernetes label values are limited to 63 characters and cannot contain the
+// colon in the canonical sha256:<hex> form. The full digest remains the
+// workload identity; labels carry a collision-resistant selector projection.
+func rendererDigestLabel(value string) string {
+	hexDigest := strings.TrimPrefix(value, "sha256:")
+	if len(hexDigest) < 32 {
+		return ""
+	}
+	return hexDigest[:32]
+}
 
 func CanAdoptKubernetesRenderWorkload(workload KubernetesRenderWorkload, plan RenderPlan, invocation RenderInvocation, config KubernetesRendererConfig) bool {
 	if plan.Validate() != nil || invocation.Validate() != nil || config.Validate() != nil ||
@@ -302,7 +313,7 @@ func assembleKubernetesRenderWorkload(plan RenderPlan, invocation RenderInvocati
 				"kuberploy.io/helm-render-command": rendererUUIDLabel(invocation.CommandID),
 				"kuberploy.io/helm-render-attempt": strconv.Itoa(invocation.Attempt),
 				"kuberploy.io/helm-render-pass":    strconv.Itoa(invocation.Pass),
-				"kuberploy.io/helm-render-spec":    specDigest,
+				"kuberploy.io/helm-render-spec":    rendererDigestLabel(specDigest),
 			}},
 			"policyTypes": []any{"Ingress", "Egress"}, "ingress": []any{}, "egress": []any{},
 		},
@@ -508,7 +519,7 @@ func rendererPodOwnedByJob(pod, job map[string]any, workload KubernetesRenderWor
 	jobUID, _ := jobMetadata["uid"].(string)
 	labels, _ := podMetadata["labels"].(map[string]any)
 	if jobUID == "" || rendererObjectName(pod) == "" || labels == nil ||
-		labels["kuberploy.io/helm-render-spec"] != workload.SpecDigest {
+		labels["kuberploy.io/helm-render-spec"] != rendererDigestLabel(workload.SpecDigest) {
 		return false
 	}
 	owners, _ := podMetadata["ownerReferences"].([]any)

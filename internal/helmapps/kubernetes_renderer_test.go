@@ -28,6 +28,19 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 		len(first.ConfigMaps) > MaximumRendererInputMaps {
 		t.Fatalf("double-render executions were not separately bounded: first=%+v second=%+v", first, second)
 	}
+	for _, object := range append(append([]map[string]any{}, first.ConfigMaps...), first.NetworkPolicy, first.Job) {
+		metadata := object["metadata"].(map[string]any)
+		labels := metadata["labels"].(map[string]any)
+		for key, raw := range labels {
+			value := raw.(string)
+			if len(value) > 63 || strings.Contains(value, ":") {
+				t.Fatalf("renderer label %s is not Kubernetes-safe: %q", key, value)
+			}
+		}
+		if labels["kuberploy.io/helm-render-spec"] != strings.TrimPrefix(first.SpecDigest, "sha256:")[:32] {
+			t.Fatalf("renderer spec selector is not the bounded digest projection: %#v", labels)
+		}
+	}
 
 	reconstructed := make([]byte, 0, len(plan.Bundle.PackageBytes))
 	for _, object := range first.ConfigMaps[:len(first.ConfigMaps)-1] {
