@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry offline garbage collection now acquires maintenance with exact UUID-scoped cleanup authority.",
+  "summary": "Managed registry cleanup safely resumes exact failed offline blob sweeps.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.116"
+  "version": "0.1.0-rc.117"
 }
