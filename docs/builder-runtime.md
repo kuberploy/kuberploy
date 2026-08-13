@@ -24,7 +24,11 @@ operation/generation; the deployment result contains only the registry-verified
 `repository@sha256:digest` and exact platform set. A late or parallel build
 therefore cannot change what deployment consumes.
 
-Plain build arguments with secret-like names are rejected. Release-push login,
+Plain build arguments with secret-like names are accepted with a prominent
+leakage warning because Dockerfiles commonly use names such as `TOKEN` for
+non-secret frontend build configuration. Kuberploy never treats build
+arguments as a secret transport: their values can be retained in image history
+or cache. Release-push login,
 cache login, source credentials, BuildKit secrets, and SSH files come from
 separate read-only mounts. Their values never enter a command argument or
 environment variable. The agent creates separate private push and cache Docker

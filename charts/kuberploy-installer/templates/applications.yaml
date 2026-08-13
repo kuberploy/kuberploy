@@ -1,18 +1,7 @@
 {{- define "kuberploy-installer.applicationDocuments" -}}
 {{- include "kuberploy-installer.validate" . -}}
 {{- $root := . -}}
-{{- $catalog := list
-  (dict "key" "controlPlane" "application" "kuberploy-control-plane" "chart" "kuberploy" "release" "kuberploy" "namespace" "kuberploy-system" "wave" "20")
-  (dict "key" "postgresql" "application" "kuberploy-postgresql" "chart" "kuberploy-postgresql" "release" "postgresql" "namespace" "kuberploy-system" "wave" "0")
-  (dict "key" "edge" "application" "kuberploy-edge" "chart" "kuberploy-edge" "release" "edge" "namespace" "kuberploy-system" "wave" "0")
-  (dict "key" "certManager" "application" "kuberploy-cert-manager" "chart" "kuberploy-cert-manager" "release" "cert" "namespace" "cert-manager" "wave" "5")
-  (dict "key" "externalDNS" "application" "kuberploy-external-dns" "chart" "kuberploy-external-dns" "release" "dns" "namespace" "kuberploy-system" "wave" "10")
-  (dict "key" "externalSecrets" "application" "kuberploy-external-secrets" "chart" "kuberploy-external-secrets" "release" "external-secrets" "namespace" "external-secrets" "wave" "0")
-  (dict "key" "sealedSecrets" "application" "kuberploy-sealed-secrets" "chart" "kuberploy-sealed-secrets" "release" "sealed-secrets" "namespace" "sealed-secrets" "wave" "0")
-  (dict "key" "monitoring" "application" "kuberploy-monitoring" "chart" "kuberploy-monitoring" "release" "monitoring" "namespace" "kuberploy-monitoring" "wave" "-10")
-  (dict "key" "builder" "application" "kuberploy-builder" "chart" "kuberploy-builder" "release" "builder" "namespace" "kuberploy-system" "wave" "10")
-  (dict "key" "registry" "application" "kuberploy-registry" "chart" "kuberploy-registry" "release" "registry" "namespace" "kuberploy-system" "wave" "10")
--}}
+{{- $catalog := include "kuberploy-installer.applicationCatalog" . | fromYamlArray -}}
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
 {{- $builderEmbeddedInControlPlane := and (eq $item.key "builder") $root.Values.integrations.github.enabled -}}
@@ -182,7 +171,7 @@
   {{- $registry := $root.Values.integrations.registry -}}
   {{- $registryValues := dict
     "auth" (dict "mode" "htpasswd" "existingSecret" $registry.authSecretName "secretRevision" $registry.secretRevision)
-    "exposure" (dict "mode" $registry.exposureMode "endpoint" $registry.endpoint "ingressClassName" "traefik" "secretName" $registry.tlsSecretName "clusterIssuerName" $registry.clusterIssuerName "loadBalancer" $registry.loadBalancer)
+    "exposure" (dict "mode" $registry.exposureMode "cloudflareProxied" $registry.cloudflareProxied "endpoint" $registry.endpoint "ingressClassName" "traefik" "secretName" $registry.tlsSecretName "clusterIssuerName" $registry.clusterIssuerName "loadBalancer" $registry.loadBalancer)
     "networkPolicy" (dict "enabled" true "allowedNamespaces" (list "kuberploy-build-dind" "kuberploy-system"))
   -}}
   {{- $childValues = mergeOverwrite $childValues $registryValues -}}
@@ -356,20 +345,40 @@ spec:
 
 {{- include "kuberploy-installer.validate" . -}}
 {{- $anyChild := false -}}
-{{- range $_, $component := .Values.components -}}
-  {{- if $component.enabled -}}{{- $anyChild = true -}}{{- end -}}
+{{- $catalog := include "kuberploy-installer.applicationCatalog" . | fromYamlArray -}}
+{{- $enabledApplications := list -}}
+{{- range $item := $catalog -}}
+  {{- $component := get $.Values.components $item.key -}}
+  {{- if $component.enabled -}}
+    {{- $anyChild = true -}}
+    {{- $enabledApplications = append $enabledApplications (dict
+      "name" $item.application
+      "component" $item.key
+      "chart" $item.chart
+      "namespace" $item.namespace
+      "mode" $component.mode
+      "targetPackageVersion" $component.expectedPackageVersion
+    ) -}}
+  {{- end -}}
 {{- end -}}
 {{- if $anyChild }}
+{{- $applicationDocuments := include "kuberploy-installer.applicationDocuments" . -}}
+{{- $inventory := dict "schemaVersion" 1 "namespace" "argocd" "installerRelease" .Release.Name "applications" $enabledApplications -}}
+{{- $inventoryJSON := toJson $inventory -}}
+{{- $manifestConfigMapName := printf "kuberploy-installer-applications-%s" (printf "%s\n%s" $applicationDocuments $inventoryJSON | sha256sum | trunc 12) -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: kuberploy-installer-applications
+  name: {{ $manifestConfigMapName }}
   namespace: argocd
   labels:
     {{- include "kuberploy-installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-inventory
+immutable: true
 data:
+  inventory.json: {{ $inventoryJSON | quote }}
   applications.yaml: |
-    {{- include "kuberploy-installer.applicationDocuments" . | nindent 4 }}
+    {{- $applicationDocuments | nindent 4 }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -414,7 +423,7 @@ metadata:
   name: kuberploy-installer-application-reconciler
   namespace: argocd
   annotations:
-    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook: post-install,post-upgrade,post-rollback
     helm.sh/hook-weight: "20"
     helm.sh/hook-delete-policy: before-hook-creation
   labels:
@@ -467,5 +476,104 @@ spec:
       volumes:
         - name: manifests
           configMap:
-            name: kuberploy-installer-applications
+            name: {{ $manifestConfigMapName }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuberploy-installer-application-health
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-health
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberploy-installer-application-health
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-health
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    resourceNames:
+      {{- range $application := $enabledApplications }}
+      - {{ $application.name }}
+      {{- end }}
+    verbs: ["get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberploy-installer-application-health
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-health
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberploy-installer-application-health
+subjects:
+  - kind: ServiceAccount
+    name: kuberploy-installer-application-health
+    namespace: argocd
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kuberploy-installer-application-health
+  namespace: argocd
+  annotations:
+    helm.sh/hook: post-install,post-upgrade,post-rollback
+    helm.sh/hook-weight: "30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-health
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 660
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-installer.labels" . | nindent 8 }}
+        app.kubernetes.io/component: application-health
+    spec:
+      serviceAccountName: kuberploy-installer-application-health
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        {{- range $application := $enabledApplications }}
+        - name: {{ printf "verify-%s" ($application.component | kebabcase) }}
+          image: {{ $.Values.bootstrap.applicationReconcilerImage | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - wait
+            - {{ printf "--for=jsonpath={.spec.sources[0].targetRevision}{.status.sync.revisions[0]}{.status.sync.status}{.status.health.status}=%s%sSyncedHealthy" $application.targetPackageVersion $application.targetPackageVersion | quote }}
+            - --timeout=600s
+            - {{ printf "applications.argoproj.io/%s" $application.name | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 5m
+              memory: 24Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+        {{- end }}
 {{- end }}

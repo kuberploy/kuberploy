@@ -17,7 +17,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 )
 
 var namespaceRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$`)
@@ -51,12 +50,6 @@ type ExternalDNSRuntimePolicy interface {
 	ReadyExternalDNSIntegrationTx(context.Context, pgx.Tx, string, string, time.Time) (bool, error)
 }
 
-// SchedulingRuntimePolicy re-resolves the exact active immutable profile in
-// the projection transaction and compares every persisted Pod placement field.
-type SchedulingRuntimePolicy interface {
-	MatchesRuntimeTx(context.Context, pgx.Tx, domain.WorkloadRuntime, scheduling.Target, string) (bool, error)
-}
-
 type MiddlewareRuntimePolicy interface {
 	ValidateMaterializedTx(context.Context, pgx.Tx, []middlewareprofiles.MaterializedDefinition, middlewareprofiles.Target, string, string, string, time.Time) (bool, error)
 	ReconcileDeletedTx(context.Context, pgx.Tx, string) error
@@ -67,7 +60,6 @@ type MiddlewareRuntimePolicy interface {
 // are injected explicitly and execute in the same serializable transaction.
 type Validator struct {
 	ExternalDNSRuntime ExternalDNSRuntimePolicy
-	Scheduling         SchedulingRuntimePolicy
 	Middleware         MiddlewareRuntimePolicy
 	Edge               ReferencePolicy
 	Secrets            ReferencePolicy
@@ -130,19 +122,6 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		policyDiagnostics, err := v.externalDNSDiagnosticsTx(ctx, tx, scope, policyDocument, now)
 		if err != nil {
 			return gitprojection.AppConfigPolicyValidation{}, err
-		}
-		if runtime.SchedulingProfile != nil || scheduling.HasEffectiveMaterial(runtime) {
-			if v.Scheduling == nil {
-				policyDiagnostics = append(policyDiagnostics, gitprojection.Diagnostic{Code: "SchedulingProfilePolicyUnavailable", Detail: "The exact scheduling profile cannot be resolved by the active projection policy.", Pointer: "/spec/runtime/schedulingProfile"})
-			} else {
-				matched, schedulingErr := v.Scheduling.MatchesRuntimeTx(ctx, tx, runtime, scheduling.Target{TeamID: scope.OrganizationID, ProjectID: scope.Binding.ProjectID, EnvironmentID: scope.Binding.EnvironmentID}, scope.ApplicationID)
-				if schedulingErr != nil {
-					return gitprojection.AppConfigPolicyValidation{}, schedulingErr
-				}
-				if !matched {
-					policyDiagnostics = append(policyDiagnostics, gitprojection.Diagnostic{Code: "SchedulingProfileMismatch", Detail: "The scheduling profile is stale, inactive, unassigned, or its effective Pod fields were changed.", Pointer: "/spec/runtime/schedulingProfile"})
-				}
-			}
 		}
 		definitions := policyDocument.MiddlewareDefinitions()
 		hasReusableMiddleware := false

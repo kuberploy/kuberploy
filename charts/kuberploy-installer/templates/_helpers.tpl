@@ -7,6 +7,69 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- end -}}
 
+{{- define "kuberploy-installer.applicationCatalog" -}}
+- key: controlPlane
+  application: kuberploy-control-plane
+  chart: kuberploy
+  release: kuberploy
+  namespace: kuberploy-system
+  wave: "20"
+- key: postgresql
+  application: kuberploy-postgresql
+  chart: kuberploy-postgresql
+  release: postgresql
+  namespace: kuberploy-system
+  wave: "0"
+- key: edge
+  application: kuberploy-edge
+  chart: kuberploy-edge
+  release: edge
+  namespace: kuberploy-system
+  wave: "0"
+- key: certManager
+  application: kuberploy-cert-manager
+  chart: kuberploy-cert-manager
+  release: cert
+  namespace: cert-manager
+  wave: "5"
+- key: externalDNS
+  application: kuberploy-external-dns
+  chart: kuberploy-external-dns
+  release: dns
+  namespace: kuberploy-system
+  wave: "10"
+- key: externalSecrets
+  application: kuberploy-external-secrets
+  chart: kuberploy-external-secrets
+  release: external-secrets
+  namespace: external-secrets
+  wave: "0"
+- key: sealedSecrets
+  application: kuberploy-sealed-secrets
+  chart: kuberploy-sealed-secrets
+  release: sealed-secrets
+  namespace: sealed-secrets
+  wave: "0"
+- key: monitoring
+  application: kuberploy-monitoring
+  chart: kuberploy-monitoring
+  release: monitoring
+  namespace: kuberploy-monitoring
+  wave: "-10"
+- key: builder
+  application: kuberploy-builder
+  chart: kuberploy-builder
+  release: builder
+  namespace: kuberploy-system
+  wave: "10"
+- key: registry
+  application: kuberploy-registry
+  chart: kuberploy-registry
+  release: registry
+  namespace: kuberploy-system
+  wave: "10"
+{{- end -}}
+
 {{- define "kuberploy-installer.validateComponent" -}}
 {{- $name := index . 0 -}}
 {{- $component := index . 1 -}}
@@ -151,7 +214,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- if ne $registry.clusterIssuerName .Values.publicEndpoint.tls.clusterIssuerName -}}{{ fail "managed registry must use the installer-owned public ClusterIssuer" }}{{- end -}}
   {{- if eq $registry.exposureMode "loadBalancer" -}}
     {{- if eq (len $registry.loadBalancer.sourceRanges) 0 -}}{{ fail "managed registry LoadBalancer requires explicit source ranges" }}{{- end -}}
-    {{- if or (hasKey $registry.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $registry.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "managed registry Cloudflare proxy mode is locked to DNS-only" }}{{- end -}}
+    {{- if or (hasKey $registry.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $registry.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "managed registry Cloudflare proxy policy is controlled only by cloudflareProxied" }}{{- end -}}
   {{- else if or (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) -}}
     {{- fail "registry ingress mode rejects dormant LoadBalancer configuration" -}}
   {{- end -}}
@@ -166,7 +229,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- else if or (ne $runtimePull.targetID "") (ne $runtimePull.profileName "") (ne $runtimePull.credentialRef "") (ne (int64 $runtimePull.revision) 0) (ne $runtimePull.sourceSecretName "") (ne $runtimePull.sourceSecretKey "") (not (empty $runtimePull.namespaces)) -}}
     {{- fail "disabled managed registry runtime pull rejects dormant configuration" -}}
   {{- end -}}
-{{- else if or (ne $registry.targetID "") (ne $registry.targetName "") (ne $registry.repositoryPrefix "") (ne $registry.lifecycleCredentialRef "") (ne $registry.lifecycleCredentialSecretName "") (ne $registry.pullCredentialRef "") (ne $registry.pushCredentialRef "") (ne $registry.cacheCredentialRef "") (not (empty $registry.controlPlaneEgressCIDRs)) (ne $registry.authSecretName "") (ne $registry.secretRevision "") (ne $registry.exposureMode "internal") (ne $registry.endpoint "") (ne $registry.tlsSecretName "") (ne $registry.clusterIssuerName "") (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) $runtimePull.enabled (ne $runtimePull.targetID "") (ne $runtimePull.profileName "") (ne $runtimePull.credentialRef "") (ne (int64 $runtimePull.revision) 0) (ne $runtimePull.sourceSecretName "") (ne $runtimePull.sourceSecretKey "") (not (empty $runtimePull.namespaces)) -}}
+{{- else if or (ne $registry.targetID "") (ne $registry.targetName "") (ne $registry.repositoryPrefix "") (ne $registry.lifecycleCredentialRef "") (ne $registry.lifecycleCredentialSecretName "") (ne $registry.pullCredentialRef "") (ne $registry.pushCredentialRef "") (ne $registry.cacheCredentialRef "") (not (empty $registry.controlPlaneEgressCIDRs)) (ne $registry.authSecretName "") (ne $registry.secretRevision "") (ne $registry.exposureMode "internal") $registry.cloudflareProxied (ne $registry.endpoint "") (ne $registry.tlsSecretName "") (ne $registry.clusterIssuerName "") (gt (len $registry.loadBalancer.annotations) 0) (ne $registry.loadBalancer.class "") (ne $registry.loadBalancer.ip "") (gt (len $registry.loadBalancer.sourceRanges) 0) $runtimePull.enabled (ne $runtimePull.targetID "") (ne $runtimePull.profileName "") (ne $runtimePull.credentialRef "") (ne (int64 $runtimePull.revision) 0) (ne $runtimePull.sourceSecretName "") (ne $runtimePull.sourceSecretKey "") (not (empty $runtimePull.namespaces)) -}}
   {{- fail "disabled managed registry integration rejects dormant configuration" -}}
 {{- end -}}
 {{- if and .Values.components.registry.enabled (not $registry.enabled) -}}

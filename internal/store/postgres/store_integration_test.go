@@ -209,6 +209,16 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err = st.pool.QueryRow(ctx, `SELECT token_hash,token_prefix FROM service_account_tokens WHERE id=$1`, serviceToken.Value.ID).Scan(&storedHash, &storedPrefix); err != nil || !strings.EqualFold(storedPrefix, "kp_sa_integra0") || string(storedHash) != string(serviceTokenHash[:]) || string(storedHash) == string(serviceTokenRaw) {
 		t.Fatalf("stored service token prefix=%q hash=%x err=%v", storedPrefix, storedHash, err)
 	}
+	_, err = st.CreateProjectAccessGrant(ctx, admin.ID, "service-token-grant-revision", "service-token-grant-revision", "request", domain.CreateAccessGrant{
+		ProjectID: project.Value.ID, SubjectUserID: serviceAccount.Value.ID, Role: domain.RoleViewer,
+		ScopeType: domain.ScopeProject, ScopeID: project.Value.ID,
+	})
+	if err != nil {
+		t.Fatalf("change service-account grant revision: %v", err)
+	}
+	if _, err = st.ServiceAccountByToken(ctx, serviceTokenHash[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("grant revision retained stale service-account bearer: %v", err)
+	}
 	if replay, revokeErr := st.RevokeServiceAccountToken(ctx, admin.ID, serviceAccount.Value.ID, serviceToken.Value.ID, "revoke-service-token", "revoke-service-token", "request"); revokeErr != nil || replay {
 		t.Fatalf("service token revoke replay=%t err=%v", replay, revokeErr)
 	}

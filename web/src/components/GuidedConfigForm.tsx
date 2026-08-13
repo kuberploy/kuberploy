@@ -17,7 +17,10 @@ import { TraefikMiddlewareEditor } from "./TraefikMiddlewareEditor";
 import { RuntimeSecretReferencePicker } from "./RuntimeSecretReferencePicker";
 import { CertificateReferencePicker } from "./CertificateReferencePicker";
 import { CertificateIssuerPicker } from "./CertificateIssuerPicker";
-import { SchedulingProfilePicker } from "./SchedulingProfilePicker";
+import {
+  SchedulingEditor,
+  type SchedulingEditorValue,
+} from "./SchedulingEditor";
 
 const probePhases = [
   {
@@ -59,6 +62,19 @@ export function RuntimeProcessEditor({
         </div>
       ) : null}
       <div className="runtime-process-grid">
+        <Field
+          label="Working directory"
+          hint="Optional absolute container path, for example /app."
+        >
+          <input
+            aria-label="Container working directory"
+            placeholder="/app"
+            value={value.workingDirectory ?? ""}
+            onChange={(event) =>
+              onChange({ ...value, workingDirectory: event.target.value })
+            }
+          />
+        </Field>
         <Field
           label="Container command (YAML list)"
           hint="Up to 64 exact argv entries overriding image ENTRYPOINT; [] keeps the default."
@@ -371,7 +387,6 @@ export function GuidedConfigForm({
   sslipHostnameError,
   readOnly = false,
   middlewareEditingUnavailableReason,
-  schedulingProfilesEnabled = false,
   reusableMiddlewareProfilesEnabled = false,
 }: {
   initial: GuidedConfig;
@@ -394,7 +409,6 @@ export function GuidedConfigForm({
   sslipHostnameError?: string;
   readOnly?: boolean;
   middlewareEditingUnavailableReason?: string;
-  schedulingProfilesEnabled?: boolean;
   reusableMiddlewareProfilesEnabled?: boolean;
 }) {
   const form = useForm<GuidedConfig>({ defaultValues: initial });
@@ -408,9 +422,9 @@ export function GuidedConfigForm({
     control: form.control,
     name: "secretVariables",
   });
-  const schedulingProfile = useWatch({
+  const workloadType = useWatch({
     control: form.control,
-    name: "schedulingProfile",
+    name: "workloadType",
   });
   const tlsMode = useWatch({ control: form.control, name: "tlsMode" });
   const issuerRef = useWatch({ control: form.control, name: "issuerRef" });
@@ -432,6 +446,16 @@ export function GuidedConfigForm({
     name: "terminationGracePeriodSeconds",
   });
   const configuredPorts = useWatch({ control: form.control, name: "ports" });
+  const scheduling = useWatch({
+    control: form.control,
+    name: [
+      "nodeSelectorYaml",
+      "affinityYaml",
+      "topologySpreadYaml",
+      "tolerationsYaml",
+      "priorityClassName",
+    ],
+  });
   const middlewares = useWatch({
     control: form.control,
     name: "middlewares",
@@ -441,6 +465,22 @@ export function GuidedConfigForm({
     name: "middlewareRefs",
   });
   const commit = () => queueMicrotask(() => onChange(form.getValues()));
+  const updateScheduling = (value: SchedulingEditorValue) => {
+    form.setValue("nodeSelectorYaml", value.nodeSelectorYaml, {
+      shouldDirty: true,
+    });
+    form.setValue("affinityYaml", value.affinityYaml, { shouldDirty: true });
+    form.setValue("topologySpreadYaml", value.topologySpreadYaml, {
+      shouldDirty: true,
+    });
+    form.setValue("tolerationsYaml", value.tolerationsYaml, {
+      shouldDirty: true,
+    });
+    form.setValue("priorityClassName", value.priorityClassName, {
+      shouldDirty: true,
+    });
+    commit();
+  };
   useEffect(() => {
     if (
       readOnly ||
@@ -513,15 +553,49 @@ export function GuidedConfigForm({
               })}
             />
           </Field>
+          <Field label="Workload type">
+            <select
+              {...form.register("workloadType", {
+                onChange: (event) => {
+                  const stateful = event.target.value === "StatefulSet";
+                  form.setValue("strategyType", "RollingUpdate", {
+                    shouldDirty: true,
+                  });
+                  if (stateful)
+                    form.setValue("podManagementPolicy", "OrderedReady", {
+                      shouldDirty: true,
+                    });
+                  commit();
+                },
+              })}
+            >
+              <option value="Deployment">Deployment</option>
+              <option value="StatefulSet">StatefulSet</option>
+            </select>
+          </Field>
           <Field
-            label="Deployment strategy"
-            hint="Rolling update keeps capacity available; recreate stops old Pods first."
+            label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
+            hint="Rolling update is the default. Other strategies replace Pods according to workload type."
           >
             <select {...form.register("strategyType", { onChange: commit })}>
               <option value="RollingUpdate">Rolling update</option>
-              <option value="Recreate">Recreate</option>
+              {workloadType === "StatefulSet" ? (
+                <option value="OnDelete">On delete</option>
+              ) : (
+                <option value="Recreate">Recreate</option>
+              )}
             </select>
           </Field>
+          {workloadType === "StatefulSet" ? (
+            <Field label="Pod management policy">
+              <select
+                {...form.register("podManagementPolicy", { onChange: commit })}
+              >
+                <option value="OrderedReady">Ordered ready</option>
+                <option value="Parallel">Parallel</option>
+              </select>
+            </Field>
+          ) : null}
           <Field label="CPU request" hint="Default 50m">
             <input
               placeholder="50m"
@@ -551,6 +625,7 @@ export function GuidedConfigForm({
           value={{
             commandYaml: commandYaml ?? initial.commandYaml,
             argsYaml: argsYaml ?? initial.argsYaml,
+            workingDirectory: form.getValues("workingDirectory"),
             terminationGracePeriodSeconds,
           }}
           onChange={(value) => {
@@ -558,6 +633,9 @@ export function GuidedConfigForm({
               shouldDirty: true,
             });
             form.setValue("argsYaml", value.argsYaml, { shouldDirty: true });
+            form.setValue("workingDirectory", value.workingDirectory ?? "", {
+              shouldDirty: true,
+            });
             form.setValue(
               "terminationGracePeriodSeconds",
               value.terminationGracePeriodSeconds,
@@ -844,29 +922,22 @@ export function GuidedConfigForm({
             </p>
           </div>
         </div>
-        {schedulingProfilesEnabled || schedulingProfile ? (
-          <SchedulingProfilePicker
-            environmentId={runtimeSecretEnvironmentId ?? ""}
-            value={schedulingProfile}
-            enabled={schedulingProfilesEnabled && !readOnly}
-            allowClear={!schedulingProfile}
-            onChange={(profile) => {
-              form.setValue("schedulingProfile", profile, {
-                shouldDirty: true,
-              });
-              commit();
-            }}
-          />
-        ) : (
-          <p className="field-hint">
-            Scheduling policies are unavailable. Existing placement remains
-            visible in Advanced YAML and cannot be edited here.
-          </p>
-        )}
+        <SchedulingEditor
+          value={{
+            nodeSelectorYaml: scheduling[0] ?? "{}",
+            affinityYaml: scheduling[1] ?? "{}",
+            topologySpreadYaml: scheduling[2] ?? "[]",
+            tolerationsYaml: scheduling[3] ?? "[]",
+            priorityClassName: scheduling[4] ?? "",
+          }}
+          applicationId={runtimeSecretApplicationId}
+          disabled={readOnly}
+          onChange={updateScheduling}
+        />
         <p className="field-hint">
-          The selected policy materializes node selectors, affinity, topology
-          spread, tolerations, and priority class for this app only. Kuberploy
-          never edits Nodes, taints, or provisioning resources.
+          Placement is stored directly with this app. Pod affinity,
+          anti-affinity, and topology selectors may target only this exact
+          application. Kuberploy never edits Nodes, taints, or provisioners.
         </p>
       </section>
 

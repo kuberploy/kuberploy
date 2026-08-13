@@ -505,4 +505,72 @@ spec:
       screen.getByRole("textbox", { name: "AppConfig YAML" }),
     ).not.toHaveAttribute("readonly");
   });
+
+  it("preserves drafts that Guided mode cannot safely represent and directs the user to YAML", async () => {
+    const user = userEvent.setup();
+    const deployment: Deployment = {
+      id: "deployment-legacy-secret",
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      image: `registry.example/api@sha256:${"b".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+    };
+    const application: Application = {
+      id: "application-1",
+      projectId: "project-1",
+      name: "API",
+    };
+    const rawYaml = `apiVersion: config.kuberploy.io/v1alpha1
+kind: AppConfig
+metadata:
+  name: api
+spec:
+  runtime:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+        protocol: TCP
+    env:
+      - name: TOKEN
+        valueFrom:
+          secretBindingRef:
+            name: incomplete
+`;
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: {},
+      capabilities: [],
+    });
+    vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+      kind: "ConfigBundle",
+      etag: `"cfg-sha256-${"a".repeat(64)}"`,
+      targetHeadRevision: "",
+      indexedRevision: "",
+      configRevision: "legacy-secret",
+      freshness: "projection-only",
+      documents: [{ id: "app.yaml", documentId: "app.yaml", rawYaml }],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigEditor deployment={deployment} application={application} />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("This configuration needs Advanced YAML"),
+    ).toBeVisible();
+    await user.click(
+      screen.getByRole("button", { name: "Inspect Advanced YAML" }),
+    );
+    expect(screen.getByRole("textbox", { name: "AppConfig YAML" })).toHaveValue(
+      rawYaml,
+    );
+  });
 });

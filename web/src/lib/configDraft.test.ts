@@ -38,11 +38,6 @@ spec:
             key: password
             version: 3
     command: [server]
-    schedulingProfile:
-      profileId: 55555555-5555-4555-8555-555555555555
-      revision: 2
-      specDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      assignmentsDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     nodeSelector:
       kubernetes.io/arch: amd64
     affinity:
@@ -73,14 +68,8 @@ describe("shared AppConfig draft", () => {
       memoryRequest: "100Mi",
       tlsMode: "httpOnly",
       dnsMode: "manual",
-      schedulingProfile: {
-        profileId: "55555555-5555-4555-8555-555555555555",
-        revision: 2,
-        specDigest:
-          "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        assignmentsDigest:
-          "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      },
+      workloadType: "Deployment",
+      nodeSelectorYaml: "kubernetes.io/arch: amd64",
       secretVariables: [
         {
           name: "DATABASE_PASSWORD",
@@ -293,7 +282,10 @@ describe("shared AppConfig draft", () => {
     const cases: Array<
       [
         string,
-        typeof valid & { terminationGracePeriodSeconds?: number },
+        typeof valid & {
+          workingDirectory?: string;
+          terminationGracePeriodSeconds?: number;
+        },
         RegExp,
       ]
     > = [
@@ -372,6 +364,16 @@ describe("shared AppConfig draft", () => {
         { ...valid, terminationGracePeriodSeconds: 3601 },
         /integer from 1 to 3600/i,
       ],
+      [
+        "relative working directory",
+        { ...valid, workingDirectory: "srv/app" },
+        /canonical absolute container path/i,
+      ],
+      [
+        "unclean working directory",
+        { ...valid, workingDirectory: "/srv/../app" },
+        /canonical absolute container path/i,
+      ],
     ];
 
     for (const [label, values, expected] of cases) {
@@ -387,9 +389,15 @@ describe("shared AppConfig draft", () => {
       workloadProcessFromGuided({
         commandYaml: JSON.stringify(command),
         argsYaml: JSON.stringify(args),
+        workingDirectory: "/srv/app",
         terminationGracePeriodSeconds: 3600,
       }),
-    ).toEqual({ command, args, terminationGracePeriodSeconds: 3600 });
+    ).toEqual({
+      command,
+      args,
+      workingDirectory: "/srv/app",
+      terminationGracePeriodSeconds: 3600,
+    });
     expect(
       workloadProcessFromGuided({
         commandYaml: '["server"]',

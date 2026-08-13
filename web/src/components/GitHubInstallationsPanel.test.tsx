@@ -29,6 +29,7 @@ function renderPanel(
       <GitHubInstallationsPanel
         featureEnabled
         humanSession
+        canSetup
         navigate={navigate}
         {...props}
       />
@@ -60,6 +61,20 @@ describe("GitHub installation setup UI", () => {
       screen.queryByRole("button", { name: "Install GitHub App" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Human session required")).toBeInTheDocument();
+  });
+
+  it("keeps private setup admin-only for an ordinary human session", async () => {
+    renderPanel({ canSetup: false });
+
+    expect(
+      await screen.findByText("No linked GitHub installation"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Install GitHub App" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Platform administrator required"),
+    ).toBeInTheDocument();
   });
 
   it("navigates with an imperative one-shot response outside React Query and storage", async () => {

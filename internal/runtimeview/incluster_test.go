@@ -35,7 +35,9 @@ func TestInClusterClientUsesExactReadOnlyPathsUIDBindingAndBoundedQueries(t *tes
 		case "/api":
 			_, _ = io.WriteString(w, `{"kind":"APIVersions","versions":["v1"]}`)
 		case "/apis/apps/v1/namespaces/" + namespace + "/deployments/kp-a-runtime":
-			_, _ = io.WriteString(w, `{"metadata":{"name":"kp-a-runtime","namespace":"kp-production","uid":"deployment-uid-1"},"spec":{"selector":{"matchLabels":{"kuberploy.io/application":"33333333-3333-4333-8333-333333333333","app.kubernetes.io/name":"kuberploy-runtime"}}}}`)
+			_, _ = io.WriteString(w, `{"metadata":{"name":"kp-a-runtime","namespace":"kp-production","uid":"deployment-uid-1"},"spec":{"replicas":3,"selector":{"matchLabels":{"kuberploy.io/application":"33333333-3333-4333-8333-333333333333","app.kubernetes.io/name":"kuberploy-runtime"}}},"status":{"readyReplicas":2,"conditions":[{"type":"Progressing","status":"True","reason":"ReplicaSetUpdated","lastTransitionTime":"2026-08-09T01:02:03Z"}]}}`)
+		case "/apis/apps/v1/namespaces/" + namespace + "/statefulsets/kp-a-runtime":
+			_, _ = io.WriteString(w, `{"metadata":{"name":"kp-a-runtime","namespace":"kp-production","uid":"statefulset-uid-1"},"spec":{"replicas":2,"selector":{"matchLabels":{"kuberploy.io/application":"33333333-3333-4333-8333-333333333333","app.kubernetes.io/name":"kuberploy-runtime"}}},"status":{"readyReplicas":1,"currentRevision":"kp-a-runtime-a","updateRevision":"kp-a-runtime-b","conditions":[{"type":"Ready","status":"False","reason":"PodsPending"}]}}`)
 		case "/apis/apps/v1/namespaces/" + namespace + "/replicasets":
 			assertRuntimeSelector(t, r.URL.Query())
 			_, _ = io.WriteString(w, `{"metadata":{},"items":[{"metadata":{"name":"kp-a-runtime-abc","namespace":"kp-production","uid":"replicaset-uid-1","annotations":{"deployment.kubernetes.io/revision":"7"},"ownerReferences":[{"uid":"deployment-uid-1","kind":"Deployment","controller":true}]},"status":{"readyReplicas":1}}]}`)
@@ -71,8 +73,12 @@ func TestInClusterClientUsesExactReadOnlyPathsUIDBindingAndBoundedQueries(t *tes
 	}
 
 	deployment, err := client.GetDeployment(t.Context(), namespace, "kp-a-runtime")
-	if err != nil || deployment.UID != deploymentUID || len(deployment.Selector.MatchLabels) != 2 {
+	if err != nil || deployment.UID != deploymentUID || len(deployment.Selector.MatchLabels) != 2 || deployment.DesiredReplicas != 3 || deployment.ReadyReplicas != 2 || len(deployment.Conditions) != 1 {
 		t.Fatalf("deployment=%#v err=%v", deployment, err)
+	}
+	stateful, err := client.GetStatefulSet(t.Context(), namespace, "kp-a-runtime")
+	if err != nil || len(stateful.Selector.MatchLabels) != 2 || stateful.DesiredReplicas != 2 || stateful.ReadyReplicas != 1 || stateful.CurrentRevision != "kp-a-runtime-a" || stateful.UpdateRevision != "kp-a-runtime-b" || len(stateful.Conditions) != 1 {
+		t.Fatalf("statefulSet=%#v err=%v", stateful, err)
 	}
 	replicaSets, err := client.ListReplicaSets(t.Context(), namespace, deployment.Selector)
 	if err != nil || len(replicaSets) != 1 || replicaSets[0].UID != replicaSetUID || replicaSets[0].Revision != "7" || !replicaSets[0].Ready {
@@ -138,6 +144,17 @@ func TestInClusterClientRejectsCrossNamespaceObjectsAndReplacedPod(t *testing.T)
 	_, err := client.OpenPodLogs(t.Context(), PodLogRequest{Namespace: "kp-production", PodName: "pod-1", PodUID: "pod-uid-1", Options: PodLogOptions{Container: "application", TailLines: 1, LimitBytes: 64}})
 	if !errors.Is(err, ErrGone) {
 		t.Fatalf("replaced Pod accepted: %v", err)
+	}
+}
+
+func TestDecodeDeploymentAllowsReadySurgeDuringRollingUpdate(t *testing.T) {
+	var object deploymentObject
+	if err := json.Unmarshal([]byte(`{"metadata":{"name":"api","namespace":"production","uid":"deployment-uid"},"spec":{"replicas":3},"status":{"readyReplicas":4}}`), &object); err != nil {
+		t.Fatal(err)
+	}
+	deployment, err := decodeDeployment(object, "production", "api")
+	if err != nil || deployment.DesiredReplicas != 3 || deployment.ReadyReplicas != 4 {
+		t.Fatalf("deployment=%#v err=%v", deployment, err)
 	}
 }
 

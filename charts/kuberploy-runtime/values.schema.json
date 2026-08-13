@@ -120,26 +120,29 @@
       "required": ["replicas", "ports", "resources"],
       "allOf": [
         {
-          "if": {
-            "anyOf": [
-              { "required": ["nodeSelector"] },
-              { "required": ["affinity"] },
-              { "required": ["topologySpreadConstraints"] },
-              { "required": ["tolerations"] },
-              { "required": ["priorityClassName"] }
-            ]
+          "if": { "properties": { "workloadType": { "const": "StatefulSet" } }, "required": ["workloadType"] },
+          "then": {
+            "properties": {
+              "strategy": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["RollingUpdate", "OnDelete"] } } },
+              "podManagementPolicy": { "enum": ["OrderedReady", "Parallel"] }
+            }
           },
-          "then": { "required": ["schedulingProfile"] }
+          "else": {
+            "properties": { "strategy": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["RollingUpdate", "Recreate"] } } } },
+            "not": { "required": ["podManagementPolicy"] }
+          }
         }
       ],
       "properties": {
+        "workloadType": { "enum": ["Deployment", "StatefulSet"] },
         "replicas": { "type": "integer", "minimum": 1, "maximum": 100 },
         "strategy": {
           "type": "object",
           "additionalProperties": false,
           "required": ["type"],
-          "properties": { "type": { "enum": ["RollingUpdate", "Recreate"] } }
+          "properties": { "type": { "enum": ["RollingUpdate", "Recreate", "OnDelete"] } }
         },
+        "podManagementPolicy": { "enum": ["OrderedReady", "Parallel"] },
         "configRevision": { "type": "string", "maxLength": 128 },
         "command": {
           "type": "array",
@@ -153,6 +156,7 @@
           "maxItems": 128,
           "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
         },
+        "workingDirectory": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/.*$" },
         "terminationGracePeriodSeconds": {
           "type": "integer",
           "minimum": 1,
@@ -226,18 +230,6 @@
             "limits": { "$ref": "#/$defs/resourceLimits" }
           }
         },
-        "schedulingProfile": {
-          "type": "object",
-          "description": "Exact platform-admin scheduling profile revision. Effective placement fields are server-derived and locked.",
-          "additionalProperties": false,
-          "required": ["profileId", "revision", "specDigest", "assignmentsDigest"],
-          "properties": {
-            "profileId": { "$ref": "#/$defs/uuid" },
-            "revision": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
-            "specDigest": { "$ref": "#/$defs/sha256Digest" },
-            "assignmentsDigest": { "$ref": "#/$defs/sha256Digest" }
-          }
-        },
         "nodeSelector": {
           "type": "object",
           "maxProperties": 32,
@@ -255,7 +247,13 @@
           "maxItems": 32,
           "items": { "$ref": "#/$defs/toleration" }
         },
-        "priorityClassName": { "$ref": "#/$defs/dnsLabel" },
+        "priorityClassName": {
+          "allOf": [
+            { "$ref": "#/$defs/dnsLabel" },
+            { "not": { "pattern": "^system-" } }
+          ],
+          "description": "Existing non-system Kubernetes PriorityClass. The reserved system-* classes are never available to application workloads."
+        },
         "probes": {
           "type": "object",
           "additionalProperties": false,
@@ -295,6 +293,7 @@
       "minProperties": 1,
       "properties": {
         "nodeAffinity": { "$ref": "#/$defs/nodeAffinity" },
+        "podAffinity": { "$ref": "#/$defs/sameApplicationPodAntiAffinity" },
         "podAntiAffinity": { "$ref": "#/$defs/sameApplicationPodAntiAffinity" }
       }
     },
@@ -751,7 +750,7 @@
       "pattern": "^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$"
     },
     "schedulingLabelKey": {
-      "description": "Kubernetes label or taint key in server-materialized scheduling fields. Tenant-authored reserved keys are rejected by workload validation unless an exact scheduling profile reference is present.",
+      "description": "Kubernetes label or taint key in direct workload scheduling fields. Kuberploy and control-plane reserved keys are always rejected by workload validation.",
       "$ref": "#/$defs/labelKey"
     },
     "labelValue": {

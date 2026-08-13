@@ -63,7 +63,7 @@ kuberploy.io/test-run: {{ . | quote }}
   {{- if eq $exposure.mode "loadBalancer" -}}
     {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "registry LoadBalancer exposure requires the shared Traefik namespace kuberploy-system" }}{{- end -}}
     {{- if eq (len $exposure.loadBalancer.sourceRanges) 0 -}}{{ fail "registry LoadBalancer requires explicit source ranges" }}{{- end -}}
-    {{- if or (hasKey $exposure.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $exposure.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "registry LoadBalancer Cloudflare proxy policy is server-owned DNS-only" }}{{- end -}}
+    {{- if or (hasKey $exposure.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $exposure.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "registry Cloudflare proxy policy is controlled only by exposure.cloudflareProxied" }}{{- end -}}
   {{- end -}}
   {{- if eq .Values.auth.mode "htpasswd" -}}
     {{- $_ := required "auth.existingSecret is required when enabled with htpasswd authentication" .Values.auth.existingSecret -}}

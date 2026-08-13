@@ -14,7 +14,9 @@ import type {
 import { Button, Field, Skeleton } from "./ui";
 
 type GrantForm = {
+  subjectType: "user" | "team";
   subjectUserId: string;
+  subjectTeamId: string;
   role: Exclude<AccessRole, "platform-admin">;
   scope: string;
   logsRead: boolean;
@@ -60,6 +62,7 @@ export function ProjectAccessPanel({
     queryKey: ["project-access-grants", project.id],
     queryFn: () => api.projectAccessGrants(project.id),
   });
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
   const scopeOptions = useMemo<ScopeOption[]>(() => {
     const options: ScopeOption[] = [];
     if (project.teamId) {
@@ -139,7 +142,9 @@ export function ProjectAccessPanel({
   );
   const form = useForm<GrantForm>({
     defaultValues: {
+      subjectType: "user",
       subjectUserId: "",
+      subjectTeamId: "",
       role: "developer",
       scope: `project:${project.id}`,
       logsRead: false,
@@ -176,7 +181,9 @@ export function ProjectAccessPanel({
       return api.createProjectAccessGrant(
         project.id,
         {
-          subjectUserId: value.subjectUserId.trim(),
+          ...(value.subjectType === "team"
+            ? { subjectTeamId: value.subjectTeamId }
+            : { subjectUserId: value.subjectUserId.trim() }),
           role: value.role,
           scopeType: selected.type,
           scopeId: selected.id,
@@ -188,7 +195,9 @@ export function ProjectAccessPanel({
     onSuccess: async () => {
       createAttempt.current = null;
       form.reset({
+        subjectType: "user",
         subjectUserId: "",
+        subjectTeamId: "",
         role: "developer",
         scope: `project:${project.id}`,
         logsRead: false,
@@ -199,7 +208,10 @@ export function ProjectAccessPanel({
     },
   });
   const submitGrant = (value: GrantForm) => {
-    const normalized = { ...value, subjectUserId: value.subjectUserId.trim() };
+    const normalized = {
+      ...value,
+      subjectUserId: value.subjectUserId.trim(),
+    };
     const signature = JSON.stringify(normalized);
     const key =
       createAttempt.current?.signature === signature
@@ -258,23 +270,46 @@ export function ProjectAccessPanel({
       </div>
 
       <form className="access-form" onSubmit={form.handleSubmit(submitGrant)}>
-        <Field
-          label="Exact user ID"
-          required
-          hint="Use the immutable user ID; names are display-only and can change."
-          error={form.formState.errors.subjectUserId?.message}
-        >
-          <input
-            placeholder="00000000-0000-4000-8000-000000000000"
-            {...form.register("subjectUserId", {
-              required: "Enter the exact user ID.",
-              pattern: {
-                value: uuidPattern,
-                message: "Enter a canonical UUID user ID.",
-              },
-            })}
-          />
+        <Field label="Subject type" required>
+          <select {...form.register("subjectType")}>
+            <option value="user">User</option>
+            <option value="team">Team</option>
+          </select>
         </Field>
+        {form.watch("subjectType") === "user" ? (
+          <Field
+            label="Exact user ID"
+            required
+            hint="Use the immutable user ID; names are display-only and can change."
+            error={form.formState.errors.subjectUserId?.message}
+          >
+            <input
+              placeholder="00000000-0000-4000-8000-000000000000"
+              {...form.register("subjectUserId", {
+                required: "Enter the exact user ID.",
+                pattern: {
+                  value: uuidPattern,
+                  message: "Enter a canonical UUID user ID.",
+                },
+              })}
+            />
+          </Field>
+        ) : (
+          <Field label="Team" required>
+            <select
+              {...form.register("subjectTeamId", {
+                required: "Select an exact team.",
+              })}
+            >
+              <option value="">Select team</option>
+              {teams.data?.items.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Role" required>
           <select {...form.register("role")}>
             {assignableRoles.map((role) => (
@@ -325,7 +360,8 @@ export function ProjectAccessPanel({
                   {grant.scopeType} · <code>{grant.scopeId}</code>
                 </span>
                 <small>
-                  User <code>{grant.subjectUserId}</code>
+                  {grant.subjectTeamId ? "Team" : "User"}{" "}
+                  <code>{grant.subjectTeamId ?? grant.subjectUserId}</code>
                   {grant.permissions.length
                     ? ` · ${grant.permissions.join(", ")}`
                     : ""}
@@ -355,7 +391,7 @@ export function ProjectAccessPanel({
           <strong>Confirm the exact grant</strong>
           <p>
             Type <code>{confirmGrant.id}</code> to revoke this assignment and
-            invalidate the affected user&apos;s sessions.
+            invalidate every affected user session.
           </p>
           <input
             aria-label="Exact grant ID confirmation"

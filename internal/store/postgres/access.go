@@ -31,6 +31,10 @@ func actorIsAdmin(ctx context.Context, q rowQuerier, actor string) (bool, error)
 func effectiveBindings(ctx context.Context, q accessQuerier, actor string) ([]domain.AccessBinding, error) {
 	rows, err := q.Query(ctx, `SELECT role,scope_type,scope_id,permissions,source FROM access_grants WHERE subject_user_id=$1
 		UNION ALL
+		SELECT g.role,g.scope_type,g.scope_id,g.permissions,g.source||'-team'
+		FROM access_grants g JOIN team_memberships m ON m.team_id=g.subject_team_id
+		WHERE m.user_id=$1
+		UNION ALL
 		SELECT CASE WHEN role='owner' THEN 'organization-admin' ELSE 'developer' END,'team',team_id::text,ARRAY[]::text[],'team-'||role
 		FROM team_memberships WHERE user_id=$1`, actor)
 	if err != nil {
@@ -200,6 +204,9 @@ func invalidateUsers(ctx context.Context, tx pgx.Tx, userIDs map[string]struct{}
 			return err
 		}
 		if tag.RowsAffected() > 0 {
+			if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=now() WHERE service_account_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+				return err
+			}
 			if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {
 				return err
 			}
@@ -1010,7 +1017,7 @@ func scopeTargetForProject(ctx context.Context, q rowQuerier, project domain.Pro
 func scanAccessGrant(row pgx.Row) (domain.AccessGrant, error) {
 	grant := domain.AccessGrant{Permissions: []domain.Permission{}}
 	var permissions []string
-	err := row.Scan(&grant.ID, &grant.SubjectUserID, &grant.Role, &grant.ScopeType, &grant.ScopeID, &permissions, &grant.Source, &grant.CreatedBy, &grant.CreatedAt)
+	err := row.Scan(&grant.ID, &grant.SubjectUserID, &grant.SubjectTeamID, &grant.Role, &grant.ScopeType, &grant.ScopeID, &permissions, &grant.Source, &grant.CreatedBy, &grant.CreatedAt)
 	for _, permission := range permissions {
 		grant.Permissions = append(grant.Permissions, domain.Permission(permission))
 	}
@@ -1025,7 +1032,7 @@ func (s *Store) ListProjectAccessGrants(ctx context.Context, actor, projectID st
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT g.id,g.subject_user_id,g.role,g.scope_type,g.scope_id,g.permissions,g.source,g.created_by,g.created_at
+	rows, err := s.pool.Query(ctx, `SELECT g.id,COALESCE(g.subject_user_id::text,''),COALESCE(g.subject_team_id::text,''),g.role,g.scope_type,g.scope_id,g.permissions,g.source,g.created_by,g.created_at
 		FROM access_grants g WHERE
 		(g.scope_type='team' AND g.scope_id=$2) OR
 		(g.scope_type='project' AND g.scope_id=$1::text) OR
@@ -1041,7 +1048,7 @@ func (s *Store) ListProjectAccessGrants(ctx context.Context, actor, projectID st
 	for rows.Next() {
 		grant := domain.AccessGrant{Permissions: []domain.Permission{}}
 		var permissions []string
-		if err = rows.Scan(&grant.ID, &grant.SubjectUserID, &grant.Role, &grant.ScopeType, &grant.ScopeID, &permissions, &grant.Source, &grant.CreatedBy, &grant.CreatedAt); err != nil {
+		if err = rows.Scan(&grant.ID, &grant.SubjectUserID, &grant.SubjectTeamID, &grant.Role, &grant.ScopeType, &grant.ScopeID, &permissions, &grant.Source, &grant.CreatedBy, &grant.CreatedAt); err != nil {
 			return nil, err
 		}
 		for _, permission := range permissions {
@@ -1053,7 +1060,7 @@ func (s *Store) ListProjectAccessGrants(ctx context.Context, actor, projectID st
 }
 
 func (s *Store) CreateProjectAccessGrant(ctx context.Context, actor, key, fingerprint, requestID string, in domain.CreateAccessGrant) (base.Result[domain.AccessGrant], error) {
-	if !accesspolicy.ValidRole(in.Role) || !accesspolicy.ValidScope(in.ScopeType) || !accesspolicy.ValidExtraPermissions(in.Permissions) || in.Role == domain.RolePlatformAdmin || in.ScopeType == domain.ScopePlatform || in.Role == domain.RoleOrganizationAdmin && in.ScopeType != domain.ScopeTeam || in.Role == domain.RoleProjectAdmin && in.ScopeType != domain.ScopeProject {
+	if (in.SubjectUserID == "") == (in.SubjectTeamID == "") || !accesspolicy.ValidRole(in.Role) || !accesspolicy.ValidScope(in.ScopeType) || !accesspolicy.ValidExtraPermissions(in.Permissions) || in.Role == domain.RolePlatformAdmin || in.ScopeType == domain.ScopePlatform || in.Role == domain.RoleOrganizationAdmin && in.ScopeType != domain.ScopeTeam || in.Role == domain.RoleProjectAdmin && in.ScopeType != domain.ScopeProject {
 		return base.Result[domain.AccessGrant]{}, base.ErrConflict
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -1083,11 +1090,16 @@ func (s *Store) CreateProjectAccessGrant(ctx context.Context, actor, key, finger
 	if !accesspolicy.CanManageGrant(bindings, target, in.Role) {
 		return base.Result[domain.AccessGrant]{}, base.ErrForbidden
 	}
-	var userExists bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, in.SubjectUserID).Scan(&userExists); err != nil {
+	var subjectExists bool
+	if in.SubjectUserID != "" {
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, in.SubjectUserID).Scan(&subjectExists)
+	} else {
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1)`, in.SubjectTeamID).Scan(&subjectExists)
+	}
+	if err != nil {
 		return base.Result[domain.AccessGrant]{}, err
 	}
-	if !userExists {
+	if !subjectExists {
 		return base.Result[domain.AccessGrant]{}, base.ErrNotFound
 	}
 	idemScope := "projects.grants.create:" + in.ProjectID
@@ -1097,25 +1109,25 @@ func (s *Store) CreateProjectAccessGrant(ctx context.Context, actor, key, finger
 		if old.fingerprint != fingerprint {
 			return base.Result[domain.AccessGrant]{}, base.ErrIdempotencyConflict
 		}
-		grant, getErr := scanAccessGrant(tx.QueryRow(ctx, `SELECT id,subject_user_id,role,scope_type,scope_id,permissions,source,created_by,created_at FROM access_grants WHERE id=$1`, old.resourceID))
+		grant, getErr := scanAccessGrant(tx.QueryRow(ctx, `SELECT id,COALESCE(subject_user_id::text,''),COALESCE(subject_team_id::text,''),role,scope_type,scope_id,permissions,source,created_by,created_at FROM access_grants WHERE id=$1`, old.resourceID))
 		return base.Result[domain.AccessGrant]{Value: grant, Replay: true}, getErr
 	}
 	permissions := make([]string, len(in.Permissions))
 	for index, permission := range in.Permissions {
 		permissions[index] = string(permission)
 	}
-	grant := domain.AccessGrant{ID: id.New(), SubjectUserID: in.SubjectUserID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: append([]domain.Permission{}, in.Permissions...), Source: "explicit", CreatedBy: actor, CreatedAt: time.Now().UTC()}
-	_, err = tx.Exec(ctx, `INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,permissions,source,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6,'explicit',$7,$8)`, grant.ID, grant.SubjectUserID, grant.Role, grant.ScopeType, grant.ScopeID, permissions, actor, grant.CreatedAt)
+	grant := domain.AccessGrant{ID: id.New(), SubjectUserID: in.SubjectUserID, SubjectTeamID: in.SubjectTeamID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: append([]domain.Permission{}, in.Permissions...), Source: "explicit", CreatedBy: actor, CreatedAt: time.Now().UTC()}
+	_, err = tx.Exec(ctx, `INSERT INTO access_grants(id,subject_user_id,subject_team_id,role,scope_type,scope_id,permissions,source,created_by,created_at) VALUES($1,NULLIF($2,'')::uuid,NULLIF($3,'')::uuid,$4,$5,$6,$7,'explicit',$8,$9)`, grant.ID, grant.SubjectUserID, grant.SubjectTeamID, grant.Role, grant.ScopeType, grant.ScopeID, permissions, actor, grant.CreatedAt)
 	if err != nil {
 		return base.Result[domain.AccessGrant]{}, classify(err)
 	}
-	if err = audit(ctx, tx, actor, "access-grant.create", "access-grant", grant.ID, requestID, map[string]any{"projectId": project.ID, "subjectUserId": grant.SubjectUserID, "role": grant.Role, "scopeType": grant.ScopeType, "scopeId": grant.ScopeID, "permissions": grant.Permissions}); err != nil {
+	if err = audit(ctx, tx, actor, "access-grant.create", "access-grant", grant.ID, requestID, map[string]any{"projectId": project.ID, "subjectUserId": grant.SubjectUserID, "subjectTeamId": grant.SubjectTeamID, "role": grant.Role, "scopeType": grant.ScopeType, "scopeId": grant.ScopeID, "permissions": grant.Permissions}); err != nil {
 		return base.Result[domain.AccessGrant]{}, err
 	}
 	if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "access-grant", grant.ID, nil); err != nil {
 		return base.Result[domain.AccessGrant]{}, classify(err)
 	}
-	if err = invalidateUsers(ctx, tx, map[string]struct{}{grant.SubjectUserID: {}}); err != nil {
+	if err = invalidateGrantSubjects(ctx, tx, grant); err != nil {
 		return base.Result[domain.AccessGrant]{}, err
 	}
 	return base.Result[domain.AccessGrant]{Value: grant}, tx.Commit(ctx)
@@ -1151,7 +1163,7 @@ func (s *Store) DeleteProjectAccessGrant(ctx context.Context, actor, projectID, 
 		}
 		return true, tx.Commit(ctx)
 	}
-	grant, err := scanAccessGrant(tx.QueryRow(ctx, `SELECT id,subject_user_id,role,scope_type,scope_id,permissions,source,created_by,created_at FROM access_grants WHERE id=$1 FOR UPDATE`, grantID))
+	grant, err := scanAccessGrant(tx.QueryRow(ctx, `SELECT id,COALESCE(subject_user_id::text,''),COALESCE(subject_team_id::text,''),role,scope_type,scope_id,permissions,source,created_by,created_at FROM access_grants WHERE id=$1 FOR UPDATE`, grantID))
 	if err != nil {
 		return false, err
 	}
@@ -1165,14 +1177,38 @@ func (s *Store) DeleteProjectAccessGrant(ctx context.Context, actor, projectID, 
 	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE id=$1`, grant.ID); err != nil {
 		return false, err
 	}
-	if err = audit(ctx, tx, actor, "access-grant.delete", "access-grant", grant.ID, requestID, map[string]any{"projectId": project.ID, "subjectUserId": grant.SubjectUserID, "role": grant.Role, "scopeType": grant.ScopeType, "scopeId": grant.ScopeID}); err != nil {
+	if err = audit(ctx, tx, actor, "access-grant.delete", "access-grant", grant.ID, requestID, map[string]any{"projectId": project.ID, "subjectUserId": grant.SubjectUserID, "subjectTeamId": grant.SubjectTeamID, "role": grant.Role, "scopeType": grant.ScopeType, "scopeId": grant.ScopeID}); err != nil {
 		return false, err
 	}
 	if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "access-grant", grant.ID, nil); err != nil {
 		return false, classify(err)
 	}
-	if err = invalidateUsers(ctx, tx, map[string]struct{}{grant.SubjectUserID: {}}); err != nil {
+	if err = invalidateGrantSubjects(ctx, tx, grant); err != nil {
 		return false, err
 	}
 	return false, tx.Commit(ctx)
+}
+
+func invalidateGrantSubjects(ctx context.Context, tx pgx.Tx, grant domain.AccessGrant) error {
+	users := map[string]struct{}{}
+	if grant.SubjectUserID != "" {
+		users[grant.SubjectUserID] = struct{}{}
+	} else {
+		rows, err := tx.Query(ctx, `SELECT user_id::text FROM team_memberships WHERE team_id=$1`, grant.SubjectTeamID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var userID string
+			if err = rows.Scan(&userID); err != nil {
+				return err
+			}
+			users[userID] = struct{}{}
+		}
+		if err = rows.Err(); err != nil {
+			return err
+		}
+	}
+	return invalidateUsers(ctx, tx, users)
 }

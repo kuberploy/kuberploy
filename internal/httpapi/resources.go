@@ -12,7 +12,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/imageresolution"
 	"github.com/kuberploy/kuberploy/internal/operationcache"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -258,10 +257,6 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		runtime = *in.Runtime
 	}
 	runtime = domain.NormalizeWorkloadRuntime(runtime)
-	if scheduling.HasEffectiveMaterial(runtime) {
-		writeProblem(w, r, 422, "SchedulingProfileInvalid", "Scheduling profile invalid", "Submit only an exact assigned schedulingProfile reference; node selectors, affinity, topology spread, tolerations, and priority class are server-derived.", FieldError{Pointer: "/runtime/schedulingProfile", Code: "ServerOwnedMaterial", Detail: "effective Pod scheduling fields cannot be supplied by a workload caller"})
-		return
-	}
 	var route *domain.Route
 	if in.Route != nil {
 		in.Route.Hostname = strings.ToLower(strings.TrimSpace(in.Route.Hostname))
@@ -286,6 +281,18 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.EnvironmentID == "" || in.ApplicationID == "" {
 		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "Deployment requires valid application and environment IDs.")
+		return
+	}
+	if problems := domain.ValidateApplicationScheduling(runtime, in.ApplicationID); len(problems) > 0 {
+		limit := len(problems)
+		if limit > 50 {
+			limit = 50
+		}
+		fields := make([]FieldError, 0, limit)
+		for _, problem := range problems[:limit] {
+			fields = append(fields, FieldError{Pointer: problem.Pointer, Code: problem.Code, Detail: problem.Detail})
+		}
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The workload scheduling configuration is invalid.", fields...)
 		return
 	}
 	immutableInput := imageresolution.IsImmutableImage(in.Image)
@@ -558,6 +565,23 @@ func (s *Server) deploymentStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		mappedError(w, r, err)
 		return
+	}
+	if s.runtime != nil && s.runtimeReadiness != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if s.runtimeReadiness.Probe(ctx) == nil {
+			if rollout, rolloutErr := s.runtime.Rollout(ctx, v.DeploymentID); rolloutErr == nil {
+				desired, ready := rollout.DesiredReplicas, rollout.ReadyReplicas
+				v.DesiredReplicas, v.ReadyReplicas = &desired, &ready
+				observedAt := rollout.ObservedAt.UTC()
+				v.RolloutObservedAt = &observedAt
+				v.RolloutConditions = make([]domain.RolloutCondition, 0, len(rollout.Conditions))
+				for _, condition := range rollout.Conditions {
+					v.RolloutConditions = append(v.RolloutConditions, domain.RolloutCondition{Type: condition.Type, Status: condition.Status,
+						Reason: condition.Reason, LastTransitionTime: condition.LastTransitionTime})
+				}
+			}
+		}
 	}
 	writeJSON(w, 200, v)
 }

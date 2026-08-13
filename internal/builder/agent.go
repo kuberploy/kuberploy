@@ -81,9 +81,12 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, err
 	}
 	defer os.RemoveAll(pushDockerConfig)
+	warnings := []Warning{}
 	cacheDockerConfig := filepath.Join(runtimeDirectory, "docker-cache-config")
-	if err := writeDockerAuth(cacheDockerConfig, cacheRegistryCredentials(request)); err != nil {
-		return BuildResult{}, err
+	cacheCredentialsReady, credentialWarnings := prepareCacheDockerAuth(cacheDockerConfig, cacheRegistryCredentials(request), len(request.Cache.Imports) > 0)
+	warnings = append(warnings, credentialWarnings...)
+	if !cacheCredentialsReady {
+		a.reportProgress("Registry cache credentials unavailable; continuing with a cold release build.")
 	}
 	defer os.RemoveAll(cacheDockerConfig)
 
@@ -103,9 +106,11 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	}()
 
 	metadataPath := filepath.Join(runtimeDirectory, "metadata.json")
-	cacheImports := a.availableCacheImports(ctx, cacheDockerConfig, request.Cache.Imports)
-	warnings := []Warning{}
-	if len(cacheImports) != len(request.Cache.Imports) {
+	cacheImports := []string{}
+	if cacheCredentialsReady {
+		cacheImports = a.availableCacheImports(ctx, cacheDockerConfig, request.Cache.Imports)
+	}
+	if cacheCredentialsReady && len(cacheImports) != len(request.Cache.Imports) {
 		warnings = addWarning(warnings, WarningCacheDegraded)
 		if len(request.Cache.Imports) > 0 && len(cacheImports) == 0 {
 			warnings = addWarning(warnings, WarningColdBuild)
@@ -115,20 +120,25 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 	// authority. The final image push is a separate invocation with the release
 	// push authority; BuildKit's local content store carries successful work
 	// between the two invocations without sharing registry credentials.
-	cacheInvocation, err := a.cacheInvocation(request, cacheDockerConfig, builderName, cacheImports)
-	if err != nil {
-		return BuildResult{}, err
+	cacheResult := CommandResult{}
+	cacheDegraded := !cacheCredentialsReady
+	if cacheCredentialsReady {
+		cacheInvocation, err := a.cacheInvocation(request, cacheDockerConfig, builderName, cacheImports)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		a.reportProgress("Registry cache build started.")
+		var cacheBuildErr error
+		cacheResult, cacheBuildErr = a.Executor.Execute(ctx, cacheInvocation)
+		cacheDegraded = cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output)
+		if cacheDegraded {
+			warnings = addWarning(warnings, WarningCacheDegraded)
+			a.reportProgress("Registry cache degraded; continuing with the release build.")
+		} else {
+			a.reportProgress("Registry cache build completed.")
+		}
 	}
-	a.reportProgress("Registry cache build started.")
-	cacheResult, cacheBuildErr := a.Executor.Execute(ctx, cacheInvocation)
-	cacheDegraded := cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output)
 	cacheReuse := classifyCacheReuse(len(request.Cache.Imports), len(cacheImports), cacheResult, cacheDegraded)
-	if cacheDegraded {
-		warnings = addWarning(warnings, WarningCacheDegraded)
-		a.reportProgress("Registry cache degraded; continuing with the release build.")
-	} else {
-		a.reportProgress("Registry cache build completed.")
-	}
 	invocation, err := a.buildInvocation(request, pushDockerConfig, builderName, metadataPath)
 	if err != nil {
 		return BuildResult{}, err
@@ -156,12 +166,16 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, fmt.Errorf("pushed platform verification failed: expected %v, received %v", expectedPlatforms, platforms)
 	}
 	a.reportProgress("Published digest and platforms verified.")
-	cache, cacheErr := a.promoteCache(ctx, cacheDockerConfig, request)
-	if cacheErr != nil {
-		warnings = addWarning(warnings, WarningCacheDegraded)
-		a.reportProgress("Cache promotion degraded; the release image remains valid.")
-	} else {
-		a.reportProgress("Cache promotion completed.")
+	var cache *Cache
+	if cacheCredentialsReady {
+		var cacheErr error
+		cache, cacheErr = a.promoteCache(ctx, cacheDockerConfig, request)
+		if cacheErr != nil {
+			warnings = addWarning(warnings, WarningCacheDegraded)
+			a.reportProgress("Cache promotion degraded; the release image remains valid.")
+		} else {
+			a.reportProgress("Cache promotion completed.")
+		}
 	}
 	a.reportProgress("Build completed.")
 
@@ -301,6 +315,17 @@ func appendBuildInputs(args []string, request BuildRequest, contextPath string) 
 func cacheRegistryCredentials(request BuildRequest) RegistryCredentials {
 	return RegistryCredentials{Server: request.Registry.Server, RepositoryPrefix: request.Registry.RepositoryPrefix,
 		UsernameFile: request.Cache.UsernameFile, PasswordFile: request.Cache.PasswordFile}
+}
+
+func prepareCacheDockerAuth(directory string, credentials RegistryCredentials, hasImports bool) (bool, []Warning) {
+	if err := writeDockerAuth(directory, credentials); err != nil {
+		warnings := []Warning{WarningCacheDegraded}
+		if hasImports {
+			warnings = append(warnings, WarningColdBuild)
+		}
+		return false, warnings
+	}
+	return true, nil
 }
 
 func (a *Agent) availableCacheImports(ctx context.Context, configDirectory string, imports []string) []string {

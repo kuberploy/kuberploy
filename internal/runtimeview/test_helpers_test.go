@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	testNamespace     = "payments-production"
-	testApplicationID = "application-opaque-1"
-	testDeploymentUID = "deployment-uid-1"
-	testReplicaSetUID = "replicaset-uid-1"
-	testPodUID        = "pod-uid-1"
+	testNamespace      = "payments-production"
+	testApplicationID  = "application-opaque-1"
+	testDeploymentUID  = "deployment-uid-1"
+	testStatefulSetUID = "statefulset-uid-1"
+	testReplicaSetUID  = "replicaset-uid-1"
+	testPodUID         = "pod-uid-1"
 )
 
 var testTargetRef = OpaqueTarget{Kind: TargetDeployment, ID: "deployment-opaque-1"}
@@ -57,6 +58,7 @@ type fakeKubernetes struct {
 
 	security    ClientSecurity
 	deployment  Deployment
+	statefulSet StatefulSet
 	replicaSets []ReplicaSet
 	pods        []Pod
 	currentPods map[string]Pod
@@ -83,6 +85,14 @@ func (f *fakeKubernetes) GetDeployment(_ context.Context, namespace, name string
 	deployment := f.deployment
 	deployment.Selector = cloneSelector(deployment.Selector)
 	return deployment, nil
+}
+
+func (f *fakeKubernetes) GetStatefulSet(_ context.Context, namespace, name string) (StatefulSet, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	statefulSet := f.statefulSet
+	statefulSet.Selector = cloneSelector(statefulSet.Selector)
+	return statefulSet, nil
 }
 
 func (f *fakeKubernetes) ListReplicaSets(_ context.Context, _ string, selector LabelSelector) ([]ReplicaSet, error) {
@@ -173,6 +183,23 @@ func baseFixture() (*fakeResolver, *fakeKubernetes) {
 		security:    ClientSecurity{TLSVerified: true},
 		deployment:  deployment,
 		replicaSets: []ReplicaSet{replicaSet},
+		pods:        []Pod{pod},
+		currentPods: map[string]Pod{pod.Name: pod},
+	}
+	return resolver, client
+}
+
+func statefulSetFixture() (*fakeResolver, *fakeKubernetes) {
+	selector := LabelSelector{MatchLabels: map[string]string{
+		"app.kubernetes.io/name":   "kuberploy-runtime",
+		"kuberploy.io/application": testApplicationID,
+	}}
+	statefulSet := StatefulSet{Namespace: testNamespace, Name: "payments-db", UID: testStatefulSetUID, Selector: selector}
+	pod := Pod{Namespace: testNamespace, Name: "payments-db-0", UID: testPodUID, Owners: []OwnerReference{{UID: testStatefulSetUID, Kind: "StatefulSet", Controller: true}}, Containers: []Container{{Name: "application", Kind: ContainerRegular, RestartCount: 1}}, Ready: true}
+	resolver := &fakeResolver{target: AuthorizedTarget{Reference: testTargetRef, ApplicationID: testApplicationID, Namespace: testNamespace, Deployments: []DeploymentRef{{Kind: "StatefulSet", Name: statefulSet.Name, UID: statefulSet.UID}}}}
+	client := &fakeKubernetes{
+		security:    ClientSecurity{TLSVerified: true},
+		statefulSet: statefulSet,
 		pods:        []Pod{pod},
 		currentPods: map[string]Pod{pod.Name: pod},
 	}

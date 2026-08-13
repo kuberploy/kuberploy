@@ -31,9 +31,7 @@ var fixedNow = time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 
 func testRuntime() domain.WorkloadRuntime {
 	return domain.NormalizeWorkloadRuntime(domain.WorkloadRuntime{Replicas: 2,
-		Ports: []domain.WorkloadPort{{Name: "http", ContainerPort: 8080}},
-		SchedulingProfile: &domain.SchedulingProfileRef{ProfileID: policyID, Revision: 3,
-			SpecDigest: "sha256:" + repeat("a", 64), AssignmentsDigest: "sha256:" + repeat("b", 64)},
+		Ports:        []domain.WorkloadPort{{Name: "http", ContainerPort: 8080}},
 		NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"}})
 }
 
@@ -121,8 +119,8 @@ func TestPolicyCreationBindsExactResourcesAndStoresOnlyReusableInputs(t *testing
 	spec := intent["spec"].(map[string]any)
 	delivery := spec["delivery"].(map[string]any)
 	runtime := spec["runtime"].(map[string]any)
-	if len(delivery) != 1 || delivery["mode"] != "image" || runtime["nodeSelector"] != nil || runtime["schedulingProfile"] == nil {
-		t.Fatalf("derived fields retained or input reference lost: %#v", intent)
+	if len(delivery) != 1 || delivery["mode"] != "image" || runtime["nodeSelector"] == nil || runtime["schedulingProfile"] != nil {
+		t.Fatalf("direct scheduling intent was not retained canonically: %#v", intent)
 	}
 	// Release and RegistryPull are absent; the canonical image-only pipeline
 	// resolves both against the current registry state on every run.

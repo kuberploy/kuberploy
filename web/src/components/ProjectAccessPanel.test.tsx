@@ -62,6 +62,7 @@ function wrapper() {
 describe("project access management", () => {
   it("sends an exact application scope with optional viewer logs permission", async () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     const create = vi
       .spyOn(api, "createProjectAccessGrant")
       .mockResolvedValue(grant);
@@ -86,7 +87,7 @@ describe("project access management", () => {
     await screen.findByText("No explicit grants for this project.");
     await user.type(
       screen.getByRole("textbox", { name: /exact user id/i }),
-      grant.subjectUserId,
+      grant.subjectUserId!,
     );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Role" }),
@@ -111,8 +112,67 @@ describe("project access management", () => {
     expect(create.mock.calls[0]?.[2]).toEqual(expect.any(String));
   });
 
+  it("assigns one exact team subject without sending a user subject", async () => {
+    const teamGrant: AccessGrant = {
+      ...grant,
+      subjectUserId: undefined,
+      subjectTeamId: "55555555-5555-4555-8555-555555555555",
+      scopeType: "project",
+      scopeId: "project-1",
+    };
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({
+      items: [
+        {
+          id: teamGrant.subjectTeamId!,
+          name: "Backend",
+          slug: "backend",
+          createdAt: "2026-08-09T00:00:00Z",
+        },
+      ],
+    });
+    const create = vi
+      .spyOn(api, "createProjectAccessGrant")
+      .mockResolvedValue(teamGrant);
+    const user = userEvent.setup();
+    render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        capabilities={[organizationCapability]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Subject type" }),
+      "team",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Team" }),
+      teamGrant.subjectTeamId!,
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Role" }),
+      "viewer",
+    );
+    await user.click(screen.getByRole("button", { name: "Add grant" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(create.mock.calls[0]?.[1]).toEqual({
+      subjectTeamId: teamGrant.subjectTeamId,
+      role: "viewer",
+      scopeType: "project",
+      scopeId: "project-1",
+      permissions: [],
+    });
+  });
+
   it("requires typing the immutable grant ID before revocation", async () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [grant] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     const remove = vi
       .spyOn(api, "deleteProjectAccessGrant")
       .mockResolvedValue(undefined);
@@ -146,6 +206,7 @@ describe("project access management", () => {
 
   it("reuses the idempotency key when an unchanged create attempt is retried", async () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     const create = vi
       .spyOn(api, "createProjectAccessGrant")
       .mockRejectedValueOnce(new Error("connection interrupted"))
@@ -164,7 +225,7 @@ describe("project access management", () => {
 
     await user.type(
       await screen.findByRole("textbox", { name: /exact user id/i }),
-      grant.subjectUserId,
+      grant.subjectUserId!,
     );
     await user.click(screen.getByRole("button", { name: "Add grant" }));
     await screen.findByText("connection interrupted");
@@ -183,6 +244,7 @@ describe("project access management", () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({
       items: [organizationGrant],
     });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel

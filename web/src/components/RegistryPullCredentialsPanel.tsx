@@ -190,7 +190,15 @@ export function RegistryPullCredentialsPanel({
                   type="button"
                   variant="ghost"
                   disabled={selectedValue === credential.id || remove.isPending}
-                  onClick={() => remove.mutate(credential.id)}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Remove project pull credential ${credential.name}? Services will no longer be able to select it.`,
+                      )
+                    ) {
+                      remove.mutate(credential.id);
+                    }
+                  }}
                 >
                   Remove
                 </Button>

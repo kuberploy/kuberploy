@@ -198,7 +198,7 @@ export function AppShell({ user }: { user: Principal }) {
               onClick={() => setMobileOpen(false)}
             >
               <Icon name="refresh" />
-              <span>Platform upgrade</span>
+              <span>Platform releases</span>
             </Link>
           ) : null}
           {user.role === "platform-admin" ? (

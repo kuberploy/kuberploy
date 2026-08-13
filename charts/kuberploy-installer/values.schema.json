@@ -143,7 +143,7 @@
         "registry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "secretRevision", "exposureMode", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
+          "required": ["enabled", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "secretRevision", "exposureMode", "cloudflareProxied", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
           "properties": {
             "enabled": { "type": "boolean" },
             "targetID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
@@ -162,6 +162,7 @@
               "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._-]{0,127})$"
             },
             "exposureMode": { "enum": ["internal", "ingress", "loadBalancer"] },
+            "cloudflareProxied": { "type": "boolean" },
             "endpoint": { "$ref": "#/$defs/optionalDNSSubdomain" },
             "tlsSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
             "clusterIssuerName": { "$ref": "#/$defs/optionalDNSLabel" },
@@ -209,7 +210,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "targetID": { "const": "" }, "targetName": { "const": "" }, "repositoryPrefix": { "const": "" }, "lifecycleCredentialRef": { "const": "" }, "lifecycleCredentialSecretName": { "const": "" }, "pullCredentialRef": { "const": "" }, "pushCredentialRef": { "const": "" }, "cacheCredentialRef": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "authSecretName": { "const": "" }, "secretRevision": { "const": "" }, "exposureMode": { "const": "internal" }, "endpoint": { "const": "" }, "tlsSecretName": { "const": "" }, "clusterIssuerName": { "const": "" }, "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
+              "then": { "properties": { "targetID": { "const": "" }, "targetName": { "const": "" }, "repositoryPrefix": { "const": "" }, "lifecycleCredentialRef": { "const": "" }, "lifecycleCredentialSecretName": { "const": "" }, "pullCredentialRef": { "const": "" }, "pushCredentialRef": { "const": "" }, "cacheCredentialRef": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "authSecretName": { "const": "" }, "secretRevision": { "const": "" }, "exposureMode": { "const": "internal" }, "cloudflareProxied": { "const": false }, "endpoint": { "const": "" }, "tlsSecretName": { "const": "" }, "clusterIssuerName": { "const": "" }, "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
             },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },

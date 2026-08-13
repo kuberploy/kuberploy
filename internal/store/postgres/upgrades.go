@@ -61,7 +61,10 @@ func (s *Store) CreatePlatformUpgrade(ctx context.Context, actor, key, fingerpri
 		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, classify(err)
 	}
 	u := domain.PlatformUpgrade{ID: upgradeID, Version: in.Release.Version, ManifestDigest: in.Release.ManifestDigest, Manifest: in.Release.Manifest, ManifestBytes: append([]byte(nil), in.Release.ManifestBytes...), State: "queued", OperationID: opID, CreatedAt: now, UpdatedAt: now}
-	if _, err = tx.Exec(ctx, `INSERT INTO platform_upgrades(id,version,manifest_digest,manifest,manifest_bytes,state,operation_id,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$8)`, u.ID, u.Version, u.ManifestDigest, manifestJSON, u.ManifestBytes, u.State, u.OperationID, now); err != nil {
+	metadata := map[string]any{"action": "upgrade"}
+	metadataJSON, _ := json.Marshal(metadata)
+	u.Action, u.Result = "upgrade", metadata
+	if _, err = tx.Exec(ctx, `INSERT INTO platform_upgrades(id,version,manifest_digest,manifest,manifest_bytes,state,operation_id,result,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`, u.ID, u.Version, u.ManifestDigest, manifestJSON, u.ManifestBytes, u.State, u.OperationID, metadataJSON, now); err != nil {
 		if errors.Is(classify(err), base.ErrConflict) {
 			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
 		}
@@ -74,6 +77,80 @@ func (s *Store) CreatePlatformUpgrade(ctx context.Context, actor, key, fingerpri
 		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
 	}
 	if err = putIdem(ctx, tx, actor, "platform-upgrades.create", key, fingerprint, "platform-upgrade", u.ID, &opID); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, classify(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	return base.Result[domain.PlatformUpgrade]{Value: u}, op, nil
+}
+
+func (s *Store) CreatePlatformRollback(ctx context.Context, actor, key, fingerprint, requestID string, in domain.CreatePlatformRollback) (base.Result[domain.PlatformUpgrade], domain.Operation, error) {
+	if in.HelmRevision < 1 || in.HelmRevision > 1_000_000 {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('kuberploy-platform-upgrade'))`); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if old, ok, idemErr := findIdem(ctx, tx, actor, "platform-upgrades.rollback", key); idemErr != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, idemErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrIdempotencyConflict
+		}
+		u, getErr := getPlatformUpgrade(ctx, tx, old.resourceID)
+		if getErr != nil {
+			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, getErr
+		}
+		op, getErr := getOperation(ctx, tx, u.OperationID)
+		return base.Result[domain.PlatformUpgrade]{Value: u, Replay: true}, op, getErr
+	}
+	var active bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM platform_upgrades WHERE state IN ('queued','running'))`).Scan(&active); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if active {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
+	}
+	source, err := getPlatformUpgrade(ctx, tx, in.SourceUpgradeID)
+	if err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if source.State != "succeeded" || !base.ExactSHA256Matches(source.ManifestBytes, source.ManifestDigest) {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
+	}
+	now := time.Now().UTC()
+	upgradeID, opID := id.New(), id.New()
+	manifestJSON, err := json.Marshal(source.Manifest)
+	if err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	metadata := map[string]any{"action": "rollback", "helmRevision": in.HelmRevision, "sourceUpgradeId": source.ID}
+	metadataJSON, _ := json.Marshal(metadata)
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "rollback", Status: "pending"}})
+	op := domain.Operation{ID: opID, Kind: "platform.upgrade", Status: "queued", TargetType: "platform-upgrade", TargetID: upgradeID, RequestID: requestID, Generation: 1, Progress: []domain.ProgressStep{{Name: "rollback", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
+	if _, err = tx.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`, op.ID, op.Kind, op.Status, op.TargetType, op.TargetID, op.RequestID, op.Generation, progress, now); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, classify(err)
+	}
+	u := domain.PlatformUpgrade{ID: upgradeID, Version: source.Version, ManifestDigest: source.ManifestDigest, Manifest: source.Manifest, ManifestBytes: append([]byte(nil), source.ManifestBytes...), State: "queued", OperationID: opID, Result: metadata, Action: "rollback", HelmRevision: in.HelmRevision, SourceUpgradeID: source.ID, CreatedAt: now, UpdatedAt: now}
+	if _, err = tx.Exec(ctx, `INSERT INTO platform_upgrades(id,version,manifest_digest,manifest,manifest_bytes,state,operation_id,result,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`, u.ID, u.Version, u.ManifestDigest, manifestJSON, u.ManifestBytes, u.State, u.OperationID, metadataJSON, now); err != nil {
+		if errors.Is(classify(err), base.ErrConflict) {
+			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
+		}
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES($1,$2,$3,$4,$5)`, op.ID, op.Kind, u.ID, op.Generation, requestID); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if err = audit(ctx, tx, actor, "platform.rollback.accepted", "platform-upgrade", u.ID, requestID, map[string]any{"operationId": op.ID, "sourceUpgradeId": source.ID, "helmRevision": in.HelmRevision}); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if err = putIdem(ctx, tx, actor, "platform-upgrades.rollback", key, fingerprint, "platform-upgrade", u.ID, &opID); err != nil {
 		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, classify(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -99,7 +176,48 @@ func getPlatformUpgrade(ctx context.Context, q interface {
 			return u, err
 		}
 	}
+	hydratePlatformUpgrade(&u)
 	return u, nil
+}
+
+func hydratePlatformUpgrade(u *domain.PlatformUpgrade) {
+	u.Action = "upgrade"
+	if action, ok := u.Result["action"].(string); ok && action == "rollback" {
+		u.Action = action
+	}
+	if revision, ok := u.Result["helmRevision"].(float64); ok {
+		u.HelmRevision = int64(revision)
+	}
+	if source, ok := u.Result["sourceUpgradeId"].(string); ok {
+		u.SourceUpgradeID = source
+	}
+}
+
+func (s *Store) ListPlatformUpgrades(ctx context.Context) ([]domain.PlatformUpgrade, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id,version,manifest_digest,manifest,manifest_bytes,state,operation_id,runner_ref,result,created_at,updated_at FROM platform_upgrades ORDER BY created_at DESC LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]domain.PlatformUpgrade, 0)
+	for rows.Next() {
+		var u domain.PlatformUpgrade
+		var manifest, result []byte
+		if err = rows.Scan(&u.ID, &u.Version, &u.ManifestDigest, &manifest, &u.ManifestBytes, &u.State, &u.OperationID, &u.RunnerRef, &result, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(manifest, &u.Manifest); err != nil {
+			return nil, err
+		}
+		if len(result) > 0 {
+			if err = json.Unmarshal(result, &u.Result); err != nil {
+				return nil, err
+			}
+		}
+		hydratePlatformUpgrade(&u)
+		items = append(items, u)
+	}
+	return items, rows.Err()
 }
 func (s *Store) GetPlatformUpgrade(ctx context.Context, id string) (domain.PlatformUpgrade, error) {
 	return getPlatformUpgrade(ctx, s.pool, id)
@@ -126,10 +244,10 @@ func (s *Store) RequeueOperation(ctx context.Context, operationID string, genera
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	now := time.Now().UTC()
-	var kind, status, owner string
+	var kind, status, owner, action string
 	var gen int64
 	var leaseUntil *time.Time
-	if err = tx.QueryRow(ctx, `SELECT kind,status,generation,COALESCE(lease_owner,''),lease_until FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&kind, &status, &gen, &owner, &leaseUntil); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT o.kind,o.status,o.generation,COALESCE(o.lease_owner,''),o.lease_until,COALESCE(u.result->>'action','') FROM operations o LEFT JOIN platform_upgrades u ON u.operation_id=o.id WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&kind, &status, &gen, &owner, &leaseUntil, &action); err != nil {
 		return classify(err)
 	}
 	if gen != generation || kind != "platform.upgrade" && kind != "deployment.git-write" && kind != "variable-set.git-write" {
@@ -146,13 +264,16 @@ func (s *Store) RequeueOperation(ctx context.Context, operationID string, genera
 	step := "git-write"
 	if kind == "platform.upgrade" {
 		step = "upgrade"
+		if action == "rollback" {
+			step = "rollback"
+		}
 	}
 	progress, _ := json.Marshal([]domain.ProgressStep{{Name: step, Status: "pending", Detail: detail}})
 	if _, err = tx.Exec(ctx, `UPDATE operations SET status='queued',problem=NULL,progress=$2,lease_owner=NULL,lease_until=NULL,updated_at=$3,finished_at=NULL WHERE id=$1`, operationID, progress, now); err != nil {
 		return err
 	}
 	if kind == "platform.upgrade" {
-		upgradeTag, updateErr := tx.Exec(ctx, `UPDATE platform_upgrades SET state='queued',result=jsonb_build_object('code',$2,'detail',$3),updated_at=$4 WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, code, detail, now)
+		upgradeTag, updateErr := tx.Exec(ctx, `UPDATE platform_upgrades SET state='queued',result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$2,'detail',$3),updated_at=$4 WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, code, detail, now)
 		if updateErr != nil {
 			return updateErr
 		}
@@ -169,10 +290,10 @@ func (s *Store) CompleteUpgradeOperation(ctx context.Context, operationID string
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var targetID, actorID, requestID, status, owner, kind string
+	var targetID, actorID, requestID, status, owner, kind, action string
 	var gen int64
 	var leaseUntil *time.Time
-	if err = tx.QueryRow(ctx, `SELECT target_id,status,generation,request_id,kind,COALESCE(lease_owner,''),lease_until FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&targetID, &status, &gen, &requestID, &kind, &owner, &leaseUntil); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT o.target_id,o.status,o.generation,o.request_id,o.kind,COALESCE(o.lease_owner,''),o.lease_until,COALESCE(u.result->>'action','upgrade') FROM operations o LEFT JOIN platform_upgrades u ON u.operation_id=o.id WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&targetID, &status, &gen, &requestID, &kind, &owner, &leaseUntil, &action); err != nil {
 		return classify(err)
 	}
 	if status == "succeeded" {
@@ -185,12 +306,16 @@ func (s *Store) CompleteUpgradeOperation(ctx context.Context, operationID string
 	if !validOperationLease(status, owner, leaseUntil, worker, now) {
 		return base.ErrOperationLeaseLost
 	}
-	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "upgrade", Status: "succeeded", Detail: "runner completed: " + runnerRef, FinishedAt: &now}})
+	step := "upgrade"
+	if action == "rollback" {
+		step = "rollback"
+	}
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: step, Status: "succeeded", Detail: "runner completed: " + runnerRef, FinishedAt: &now}})
 	resultJSON, _ := json.Marshal(result)
 	if _, err = tx.Exec(ctx, `UPDATE operations SET status='succeeded',progress=$2,lease_owner=NULL,lease_until=NULL,updated_at=$3,finished_at=$3 WHERE id=$1`, operationID, progress, now); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='succeeded',runner_ref=$2,result=$3,updated_at=$4 WHERE id=$1`, targetID, runnerRef, resultJSON, now); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='succeeded',runner_ref=$2,result=COALESCE(result,'{}'::jsonb) || $3::jsonb,updated_at=$4 WHERE id=$1`, targetID, runnerRef, string(resultJSON), now); err != nil {
 		return err
 	}
 	err = tx.QueryRow(ctx, `SELECT actor_id FROM mutation_receipts WHERE receipt_kind='resource' AND operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)
@@ -198,7 +323,11 @@ func (s *Store) CompleteUpgradeOperation(ctx context.Context, operationID string
 		return err
 	}
 	if actorID != "" {
-		if err = audit(ctx, tx, actorID, "platform.upgrade.succeeded", "platform-upgrade", targetID, requestID, map[string]any{"operationId": operationID, "runnerRef": runnerRef}); err != nil {
+		auditAction := "platform.upgrade.succeeded"
+		if action == "rollback" {
+			auditAction = "platform.rollback.succeeded"
+		}
+		if err = audit(ctx, tx, actorID, auditAction, "platform-upgrade", targetID, requestID, map[string]any{"operationId": operationID, "runnerRef": runnerRef}); err != nil {
 			return err
 		}
 	}

@@ -144,14 +144,15 @@ export function ConfigEditor({
   }, [bundle.isPending, fallback, rawYaml, serverDocument]);
 
   const yamlError = rawYaml ? validateYaml(rawYaml) : null;
-  const guided = useMemo(() => {
-    if (!rawYaml) return null;
+  const guidedDraft = useMemo(() => {
+    if (!rawYaml) return { value: null, error: null };
     try {
-      return guidedConfigFromYaml(rawYaml);
-    } catch {
-      return null;
+      return { value: guidedConfigFromYaml(rawYaml), error: null };
+    } catch (error) {
+      return { value: null, error: errorMessage(error) };
     }
   }, [rawYaml]);
+  const guided = guidedDraft.value;
   const documentId =
     serverDocument?.documentId ?? serverDocument?.id ?? "app.yaml";
   const change: ConfigChange = {
@@ -324,9 +325,6 @@ export function ConfigEditor({
           runtimeSecretReferencesEnabled={
             capabilities.data?.features?.secretBindings === true
           }
-          schedulingProfilesEnabled={
-            capabilities.data?.features?.schedulingProfiles === true
-          }
           reusableMiddlewareProfilesEnabled={
             capabilities.data?.features?.middlewareProfiles === true
           }
@@ -360,6 +358,25 @@ export function ConfigEditor({
             }
           }}
         />
+      ) : null}
+      {tab === "form" && !guided && rawYaml ? (
+        <div className="notice notice--warning" role="alert">
+          <div>
+            <strong>This configuration needs Advanced YAML</strong>
+            <p>
+              Guided mode cannot safely represent this draft:{" "}
+              {guidedDraft.error} The original YAML is preserved without
+              modification.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setTab("yaml")}
+          >
+            Inspect Advanced YAML
+          </Button>
+        </div>
       ) : null}
       {tab === "yaml" ? (
         <div className="advanced-editor">

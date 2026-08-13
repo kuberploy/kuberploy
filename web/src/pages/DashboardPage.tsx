@@ -28,6 +28,16 @@ export function DashboardPage() {
     queryFn: api.operations,
     refetchInterval: 5_000,
   });
+  const capabilities = useQuery({
+    queryKey: ["capabilities"],
+    queryFn: api.capabilities,
+    retry: false,
+  });
+  const monitoring = useQuery({
+    queryKey: ["monitoring-status"],
+    queryFn: api.monitoringStatus,
+    retry: false,
+  });
 
   const error =
     projects.error ??
@@ -86,6 +96,48 @@ export function DashboardPage() {
             <span>{label}</span>
             <strong>{loading ? "—" : value}</strong>
             <small>{detail}</small>
+          </div>
+        ))}
+      </section>
+
+      <section className="summary-strip" aria-label="Platform health">
+        {[
+          [
+            "GitOps",
+            dashboardFeatureState(capabilities.data?.featureStates, [
+              "gitops",
+              "git",
+            ]),
+          ],
+          [
+            "Argo CD",
+            dashboardFeatureState(capabilities.data?.featureStates, [
+              "argoCD",
+              "argo",
+            ]),
+          ],
+          [
+            "Edge",
+            dashboardFeatureState(capabilities.data?.featureStates, [
+              "traefik",
+              "edge",
+            ]),
+          ],
+          [
+            "Monitoring",
+            monitoring.data?.available
+              ? "healthy"
+              : monitoring.data?.status === "unavailable"
+                ? "unavailable"
+                : monitoring.data?.mode === "disabled"
+                  ? "disabled"
+                  : "pending",
+          ],
+        ].map(([label, state]) => (
+          <div className="summary-strip__item" key={label}>
+            <span>{label}</span>
+            <StatusPill value={state} />
+            <small>Platform runtime</small>
           </div>
         ))}
       </section>
@@ -191,4 +243,12 @@ export function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function dashboardFeatureState(
+  states: Record<string, "disabled" | "unavailable" | "healthy"> | undefined,
+  names: string[],
+) {
+  const key = names.find((name) => states?.[name]);
+  return key ? states![key]! : "pending";
 }

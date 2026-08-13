@@ -53,6 +53,13 @@ kp_expected_image='docker.io/library/registry:3.1.1'
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.rules[0].host' "${kp_auth_render}")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.tls[0].secretName' "${kp_auth_render}")" == "registry-tls" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."external-dns.alpha.kubernetes.io/cloudflare-proxied"' "${kp_auth_render}")" == "false" ]]
+
+kp_proxied_render="${kp_tmp}/cloudflare-proxied.yaml"
+helm template proxied "${kp_chart}" \
+  --namespace kuberploy-system \
+  -f "${kp_auth_values}" \
+  --set exposure.cloudflareProxied=true >"${kp_proxied_render}"
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."external-dns.alpha.kubernetes.io/cloudflare-proxied"' "${kp_proxied_render}")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .metadata.name == "authenticated") | .metadata.annotations."traefik.ingress.kubernetes.io/service.serversscheme"' "${kp_auth_render}")" == "https" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .metadata.name == "authenticated") | .metadata.annotations."traefik.ingress.kubernetes.io/service.serverstransport"' "${kp_auth_render}")" == "kuberploy-registry-authenticated-backend@kubernetescrd" ]]
 [[ "$(yq eval-all 'select(.kind == "Ingress") | .metadata.annotations."traefik.ingress.kubernetes.io/service.serverstransport"' "${kp_auth_render}")" == "null" ]]

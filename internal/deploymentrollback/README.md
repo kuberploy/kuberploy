@@ -21,6 +21,6 @@ unverified, rather than being described as registry-verified.
 HTTP must first use `ResolveAuthorized` and attempt exact idempotent replay with
 an invalid Git plan. Only a genuinely new command calls `VerifyArtifact`, then
 passes the reconstructed `CreateDeployment` through the ordinary deployment
-submission path. That path freshly re-resolves scheduling profiles, runtime
+submission path. That path freshly revalidates direct application scheduling, runtime
 secret references, private pull policy, sslip/edge policy, protected Git
 planning, Git/Argo readiness, and direct-versus-pull-request publication.

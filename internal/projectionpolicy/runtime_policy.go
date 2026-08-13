@@ -10,11 +10,13 @@ import (
 	"github.com/kuberploy/kuberploy/internal/edge"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
 
-const runtimePolicyContract = "appconfig-dynamic-policy.v5"
+const (
+	runtimePolicyContract    = "appconfig-dynamic-policy.v6"
+	directSchedulingContract = "direct-workload-scheduling.v1"
+)
 
 // RuntimePolicyDigest fences Git projection readiness to every dynamic policy
 // input used during activation. It contains only safe configuration digests,
@@ -49,7 +51,7 @@ func RuntimePolicyDigest(secretConfig secrets.RuntimeConfig, certificateConfig c
 		EdgeRoutes         string `json:"edgeRoutes"`
 		Scheduling         string `json:"scheduling"`
 		Middleware         string `json:"middleware"`
-	}{runtimePolicyContract, secretDigest, certificateDigest, issuerDigest, pullDigest, edgeDigest, scheduling.Contract, middlewareprofiles.Contract})
+	}{runtimePolicyContract, secretDigest, certificateDigest, issuerDigest, pullDigest, edgeDigest, directSchedulingContract, middlewareprofiles.Contract})
 	if err != nil {
 		return "", imagepull.ErrInvalid
 	}

@@ -68,10 +68,12 @@ second ingress controller. Both public modes use an exact cert-manager
 Certificate; `endpoint` may be a hostname or IPv4 address supported by the
 selected admin-managed ClusterIssuer.
 
-OCI registry records must be DNS-only when Cloudflare is the DNS provider.
-Kuberploy stamps `external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"`
-on the registry Ingress and dedicated LB Service and rejects attempts to
-override it. Cloudflare-proxied registry uploads are unsupported.
+OCI registry records default to DNS-only when Cloudflare is the DNS provider.
+Set `exposure.cloudflareProxied: true` only for bounded test images that fit
+the Cloudflare plan's request-size limits. Kuberploy owns the resulting
+`external-dns.alpha.kubernetes.io/cloudflare-proxied` annotation; arbitrary
+annotation overrides remain rejected. Production registries should normally
+use DNS-only or a private LoadBalancer.
 
 The registry configuration uses the Distribution 3 path
 `/etc/distribution/config.yml`, stores content under `/var/lib/registry`, and

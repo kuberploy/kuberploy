@@ -138,7 +138,9 @@ describe("platform upgrade navigation", () => {
       "platform-admin",
     );
     await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
-    expect(screen.queryByRole("link", { name: "Platform upgrade" })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Platform releases" }),
+    ).toBeNull();
 
     cleanup();
     const exact = {
@@ -152,23 +154,21 @@ describe("platform upgrade navigation", () => {
     };
     renderShell(exact, "platform-admin", "session");
     expect(
-      await screen.findByRole("link", { name: "Platform upgrade" }),
+      await screen.findByRole("link", { name: "Platform releases" }),
     ).toHaveAttribute("href", "/settings/upgrade");
 
     cleanup();
     renderShell(exact, "platform-admin", "service-account");
     await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
-    expect(screen.queryByRole("link", { name: "Platform upgrade" })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: "Platform releases" }),
+    ).toBeNull();
   });
 });
 
 describe("application scheduling navigation", () => {
   it("keeps scheduling in each service configuration instead of platform navigation", async () => {
-    renderShell(
-      { features: { schedulingProfiles: true } },
-      "platform-admin",
-      "session",
-    );
+    renderShell({ features: {} }, "platform-admin", "session");
 
     await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
     expect(

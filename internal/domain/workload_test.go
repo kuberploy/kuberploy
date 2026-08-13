@@ -35,6 +35,26 @@ func TestWorkloadDeploymentStrategyIsClosed(t *testing.T) {
 	}
 }
 
+func TestWorkloadRejectsKubernetesSystemPriorityClasses(t *testing.T) {
+	for _, name := range []string{"system-node-critical", "system-cluster-critical", "system-future-critical"} {
+		runtime := NormalizeWorkloadRuntime(WorkloadRuntime{
+			PriorityClassName: name,
+			Ports:             []WorkloadPort{{Name: "http", ContainerPort: 8080}},
+		})
+		problems := ValidateWorkloadRuntime(runtime)
+		if len(problems) != 1 || problems[0].Pointer != "/runtime/priorityClassName" || problems[0].Code != "ReservedPriorityClass" {
+			t.Fatalf("%s problems=%#v", name, problems)
+		}
+	}
+	ordinary := NormalizeWorkloadRuntime(WorkloadRuntime{
+		PriorityClassName: "workload-high",
+		Ports:             []WorkloadPort{{Name: "http", ContainerPort: 8080}},
+	})
+	if problems := ValidateWorkloadRuntime(ordinary); len(problems) != 0 {
+		t.Fatalf("ordinary priority class rejected: %#v", problems)
+	}
+}
+
 func TestCompleteSchedulingContractIsValid(t *testing.T) {
 	plain := "info"
 	minDomains := 2

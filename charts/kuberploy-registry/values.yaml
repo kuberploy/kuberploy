@@ -20,8 +20,9 @@ auth:
   secretRevision: ""
 
 service:
-  # This chart never exposes a node port or load balancer. Optional HTTPS
-  # exposure is routed through the shared Traefik/cert-manager edge layer.
+  # The registry backend always stays ClusterIP. Optional HTTPS exposure is
+  # routed through the shared Traefik/cert-manager edge layer; loadBalancer
+  # mode exposes those Traefik pods, never this backend directly.
   type: ClusterIP
   port: 5000
   # Optional exact address for an operator-owned test/service network. Empty
@@ -30,6 +31,9 @@ service:
 
 exposure:
   mode: internal
+  # Optional for bounded test images. Cloudflare's proxy upload limits make
+  # DNS-only the production-safe default for general OCI workloads.
+  cloudflareProxied: false
   endpoint: ""
   ingressClassName: traefik
   secretName: ""

@@ -259,6 +259,21 @@ export function ApplicationPage() {
                     "deploy",
                   ],
                   [
+                    "Ready replicas",
+                    status.data?.readyReplicas !== undefined &&
+                    status.data?.desiredReplicas !== undefined
+                      ? `${status.data.readyReplicas}/${status.data.desiredReplicas}`
+                      : "unknown",
+                    "deploy",
+                  ],
+                  [
+                    "Rollout condition",
+                    status.data?.rolloutConditions?.find(
+                      (condition) => condition.status === "True",
+                    )?.type ?? "unknown",
+                    "refresh",
+                  ],
+                  [
                     "Git revision",
                     pullRequest && !status.data?.desiredRevision
                       ? `review-${pullRequest.state}`
@@ -359,7 +374,8 @@ export function ApplicationPage() {
                       <dt>Observed revision</dt>
                       <dd>
                         <code>
-                          {status.data?.observedRevision ??
+                          {status.data?.argoObservedRevision ??
+                            status.data?.observedRevision ??
                             deployment.data.observedRevision ??
                             "Not reported"}
                         </code>

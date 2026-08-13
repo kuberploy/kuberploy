@@ -33,10 +33,14 @@ func NewRuntimeViewService(st store.Store, client runtimeview.KubernetesClient) 
 	if err != nil {
 		return nil, err
 	}
-	return &runtimeViewAdapter{service: service}, nil
+	return &runtimeViewAdapter{service: service, store: st, client: client}, nil
 }
 
-type runtimeViewAdapter struct{ service *runtimeview.Service }
+type runtimeViewAdapter struct {
+	service *runtimeview.Service
+	store   store.Store
+	client  runtimeview.KubernetesClient
+}
 
 func (a *runtimeViewAdapter) Snapshot(ctx context.Context, request runtimeview.SnapshotRequest) (runtimeview.LogSnapshot, error) {
 	return a.service.Snapshot(ctx, request)
@@ -52,6 +56,48 @@ func (a *runtimeViewAdapter) Follow(ctx context.Context, request runtimeview.Fol
 		return nil, err
 	}
 	return runtimeLogStream{stream}, nil
+}
+
+func (a *runtimeViewAdapter) Rollout(ctx context.Context, deploymentID string) (runtimeview.RolloutStatus, error) {
+	if !validUUID(deploymentID) {
+		return runtimeview.RolloutStatus{}, runtimeview.ErrNotFound
+	}
+	actor := currentUser(ctx).ID
+	deployment, err := a.store.GetDeploymentForActor(ctx, actor, deploymentID)
+	if err != nil {
+		return runtimeview.RolloutStatus{}, collapseRuntimeAuthorization(err)
+	}
+	environment, err := a.store.GetEnvironment(ctx, deployment.EnvironmentID)
+	if err != nil {
+		return runtimeview.RolloutStatus{}, collapseRuntimeAuthorization(err)
+	}
+	application, err := a.store.GetApplication(ctx, deployment.ApplicationID)
+	if err != nil || application.ProjectID != environment.ProjectID {
+		return runtimeview.RolloutStatus{}, runtimeview.ErrNotFound
+	}
+	workloadType := deployment.Runtime.WorkloadType
+	if workloadType == "" {
+		workloadType = "Deployment"
+	}
+	if workloadType == "StatefulSet" {
+		reader, ok := a.client.(runtimeview.StatefulSetReader)
+		if !ok {
+			return runtimeview.RolloutStatus{}, runtimeview.ErrNotFound
+		}
+		live, readErr := reader.GetStatefulSet(ctx, environment.Namespace, runtimeDeploymentName(application.ID))
+		if readErr != nil {
+			return runtimeview.RolloutStatus{}, readErr
+		}
+		return runtimeview.RolloutStatus{DesiredReplicas: live.DesiredReplicas, ReadyReplicas: live.ReadyReplicas,
+			Conditions: append([]runtimeview.DeploymentCondition(nil), live.Conditions...), CurrentRevision: live.CurrentRevision,
+			UpdateRevision: live.UpdateRevision, ObservedAt: time.Now().UTC()}, nil
+	}
+	live, err := a.client.GetDeployment(ctx, environment.Namespace, runtimeDeploymentName(application.ID))
+	if err != nil {
+		return runtimeview.RolloutStatus{}, err
+	}
+	return runtimeview.RolloutStatus{DesiredReplicas: live.DesiredReplicas, ReadyReplicas: live.ReadyReplicas,
+		Conditions: append([]runtimeview.DeploymentCondition(nil), live.Conditions...), ObservedAt: time.Now().UTC()}, nil
 }
 
 type runtimeLogStream struct{ stream *runtimeview.Stream }
@@ -85,6 +131,24 @@ func (r *runtimeResolver) Resolve(ctx context.Context, target runtimeview.Opaque
 		return runtimeview.AuthorizedTarget{}, runtimeview.ErrNotFound
 	}
 	name := runtimeDeploymentName(application.ID)
+	workloadType := deployment.Runtime.WorkloadType
+	if workloadType == "" {
+		workloadType = "Deployment"
+	}
+	if workloadType == "StatefulSet" {
+		reader, ok := r.client.(runtimeview.StatefulSetReader)
+		if !ok {
+			return runtimeview.AuthorizedTarget{}, runtimeview.ErrNotFound
+		}
+		live, readErr := reader.GetStatefulSet(ctx, environment.Namespace, name)
+		if readErr != nil {
+			return runtimeview.AuthorizedTarget{}, readErr
+		}
+		return runtimeview.AuthorizedTarget{
+			Reference: target, ApplicationID: application.ID, Namespace: environment.Namespace,
+			Deployments: []runtimeview.DeploymentRef{{Kind: "StatefulSet", Name: name, UID: live.UID}},
+		}, nil
+	}
 	live, err := r.client.GetDeployment(ctx, environment.Namespace, name)
 	if err != nil {
 		return runtimeview.AuthorizedTarget{}, err
@@ -93,7 +157,7 @@ func (r *runtimeResolver) Resolve(ctx context.Context, target runtimeview.Opaque
 		Reference:     target,
 		ApplicationID: application.ID,
 		Namespace:     environment.Namespace,
-		Deployments:   []runtimeview.DeploymentRef{{Name: name, UID: live.UID}},
+		Deployments:   []runtimeview.DeploymentRef{{Kind: "Deployment", Name: name, UID: live.UID}},
 	}, nil
 }
 
@@ -156,7 +220,11 @@ func (s *Server) applicationWorkloads(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, r, http.StatusInternalServerError, "RuntimeProjectionInvalid", "Runtime view unavailable", "The workload ownership projection is inconsistent.")
 			return
 		}
-		items = append(items, workloadView{ID: deployment.ID, Name: runtimeDeploymentName(application.ID), Kind: "Deployment", Namespace: environment.Namespace, Replicas: deployment.Runtime.Replicas, Revision: deployment.DesiredRevision, State: deployment.State})
+		kind := deployment.Runtime.WorkloadType
+		if kind == "" {
+			kind = "Deployment"
+		}
+		items = append(items, workloadView{ID: deployment.ID, Name: runtimeDeploymentName(application.ID), Kind: kind, Namespace: environment.Namespace, Replicas: deployment.Runtime.Replicas, Revision: deployment.DesiredRevision, State: deployment.State})
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].Namespace != items[j].Namespace {

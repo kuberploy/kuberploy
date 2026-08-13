@@ -19,7 +19,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	"github.com/kuberploy/kuberploy/internal/projectionpolicy"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
 
@@ -36,7 +35,6 @@ type gitProjectionRuntime struct {
 	workerID     string
 	startedAt    time.Time
 	sslip        *edge.PostgreSQLSSLIPResolver
-	scheduling   *scheduling.PostgresStore
 	middleware   *middlewareprofiles.PostgresStore
 }
 
@@ -172,24 +170,15 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 		}
 		edgePolicy.SSLIP = sslipResolver
 	}
-	schedulingStore, err := scheduling.OpenPostgresStore(ctx, databaseURL, "kuberploy-git-scheduling-policy")
-	if err != nil {
-		if sslipResolver != nil {
-			sslipResolver.Close()
-		}
-		store.Close()
-		return nil, err
-	}
 	middlewareStore, err := middlewareprofiles.OpenPostgresStore(ctx, databaseURL, "kuberploy-git-middleware-policy")
 	if err != nil {
-		schedulingStore.Close()
 		if sslipResolver != nil {
 			sslipResolver.Close()
 		}
 		store.Close()
 		return nil, err
 	}
-	policy := &projectionpolicy.Validator{Edge: edgePolicy, ExternalDNSRuntime: edgePolicy, Scheduling: schedulingStore, Middleware: middlewareStore}
+	policy := &projectionpolicy.Validator{Edge: edgePolicy, ExternalDNSRuntime: edgePolicy, Middleware: middlewareStore}
 	if secretConfig.Enabled {
 		policy.Secrets = &projectionpolicy.RuntimeSecretReferencePolicy{Config: secretConfig}
 	}
@@ -226,7 +215,7 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 	projectionWriter.Publications, projectionWriter.PullRequests = store, publicationService
 	return &gitProjectionRuntime{store: store, coordinator: coordinator, writer: &projectionOperationWriter{projection: projectionWriter},
 		publications: publicationReconciler, policy: policy, policyDigest: policyDigest, headVerifier: verifier, writeManager: writeManager,
-		identity: identity, workerID: workerLeaseOwner(processIdentity, "git-runtime"), startedAt: time.Now().UTC(), sslip: sslipResolver, scheduling: schedulingStore, middleware: middlewareStore}, nil
+		identity: identity, workerID: workerLeaseOwner(processIdentity, "git-runtime"), startedAt: time.Now().UTC(), sslip: sslipResolver, middleware: middlewareStore}, nil
 }
 
 func (r *gitProjectionRuntime) Run(ctx context.Context) error {
@@ -284,9 +273,6 @@ func (r *gitProjectionRuntime) Close() {
 	if r != nil {
 		if r.sslip != nil {
 			r.sslip.Close()
-		}
-		if r.scheduling != nil {
-			r.scheduling.Close()
 		}
 		if r.middleware != nil {
 			r.middleware.Close()

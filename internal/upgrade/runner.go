@@ -43,6 +43,8 @@ type ExecutableRequest struct {
 	TargetVersion  string `json:"targetVersion"`
 	ManifestDigest string `json:"manifestDigest"`
 	ManifestBytes  []byte `json:"manifestBytes"`
+	Action         string `json:"action"`
+	HelmRevision   int64  `json:"helmRevision,omitempty"`
 }
 
 func (e Executable) Run(ctx context.Context, op domain.Operation, u domain.PlatformUpgrade) (Result, error) {
@@ -50,7 +52,11 @@ func (e Executable) Run(ctx context.Context, op domain.Operation, u domain.Platf
 		return Result{}, errors.New("upgrade runner executable path is empty")
 	}
 	jobName := JobName(op.ID, op.Generation)
-	request := ExecutableRequest{OperationID: op.ID, Generation: op.Generation, JobName: jobName, Namespace: e.Namespace, ReleaseName: e.ReleaseName, TargetVersion: u.Version, ManifestDigest: u.ManifestDigest, ManifestBytes: append([]byte(nil), u.ManifestBytes...)}
+	action := u.Action
+	if action == "" {
+		action = "upgrade"
+	}
+	request := ExecutableRequest{OperationID: op.ID, Generation: op.Generation, JobName: jobName, Namespace: e.Namespace, ReleaseName: e.ReleaseName, TargetVersion: u.Version, ManifestDigest: u.ManifestDigest, ManifestBytes: append([]byte(nil), u.ManifestBytes...), Action: action, HelmRevision: u.HelmRevision}
 	body, err := json.Marshal(request)
 	if err != nil {
 		return Result{}, err

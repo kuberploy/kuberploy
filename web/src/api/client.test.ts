@@ -653,54 +653,6 @@ describe("typed API client", () => {
     expect(deployment.observedRevision).toBe("abc122");
   });
 
-  it("posts only the release version and immutable manifest digest for upgrades", async () => {
-    const operationFixture: OperationWire = {
-      id: "01900000-0000-7000-8000-000000000020",
-      kind: "platform.upgrade",
-      status: "queued",
-      targetType: "platform-upgrade",
-      targetId: "01900000-0000-7000-8000-000000000021",
-      requestId: "req_upgrade",
-      generation: 1,
-      progress: [{ name: "verify-release", status: "pending" }],
-      createdAt: "2026-08-06T00:00:00Z",
-      updatedAt: "2026-08-06T00:00:00Z",
-    };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(operationFixture), {
-        status: 202,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    document.cookie = "kuberploy_csrf=upgrade-csrf; path=/";
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(
-      "00000000-0000-4000-8000-000000000099",
-    );
-
-    const operation = await api.startPlatformUpgrade({
-      targetVersion: "1.1.0",
-      manifestDigest: `sha256:${"b".repeat(64)}`,
-    });
-
-    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
-    const headers = new Headers(init.headers);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/platform/upgrades");
-    expect(JSON.parse(String(init.body))).toEqual({
-      targetVersion: "1.1.0",
-      manifestDigest: `sha256:${"b".repeat(64)}`,
-    });
-    expect(headers.get("Idempotency-Key")).toBeTruthy();
-    expect(headers.get("X-CSRF-Token")).toBe("upgrade-csrf");
-    expect(operation).toMatchObject({
-      state: "queued",
-      target: {
-        id: operationFixture.targetId,
-        type: "platform-upgrade",
-      },
-    });
-  });
-
   it("surfaces RFC 9457 details as an ApiError", async () => {
     vi.stubGlobal(
       "fetch",

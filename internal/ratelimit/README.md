@@ -19,7 +19,7 @@ buckets at a fixed capacity.
 
 The API applies the distributed limiter to bootstrap and invitation exchange,
 invitation issuance, access-control changes, service-account and token
-management, runtime-secret writes, and platform upgrades. It returns `429`
+management and runtime-secret writes. It returns `429`
 with a rounded-up `Retry-After` when the distributed decision denies a request.
 If Valkey is unavailable, these endpoints return retryable `503` with
 `Retry-After`; they never proceed through the memory fallback. Authenticated

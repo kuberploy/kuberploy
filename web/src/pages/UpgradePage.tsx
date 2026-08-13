@@ -1,8 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { api, errorMessage } from "../api/client";
-import type { PlatformRelease } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
   Button,
@@ -17,8 +14,6 @@ import { formatDate, shortId, titleCase } from "../lib/format";
 import { hasPlatformUpgradeCapability } from "../lib/upgradeAccess";
 
 export function UpgradePage() {
-  const navigate = useNavigate();
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
@@ -29,10 +24,6 @@ export function UpgradePage() {
     capabilities.data?.capabilities ?? [],
     "platform-releases:read",
   );
-  const canCreateUpgrade = hasPlatformUpgradeCapability(
-    capabilities.data?.capabilities ?? [],
-    "platform-upgrades:create",
-  );
   const meta = useQuery({ queryKey: ["meta"], queryFn: api.meta });
   const latest = useQuery({
     queryKey: ["platform-release", "latest"],
@@ -41,21 +32,12 @@ export function UpgradePage() {
     staleTime: 60_000,
     enabled: canReadReleases,
   });
-  const upgrade = useMutation({
-    mutationFn: (release: PlatformRelease) =>
-      api.startPlatformUpgrade({
-        targetVersion: release.version,
-        manifestDigest: release.manifestDigest,
-      }),
-    onSuccess: async (operation) => {
-      setConfirmOpen(false);
-      await navigate({
-        to: "/operations/$operationId",
-        params: { operationId: operation.id },
-      });
-    },
+  const history = useQuery({
+    queryKey: ["platform-upgrades"],
+    queryFn: api.platformUpgrades,
+    retry: false,
+    enabled: canReadReleases,
   });
-
   const currentVersion =
     latest.data?.currentVersion ??
     meta.data?.platformVersion ??
@@ -66,7 +48,6 @@ export function UpgradePage() {
     reasons: [] as string[],
   };
   const canUpgrade =
-    canCreateUpgrade &&
     latest.data?.updateAvailable === true &&
     compatibility.status !== "incompatible";
 
@@ -74,8 +55,8 @@ export function UpgradePage() {
     <div className="page">
       <PageHeader
         eyebrow="Platform settings"
-        title="Upgrade Kuberploy"
-        description="Discover a signed public release, inspect its immutable manifest and compatibility decision, then start one namespaced control-plane upgrade operation."
+        title="Kuberploy releases"
+        description="Inspect the signed public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
         actions={
           canReadReleases ? (
             <Button
@@ -188,10 +169,10 @@ export function UpgradePage() {
               </div>
               <p className="decision-summary">
                 {compatibility.status === "compatible"
-                  ? "The published source-version and schema ranges accept this installation. The upgrader rechecks Kubernetes and every manifest digest before mutation."
+                  ? "The published source-version and schema ranges accept this installation. The installer chart rechecks every enabled Argo Application after Helm upgrade or rollback."
                   : compatibility.status === "unknown"
-                    ? "Runtime Kubernetes validation is intentionally deferred to the isolated upgrader Job. Starting the operation does not bypass that fail-closed check."
-                    : "This release cannot be applied to the current installation. No upgrade operation will be created."}
+                    ? "The operator-owned installer validates Kubernetes and every enabled Argo Application during Helm upgrade or rollback."
+                    : "This release cannot be applied to the current installation. Helm must not target it."}
               </p>
               {compatibility.reasons.length ? (
                 <ul className="decision-reasons">
@@ -323,41 +304,85 @@ export function UpgradePage() {
             <div>
               <Icon name="check" />
               <span>
-                <strong>Tenant workloads are outside this Helm release.</strong>
+                <strong>Upgrade the installer release, not its child.</strong>
                 <small>
-                  The upgrade replaces control-plane Pods only; Argo-managed
-                  applications are not rendered or restarted.
+                  Run Helm against the installer release using the exact chart
+                  version above. Its lifecycle hooks require every enabled Argo
+                  Application to reach the requested revision, Synced and
+                  Healthy.
                 </small>
               </span>
             </div>
-            <Button disabled={!canUpgrade} onClick={() => setConfirmOpen(true)}>
-              <Icon name="deploy" />
-              {latest.data.updateAvailable
-                ? `Upgrade to ${release.version}`
-                : "Already up to date"}
-            </Button>
+            <StatusPill
+              value={canUpgrade ? "available" : "healthy"}
+              label={
+                latest.data.updateAvailable
+                  ? "Operator Helm action required"
+                  : "Up to date"
+              }
+            />
           </div>
-
-          {upgrade.error ? (
-            <div className="notice notice--error" role="alert">
-              <div>
-                <strong>Upgrade was not accepted</strong>
-                <p>{errorMessage(upgrade.error)}</p>
-              </div>
-            </div>
-          ) : null}
         </>
       )}
 
-      {confirmOpen && release ? (
-        <UpgradeConfirmation
-          release={release}
-          compatibilityStatus={compatibility.status}
-          busy={upgrade.isPending}
-          error={upgrade.error}
-          onCancel={() => setConfirmOpen(false)}
-          onConfirm={() => upgrade.mutate(release)}
-        />
+      {canReadReleases ? (
+        <Card className="manifest-card">
+          <div className="card__header card__header--inside">
+            <div>
+              <span className="eyebrow">Pre-stable compatibility</span>
+              <h2>Legacy in-app operation history</h2>
+              <p>
+                Read-only records created by pre-stable builds remain visible
+                for audit. Current upgrades and rollbacks are recorded by the
+                operator-owned installer Helm release, not this table.
+              </p>
+            </div>
+          </div>
+          {history.isPending ? (
+            <Skeleton lines={4} />
+          ) : history.error ? (
+            <div className="notice notice--error" role="alert">
+              {errorMessage(history.error)}
+            </div>
+          ) : history.data?.items.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Version</th>
+                    <th>State</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.data.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>{titleCase(item.action)}</td>
+                      <td>
+                        <code>{item.version}</code>
+                        {item.helmRevision ? (
+                          <small> revision {item.helmRevision}</small>
+                        ) : null}
+                      </td>
+                      <td>
+                        <StatusPill value={item.state} />
+                      </td>
+                      <td>{formatDate(item.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState
+              icon="refresh"
+              title="No legacy platform operations"
+              description="Use Helm history for current installer upgrade and rollback records."
+              compact
+            />
+          )}
+        </Card>
       ) : null}
     </div>
   );
@@ -368,89 +393,6 @@ function ManifestFact({ label, value }: { label: string; value: string }) {
     <div className="manifest-range">
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
-  );
-}
-
-export function UpgradeConfirmation({
-  release,
-  compatibilityStatus,
-  busy,
-  error,
-  onCancel,
-  onConfirm,
-}: {
-  release: PlatformRelease;
-  compatibilityStatus: "compatible" | "incompatible" | "unknown";
-  busy: boolean;
-  error: unknown;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const [confirmed, setConfirmed] = useState(false);
-  return (
-    <div className="confirmation-backdrop">
-      <section
-        className="confirmation-dialog"
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="upgrade-confirmation-title"
-      >
-        <span className="confirmation-dialog__icon">
-          <Icon name="deploy" />
-        </span>
-        <span className="eyebrow">Explicit confirmation</span>
-        <h2 id="upgrade-confirmation-title">
-          Upgrade the control plane to {release.version}?
-        </h2>
-        <p>
-          Kuberploy will submit the exact version and manifest digest below. The
-          upgrader Job re-fetches the immutable manifest and fails closed before
-          Helm mutation if any digest or compatibility check differs.
-        </p>
-        <dl className="confirmation-identity">
-          <div>
-            <dt>Target</dt>
-            <dd>{release.version}</dd>
-          </div>
-          <div>
-            <dt>Manifest</dt>
-            <dd>
-              <code>{release.manifestDigest}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>Decision</dt>
-            <dd>
-              <StatusPill value={compatibilityStatus} />
-            </dd>
-          </div>
-        </dl>
-        <label className="confirmation-check">
-          <input
-            type="checkbox"
-            checked={confirmed}
-            onChange={(event) => setConfirmed(event.target.checked)}
-          />
-          <span>
-            I reviewed the target version, immutable manifest digest, release
-            notes, and compatibility decision.
-          </span>
-        </label>
-        {error ? (
-          <div className="notice notice--error" role="alert">
-            {errorMessage(error)}
-          </div>
-        ) : null}
-        <div className="confirmation-dialog__actions">
-          <Button variant="ghost" disabled={busy} onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button disabled={!confirmed} busy={busy} onClick={onConfirm}>
-            Start verified upgrade <Icon name="arrow" />
-          </Button>
-        </div>
-      </section>
     </div>
   );
 }

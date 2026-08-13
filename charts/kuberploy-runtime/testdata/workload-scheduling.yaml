@@ -40,11 +40,6 @@ spec:
       limits:
         cpu: 500m
         memory: 512Mi
-    schedulingProfile:
-      profileId: 55555555-5555-4555-8555-555555555555
-      revision: 3
-      specDigest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-      assignmentsDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     nodeSelector:
       kubernetes.io/arch: amd64
     affinity:

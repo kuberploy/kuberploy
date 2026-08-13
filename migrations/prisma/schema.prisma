@@ -22,7 +22,7 @@ datasource db {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model access_grants {
   id              String   @id @db.Uuid
-  subject_user_id String   @db.Uuid
+  subject_user_id String?  @db.Uuid
   role            String
   scope_type      String
   scope_id        String
@@ -30,10 +30,13 @@ model access_grants {
   source          String   @default("explicit")
   created_by      String   @db.Uuid
   created_at      DateTime @default(now()) @db.Timestamptz(6)
+  subject_team_id String?  @db.Uuid
 
-  @@unique([subject_user_id, role, scope_type, scope_id])
-  @@index([scope_type, scope_id, subject_user_id], map: "access_grants_scope_idx")
-  @@index([subject_user_id, scope_type, scope_id], map: "access_grants_subject_idx")
+  @@unique([subject_user_id, role, scope_type, scope_id], map: "access_grants_user_subject_unique", where: raw("(subject_user_id IS NOT NULL)"))
+  @@unique([subject_team_id, role, scope_type, scope_id], map: "access_grants_team_subject_unique", where: raw("(subject_team_id IS NOT NULL)"))
+  @@index([scope_type, scope_id, subject_user_id, subject_team_id], map: "access_grants_scope_idx")
+  @@index([subject_user_id, scope_type, scope_id], map: "access_grants_user_subject_idx", where: raw("(subject_user_id IS NOT NULL)"))
+  @@index([subject_team_id, scope_type, scope_id], map: "access_grants_team_subject_idx", where: raw("(subject_team_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

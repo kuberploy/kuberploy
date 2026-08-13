@@ -20,8 +20,14 @@ import (
 type fakeRuntimeView struct {
 	snapshot runtimeview.LogSnapshot
 	events   runtimeview.EventSnapshot
+	rollout  runtimeview.RolloutStatus
 	err      error
 	requests []any
+}
+
+func (f *fakeRuntimeView) Rollout(_ context.Context, deploymentID string) (runtimeview.RolloutStatus, error) {
+	f.requests = append(f.requests, deploymentID)
+	return f.rollout, f.err
 }
 
 type fakeRuntimeStream struct {
@@ -84,9 +90,10 @@ func TestRuntimeCapabilityFailsClosedWithoutRemovingAPIReadiness(t *testing.T) {
 	fixture.bootstrap()
 	response := fixture.request(http.MethodGet, "/v1/capabilities", "", nil)
 	capabilities := decode[struct {
-		Features map[string]bool `json:"features"`
+		Features      map[string]bool   `json:"features"`
+		FeatureStates map[string]string `json:"featureStates"`
 	}](t, response)
-	if response.StatusCode != http.StatusOK || capabilities.Features["logs"] {
+	if response.StatusCode != http.StatusOK || capabilities.Features["logs"] || capabilities.FeatureStates["git"] != "disabled" {
 		t.Fatalf("stale runtime capability status=%d features=%#v", response.StatusCode, capabilities.Features)
 	}
 	response = fixture.request(http.MethodGet, "/readyz", "", nil)
@@ -183,6 +190,22 @@ func TestRuntimeSnapshotEventsAndWorkloadsAreScopedAuditedAndNoStore(t *testing.
 	problem := decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || fixture.store.AuditCount() != baselineAudits+2 {
 		t.Fatalf("invalid query reached audit/runtime: status=%d problem=%#v", response.StatusCode, problem)
+	}
+}
+
+func TestDeploymentStatusIncludesExactBoundedKubernetesRollout(t *testing.T) {
+	now := time.Date(2026, 8, 13, 1, 2, 3, 0, time.UTC)
+	runtime := &fakeRuntimeView{rollout: runtimeview.RolloutStatus{DesiredReplicas: 3, ReadyReplicas: 2, ObservedAt: now,
+		Conditions: []runtimeview.DeploymentCondition{{Type: "Progressing", Status: "True", Reason: "ReplicaSetUpdated", LastTransitionTime: &now}}}}
+	fixture := newRuntimeAPI(t, runtime)
+	_, deployment := createRuntimeDeployment(t, fixture)
+
+	response := fixture.request(http.MethodGet, "/v1/deployments/"+deployment.ID+"/status", "", nil)
+	status := decode[domain.DeploymentStatus](t, response)
+	if response.StatusCode != http.StatusOK || status.DesiredReplicas == nil || *status.DesiredReplicas != 3 ||
+		status.ReadyReplicas == nil || *status.ReadyReplicas != 2 || status.RolloutObservedAt == nil ||
+		len(status.RolloutConditions) != 1 || status.RolloutConditions[0].Type != "Progressing" || status.RolloutConditions[0].Reason != "ReplicaSetUpdated" {
+		t.Fatalf("rollout status=%d body=%#v", response.StatusCode, status)
 	}
 }
 

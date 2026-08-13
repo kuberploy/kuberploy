@@ -221,9 +221,9 @@ def main() -> None:
             + ", ".join(missing_ci_controls)
         )
     checkout_count = ci_workflow_text.count("uses: actions/checkout@v7")
-    if checkout_count != 4 or ci_workflow_text.count("persist-credentials: false") != checkout_count:
+    if checkout_count == 0 or ci_workflow_text.count("persist-credentials: false") != checkout_count:
         raise SystemExit("every CI checkout must disable persisted Git credentials")
-    if ci_workflow_text.count("runs-on: ubuntu-26.04") != 4 or "ubuntu-latest" in ci_workflow_text:
+    if ci_workflow_text.count("runs-on:") != checkout_count or ci_workflow_text.count("runs-on: ubuntu-26.04") != checkout_count:
         raise SystemExit("every CI job must use the explicit Ubuntu 26.04 runner line")
 
     dependabot_text = (args.root / ".github/dependabot.yml").read_text(encoding="utf-8")

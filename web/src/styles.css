@@ -2214,6 +2214,123 @@ textarea:disabled {
 .config-section .variable-list {
   margin-top: 10px;
 }
+.scheduling-editor {
+  display: grid;
+  gap: 12px;
+}
+.scheduling-editor__group {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.scheduling-editor__group-heading,
+.scheduling-editor__term-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+.scheduling-editor__group-heading > div,
+.scheduling-editor__priority label {
+  display: grid;
+  gap: 3px;
+}
+.scheduling-editor__group-heading strong,
+.scheduling-editor__priority strong,
+.scheduling-editor__term-heading strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+.scheduling-editor__group-heading span,
+.scheduling-editor__priority span,
+.scheduling-editor__term-heading label span,
+.scheduling-editor label > span {
+  color: var(--ink-faint);
+  font-size: 8px;
+  font-weight: 600;
+}
+.scheduling-editor__rows {
+  display: grid;
+  gap: 8px;
+}
+.scheduling-editor__key-value,
+.scheduling-editor__requirement,
+.scheduling-editor__pod-row,
+.scheduling-editor__toleration,
+.scheduling-editor__topology {
+  display: grid;
+  align-items: end;
+  gap: 8px;
+}
+.scheduling-editor__key-value {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+.scheduling-editor__requirement {
+  grid-template-columns:
+    minmax(140px, 1.2fr) minmax(110px, 0.7fr) minmax(150px, 1fr)
+    auto;
+}
+.scheduling-editor__pod-row {
+  grid-template-columns:
+    minmax(120px, 0.6fr) minmax(180px, 1fr) minmax(90px, 0.35fr)
+    auto;
+}
+.scheduling-editor__toleration {
+  grid-template-columns:
+    minmax(130px, 1fr) minmax(100px, 0.55fr) minmax(110px, 0.8fr)
+    minmax(130px, 0.7fr) minmax(90px, 0.35fr) auto;
+}
+.scheduling-editor__topology {
+  grid-template-columns:
+    minmax(180px, 1fr) minmax(90px, 0.35fr) minmax(145px, 0.6fr)
+    minmax(90px, 0.35fr) minmax(140px, 0.55fr) minmax(140px, 0.55fr) auto;
+}
+.scheduling-editor label,
+.scheduling-editor__term-heading label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.scheduling-editor select {
+  width: 100%;
+  height: 32px;
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+}
+.scheduling-editor__term {
+  margin-top: 9px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+.scheduling-editor__term-heading label {
+  grid-template-columns: auto 82px;
+  align-items: center;
+  margin-left: auto;
+}
+.scheduling-editor__empty,
+.scheduling-editor__warning {
+  margin: 0 !important;
+  padding: 9px 10px;
+  border-radius: 7px;
+  color: var(--ink-faint) !important;
+  background: var(--surface-soft);
+}
+.scheduling-editor__warning {
+  color: var(--amber) !important;
+}
+.scheduling-editor__priority label {
+  max-width: 480px;
+}
 .runtime-process-editor {
   margin-top: 16px;
   padding: 14px;
@@ -4787,6 +4904,21 @@ textarea:disabled {
     grid-column: auto;
   }
   .runtime-process-grid {
+    grid-template-columns: 1fr;
+  }
+  .scheduling-editor__group-heading,
+  .scheduling-editor__term-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .scheduling-editor__term-heading label {
+    margin-left: 0;
+  }
+  .scheduling-editor__key-value,
+  .scheduling-editor__requirement,
+  .scheduling-editor__pod-row,
+  .scheduling-editor__toleration,
+  .scheduling-editor__topology {
     grid-template-columns: 1fr;
   }
   .principle-strip {

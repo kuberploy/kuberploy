@@ -54,4 +54,40 @@ describe("Setup page", () => {
     expect(screen.getAllByText("projects:read")).toHaveLength(1);
     expect(screen.getAllByText("teams:read")).toHaveLength(1);
   });
+
+  it("distinguishes configured-but-unavailable runtimes from disabled features", async () => {
+    vi.spyOn(api, "meta").mockResolvedValue({
+      version: "dev",
+      bootstrapRequired: false,
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      actions: [],
+      features: { git: false, argo: false, edge: false, builds: false },
+      featureStates: {
+        git: "unavailable",
+        argo: "unavailable",
+        edge: "disabled",
+        builds: "disabled",
+      },
+    });
+    vi.spyOn(api, "monitoringStatus").mockResolvedValue({
+      mode: "managed",
+      status: "unavailable",
+      available: false,
+      message: "Monitoring identity is not ready.",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SetupPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      (await screen.findAllByText("Unavailable")).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("Disabled").length).toBeGreaterThanOrEqual(2);
+  });
 });

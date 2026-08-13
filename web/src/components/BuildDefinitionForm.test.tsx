@@ -161,6 +161,39 @@ describe("build definition form", () => {
     ).toBeInTheDocument();
   });
 
+  it("uses a readable tag name while submitting the canonical tag ref", async () => {
+    const user = userEvent.setup();
+    const create = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockResolvedValue({ ...definition, triggerRef: "refs/tags/v1.2.3" });
+    renderForm();
+
+    await screen.findByRole("option", { name: "example" });
+    await user.selectOptions(
+      screen.getByLabelText(/^GitHub installation/),
+      "installation-safe",
+    );
+    await screen.findByRole("option", { name: "example/api" });
+    await user.selectOptions(
+      screen.getByLabelText(/^Repository/),
+      "repository-safe",
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/^Registry target/),
+      "target-safe",
+    );
+    await user.selectOptions(screen.getByLabelText(/^Source type/), "tag");
+    const tag = screen.getByLabelText(/^Tag/);
+    await user.clear(tag);
+    await user.type(tag, "v1.2.3");
+    expect(screen.queryByDisplayValue("refs/tags/v1.2.3")).toBeNull();
+    await user.click(
+      screen.getByRole("button", { name: "Create immutable definition" }),
+    );
+
+    expect(create.mock.calls[0]?.[1].triggerRef).toBe("refs/tags/v1.2.3");
+  });
+
   it("accepts valid Docker build arguments without enforcing a naming policy", async () => {
     const user = userEvent.setup();
     const create = vi

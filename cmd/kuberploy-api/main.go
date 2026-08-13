@@ -37,7 +37,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/registry"
 	"github.com/kuberploy/kuberploy/internal/releases"
 	"github.com/kuberploy/kuberploy/internal/runtimeview"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	"github.com/kuberploy/kuberploy/internal/store/postgres"
 )
@@ -62,11 +61,6 @@ func run() error {
 		return err
 	}
 	defer db.Close()
-	schedulingProfiles, err := scheduling.OpenPostgresStore(ctx, databaseURL, "kuberploy-api-scheduling")
-	if err != nil {
-		return err
-	}
-	defer schedulingProfiles.Close()
 	middlewareProfiles, err := middlewareprofiles.OpenPostgresStore(ctx, databaseURL, "kuberploy-api-middleware")
 	if err != nil {
 		return err
@@ -404,7 +398,6 @@ func run() error {
 		Registry: managedRegistry.management, RegistryReadiness: managedRegistry.readiness,
 		ExternalDNS: externalDNSManagement, HelmApplications: helmApplicationBackend,
 		HelmApprovals: helmApprovalBackend, HelmRenderedPreviews: helmPreviewBackend,
-		SchedulingProfiles:  schedulingProfiles,
 		MiddlewareProfiles:  middlewareProfiles,
 		DeploymentRollbacks: deploymentRollbacks,
 		AutoDeployService:   autoDeployService,

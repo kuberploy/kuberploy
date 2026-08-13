@@ -165,6 +165,30 @@ describe("application rollout truth", () => {
     expect(screen.getAllByText("Degraded")).not.toHaveLength(0);
     expect(screen.getAllByText("Behind")).not.toHaveLength(0);
   });
+
+  it("shows exact Kubernetes replica readiness and rollout condition", async () => {
+    vi.mocked(api.deploymentStatus).mockResolvedValue({
+      state: "git-committed",
+      operationStatus: "succeeded",
+      argoSyncStatus: "synced",
+      rolloutHealth: "progressing",
+      desiredReplicas: 3,
+      readyReplicas: 2,
+      rolloutConditions: [
+        {
+          type: "Progressing",
+          status: "True",
+          reason: "ReplicaSetUpdated",
+        },
+      ],
+      rolloutObservedAt: "2026-08-09T00:00:00Z",
+    });
+    renderApplication({ features: {}, capabilities: [] });
+    expect(await screen.findByText("Ready replicas")).toBeVisible();
+    expect(screen.getAllByText("2/3").length).toBeGreaterThan(0);
+    expect(screen.getByText("Rollout condition")).toBeVisible();
+    expect(screen.getAllByText("Progressing").length).toBeGreaterThan(0);
+  });
 });
 
 describe("application runtime-secret navigation", () => {

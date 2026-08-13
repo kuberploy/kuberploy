@@ -224,6 +224,8 @@ type Store interface {
 	GetOperationForActor(context.Context, string, string) (domain.Operation, error)
 	ListOperationsForActor(context.Context, string) ([]domain.Operation, error)
 	CreatePlatformUpgrade(context.Context, string, string, string, string, domain.CreatePlatformUpgrade) (Result[domain.PlatformUpgrade], domain.Operation, error)
+	CreatePlatformRollback(context.Context, string, string, string, string, domain.CreatePlatformRollback) (Result[domain.PlatformUpgrade], domain.Operation, error)
+	ListPlatformUpgrades(context.Context) ([]domain.PlatformUpgrade, error)
 	GetPlatformUpgrade(context.Context, string) (domain.PlatformUpgrade, error)
 
 	PendingOutbox(context.Context, int) ([]domain.WorkMessage, error)

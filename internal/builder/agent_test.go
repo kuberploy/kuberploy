@@ -289,6 +289,15 @@ func TestPrivateDockerConfigNeverPlacesCredentialsInArgvOrEnv(t *testing.T) {
 	}
 }
 
+func TestUnavailableCacheCredentialDegradesWithoutAffectingPushAuthority(t *testing.T) {
+	ready, warnings := prepareCacheDockerAuth(filepath.Join(t.TempDir(), "cache"), RegistryCredentials{
+		Server: "registry.example.test", UsernameFile: "/missing/cache-username", PasswordFile: "/missing/cache-password",
+	}, true)
+	if ready || !slices.Equal(warnings, []Warning{WarningCacheDegraded, WarningColdBuild}) {
+		t.Fatalf("ready=%v warnings=%v", ready, warnings)
+	}
+}
+
 func TestBuilderNameDeterministicPerOperationGeneration(t *testing.T) {
 	one := deterministicBuilderName("11111111-1111-4111-8111-111111111111", 7)
 	two := deterministicBuilderName("11111111-1111-4111-8111-111111111111", 7)

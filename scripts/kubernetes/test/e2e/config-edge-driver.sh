@@ -49,12 +49,13 @@ kp_config_edge_variable_set() {
 }
 
 kp_config_edge_rejection() {
-  local kp_name="${1:?name}" kp_body="${2:?body}" kp_dir="${3:?dir}"
+  local kp_name="${1:?name}" kp_body="${2:?body}" kp_dir="${3:?dir}" kp_field_code="${4:?field code}"
   local kp_actual
   kp_actual="$(kp_config_edge_request POST /v1/deployments "${kp_body}" "${kp_dir}/${kp_name}.json" \
     --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-${kp_name}")"
   [[ "${kp_actual}" == 422 ]]
-  jq -e '.code=="SchedulingProfileInvalid"' "${kp_dir}/${kp_name}.json" >/dev/null
+  jq -e --arg code "${kp_field_code}" '.code=="ValidationFailed" and any(.fields[]?; .code==$code)' \
+    "${kp_dir}/${kp_name}.json" >/dev/null
 }
 
 kp_config_edge_wait_argo() {
@@ -217,7 +218,7 @@ kp_config_edge_external_dns() {
 kp_run_config_edge_workflow() {
   local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_state="${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json"
   local kp_project kp_environment kp_application kp_other_application kp_namespace
-  local kp_profile kp_revision kp_spec_digest kp_assignments_digest kp_body kp_actual kp_operation kp_deployment kp_runtime_image
+  local kp_body kp_actual kp_operation kp_deployment kp_runtime_image
   local kp_hostname kp_ip kp_first_ip kp_config_etag kp_raw kp_candidate kp_preview kp_revision_fence kp_configmap
   mkdir -p "${kp_dir}"
   kp_project="$(jq -er '.projectId' "${kp_state}")"
@@ -228,13 +229,6 @@ kp_run_config_edge_workflow() {
   kp_config_edge_variable_set project $'apiVersion: variables.kuberploy.io/v1alpha1\nkind: VariableSet\nvalues:\n  SHARED_REGION: "ap-southeast-1"\n  RELEASE_LANE: "project"\n' "${kp_dir}" "${kp_environment}"
   kp_config_edge_variable_set environment $'apiVersion: variables.kuberploy.io/v1alpha1\nkind: VariableSet\nvalues:\n  RELEASE_LANE: "environment"\n  FEATURE_PROBES: "enabled"\n' "${kp_dir}" "${kp_environment}"
   kp_revision_fence="$(jq -er '.gitRevision.commit' "${kp_dir}/environment-terminal.json")"
-
-  kp_body="$(jq -cn --arg environment "${kp_environment}" '{name:"qualification-scheduling",spec:{description:"qualification exact PodSpec",pod:{requiredNodeAffinity:[{key:"kubernetes.io/os",operator:"In",values:["linux"]}],preferredNodeAffinity:[{weight:70,requirements:[{key:"topology.kubernetes.io/zone",operator:"Exists"}]}],sameApplicationPodAntiAffinity:[{enforcement:"required",topologyKey:"kubernetes.io/hostname"}],topologySpread:[{maxSkew:1,topologyKey:"topology.kubernetes.io/zone",whenUnsatisfiable:"ScheduleAnyway"}],tolerations:[{key:"qualification.kuberploy.io/workload",operator:"Equal",value:"application",effect:"NoSchedule"}]}},assignments:[{scope:"environment",id:$environment}]}')"
-  kp_human_post create-config-edge-scheduling /v1/platform/scheduling-profiles "${kp_body}" 201 "${kp_dir}/scheduling-profile.json"
-  kp_profile="$(jq -er '.profile.id' "${kp_dir}/scheduling-profile.json")"
-  kp_revision="$(jq -er '.revision.revision' "${kp_dir}/scheduling-profile.json")"
-  kp_spec_digest="$(jq -er '.revision.specDigest' "${kp_dir}/scheduling-profile.json")"
-  kp_assignments_digest="$(jq -er '.revision.assignmentsDigest' "${kp_dir}/scheduling-profile.json")"
 
   kp_human_post create-config-edge-app /v1/applications "$(jq -cn --arg p "${kp_project}" '{projectId:$p,name:"Config Edge",slug:"config-edge"}')" 201 "${kp_dir}/application.json"
   kp_application="$(jq -er '.id' "${kp_dir}/application.json")"
@@ -268,8 +262,8 @@ kp_run_config_edge_workflow() {
     | sort | first | map(tostring) | join(".")' "${kp_dir}/edge-services.json")"
   [[ "${kp_ip}" == "${kp_first_ip}" ]]
 
-  kp_body="$(jq -cn --arg e "${kp_environment}" --arg a "${kp_application}" --arg image "${kp_runtime_image}" --arg p "${kp_profile}" --argjson r "${kp_revision}" --arg s "${kp_spec_digest}" --arg d "${kp_assignments_digest}" \
-    '{environmentId:$e,applicationId:$a,image:$image,runtime:{replicas:1,ports:[{name:"http",containerPort:8080,protocol:"TCP"}],resources:{requests:{cpu:"50m",memory:"64Mi"},limits:{cpu:"250m",memory:"128Mi"}},probes:{readiness:{httpGet:{path:"/ready",port:8080},initialDelaySeconds:1,periodSeconds:5},liveness:{httpGet:{path:"/health",port:8080},initialDelaySeconds:5,periodSeconds:10}},schedulingProfile:{profileId:$p,revision:$r,specDigest:$s,assignmentsDigest:$d}},route:{dnsMode:"sslip",pathPrefix:"/",tlsMode:"httpOnly"}}')"
+  kp_body="$(jq -cn --arg e "${kp_environment}" --arg a "${kp_application}" --arg image "${kp_runtime_image}" \
+    '{environmentId:$e,applicationId:$a,image:$image,runtime:{replicas:1,ports:[{name:"http",containerPort:8080,protocol:"TCP"}],resources:{requests:{cpu:"50m",memory:"64Mi"},limits:{cpu:"250m",memory:"128Mi"}},probes:{readiness:{httpGet:{path:"/ready",port:8080},initialDelaySeconds:1,periodSeconds:5},liveness:{httpGet:{path:"/health",port:8080},initialDelaySeconds:5,periodSeconds:10}},nodeSelector:{"kubernetes.io/os":"linux"},affinity:{nodeAffinity:{requiredDuringSchedulingIgnoredDuringExecution:{nodeSelectorTerms:[{matchExpressions:[{key:"kubernetes.io/os",operator:"In",values:["linux"]}]}]},preferredDuringSchedulingIgnoredDuringExecution:[{weight:70,preference:{matchExpressions:[{key:"topology.kubernetes.io/zone",operator:"Exists"}]}}]},podAntiAffinity:{requiredDuringSchedulingIgnoredDuringExecution:[{topologyKey:"kubernetes.io/hostname",labelSelector:{matchLabels:{"kuberploy.io/application":$a}}}]}},topologySpreadConstraints:[{maxSkew:1,topologyKey:"topology.kubernetes.io/zone",whenUnsatisfiable:"ScheduleAnyway",labelSelector:{matchLabels:{"kuberploy.io/application":$a}}}],tolerations:[{key:"qualification.kuberploy.io/workload",operator:"Equal",value:"application",effect:"NoSchedule"}]},route:{dnsMode:"sslip",pathPrefix:"/",tlsMode:"httpOnly"}}')"
   kp_human_post config-edge-first-deployment /v1/deployments "${kp_body}" 202 "${kp_dir}/deployment-operation.json"
   kp_operation="$(jq -er '.id' "${kp_dir}/deployment-operation.json")"
   kp_deployment="$(jq -er '.targetId' "${kp_dir}/deployment-operation.json")"
@@ -277,15 +271,20 @@ kp_run_config_edge_workflow() {
 
   curl -sS -o "${kp_dir}/deployment.json" --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/deployments/${kp_deployment}"
-  jq -e --arg host "${kp_hostname}" --arg profile "${kp_profile}" \
-    '.route.hostname==$host and .route.dnsMode=="sslip" and .runtime.schedulingProfile.profileId==$profile and .runtime.resources.requests.cpu=="50m" and .runtime.probes.readiness.httpGet.path=="/ready"' \
+  jq -e --arg host "${kp_hostname}" --arg app "${kp_application}" \
+    '.route.hostname==$host and .route.dnsMode=="sslip" and .runtime.resources.requests.cpu=="50m" and .runtime.probes.readiness.httpGet.path=="/ready" and
+     .runtime.nodeSelector["kubernetes.io/os"]=="linux" and
+     .runtime.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels=={"kuberploy.io/application":$app} and
+     .runtime.topologySpreadConstraints[0].labelSelector.matchLabels=={"kuberploy.io/application":$app}' \
     "${kp_dir}/deployment.json" >/dev/null
 
-  # Workload callers cannot substitute either another application's selector
-  # or provider-owned placement labels alongside an immutable profile ref.
+  # Direct per-application scheduling accepts only exact workload relationship
+  # selectors and never permits provider-owned placement labels.
   kp_config_edge_rejection cross-application-affinity "$(jq --arg other "${kp_other_application}" \
-    '.runtime.affinity={podAntiAffinity:{requiredDuringSchedulingIgnoredDuringExecution:[{topologyKey:"kubernetes.io/hostname",labelSelector:{matchLabels:{"kuberploy.io/application":$other}}}]}}' <<<"${kp_body}")" "${kp_dir}"
-  kp_config_edge_rejection provider-label-injection "$(jq '.runtime.nodeSelector={"karpenter.sh/capacity-type":"spot"}' <<<"${kp_body}")" "${kp_dir}"
+    '.runtime.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels={"kuberploy.io/application":$other}' <<<"${kp_body}")" \
+    "${kp_dir}" ApplicationSelectorRequired
+  kp_config_edge_rejection provider-label-injection "$(jq '.runtime.nodeSelector={"kuberploy.io/builder":"true"}' <<<"${kp_body}")" \
+    "${kp_dir}" ReservedSchedulingKey
 
   # One candidate is expressed through the guided JSON-patch model and through
   # the YAML document model. The server must resolve both to the same effective
@@ -332,12 +331,15 @@ kp_run_config_edge_workflow() {
       "${kp_dir}/live-podspec.json" >/dev/null; then break; fi
     sleep 5
   done
-  jq -e --arg app "${kp_application}" --arg profile "${kp_profile}" \
-    '.items|length==1 and .[0].spec.replicas==2 and .[0].spec.template.metadata.annotations["kuberploy.io/scheduling-profile"]==($profile+"@1") and
+  jq -e --arg app "${kp_application}" \
+    '.items|length==1 and .[0].spec.replicas==2 and .[0].spec.template.spec.nodeSelector["kubernetes.io/os"]=="linux" and
      .[0].spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels["kuberploy.io/application"]==$app and
+     (.[0].spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchLabels|keys)==["kuberploy.io/application"] and
      .[0].spec.template.spec.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0].key=="kubernetes.io/os" and
      .[0].spec.template.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution[0].weight==70 and
-     (.[0].spec.template.spec.topologySpreadConstraints|length)==1 and (.[0].spec.template.spec.tolerations|length)==1 and
+     (.[0].spec.template.spec.topologySpreadConstraints|length)==1 and
+     .[0].spec.template.spec.topologySpreadConstraints[0].labelSelector.matchLabels=={"kuberploy.io/application":$app} and
+     (.[0].spec.template.spec.tolerations|length)==1 and
      .[0].spec.template.spec.terminationGracePeriodSeconds==30 and
      .[0].spec.template.spec.automountServiceAccountToken==false and
      .[0].spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation==false and
@@ -356,8 +358,8 @@ kp_run_config_edge_workflow() {
 
   kp_config_edge_external_dns "${kp_dir}" "${kp_state}" "${kp_project}" "${kp_environment}" "${kp_ip}"
   jq -n --arg applicationId "${kp_application}" --arg deploymentId "${kp_deployment}" --arg hostname "${kp_hostname}" \
-    --arg ingressIPv4 "${kp_ip}" --arg profileId "${kp_profile}" --arg configMap "${kp_configmap}" \
-    '{mutation:"variables-appconfig-scheduling-sslip-external-dns",applicationId:$applicationId,deploymentId:$deploymentId,hostname:$hostname,selectedCanonicalPublicIPv4:$ingressIPv4,profileId:$profileId,configMap:$configMap,projectVariableSetSaved:true,environmentVariableSetSaved:true,overrideProvenanceVerified:true,immutableConfigMapRefsVerified:true,guidedYAMLSharedDraft:true,renderedManifestDiffVerified:true,defaultsProbesResourcesVerified:true,exactLivePodSpecVerified:true,crossApplicationDenied:true,providerLabelInjectionDenied:true} + $external[0]' --slurpfile external "${kp_dir}/external-dns-proof.json" >"${kp_dir}/config-edge-proof.json"
+    --arg ingressIPv4 "${kp_ip}" --arg configMap "${kp_configmap}" \
+    '{mutation:"variables-appconfig-direct-scheduling-sslip-external-dns",applicationId:$applicationId,deploymentId:$deploymentId,hostname:$hostname,selectedCanonicalPublicIPv4:$ingressIPv4,configMap:$configMap,projectVariableSetSaved:true,environmentVariableSetSaved:true,overrideProvenanceVerified:true,immutableConfigMapRefsVerified:true,guidedYAMLSharedDraft:true,renderedManifestDiffVerified:true,defaultsProbesResourcesVerified:true,directSchedulingConfigured:true,exactSelectorsVerified:true,exactLivePodSpecVerified:true,crossApplicationDenied:true,providerLabelInjectionDenied:true} + $external[0]' --slurpfile external "${kp_dir}/external-dns-proof.json" >"${kp_dir}/config-edge-proof.json"
 }
 
 kp_cleanup_config_edge_workflow() {

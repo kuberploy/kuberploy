@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { canonicalBranchRef, gitRefLabel } from "./format";
 
 describe("Git ref formatting", () => {
-  it("shows branch names without changing tags", () => {
+  it("shows readable branch and tag names", () => {
     expect(gitRefLabel("refs/heads/main")).toBe("main");
     expect(gitRefLabel("refs/heads/release/next")).toBe("release/next");
-    expect(gitRefLabel("refs/tags/v1.0.0")).toBe("refs/tags/v1.0.0");
+    expect(gitRefLabel("refs/tags/v1.0.0")).toBe("v1.0.0");
   });
 
   it("restores the canonical branch ref used by the API", () => {

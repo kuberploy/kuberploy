@@ -6,11 +6,9 @@ import type {
   BuildAttempt,
   DeploymentRouteInput,
   Operation,
-  SchedulingProfileRef,
 } from "../api/types";
 import { Button, EmptyState, ErrorPanel, Field } from "./ui";
 import { Icon } from "./Icon";
-import { SchedulingProfilePicker } from "./SchedulingProfilePicker";
 
 type PromotionCommand = {
   idempotencyKey: string;
@@ -19,7 +17,6 @@ type PromotionCommand = {
   port: number;
   routeMode: "internal" | "manual" | "sslip";
   hostname: string;
-  schedulingProfile?: SchedulingProfileRef;
 };
 
 export function BuildPromotionPanel({
@@ -42,8 +39,6 @@ export function BuildPromotionPanel({
   const [routeMode, setRouteMode] =
     useState<PromotionCommand["routeMode"]>("internal");
   const [hostname, setHostname] = useState("");
-  const [schedulingProfile, setSchedulingProfile] =
-    useState<SchedulingProfileRef>();
   const [accepted, setAccepted] = useState<Operation>();
   const projectEnvironments =
     environments.data?.items.filter(
@@ -72,9 +67,6 @@ export function BuildPromotionPanel({
               { name: "http", containerPort: command.port, protocol: "TCP" },
             ],
             resources: { requests: { cpu: "50m", memory: "100Mi" } },
-            ...(command.schedulingProfile
-              ? { schedulingProfile: command.schedulingProfile }
-              : {}),
           },
           route,
         },
@@ -181,11 +173,6 @@ export function BuildPromotionPanel({
           <option value="manual">My hostname</option>
         </select>
       </Field>
-      <SchedulingProfilePicker
-        environmentId={environmentId}
-        value={schedulingProfile}
-        onChange={setSchedulingProfile}
-      />
       {routeMode === "manual" ? (
         <Field label="Hostname" required>
           <input
@@ -218,7 +205,6 @@ export function BuildPromotionPanel({
               port,
               routeMode,
               hostname,
-              schedulingProfile,
             })
           }
         >

@@ -185,9 +185,7 @@ func TestRenderedAppConfigPassesRuntimeChartSchemaWhenHelmAvailable(t *testing.T
 			{Name: "LOG_LEVEL", Value: &plain},
 			{Name: "DATABASE_PASSWORD", ValueFrom: &domain.WorkloadEnvValueFrom{SecretBindingRef: domain.SecretBindingRef{BindingID: "44444444-4444-4444-8444-444444444444", Name: "database", Key: "password", Version: 3}}},
 		},
-		Resources: domain.WorkloadResources{Limits: &domain.ResourceList{CPU: "500m"}},
-		SchedulingProfile: &domain.SchedulingProfileRef{ProfileID: "55555555-5555-4555-8555-555555555555", Revision: 1,
-			SpecDigest: "sha256:" + strings.Repeat("b", 64), AssignmentsDigest: "sha256:" + strings.Repeat("c", 64)},
+		Resources:    domain.WorkloadResources{Limits: &domain.ResourceList{CPU: "500m"}},
 		NodeSelector: map[string]string{"kubernetes.io/arch": "amd64"},
 	})
 	body, err := RenderAppConfig(p, e, a, d)

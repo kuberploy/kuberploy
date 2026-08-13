@@ -31,6 +31,8 @@ const (
 	manifestAnnotation      = "kuberploy.io/manifest-digest"
 	versionAnnotation       = "kuberploy.io/target-version"
 	operationLabel          = "kuberploy.io/operation-id"
+	actionAnnotation        = "kuberploy.io/upgrade-action"
+	helmRevisionAnnotation  = "kuberploy.io/helm-revision"
 )
 
 var (
@@ -135,6 +137,18 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	if request.TargetVersion != manifest.Release.Version {
 		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade target does not match its verified manifest identity")
 	}
+	if request.Action == "" {
+		request.Action = "upgrade"
+	}
+	if request.Action != "upgrade" && request.Action != "rollback" {
+		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade request has an invalid action")
+	}
+	if request.Action == "rollback" && (request.HelmRevision < 1 || request.HelmRevision > 1_000_000) {
+		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("rollback request has an invalid Helm revision")
+	}
+	if request.Action == "upgrade" && request.HelmRevision != 0 {
+		return KubernetesJob{}, domain.ReleaseManifest{}, errors.New("upgrade request must not select a Helm revision")
+	}
 	deadline := r.ActiveDeadlineSeconds
 	if deadline == 0 {
 		deadline = 900
@@ -151,19 +165,22 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 	chartRepository := strings.TrimSuffix(chart.OCIReference, ":"+chart.Version)
 	chartReference := "oci://" + chartRepository + "@" + chart.OCIDigest
 	timeout := strconv.FormatInt(deadline-30, 10) + "s"
-	args := []string{
-		"upgrade", request.ReleaseName, chartReference,
-		"--namespace", request.Namespace,
-		"--reuse-values",
-		"--set-string", "global.requireImageDigest=true",
-		"--set-string", "components.api.image.reference=" + imageRefs["api"],
-		"--set-string", "components.worker.image.reference=" + imageRefs["worker"],
-		"--set-string", "components.web.image.reference=" + imageRefs["web"],
-		"--set-string", "components.migration.image.reference=" + imageRefs["migration"],
-		"--set-string", "upgrade.image.reference=" + imageRefs["upgrader"],
-		"--set-string", "builder.builderAgentImage=" + imageRefs["builder-agent"],
-		"--wait", "--wait-for-jobs", "--cleanup-on-fail", "--rollback-on-failure",
-		"--timeout", timeout, "--history-max", "10",
+	args := []string{"rollback", request.ReleaseName, strconv.FormatInt(request.HelmRevision, 10), "--namespace", request.Namespace, "--wait", "--wait-for-jobs", "--cleanup-on-fail", "--timeout", timeout}
+	if request.Action == "upgrade" {
+		args = []string{
+			"upgrade", request.ReleaseName, chartReference,
+			"--namespace", request.Namespace,
+			"--reuse-values",
+			"--set-string", "global.requireImageDigest=true",
+			"--set-string", "components.api.image.reference=" + imageRefs["api"],
+			"--set-string", "components.worker.image.reference=" + imageRefs["worker"],
+			"--set-string", "components.web.image.reference=" + imageRefs["web"],
+			"--set-string", "components.migration.image.reference=" + imageRefs["migration"],
+			"--set-string", "upgrade.image.reference=" + imageRefs["upgrader"],
+			"--set-string", "builder.builderAgentImage=" + imageRefs["builder-agent"],
+			"--wait", "--wait-for-jobs", "--cleanup-on-fail", "--rollback-on-failure",
+			"--timeout", timeout, "--history-max", "10",
+		}
 	}
 	falseValue, trueValue := false, true
 	runAsUser := int64(65532)
@@ -186,6 +203,7 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 			Annotations: map[string]string{
 				manifestAnnotation: request.ManifestDigest,
 				versionAnnotation:  request.TargetVersion,
+				actionAnnotation:   request.Action,
 			},
 		},
 		Spec: JobSpec{
@@ -229,6 +247,9 @@ func (r KubernetesRunner) desiredJobAndManifest(request ExecutableRequest) (Kube
 				},
 			},
 		},
+	}
+	if request.Action == "rollback" {
+		job.Metadata.Annotations[helmRevisionAnnotation] = strconv.FormatInt(request.HelmRevision, 10)
 	}
 	fingerprintBody, err := json.Marshal(job.Spec)
 	if err != nil {

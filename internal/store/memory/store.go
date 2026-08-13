@@ -751,6 +751,9 @@ func (s *Store) StartOperation(_ context.Context, v string, generation int64, wo
 	if op.Kind == "platform.upgrade" {
 		step = "upgrade"
 		u := s.upgrades[op.TargetID]
+		if u.Action == "rollback" {
+			step = "rollback"
+		}
 		u.State = "running"
 		u.UpdatedAt = now
 		s.upgrades[u.ID] = u
@@ -921,9 +924,15 @@ func (s *Store) FailOperation(_ context.Context, v string, generation int64, wor
 	step := "git-write"
 	if op.Kind == "platform.upgrade" {
 		step = "upgrade"
+		if s.upgrades[op.TargetID].Action == "rollback" {
+			step = "rollback"
+		}
 		u := s.upgrades[op.TargetID]
 		u.State = "failed"
-		u.Result = map[string]any{"code": code, "detail": detail}
+		if u.Result == nil {
+			u.Result = map[string]any{}
+		}
+		u.Result["code"], u.Result["detail"] = code, detail
 		u.UpdatedAt = now
 		s.upgrades[u.ID] = u
 	}
@@ -957,7 +966,7 @@ func (s *Store) CreatePlatformUpgrade(_ context.Context, actor, key, fp, request
 	now := time.Now().UTC()
 	uID, opID := id.New(), id.New()
 	op := domain.Operation{ID: opID, Kind: "platform.upgrade", Status: "queued", TargetType: "platform-upgrade", TargetID: uID, RequestID: requestID, Generation: 1, Progress: []domain.ProgressStep{{Name: "upgrade", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
-	u := domain.PlatformUpgrade{ID: uID, Version: in.Release.Version, ManifestDigest: in.Release.ManifestDigest, Manifest: in.Release.Manifest, ManifestBytes: append([]byte(nil), in.Release.ManifestBytes...), State: "queued", OperationID: opID, CreatedAt: now, UpdatedAt: now}
+	u := domain.PlatformUpgrade{ID: uID, Version: in.Release.Version, ManifestDigest: in.Release.ManifestDigest, Manifest: in.Release.Manifest, ManifestBytes: append([]byte(nil), in.Release.ManifestBytes...), State: "queued", OperationID: opID, Result: map[string]any{"action": "upgrade"}, Action: "upgrade", CreatedAt: now, UpdatedAt: now}
 	s.operations[opID] = op
 	s.upgrades[uID] = u
 	s.outbox[opID] = &outboxRecord{message: domain.WorkMessage{OperationID: opID, Kind: op.Kind, ScopeID: uID, Generation: 1, TraceID: requestID}}
@@ -966,6 +975,59 @@ func (s *Store) CreatePlatformUpgrade(_ context.Context, actor, key, fp, request
 	result := u
 	result.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
 	return base.Result[domain.PlatformUpgrade]{Value: result}, op, nil
+}
+
+func (s *Store) CreatePlatformRollback(_ context.Context, actor, key, fp, requestID string, in domain.CreatePlatformRollback) (base.Result[domain.PlatformUpgrade], domain.Operation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if in.HelmRevision < 1 || in.HelmRevision > 1_000_000 {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
+	}
+	k := ik(actor, "platform-upgrades.rollback", key)
+	old, ok := s.idempotency[k]
+	if err := check(old, ok, fp); err != nil {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
+	}
+	if ok {
+		u := s.upgrades[old.resourceID]
+		u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
+		return base.Result[domain.PlatformUpgrade]{Value: u, Replay: true}, s.operations[old.operationID], nil
+	}
+	for _, u := range s.upgrades {
+		if u.State == "queued" || u.State == "running" {
+			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
+		}
+	}
+	source, ok := s.upgrades[in.SourceUpgradeID]
+	if !ok {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrNotFound
+	}
+	if source.State != "succeeded" || !base.ExactSHA256Matches(source.ManifestBytes, source.ManifestDigest) {
+		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
+	}
+	now := time.Now().UTC()
+	uID, opID := id.New(), id.New()
+	metadata := map[string]any{"action": "rollback", "helmRevision": in.HelmRevision, "sourceUpgradeId": source.ID}
+	op := domain.Operation{ID: opID, Kind: "platform.upgrade", Status: "queued", TargetType: "platform-upgrade", TargetID: uID, RequestID: requestID, Generation: 1, Progress: []domain.ProgressStep{{Name: "rollback", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
+	u := domain.PlatformUpgrade{ID: uID, Version: source.Version, ManifestDigest: source.ManifestDigest, Manifest: source.Manifest, ManifestBytes: append([]byte(nil), source.ManifestBytes...), State: "queued", OperationID: opID, Result: metadata, Action: "rollback", HelmRevision: in.HelmRevision, SourceUpgradeID: source.ID, CreatedAt: now, UpdatedAt: now}
+	s.operations[opID] = op
+	s.upgrades[uID] = u
+	s.outbox[opID] = &outboxRecord{message: domain.WorkMessage{OperationID: opID, Kind: op.Kind, ScopeID: uID, Generation: 1, TraceID: requestID}}
+	s.idempotency[k] = idemRecord{fp, "platform-upgrade", uID, opID}
+	s.audits++
+	return base.Result[domain.PlatformUpgrade]{Value: u}, op, nil
+}
+
+func (s *Store) ListPlatformUpgrades(_ context.Context) ([]domain.PlatformUpgrade, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	items := make([]domain.PlatformUpgrade, 0, len(s.upgrades))
+	for _, u := range s.upgrades {
+		u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
+		items = append(items, u)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	return items, nil
 }
 func (s *Store) GetPlatformUpgrade(_ context.Context, id string) (domain.PlatformUpgrade, error) {
 	s.mu.Lock()
@@ -1033,13 +1095,19 @@ func (s *Store) RequeueOperation(_ context.Context, operationID string, generati
 	step := "git-write"
 	if op.Kind == "platform.upgrade" {
 		step = "upgrade"
+		if s.upgrades[op.TargetID].Action == "rollback" {
+			step = "rollback"
+		}
 	}
 	op.Progress = []domain.ProgressStep{{Name: step, Status: "pending", Detail: detail}}
 	s.operations[operationID] = op
 	if op.Kind == "platform.upgrade" {
 		u := s.upgrades[op.TargetID]
 		u.State = "queued"
-		u.Result = map[string]any{"code": code, "detail": detail}
+		if u.Result == nil {
+			u.Result = map[string]any{}
+		}
+		u.Result["code"], u.Result["detail"] = code, detail
 		u.UpdatedAt = now
 		s.upgrades[u.ID] = u
 	}
@@ -1067,12 +1135,21 @@ func (s *Store) CompleteUpgradeOperation(_ context.Context, operationID string, 
 	op.Status = "succeeded"
 	op.UpdatedAt = now
 	op.FinishedAt = &now
-	op.Progress = []domain.ProgressStep{{Name: "upgrade", Status: "succeeded", Detail: "runner completed: " + runnerRef, FinishedAt: &now}}
+	step := "upgrade"
+	if s.upgrades[op.TargetID].Action == "rollback" {
+		step = "rollback"
+	}
+	op.Progress = []domain.ProgressStep{{Name: step, Status: "succeeded", Detail: "runner completed: " + runnerRef, FinishedAt: &now}}
 	s.operations[op.ID] = op
 	u := s.upgrades[op.TargetID]
 	u.State = "succeeded"
 	u.RunnerRef = runnerRef
-	u.Result = result
+	if u.Result == nil {
+		u.Result = map[string]any{}
+	}
+	for key, value := range result {
+		u.Result[key] = value
+	}
 	u.UpdatedAt = now
 	s.upgrades[u.ID] = u
 	s.audits++

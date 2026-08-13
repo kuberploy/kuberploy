@@ -1,7 +1,6 @@
 package appconfig_test
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -17,31 +16,6 @@ func validConfig(t *testing.T) []byte {
 	a := domain.Application{ID: "33333333-3333-4333-8333-333333333333", Slug: "api"}
 	d := domain.Deployment{Image: "registry.example/api@sha256:" + strings.Repeat("a", 64), Runtime: domain.DefaultWorkloadRuntime(8080, nil)}
 	raw, err := gitops.RenderAppConfig(p, e, a, d)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
-func scheduledConfig(t *testing.T) []byte {
-	t.Helper()
-	p := domain.Project{ID: "11111111-1111-4111-8111-111111111111"}
-	e := domain.Environment{ID: "22222222-2222-4222-8222-222222222222"}
-	a := domain.Application{ID: "33333333-3333-4333-8333-333333333333", Slug: "api"}
-	runtime := domain.DefaultWorkloadRuntime(8080, nil)
-	runtime.SchedulingProfile = &domain.SchedulingProfileRef{
-		ProfileID:         "44444444-4444-4444-8444-444444444444",
-		Revision:          2,
-		SpecDigest:        "sha256:" + strings.Repeat("b", 64),
-		AssignmentsDigest: "sha256:" + strings.Repeat("c", 64),
-	}
-	runtime.NodeSelector = map[string]string{"node-role.kubernetes.io/control-plane": "true"}
-	runtime.Tolerations = []domain.WorkloadToleration{{
-		Key: "kuberploy.io/qualification", Operator: "Equal", Value: "true", Effect: "NoSchedule",
-	}}
-	raw, err := gitops.RenderAppConfig(p, e, a, domain.Deployment{
-		Image: "registry.example/api@sha256:" + strings.Repeat("a", 64), Runtime: runtime,
-	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,53 +56,39 @@ func TestApplyFailsClosedForLockedJSONPatchAndNestedScheduling(t *testing.T) {
 	}
 }
 
-func TestParseAndValidateAllowsProtectedKeysOnlyWithExactSchedulingProfile(t *testing.T) {
-	raw := scheduledConfig(t)
-	_, parsedRuntime, diagnostics := appconfig.ParseAndValidate(raw)
-	if len(diagnostics) != 0 {
-		t.Fatalf("server-materialized protected scheduling keys were rejected: %#v", diagnostics)
+func TestApplyAcceptsDirectSameApplicationScheduling(t *testing.T) {
+	candidate := appconfig.Apply(validConfig(t), appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{
+		Op: "add", Path: "/spec/runtime/affinity", Value: map[string]any{
+			"podAffinity": map[string]any{"requiredDuringSchedulingIgnoredDuringExecution": []any{map[string]any{
+				"topologyKey":   "kubernetes.io/hostname",
+				"labelSelector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/application": "33333333-3333-4333-8333-333333333333"}},
+			}}},
+		},
+	}}})
+	if len(candidate.Diagnostics) != 0 || candidate.Runtime.Affinity == nil || candidate.Runtime.Affinity.PodAffinity == nil {
+		t.Fatalf("direct same-app affinity rejected: %#v", candidate.Diagnostics)
 	}
-	if parsedRuntime.SchedulingProfile == nil || parsedRuntime.SchedulingProfile.Revision != 2 ||
-		parsedRuntime.NodeSelector["node-role.kubernetes.io/control-plane"] != "true" ||
-		len(parsedRuntime.Tolerations) != 1 || parsedRuntime.Tolerations[0].Key != "kuberploy.io/qualification" {
-		t.Fatalf("protected scheduling material was not preserved: %#v", parsedRuntime)
+
+	crossApp := appconfig.Apply(validConfig(t), appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{
+		Op: "add", Path: "/spec/runtime/topologySpreadConstraints", Value: []any{map[string]any{
+			"maxSkew": 1, "topologyKey": "kubernetes.io/hostname", "whenUnsatisfiable": "DoNotSchedule",
+			"labelSelector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/application": "44444444-4444-4444-8444-444444444444"}},
+		}},
+	}}})
+	if !hasDiagnostic(crossApp.Diagnostics, "ApplicationSelectorRequired", "/spec/runtime/topologySpreadConstraints/0/labelSelector") {
+		t.Fatalf("cross-app topology selector accepted: %#v", crossApp.Diagnostics)
 	}
 }
 
-func TestApplyDetachesSchedulingProfileAndAllEffectiveMaterialAtomically(t *testing.T) {
-	current := scheduledConfig(t)
-	jsonPatch := appconfig.Apply(current, appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{
-		Op: "remove", Path: "/spec/runtime/schedulingProfile",
-	}}})
-	if len(jsonPatch.Diagnostics) != 0 || jsonPatch.Runtime.SchedulingProfile != nil || len(jsonPatch.Runtime.NodeSelector) != 0 || len(jsonPatch.Runtime.Tolerations) != 0 {
-		t.Fatalf("JSON Patch scheduling detach failed: diagnostics=%#v runtime=%#v", jsonPatch.Diagnostics, jsonPatch.Runtime)
-	}
-
-	parsed, _, diagnostics := appconfig.ParseAndValidate(current)
-	if len(diagnostics) != 0 {
-		t.Fatal(diagnostics)
-	}
-	runtime := parsed["spec"].(map[string]any)["runtime"].(map[string]any)
-	delete(runtime, "schedulingProfile")
-	rawYAML, err := json.MarshalIndent(parsed, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	yamlMode := appconfig.Apply(current, appconfig.Change{Mode: "yaml", Documents: []appconfig.DocumentChange{{
-		DocumentID: appconfig.DocumentID, RawYAML: string(rawYAML),
-	}}})
-	if len(yamlMode.Diagnostics) != 0 || yamlMode.Runtime.SchedulingProfile != nil || len(yamlMode.Runtime.NodeSelector) != 0 || len(yamlMode.Runtime.Tolerations) != 0 {
-		t.Fatalf("YAML scheduling detach failed: diagnostics=%#v runtime=%#v", yamlMode.Diagnostics, yamlMode.Runtime)
-	}
-}
-
-func TestApplyRejectsEffectiveSchedulingSubstitutionDuringDetach(t *testing.T) {
-	candidate := appconfig.Apply(scheduledConfig(t), appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{
-		{Op: "remove", Path: "/spec/runtime/schedulingProfile"},
-		{Op: "replace", Path: "/spec/runtime/tolerations/0/key", Value: "attacker.example/toleration"},
+func TestApplySupportsWorkloadTypeSpecificStrategies(t *testing.T) {
+	candidate := appconfig.Apply(validConfig(t), appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{
+		{Op: "add", Path: "/spec/runtime/workloadType", Value: "StatefulSet"},
+		{Op: "replace", Path: "/spec/runtime/strategy/type", Value: "OnDelete"},
+		{Op: "add", Path: "/spec/runtime/podManagementPolicy", Value: "Parallel"},
+		{Op: "add", Path: "/spec/runtime/workingDirectory", Value: "/app"},
 	}})
-	if !hasDiagnostic(candidate.Diagnostics, "LockedField", "/spec/runtime/tolerations") {
-		t.Fatalf("effective scheduling substitution survived detach: %#v", candidate.Diagnostics)
+	if len(candidate.Diagnostics) != 0 || candidate.Runtime.WorkloadType != "StatefulSet" || candidate.Runtime.WorkingDirectory != "/app" {
+		t.Fatalf("valid StatefulSet runtime rejected: %#v", candidate.Diagnostics)
 	}
 }
 

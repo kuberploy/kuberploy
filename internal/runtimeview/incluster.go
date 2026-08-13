@@ -109,6 +109,30 @@ func (c *InClusterClient) GetDeployment(ctx context.Context, namespace, name str
 	return decodeDeployment(object, namespace, name)
 }
 
+func (c *InClusterClient) GetStatefulSet(ctx context.Context, namespace, name string) (StatefulSet, error) {
+	if !validKubeObject(namespace, name) {
+		return StatefulSet{}, ErrInvalidRequest
+	}
+	var object statefulSetObject
+	if err := c.getJSON(ctx, "/apis/apps/v1/namespaces/"+url.PathEscape(namespace)+"/statefulsets/"+url.PathEscape(name), nil, &object); err != nil {
+		return StatefulSet{}, err
+	}
+	if object.Metadata.Namespace != namespace || object.Metadata.Name != name || !uidPattern.MatchString(object.Metadata.UID) ||
+		object.Spec.Replicas < 0 || object.Status.ReadyReplicas < 0 || len(object.Status.Conditions) > 16 ||
+		len(object.Status.CurrentRevision) > 253 || len(object.Status.UpdateRevision) > 253 || strings.ContainsAny(object.Status.CurrentRevision+object.Status.UpdateRevision, "\x00\r\n") {
+		return StatefulSet{}, ErrScopeViolation
+	}
+	conditions := make([]DeploymentCondition, 0, len(object.Status.Conditions))
+	for _, condition := range object.Status.Conditions {
+		if !validStatefulSetCondition(condition.Type, condition.Status, condition.Reason) {
+			return StatefulSet{}, ErrScopeViolation
+		}
+		conditions = append(conditions, DeploymentCondition{Type: condition.Type, Status: condition.Status, Reason: condition.Reason, LastTransitionTime: condition.LastTransitionTime})
+	}
+	return StatefulSet{Namespace: namespace, Name: name, UID: object.Metadata.UID, Selector: LabelSelector{MatchLabels: cloneStrings(object.Spec.Selector.MatchLabels)}, DesiredReplicas: object.Spec.Replicas,
+		ReadyReplicas: object.Status.ReadyReplicas, CurrentRevision: object.Status.CurrentRevision, UpdateRevision: object.Status.UpdateRevision, Conditions: conditions}, nil
+}
+
 func (c *InClusterClient) ListReplicaSets(ctx context.Context, namespace string, selector LabelSelector) ([]ReplicaSet, error) {
 	if !kubeNamePattern.MatchString(namespace) {
 		return nil, ErrInvalidRequest
@@ -387,10 +411,41 @@ type ownerObject struct {
 type deploymentObject struct {
 	Metadata objectMetadata `json:"metadata"`
 	Spec     struct {
+		Replicas int32 `json:"replicas"`
 		Selector struct {
 			MatchLabels map[string]string `json:"matchLabels"`
 		} `json:"selector"`
 	} `json:"spec"`
+	Status struct {
+		ReadyReplicas int32 `json:"readyReplicas"`
+		Conditions    []struct {
+			Type               string     `json:"type"`
+			Status             string     `json:"status"`
+			Reason             string     `json:"reason"`
+			LastTransitionTime *time.Time `json:"lastTransitionTime"`
+		} `json:"conditions"`
+	} `json:"status"`
+}
+
+type statefulSetObject struct {
+	Metadata objectMetadata `json:"metadata"`
+	Spec     struct {
+		Replicas int32 `json:"replicas"`
+		Selector struct {
+			MatchLabels map[string]string `json:"matchLabels"`
+		} `json:"selector"`
+	} `json:"spec"`
+	Status struct {
+		ReadyReplicas   int32  `json:"readyReplicas"`
+		CurrentRevision string `json:"currentRevision"`
+		UpdateRevision  string `json:"updateRevision"`
+		Conditions      []struct {
+			Type               string     `json:"type"`
+			Status             string     `json:"status"`
+			Reason             string     `json:"reason"`
+			LastTransitionTime *time.Time `json:"lastTransitionTime"`
+		} `json:"conditions"`
+	} `json:"status"`
 }
 
 type replicaSetObject struct {
@@ -466,7 +521,39 @@ func decodeDeployment(object deploymentObject, namespace, name string) (Deployme
 	if object.Metadata.Namespace != namespace || object.Metadata.Name != name || !uidPattern.MatchString(object.Metadata.UID) {
 		return Deployment{}, ErrScopeViolation
 	}
-	return Deployment{Namespace: namespace, Name: name, UID: object.Metadata.UID, Selector: LabelSelector{MatchLabels: cloneStrings(object.Spec.Selector.MatchLabels)}}, nil
+	if object.Spec.Replicas < 0 || object.Status.ReadyReplicas < 0 || len(object.Status.Conditions) > 16 {
+		return Deployment{}, ErrScopeViolation
+	}
+	conditions := make([]DeploymentCondition, 0, len(object.Status.Conditions))
+	for _, condition := range object.Status.Conditions {
+		if !validDeploymentCondition(condition.Type, condition.Status, condition.Reason) {
+			return Deployment{}, ErrScopeViolation
+		}
+		conditions = append(conditions, DeploymentCondition{Type: condition.Type, Status: condition.Status, Reason: condition.Reason, LastTransitionTime: condition.LastTransitionTime})
+	}
+	return Deployment{Namespace: namespace, Name: name, UID: object.Metadata.UID,
+		Selector: LabelSelector{MatchLabels: cloneStrings(object.Spec.Selector.MatchLabels)}, DesiredReplicas: object.Spec.Replicas,
+		ReadyReplicas: object.Status.ReadyReplicas, Conditions: conditions}, nil
+}
+
+func validDeploymentCondition(conditionType, status, reason string) bool {
+	if conditionType != "Available" && conditionType != "Progressing" && conditionType != "ReplicaFailure" {
+		return false
+	}
+	if status != "True" && status != "False" && status != "Unknown" {
+		return false
+	}
+	if len(reason) > 253 || strings.ContainsAny(reason, "\x00\r\n") {
+		return false
+	}
+	return true
+}
+
+func validStatefulSetCondition(conditionType, status, reason string) bool {
+	if conditionType != "Available" && conditionType != "Progressing" && conditionType != "ReplicaFailure" && conditionType != "Ready" && conditionType != "Failed" {
+		return false
+	}
+	return (status == "True" || status == "False" || status == "Unknown") && len(reason) <= 253 && !strings.ContainsAny(reason, "\x00\r\n")
 }
 
 func decodeReplicaSet(object replicaSetObject, namespace string) (ReplicaSet, error) {

@@ -151,6 +151,31 @@ func TestKubernetesRunnerCreatesSecureDigestPinnedJobAndReconciles(t *testing.T)
 	}
 }
 
+func TestKubernetesRunnerCreatesBoundedHelmRollbackJob(t *testing.T) {
+	request := validExecutableRequest()
+	request.Action = "rollback"
+	request.HelmRevision = 4
+	jobs := &fakeJobAPI{completeAtGet: 2}
+	runner := KubernetesRunner{Jobs: jobs, Namespace: request.Namespace, ServiceAccount: "kuberploy-upgrade", ReleaseName: request.ReleaseName, PollInterval: time.Millisecond}
+	result, err := runner.Run(context.Background(), request)
+	if err != nil || result.RunnerRef != request.JobName || jobs.job == nil {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	args := jobs.job.Spec.Template.Spec.Containers[0].Args
+	if got := strings.Join(args, " "); !strings.HasPrefix(got, "rollback kuberploy 4 --namespace kuberploy-system ") || strings.Contains(got, "--set-string") || strings.Contains(got, "--rollback-on-failure") {
+		t.Fatalf("unsafe rollback args: %s", got)
+	}
+	if jobs.job.Metadata.Annotations[actionAnnotation] != "rollback" || jobs.job.Metadata.Annotations[helmRevisionAnnotation] != "4" {
+		t.Fatalf("rollback annotations=%#v", jobs.job.Metadata.Annotations)
+	}
+
+	invalid := request
+	invalid.HelmRevision = 0
+	if _, err = runner.Run(context.Background(), invalid); err == nil || !strings.Contains(err.Error(), "invalid Helm revision") {
+		t.Fatalf("invalid revision err=%v", err)
+	}
+}
+
 func TestKubernetesRunnerRequeuesObservationOutageAndRecoversSameJob(t *testing.T) {
 	request := validExecutableRequest()
 	jobs := &fakeJobAPI{getErrAt: 2}

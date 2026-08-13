@@ -39,6 +39,7 @@ type OpaqueTarget struct {
 }
 
 type DeploymentRef struct {
+	Kind string
 	Name string
 	UID  string
 }
@@ -74,10 +75,45 @@ type OwnerReference struct {
 }
 
 type Deployment struct {
-	Namespace string
-	Name      string
-	UID       string
-	Selector  LabelSelector
+	Namespace       string
+	Name            string
+	UID             string
+	Selector        LabelSelector
+	DesiredReplicas int32
+	ReadyReplicas   int32
+	Conditions      []DeploymentCondition
+}
+
+type DeploymentCondition struct {
+	Type               string
+	Status             string
+	Reason             string
+	LastTransitionTime *time.Time
+}
+
+type StatefulSet struct {
+	Namespace       string
+	Name            string
+	UID             string
+	Selector        LabelSelector
+	DesiredReplicas int32
+	ReadyReplicas   int32
+	CurrentRevision string
+	UpdateRevision  string
+	Conditions      []DeploymentCondition
+}
+
+type StatefulSetReader interface {
+	GetStatefulSet(context.Context, string, string) (StatefulSet, error)
+}
+
+type RolloutStatus struct {
+	DesiredReplicas int32
+	ReadyReplicas   int32
+	Conditions      []DeploymentCondition
+	CurrentRevision string
+	UpdateRevision  string
+	ObservedAt      time.Time
 }
 
 type ReplicaSet struct {

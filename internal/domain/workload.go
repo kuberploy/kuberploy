@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -18,15 +19,17 @@ const (
 )
 
 type WorkloadRuntime struct {
+	WorkloadType                  string                     `json:"workloadType,omitempty"`
 	Replicas                      int                        `json:"replicas"`
 	Strategy                      WorkloadDeploymentStrategy `json:"strategy"`
 	Command                       []string                   `json:"command,omitempty"`
 	Args                          []string                   `json:"args,omitempty"`
+	WorkingDirectory              string                     `json:"workingDirectory,omitempty"`
+	PodManagementPolicy           string                     `json:"podManagementPolicy,omitempty"`
 	TerminationGracePeriodSeconds *int                       `json:"terminationGracePeriodSeconds,omitempty"`
 	Ports                         []WorkloadPort             `json:"ports"`
 	Env                           []WorkloadEnv              `json:"env,omitempty"`
 	Resources                     WorkloadResources          `json:"resources"`
-	SchedulingProfile             *SchedulingProfileRef      `json:"schedulingProfile,omitempty"`
 	NodeSelector                  map[string]string          `json:"nodeSelector,omitempty"`
 	Affinity                      *WorkloadAffinity          `json:"affinity,omitempty"`
 	TopologySpreadConstraints     []TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
@@ -37,16 +40,6 @@ type WorkloadRuntime struct {
 
 type WorkloadDeploymentStrategy struct {
 	Type string `json:"type"`
-}
-
-// SchedulingProfileRef is the immutable, non-secret scheduling authority
-// selected by a workload caller. The effective Pod fields beside it are
-// server-derived and must match this exact revision and both durable digests.
-type SchedulingProfileRef struct {
-	ProfileID         string `json:"profileId"`
-	Revision          int64  `json:"revision"`
-	SpecDigest        string `json:"specDigest"`
-	AssignmentsDigest string `json:"assignmentsDigest"`
 }
 
 type WorkloadPort struct {
@@ -257,7 +250,6 @@ var (
 	uuidPattern       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	labelNamePattern  = regexp.MustCompile(`^[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$`)
 	dnsLabelPattern   = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$`)
-	sha256Pattern     = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 func DefaultWorkloadRuntime(port int, ordinary map[string]string) WorkloadRuntime {
@@ -272,11 +264,12 @@ func DefaultWorkloadRuntime(port int, ordinary map[string]string) WorkloadRuntim
 		env = append(env, WorkloadEnv{Name: key, Value: &value})
 	}
 	return WorkloadRuntime{
-		Replicas:  1,
-		Strategy:  WorkloadDeploymentStrategy{Type: "RollingUpdate"},
-		Ports:     []WorkloadPort{{Name: "http", ContainerPort: port}},
-		Env:       env,
-		Resources: WorkloadResources{Requests: ResourceList{CPU: DefaultCPURequest, Memory: DefaultMemoryRequest}},
+		WorkloadType: "Deployment",
+		Replicas:     1,
+		Strategy:     WorkloadDeploymentStrategy{Type: "RollingUpdate"},
+		Ports:        []WorkloadPort{{Name: "http", ContainerPort: port}},
+		Env:          env,
+		Resources:    WorkloadResources{Requests: ResourceList{CPU: DefaultCPURequest, Memory: DefaultMemoryRequest}},
 	}
 }
 
@@ -304,11 +297,17 @@ func LegacyWorkloadFields(runtime WorkloadRuntime) (int, int, map[string]string)
 }
 
 func NormalizeWorkloadRuntime(runtime WorkloadRuntime) WorkloadRuntime {
+	if runtime.WorkloadType == "" {
+		runtime.WorkloadType = "Deployment"
+	}
 	if runtime.Replicas == 0 {
 		runtime.Replicas = 1
 	}
 	if runtime.Strategy.Type == "" {
 		runtime.Strategy.Type = "RollingUpdate"
+	}
+	if runtime.WorkloadType == "StatefulSet" && runtime.PodManagementPolicy == "" {
+		runtime.PodManagementPolicy = "OrderedReady"
 	}
 	if runtime.Resources.Requests.CPU == "" {
 		runtime.Resources.Requests.CPU = DefaultCPURequest
@@ -332,23 +331,17 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 	add := func(pointer, code, detail string) {
 		problems = append(problems, WorkloadValidationError{Pointer: pointer, Code: code, Detail: detail})
 	}
-	if runtime.SchedulingProfile != nil {
-		ref := runtime.SchedulingProfile
-		if !uuidPattern.MatchString(ref.ProfileID) {
-			add("/runtime/schedulingProfile/profileId", "InvalidUUID", "profileId must identify an immutable scheduling profile")
-		}
-		if ref.Revision < 1 {
-			add("/runtime/schedulingProfile/revision", "OutOfRange", "revision must be at least 1")
-		}
-		if !sha256Pattern.MatchString(ref.SpecDigest) {
-			add("/runtime/schedulingProfile/specDigest", "InvalidDigest", "specDigest must be an exact lowercase SHA-256 digest")
-		}
-		if !sha256Pattern.MatchString(ref.AssignmentsDigest) {
-			add("/runtime/schedulingProfile/assignmentsDigest", "InvalidDigest", "assignmentsDigest must be an exact lowercase SHA-256 digest")
-		}
+	workloadType := runtime.WorkloadType
+	if workloadType == "" {
+		workloadType = "Deployment"
+	}
+	if workloadType != "Deployment" && workloadType != "StatefulSet" {
+		add("/runtime/workloadType", "InvalidWorkloadType", "workloadType must be Deployment or StatefulSet")
 	}
 	if runtime.PriorityClassName != "" && !validDNSLabel(runtime.PriorityClassName) {
 		add("/runtime/priorityClassName", "InvalidDNSLabel", "priorityClassName must be a Kubernetes DNS label")
+	} else if strings.HasPrefix(runtime.PriorityClassName, "system-") {
+		add("/runtime/priorityClassName", "ReservedPriorityClass", "Kubernetes system-* PriorityClasses are reserved for cluster-critical workloads")
 	}
 	if runtime.Replicas < 1 || runtime.Replicas > 100 {
 		add("/runtime/replicas", "OutOfRange", "replicas must be between 1 and 100")
@@ -359,13 +352,28 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 		// Deployment default. Normalized output always writes RollingUpdate.
 		strategyType = "RollingUpdate"
 	}
-	if strategyType != "RollingUpdate" && strategyType != "Recreate" {
-		add("/runtime/strategy/type", "InvalidDeploymentStrategy", "strategy type must be RollingUpdate or Recreate")
+	if workloadType == "StatefulSet" {
+		if strategyType != "RollingUpdate" && strategyType != "OnDelete" {
+			add("/runtime/strategy/type", "InvalidStatefulSetStrategy", "StatefulSet strategy type must be RollingUpdate or OnDelete")
+		}
+		if runtime.PodManagementPolicy != "" && runtime.PodManagementPolicy != "OrderedReady" && runtime.PodManagementPolicy != "Parallel" {
+			add("/runtime/podManagementPolicy", "InvalidPodManagementPolicy", "StatefulSet podManagementPolicy must be OrderedReady or Parallel")
+		}
+	} else {
+		if strategyType != "RollingUpdate" && strategyType != "Recreate" {
+			add("/runtime/strategy/type", "InvalidDeploymentStrategy", "Deployment strategy type must be RollingUpdate or Recreate")
+		}
+		if runtime.PodManagementPolicy != "" {
+			add("/runtime/podManagementPolicy", "Forbidden", "podManagementPolicy is supported only for StatefulSet workloads")
+		}
 	}
 	commandBytes := validateRuntimeCommandVector(runtime.Command, 64, "/runtime/command", add)
 	argumentBytes := validateRuntimeCommandVector(runtime.Args, 128, "/runtime/args", add)
 	if commandBytes+argumentBytes > 64<<10 {
 		add("/runtime", "CommandTooLong", "container command and arguments are limited to 65536 bytes in total")
+	}
+	if runtime.WorkingDirectory != "" && (len(runtime.WorkingDirectory) > 4096 || !utf8.ValidString(runtime.WorkingDirectory) || strings.IndexByte(runtime.WorkingDirectory, 0) >= 0 || !path.IsAbs(runtime.WorkingDirectory) || path.Clean(runtime.WorkingDirectory) != runtime.WorkingDirectory) {
+		add("/runtime/workingDirectory", "InvalidWorkingDirectory", "workingDirectory must be a canonical absolute path of at most 4096 bytes")
 	}
 	if runtime.TerminationGracePeriodSeconds != nil && (*runtime.TerminationGracePeriodSeconds < 1 || *runtime.TerminationGracePeriodSeconds > 3600) {
 		add("/runtime/terminationGracePeriodSeconds", "OutOfRange", "termination grace period must be between 1 and 3600 seconds")
@@ -462,7 +470,7 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 			add(pointer+"/topologyKey", "InvalidLabelKey", "topologyKey must be a Kubernetes label key")
 		}
 		if reservedSchedulingKey(constraint.TopologyKey) {
-			add(pointer+"/topologyKey", "ReservedSchedulingKey", "system and builder placement labels require an administrator-managed scheduling profile")
+			add(pointer+"/topologyKey", "ReservedSchedulingKey", "system and builder placement labels are not available to application scheduling")
 		}
 		if constraint.WhenUnsatisfiable != "DoNotSchedule" && constraint.WhenUnsatisfiable != "ScheduleAnyway" {
 			add(pointer+"/whenUnsatisfiable", "InvalidValue", "use DoNotSchedule or ScheduleAnyway")
@@ -505,14 +513,42 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 		}
 	}
 	validateProbes(runtime, add)
-	if runtime.SchedulingProfile != nil {
-		filtered := problems[:0]
-		for _, problem := range problems {
-			if problem.Code != "ReservedSchedulingKey" {
-				filtered = append(filtered, problem)
-			}
+	return problems
+}
+
+// ValidateApplicationScheduling requires all Pod relationship and topology
+// spread selectors to target exactly the current application identity.
+func ValidateApplicationScheduling(runtime WorkloadRuntime, applicationID string) []WorkloadValidationError {
+	var problems []WorkloadValidationError
+	add := func(pointer string) {
+		problems = append(problems, WorkloadValidationError{
+			Pointer: pointer,
+			Code:    "ApplicationSelectorRequired",
+			Detail:  "Pod placement selectors must target only this exact application; arbitrary labels, expressions, and cross-application identity are not accepted.",
+		})
+	}
+	exact := func(selector LabelSelector, pointer string) {
+		if applicationID == "" || len(selector.MatchExpressions) != 0 || len(selector.MatchLabels) != 1 || selector.MatchLabels["kuberploy.io/application"] != applicationID {
+			add(pointer)
 		}
-		problems = filtered
+	}
+	validatePodTerms := func(affinity *PodAffinity, pointer string) {
+		if affinity == nil {
+			return
+		}
+		for index, term := range affinity.RequiredDuringSchedulingIgnoredDuringExecution {
+			exact(term.LabelSelector, fmt.Sprintf("%s/requiredDuringSchedulingIgnoredDuringExecution/%d/labelSelector", pointer, index))
+		}
+		for index, term := range affinity.PreferredDuringSchedulingIgnoredDuringExecution {
+			exact(term.PodAffinityTerm.LabelSelector, fmt.Sprintf("%s/preferredDuringSchedulingIgnoredDuringExecution/%d/podAffinityTerm/labelSelector", pointer, index))
+		}
+	}
+	if runtime.Affinity != nil {
+		validatePodTerms(runtime.Affinity.PodAffinity, "/runtime/affinity/podAffinity")
+		validatePodTerms(runtime.Affinity.PodAntiAffinity, "/runtime/affinity/podAntiAffinity")
+	}
+	for index, constraint := range runtime.TopologySpreadConstraints {
+		exact(constraint.LabelSelector, fmt.Sprintf("/runtime/topologySpreadConstraints/%d/labelSelector", index))
 	}
 	return problems
 }
@@ -668,7 +704,7 @@ func validateNodeTerm(term NodeSelectorTerm, pointer string, add func(string, st
 			add(path+"/key", "InvalidLabelKey", "key must be a Kubernetes label key")
 		}
 		if reservedSchedulingKey(expression.Key) {
-			add(path+"/key", "ReservedSchedulingKey", "system, control-plane, and builder node labels require an administrator-managed scheduling profile")
+			add(path+"/key", "ReservedSchedulingKey", "system, control-plane, and builder node labels are not available to application scheduling")
 		}
 		validOperator := expression.Operator == "In" || expression.Operator == "NotIn" || expression.Operator == "Exists" || expression.Operator == "DoesNotExist" || expression.Operator == "Gt" || expression.Operator == "Lt"
 		if !validOperator {
@@ -721,7 +757,7 @@ func validatePodAffinityTerm(term PodAffinityTerm, pointer string, add func(stri
 		add(pointer+"/topologyKey", "InvalidLabelKey", "topologyKey must be a Kubernetes label key")
 	}
 	if reservedSchedulingKey(term.TopologyKey) {
-		add(pointer+"/topologyKey", "ReservedSchedulingKey", "system and builder placement labels require an administrator-managed scheduling profile")
+		add(pointer+"/topologyKey", "ReservedSchedulingKey", "system and builder placement labels are not available to application scheduling")
 	}
 	validateLabelSelector(term.LabelSelector, pointer+"/labelSelector", add)
 }
@@ -763,7 +799,7 @@ func validateNodeSelector(selector map[string]string, pointer string, add func(s
 			add(pointer+"/"+key, "InvalidLabelKey", "selector key must be a Kubernetes label key")
 		}
 		if strings.HasPrefix(pointer, "/runtime/nodeSelector") && reservedSchedulingKey(key) {
-			add(pointer+"/"+key, "ReservedSchedulingKey", "system, control-plane, and builder node labels require an administrator-managed scheduling profile")
+			add(pointer+"/"+key, "ReservedSchedulingKey", "system, control-plane, and builder node labels are not available to application scheduling")
 		}
 		if len(value) > 63 || (value != "" && !labelNamePattern.MatchString(value)) {
 			add(pointer+"/"+key, "InvalidLabelValue", "selector value must be a Kubernetes label value")

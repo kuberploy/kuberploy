@@ -7,7 +7,6 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	platformstore "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -108,7 +107,7 @@ func (r *Resolver) ResolveAuthorized(ctx context.Context, request Request) (Sour
 		}
 		protectedMergeVerified = true
 	}
-	runtime := scheduling.Dematerialize(cloneRuntime(snapshot.Runtime))
+	runtime := cloneRuntime(snapshot.Runtime)
 	replicas, port, ordinary := domain.LegacyWorkloadFields(runtime)
 	source := Source{Deployment: cloneDeployment(snapshot), SourceOperation: op, ProtectedMergeVerified: protectedMergeVerified,
 		Create: domain.CreateDeployment{EnvironmentID: snapshot.EnvironmentID, ApplicationID: snapshot.ApplicationID,

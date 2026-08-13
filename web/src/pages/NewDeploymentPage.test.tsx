@@ -360,6 +360,10 @@ describe("new deployment runtime controls", () => {
     await user.clear(args);
     await user.type(args, '- --literal\n- "semi; $(id)"');
     await user.type(
+      screen.getByRole("textbox", { name: "Container working directory" }),
+      "/srv/payments",
+    );
+    await user.type(
       screen.getByRole("spinbutton", { name: "Termination grace period" }),
       "45",
     );
@@ -374,6 +378,7 @@ describe("new deployment runtime controls", () => {
     expect(createDeployment.mock.calls[0]?.[0].runtime).toMatchObject({
       command: ["/bin/server", "argument with spaces"],
       args: ["--literal", "semi; $(id)"],
+      workingDirectory: "/srv/payments",
       terminationGracePeriodSeconds: 45,
     });
     expect(createDeployment.mock.calls[0]?.[0].runtime.probes).toEqual({

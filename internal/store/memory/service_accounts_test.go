@@ -68,6 +68,15 @@ func TestServiceAccountTokenIsScopedHashedExpiringAndRevocable(t *testing.T) {
 	if _, err = store.ServiceAccountByToken(ctx, wrong[:], time.Now().UTC()); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("wrong bearer error=%v", err)
 	}
+	if _, err = store.CreateProjectAccessGrant(ctx, admin.ID, "grant-account", "grant-account", "request", domain.CreateAccessGrant{
+		ProjectID: project.ID, SubjectUserID: account.ID, Role: domain.RoleViewer,
+		ScopeType: domain.ScopeProject, ScopeID: project.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ServiceAccountByToken(ctx, hash[:], time.Now().UTC()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("grant revision retained stale bearer: %v", err)
+	}
 
 	users, err := store.ListUsersForActor(ctx, admin.ID)
 	if err != nil {

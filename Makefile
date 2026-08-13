@@ -1,4 +1,4 @@
-.PHONY: help fmt test web-build helm-lint check prisma-migration-test platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
+.PHONY: help fmt test web-build helm-lint check secret-scan prisma-migration-test platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
 
 help:
 	@echo "Kuberploy development targets"
@@ -7,6 +7,7 @@ help:
 	@echo "  make web-build  Build the web UI"
 	@echo "  make helm-lint  Lint and render Helm charts"
 	@echo "  make check      Run all local verification"
+	@echo "  make secret-scan Scan only tracked files for committed credentials"
 	@echo "  make prisma-migration-test Test the real migration image against PostgreSQL"
 	@echo "  make platform-chart-test  Test the control-plane and runtime charts"
 	@echo "  make installer-chart-test Test the single-invocation Argo bootstrap installer"
@@ -41,7 +42,11 @@ helm-lint: platform-chart-test installer-chart-test monitoring-chart-test edge-c
 		if [ -f "$$chart/Chart.yaml" ]; then helm lint "$$chart"; helm template test "$$chart" >/dev/null; fi; \
 	done
 
-check: test web-build helm-lint builder-chart-test registry-chart-test kubernetes-harness-test
+check: secret-scan test web-build helm-lint builder-chart-test registry-chart-test kubernetes-harness-test
+
+secret-scan:
+	@./scripts/security/scan-tracked-secrets.sh
+	@./scripts/security/test-scan-tracked-secrets.sh
 
 prisma-migration-test:
 	@./test/e2e/test-prisma-migrations.sh

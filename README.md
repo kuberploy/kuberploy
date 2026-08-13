@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.151` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.152` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 > This RC moves the reviewed `0.1.0` native PostgreSQL baseline into a dedicated
 > Prisma migration Job and therefore requires a fresh database; pre-Prisma RC
@@ -21,7 +21,7 @@ workloads, and PostgreSQL holds durable operations and recovery state.
   application.
 - Direct Git publication for development and protected pull-request publication
   for reviewed environments.
-- Immutable image resolution, rollback, scheduling profiles, reusable Traefik
+- Immutable image resolution, rollback, direct per-application scheduling, reusable Traefik
   middleware, VariableSet inheritance, runtime secrets, TLS, and DNS workflows.
 - Team projects, scoped grants, service accounts, GitHub App installations, and
   copyable one-time invitation links—no email provider required.
@@ -82,7 +82,7 @@ cp examples/installer/managed-platform-values.yaml installer-values.yaml
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.151 \
+  --version 0.1.0-rc.152 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \

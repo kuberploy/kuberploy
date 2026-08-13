@@ -235,9 +235,7 @@ func canonicalAutoDeployIntent(parsed map[string]any) (map[string]any, error) {
 	}
 	spec["delivery"] = map[string]any{"mode": "image"}
 	if runtime, ok := spec["runtime"].(map[string]any); ok {
-		for _, key := range []string{"configRevision", "nodeSelector", "affinity", "topologySpreadConstraints", "tolerations", "priorityClassName"} {
-			delete(runtime, key)
-		}
+		delete(runtime, "configRevision")
 	}
 	if routes, ok := spec["routes"].([]any); ok {
 		for _, item := range routes {
@@ -279,10 +277,8 @@ func validateCanonicalIntentShape(value map[string]any) bool {
 		return false
 	}
 	if runtime, ok := spec["runtime"].(map[string]any); ok {
-		for _, key := range []string{"configRevision", "nodeSelector", "affinity", "topologySpreadConstraints", "tolerations", "priorityClassName"} {
-			if _, exists := runtime[key]; exists {
-				return false
-			}
+		if _, exists := runtime["configRevision"]; exists {
+			return false
 		}
 	}
 	if routes, ok := spec["routes"].([]any); ok {

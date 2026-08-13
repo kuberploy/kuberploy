@@ -282,6 +282,18 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	if me := decode[domain.User](t, r); r.StatusCode != http.StatusOK || me.ID != developer.ID {
 		t.Fatalf("developer session user=%#v status=%d", me, r.StatusCode)
 	}
+	setupBody, _ := json.Marshal(map[string]string{"returnKey": "application-source"})
+	setupRequest, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/github/installations/authorize", bytes.NewReader(setupBody))
+	setupRequest.Header.Set("Content-Type", "application/json")
+	setupRequest.Header.Set("Idempotency-Key", "developer-github-setup-denied")
+	setupRequest.Header.Set("X-CSRF-Token", developerCSRF)
+	r, err = developerClient.Do(setupRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if problem := decode[httpapi.Problem](t, r); r.StatusCode != http.StatusForbidden || problem.Code != "Forbidden" {
+		t.Fatalf("developer GitHub setup status=%d problem=%#v", r.StatusCode, problem)
+	}
 	// A token is strictly single use, even from a new client.
 	replayReq, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/auth/invitations/accept", bytes.NewReader(body))
 	replayReq.Header.Set("Content-Type", "application/json")
@@ -513,7 +525,7 @@ func upgradeSnapshot() releases.Snapshot {
 	return releases.Snapshot{Release: domain.ReleaseInfo{Tag: "v1.1.0", Version: "1.1.0", ManifestDigest: manifestDigest, Manifest: manifest, ManifestBytes: manifestBytes, PublishedAt: time.Date(2026, 8, 6, 0, 0, 0, 0, time.UTC)}, LastCheckedAt: time.Date(2026, 8, 6, 0, 1, 0, 0, time.UTC)}
 }
 
-func TestReleaseCheckAndSingleActiveUpgrade(t *testing.T) {
+func TestReleaseCheckIsReadOnlyForInstallerManagedPlatform(t *testing.T) {
 	snapshot := upgradeSnapshot()
 	f := newUpgradeAPI(t, snapshot)
 	f.bootstrap()
@@ -542,33 +554,11 @@ func TestReleaseCheckAndSingleActiveUpgrade(t *testing.T) {
 	}
 	body := map[string]string{"targetVersion": "1.1.0", "manifestDigest": snapshot.Release.ManifestDigest}
 	r = f.request("POST", "/v1/platform/upgrades", "upgrade-1", body)
-	op := decode[domain.Operation](t, r)
-	if r.StatusCode != 202 || op.Kind != "platform.upgrade" || op.TargetType != "platform-upgrade" {
-		t.Fatalf("upgrade op=%#v status=%d", op, r.StatusCode)
+	if r.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("installer-managed platform accepted child Helm mutation: %d", r.StatusCode)
 	}
-	if f.store.OutboxCount() != 1 || f.store.AuditCount() != 1 {
-		t.Fatalf("durable counts outbox=%d audit=%d", f.store.OutboxCount(), f.store.AuditCount())
-	}
-	r = f.request("GET", "/v1/platform/upgrades/"+op.TargetID, "", nil)
-	upgrade := decode[domain.PlatformUpgrade](t, r)
-	if upgrade.ManifestDigest != snapshot.Release.ManifestDigest || upgrade.Manifest.Source.Commit != snapshot.Release.Manifest.Source.Commit {
-		t.Fatalf("persisted upgrade %#v", upgrade)
-	}
-	r = f.request("POST", "/v1/platform/upgrades", "upgrade-1", body)
-	replay := decode[domain.Operation](t, r)
-	if replay.ID != op.ID || r.Header.Get("Idempotent-Replay") != "true" {
-		t.Fatal("upgrade replay did not return original operation")
-	}
-	r = f.request("POST", "/v1/platform/upgrades", "upgrade-2", body)
-	problem := decode[httpapi.Problem](t, r)
-	if r.StatusCode != 409 || problem.Code != "UpgradeInProgress" {
-		t.Fatalf("active guard: %d %#v", r.StatusCode, problem)
-	}
-	stale := map[string]string{"targetVersion": "1.1.0", "manifestDigest": "sha256:" + strings.Repeat("e", 64)}
-	r = f.request("POST", "/v1/platform/upgrades", "upgrade-3", stale)
-	problem = decode[httpapi.Problem](t, r)
-	if r.StatusCode != 409 || problem.Code != "ReleaseSelectionStale" {
-		t.Fatalf("stale release: %d %#v", r.StatusCode, problem)
+	if f.store.OutboxCount() != 0 || f.store.AuditCount() != 0 {
+		t.Fatalf("rejected child upgrade mutated durable state: outbox=%d audit=%d", f.store.OutboxCount(), f.store.AuditCount())
 	}
 }
 

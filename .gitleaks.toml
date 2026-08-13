@@ -1,0 +1,23 @@
+[extend]
+useDefault = true
+
+# Exact public integrity identifiers and deliberately synthetic test fixtures.
+# This is intentionally value-scoped: test directories are still scanned for
+# any credential that is not one of these fixed non-production values.
+[[allowlists]]
+description = "Public digests and synthetic fixtures"
+regexTarget = "secret"
+regexes = [
+  '''251e4615013c6d2f9ade5cedf1cd8615613f286bfc381e44fb005f197e611ecd''',
+  '''6aa9f2e423642cae84ed6a9798cdfd0faf2e347290ce7b3e4c393333a79743f8''',
+  '''f2a3aa61638f1e23ef963be311e8d5ea75878d8e01ae3846285965b6dd985337''',
+  '''installationID''',
+  '''observe-certificate-0001''',
+  '''Y2FsbGVyLW11c3Qtbm90LXNlZS10aGlz''',
+  '''0123456789abcdef0123456789abcdef''',
+  '''cm9ib3Q6Y29ycmVjdCBob3JzZSBiYXR0ZXJ5IHN0YXBsZQ==''',
+  '''invalid-utf8-0001''',
+  '''MDEyMzQ1Njc4OWFiY2RlZg==''',
+  '''rotate-pending-000[12]''',
+  '''bmV2ZXItcGVyc2lzdGVk''',
+]

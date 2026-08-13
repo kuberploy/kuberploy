@@ -25,7 +25,7 @@ func TestExecutableUsesClosedPersistedProtocolAndDeterministicJobName(t *testing
 	manifestBytes := []byte(`{"release":{"tag":"v1.1.0","version":"1.1.0"}}`)
 	sum := sha256.Sum256(manifestBytes)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
-	u := domain.PlatformUpgrade{Version: "1.1.0", ManifestDigest: digest, ManifestBytes: manifestBytes}
+	u := domain.PlatformUpgrade{Version: "1.1.0", ManifestDigest: digest, ManifestBytes: manifestBytes, Action: "rollback", HelmRevision: 3}
 	result, err := (Executable{Path: script, Namespace: "kuberploy-system", ReleaseName: "kuberploy"}).Run(context.Background(), operation, u)
 	if err != nil {
 		t.Fatal(err)
@@ -43,6 +43,9 @@ func TestExecutableUsesClosedPersistedProtocolAndDeterministicJobName(t *testing
 	}
 	if request["jobName"] != expected || request["targetVersion"] != "1.1.0" || request["manifestDigest"] != digest {
 		t.Fatalf("request %#v", request)
+	}
+	if request["action"] != "rollback" || request["helmRevision"] != float64(3) {
+		t.Fatalf("rollback protocol %#v", request)
 	}
 	if _, ok := request["url"]; ok {
 		t.Fatal("runner protocol must never accept an arbitrary URL")

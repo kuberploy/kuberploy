@@ -9,6 +9,7 @@ import (
 type githubBuildOperation struct {
 	OperationID     string                `json:"operationId"`
 	Audience        []string              `json:"x-kuberploy-audience"`
+	Permission      string                `json:"x-kuberploy-permission"`
 	AutomationScope string                `json:"x-kuberploy-automation-scope"`
 	Security        []map[string][]string `json:"security"`
 	Parameters      []struct {
@@ -54,7 +55,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 			expectedSchemes = 2
 		}
 		if len(operation.Security) != 1 || len(operation.Security[0]) != expectedSchemes || operation.Security[0][expected.auth] == nil ||
-			!equalStrings(operation.Audience, []string{"human"}) {
+			!equalStrings(operation.Audience, []string{"human"}) || operation.Permission != "platform.admin" {
 			t.Fatalf("setup operation %s %s is not exact cookie-only human: %#v", expected.method, path, operation)
 		}
 		if path == "/v1/github/installations/link" && operation.Security[0]["githubSetupHandoff"] == nil {
@@ -187,7 +188,7 @@ func TestEveryHighRiskLimitedOperationReferencesStableProblems(t *testing.T) {
 		"registerGitHubInstallationMetadata", "updateGitHubInstallationSharing", "authorizeGitHubAppInstallation", "linkVerifiedGitHubAppInstallation",
 		"createEnvironmentGitBinding", "createPlatformArgoGitBinding",
 		"createProjectAccessGrant", "deleteProjectAccessGrant", "createProjectServiceAccount", "disableServiceAccount", "createServiceAccountToken", "revokeServiceAccountToken",
-		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "createApplicationBuildDefinition", "cancelBuildAttempt", "retryBuildAttempt", "createPlatformUpgrade",
+		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "createApplicationBuildDefinition", "cancelBuildAttempt", "retryBuildAttempt",
 	} {
 		expected[operationID] = false
 	}

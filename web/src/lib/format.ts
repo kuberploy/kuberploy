@@ -38,9 +38,10 @@ export function shortId(value?: string, size = 8): string {
 
 export function gitRefLabel(value?: string): string {
   if (!value) return "—";
-  return value.startsWith("refs/heads/")
-    ? value.slice("refs/heads/".length)
-    : value;
+  for (const prefix of ["refs/heads/", "refs/tags/"]) {
+    if (value.startsWith(prefix)) return value.slice(prefix.length);
+  }
+  return value;
 }
 
 export function canonicalBranchRef(value: string): string {

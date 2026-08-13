@@ -20,6 +20,11 @@ func TestProjectGrantAPIRequiresExactScopeAndIdempotentDelete(t *testing.T) {
 	if response.StatusCode != http.StatusCreated {
 		t.Fatalf("project status=%d", response.StatusCode)
 	}
+	response = f.request("POST", "/v1/teams", "grant-subject-team", map[string]string{"name": "Backend", "slug": "access-backend"})
+	subjectTeam := decode[domain.Team](t, response)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("subject team status=%d", response.StatusCode)
+	}
 	input := map[string]any{"subjectUserId": admin.ID, "role": "viewer", "scopeType": "project", "scopeId": project.ID, "permissions": []string{"logs.read"}}
 	response = f.request("POST", "/v1/projects/"+project.ID+"/grants", "grant-create", input)
 	grant := decode[domain.AccessGrant](t, response)
@@ -39,6 +44,20 @@ func TestProjectGrantAPIRequiresExactScopeAndIdempotentDelete(t *testing.T) {
 	if response.StatusCode != http.StatusCreated || emptyPermissionsGrant.Permissions == nil || len(emptyPermissionsGrant.Permissions) != 0 {
 		t.Fatalf("empty permissions must serialize as an array: grant=%#v status=%d", emptyPermissionsGrant, response.StatusCode)
 	}
+	teamInput := map[string]any{"subjectTeamId": subjectTeam.ID, "role": "viewer", "scopeType": "project", "scopeId": project.ID}
+	response = f.request("POST", "/v1/projects/"+project.ID+"/grants", "grant-create-team", teamInput)
+	teamGrant := decode[domain.AccessGrant](t, response)
+	if response.StatusCode != http.StatusCreated || teamGrant.SubjectTeamID != subjectTeam.ID || teamGrant.SubjectUserID != "" {
+		t.Fatalf("team grant=%#v status=%d", teamGrant, response.StatusCode)
+	}
+	bothSubjects := map[string]any{"subjectUserId": admin.ID, "subjectTeamId": subjectTeam.ID, "role": "viewer", "scopeType": "project", "scopeId": project.ID}
+	response = f.request("POST", "/v1/projects/"+project.ID+"/grants", "grant-create-both-subjects", bothSubjects)
+	problem := decode[struct {
+		Code string `json:"code"`
+	}](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {
+		t.Fatalf("both-subject grant status=%d problem=%#v", response.StatusCode, problem)
+	}
 	response = f.request("DELETE", "/v1/projects/"+project.ID+"/grants/"+grant.ID, "grant-delete", nil)
 	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "" {
 		t.Fatalf("first delete status=%d replay=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
@@ -51,7 +70,7 @@ func TestProjectGrantAPIRequiresExactScopeAndIdempotentDelete(t *testing.T) {
 	response.Body.Close()
 	invalid := map[string]any{"subjectUserId": admin.ID, "role": "platform-admin", "scopeType": "platform", "scopeId": "platform"}
 	response = f.request("POST", "/v1/projects/"+project.ID+"/grants", "invalid-platform-grant", invalid)
-	problem := decode[struct {
+	problem = decode[struct {
 		Code string `json:"code"`
 	}](t, response)
 	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" {

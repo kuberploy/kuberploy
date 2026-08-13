@@ -3,7 +3,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { ApiError, api, errorMessage } from "../api/client";
-import type { SchedulingProfileRef } from "../api/types";
 import {
   Button,
   Card,
@@ -20,7 +19,6 @@ import {
   RuntimeProcessEditor,
 } from "../components/GuidedConfigForm";
 import { RuntimeSecretReferencePicker } from "../components/RuntimeSecretReferencePicker";
-import { SchedulingProfilePicker } from "../components/SchedulingProfilePicker";
 import {
   defaultGuidedProbes,
   validateGuidedProbes,
@@ -48,7 +46,6 @@ type DeploymentForm = GuidedRuntimeProcess & {
   memoryRequest: string;
   cpuLimit: string;
   memoryLimit: string;
-  schedulingProfile?: SchedulingProfileRef;
   probes: GuidedProbes;
   routeMode: "internal" | "manual" | "sslip";
   hostname: string;
@@ -99,6 +96,7 @@ export function NewDeploymentPage() {
       replicas: 1,
       commandYaml: "[]",
       argsYaml: "[]",
+      workingDirectory: "",
       terminationGracePeriodSeconds: undefined,
       port: 3000,
       cpuRequest: "50m",
@@ -139,6 +137,10 @@ export function NewDeploymentPage() {
   const probes = useWatch({ control: form.control, name: "probes" });
   const commandYaml = useWatch({ control: form.control, name: "commandYaml" });
   const argsYaml = useWatch({ control: form.control, name: "argsYaml" });
+  const workingDirectory = useWatch({
+    control: form.control,
+    name: "workingDirectory",
+  });
   const terminationGracePeriodSeconds = useWatch({
     control: form.control,
     name: "terminationGracePeriodSeconds",
@@ -151,6 +153,7 @@ export function NewDeploymentPage() {
   const processValues: GuidedRuntimeProcess = {
     commandYaml: commandYaml ?? "[]",
     argsYaml: argsYaml ?? "[]",
+    workingDirectory: workingDirectory ?? "",
     terminationGracePeriodSeconds,
   };
   const processError = validateGuidedRuntimeProcess(processValues);
@@ -361,9 +364,6 @@ export function NewDeploymentPage() {
                 }
               : {}),
           },
-          ...(values.schedulingProfile
-            ? { schedulingProfile: values.schedulingProfile }
-            : {}),
           ...(workloadProbes ? { probes: workloadProbes } : {}),
         },
         route:
@@ -760,30 +760,6 @@ export function NewDeploymentPage() {
             <div className="form-card__heading">
               <span>04</span>
               <div>
-                <h2>Scheduling for this service</h2>
-                <p>
-                  Choose this app's placement policy independently from every
-                  other service. Kuberploy never mutates Nodes, taints,
-                  NodePools, or NodeClasses.
-                </p>
-              </div>
-            </div>
-            <SchedulingProfilePicker
-              environmentId={environmentId}
-              value={form.watch("schedulingProfile")}
-              enabled={capabilities.data?.features?.schedulingProfiles === true}
-              onChange={(profile) =>
-                form.setValue("schedulingProfile", profile, {
-                  shouldDirty: true,
-                })
-              }
-            />
-          </Card>
-
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>05</span>
-              <div>
                 <h2>Artifact & runtime</h2>
                 <p>
                   Exact digests submit directly. Authorized tags require a fresh
@@ -930,6 +906,11 @@ export function NewDeploymentPage() {
                   shouldTouch: true,
                 });
                 form.setValue(
+                  "workingDirectory",
+                  value.workingDirectory ?? "",
+                  { shouldDirty: true, shouldTouch: true },
+                );
+                form.setValue(
                   "terminationGracePeriodSeconds",
                   value.terminationGracePeriodSeconds,
                   { shouldDirty: true, shouldTouch: true },
@@ -940,7 +921,7 @@ export function NewDeploymentPage() {
 
           <Card className="form-card">
             <div className="form-card__heading">
-              <span>06</span>
+              <span>05</span>
               <div>
                 <h2>Health checks</h2>
                 <p>
@@ -963,7 +944,7 @@ export function NewDeploymentPage() {
 
           <Card className="form-card">
             <div className="form-card__heading form-card__heading--with-action">
-              <span>07</span>
+              <span>06</span>
               <div>
                 <h2>Runtime environment values</h2>
                 <p>
@@ -1020,7 +1001,7 @@ export function NewDeploymentPage() {
 
           <Card className="form-card">
             <div className="form-card__heading">
-              <span>08</span>
+              <span>07</span>
               <div>
                 <h2>Initial internet route</h2>
                 <p>

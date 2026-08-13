@@ -316,6 +316,7 @@ export type Capabilities = {
   actions?: string[];
   capabilities?: Capability[];
   features?: Record<string, boolean>;
+  featureStates?: Record<string, "disabled" | "unavailable" | "healthy">;
   limits?: Record<string, number | string | boolean>;
 };
 
@@ -359,7 +360,8 @@ export type AccessScopeType =
 
 export type AccessGrant = {
   id: string;
-  subjectUserId: string;
+  subjectUserId?: string;
+  subjectTeamId?: string;
   role: AccessRole;
   scopeType: AccessScopeType;
   scopeId: string;
@@ -642,45 +644,6 @@ export type WorkloadToleration = {
   effect: "NoSchedule" | "PreferNoSchedule" | "NoExecute";
   tolerationSeconds?: number;
 };
-export type SchedulingProfileRef = {
-  profileId: string;
-  revision: number;
-  specDigest: string;
-  assignmentsDigest: string;
-};
-export type SchedulingProfileAssignment = {
-  scope: "team" | "project" | "environment";
-  id: string;
-};
-export type SchedulingProfilePreferredNodeAffinity = {
-  weight: number;
-  requirements: NodeSelectorRequirement[];
-};
-export type SchedulingProfileSameApplicationPodAntiAffinity = {
-  enforcement: "required" | "preferred";
-  topologyKey: string;
-  weight?: number;
-};
-export type SchedulingProfileSpec = {
-  description?: string;
-  pod: {
-    nodeSelector?: Record<string, string>;
-    requiredNodeAffinity?: NodeSelectorRequirement[];
-    preferredNodeAffinity?: SchedulingProfilePreferredNodeAffinity[];
-    sameApplicationPodAntiAffinity?: SchedulingProfileSameApplicationPodAntiAffinity[];
-    tolerations?: WorkloadToleration[];
-    topologySpread?: Array<{
-      maxSkew: number;
-      topologyKey: string;
-      whenUnsatisfiable: "DoNotSchedule" | "ScheduleAnyway";
-    }>;
-    priorityClassName?: string;
-  };
-};
-export type AssignedSchedulingProfile = SchedulingProfileRef & {
-  name: string;
-  spec: SchedulingProfileSpec;
-};
 export type MiddlewareProfileRef = {
   profileId: string;
   revision: number;
@@ -719,28 +682,6 @@ export type MiddlewareProfileEntry = {
     clonedFrom?: MiddlewareProfileRef;
   };
 };
-export type SchedulingProfileEntry = {
-  profile: {
-    id: string;
-    name: string;
-    lifecycle: "active" | "deactivated";
-    currentRevision: number;
-    createdBy: string;
-    createdAt: string;
-    deactivatedBy?: string;
-    deactivatedAt?: string;
-  };
-  revision: {
-    profileId: string;
-    revision: number;
-    spec: SchedulingProfileSpec;
-    specDigest: string;
-    assignmentsDigest: string;
-    createdBy: string;
-    assignments: SchedulingProfileAssignment[];
-    createdAt: string;
-  };
-};
 export type WorkloadProbePort = string | number;
 export type WorkloadHTTPGetAction = {
   path: string;
@@ -765,15 +706,17 @@ export type WorkloadProbes = {
   liveness?: WorkloadProbe;
 };
 export type WorkloadRuntime = {
+  workloadType?: "Deployment" | "StatefulSet";
   replicas: number;
-  strategy?: { type: "RollingUpdate" | "Recreate" };
+  strategy?: { type: "RollingUpdate" | "Recreate" | "OnDelete" };
+  podManagementPolicy?: "OrderedReady" | "Parallel";
   command?: string[];
   args?: string[];
+  workingDirectory?: string;
   terminationGracePeriodSeconds?: number;
   ports: WorkloadPort[];
   env?: WorkloadEnv[];
   resources: { requests: ResourceList; limits?: ResourceLimits };
-  schedulingProfile?: SchedulingProfileRef;
   nodeSelector?: Record<string, string>;
   affinity?: WorkloadAffinity;
   topologySpreadConstraints?: TopologySpreadConstraint[];
@@ -930,6 +873,15 @@ export type DeploymentStatus = {
     | "missing";
   argoObservedRevision?: string;
   argoObservedAt?: string;
+  desiredReplicas?: number;
+  readyReplicas?: number;
+  rolloutConditions?: Array<{
+    type: "Available" | "Progressing" | "ReplicaFailure" | "Ready" | "Failed";
+    status: "True" | "False" | "Unknown";
+    reason?: string;
+    lastTransitionTime?: string;
+  }>;
+  rolloutObservedAt?: string;
   /** Other future observed-state fields remain optional. */
   gitChangeStatus?: string;
   buildStatus?: string;
@@ -1027,6 +979,22 @@ export type LatestPlatformRelease = {
   compatibility: ReleaseCompatibility;
   release: PlatformRelease;
   lastCheckedAt: string;
+};
+
+export type PlatformUpgrade = {
+  id: string;
+  version: string;
+  manifestDigest: string;
+  manifest: PlatformReleaseManifest;
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  operationId: string;
+  runnerRef?: string;
+  result?: Record<string, unknown>;
+  action: "upgrade" | "rollback";
+  helmRevision?: number;
+  sourceUpgradeId?: string;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ConfigDocument = {

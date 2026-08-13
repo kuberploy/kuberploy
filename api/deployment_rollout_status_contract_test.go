@@ -18,7 +18,7 @@ func TestDeploymentStatusSeparatesArgoRolloutObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	properties := decodeSchemaProperties(t, document.Components.Schemas["DeploymentStatus"])
-	for _, field := range []string{"argoSyncStatus", "rolloutHealth", "argoObservedRevision", "argoObservedAt"} {
+	for _, field := range []string{"argoSyncStatus", "rolloutHealth", "argoObservedRevision", "argoObservedAt", "desiredReplicas", "readyReplicas", "rolloutConditions", "rolloutObservedAt"} {
 		if _, ok := properties[field]; !ok {
 			t.Fatalf("DeploymentStatus missing %s", field)
 		}
@@ -28,5 +28,20 @@ func TestDeploymentStatusSeparatesArgoRolloutObservation(t *testing.T) {
 	}
 	if _, exists := document.Paths["/v1/deployments/{id}/status"]["get"].Responses["200"]; !exists {
 		t.Fatal("deployment status response missing")
+	}
+}
+
+func TestCapabilitiesExposeExplicitRuntimeFeatureStates(t *testing.T) {
+	var document struct {
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(OpenAPIJSON, &document); err != nil {
+		t.Fatal(err)
+	}
+	properties := decodeSchemaProperties(t, document.Components.Schemas["Capabilities"])
+	if _, ok := properties["featureStates"]; !ok {
+		t.Fatal("Capabilities missing explicit disabled/unavailable/healthy feature states")
 	}
 }

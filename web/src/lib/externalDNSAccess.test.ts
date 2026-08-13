@@ -23,7 +23,7 @@ describe("External DNS access and suffix matching", () => {
       { ...exact, role: "project-admin" as const },
       { ...exact, scopeType: "project" as const, scopeId: "project-a" },
       { ...exact, scopeId: "not-platform" },
-      { ...exact, actions: ["platform-upgrades:create"] },
+      { ...exact, actions: ["unrelated-platform-action"] },
     ]) {
       expect(
         hasExternalDNSPlatformCapability(

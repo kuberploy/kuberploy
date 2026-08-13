@@ -199,7 +199,7 @@ elif [[ "${1:-}" == "get" && "${2:-}" == "application" ]]; then
   elif [[ "${3:-}" == kp-d-27272727272742728272272727272722 ]]; then kp_deployment=27272727-2727-4272-8272-272727272722; kp_application=35353535-3535-4353-8353-353535353533; kp_revision=2828282828282828282828282828282828282828; fi
   printf '{"metadata":{"name":"%s","labels":{"app.kubernetes.io/managed-by":"kuberploy","kuberploy.io/deployment-id":"%s","kuberploy.io/application-id":"%s","kuberploy.io/project-id":"11111111-1111-4111-8111-111111111111","kuberploy.io/environment-id":"22222222-2222-4222-8222-222222222221"},"annotations":{"kuberploy.io/runtime-chart-digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},"status":{"sync":{"status":"Synced","revision":"%s"},"health":{"status":"Healthy"},"resources":[{"kind":"Deployment","status":"Synced","health":{"status":"Healthy"}}]}}\n' "${3}" "${kp_deployment}" "${kp_application}" "${kp_revision}"
 elif [[ "${1:-}" == "get" && "${2:-}" == "deployment" && " $* " == *'kuberploy.io/application=35353535-3535-4353-8353-353535353531'* ]]; then
-  printf '%s\n' '{"items":[{"metadata":{"name":"config-edge","generation":2},"spec":{"replicas":2,"template":{"metadata":{"annotations":{"kuberploy.io/scheduling-profile":"25252525-2525-4252-8252-252525252525@1"}},"spec":{"automountServiceAccountToken":false,"terminationGracePeriodSeconds":30,"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"labelSelector":{"matchLabels":{"kuberploy.io/application":"35353535-3535-4353-8353-353535353531"}}}]},"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"kubernetes.io/os"}]}]},"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":70}]}},"topologySpreadConstraints":[{}],"tolerations":[{}],"containers":[{"securityContext":{"allowPrivilegeEscalation":false},"resources":{"requests":{"cpu":"50m"}},"readinessProbe":{"httpGet":{"path":"/ready"}},"livenessProbe":{"httpGet":{"path":"/health"}},"env":[{"name":"SHARED_REGION","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}},{"name":"RELEASE_LANE","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}},{"name":"FEATURE_PROBES","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}}]}]}}},"status":{"observedGeneration":2}}]}'
+  printf '%s\n' '{"items":[{"metadata":{"name":"config-edge","generation":2},"spec":{"replicas":2,"template":{"metadata":{},"spec":{"automountServiceAccountToken":false,"terminationGracePeriodSeconds":30,"nodeSelector":{"kubernetes.io/os":"linux"},"affinity":{"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"topologyKey":"kubernetes.io/hostname","labelSelector":{"matchLabels":{"kuberploy.io/application":"35353535-3535-4353-8353-353535353531"}}}]},"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"kubernetes.io/os","operator":"In","values":["linux"]}]}]},"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":70,"preference":{"matchExpressions":[{"key":"topology.kubernetes.io/zone","operator":"Exists"}]}}]}},"topologySpreadConstraints":[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"kuberploy.io/application":"35353535-3535-4353-8353-353535353531"}}}],"tolerations":[{"key":"qualification.kuberploy.io/workload","operator":"Equal","value":"application","effect":"NoSchedule"}],"containers":[{"securityContext":{"allowPrivilegeEscalation":false},"resources":{"requests":{"cpu":"50m"}},"readinessProbe":{"httpGet":{"path":"/ready"}},"livenessProbe":{"httpGet":{"path":"/health"}},"env":[{"name":"SHARED_REGION","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}},{"name":"RELEASE_LANE","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}},{"name":"FEATURE_PROBES","valueFrom":{"configMapKeyRef":{"name":"vars-immutable-25252525"}}}]}]}}},"status":{"observedGeneration":2}}]}'
 elif [[ "${1:-}" == "get" && "${2:-}" == "deployments" && " $* " == *'kuberploy.io/deployment-id=99999999-9999-4999-8999-999999999999 '* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"qualification-app","generation":2,"labels":{"kuberploy.io/application-id":"33333333-3333-4333-8333-333333333333","kuberploy.io/deployment-id":"99999999-9999-4999-8999-999999999999"}},"spec":{"template":{"spec":{"containers":[{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}}},"status":{"observedGeneration":2,"availableReplicas":1}}]}'
 elif [[ "${1:-}" == "get" && "${2:-}" == "sealedsecrets.bitnami.com" ]]; then
@@ -259,10 +259,27 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.151"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.152"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
+elif [[ " ${1:-} " == ' upgrade ' ]]; then
+  if [[ " $* " == *' --install '* ]]; then
+    printf '1\n' >"${KP_COMMAND_LOG}.helm-revision"
+    rm -f -- "${KP_COMMAND_LOG}.upgraded"
+  else
+    printf '2\n' >"${KP_COMMAND_LOG}.helm-revision"
+    : >"${KP_COMMAND_LOG}.upgraded"
+  fi
+  printf 'fixture-ok\n'
+elif [[ " ${1:-} " == ' rollback ' ]]; then
+  printf '3\n' >"${KP_COMMAND_LOG}.helm-revision"
+  rm -f -- "${KP_COMMAND_LOG}.upgraded"
+  printf 'fixture-ok\n'
+elif [[ " ${1:-} " == ' history ' ]]; then
+  kp_revision=1
+  [[ ! -f "${KP_COMMAND_LOG}.helm-revision" ]] || kp_revision="$(<"${KP_COMMAND_LOG}.helm-revision")"
+  printf '[{"revision":%s,"status":"deployed"}]\n' "${kp_revision}"
 elif [[ " $* " == *' status '* ]]; then
   printf '%s\n' '{"info":{"status":"deployed"}}'
 else
@@ -337,7 +354,7 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/metrics/query-range* ]]; 
   printf '%s\n' '{"series":[{"values":[[1,1]]}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/capabilities ]]; then
   kp_git=true; [[ "${KP_DISABLE_GIT_CAPABILITY:-false}" != "true" ]] || kp_git=false
-  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"schedulingProfiles":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","build-definitions:create","helm.read","helm.deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read","platform-upgrades:create"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
+  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","build-definitions:create","helm.read","helm.deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/audit-events\?targetType=deployment* ]]; then
   printf '%s\n' '{"items":[{"id":"71717171-7171-4171-8171-717171717171","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-1","createdAt":"2026-08-09T10:02:00Z"},{"id":"72727272-7272-4272-8272-727272727272","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-2","createdAt":"2026-08-09T10:00:00Z"}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/meta ]]; then
@@ -382,8 +399,6 @@ elif [[ "${kp_method}" == "PUT" && "${kp_url}" == */variable-sets/project ]]; th
   printf '%s\n' '{"id":"24242424-2424-4242-8242-242424242421","status":"queued"}' >"${kp_output}"; printf '202'
 elif [[ "${kp_method}" == "PUT" && "${kp_url}" == */variable-sets/environment ]]; then
   printf '%s\n' '{"id":"24242424-2424-4242-8242-242424242422","status":"queued"}' >"${kp_output}"; printf '202'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/platform/scheduling-profiles ]]; then
-  printf '%s\n' '{"profile":{"id":"25252525-2525-4252-8252-252525252525"},"revision":{"revision":1,"specDigest":"sha256:2525252525252525252525252525252525252525252525252525252525252525","assignmentsDigest":"sha256:2626262626262626262626262626262626262626262626262626262626262626"}}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/applications ]]; then
   if [[ "${kp_body}" == *'"slug":"config-edge"'* ]]; then kp_id=35353535-3535-4353-8353-353535353531
   elif [[ "${kp_body}" == *'"slug":"config-edge-other"'* ]]; then kp_id=35353535-3535-4353-8353-353535353532
@@ -395,8 +410,10 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/applications/35353535-353
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments/image-resolution-preview ]]; then
   printf '%s\n' '{"requestedImage":"registry.fixture.test/probe:candidate-66666666666646668666666666666666-g1-ffffffffffff","immutableImage":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","resolved":true}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments ]]; then
-  if [[ "${kp_body}" == *'"affinity"'* || "${kp_body}" == *'"nodeSelector"'* ]]; then
-    printf '%s\n' '{"status":422,"code":"SchedulingProfileInvalid"}' >"${kp_output}"; printf '422'; exit 0
+  if [[ "${kp_body}" == *'35353535-3535-4353-8353-353535353532'* ]]; then
+    printf '%s\n' '{"status":422,"code":"ValidationFailed","fields":[{"pointer":"/runtime/affinity/podAntiAffinity/requiredDuringSchedulingIgnoredDuringExecution/0/labelSelector","code":"ApplicationSelectorRequired"}]}' >"${kp_output}"; printf '422'; exit 0
+  elif [[ "${kp_body}" == *'"kuberploy.io/builder"'* ]]; then
+    printf '%s\n' '{"status":422,"code":"ValidationFailed","fields":[{"pointer":"/runtime/nodeSelector/kuberploy.io~1builder","code":"ReservedSchedulingKey"}]}' >"${kp_output}"; printf '422'; exit 0
   elif [[ "${kp_body}" == *'"applicationId":"35353535-3535-4353-8353-353535353531"'* ]]; then
     printf '%s\n' '{"id":"26262626-2626-4262-8262-262626262621","targetId":"27272727-2727-4272-8272-272727272721","status":"queued"}' >"${kp_output}"; printf '202'; exit 0
   elif [[ "${kp_body}" == *'"applicationId":"35353535-3535-4353-8353-353535353533"'* ]]; then
@@ -474,11 +491,6 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */registry/cleanup-previews ]
   printf '%s\n' '{"id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","state":"preview","items":[{"disposition":"protect","action":"none"},{"disposition":"delete","action":"delete-manifest"}]}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/registry-cleanup-plans/*/executions ]]; then
   printf '%s\n' '{"id":"cccccccc-cccc-4ccc-8ccc-cccccccccccc","state":"succeeded","summary":{"cacheQuotaSatisfied":true},"items":[{"state":"protected"},{"state":"deleted"}]}' >"${kp_output}"; printf '200'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/platform/upgrades ]]; then
-  : >"${KP_COMMAND_LOG}.upgraded"
-  printf '%s\n' '{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","targetId":"bdbdbdbd-bdbd-4dbd-8dbd-bdbdbdbdbdbd","status":"queued"}' >"${kp_output}"; printf '202'
-elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/platform/upgrades/bdbdbdbd-* ]]; then
-  printf '%s\n' '{"id":"bdbdbdbd-bdbd-4dbd-8dbd-bdbdbdbdbdbd","state":"succeeded","manifestDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */readyz ]]; then
   printf '%s\n' '{"status":"ready"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/middlewares ]]; then
@@ -496,9 +508,9 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/secret-bindings/91919191-
   fi
   printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/deployments/27272727-2727-4272-8272-272727272721 ]]; then
-  printf '%s\n' '{"route":{"hostname":"config-edge.1-1-1-1.sslip.io","dnsMode":"sslip"},"runtime":{"schedulingProfile":{"profileId":"25252525-2525-4252-8252-252525252525"},"resources":{"requests":{"cpu":"50m"}},"probes":{"readiness":{"httpGet":{"path":"/ready"}}}}}' >"${kp_output}"; printf '200'
+  printf '%s\n' '{"route":{"hostname":"config-edge.1-1-1-1.sslip.io","dnsMode":"sslip"},"runtime":{"nodeSelector":{"kubernetes.io/os":"linux"},"affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"kubernetes.io/os","operator":"In","values":["linux"]}]}]},"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":70,"preference":{"matchExpressions":[{"key":"topology.kubernetes.io/zone","operator":"Exists"}]}}]},"podAntiAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":[{"topologyKey":"kubernetes.io/hostname","labelSelector":{"matchLabels":{"kuberploy.io/application":"35353535-3535-4353-8353-353535353531"}}}]}},"topologySpreadConstraints":[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"kuberploy.io/application":"35353535-3535-4353-8353-353535353531"}}}],"tolerations":[{"key":"qualification.kuberploy.io/workload","operator":"Equal","value":"application","effect":"NoSchedule"}],"resources":{"requests":{"cpu":"50m"}},"probes":{"readiness":{"httpGet":{"path":"/ready"}}}}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/deployments/27272727-2727-4272-8272-272727272721/config\?atLeastRevision=* ]]; then
-  kp_app_yaml=$'apiVersion: config.kuberploy.io/v1alpha1\nkind: AppConfig\nspec:\n  runtime:\n    replicas: 1\n'
+  kp_app_yaml=$'apiVersion: config.kuberploy.io/v1alpha1\nkind: AppConfig\nspec:\n  runtime:\n    replicas: 1\n    nodeSelector:\n      kubernetes.io/os: linux\n    affinity:\n      nodeAffinity:\n        requiredDuringSchedulingIgnoredDuringExecution:\n          nodeSelectorTerms:\n            - matchExpressions:\n                - key: kubernetes.io/os\n                  operator: In\n                  values: [linux]\n        preferredDuringSchedulingIgnoredDuringExecution:\n          - weight: 70\n            preference:\n              matchExpressions:\n                - key: topology.kubernetes.io/zone\n                  operator: Exists\n      podAntiAffinity:\n        requiredDuringSchedulingIgnoredDuringExecution:\n          - topologyKey: kubernetes.io/hostname\n            labelSelector:\n              matchLabels:\n                kuberploy.io/application: 35353535-3535-4353-8353-353535353531\n    topologySpreadConstraints:\n      - maxSkew: 1\n        topologyKey: topology.kubernetes.io/zone\n        whenUnsatisfiable: ScheduleAnyway\n        labelSelector:\n          matchLabels:\n            kuberploy.io/application: 35353535-3535-4353-8353-353535353531\n    tolerations:\n      - key: qualification.kuberploy.io/workload\n        operator: Equal\n        value: application\n        effect: NoSchedule\n'
   jq -n --arg raw "${kp_app_yaml}" '{etag:"cfg-edge",documents:[{documentId:"app.yaml",documentKind:"AppConfig",rawYaml:$raw},{documentId:"project-variables.yaml",documentKind:"VariableSet",rawYaml:"kind: VariableSet"},{documentId:"environment-variables.yaml",documentKind:"VariableSet",rawYaml:"kind: VariableSet"}],variableDependencies:[{scope:"project",present:true,blobId:"blob-project"},{scope:"environment",present:true,blobId:"blob-environment"}],effectiveVariables:[{name:"FEATURE_PROBES",value:"enabled",source:"environment"},{name:"RELEASE_LANE",value:"environment",source:"environment",overrides:[{scope:"project",value:"project"}]},{name:"SHARED_REGION",value:"ap-southeast-1",source:"project"}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments/27272727-2727-4272-8272-272727272721/config/validate ]]; then
   printf '%s\n' '{"valid":true,"diagnostics":[],"effectiveVariables":[{"name":"FEATURE_PROBES","value":"enabled","source":"environment"},{"name":"RELEASE_LANE","value":"environment","source":"environment","overrides":[{"scope":"project","value":"project"}]},{"name":"SHARED_REGION","value":"ap-southeast-1","source":"project"}]}' >"${kp_output}"; printf '200'
@@ -668,7 +680,7 @@ export KUBERPLOY_E2E_TEARDOWN_PUBLIC_KEY_FILE="${kp_teardown_public}"
 export KUBERPLOY_E2E_SCENARIO_FILE="${kp_tmp}/scenario.json"
 
 source "${kp_root}/scripts/kubernetes/test/e2e/lib.sh"
-kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"qualification-delivery-1","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0","manifestDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}},"stages":{}}'
+kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"qualification-delivery-1","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
 kp_scenario="$(jq -c --arg digest "${kp_teardown_key_digest}" \
   '.teardown.publicKeySHA256=$digest |
    .workflow.directDeployment.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |
@@ -754,9 +766,11 @@ jq -e '.type == "kubernetes.io/tls" and (.metadata.uid | length > 0) and
   "${kp_tmp}/kuberploy-qualification-success1/60-local-tls/evidence"
 jq -e '.directGeneration == 7' \
   "${kp_tmp}/kuberploy-qualification-success1/workflow-state.json" >/dev/null
-jq -e '.generation == 8' \
-  "${kp_tmp}/kuberploy-qualification-success1/100-upgrade-rollback/evidence/workflow-post-upgrade-rollback-terminal.json" >/dev/null
 grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE} --server-side=false" \
+  "${KP_COMMAND_LOG}" >/dev/null
+grep -F "helm|upgrade kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_INSTALLER_VALUES_FILE} --server-side=false --wait --wait-for-jobs --timeout 20m" \
+  "${KP_COMMAND_LOG}" >/dev/null
+grep -F 'helm|rollback kuberploy-qualification 1 --namespace kuberploy-system --wait --wait-for-jobs --timeout 20m' \
   "${KP_COMMAND_LOG}" >/dev/null
 for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/projects' \
@@ -770,12 +784,11 @@ for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/retry' \
   'curl|POST|https://api.fixture.test/v1/builds/66666666-6666-4666-8666-666666666666/promote' \
   'curl|POST|https://api.fixture.test/v1/applications/33333333-3333-4333-8333-333333333333/registry/cleanup-previews' \
-  'curl|POST|https://api.fixture.test/v1/registry-cleanup-plans/cccccccc-cccc-4ccc-8ccc-cccccccccccc/executions' \
-  'curl|POST|https://api.fixture.test/v1/platform/upgrades'; do
+  'curl|POST|https://api.fixture.test/v1/registry-cleanup-plans/cccccccc-cccc-4ccc-8ccc-cccccccccccc/executions'; do
   grep -F "${kp_required_mutation}" "${KP_COMMAND_LOG}" >/dev/null
 done
 [[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/projects' "${KP_COMMAND_LOG}")" -eq 2 ]]
-[[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/deployments/99999999-9999-4999-8999-999999999999/rollback' "${KP_COMMAND_LOG}")" -eq 2 ]]
+[[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/deployments/99999999-9999-4999-8999-999999999999/rollback' "${KP_COMMAND_LOG}")" -eq 1 ]]
 [[ "$(grep -Fxc 'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/cancel' "${KP_COMMAND_LOG}")" -eq 1 ]]
 [[ "$(grep -Fc 'kubectl|get jobs.batch --all-namespaces --selector kuberploy.io/build-operation=65656565656545658565656565656565,kuberploy.io/build-generation=2 -o json' "${KP_COMMAND_LOG}")" -ge 2 ]]
 jq -e '.mutation == "github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-approved-helm" and

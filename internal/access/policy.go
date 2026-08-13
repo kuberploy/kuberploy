@@ -359,7 +359,7 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 		}
 		return []string{"access-grants:create", "access-grants:delete"}
 	case domain.PermissionPlatformAdmin:
-		return []string{"helm-approvals:manage", "platform-releases:read", "platform-upgrades:create", "team-members:write", "teams:create", "teams:read", "user-invitations:create", "users:read"}
+		return []string{"github-installations:setup", "helm-approvals:manage", "platform-releases:read", "team-members:write", "teams:create", "teams:read", "user-invitations:create", "users:read"}
 	default:
 		return nil
 	}

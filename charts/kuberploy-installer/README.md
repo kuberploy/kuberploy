@@ -73,7 +73,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.151 \
+  --version 0.1.0-rc.152 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -102,8 +102,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.151.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.151.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.152.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.152.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.
@@ -125,6 +125,18 @@ the protected app-of-apps/root reconciler and are not a dependency barrier for
 this first bootstrap. Argo converges them independently. Pre-create all
 operator Secrets before installation; otherwise affected Applications remain
 degraded until those inputs exist.
+
+Every install, upgrade, and rollback records the enabled entries from the
+chart's fixed component catalog in a content-addressed immutable ConfigMap. A
+post-lifecycle reconciler reapplies only those exact AppProject/Application
+documents, including after rollback. A later hook then waits for every enabled
+Application to report both `Synced` and `Healthy` at the requested readable
+package version. The check binds the desired Helm source revision and Argo's
+observed sync revision, so a self-healed or stale Application cannot make the
+lifecycle falsely succeed. Its namespace Role grants only `get` and `watch` on
+the exact enabled Application names; it has no list, wildcard, Secret, or
+cluster-wide access. A failed or timed-out child leaves the Helm lifecycle
+failed instead of reporting a completed platform transition.
 
 An enabled control-plane Application also requires an explicit
 `bootstrap.controlPlaneToken.mode`. `generated` requires exact Kubernetes API
@@ -195,11 +207,11 @@ workload namespaces, and a pre-created Docker config JSON Secret/key in
 control plane and grants its worker access only to the derived Secret names in
 the listed namespaces; credential bytes never enter Helm values, Argo, Git, or
 the API.
-Cloudflare registry DNS is always forced to DNS-only; proxy mode cannot be
-overridden through installer values.
+Cloudflare registry DNS defaults to DNS-only. Set
+`integrations.registry.cloudflareProxied: true` only for bounded test images;
+the installer still rejects arbitrary annotation overrides.
 
-`helm --wait` proves only that bootstrap objects and the direct Argo workload
-were accepted. It does not prove child Application health or Kuberploy runtime
-readiness. Admission of users or traffic requires every selected Application to
-be `Synced` and `Healthy`, followed by Kuberploy's own database, Git projection,
-edge, certificate, registry and monitoring readiness/attestation checks.
+The lifecycle hook proves that every selected Application reached the requested
+revision in `Synced` and `Healthy` state. It does not replace Kuberploy runtime
+attestations. Admission of users or traffic still requires the database, Git
+projection, edge, certificate, registry, and monitoring readiness checks.

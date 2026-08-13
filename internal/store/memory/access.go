@@ -57,7 +57,8 @@ func (s *Store) canAccessProjectLocked(actor string, project domain.Project) boo
 func (s *Store) bindingsLocked(actor string) []domain.AccessBinding {
 	bindings := make([]domain.AccessBinding, 0)
 	for _, grant := range s.accessGrants {
-		if grant.SubjectUserID == actor {
+		_, teamSubject := s.memberships[grant.SubjectTeamID][actor]
+		if grant.SubjectUserID == actor || grant.SubjectTeamID != "" && teamSubject {
 			bindings = append(bindings, domain.AccessBinding{Role: grant.Role, ScopeType: grant.ScopeType, ScopeID: grant.ScopeID, Permissions: append([]domain.Permission(nil), grant.Permissions...), Source: grant.Source})
 		}
 	}
@@ -184,6 +185,7 @@ func (s *Store) EffectiveCapabilities(_ context.Context, actor string) ([]domain
 }
 
 func (s *Store) bumpGrantsLocked(userIDs map[string]struct{}) {
+	now := time.Now().UTC()
 	for userID := range userIDs {
 		u, ok := s.users[userID]
 		if !ok || u.Role == "platform-admin" {
@@ -191,6 +193,12 @@ func (s *Store) bumpGrantsLocked(userIDs map[string]struct{}) {
 		}
 		u.GrantRevision++
 		s.users[userID] = u
+		for tokenID, token := range s.serviceAccountTokens {
+			if token.ServiceAccountID == userID && token.RevokedAt == nil {
+				token.RevokedAt = &now
+				s.serviceAccountTokens[tokenID] = token
+			}
+		}
 		for token, session := range s.sessions {
 			if session.userID == userID {
 				delete(s.sessions, token)
@@ -787,7 +795,7 @@ func (s *Store) CreateProjectAccessGrant(_ context.Context, actor, key, fp, requ
 	if !exists {
 		return base.Result[domain.AccessGrant]{}, base.ErrNotFound
 	}
-	if !accesspolicy.ValidRole(in.Role) || !accesspolicy.ValidScope(in.ScopeType) || !accesspolicy.ValidExtraPermissions(in.Permissions) || in.Role == domain.RolePlatformAdmin || in.ScopeType == domain.ScopePlatform || in.Role == domain.RoleOrganizationAdmin && in.ScopeType != domain.ScopeTeam || in.Role == domain.RoleProjectAdmin && in.ScopeType != domain.ScopeProject {
+	if (in.SubjectUserID == "") == (in.SubjectTeamID == "") || !accesspolicy.ValidRole(in.Role) || !accesspolicy.ValidScope(in.ScopeType) || !accesspolicy.ValidExtraPermissions(in.Permissions) || in.Role == domain.RolePlatformAdmin || in.ScopeType == domain.ScopePlatform || in.Role == domain.RoleOrganizationAdmin && in.ScopeType != domain.ScopeTeam || in.Role == domain.RoleProjectAdmin && in.ScopeType != domain.ScopeProject {
 		return base.Result[domain.AccessGrant]{}, base.ErrConflict
 	}
 	target, ok := s.scopeTargetForProjectLocked(project, in.ScopeType, in.ScopeID)
@@ -801,7 +809,12 @@ func (s *Store) CreateProjectAccessGrant(_ context.Context, actor, key, fp, requ
 	if !accesspolicy.CanManageGrant(bindings, target, in.Role) {
 		return base.Result[domain.AccessGrant]{}, base.ErrForbidden
 	}
-	if _, exists = s.users[in.SubjectUserID]; !exists {
+	if in.SubjectUserID != "" {
+		_, exists = s.users[in.SubjectUserID]
+	} else {
+		_, exists = s.teams[in.SubjectTeamID]
+	}
+	if !exists {
 		return base.Result[domain.AccessGrant]{}, base.ErrNotFound
 	}
 	idemScope := "projects.grants.create:" + in.ProjectID
@@ -818,16 +831,16 @@ func (s *Store) CreateProjectAccessGrant(_ context.Context, actor, key, fp, requ
 		return base.Result[domain.AccessGrant]{Value: grant, Replay: true}, nil
 	}
 	for _, grant := range s.accessGrants {
-		if grant.SubjectUserID == in.SubjectUserID && grant.Role == in.Role && grant.ScopeType == in.ScopeType && grant.ScopeID == in.ScopeID {
+		if grant.SubjectUserID == in.SubjectUserID && grant.SubjectTeamID == in.SubjectTeamID && grant.Role == in.Role && grant.ScopeType == in.ScopeType && grant.ScopeID == in.ScopeID {
 			return base.Result[domain.AccessGrant]{}, base.ErrConflict
 		}
 	}
 	now := time.Now().UTC()
-	grant := domain.AccessGrant{ID: id.New(), SubjectUserID: in.SubjectUserID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: append([]domain.Permission{}, in.Permissions...), Source: "explicit", CreatedBy: actor, CreatedAt: now}
+	grant := domain.AccessGrant{ID: id.New(), SubjectUserID: in.SubjectUserID, SubjectTeamID: in.SubjectTeamID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: append([]domain.Permission{}, in.Permissions...), Source: "explicit", CreatedBy: actor, CreatedAt: now}
 	s.accessGrants[grant.ID] = grant
 	s.idempotency[idemKey] = idemRecord{fp, "access-grant", grant.ID, ""}
 	s.audits++
-	s.bumpGrantsLocked(map[string]struct{}{in.SubjectUserID: {}})
+	s.bumpGrantSubjectsLocked(grant)
 	_ = requestID
 	return base.Result[domain.AccessGrant]{Value: grant}, nil
 }
@@ -867,7 +880,19 @@ func (s *Store) DeleteProjectAccessGrant(_ context.Context, actor, projectID, gr
 	delete(s.accessGrants, grantID)
 	s.idempotency[idemKey] = idemRecord{fp, "access-grant", grantID, ""}
 	s.audits++
-	s.bumpGrantsLocked(map[string]struct{}{grant.SubjectUserID: {}})
+	s.bumpGrantSubjectsLocked(grant)
 	_ = requestID
 	return false, nil
+}
+
+func (s *Store) bumpGrantSubjectsLocked(grant domain.AccessGrant) {
+	users := map[string]struct{}{}
+	if grant.SubjectUserID != "" {
+		users[grant.SubjectUserID] = struct{}{}
+	} else {
+		for userID := range s.memberships[grant.SubjectTeamID] {
+			users[userID] = struct{}{}
+		}
+	}
+	s.bumpGrantsLocked(users)
 }

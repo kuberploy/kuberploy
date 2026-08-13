@@ -413,3 +413,45 @@ func TestGrantDelegationCannotExceedManagerRoleOrScope(t *testing.T) {
 		t.Fatalf("project admin deleted team-scope organization admin: %v", err)
 	}
 }
+
+func TestExplicitTeamGrantAppliesToCurrentMembersAndRevokesSessions(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	member, originalSession := invitedUser(t, store, admin, "Team grant member", "team-grant-member")
+	ownerTeam, err := store.CreateTeam(ctx, admin.ID, "team-grant-owner", "team-grant-owner", "request", domain.CreateTeam{Name: "Owner", Slug: "team-grant-owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subjectTeam, err := store.CreateTeam(ctx, admin.ID, "team-grant-subject", "team-grant-subject", "request", domain.CreateTeam{Name: "Subject", Slug: "team-grant-subject"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, subjectTeam.Value.ID, "team-grant-member-add", "team-grant-member-add", "request", domain.AddTeamMember{UserID: member.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(ctx, admin.ID, "team-grant-project", "team-grant-project", domain.CreateProject{Name: "Shared", Slug: "team-grant-shared", TeamID: ownerTeam.Value.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := store.CreateProjectAccessGrant(ctx, admin.ID, "team-grant-create", "team-grant-create", "request", domain.CreateAccessGrant{ProjectID: project.Value.ID, SubjectTeamID: subjectTeam.Value.ID, Role: domain.RoleViewer, ScopeType: domain.ScopeProject, ScopeID: project.Value.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UserBySession(ctx, originalSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team grant retained stale member session: %v", err)
+	}
+	if _, err = store.GetProjectForActor(ctx, member.ID, project.Value.ID); err != nil {
+		t.Fatalf("team grant did not authorize current member: %v", err)
+	}
+	currentSession := issueSession(t, store, member.ID, "team-grant-current-session")
+	if _, err = store.DeleteProjectAccessGrant(ctx, admin.ID, project.Value.ID, grant.Value.ID, "team-grant-delete", "team-grant-delete", "request"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UserBySession(ctx, currentSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team grant deletion retained member session: %v", err)
+	}
+	if _, err = store.GetProjectForActor(ctx, member.ID, project.Value.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted team grant retained project access: %v", err)
+	}
+}

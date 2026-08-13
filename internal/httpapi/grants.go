@@ -11,6 +11,7 @@ import (
 
 type accessGrantRequest struct {
 	SubjectUserID string                 `json:"subjectUserId"`
+	SubjectTeamID string                 `json:"subjectTeamId"`
 	Role          domain.AccessRole      `json:"role"`
 	ScopeType     domain.AccessScopeType `json:"scopeType"`
 	ScopeID       string                 `json:"scopeId"`
@@ -42,6 +43,7 @@ func (s *Server) projectAccessGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.SubjectUserID = strings.TrimSpace(in.SubjectUserID)
+	in.SubjectTeamID = strings.TrimSpace(in.SubjectTeamID)
 	in.ScopeID = strings.TrimSpace(in.ScopeID)
 	permissions := append([]domain.Permission(nil), in.Permissions...)
 	sort.Slice(permissions, func(i, j int) bool { return permissions[i] < permissions[j] })
@@ -51,7 +53,7 @@ func (s *Server) projectAccessGrants(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The access grant role, scope, or additive permissions are invalid.", errors...)
 		return
 	}
-	create := domain.CreateAccessGrant{ProjectID: projectID, SubjectUserID: in.SubjectUserID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: in.Permissions}
+	create := domain.CreateAccessGrant{ProjectID: projectID, SubjectUserID: in.SubjectUserID, SubjectTeamID: in.SubjectTeamID, Role: in.Role, ScopeType: in.ScopeType, ScopeID: in.ScopeID, Permissions: in.Permissions}
 	result, err := s.store.CreateProjectAccessGrant(r.Context(), actor.ID, key, fingerprint(in), requestID(r.Context()), create)
 	if err != nil {
 		mappedError(w, r, err)
@@ -66,10 +68,12 @@ func (s *Server) projectAccessGrants(w http.ResponseWriter, r *http.Request) {
 
 func validateAccessGrantRequest(in accessGrantRequest) []FieldError {
 	var out []FieldError
-	if in.SubjectUserID == "" {
-		out = append(out, FieldError{Pointer: "/subjectUserId", Code: "Required", Detail: "Choose an exact user."})
-	} else if !validUUID(in.SubjectUserID) {
+	if (in.SubjectUserID == "") == (in.SubjectTeamID == "") {
+		out = append(out, FieldError{Pointer: "/subjectUserId", Code: "ExactlyOneRequired", Detail: "Choose exactly one user or team subject."})
+	} else if in.SubjectUserID != "" && !validUUID(in.SubjectUserID) {
 		out = append(out, FieldError{Pointer: "/subjectUserId", Code: "InvalidID", Detail: "Choose an exact user identifier."})
+	} else if in.SubjectTeamID != "" && !validUUID(in.SubjectTeamID) {
+		out = append(out, FieldError{Pointer: "/subjectTeamId", Code: "InvalidID", Detail: "Choose an exact team identifier."})
 	}
 	if !accesspolicy.ValidRole(in.Role) || in.Role == domain.RolePlatformAdmin {
 		out = append(out, FieldError{Pointer: "/role", Code: "InvalidRole", Detail: "Use viewer, developer, project-admin, or organization-admin. Platform administrator grants are bootstrap-managed."})

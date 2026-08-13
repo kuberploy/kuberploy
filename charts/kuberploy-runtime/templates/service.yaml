@@ -1,3 +1,26 @@
+{{- if eq (.Values.spec.runtime.workloadType | default "Deployment") "StatefulSet" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kuberploy-runtime.appName" . }}-headless
+  labels:
+    {{- include "kuberploy-runtime.labels" . | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ .Values.metadata.id | quote }}
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "kuberploy-runtime.selectorLabels" . | nindent 4 }}
+  ports:
+    {{- range .Values.spec.runtime.ports }}
+    - name: {{ .name }}
+      port: {{ .servicePort | default .containerPort }}
+      targetPort: {{ .name }}
+      protocol: {{ .protocol | default "TCP" }}
+    {{- end }}
+---
+{{- end }}
 apiVersion: v1
 kind: Service
 metadata:

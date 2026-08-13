@@ -28,12 +28,15 @@ func (s *Service) Events(ctx context.Context, request EventRequest) (EventSnapsh
 	if err != nil {
 		return EventSnapshot{}, err
 	}
-	objects := make(map[string]eventObject, len(graph.deployments)+len(graph.replicaSets)+len(graph.pods))
+	objects := make(map[string]eventObject, len(graph.deployments)+len(graph.statefulSets)+len(graph.replicaSets)+len(graph.pods))
 	for _, deployment := range graph.deployments {
 		objects[deployment.resource.UID] = eventObject{kind: "Deployment", name: deployment.resource.Name}
 	}
 	for _, replicaSet := range graph.replicaSets {
 		objects[replicaSet.resource.UID] = eventObject{kind: "ReplicaSet", name: replicaSet.resource.Name}
+	}
+	for _, statefulSet := range graph.statefulSets {
+		objects[statefulSet.resource.UID] = eventObject{kind: "StatefulSet", name: statefulSet.resource.Name}
 	}
 	for _, pod := range graph.pods {
 		objects[pod.resource.UID] = eventObject{kind: "Pod", name: pod.resource.Name}

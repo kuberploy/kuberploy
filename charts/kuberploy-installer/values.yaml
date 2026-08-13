@@ -84,6 +84,8 @@ integrations:
     authSecretName: ""
     secretRevision: ""
     exposureMode: internal
+    # Enable only for bounded images within the Cloudflare upload limit.
+    cloudflareProxied: false
     endpoint: ""
     tlsSecretName: ""
     clusterIssuerName: ""

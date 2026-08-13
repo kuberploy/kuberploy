@@ -19,7 +19,7 @@ metadata:
   labels:
     {{- include "kuberploy-registry.labels" . | nindent 4 }}
   annotations:
-    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: {{ ternary "true" "false" .Values.exposure.cloudflareProxied | quote }}
     {{- if not (regexMatch "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}$" .Values.exposure.endpoint) }}
     external-dns.alpha.kubernetes.io/hostname: {{ .Values.exposure.endpoint | quote }}
     {{- end }}

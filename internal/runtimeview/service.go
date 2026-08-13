@@ -134,7 +134,11 @@ func (s *Service) resolve(ctx context.Context, requested OpaqueTarget) (Authoriz
 	seenNames := make(map[string]struct{}, len(target.Deployments))
 	seenUIDs := make(map[string]struct{}, len(target.Deployments))
 	for _, deployment := range target.Deployments {
-		if !kubeNamePattern.MatchString(deployment.Name) || !uidPattern.MatchString(deployment.UID) {
+		kind := deployment.Kind
+		if kind == "" {
+			kind = "Deployment"
+		}
+		if (kind != "Deployment" && kind != "StatefulSet") || !kubeNamePattern.MatchString(deployment.Name) || !uidPattern.MatchString(deployment.UID) {
 			return AuthorizedTarget{}, ErrScopeViolation
 		}
 		if _, duplicate := seenNames[deployment.Name]; duplicate {
@@ -160,22 +164,75 @@ type resolvedReplicaSet struct {
 	parent   resolvedDeployment
 }
 
+type resolvedStatefulSet struct {
+	ref      DeploymentRef
+	resource StatefulSet
+}
+
 type resolvedPod struct {
-	resource Pod
-	parent   resolvedReplicaSet
+	resource       Pod
+	controllerKind string
+	controllerUID  string
+	revision       string
 }
 
 type runtimeGraph struct {
-	target      AuthorizedTarget
-	deployments []resolvedDeployment
-	replicaSets []resolvedReplicaSet
-	pods        []resolvedPod
+	target       AuthorizedTarget
+	deployments  []resolvedDeployment
+	statefulSets []resolvedStatefulSet
+	replicaSets  []resolvedReplicaSet
+	pods         []resolvedPod
 }
 
 func (s *Service) discoverGraph(ctx context.Context, target AuthorizedTarget) (runtimeGraph, error) {
 	graph := runtimeGraph{target: target}
 	podUIDs := map[string]struct{}{}
 	for _, deploymentRef := range target.Deployments {
+		kind := deploymentRef.Kind
+		if kind == "" {
+			kind = "Deployment"
+		}
+		if kind == "StatefulSet" {
+			reader, ok := s.client.(StatefulSetReader)
+			if !ok {
+				return runtimeGraph{}, ErrNotFound
+			}
+			statefulSet, err := reader.GetStatefulSet(ctx, target.Namespace, deploymentRef.Name)
+			if err != nil {
+				return runtimeGraph{}, err
+			}
+			if statefulSet.Namespace != target.Namespace || statefulSet.Name != deploymentRef.Name {
+				return runtimeGraph{}, ErrScopeViolation
+			}
+			if statefulSet.UID != deploymentRef.UID {
+				return runtimeGraph{}, ErrGone
+			}
+			if err = validateSelector(statefulSet.Selector, target.ApplicationID); err != nil {
+				return runtimeGraph{}, err
+			}
+			graph.statefulSets = append(graph.statefulSets, resolvedStatefulSet{ref: deploymentRef, resource: statefulSet})
+			pods, listErr := s.client.ListPods(ctx, target.Namespace, cloneSelector(statefulSet.Selector))
+			if listErr != nil {
+				return runtimeGraph{}, listErr
+			}
+			for _, pod := range pods {
+				if pod.Namespace != target.Namespace {
+					return runtimeGraph{}, ErrScopeViolation
+				}
+				if !controlledBy(pod.Owners, "StatefulSet", statefulSet.UID) {
+					continue
+				}
+				if !kubeNamePattern.MatchString(pod.Name) || !uidPattern.MatchString(pod.UID) {
+					return runtimeGraph{}, ErrScopeViolation
+				}
+				if _, duplicate := podUIDs[pod.UID]; duplicate {
+					return runtimeGraph{}, ErrScopeViolation
+				}
+				podUIDs[pod.UID] = struct{}{}
+				graph.pods = append(graph.pods, resolvedPod{resource: clonePod(pod), controllerKind: "StatefulSet", controllerUID: statefulSet.UID})
+			}
+			continue
+		}
 		deployment, err := s.client.GetDeployment(ctx, target.Namespace, deploymentRef.Name)
 		if err != nil {
 			return runtimeGraph{}, err
@@ -236,7 +293,7 @@ func (s *Service) discoverGraph(ctx context.Context, target AuthorizedTarget) (r
 				return runtimeGraph{}, ErrScopeViolation
 			}
 			podUIDs[pod.UID] = struct{}{}
-			graph.pods = append(graph.pods, resolvedPod{resource: clonePod(pod), parent: parent})
+			graph.pods = append(graph.pods, resolvedPod{resource: clonePod(pod), controllerKind: "ReplicaSet", controllerUID: parent.resource.UID, revision: parent.resource.Revision})
 		}
 	}
 	sort.Slice(graph.pods, func(i, j int) bool {
@@ -249,21 +306,26 @@ func (s *Service) discoverGraph(ctx context.Context, target AuthorizedTarget) (r
 }
 
 func controlledBy(owners []OwnerReference, kind, uid string) bool {
+	found := false
 	for _, owner := range owners {
-		if owner.Controller && owner.Kind == kind && owner.UID == uid {
-			return true
+		if !owner.Controller {
+			continue
 		}
+		if found || owner.Kind != kind || owner.UID != uid {
+			return false
+		}
+		found = true
 	}
-	return false
+	return found
 }
 
 func controllerUID(owners []OwnerReference, kind string) (string, bool) {
 	var found string
 	for _, owner := range owners {
-		if !owner.Controller || owner.Kind != kind {
+		if !owner.Controller {
 			continue
 		}
-		if found != "" {
+		if found != "" || owner.Kind != kind {
 			return "", false
 		}
 		found = owner.UID
@@ -315,11 +377,12 @@ func clonePod(pod Pod) Pod {
 }
 
 type sourceBinding struct {
-	source        LogSource
-	namespace     string
-	podUID        string
-	podName       string
-	replicaSetUID string
+	source         LogSource
+	namespace      string
+	podUID         string
+	podName        string
+	controllerKind string
+	controllerUID  string
 }
 
 func (s *Service) sources(graph runtimeGraph, options LogOptions) ([]sourceBinding, error) {
@@ -328,7 +391,7 @@ func (s *Service) sources(graph runtimeGraph, options LogOptions) ([]sourceBindi
 		if options.Pod != "" && pod.resource.Name != options.Pod {
 			continue
 		}
-		if options.Revision != "" && pod.parent.resource.Revision != options.Revision {
+		if options.Revision != "" && pod.revision != options.Revision {
 			continue
 		}
 		container, err := selectContainer(pod.resource, options.Container, options.Previous)
@@ -341,12 +404,12 @@ func (s *Service) sources(graph runtimeGraph, options LogOptions) ([]sourceBindi
 			Container:     container.Name,
 			ContainerKind: container.Kind,
 			RestartCount:  container.RestartCount,
-			Revision:      pod.parent.resource.Revision,
+			Revision:      pod.revision,
 			Ready:         pod.resource.Ready,
 			Terminating:   pod.resource.Terminating,
 			Previous:      options.Previous,
 		}
-		result = append(result, sourceBinding{source: source, namespace: graph.target.Namespace, podUID: pod.resource.UID, podName: pod.resource.Name, replicaSetUID: pod.parent.resource.UID})
+		result = append(result, sourceBinding{source: source, namespace: graph.target.Namespace, podUID: pod.resource.UID, podName: pod.resource.Name, controllerKind: pod.controllerKind, controllerUID: pod.controllerUID})
 	}
 	if len(result) == 0 && (options.Pod != "" || options.Revision != "") {
 		return nil, ErrSourceNotFound
@@ -400,7 +463,7 @@ func (s *Service) openSource(ctx context.Context, binding sourceBinding, options
 	if pod.UID != binding.podUID {
 		return nil, ErrGone
 	}
-	if !controlledBy(pod.Owners, "ReplicaSet", binding.replicaSetUID) {
+	if !controlledBy(pod.Owners, binding.controllerKind, binding.controllerUID) {
 		return nil, ErrScopeViolation
 	}
 	container, err := selectContainer(pod, binding.source.Container, options.Previous)

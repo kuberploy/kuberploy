@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,18 +28,18 @@ const (
 )
 
 var EditablePointers = []string{
-	"/spec/runtime/replicas", "/spec/runtime/strategy", "/spec/runtime/ports", "/spec/runtime/env",
-	"/spec/runtime/resources", "/spec/runtime/schedulingProfile",
+	"/spec/runtime/workloadType", "/spec/runtime/replicas", "/spec/runtime/strategy", "/spec/runtime/podManagementPolicy",
+	"/spec/runtime/ports", "/spec/runtime/env", "/spec/runtime/resources", "/spec/runtime/nodeSelector",
+	"/spec/runtime/affinity", "/spec/runtime/topologySpreadConstraints", "/spec/runtime/tolerations", "/spec/runtime/priorityClassName",
 	"/spec/runtime/probes",
-	"/spec/runtime/command", "/spec/runtime/args", "/spec/runtime/terminationGracePeriodSeconds",
+	"/spec/runtime/command", "/spec/runtime/args", "/spec/runtime/workingDirectory", "/spec/runtime/terminationGracePeriodSeconds",
 	"/spec/routes", "/spec/middlewares",
 }
 
 var LockedPointers = []string{
 	"/apiVersion", "/kind", "/metadata/id", "/metadata/name",
 	"/spec/projectId", "/spec/applicationId", "/spec/environmentId", "/spec/delivery",
-	"/spec/runtime/configRevision", "/spec/runtime/nodeSelector", "/spec/runtime/affinity",
-	"/spec/runtime/topologySpreadConstraints", "/spec/runtime/tolerations", "/spec/runtime/priorityClassName",
+	"/spec/runtime/configRevision",
 }
 
 type Diagnostic struct {
@@ -198,6 +197,10 @@ func ParseAndValidate(raw []byte) (map[string]any, domain.WorkloadRuntime, []Dia
 	for _, problem := range domain.ValidateWorkloadRuntime(runtime) {
 		diagnostics = append(diagnostics, Diagnostic{Code: problem.Code, Detail: problem.Detail, Pointer: domainPointer(problem.Pointer)})
 	}
+	applicationID, _ := stringAt(parsed, "/spec/applicationId")
+	for _, problem := range domain.ValidateApplicationScheduling(runtime, applicationID) {
+		diagnostics = append(diagnostics, Diagnostic{Code: problem.Code, Detail: problem.Detail, Pointer: domainPointer(problem.Pointer)})
+	}
 	return parsed, runtime, diagnostics
 }
 
@@ -338,7 +341,7 @@ func flattenValidation(root *jsonschema.ValidationError) []Diagnostic {
 }
 
 func Apply(current []byte, change Change) Candidate {
-	currentParsed, currentRuntime, currentDiagnostics := ParseAndValidate(current)
+	currentParsed, _, currentDiagnostics := ParseAndValidate(current)
 	if len(currentDiagnostics) > 0 {
 		return Candidate{Diagnostics: []Diagnostic{{Code: "CurrentConfigInvalid", Detail: "The stored AppConfig is invalid and cannot be edited."}}}
 	}
@@ -382,20 +385,12 @@ func Apply(current []byte, change Change) Candidate {
 		return Candidate{Diagnostics: []Diagnostic{{Code: "InvalidDocument", Detail: err.Error()}}}
 	}
 	parsed, runtime, diagnostics := ParseAndValidate(normalized)
-	schedulingDetached := false
 	if len(diagnostics) > 0 {
-		originalRaw, originalParsed, originalRuntime, originalDiagnostics := normalized, parsed, runtime, diagnostics
-		normalized, parsed, runtime, diagnostics, schedulingDetached = dematerializeSchedulingDetach(currentParsed, currentRuntime, parsed, runtime, normalized)
-		if !schedulingDetached {
-			return Candidate{Raw: originalRaw, Parsed: originalParsed, Runtime: originalRuntime, Diagnostics: originalDiagnostics}
-		}
-		if len(diagnostics) > 0 {
-			return Candidate{Raw: normalized, Parsed: parsed, Runtime: runtime, Diagnostics: diagnostics}
-		}
+		return Candidate{Raw: normalized, Parsed: parsed, Runtime: runtime, Diagnostics: diagnostics}
 	}
 	changes := compare(currentParsed, parsed)
 	for _, semantic := range changes {
-		if !editable(semantic.Pointer) && !(schedulingDetached && effectiveSchedulingPointer(semantic.Pointer)) {
+		if !editable(semantic.Pointer) {
 			diagnostics = append(diagnostics, Diagnostic{Code: "LockedField", Detail: "This field is owned by Kuberploy or the release pipeline.", Pointer: semantic.Pointer})
 		}
 	}
@@ -404,125 +399,6 @@ func Apply(current []byte, change Change) Candidate {
 	}
 	hash := sha256.Sum256(normalized)
 	return Candidate{Raw: normalized, Parsed: parsed, Runtime: runtime, Hash: hash[:], Changes: changes, Diagnostics: diagnostics}
-}
-
-// dematerializeSchedulingDetach recognizes only removal of a previously exact
-// scheduling profile reference. Effective placement fields may be unchanged
-// (as they are in the raw YAML editor) or removed with the reference, but a
-// caller cannot substitute any of their values. The server then removes the
-// whole profile-owned fragment atomically before the ordinary schema pass.
-func dematerializeSchedulingDetach(currentParsed map[string]any, currentRuntime domain.WorkloadRuntime, parsed map[string]any, runtime domain.WorkloadRuntime, raw []byte) ([]byte, map[string]any, domain.WorkloadRuntime, []Diagnostic, bool) {
-	if currentRuntime.SchedulingProfile == nil || parsed == nil {
-		return raw, parsed, runtime, nil, false
-	}
-	spec, ok := parsed["spec"].(map[string]any)
-	if !ok {
-		return raw, parsed, runtime, nil, false
-	}
-	runtimeValue, ok := spec["runtime"].(map[string]any)
-	if !ok {
-		return raw, parsed, runtime, nil, false
-	}
-	if _, present := runtimeValue["schedulingProfile"]; present {
-		return raw, parsed, runtime, nil, false
-	}
-	currentSpec, ok := currentParsed["spec"].(map[string]any)
-	if !ok {
-		return raw, parsed, runtime, nil, false
-	}
-	currentRuntimeValue, ok := currentSpec["runtime"].(map[string]any)
-	if !ok {
-		return raw, parsed, runtime, nil, false
-	}
-	for _, key := range []string{"nodeSelector", "affinity", "topologySpreadConstraints", "tolerations", "priorityClassName"} {
-		candidateValue, candidatePresent := runtimeValue[key]
-		currentValue, currentPresent := currentRuntimeValue[key]
-		if candidatePresent && (!currentPresent || !reflect.DeepEqual(candidateValue, currentValue)) {
-			pointer := "/spec/runtime/" + key
-			return raw, parsed, runtime, []Diagnostic{{Code: "LockedField", Detail: "Effective scheduling fields cannot be changed while detaching their profile.", Pointer: pointer}}, true
-		}
-	}
-	for _, semantic := range compare(currentParsed, parsed) {
-		if !editable(semantic.Pointer) && !effectiveSchedulingPointer(semantic.Pointer) {
-			return raw, parsed, runtime, []Diagnostic{{Code: "LockedField", Detail: "This field is owned by Kuberploy or the release pipeline.", Pointer: semantic.Pointer}}, true
-		}
-	}
-	runtime.SchedulingProfile = nil
-	runtime.NodeSelector = nil
-	runtime.Affinity = nil
-	runtime.TopologySpreadConstraints = nil
-	runtime.Tolerations = nil
-	runtime.PriorityClassName = ""
-	encodedRuntime, err := json.Marshal(runtime)
-	if err != nil {
-		return raw, parsed, runtime, []Diagnostic{{Code: "SchedulingDematerializationFailed", Detail: "The scheduling profile could not be detached safely."}}, true
-	}
-	var cleanRuntime map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(encodedRuntime))
-	decoder.UseNumber()
-	if err = decoder.Decode(&cleanRuntime); err != nil {
-		return raw, parsed, runtime, []Diagnostic{{Code: "SchedulingDematerializationFailed", Detail: "The scheduling profile could not be detached safely."}}, true
-	}
-	spec["runtime"] = cleanRuntime
-	cleanRaw, err := json.MarshalIndent(parsed, "", "  ")
-	if err != nil {
-		return raw, parsed, runtime, []Diagnostic{{Code: "SchedulingDematerializationFailed", Detail: "The scheduling profile could not be detached safely."}}, true
-	}
-	cleanRaw = append(cleanRaw, '\n')
-	cleanParsed, cleanRuntimeValue, diagnostics := ParseAndValidate(cleanRaw)
-	return cleanRaw, cleanParsed, cleanRuntimeValue, diagnostics, true
-}
-
-func effectiveSchedulingPointer(pointer string) bool {
-	for _, root := range []string{
-		"/spec/runtime/nodeSelector", "/spec/runtime/affinity", "/spec/runtime/topologySpreadConstraints",
-		"/spec/runtime/tolerations", "/spec/runtime/priorityClassName",
-	} {
-		if pointer == root || strings.HasPrefix(pointer, root+"/") {
-			return true
-		}
-	}
-	return false
-}
-
-// WithResolvedScheduling installs a server-resolved runtime after Apply has
-// established that the caller changed only editable intent. It is deliberately
-// separate from Apply: callers may select schedulingProfile, but only this
-// trusted boundary may write effective placement fields.
-func WithResolvedScheduling(current []byte, candidate Candidate, runtime domain.WorkloadRuntime) Candidate {
-	if len(candidate.Diagnostics) != 0 || candidate.Parsed == nil {
-		return candidate
-	}
-	currentParsed, _, currentDiagnostics := ParseAndValidate(current)
-	if len(currentDiagnostics) != 0 {
-		return Candidate{Diagnostics: []Diagnostic{{Code: "CurrentConfigInvalid", Detail: "The stored AppConfig is invalid and cannot be edited."}}}
-	}
-	encodedRuntime, err := json.Marshal(runtime)
-	if err != nil {
-		return Candidate{Diagnostics: []Diagnostic{{Code: "SchedulingMaterializationFailed", Detail: "The effective scheduling profile could not be encoded."}}}
-	}
-	var runtimeValue map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(encodedRuntime))
-	decoder.UseNumber()
-	if err = decoder.Decode(&runtimeValue); err != nil {
-		return Candidate{Diagnostics: []Diagnostic{{Code: "SchedulingMaterializationFailed", Detail: "The effective scheduling profile could not be decoded."}}}
-	}
-	spec, ok := candidate.Parsed["spec"].(map[string]any)
-	if !ok {
-		return Candidate{Diagnostics: []Diagnostic{{Code: "SchedulingMaterializationFailed", Detail: "The AppConfig spec is unavailable."}}}
-	}
-	spec["runtime"] = runtimeValue
-	raw, err := json.MarshalIndent(candidate.Parsed, "", "  ")
-	if err != nil {
-		return Candidate{Diagnostics: []Diagnostic{{Code: "SchedulingMaterializationFailed", Detail: "The effective AppConfig could not be encoded."}}}
-	}
-	raw = append(raw, '\n')
-	parsed, resolvedRuntime, diagnostics := ParseAndValidate(raw)
-	if len(diagnostics) != 0 {
-		return Candidate{Raw: raw, Parsed: parsed, Runtime: resolvedRuntime, Diagnostics: diagnostics}
-	}
-	hash := sha256.Sum256(raw)
-	return Candidate{Raw: raw, Parsed: parsed, Runtime: resolvedRuntime, Hash: hash[:], Changes: compare(currentParsed, parsed)}
 }
 
 // WithResolvedMiddlewares replaces only the reusable-profile material with a

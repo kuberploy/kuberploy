@@ -71,7 +71,8 @@ const (
 // evaluated as an implicit binding and is not duplicated in this table.
 type AccessGrant struct {
 	ID            string          `json:"id"`
-	SubjectUserID string          `json:"subjectUserId"`
+	SubjectUserID string          `json:"subjectUserId,omitempty"`
+	SubjectTeamID string          `json:"subjectTeamId,omitempty"`
 	Role          AccessRole      `json:"role"`
 	ScopeType     AccessScopeType `json:"scopeType"`
 	ScopeID       string          `json:"scopeId"`
@@ -84,6 +85,7 @@ type AccessGrant struct {
 type CreateAccessGrant struct {
 	ProjectID     string
 	SubjectUserID string
+	SubjectTeamID string
 	Role          AccessRole
 	ScopeType     AccessScopeType
 	ScopeID       string

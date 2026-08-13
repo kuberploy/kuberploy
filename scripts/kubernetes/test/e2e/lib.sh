@@ -13,7 +13,7 @@ kp_qualification_stage_catalog() {
   cat <<'EOF'
 10-one-chart-install|true|installer-single-entrypoint,independent-applications-created,immutable-source-revision,package-digests-attested,bootstrap-job-auth,recurring-login,invitation-login,sole-owner-denial,github-installation-sharing,contract-identities
 20-postgresql-valkey|true|postgresql-durable,reset-recovery,multi-scope-grants,service-account-token-lifecycle
-25-config-edge|true|variables-inherited-configmap,guided-yaml-rendered-diff,scheduling-profile-podspec,sslip-canonical-public-ip,external-dns-rfc2136
+25-config-edge|true|variables-inherited-configmap,guided-yaml-rendered-diff,direct-scheduling-podspec,sslip-canonical-public-ip,external-dns-rfc2136
 30-git-argo|true|git-direct-projection,git-protected-pr,rollback-new-intent
 40-source-build|true|github-webhook-delivery,webhook-safety-poll,build-job-isolation,build-cancel-job-deleted,second-build-cache-hit,cache-cold-degrade,push-failure-terminal,auto-deploy-receipt,source-build-digest-promotion,approved-helm-oci
 50-runtime-edge|true|middleware,http-route
@@ -217,7 +217,7 @@ kp_qualification_expected_probe() {
     installer-single-entrypoint) printf '%s\n' helm-install ;;
     browser-ui-workflow) printf '%s\n' browser-proof ;;
     independent-applications-created|immutable-source-revision|package-digests-attested|bootstrap-job-auth|recurring-login|invitation-login|sole-owner-denial|github-installation-sharing|contract-identities) printf '%s\n' installer-proof ;;
-    postgresql-durable|reset-recovery|multi-scope-grants|service-account-token-lifecycle|variables-inherited-configmap|guided-yaml-rendered-diff|scheduling-profile-podspec|sslip-canonical-public-ip|external-dns-rfc2136|git-direct-projection|git-protected-pr|argo-synced-healthy|rollback-new-intent|rollback-immutable-input|github-webhook-delivery|webhook-safety-poll|build-job-isolation|build-cancel-job-deleted|second-build-cache-hit|cache-cold-degrade|push-failure-terminal|auto-deploy-receipt|source-build-digest-promotion|approved-helm-oci|runtime-chart|traefik-route|middleware|local-acme-certificate|local-acme-renewal|no-public-acme|current-protected|rollback-set-protected|existing-image-tag-resolution|retention-removes-only-eligible|logs-authorized|events-authorized|prometheus-query|tenant-filtered|namespace-rbac|admission-deny|resource-quota|network-isolation|secret-nondisclosure|cross-tenant-deny|audit-timeline|ordered-upgrade|health-gate|rollback-intent|rollback-result) printf '%s\n' workflow-proof ;;
+    postgresql-durable|reset-recovery|multi-scope-grants|service-account-token-lifecycle|variables-inherited-configmap|guided-yaml-rendered-diff|direct-scheduling-podspec|sslip-canonical-public-ip|external-dns-rfc2136|git-direct-projection|git-protected-pr|argo-synced-healthy|rollback-new-intent|rollback-immutable-input|github-webhook-delivery|webhook-safety-poll|build-job-isolation|build-cancel-job-deleted|second-build-cache-hit|cache-cold-degrade|push-failure-terminal|auto-deploy-receipt|source-build-digest-promotion|approved-helm-oci|runtime-chart|traefik-route|middleware|local-acme-certificate|local-acme-renewal|no-public-acme|current-protected|rollback-set-protected|existing-image-tag-resolution|retention-removes-only-eligible|logs-authorized|events-authorized|prometheus-query|tenant-filtered|namespace-rbac|admission-deny|resource-quota|network-isolation|secret-nondisclosure|cross-tenant-deny|audit-timeline|ordered-upgrade|health-gate|rollback-intent|rollback-result) printf '%s\n' workflow-proof ;;
     http-route) printf '%s\n' http ;;
     custom-certificate|public-acme) printf '%s\n' tls ;;
     public-dns|public-hostname-resolves) printf '%s\n' dns ;;
@@ -306,10 +306,9 @@ kp_qualification_validate_scenario() {
     and (.workflow.helm.approvalRevision | type == "number" and floor == . and . >= 1)
     and (.workflow.helm.valuesYaml | type == "string" and length > 0 and length <= 262144)
     and (.workflow.registryCleanup.targetId | type == "string" and test("^[a-f0-9-]{36}$"))
-    and ((.workflow.upgrade | keys | sort) == ["manifestDigest","sourceVersion","targetVersion"])
-    and (.workflow.upgrade.sourceVersion | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
-    and (.workflow.upgrade.targetVersion | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
-    and (.workflow.upgrade.manifestDigest | type == "string" and test("^sha256:[a-f0-9]{64}$"))
+    and ((.workflow.upgrade | keys | sort) == ["sourceVersion","targetVersion"])
+    and (.workflow.upgrade.sourceVersion | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-rc\\.[1-9][0-9]*)?$"))
+    and (.workflow.upgrade.targetVersion | type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-rc\\.[1-9][0-9]*)?$"))
     and ((.workflow.tls | keys | sort) == ["customCertificateName","localACMEIssuerName"])
     and (.workflow.tls.customCertificateName | type == "string" and test("^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"))
     and (.workflow.tls.localACMEIssuerName | type == "string" and test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"))
@@ -455,21 +454,21 @@ kp_qualification_validate_semantic_proof() {
     25-config-edge)
       jq -e --arg uuid "${kp_uuid}" '
         (keys|sort)==["applicationId","configMap","controllerReady","crossApplicationDenied",
-          "defaultsProbesResourcesVerified","deploymentId","dnsReconciled","environmentVariableSetSaved",
-          "exactLivePodSpecVerified","externalDNSApplicationId","externalDNSDeploymentId","externalDNSHostname",
+          "defaultsProbesResourcesVerified","deploymentId","directSchedulingConfigured","dnsReconciled","environmentVariableSetSaved",
+          "exactLivePodSpecVerified","exactSelectorsVerified","externalDNSApplicationId","externalDNSDeploymentId","externalDNSHostname",
           "guidedYAMLSharedDraft","hostname","immutableConfigMapRefsVerified","integrationId","mutation",
-          "overrideProvenanceVerified","profileId","projectVariableSetSaved","protectedMaterialized",
+          "overrideProvenanceVerified","projectVariableSetSaved","protectedMaterialized",
           "providerKind","providerLabelInjectionDenied","renderedManifestDiffVerified","routeSaved",
           "selectedCanonicalPublicIPv4"] and
-        .mutation=="variables-appconfig-scheduling-sslip-external-dns" and
-        all(.applicationId,.deploymentId,.profileId,.integrationId,.externalDNSApplicationId,.externalDNSDeploymentId; test($uuid)) and
+        .mutation=="variables-appconfig-direct-scheduling-sslip-external-dns" and
+        all(.applicationId,.deploymentId,.integrationId,.externalDNSApplicationId,.externalDNSDeploymentId; test($uuid)) and
         (.hostname|test("^[^.]+\\.[0-9]+-[0-9]+-[0-9]+-[0-9]+\\.sslip\\.io$")) and
         (.selectedCanonicalPublicIPv4|test("^[0-9]+(\\.[0-9]+){3}$")) and
         (.externalDNSHostname|test("^config-edge-[a-z0-9-]+\\.qualification\\.test$")) and
         .providerKind=="rfc2136" and (.configMap|type=="string" and length>0) and
         all(.projectVariableSetSaved,.environmentVariableSetSaved,.overrideProvenanceVerified,
           .immutableConfigMapRefsVerified,.guidedYAMLSharedDraft,.renderedManifestDiffVerified,
-          .defaultsProbesResourcesVerified,.exactLivePodSpecVerified,.crossApplicationDenied,
+          .defaultsProbesResourcesVerified,.directSchedulingConfigured,.exactSelectorsVerified,.exactLivePodSpecVerified,.crossApplicationDenied,
           .providerLabelInjectionDenied,.protectedMaterialized,.controllerReady,.routeSaved,.dnsReconciled; .==true)
       ' "${kp_proof}" >/dev/null ;;
     30-git-argo)
@@ -608,14 +607,19 @@ kp_qualification_validate_semantic_proof() {
         .rotatedVersionAttached == true and .rolloutsReady == true
       ' "${kp_proof}" >/dev/null ;;
     100-upgrade-rollback)
-      jq -e --arg uuid "${kp_uuid}" '
-        (keys | sort) == ["mutation","postUpgradeRollbackSucceeded","releaseManifestVerified",
-          "sourceIdentityVerified","targetIdentityReady","upgradeId","upgradeOperationId",
-          "upgradeSucceeded"] and .mutation == "platform-upgrade-and-post-upgrade-rollback" and
-        (.upgradeOperationId | test($uuid)) and (.upgradeId | test($uuid)) and
-        .sourceIdentityVerified == true and .releaseManifestVerified == true and
-        .upgradeSucceeded == true and .targetIdentityReady == true and
-        .postUpgradeRollbackSucceeded == true
+      jq -e '
+        . as $proof |
+        (keys | sort) == ["helmRelease","mutation","rollbackRevision","rollbackSourceReady",
+          "sourceRevision","sourceVersion","targetIdentityReady","targetRevision","targetVersion"] and
+        .mutation == "installer-helm-upgrade-and-rollback" and
+        .helmRelease == "kuberploy-qualification" and
+        (.sourceVersion | type == "string" and length > 0) and
+        (.targetVersion | type == "string" and length > 0) and
+        $proof.targetVersion != $proof.sourceVersion and
+        (.sourceRevision | type == "number" and . >= 1) and
+        .targetRevision == (.sourceRevision + 1) and
+        .rollbackRevision == (.targetRevision + 1) and
+        .targetIdentityReady == true and .rollbackSourceReady == true
       ' "${kp_proof}" >/dev/null ;;
     *) kp_die "stage ${kp_stage} has no repository semantic proof schema" ;;
   esac || kp_die "stage ${kp_stage} workflow proof does not satisfy its semantic schema"

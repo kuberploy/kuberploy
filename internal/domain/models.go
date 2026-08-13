@@ -219,17 +219,20 @@ type ReleaseInfo struct {
 }
 
 type PlatformUpgrade struct {
-	ID             string          `json:"id"`
-	Version        string          `json:"version"`
-	ManifestDigest string          `json:"manifestDigest"`
-	Manifest       ReleaseManifest `json:"manifest"`
-	ManifestBytes  []byte          `json:"-"`
-	State          string          `json:"state"`
-	OperationID    string          `json:"operationId"`
-	RunnerRef      string          `json:"runnerRef,omitempty"`
-	Result         map[string]any  `json:"result,omitempty"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
+	ID              string          `json:"id"`
+	Version         string          `json:"version"`
+	ManifestDigest  string          `json:"manifestDigest"`
+	Manifest        ReleaseManifest `json:"manifest"`
+	ManifestBytes   []byte          `json:"-"`
+	State           string          `json:"state"`
+	OperationID     string          `json:"operationId"`
+	RunnerRef       string          `json:"runnerRef,omitempty"`
+	Result          map[string]any  `json:"result,omitempty"`
+	Action          string          `json:"action"`
+	HelmRevision    int64           `json:"helmRevision,omitempty"`
+	SourceUpgradeID string          `json:"sourceUpgradeId,omitempty"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	UpdatedAt       time.Time       `json:"updatedAt"`
 }
 
 type Route struct {
@@ -331,6 +334,11 @@ type CreatePlatformUpgrade struct {
 	Release ReleaseInfo
 }
 
+type CreatePlatformRollback struct {
+	SourceUpgradeID string
+	HelmRevision    int64
+}
+
 type CreateTeam struct{ Name, Slug string }
 type AddTeamMember struct{ UserID, Role string }
 type CreateGitHubInstallation struct {
@@ -343,16 +351,31 @@ type CreateGitHubInstallation struct {
 type UpdateGitHubInstallationSharing struct{ Visibility, TeamID string }
 
 type DeploymentStatus struct {
-	DeploymentID         string     `json:"deploymentId"`
-	State                string     `json:"state"`
-	OperationID          string     `json:"operationId"`
-	OperationStatus      string     `json:"operationStatus"`
-	DesiredRevision      string     `json:"desiredRevision,omitempty"`
-	ObservedRevision     string     `json:"observedRevision,omitempty"`
-	ArgoSyncStatus       string     `json:"argoSyncStatus"`
-	RolloutHealth        string     `json:"rolloutHealth"`
-	ArgoObservedRevision string     `json:"argoObservedRevision,omitempty"`
-	ArgoObservedAt       *time.Time `json:"argoObservedAt,omitempty"`
+	DeploymentID         string             `json:"deploymentId"`
+	State                string             `json:"state"`
+	OperationID          string             `json:"operationId"`
+	OperationStatus      string             `json:"operationStatus"`
+	DesiredRevision      string             `json:"desiredRevision,omitempty"`
+	ObservedRevision     string             `json:"observedRevision,omitempty"`
+	ArgoSyncStatus       string             `json:"argoSyncStatus"`
+	RolloutHealth        string             `json:"rolloutHealth"`
+	ArgoObservedRevision string             `json:"argoObservedRevision,omitempty"`
+	ArgoObservedAt       *time.Time         `json:"argoObservedAt,omitempty"`
+	DesiredReplicas      *int32             `json:"desiredReplicas,omitempty"`
+	ReadyReplicas        *int32             `json:"readyReplicas,omitempty"`
+	RolloutConditions    []RolloutCondition `json:"rolloutConditions,omitempty"`
+	RolloutObservedAt    *time.Time         `json:"rolloutObservedAt,omitempty"`
+}
+
+// RolloutCondition is the bounded, message-free Kubernetes Deployment
+// condition projection. Provider messages are excluded because they can carry
+// untrusted workload text; type, status, reason, and transition time are enough
+// to report exact rollout state.
+type RolloutCondition struct {
+	Type               string     `json:"type"`
+	Status             string     `json:"status"`
+	Reason             string     `json:"reason,omitempty"`
+	LastTransitionTime *time.Time `json:"lastTransitionTime,omitempty"`
 }
 
 // ArgoRolloutObservation is the metadata-only subset of an Argo Application

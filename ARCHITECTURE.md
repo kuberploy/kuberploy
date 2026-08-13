@@ -280,7 +280,6 @@ For mutually untrusted public tenants, a separate build cluster is preferred ove
 | Registry | Managed/external mode, OCI endpoints, owned repository prefix, storage policy and credential references |
 | RegistryArtifact | Observed repository, immutable manifest/index digest, size, platforms, owning service, Release relationship, protection reasons and lifecycle state; never the authority for image bytes |
 | ArtifactRetentionPolicy | Managed-registry platform default plus bounded per-service override for retained successful releases, unreferenced grace age and administrator pins; not applied to external registries |
-| SchedulingProfile | Platform-admin-owned, namespaced policy describing approved resource defaults/bounds, node labels, affinities, topology rules, tolerations, priority classes and optional Karpenter NodePool compatibility |
 | DNSIntegration | DNS provider, allowed zones/domains, credential reference, ownership ID and reconciliation policy |
 | Domain | Hostname, path, target port, TLS policy and manual/automatic DNS policy |
 | RouteKeyReservation | Candidate lease and post-push `CommittedPendingIndex` guard for one normalized hostname/listener/path key across Git shards; rebuildable coordination only, never desired-state authority |
@@ -1161,11 +1160,11 @@ The guided Deployment form covers:
 
 - primary process command/arguments, container and named ports;
 - replicas, update strategy, termination grace and optional HPA/PDB;
-- CPU, memory and ephemeral-storage requests and limits, plus approved extended-resource profiles where installed;
+- CPU, memory and ephemeral-storage requests and limits;
 - ordinary variables, existing secret bindings, write-only secret creation/rotation and explicit environment-variable or file delivery;
 - startup, readiness and liveness probes;
 - approved sidecars/init containers and volume mounts when enabled by policy;
-- an administrator-approved scheduling profile plus policy-bounded node selection, affinity, anti-affinity, topology-spread and toleration controls.
+- direct per-application node selection, affinity, anti-affinity, topology-spread and toleration controls.
 
 ### Resources and scheduling UI
 
@@ -1177,12 +1176,10 @@ The resource editor exposes per-container:
 
 - CPU, memory and ephemeral-storage requests;
 - CPU, memory and ephemeral-storage limits;
-- approved extended resources such as GPUs through a platform profile; and
 - effective LimitRange defaults, ResourceQuota headroom and validation that each
   request is positive and does not exceed its corresponding limit.
 
-CPU and memory requests must have effective values, either explicitly or from an
-approved profile. Kubernetes scheduling and autoscaler provisioning use requests
+CPU and memory requests are explicit service values. Kubernetes scheduling and autoscaler provisioning use requests
 to determine required capacity; limits govern runtime enforcement and do not
 replace realistic requests. The UI warns about extreme request/limit ratios and
 shows the estimated per-replica and total requested capacity before save.
@@ -1198,41 +1195,34 @@ resources:
 ```
 
 They are explicit Git-backed values, not hidden form defaults, so chart upgrades
-cannot silently resize existing services. An administrator profile may enforce a
-higher minimum. Resource limits remain separately visible/editable and may be
-defaulted or required by that profile.
+cannot silently resize existing services. Resource limits remain separately
+visible and editable and may be defaulted or required by cluster policy.
 
 The scheduling editor exposes:
 
-- one approved `schedulingProfileRef`, with an effective-settings preview;
-- allowlisted `nodeSelector` keys and values;
+- `nodeSelector` keys and values, excluding Kuberploy and control-plane reserved keys;
 - required and preferred node-affinity expressions;
-- the closed same-application pod anti-affinity preset, as required or weighted
-  preferred policy;
-- topology-spread constraints for hostname, zone and approved custom domains;
+- pod affinity and anti-affinity terms whose selector is exactly the current application;
+- topology-spread constraints whose selector is exactly the current application;
 - tolerations with key, operator, value, effect and optional seconds; and
-- an allowlisted PriorityClass when the project policy permits it.
+- an optional Kubernetes PriorityClass name.
 
 The service UI manages **tolerations**, not node taints. Permanent taints are
-owned by cluster administrators or an autoscaler's NodePool. Kuberploy displays
-the approved taint/toleration relationship and lets a workload tolerate only the
-profiles it is authorized to use. It never grants tenant workloads tolerations
-for control-plane, Kuberploy system, registry, monitoring or privileged builder
-nodes. Correctly declared temporary Karpenter `startupTaints` do not require a
+owned by cluster administrators or an autoscaler's NodePool. Kuberploy rejects
+reserved control-plane and `kuberploy.io/*` toleration keys. Correctly declared
+temporary Karpenter `startupTaints` do not require a
 workload toleration and are not copied into AppConfig.
 
-Platform administrators create `SchedulingProfile` objects from explicit policy
-or read-only discovery. Profiles can represent choices such as `general`,
-`spot`, `on-demand`, `arm64`, `gpu` or `scale-to-zero-workers`. A profile fixes or
-allowlists node labels, taints/tolerations, architectures, capacity types,
-topology domains, priority, resource ranges and allowed teams/projects. Service
-owners select an authorized profile; project administrators may add narrower
-constraints but cannot broaden it.
+Scheduling is configured independently for each application. Pod relationship
+and topology-spread selectors must contain only
+`kuberploy.io/application=<current application UUID>`; cross-application IDs,
+additional match labels and match expressions are rejected at every write and
+projection boundary.
 
 When Karpenter is detected, an optional read-only adapter observes
 `karpenter.sh/v1` NodePools and NodeClaims. Before commit, Kuberploy intersects
-hard Pod requirements with the selected profile and observed NodePool
-requirements/taints. A provably empty intersection is rejected with exact field
+hard Pod requirements with observed NodePool requirements and taints. A proven
+empty intersection is rejected with exact field
 diagnostics instead of creating a permanently pending Pod. Kuberploy renders
 ordinary Kubernetes Pod scheduling fields—resource requests, selectors,
 affinity, topology spread and tolerations—so the same AppConfig remains portable
@@ -1248,7 +1238,7 @@ additional nodes to be launched.
 The status timeline distinguishes `WaitingForCapacity`,
 `SchedulingConstraintUnsatisfied`, `QuotaExceeded`, `NodeProvisioning` (when a
 Karpenter observation is available) and ordinary image/startup failures. It
-shows relevant sanitized Pod events and the selected profile, but never exposes
+shows relevant sanitized Pod events and configured scheduling fields, but never exposes
 cloud credentials or allows service users to edit NodePools, NodeClasses, Nodes
 or taints.
 
@@ -1606,8 +1596,8 @@ Operations use at-least-once execution with idempotency:
 | Kuberploy API or PostgreSQL is unavailable | Existing Argo-managed apps and Traefik routes continue running |
 | A retained or current registry digest is deleted outside Kuberploy | Surface release corruption, disable that rollback/deployment action and alert the administrator; Kuberploy never claims Git history alone contains the image bytes |
 | A Git revision references a digest outside the retained rollback window | Mark it `ArtifactExpired`; keep the Git history but require exact republishing or a new build/release before deployment |
-| Resource requests exceed namespace quota or scheduling-profile bounds | Reject preview/save with requested, allowed and remaining values; do not rely on a permanently Pending Pod as validation |
-| Required selectors, affinity or tolerations match no approved capacity profile/observed NodePool | Reject a provably impossible configuration; if capacity discovery is merely unavailable, report the unknown check and follow the environment's fail-closed policy |
+| Resource requests exceed namespace quota or cluster policy bounds | Reject preview/save with requested, allowed and remaining values; do not rely on a permanently Pending Pod as validation |
+| Required selectors, affinity or tolerations match no observed NodePool | Reject a provably impossible configuration; if capacity discovery is merely unavailable, report the unknown check and follow the environment's fail-closed policy |
 | A scale-to-zero workload is waiting for autoscaler capacity | Keep the release `Progressing`, show `WaitingForCapacity` and sanitized scheduler/Karpenter diagnostics, and never relax hard constraints or move it to system/builder nodes |
 | TLS issuance fails | Keep HTTP/route state visible and show DNS/ACME diagnostics; do not silently claim HTTPS is ready |
 | Custom certificate is invalid, mismatched or expired | Reject it before storage/commit; show expiry warnings and never silently fall back to HTTP |
@@ -2147,29 +2137,30 @@ The one-time installer may create the root Argo Application because no Git recon
 
 All bundled dependencies must be independently disableable so operators can use existing Argo CD, Traefik, cert-manager, external-dns, Prometheus-compatible monitoring, Valkey, PostgreSQL, secret manager and registry installations. Valkey itself is a required runtime capability, so disabling the bundled instance requires a healthy compatible external endpoint rather than disabling Valkey-backed behavior.
 
-### Public release channel and self-upgrade
+### Public release channel and installer lifecycle
 
 The public `kuberploy/kuberploy` GitHub repository is the single default release
-channel. A platform administrator can check for and select an immutable stable
-release from the UI. The release response binds its source commit, OCI chart
+channel. A platform administrator can inspect an immutable stable release from
+the UI. The release response binds its source commit, OCI chart
 digest, control-plane image digests, Kubernetes range and database compatibility
-window; it is advisory until the administrator explicitly starts an upgrade.
+window; it is advisory and never grants the application a reusable cluster-wide
+Helm credential.
 
-Kuberploy's Helm release owns only the Kuberploy control plane. Tenant workload
-objects remain in environment Git and are reconciled by Argo CD, so a Helm
-upgrade cannot restart or adopt an application Deployment. Optional platform
-dependencies are upgraded separately rather than being silently advanced as
-control-plane subcharts.
+The operator upgrades or rolls back the `kuberploy-installer` Helm release with
+the same explicit values and cluster credentials used for installation. The
+installer owns the root desired-state revision for all enabled component
+Applications. Its lifecycle hooks first reconcile that exact immutable
+inventory, then require every enabled Application to report the requested
+target revision, `Synced`, and `Healthy`. The hook Role can only get/watch the
+exact enabled Application names.
 
-An accepted upgrade is first persisted as an idempotent PostgreSQL Operation.
-The worker then creates a durable, deterministic upgrade Job that re-verifies
-the release, renders the pinned chart, and executes a waiting Helm upgrade with
-cleanup and rollback on failure while reusing the installation's values. The
-Job outlives replacement API/worker/web Pods; a replacement worker reconciles
-its status. Control-plane Deployments use readiness-gated rolling updates, and
-database migrations obey expand/contract compatibility. Full details and trust
-rules are recorded in
-[`docs/adr/0003-public-release-and-self-upgrade.md`](docs/adr/0003-public-release-and-self-upgrade.md).
+Kuberploy does not imperatively Helm-upgrade the control-plane child. Argo's
+Helm source renders objects but creates no Helm release storage for that child,
+and automated self-heal would revert an imperative mutation. The API therefore
+exposes release inspection and historical operation reads only; no child Helm
+upgrade or rollback mutation route is registered. Control-plane Deployments use
+readiness-gated rolling updates, and database migrations obey expand/contract
+compatibility.
 
 ## 19. MVP boundary
 
@@ -2297,7 +2288,7 @@ Create project and environment
 - Guided Deployment/Service forms plus an Advanced AppConfig YAML editor sharing one draft, validation pipeline and Git diff.
 - Approved external Helm apps receive one Advanced values YAML document and a redacted read-only rendered-manifests preview in P0.
 - Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned immutable ConfigMaps, plus container port, replicas, CPU/memory and health probes.
-- Per-service resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread and tolerations, with administrator profiles and optional read-only Karpenter NodePool/NodeClaim diagnostics for scale-to-zero capacity.
+- Per-service resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
 - Write-only versioned runtime-secret creation/rotation with strict Sealed Secrets, exact binding/application scope, environment/file delivery, readiness-gated rollout and metadata-only UI/API reads; External Secrets remains unavailable until an audited concrete remote material writer exists.
 - Managed or adopted Traefik with generated/custom domains, server-derived `sslip.io` convenience hostnames, and explicit HTTP-only, Let's Encrypt, or custom-certificate mode per route.
 - Optional external-dns configuration page with provider/zone/ownership controls and a per-route automatic/manual DNS toggle.
@@ -2305,7 +2296,7 @@ Create project and environment
 - Build logs, per-Pod/container logs, Deployment-wide merged log streaming, Kubernetes events, deployment history, cancel and retry.
 - Managed `kube-prometheus-stack`, an existing Prometheus-compatible endpoint, or disabled mode, with application/service, namespace and platform-admin global dashboards.
 - Viewer/developer/project-admin/organization-admin/platform-admin grants assignable across multiple projects, environments, namespaces and applications; platform admin sees all.
-- Namespaced control-plane self-upgrade from the UI using immutable release manifests, digest-pinned Helm charts, compatibility checks and durable rollback-on-failure Jobs that never own tenant workloads.
+- Read-only release inspection in the UI, with operator-owned `kuberploy-installer` Helm upgrade/rollback and exact enabled-Argo-Application revision, sync and health gates. Kuberploy never retains cluster-wide Helm mutation authority or imperatively mutates an Argo-owned child.
 - Namespace isolation, quotas, network policies and an audit timeline.
 
 ### P1: first releases after MVP

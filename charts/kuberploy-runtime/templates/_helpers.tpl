@@ -210,9 +210,9 @@ by the server/direct-Git policy; this is the final structural render fence. */}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{/* Scheduling profiles expose only a same-application pod anti-affinity
-preset. Recheck its derived selector here so bypassing values.schema.json
-cannot turn it into cross-application or arbitrary-label affinity. */}}
+{{/* Direct pod anti-affinity accepts only the exact current-application
+selector. Recheck it here so bypassing values.schema.json cannot turn it into
+cross-application or arbitrary-label affinity. */}}
 {{- define "kuberploy-runtime.validateSameApplicationAntiAffinityTerm" -}}
 {{- $term := required "same-application pod anti-affinity term is required" .term -}}
 {{- range $key := keys $term -}}
@@ -234,6 +234,11 @@ cannot turn it into cross-application or arbitrary-label affinity. */}}
 {{- end -}}
 {{- define "kuberploy-runtime.validateRuntime" -}}
 {{- $runtime := .Values.spec.runtime -}}
+{{- with $runtime.priorityClassName -}}
+  {{- if hasPrefix "system-" . -}}
+    {{- fail "Kubernetes system-* PriorityClasses are reserved for cluster-critical workloads" -}}
+  {{- end -}}
+{{- end -}}
 {{- $parents := .Values.values | default (dict) -}}
 {{- if gt (len $parents) 256 -}}
   {{- fail "inherited VariableSet supports at most 256 ordinary values" -}}
@@ -249,28 +254,10 @@ cannot turn it into cross-application or arbitrary-label affinity. */}}
     {{- fail (printf "inherited variable %q exceeds 4096 bytes" $name) -}}
   {{- end -}}
 {{- end -}}
-{{- $hasSchedulingMaterial := or (not (empty $runtime.nodeSelector)) (not (empty $runtime.affinity)) (not (empty $runtime.topologySpreadConstraints)) (not (empty $runtime.tolerations)) (not (empty $runtime.priorityClassName)) -}}
-{{- if and $hasSchedulingMaterial (empty $runtime.schedulingProfile) -}}
-  {{- fail "effective Pod scheduling fields require an exact server-derived schedulingProfile" -}}
-{{- end -}}
-{{- with $runtime.schedulingProfile -}}
-  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" (required "schedulingProfile.profileId is required" .profileId)) -}}
-    {{- fail "schedulingProfile.profileId must be a UUID" -}}
-  {{- end -}}
-  {{- if lt (int64 (required "schedulingProfile.revision is required" .revision)) 1 -}}
-    {{- fail "schedulingProfile.revision must be positive" -}}
-  {{- end -}}
-  {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (required "schedulingProfile.specDigest is required" .specDigest)) -}}
-    {{- fail "schedulingProfile.specDigest must be an exact SHA-256 digest" -}}
-  {{- end -}}
-  {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (required "schedulingProfile.assignmentsDigest is required" .assignmentsDigest)) -}}
-    {{- fail "schedulingProfile.assignmentsDigest must be an exact SHA-256 digest" -}}
-  {{- end -}}
-{{- end -}}
 {{- with $runtime.affinity -}}
   {{- range $key := keys . -}}
-    {{- if not (has $key (list "nodeAffinity" "podAntiAffinity")) -}}
-      {{- fail (printf "scheduling profile affinity contains unsupported field %q" $key) -}}
+    {{- if not (has $key (list "nodeAffinity" "podAffinity" "podAntiAffinity")) -}}
+      {{- fail (printf "workload affinity contains unsupported field %q" $key) -}}
     {{- end -}}
   {{- end -}}
   {{- with .podAntiAffinity -}}
@@ -299,6 +286,40 @@ cannot turn it into cross-application or arbitrary-label affinity. */}}
       {{- end -}}
       {{- include "kuberploy-runtime.validateSameApplicationAntiAffinityTerm" (dict "term" .podAffinityTerm "applicationID" $.Values.spec.applicationId) -}}
     {{- end -}}
+  {{- end -}}
+  {{- with .podAffinity -}}
+    {{- range $key := keys . -}}
+      {{- if not (has $key (list "requiredDuringSchedulingIgnoredDuringExecution" "preferredDuringSchedulingIgnoredDuringExecution")) -}}
+        {{- fail (printf "podAffinity contains unsupported field %q" $key) -}}
+      {{- end -}}
+    {{- end -}}
+    {{- $requiredTerms := .requiredDuringSchedulingIgnoredDuringExecution | default (list) -}}
+    {{- $preferredTerms := .preferredDuringSchedulingIgnoredDuringExecution | default (list) -}}
+    {{- if or (gt (len $requiredTerms) 16) (gt (len $preferredTerms) 16) -}}
+      {{- fail "podAffinity supports at most 16 required and 16 preferred terms" -}}
+    {{- end -}}
+    {{- range $requiredTerms -}}
+      {{- include "kuberploy-runtime.validateSameApplicationAntiAffinityTerm" (dict "term" . "applicationID" $.Values.spec.applicationId) -}}
+    {{- end -}}
+    {{- range $preferredTerms -}}
+      {{- $weight := int (required "preferred podAffinity weight is required" .weight) -}}
+      {{- if or (lt $weight 1) (gt $weight 100) -}}
+        {{- fail "preferred podAffinity weight must be between 1 and 100" -}}
+      {{- end -}}
+      {{- include "kuberploy-runtime.validateSameApplicationAntiAffinityTerm" (dict "term" .podAffinityTerm "applicationID" $.Values.spec.applicationId) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- range $runtime.topologySpreadConstraints | default (list) -}}
+  {{- $selector := required "topologySpreadConstraint labelSelector is required" .labelSelector -}}
+  {{- range $key := keys $selector -}}
+    {{- if ne $key "matchLabels" -}}
+      {{- fail (printf "same-application topology spread selector contains unsupported field %q" $key) -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $labels := required "topologySpreadConstraint matchLabels is required" $selector.matchLabels -}}
+  {{- if or (ne (len (keys $labels)) 1) (ne (get $labels "kuberploy.io/application") $.Values.spec.applicationId) -}}
+    {{- fail "topology spread must select only the exact current kuberploy.io/application" -}}
   {{- end -}}
 {{- end -}}
 {{- $portNames := dict -}}

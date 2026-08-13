@@ -942,48 +942,27 @@ kp_run_registry_cleanup_workflow() {
 }
 
 kp_run_upgrade_workflow() {
-  local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_body kp_operation_id kp_state_file
-  local kp_actual kp_source_version kp_target_version kp_manifest_digest kp_upgrade_id kp_previous_generation
+  local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence"
+  local kp_actual kp_source_version kp_target_version kp_source_revision kp_target_revision kp_rollback_revision
   kp_source_version="$(jq -er '.workflow.upgrade.sourceVersion' "${kp_scenario}")"
   kp_target_version="$(jq -er '.workflow.upgrade.targetVersion' "${kp_scenario}")"
-  kp_manifest_digest="$(jq -er '.workflow.upgrade.manifestDigest' "${kp_scenario}")"
   kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-pre-upgrade-meta.json" \
     --write-out '%{http_code}' --request GET \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/meta")"
   [[ "${kp_actual}" == "200" ]]
   jq -e --arg source "${kp_source_version}" '.version == $source' \
     "${kp_dir}/workflow-pre-upgrade-meta.json" >/dev/null
-  kp_actual="$(curl --silent --show-error \
-    --dump-header "${kp_dir}/workflow-release-latest.headers" \
-    --output "${kp_dir}/workflow-release-latest.json" --write-out '%{http_code}' --request GET \
-    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" \
-    "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/platform/releases/latest")"
-  [[ "${kp_actual}" == "200" ]]
-  grep -Eiq '^ETag:[[:space:]]*"sha256:[a-f0-9]{64}"[[:space:]]*$' \
-    "${kp_dir}/workflow-release-latest.headers"
-  jq -e --arg source "${kp_source_version}" --arg target "${kp_target_version}" \
-    --arg digest "${kp_manifest_digest}" '
-    .currentVersion == $source and .updateAvailable == true and
-    .compatibility.status != "incompatible" and .release.version == $target and
-    .release.manifestDigest == $digest
-  ' "${kp_dir}/workflow-release-latest.json" >/dev/null
-  kp_body="$(jq -c '.workflow.upgrade' "${kp_scenario}")"
-  kp_body="$(jq 'del(.sourceVersion)' <<<"${kp_body}")"
-  kp_human_post platform-upgrade /v1/platform/upgrades "${kp_body}" 202 \
-    "${kp_dir}/workflow-upgrade-operation.json"
-  kp_operation_id="$(jq -er '.id | select(test("^[a-f0-9-]{36}$"))' "${kp_dir}/workflow-upgrade-operation.json")"
-  kp_upgrade_id="$(jq -er '.targetId | select(test("^[a-f0-9-]{36}$"))' \
-    "${kp_dir}/workflow-upgrade-operation.json")"
-  kp_poll_operation "${kp_operation_id}" "${kp_dir}/workflow-upgrade-terminal.json"
-  jq -e '.status == "succeeded"' "${kp_dir}/workflow-upgrade-terminal.json" >/dev/null
-  kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-upgrade-resource.json" \
-    --write-out '%{http_code}' --request GET \
-    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" \
-    "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/platform/upgrades/${kp_upgrade_id}")"
-  [[ "${kp_actual}" == "200" ]]
-  jq -e --arg id "${kp_upgrade_id}" --arg digest "${kp_manifest_digest}" '
-    .id == $id and .state == "succeeded" and .manifestDigest == $digest
-  ' "${kp_dir}/workflow-upgrade-resource.json" >/dev/null
+  "${KUBERPLOY_E2E_HELM}" history kuberploy-qualification --namespace kuberploy-system -o json \
+    >"${kp_dir}/workflow-source-helm-history.json"
+  kp_source_revision="$(jq -er 'last.revision | select(type == "number" and . >= 1)' "${kp_dir}/workflow-source-helm-history.json")"
+  "${KUBERPLOY_E2E_HELM}" upgrade kuberploy-qualification \
+    "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
+    --values "${KUBERPLOY_E2E_INSTALLER_VALUES_FILE}" --server-side=false \
+    --wait --wait-for-jobs --timeout 20m
+  "${KUBERPLOY_E2E_HELM}" history kuberploy-qualification --namespace kuberploy-system -o json \
+    >"${kp_dir}/workflow-target-helm-history.json"
+  kp_target_revision="$(jq -er 'last.revision' "${kp_dir}/workflow-target-helm-history.json")"
+  [[ "${kp_target_revision}" -eq $((kp_source_revision + 1)) ]]
   kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-post-upgrade-readyz.json" \
     --write-out '%{http_code}' --request GET "$(jq -r '.apiBaseURL' "${kp_scenario}")/readyz")"
   [[ "${kp_actual}" == "200" ]]
@@ -999,26 +978,23 @@ kp_run_upgrade_workflow() {
   [[ -s "${kp_dir}/workflow-target-installer-manifest.yaml" ]]
   openssl dgst -sha256 "${kp_dir}/workflow-target-installer-manifest.yaml" \
     >"${kp_dir}/workflow-target-installer-manifest.sha256"
-  # Prove the upgraded control plane can still accept and complete an ordinary
-  # immutable rollback intent; this is not a destructive platform downgrade.
-  kp_state_file="${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json"
-  kp_previous_generation="$(jq -er '.directGeneration | select(type == "number" and . >= 1)' "${kp_state_file}")"
-  kp_body="$(jq -cn --arg source "$(jq -r '.directUpdateOperationId' "${kp_state_file}")" \
-    '{sourceOperationId:$source}')"
-  kp_human_post post-upgrade-rollback \
-    "/v1/deployments/$(jq -r '.directDeploymentId' "${kp_state_file}")/rollback" \
-    "${kp_body}" 202 "${kp_dir}/workflow-post-upgrade-rollback-operation.json"
-  kp_operation_id="$(jq -er '.id | select(test("^[a-f0-9-]{36}$"))' \
-    "${kp_dir}/workflow-post-upgrade-rollback-operation.json")"
-  kp_poll_operation "${kp_operation_id}" "${kp_dir}/workflow-post-upgrade-rollback-terminal.json"
-  jq -e --argjson previous "${kp_previous_generation}" \
-    --arg first "$(jq -r '.directCommit' "${kp_state_file}")" \
-    --arg second "$(jq -r '.directUpdateCommit' "${kp_state_file}")" \
-    --arg third "$(jq -r '.rollbackCommit' "${kp_state_file}")" '
-    .status == "succeeded" and .generation == ($previous + 1) and
-    (.gitRevision.commit | type == "string" and length == 40 and
-      . != $first and . != $second and . != $third)' \
-    "${kp_dir}/workflow-post-upgrade-rollback-terminal.json" >/dev/null
+  "${KUBERPLOY_E2E_HELM}" rollback kuberploy-qualification "${kp_source_revision}" \
+    --namespace kuberploy-system --wait --wait-for-jobs --timeout 20m
+  "${KUBERPLOY_E2E_HELM}" history kuberploy-qualification --namespace kuberploy-system -o json \
+    >"${kp_dir}/workflow-rollback-helm-history.json"
+  kp_rollback_revision="$(jq -er 'last.revision' "${kp_dir}/workflow-rollback-helm-history.json")"
+  [[ "${kp_rollback_revision}" -eq $((kp_target_revision + 1)) ]]
+  kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-post-rollback-meta.json" \
+    --write-out '%{http_code}' --request GET "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/meta")"
+  [[ "${kp_actual}" == "200" ]]
+  jq -e --arg source "${kp_source_version}" '.version == $source' \
+    "${kp_dir}/workflow-post-rollback-meta.json" >/dev/null
+  jq -n --arg source "${kp_source_version}" --arg target "${kp_target_version}" \
+    --argjson sourceRevision "${kp_source_revision}" --argjson targetRevision "${kp_target_revision}" \
+    --argjson rollbackRevision "${kp_rollback_revision}" \
+    '{sourceVersion:$source,targetVersion:$target,sourceRevision:$sourceRevision,
+      targetRevision:$targetRevision,rollbackRevision:$rollbackRevision}' \
+    >"${kp_dir}/workflow-installer-lifecycle.json"
 }
 
 kp_run_tls_workflow() {
@@ -1333,7 +1309,7 @@ kp_require_stage_capabilities() {
       kp_features='["git","gitops","argo","argoCD"]'
       kp_actions='["projects:create","environments:create","applications:create","deployments:create","operations:read"]' ;;
     25-config-edge)
-      kp_features='["git","gitops","argo","argoCD","variableSets","schedulingProfiles","edge","traefik","sslip","externalDNSConfiguration","externalDNS"]'
+      kp_features='["git","gitops","argo","argoCD","variableSets","edge","traefik","sslip","externalDNSConfiguration","externalDNS"]'
       kp_actions='["applications:create","deployments:create","deployment-config:read","deployment-config:preview","deployment-config:write","operations:read"]' ;;
     30-git-argo)
       kp_features='["git","gitops","argo","argoCD","deploymentRollbacks"]'
@@ -1357,8 +1333,8 @@ kp_require_stage_capabilities() {
       kp_features='["git","gitops","argo","argoCD","secretBindings"]'
       kp_actions='["secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","deployment-config:read","deployment-config:preview","deployment-config:write","operations:read"]' ;;
     100-upgrade-rollback)
-      kp_features='["git","gitops","argo","argoCD","deploymentRollbacks"]'
-      kp_actions='["platform-releases:read","platform-upgrades:create","deployments:update","operations:read"]' ;;
+      kp_features='["git","gitops","argo","argoCD"]'
+      kp_actions='[]' ;;
     *) return 0 ;;
   esac
   kp_actual="$(curl --silent --show-error --output "${kp_out}" --write-out '%{http_code}' \
@@ -1684,11 +1660,10 @@ kp_write_workflow_proof() {
           initialVersionActivated:true,initialVersionAttached:true,rotatedVersionActivated:true,
           priorVersionRetained:true,rotatedVersionAttached:true,rolloutsReady:true}' >"${kp_out}" ;;
     100-upgrade-rollback)
-      jq -n --arg upgrade "$(jq -r '.id' "${KUBERPLOY_E2E_STAGE_DIR}/evidence/workflow-upgrade-operation.json")" \
-        --arg resource "$(jq -r '.targetId' "${KUBERPLOY_E2E_STAGE_DIR}/evidence/workflow-upgrade-operation.json")" \
-        '{mutation:"platform-upgrade-and-post-upgrade-rollback",upgradeOperationId:$upgrade,
-          upgradeId:$resource,sourceIdentityVerified:true,releaseManifestVerified:true,
-          upgradeSucceeded:true,targetIdentityReady:true,postUpgradeRollbackSucceeded:true}' >"${kp_out}" ;;
+      jq '{mutation:"installer-helm-upgrade-and-rollback",helmRelease:"kuberploy-qualification",
+        sourceVersion,targetVersion,sourceRevision,targetRevision,rollbackRevision,
+        targetIdentityReady:true,rollbackSourceReady:true}' \
+        "${KUBERPLOY_E2E_STAGE_DIR}/evidence/workflow-installer-lifecycle.json" >"${kp_out}" ;;
     *) return 0 ;;
   esac
   chmod 600 "${kp_out}"

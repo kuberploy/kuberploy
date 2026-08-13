@@ -106,9 +106,9 @@ func TestCanonicalWorkloadRuntimeRoundTripsAndRejectsUnsafeValues(t *testing.T) 
 		"nodeSelector": map[string]string{"kubernetes.io/arch": "amd64"},
 	}
 	r = f.request("POST", "/v1/deployments", "caller-scheduling", map[string]any{"environmentId": environment.ID, "applicationId": application.ID, "image": image, "runtime": callerScheduling})
-	schedulingProblem := decode[httpapi.Problem](t, r)
-	if r.StatusCode != http.StatusUnprocessableEntity || schedulingProblem.Code != "SchedulingProfileInvalid" {
-		t.Fatalf("caller scheduling material response=%d %#v", r.StatusCode, schedulingProblem)
+	schedulingOperation := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted {
+		t.Fatalf("direct deployment scheduling was rejected: %d %#v", r.StatusCode, schedulingOperation)
 	}
 	cpuLimitOnly := map[string]any{
 		"replicas": 1,
@@ -138,7 +138,7 @@ func TestCanonicalWorkloadRuntimeRoundTripsAndRejectsUnsafeValues(t *testing.T) 
 	}
 	r = f.request("POST", "/v1/deployments", "invalid-runtime", map[string]any{"environmentId": environment.ID, "applicationId": application.ID, "image": image, "runtime": invalidRuntime})
 	problem := decode[httpapi.Problem](t, r)
-	if r.StatusCode != http.StatusUnprocessableEntity || problem.Code != "SchedulingProfileInvalid" || !hasProblemPointer(problem, "/runtime/schedulingProfile") {
+	if r.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || !hasProblemPointer(problem, "/runtime/resources/limits/cpu") {
 		t.Fatalf("invalid runtime response=%d %#v", r.StatusCode, problem)
 	}
 }

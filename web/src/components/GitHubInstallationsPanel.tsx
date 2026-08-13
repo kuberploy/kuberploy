@@ -14,10 +14,12 @@ import {
 export function GitHubInstallationsPanel({
   featureEnabled,
   humanSession,
+  canSetup,
   navigate = (destination) => window.location.assign(destination),
 }: {
   featureEnabled: boolean;
   humanSession: boolean;
+  canSetup: boolean;
   navigate?: (destination: string) => void;
 }) {
   const setupKeys = useRef(new Map<string, string>());
@@ -32,7 +34,7 @@ export function GitHubInstallationsPanel({
   });
 
   const beginSetup = async (existingInstallationId?: number) => {
-    if (!humanSession || setupPending) return;
+    if (!humanSession || !canSetup || setupPending) return;
     setupTarget.current = existingInstallationId;
     const targetKey = existingInstallationId?.toString() ?? "new";
     if (!setupKeys.current.has(targetKey)) {
@@ -65,7 +67,7 @@ export function GitHubInstallationsPanel({
             Kuberploy never exposes an App key or repository token to this UI.
           </p>
         </div>
-        {featureEnabled && humanSession ? (
+        {featureEnabled && humanSession && canSetup ? (
           <Button onClick={() => void beginSetup()} busy={setupPending}>
             <Icon name="git" /> Install GitHub App
           </Button>
@@ -110,7 +112,7 @@ export function GitHubInstallationsPanel({
                   installation.visibility === "team" ? "Team shared" : "Private"
                 }
               />
-              {humanSession ? (
+              {humanSession && canSetup ? (
                 <Button
                   variant="secondary"
                   onClick={() =>
@@ -143,6 +145,17 @@ export function GitHubInstallationsPanel({
             <p>
               Service-account sessions can read only their authorized build
               resources. GitHub installation setup is intentionally hidden.
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {humanSession && featureEnabled && !canSetup ? (
+        <div className="notice notice--warning">
+          <div>
+            <strong>Platform administrator required</strong>
+            <p>
+              You can use installations already shared with you, but only a
+              platform administrator can create or reverify a private link.
             </p>
           </div>
         </div>

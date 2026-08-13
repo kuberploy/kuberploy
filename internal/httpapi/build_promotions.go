@@ -8,7 +8,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/buildpromotion"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
-	"github.com/kuberploy/kuberploy/internal/scheduling"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -36,10 +35,6 @@ func (s *Server) promoteBuildAttempt(w http.ResponseWriter, r *http.Request) {
 	}
 	in.EnvironmentID = strings.TrimSpace(in.EnvironmentID)
 	in.Runtime = domain.NormalizeWorkloadRuntime(in.Runtime)
-	if scheduling.HasEffectiveMaterial(in.Runtime) {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "SchedulingProfileInvalid", "Scheduling profile invalid", "Submit only an exact assigned schedulingProfile reference; effective Pod scheduling fields are server-derived.")
-		return
-	}
 	if problems := domain.ValidateWorkloadRuntime(in.Runtime); len(problems) > 0 {
 		limit := len(problems)
 		if limit > 50 {
@@ -66,6 +61,18 @@ func (s *Server) promoteBuildAttempt(w http.ResponseWriter, r *http.Request) {
 	authorized, err := s.buildPromotions.ResolveAuthorized(r.Context(), request)
 	if err != nil {
 		mappedBuildPromotionError(w, r, err)
+		return
+	}
+	if problems := domain.ValidateApplicationScheduling(in.Runtime, authorized.ApplicationID); len(problems) > 0 {
+		limit := len(problems)
+		if limit > 50 {
+			limit = 50
+		}
+		fields := make([]FieldError, 0, limit)
+		for _, problem := range problems[:limit] {
+			fields = append(fields, FieldError{Pointer: problem.Pointer, Code: problem.Code, Detail: problem.Detail})
+		}
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The workload scheduling configuration is invalid.", fields...)
 		return
 	}
 	replicas, port, ordinary := domain.LegacyWorkloadFields(in.Runtime)

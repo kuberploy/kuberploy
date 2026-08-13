@@ -4,14 +4,10 @@ import type {
   AccessScopeType,
   ApiMeta,
   AuditEventList,
-  AssignedSchedulingProfile,
   AssignedMiddlewareProfile,
   MiddlewareProfileAssignment,
   MiddlewareProfileEntry,
   MiddlewareProfileSpec,
-  SchedulingProfileAssignment,
-  SchedulingProfileEntry,
-  SchedulingProfileSpec,
   Application,
   BuildArgument,
   BuildAttempt,
@@ -70,6 +66,7 @@ import type {
   ProblemDetail,
   Project,
   PlatformArgoGitBinding,
+  PlatformUpgrade,
   CreatePlatformArgoGitBinding,
   CreateEnvironmentGitBinding,
   ApplicationRegistryTarget,
@@ -1609,163 +1606,6 @@ function safeHelmApproval(value: HelmApproval): HelmApproval {
   };
 }
 
-function safeAssignedSchedulingProfile(
-  value: AssignedSchedulingProfile,
-): AssignedSchedulingProfile {
-  const pod = value.spec?.pod ?? {};
-  return {
-    profileId: value.profileId,
-    name: value.name,
-    revision: value.revision,
-    specDigest: value.specDigest,
-    assignmentsDigest: value.assignmentsDigest,
-    spec: {
-      ...(typeof value.spec?.description === "string"
-        ? { description: value.spec.description.slice(0, 512) }
-        : {}),
-      pod: {
-        ...(pod.nodeSelector
-          ? {
-              nodeSelector: Object.fromEntries(
-                Object.entries(pod.nodeSelector).slice(0, 32),
-              ),
-            }
-          : {}),
-        ...(pod.requiredNodeAffinity
-          ? {
-              requiredNodeAffinity: pod.requiredNodeAffinity
-                .slice(0, 32)
-                .map((item) => ({
-                  key: item.key,
-                  operator: item.operator,
-                  ...(item.values ? { values: item.values.slice(0, 32) } : {}),
-                })),
-            }
-          : {}),
-        ...(pod.preferredNodeAffinity
-          ? {
-              preferredNodeAffinity: pod.preferredNodeAffinity
-                .slice(0, 16)
-                .map((term) => ({
-                  weight: term.weight,
-                  requirements: (term.requirements ?? [])
-                    .slice(0, 32)
-                    .map((item) => ({
-                      key: item.key,
-                      operator: item.operator,
-                      ...(item.values
-                        ? { values: item.values.slice(0, 32) }
-                        : {}),
-                    })),
-                })),
-            }
-          : {}),
-        ...(pod.sameApplicationPodAntiAffinity
-          ? {
-              sameApplicationPodAntiAffinity: pod.sameApplicationPodAntiAffinity
-                .slice(0, 16)
-                .map((preset) => ({
-                  enforcement: preset.enforcement,
-                  topologyKey: preset.topologyKey,
-                  ...(preset.weight !== undefined
-                    ? { weight: preset.weight }
-                    : {}),
-                })),
-            }
-          : {}),
-        ...(pod.tolerations
-          ? {
-              tolerations: pod.tolerations.slice(0, 32).map((item) => ({
-                key: item.key,
-                operator: item.operator,
-                ...(item.value !== undefined ? { value: item.value } : {}),
-                effect: item.effect,
-                ...(item.tolerationSeconds !== undefined
-                  ? { tolerationSeconds: item.tolerationSeconds }
-                  : {}),
-              })),
-            }
-          : {}),
-        ...(pod.topologySpread
-          ? {
-              topologySpread: pod.topologySpread.slice(0, 16).map((item) => ({
-                maxSkew: item.maxSkew,
-                topologyKey: item.topologyKey,
-                whenUnsatisfiable: item.whenUnsatisfiable,
-              })),
-            }
-          : {}),
-        ...(typeof pod.priorityClassName === "string"
-          ? { priorityClassName: pod.priorityClassName }
-          : {}),
-      },
-    },
-  };
-}
-
-function safeSchedulingProfileSpec(
-  spec: SchedulingProfileSpec,
-): SchedulingProfileSpec {
-  return safeAssignedSchedulingProfile({
-    profileId: "",
-    name: "",
-    revision: 1,
-    specDigest: "",
-    assignmentsDigest: "",
-    spec,
-  }).spec;
-}
-
-function safeSchedulingProfileEntry(
-  value: SchedulingProfileEntry,
-): SchedulingProfileEntry {
-  return {
-    profile: {
-      id: value.profile.id,
-      name: value.profile.name,
-      lifecycle:
-        value.profile.lifecycle === "deactivated" ? "deactivated" : "active",
-      currentRevision: value.profile.currentRevision,
-      createdBy: value.profile.createdBy,
-      createdAt: value.profile.createdAt,
-      ...(value.profile.deactivatedBy
-        ? { deactivatedBy: value.profile.deactivatedBy }
-        : {}),
-      ...(value.profile.deactivatedAt
-        ? { deactivatedAt: value.profile.deactivatedAt }
-        : {}),
-    },
-    revision: {
-      profileId: value.revision.profileId,
-      revision: value.revision.revision,
-      spec: safeSchedulingProfileSpec(value.revision.spec),
-      specDigest: value.revision.specDigest,
-      assignmentsDigest: value.revision.assignmentsDigest,
-      createdBy: value.revision.createdBy,
-      assignments: (value.revision.assignments ?? [])
-        .slice(0, 256)
-        .map((assignment) => ({
-          scope: assignment.scope,
-          id: assignment.id,
-        })),
-      createdAt: value.revision.createdAt,
-    },
-  };
-}
-
-function safeSchedulingProfileMutation(input: {
-  spec: SchedulingProfileSpec;
-  assignments: SchedulingProfileAssignment[];
-}) {
-  return {
-    spec: safeSchedulingProfileSpec(input.spec),
-    assignments: input.assignments.slice(0, 256).map((assignment) => ({
-      scope: assignment.scope,
-      id: assignment.id,
-    })),
-  };
-}
-
 function safeAssignedMiddlewareProfile(
   value: AssignedMiddlewareProfile,
 ): AssignedMiddlewareProfile {
@@ -2161,8 +2001,16 @@ export const api = {
     ).then(asCollection),
   createProjectAccessGrant: (
     projectId: string,
-    input: {
-      subjectUserId: string;
+    input: (
+      | {
+          subjectUserId: string;
+          subjectTeamId?: never;
+        }
+      | {
+          subjectTeamId: string;
+          subjectUserId?: never;
+        }
+    ) & {
       role: Exclude<AccessRole, "platform-admin">;
       scopeType: Exclude<AccessScopeType, "platform">;
       scopeId: string;
@@ -2253,14 +2101,6 @@ export const api = {
     ),
   environment: (id: string) =>
     request<Environment>(`/v1/environments/${encodeURIComponent(id)}`),
-  assignedSchedulingProfiles: (environmentId: string) =>
-    request<Collection<AssignedSchedulingProfile>>(
-      `/v1/environments/${encodeURIComponent(environmentId)}/scheduling-profiles`,
-    ).then((response) => ({
-      items: (response.items ?? [])
-        .slice(0, 100)
-        .map(safeAssignedSchedulingProfile),
-    })),
   assignedMiddlewareProfiles: (environmentId: string, applicationId: string) =>
     request<Collection<AssignedMiddlewareProfile>>(
       `/v1/middlewares?environmentId=${encodeURIComponent(environmentId)}&applicationId=${encodeURIComponent(applicationId)}`,
@@ -2333,61 +2173,6 @@ export const api = {
         body: { revision },
       },
     ),
-  platformSchedulingProfiles: () =>
-    request<Collection<SchedulingProfileEntry>>(
-      "/v1/platform/scheduling-profiles",
-    ).then((response) => ({
-      items: (response.items ?? [])
-        .slice(0, 200)
-        .map(safeSchedulingProfileEntry),
-    })),
-  createPlatformSchedulingProfile: (
-    input: {
-      name: string;
-      spec: SchedulingProfileSpec;
-      assignments: SchedulingProfileAssignment[];
-    },
-    idempotencyKey: string,
-  ) => {
-    const mutation = safeSchedulingProfileMutation(input);
-    return request<SchedulingProfileEntry>("/v1/platform/scheduling-profiles", {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body: { name: input.name, ...mutation },
-    }).then(safeSchedulingProfileEntry);
-  },
-  revisePlatformSchedulingProfile: (
-    profileId: string,
-    input: {
-      baseRevision: number;
-      spec: SchedulingProfileSpec;
-      assignments: SchedulingProfileAssignment[];
-    },
-    idempotencyKey: string,
-  ) => {
-    const mutation = safeSchedulingProfileMutation(input);
-    return request<SchedulingProfileEntry>(
-      `/v1/platform/scheduling-profiles/${encodeURIComponent(profileId)}`,
-      {
-        method: "PUT",
-        headers: { "Idempotency-Key": idempotencyKey },
-        body: { baseRevision: input.baseRevision, ...mutation },
-      },
-    ).then(safeSchedulingProfileEntry);
-  },
-  deactivatePlatformSchedulingProfile: (
-    profileId: string,
-    revision: number,
-    idempotencyKey: string,
-  ) =>
-    request<SchedulingProfileEntry>(
-      `/v1/platform/scheduling-profiles/${encodeURIComponent(profileId)}/deactivate`,
-      {
-        method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
-        body: { revision },
-      },
-    ).then(safeSchedulingProfileEntry),
   createEnvironment: (input: {
     projectId: string;
     name: string;
@@ -3223,15 +3008,8 @@ export const api = {
       headers: { "Idempotency-Key": idempotencyKey },
       body: safeCreateHelmApproval(input),
     }).then(safeHelmApproval),
-  startPlatformUpgrade: (input: {
-    targetVersion: string;
-    manifestDigest: string;
-  }) =>
-    request<OperationWire>("/v1/platform/upgrades", {
-      method: "POST",
-      headers: idempotencyHeaders(),
-      body: input,
-    }).then(normalizeOperation),
+  platformUpgrades: () =>
+    request<Collection<PlatformUpgrade>>("/v1/platform/upgrades"),
 };
 
 export function isUnauthorized(error: unknown): boolean {

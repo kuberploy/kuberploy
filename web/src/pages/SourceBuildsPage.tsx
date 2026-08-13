@@ -100,6 +100,12 @@ export function SourceBuildsPage() {
   const registryEnabled = features?.registry === true;
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
   const humanSession = me.data?.authentication?.kind === "session";
+  const canSetupGitHub = effectiveCapabilities.some(
+    (capability) =>
+      capability.scopeType === "platform" &&
+      capability.scopeId === "platform" &&
+      capability.actions?.includes("github-installations:setup"),
+  );
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: api.projects,
@@ -233,6 +239,7 @@ export function SourceBuildsPage() {
       <GitHubInstallationsPanel
         featureEnabled={githubSetupEnabled}
         humanSession={humanSession}
+        canSetup={canSetupGitHub}
       />
 
       {!buildsEnabled ? (

@@ -12,10 +12,11 @@ import (
 )
 
 type capabilitiesResponse struct {
-	Actions      []string         `json:"actions"`
-	Capabilities []capabilityView `json:"capabilities"`
-	Features     map[string]bool  `json:"features"`
-	Limits       map[string]any   `json:"limits"`
+	Actions       []string          `json:"actions"`
+	Capabilities  []capabilityView  `json:"capabilities"`
+	Features      map[string]bool   `json:"features"`
+	FeatureStates map[string]string `json:"featureStates"`
+	Limits        map[string]any    `json:"limits"`
 }
 
 type capabilityView struct {
@@ -159,6 +160,19 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 		autoDeployConfigured = s.autoDeployReadiness.Probe(ctx) == nil
 		cancel()
 	}
+	featureState := func(enabled, ready bool) string {
+		if !enabled {
+			return "disabled"
+		}
+		if ready {
+			return "healthy"
+		}
+		return "unavailable"
+	}
+	gitEnabled := s.gitProjection != nil && s.gitReadiness != nil
+	argoEnabled := gitEnabled && s.argoReadiness != nil
+	edgeEnabled := s.edgeReadiness != nil && edgeProfilesConfigured
+	buildEnabled := s.builds != nil && s.githubWebhookBackend != nil && s.buildReadiness != nil
 	writeJSON(w, http.StatusOK, capabilitiesResponse{
 		Actions:      actions,
 		Capabilities: views,
@@ -177,7 +191,6 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"registry":   registryConfigured, "managedRegistry": managedRegistryConfigured,
 			"privateRegistryPulls": registryPullsConfigured,
 			"helmApprovals":        s.helmApprovals != nil,
-			"schedulingProfiles":   s.scheduling != nil,
 			"deploymentRollbacks":  deploymentRollbacksConfigured,
 			"imageTagResolution":   imageTagResolutionConfigured,
 			"variableSets":         variableSetsConfigured,
@@ -193,6 +206,12 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"externalDNSConfiguration":    s.externalDNS != nil && s.externalDNS.service != nil,
 			"secretBindings":              secretBindingsConfigured, "serviceAccounts": true,
 			"teams": true, "githubAppSharing": true, "githubAppSetup": s.githubSetup != nil,
+		},
+		FeatureStates: map[string]string{
+			"gitops": featureState(argoEnabled, argoConfigured), "git": featureState(gitEnabled, gitConfigured),
+			"argoCD": featureState(argoEnabled, argoConfigured), "argo": featureState(argoEnabled, argoConfigured),
+			"traefik": featureState(edgeEnabled && s.edgeFeatures.Traefik, traefikConfigured), "edge": featureState(edgeEnabled, edgeConfigured),
+			"builder": featureState(buildEnabled, buildsConfigured), "builds": featureState(buildEnabled, buildsConfigured),
 		},
 		Limits: map[string]any{"deploymentReplicas": 100, "environmentVariables": 256, "workloadPorts": 32, "tolerations": 32, "idempotencyKeyBytes": 128, "serviceAccountTokenMaxTTLSeconds": int64(automation.MaxTokenTTL.Seconds())},
 	})

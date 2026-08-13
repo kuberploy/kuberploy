@@ -19,6 +19,7 @@ type DefinitionForm = {
   installationId: string;
   repositoryId: string;
   registryTargetId: string;
+  refType: "branch" | "tag";
   triggerRef: string;
   contextPath: string;
   dockerfilePath: string;
@@ -109,6 +110,7 @@ export function BuildDefinitionForm({
       installationId: "",
       repositoryId: "",
       registryTargetId: "",
+      refType: "branch",
       triggerRef: "main",
       contextPath: ".",
       dockerfilePath: "Dockerfile",
@@ -169,10 +171,11 @@ export function BuildDefinitionForm({
       if (value.amd64) platforms.push("linux/amd64");
       if (value.arm64) platforms.push("linux/arm64");
       if (!platforms.length) throw new Error("Select at least one platform.");
-      const enteredRef = value.triggerRef.trim();
-      const triggerRef = enteredRef.startsWith("refs/tags/")
-        ? enteredRef
-        : canonicalBranchRef(gitRefLabel(enteredRef));
+      const enteredRef = gitRefLabel(value.triggerRef.trim());
+      const triggerRef =
+        value.refType === "tag"
+          ? `refs/tags/${enteredRef}`
+          : canonicalBranchRef(enteredRef);
       const input: CreateBuildDefinition = {
         installationId: value.installationId,
         repositoryId: value.repositoryId,
@@ -242,8 +245,8 @@ export function BuildDefinitionForm({
             <span className="eyebrow">Source</span>
             <h2>Repository</h2>
             <p>
-              Choose the GitHub repository and branch that should trigger this
-              service build.
+              Choose the GitHub repository and branch or tag that should trigger
+              this service build.
             </p>
           </div>
         </div>
@@ -291,19 +294,24 @@ export function BuildDefinitionForm({
               ))}
             </select>
           </Field>
+          <Field label="Source type" required>
+            <select {...form.register("refType")}>
+              <option value="branch">Branch</option>
+              <option value="tag">Tag</option>
+            </select>
+          </Field>
           <Field
-            label="Branch or tag"
+            label={form.watch("refType") === "tag" ? "Tag" : "Branch"}
             required
-            hint="A verified push to this branch or tag starts a build."
+            hint="Enter the readable name only; Kuberploy stores the canonical Git ref."
             error={form.formState.errors.triggerRef?.message}
           >
             <input
               {...form.register("triggerRef", {
-                required: "Enter a branch or tag ref.",
+                required: "Enter a branch or tag name.",
                 pattern: {
-                  value:
-                    /^(?:refs\/tags\/[A-Za-z0-9][A-Za-z0-9._/-]*|(?:refs\/heads\/)?[A-Za-z0-9][A-Za-z0-9._/-]*)$/,
-                  message: "Use a branch name or a full refs/tags/... ref.",
+                  value: /^[A-Za-z0-9][A-Za-z0-9._/-]*$/,
+                  message: "Use a readable branch or tag name.",
                 },
                 maxLength: {
                   value: 255,

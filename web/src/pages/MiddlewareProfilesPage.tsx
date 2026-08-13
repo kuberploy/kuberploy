@@ -357,7 +357,15 @@ export function MiddlewareProfilesPage() {
                       !canMutate || entry.profile.lifecycle !== "active"
                     }
                     busy={deactivate.isPending}
-                    onClick={() => deactivate.mutate(entry)}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Deactivate middleware profile ${entry.profile.name}? Existing assignments must be revised before this profile can be removed from use.`,
+                        )
+                      ) {
+                        deactivate.mutate(entry);
+                      }
+                    }}
                   >
                     Deactivate
                   </Button>

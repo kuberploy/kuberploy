@@ -49,19 +49,31 @@ export function SetupPage() {
       description:
         "Desired-state binding and projection health is surfaced by the control plane.",
       icon: "git",
-      state: featureState(capabilities.data?.features, ["gitops", "git"]),
+      state: featureState(
+        capabilities.data?.featureStates,
+        capabilities.data?.features,
+        ["gitops", "git"],
+      ),
     },
     {
       name: "Argo CD",
       description: "The only normal writer for application workloads.",
       icon: "refresh",
-      state: featureState(capabilities.data?.features, ["argoCD", "argo"]),
+      state: featureState(
+        capabilities.data?.featureStates,
+        capabilities.data?.features,
+        ["argoCD", "argo"],
+      ),
     },
     {
       name: "Traefik edge",
       description: "HTTP routes, certificates, DNS intent, and middleware.",
       icon: "route",
-      state: featureState(capabilities.data?.features, ["traefik", "edge"]),
+      state: featureState(
+        capabilities.data?.featureStates,
+        capabilities.data?.features,
+        ["traefik", "edge"],
+      ),
     },
     {
       name: "Prometheus",
@@ -71,18 +83,24 @@ export function SetupPage() {
       icon: "metrics",
       state: monitoring.data?.available
         ? "healthy"
-        : monitoring.data?.mode === "disabled"
-          ? "disabled"
-          : monitoring.error
-            ? "unavailable"
-            : "pending",
+        : monitoring.data?.status === "unavailable"
+          ? "unavailable"
+          : monitoring.data?.mode === "disabled"
+            ? "disabled"
+            : monitoring.error
+              ? "unavailable"
+              : "pending",
       label: monitoring.data?.mode,
     },
     {
       name: "Builder",
       description: "Isolated image builds never mount the host Docker socket.",
       icon: "terminal",
-      state: featureState(capabilities.data?.features, ["builder", "builds"]),
+      state: featureState(
+        capabilities.data?.featureStates,
+        capabilities.data?.features,
+        ["builder", "builds"],
+      ),
     },
   ];
 
@@ -171,9 +189,12 @@ export function SetupPage() {
 }
 
 function featureState(
+  states: Record<string, "disabled" | "unavailable" | "healthy"> | undefined,
   features: Record<string, boolean> | undefined,
   names: string[],
 ): string {
+  const observed = names.find((name) => states?.[name]);
+  if (observed) return states![observed]!;
   if (!features) return "pending";
   const found = names.find((name) => name in features);
   if (!found) return "pending";

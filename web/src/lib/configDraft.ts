@@ -5,7 +5,6 @@ import type {
   WorkloadProbePort,
   WorkloadProbes,
   WorkloadRuntime,
-  SchedulingProfileRef,
 } from "../api/types";
 import {
   guidedTraefikMiddlewaresToValue,
@@ -45,12 +44,16 @@ export type GuidedProbes = {
 export type GuidedRuntimeProcess = {
   commandYaml: string;
   argsYaml: string;
+  workingDirectory?: string;
   terminationGracePeriodSeconds?: number;
 };
 
 export type GuidedConfig = GuidedRuntimeProcess & {
+  workingDirectory: string;
   replicas: number;
-  strategyType: "RollingUpdate" | "Recreate";
+  workloadType: "Deployment" | "StatefulSet";
+  strategyType: "RollingUpdate" | "Recreate" | "OnDelete";
+  podManagementPolicy: "OrderedReady" | "Parallel";
   ports: GuidedPort[];
   cpuRequest: string;
   memoryRequest: string;
@@ -64,7 +67,11 @@ export type GuidedConfig = GuidedRuntimeProcess & {
     key: string;
     version: number;
   }>;
-  schedulingProfile?: SchedulingProfileRef;
+  nodeSelectorYaml: string;
+  affinityYaml: string;
+  topologySpreadYaml: string;
+  tolerationsYaml: string;
+  priorityClassName: string;
   probes: GuidedProbes;
   host: string;
   path: string;
@@ -276,7 +283,10 @@ function parseRuntimeStringList(
 
 export function workloadProcessFromGuided(
   values: GuidedRuntimeProcess,
-): Pick<WorkloadRuntime, "command" | "args" | "terminationGracePeriodSeconds"> {
+): Pick<
+  WorkloadRuntime,
+  "command" | "args" | "workingDirectory" | "terminationGracePeriodSeconds"
+> {
   const command = parseRuntimeStringList(
     values.commandYaml,
     "Container command",
@@ -305,9 +315,26 @@ export function workloadProcessFromGuided(
       "Termination grace period must be an integer from 1 to 3600 seconds.",
     );
   }
+  const workingDirectory = values.workingDirectory?.trim() ?? "";
+  if (
+    workingDirectory &&
+    (!workingDirectory.startsWith("/") ||
+      workingDirectory.includes("\u0000") ||
+      new TextEncoder().encode(workingDirectory).length > 4096 ||
+      workingDirectory
+        .split("/")
+        .some((part) => part === "." || part === "..") ||
+      (workingDirectory !== "/" && workingDirectory.endsWith("/")) ||
+      workingDirectory.includes("//"))
+  ) {
+    throw new Error(
+      "Working directory must be a canonical absolute container path of at most 4096 bytes.",
+    );
+  }
   return {
     ...(command ? { command } : {}),
     ...(args ? { args } : {}),
+    ...(workingDirectory ? { workingDirectory } : {}),
     ...(grace !== undefined ? { terminationGracePeriodSeconds: grace } : {}),
   };
 }
@@ -565,9 +592,6 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
   const route = routes[0] ?? {};
   const tls = (route.tls ?? {}) as Record<string, unknown>;
   const dns = (route.dns ?? {}) as Record<string, unknown>;
-  const schedulingProfile = isObject(runtime.schedulingProfile)
-    ? runtime.schedulingProfile
-    : undefined;
   const guidedPorts: GuidedPort[] =
     ports.length > 0
       ? ports.map((port, index) => ({
@@ -607,12 +631,19 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
 
   return {
     replicas: numberValue(runtime.replicas, 1),
+    workloadType:
+      runtime.workloadType === "StatefulSet" ? "StatefulSet" : "Deployment",
     strategyType:
-      isObject(runtime.strategy) && runtime.strategy.type === "Recreate"
-        ? "Recreate"
+      isObject(runtime.strategy) &&
+      (runtime.strategy.type === "Recreate" ||
+        runtime.strategy.type === "OnDelete")
+        ? runtime.strategy.type
         : "RollingUpdate",
+    podManagementPolicy:
+      runtime.podManagementPolicy === "Parallel" ? "Parallel" : "OrderedReady",
     commandYaml: yamlFragment(runtime.command, "[]"),
     argsYaml: yamlFragment(runtime.args, "[]"),
+    workingDirectory: stringValue(runtime.workingDirectory),
     terminationGracePeriodSeconds:
       typeof runtime.terminationGracePeriodSeconds === "number" &&
       Number.isFinite(runtime.terminationGracePeriodSeconds)
@@ -642,19 +673,11 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
       const ref = exactGuidedSecretReference(valueFrom.secretBindingRef);
       return [{ name: item.name, ...ref }];
     }),
-    schedulingProfile:
-      schedulingProfile &&
-      typeof schedulingProfile.profileId === "string" &&
-      typeof schedulingProfile.revision === "number" &&
-      typeof schedulingProfile.specDigest === "string" &&
-      typeof schedulingProfile.assignmentsDigest === "string"
-        ? {
-            profileId: schedulingProfile.profileId,
-            revision: schedulingProfile.revision,
-            specDigest: schedulingProfile.specDigest,
-            assignmentsDigest: schedulingProfile.assignmentsDigest,
-          }
-        : undefined,
+    nodeSelectorYaml: yamlFragment(runtime.nodeSelector, "{}"),
+    affinityYaml: yamlFragment(runtime.affinity, "{}"),
+    topologySpreadYaml: yamlFragment(runtime.topologySpreadConstraints, "[]"),
+    tolerationsYaml: yamlFragment(runtime.tolerations, "[]"),
+    priorityClassName: stringValue(runtime.priorityClassName),
     probes: {
       startup: guidedProbeFromValue(probes.startup, defaultProbePort),
       readiness: guidedProbeFromValue(probes.readiness, defaultProbePort),
@@ -725,12 +748,27 @@ export function applyGuidedConfig(
   }
 
   document.setIn(["spec", "runtime", "replicas"], values.replicas);
+  document.setIn(["spec", "runtime", "workloadType"], values.workloadType);
   document.setIn(["spec", "runtime", "strategy", "type"], values.strategyType);
+  if (values.workloadType === "StatefulSet") {
+    document.setIn(
+      ["spec", "runtime", "podManagementPolicy"],
+      values.podManagementPolicy,
+    );
+  } else {
+    document.deleteIn(["spec", "runtime", "podManagementPolicy"]);
+  }
   if (process.command)
     document.setIn(["spec", "runtime", "command"], process.command);
   else document.deleteIn(["spec", "runtime", "command"]);
   if (process.args) document.setIn(["spec", "runtime", "args"], process.args);
   else document.deleteIn(["spec", "runtime", "args"]);
+  if (values.workingDirectory.trim())
+    document.setIn(
+      ["spec", "runtime", "workingDirectory"],
+      values.workingDirectory.trim(),
+    );
+  else document.deleteIn(["spec", "runtime", "workingDirectory"]);
   if (process.terminationGracePeriodSeconds !== undefined) {
     document.setIn(
       ["spec", "runtime", "terminationGracePeriodSeconds"],
@@ -786,12 +824,36 @@ export function applyGuidedConfig(
         })),
     ],
   );
-  if (values.schedulingProfile)
+  const schedulingFragments: Array<
+    [string, string, "array" | "object", string]
+  > = [
+    ["nodeSelector", values.nodeSelectorYaml, "object", "Node selector"],
+    ["affinity", values.affinityYaml, "object", "Affinity"],
+    [
+      "topologySpreadConstraints",
+      values.topologySpreadYaml,
+      "array",
+      "Topology spread constraints",
+    ],
+    ["tolerations", values.tolerationsYaml, "array", "Tolerations"],
+  ];
+  schedulingFragments.forEach(([key, yaml, kind, label]) => {
+    const fragment = parseFragment(yaml, kind, label);
+    if (
+      (Array.isArray(fragment) && fragment.length) ||
+      (isObject(fragment) && Object.keys(fragment).length)
+    ) {
+      document.setIn(["spec", "runtime", key], fragment);
+    } else {
+      document.deleteIn(["spec", "runtime", key]);
+    }
+  });
+  if (values.priorityClassName.trim())
     document.setIn(
-      ["spec", "runtime", "schedulingProfile"],
-      values.schedulingProfile,
+      ["spec", "runtime", "priorityClassName"],
+      values.priorityClassName.trim(),
     );
-  else document.deleteIn(["spec", "runtime", "schedulingProfile"]);
+  else document.deleteIn(["spec", "runtime", "priorityClassName"]);
   if (probes) document.setIn(["spec", "runtime", "probes"], probes);
   else document.deleteIn(["spec", "runtime", "probes"]);
 

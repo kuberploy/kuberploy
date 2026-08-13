@@ -97,7 +97,6 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"listAuditEvents":  "app.read",
 		"queryMetricRange": "app.read", "listProjects": "app.read", "getProject": "app.read",
 		"listEnvironments": "app.read", "getEnvironment": "app.read", "listApplications": "app.read", "getApplication": "app.read",
-		"listAssignedSchedulingProfiles":  "app.read",
 		"listAssignedMiddlewareProfiles":  "app.read",
 		"previewApplicationSSLIPHostname": "app.read",
 		"listApprovedCertificateIssuers":  "app.read",
