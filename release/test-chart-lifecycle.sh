@@ -58,7 +58,8 @@ diff -u "${kp_tmp}/install.yaml" "${kp_tmp}/rollback.yaml" >/dev/null
 
 [[ "$(grep -c '^kind: Deployment$' "${kp_tmp}/install.yaml")" -eq 3 ]]
 [[ "$(grep -c '^kind: PodDisruptionBudget$' "${kp_tmp}/install.yaml")" -eq 3 ]]
-[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 7 ]]
+[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 8 ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/install.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
 [[ "$(grep -Ec '^kind: (ClusterRole|ClusterRoleBinding|Namespace|Application|ApplicationSet|AppProject)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
 [[ "$(grep -Ec '^kind: (Namespace|ResourceQuota|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
 [[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 4 ]]
