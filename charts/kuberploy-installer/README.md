@@ -43,6 +43,10 @@ irreducible inputs are:
   Kubernetes API, plus an optional closed `publicEndpoint` hostname/TLS Secret
   reference for the control-plane Ingress.
 
+All enabled child charts permit egress to the three RFC1918 private ranges by
+default: `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`. Ingress remains
+default-denied, and public Internet egress still requires explicit values.
+
 Managed Argo CD uses the installer-owned direct Valkey dependency, closing the
 former empty-cluster bootstrap cycle. The installer generates only the exact
 Valkey, PostgreSQL, and Argo bootstrap Secrets, preserving their values through
@@ -69,7 +73,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.141 \
+  --version 0.1.0-rc.142 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -98,8 +102,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.141.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.141.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.142.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.142.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.

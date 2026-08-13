@@ -1,4 +1,8 @@
 bootstrap:
+  # Helm 4 cannot discover a CRD and validate its custom resources in the same
+  # client transaction. This restricted hook applies only the generated Argo
+  # Application/AppProject documents after the Argo CRDs are established.
+  applicationReconcilerImage: registry.k8s.io/kubectl:v1.36.3
   valkey:
     enabled: false
   argoCD:
@@ -126,6 +130,7 @@ components:
 # managed/adopted validation and remain independently explicit.
 argoCD:
   argoFoundation:
+    applicationReconcilerImage: registry.k8s.io/kubectl:v1.36.3
     namespace:
       create: true
     argoCD:

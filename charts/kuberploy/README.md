@@ -37,7 +37,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.141` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.142` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five release images (API, worker, web, upgrader, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -447,7 +447,10 @@ before the next migration hook, avoiding Argo CD passive-hook deletion races. AP
 worker startup are read-only and fail closed unless the exact migration names
 and checksums compiled into the release have completed successfully.
 
-The default-deny control-plane NetworkPolicies separate four egress classes.
+The default-deny control-plane NetworkPolicies separate explicit egress
+classes. Every selected control-plane Pod may reach RFC1918 private networks
+(`10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`) by default. This additive
+rule changes no ingress permission and grants no public Internet egress.
 Managed PostgreSQL is locked to labeled Pods in the `kuberploy-postgresql`
 namespace on TCP 5432, and managed Valkey is locked to labeled Pods in the
 `kuberploy-valkey` namespace on TCP 6379. Adopted external database or cache

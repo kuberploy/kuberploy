@@ -23,4 +23,19 @@ spec:
         - port: {{ .Values.service.port }}
           protocol: TCP
   egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy-registry.fullname" . }}-private-egress
+  labels:
+    {{- include "kuberploy-registry.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 10.0.0.0/8}
+        - ipBlock: {cidr: 172.16.0.0/12}
+        - ipBlock: {cidr: 192.168.0.0/16}
 {{- end }}

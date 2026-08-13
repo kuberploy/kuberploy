@@ -2,6 +2,27 @@
 {{- range (.Values.spec.routes | default (list)) -}}
   {{- $_ := set $routePorts .port true -}}
 {{- end -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "kuberploy-runtime.appName" . }}-private-egress
+  labels:
+    {{- include "kuberploy-runtime.labels" . | nindent 4 }}
+  annotations:
+    kuberploy.io/application-id: {{ .Values.metadata.id | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy-runtime.selectorLabels" . | nindent 6 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock: {cidr: 10.0.0.0/8}
+        - ipBlock: {cidr: 172.16.0.0/12}
+        - ipBlock: {cidr: 192.168.0.0/16}
+{{- if gt (len $routePorts) 0 }}
+---
+{{- end }}
 {{- if gt (len $routePorts) 0 }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

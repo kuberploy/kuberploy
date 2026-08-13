@@ -8,8 +8,9 @@
     "argoFoundation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["namespace", "argoCD", "prerequisites", "networkPolicy", "bootstrap"],
+      "required": ["applicationReconcilerImage", "namespace", "argoCD", "prerequisites", "networkPolicy", "bootstrap"],
       "properties": {
+        "applicationReconcilerImage": {"const": "registry.k8s.io/kubectl:v1.36.3"},
         "namespace": {
           "type": "object",
           "additionalProperties": false,

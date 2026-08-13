@@ -37,6 +37,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- define "kuberploy-argocd.validate" -}}
 {{- $argo := index .Values "argo-cd" -}}
 {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "kuberploy-argocd must be bootstrapped by the installer release in kuberploy-system" }}{{- end -}}
+{{- if ne .Values.argoFoundation.applicationReconcilerImage "registry.k8s.io/kubectl:v1.36.3" -}}{{ fail "Argo bootstrap reconciler image is locked" }}{{- end -}}
 {{- if eq .Values.argoFoundation.argoCD.managed .Values.argoFoundation.argoCD.adoptExisting -}}{{ fail "exactly one of managed Argo CD or adopted Argo CD must be selected" }}{{- end -}}
 {{- if and .Values.argoFoundation.argoCD.adoptExisting (not .Values.argoFoundation.argoCD.capabilitiesConfirmed) -}}{{ fail "Argo CD adoption requires a completed compatibility and capability check" }}{{- end -}}
 {{- if and (not .Values.argoFoundation.argoCD.managed) .Values.argoFoundation.argoCD.crdsPreinstalledByParent -}}{{ fail "adopted Argo CD cannot claim installer-owned CRD preinstallation" }}{{- end -}}

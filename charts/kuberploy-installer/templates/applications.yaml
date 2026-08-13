@@ -1,3 +1,4 @@
+{{- define "kuberploy-installer.applicationDocuments" -}}
 {{- include "kuberploy-installer.validate" . -}}
 {{- $root := . -}}
 {{- $catalog := list
@@ -349,3 +350,120 @@ spec:
 ---
 {{ end }}
 {{ end }}
+{{- end -}}
+
+{{- include "kuberploy-installer.validate" . -}}
+{{- $anyChild := false -}}
+{{- range $_, $component := .Values.components -}}
+  {{- if $component.enabled -}}{{- $anyChild = true -}}{{- end -}}
+{{- end -}}
+{{- if $anyChild }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kuberploy-installer-applications
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+data:
+  applications.yaml: |
+    {{- include "kuberploy-installer.applicationDocuments" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuberploy-installer-application-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberploy-installer-application-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberploy-installer-application-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberploy-installer-application-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: kuberploy-installer-application-reconciler
+    namespace: argocd
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kuberploy-installer-application-reconciler
+  namespace: argocd
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "20"
+    helm.sh/hook-delete-policy: before-hook-creation
+  labels:
+    {{- include "kuberploy-installer.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-installer.labels" . | nindent 8 }}
+        app.kubernetes.io/component: application-reconciler
+    spec:
+      serviceAccountName: kuberploy-installer-application-reconciler
+      automountServiceAccountToken: true
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reconcile
+          image: {{ .Values.bootstrap.applicationReconcilerImage | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - apply
+            - --server-side=true
+            - --field-manager=kuberploy-installer
+            - --force-conflicts
+            - --filename=/manifests/applications.yaml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+              readOnly: true
+      volumes:
+        - name: manifests
+          configMap:
+            name: kuberploy-installer-applications
+{{- end }}

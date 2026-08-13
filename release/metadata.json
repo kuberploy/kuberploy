@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Protected Helm publication reads the exact current Git projection generation, release status queries remain unambiguous after joins, and renderer cleanup compares Kubernetes Jobs against the canonical desired plan.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.141"
+  "version": "0.1.0-rc.142"
 }

@@ -14,6 +14,16 @@ kp_cleanup() {
 }
 trap kp_cleanup EXIT
 
+kp_expand_bootstrap_documents() {
+  local kp_render="${1:?render required}"
+  local kp_documents="${kp_render}.bootstrap"
+  yq eval-all -r 'select(.kind == "ConfigMap" and .metadata.name == "kuberploy-platform-bootstrap-documents") | .data."bootstrap.yaml"' \
+    "${kp_render}" >"${kp_documents}"
+  [[ -s "${kp_documents}" ]]
+  printf '\n---\n' >>"${kp_render}"
+  cat "${kp_documents}" >>"${kp_render}"
+}
+
 for kp_tool in curl helm python3 rg shasum yq; do
   command -v "${kp_tool}" >/dev/null 2>&1 || {
     printf 'missing tool: %s\n' "${kp_tool}" >&2
@@ -43,12 +53,15 @@ helm lint "${kp_chart}" --namespace kuberploy-system -f "${kp_adopted}" >/dev/nu
 helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed.yaml"
 helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_managed}" >"${kp_tmp}/managed-again.yaml"
 helm template argocd "${kp_chart}" --namespace kuberploy-system --include-crds --skip-tests -f "${kp_adopted}" >"${kp_tmp}/adopted.yaml"
+kp_expand_bootstrap_documents "${kp_tmp}/managed.yaml"
+kp_expand_bootstrap_documents "${kp_tmp}/managed-again.yaml"
 diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "Namespace")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "StatefulSet")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "argocd-private-egress") | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/managed.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Ingress" or .kind == "HTTPRoute" or .kind == "GRPCRoute")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Service" and (.spec.type // "ClusterIP") != "ClusterIP")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
@@ -77,6 +90,10 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.syncOptions | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "CreateNamespace=false,PruneLast=true,RespectIgnoreDifferences=true,ServerSideApply=true" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject") | .metadata.name] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "kuberploy-platform-bootstrap" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject") | .spec.sourceRepos | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "https://github.com/kuberploy/platform-gitops.git" ]]
+[[ "$(yq eval-all '[select(.kind == "Job" and .metadata.name == "kuberploy-platform-bootstrap-reconciler")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-platform-bootstrap-reconciler") | .metadata.annotations."helm.sh/hook-weight"' "${kp_tmp}/managed.yaml")" == "10" ]]
+[[ "$(yq eval-all 'select(.kind == "Role" and .metadata.name == "kuberploy-platform-bootstrap-reconciler") | .rules[0].verbs | join(",")' "${kp_tmp}/managed.yaml")" == "get,create,patch" ]]
+[[ "$(yq eval-all '[select(.kind == "ClusterRole" or .kind == "ClusterRoleBinding") | select(.metadata.name == "kuberploy-platform-bootstrap-reconciler")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ConfigMap" and .metadata.name == "argocd-argocd-profile") | .data.rootRepositorySecret] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "kuberploy-repo-71111111111141118111111111111111" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" or .kind == "StatefulSet") | .spec.template.spec.containers[].image] | unique | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 rg -F 'quay.io/argoproj/argocd:v3.5.0' "${kp_tmp}/managed.yaml" >/dev/null

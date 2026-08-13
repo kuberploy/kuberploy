@@ -1,4 +1,4 @@
-{{- if .Values.argoFoundation.bootstrap.enabled }}
+{{- define "kuberploy-argocd.bootstrapDocuments" -}}
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -52,4 +52,115 @@ spec:
       - PruneLast=true
       - RespectIgnoreDifferences=true
       - ServerSideApply=true
+{{- end -}}
+
+{{- if .Values.argoFoundation.bootstrap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kuberploy-platform-bootstrap-documents
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+data:
+  bootstrap.yaml: |
+    {{- include "kuberploy-argocd.bootstrapDocuments" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuberploy-platform-bootstrap-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuberploy-platform-bootstrap-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications", "appprojects"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuberploy-platform-bootstrap-reconciler
+  namespace: argocd
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuberploy-platform-bootstrap-reconciler
+subjects:
+  - kind: ServiceAccount
+    name: kuberploy-platform-bootstrap-reconciler
+    namespace: argocd
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kuberploy-platform-bootstrap-reconciler
+  namespace: argocd
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+  labels:
+    {{- include "kuberploy-argocd.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 300
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "kuberploy-argocd.labels" . | nindent 8 }}
+        app.kubernetes.io/component: bootstrap-reconciler
+    spec:
+      serviceAccountName: kuberploy-platform-bootstrap-reconciler
+      automountServiceAccountToken: true
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: reconcile
+          image: {{ .Values.argoFoundation.applicationReconcilerImage | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - apply
+            - --server-side=true
+            - --field-manager=kuberploy-installer
+            - --force-conflicts
+            - --filename=/manifests/bootstrap.yaml
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          volumeMounts:
+            - name: manifests
+              mountPath: /manifests
+              readOnly: true
+      volumes:
+        - name: manifests
+          configMap:
+            name: kuberploy-platform-bootstrap-documents
 {{- end }}
