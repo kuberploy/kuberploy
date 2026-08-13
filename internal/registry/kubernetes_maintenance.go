@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -458,6 +459,22 @@ func (s *kubernetesMaintenanceSession) GarbageCollect(ctx context.Context, reque
 		return GCSweepResult{}, ErrRegistryGCSweepUnconfirmed
 	}
 	sweep, evidence, err := s.adapter.workloads.Sweep(ctx, s.adapter.runtime, helperRequest)
+	if errors.Is(err, ErrRegistryGCSweepUnconfirmed) {
+		// A prior helper may have completed physical GC before its Job could be
+		// adopted and receipted. A fresh registry-wide checkpoint above proves
+		// every exact candidate is now absent. Recover only the deterministic Job
+		// for this same immutable plan/candidate set, then bind its replay receipt
+		// to the fresh checkpoint. Never run GC a second time to repair transport.
+		oldRequest, recovered, recoveredEvidence, found, recoverErr := s.adapter.workloads.RecoverSweep(ctx, s.adapter.runtime,
+			request.TargetID, request.PlanID, request.ExecutionKey, request.CandidateSetDigest)
+		if recoverErr == nil && found && sameRecoveredSweepIdentity(oldRequest, recovered, s.plan, request) {
+			recovered.Replay = true
+			recovered.CheckpointRevision = request.Checkpoint.Revision
+			sweep, evidence, err = recovered, recoveredEvidence, nil
+		} else if recoverErr != nil {
+			err = recoverErr
+		}
+	}
 	if err != nil || validateGCSweepResult(sweep, request, request.Checkpoint.ObservedAt, s.adapter.now()) != nil {
 		return GCSweepResult{}, ErrRegistryGCSweepUnconfirmed
 	}
@@ -470,6 +487,22 @@ func (s *kubernetesMaintenanceSession) GarbageCollect(ctx context.Context, reque
 	s.mu.Unlock()
 	_ = s.adapter.workloads.DeleteJob(context.WithoutCancel(ctx), s.adapter.runtime, evidence)
 	return sweep, nil
+}
+
+func sameRecoveredSweepIdentity(oldRequest maintenanceHelperRequest, sweep GCSweepResult, plan domain.RegistryCleanupPlan, request GCSweepRequest) bool {
+	if oldRequest.TargetID != request.TargetID || oldRequest.PlanID != request.PlanID || oldRequest.PlanDigest != plan.PlanDigest ||
+		oldRequest.ExecutionKey != request.ExecutionKey || oldRequest.CandidateSetDigest != request.CandidateSetDigest ||
+		sweep.TargetID != request.TargetID || sweep.ExecutionKey != request.ExecutionKey ||
+		sweep.CandidateSetDigest != request.CandidateSetDigest || sweep.CheckpointRevision != oldRequest.CheckpointRevision ||
+		sweep.StartedAt.Before(oldRequest.NotBefore) || !sweep.Complete || len(oldRequest.CandidateDigests) != len(request.CandidateDigests) {
+		return false
+	}
+	for index := range request.CandidateDigests {
+		if oldRequest.CandidateDigests[index] != request.CandidateDigests[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func sweepReceipt(lease store.RegistryMaintenanceLease, sweep GCSweepResult, evidence RegistryMaintenanceJobEvidence) store.RegistryGCSweepReceipt {

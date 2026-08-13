@@ -236,6 +236,53 @@ func TestMaintenanceJobAdoptionRejectsMutation(t *testing.T) {
 	}
 }
 
+func TestGCMaintenanceJobUsesCanonicalWritableMounts(t *testing.T) {
+	config := testManagedRuntimeConfig(t)
+	digests := []string{"sha256:" + repeatHex("1", 64)}
+	candidateDigest, ordered, err := cleanupCandidateSetDigest(digests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := maintenanceHelperRequest{Version: 1, Mode: "gc", TargetID: config.TargetID,
+		PlanID: "11111111-2222-4333-8444-555555555555", PlanDigest: "sha256:" + repeatHex("3", 64),
+		ExecutionKey: "sha256:" + repeatHex("4", 64), CandidateSetDigest: candidateDigest,
+		CandidateDigests: ordered, CheckpointRevision: "physical-checkpoint", NotBefore: time.Now().UTC().Add(-time.Minute)}
+	expected, inputDigest, err := registryMaintenanceJob(config, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, _ := nestedMap(expected, "spec", "template", "spec")
+	container := spec["containers"].([]any)[0].(map[string]any)
+	dataMount := container["volumeMounts"].([]any)[0].(map[string]any)
+	dataVolume := spec["volumes"].([]any)[0].(map[string]any)["persistentVolumeClaim"].(map[string]any)
+	if _, exists := dataMount["readOnly"]; exists {
+		t.Fatal("writable GC mount includes Kubernetes-defaulted readOnly=false")
+	}
+	if _, exists := dataVolume["readOnly"]; exists {
+		t.Fatal("writable GC volume includes Kubernetes-defaulted readOnly=false")
+	}
+	actual := cloneRegistryTestJSON(t, expected)
+	metadata := actual["metadata"].(map[string]any)
+	metadata["uid"], metadata["resourceVersion"] = "job-uid", "12"
+	templateMetadata, _ := nestedMap(actual, "spec", "template", "metadata")
+	templateLabels := templateMetadata["labels"].(map[string]any)
+	jobName := metadata["name"].(string)
+	templateLabels["batch.kubernetes.io/controller-uid"] = "job-uid"
+	templateLabels["controller-uid"] = "job-uid"
+	templateLabels["batch.kubernetes.io/job-name"] = jobName
+	templateLabels["job-name"] = jobName
+	if err = validateRegistryMaintenanceJob(actual, expected, config, inputDigest); err != nil {
+		t.Fatal(err)
+	}
+	changed := cloneRegistryTestJSON(t, actual)
+	changedSpec, _ := nestedMap(changed, "spec", "template", "spec")
+	changedContainer := changedSpec["containers"].([]any)[0].(map[string]any)
+	changedContainer["volumeMounts"].([]any)[0].(map[string]any)["readOnly"] = true
+	if err = validateRegistryMaintenanceJob(changed, expected, config, inputDigest); !errors.Is(err, ErrRegistryMaintenanceInvalid) {
+		t.Fatalf("read-only GC mutation accepted: %v", err)
+	}
+}
+
 func TestMaximumMaintenanceResultFitsTerminationMessage(t *testing.T) {
 	digests := make([]string, maximumMaintenanceCandidates)
 	rows := make([]RegistryBlobReachability, maximumMaintenanceCandidates)

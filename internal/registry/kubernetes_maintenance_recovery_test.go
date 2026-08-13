@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -60,5 +61,54 @@ func TestEnterPublishesPreparedIdentityBeforeStopMutation(t *testing.T) {
 	}
 	if workloads.restoredLease.DeploymentUID != "registry-uid" || workloads.restoredLease.OriginalReplicas != 1 {
 		t.Fatalf("restore lost prepared deployment identity: %+v", workloads.restoredLease)
+	}
+}
+
+func TestRecoveredSweepRequiresExactImmutableIdentity(t *testing.T) {
+	now := time.Now().UTC()
+	digests := []string{"sha256:" + repeatHex("1", 64), "sha256:" + repeatHex("2", 64)}
+	candidateSetDigest, ordered, err := cleanupCandidateSetDigest(digests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := domain.RegistryCleanupPlan{ID: "22222222-2222-4222-8222-222222222222", RegistryTargetID: "11111111-1111-4111-8111-111111111111", PlanDigest: "sha256:" + repeatHex("3", 64)}
+	request := GCSweepRequest{TargetID: plan.RegistryTargetID, PlanID: plan.ID, ExecutionKey: "sha256:" + repeatHex("4", 64),
+		CandidateSetDigest: candidateSetDigest, CandidateDigests: ordered, Checkpoint: RegistryReachabilityCheckpoint{Revision: "physical-current"}}
+	oldRequest := maintenanceHelperRequest{Version: 1, Mode: "gc", TargetID: request.TargetID, PlanID: request.PlanID,
+		PlanDigest: plan.PlanDigest, ExecutionKey: request.ExecutionKey, CandidateSetDigest: candidateSetDigest,
+		CandidateDigests: append([]string(nil), ordered...), CheckpointRevision: "physical-prior", NotBefore: now.Add(-time.Minute)}
+	sweep := GCSweepResult{TargetID: request.TargetID, ExecutionKey: request.ExecutionKey, CandidateSetDigest: candidateSetDigest,
+		CheckpointRevision: oldRequest.CheckpointRevision, ProviderSweepID: "gc-proof", Complete: true, StartedAt: now.Add(-time.Minute), CompletedAt: now.Add(-time.Minute + time.Second)}
+	if !sameRecoveredSweepIdentity(oldRequest, sweep, plan, request) {
+		t.Fatal("exact completed sweep was not recoverable")
+	}
+	mutations := []func(*maintenanceHelperRequest, *GCSweepResult, *domain.RegistryCleanupPlan, *GCSweepRequest){
+		func(value *maintenanceHelperRequest, _ *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.PlanDigest = "sha256:" + repeatHex("f", 64)
+		},
+		func(value *maintenanceHelperRequest, _ *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.CandidateDigests[0] = "sha256:" + repeatHex("f", 64)
+		},
+		func(_ *maintenanceHelperRequest, value *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.ExecutionKey = "sha256:" + repeatHex("f", 64)
+		},
+		func(_ *maintenanceHelperRequest, value *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.CheckpointRevision = "physical-substituted"
+		},
+		func(value *maintenanceHelperRequest, _ *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.NotBefore = now
+		},
+		func(_ *maintenanceHelperRequest, value *GCSweepResult, _ *domain.RegistryCleanupPlan, _ *GCSweepRequest) {
+			value.Complete = false
+		},
+	}
+	for index, mutate := range mutations {
+		changedRequest := oldRequest
+		changedRequest.CandidateDigests = append([]string(nil), oldRequest.CandidateDigests...)
+		changedSweep, changedPlan, changedGCRequest := sweep, plan, request
+		mutate(&changedRequest, &changedSweep, &changedPlan, &changedGCRequest)
+		if sameRecoveredSweepIdentity(changedRequest, changedSweep, changedPlan, changedGCRequest) {
+			t.Fatalf("recovered sweep mutation %d accepted", index)
+		}
 	}
 }

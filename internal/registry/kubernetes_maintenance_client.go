@@ -614,12 +614,21 @@ func registryMaintenanceJob(runtime RuntimeConfig, request maintenanceHelperRequ
 	inputDigest := "sha256:" + hex.EncodeToString(sum[:])
 	name := maintenanceJobName(request.Mode, request.ExecutionKey)
 	readOnly := request.Mode == "checkpoint"
+	dataVolumeSource := map[string]any{"claimName": runtime.PersistentVolumeClaim}
+	dataMount := map[string]any{"name": "data", "mountPath": managedRegistryStorageRoot}
+	if readOnly {
+		// Omit false values for writable GC. Kubernetes removes explicit false
+		// defaults from persisted Job specs, while retaining true for checkpoint
+		// mounts. Building canonical input keeps exact adoption comparisons stable.
+		dataVolumeSource["readOnly"] = true
+		dataMount["readOnly"] = true
+	}
 	volumes := []any{
-		map[string]any{"name": "data", "persistentVolumeClaim": map[string]any{"claimName": runtime.PersistentVolumeClaim, "readOnly": readOnly}},
+		map[string]any{"name": "data", "persistentVolumeClaim": dataVolumeSource},
 		map[string]any{"name": "tmp", "emptyDir": map[string]any{"sizeLimit": "64Mi"}},
 	}
 	mounts := []any{
-		map[string]any{"name": "data", "mountPath": managedRegistryStorageRoot, "readOnly": readOnly},
+		dataMount,
 		map[string]any{"name": "tmp", "mountPath": "/tmp"},
 	}
 	if request.Mode == "gc" {
