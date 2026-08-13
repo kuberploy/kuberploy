@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry workers now poll and resume exact recoverable failed offline blob sweeps.",
+  "summary": "Managed registry maintenance now survives Kubernetes Scale response omission, response loss, and Argo replica self-heal.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.118"
+  "version": "0.1.0-rc.119"
 }
