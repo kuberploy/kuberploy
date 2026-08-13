@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup resumes exact failed offline GC candidates and recovers completed helper jobs without a second sweep.",
+  "summary": "Managed registry cleanup records exact fresh-checkpoint absence after a lost completed GC receipt without rerunning the sweep.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.127"
+  "version": "0.1.0-rc.128"
 }
