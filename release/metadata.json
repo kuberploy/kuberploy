@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup serializes observation with offline checkpoints and rejects oversized sweeps before acceptance.",
+  "summary": "Managed registry cleanup fences semantic protection roots without failing on unchanged observation refreshes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.123"
+  "version": "0.1.0-rc.124"
 }
