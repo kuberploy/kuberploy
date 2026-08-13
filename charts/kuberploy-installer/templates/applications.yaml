@@ -306,6 +306,18 @@ spec:
         - /spec/volumeClaimTemplates/0/metadata/labels/helm.sh~1chart
         - /spec/volumeClaimTemplates/0/spec/volumeMode
         - /spec/volumeClaimTemplates/0/status
+  {{- else if eq $item.key "registry" }}
+  # Offline garbage collection temporarily scales the fixed single-replica
+  # registry to zero under a durable, identity-fenced maintenance lease. Argo
+  # must not self-heal that one field while the worker owns the lease; the
+  # worker restores it to the chart's fixed value before releasing the lease.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: registry
+      namespace: kuberploy-system
+      jsonPointers:
+        - /spec/replicas
   {{- end }}
   syncPolicy:
     {{- if $root.Values.applications.automated }}

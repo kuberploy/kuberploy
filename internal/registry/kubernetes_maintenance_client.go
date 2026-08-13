@@ -461,10 +461,7 @@ func (c *registryKubernetesClient) ensureScale(ctx context.Context, runtime Runt
 	if err != nil {
 		return err
 	}
-	metadata, _ := response["metadata"].(map[string]any)
-	spec, _ := response["spec"].(map[string]any)
-	returned, ok := jsonInt32(spec["replicas"])
-	if response["apiVersion"] != "autoscaling/v1" || response["kind"] != "Scale" || metadata["name"] != runtime.Deployment || returned != replicas || !ok {
+	if validateScaleMutationResponse(response, runtime, uid) != nil {
 		return ErrRegistryMaintenanceInvalid
 	}
 	verification, err := c.get(ctx, registryDeploymentPath(runtime), nil)
@@ -475,6 +472,21 @@ func (c *registryKubernetesClient) ensureScale(ctx context.Context, runtime Runt
 	if err != nil || verified.uid != uid || verified.replicas != replicas {
 		return ErrRegistryMaintenanceInvalid
 	}
+	return nil
+}
+
+func validateScaleMutationResponse(response map[string]any, runtime RuntimeConfig, uid string) error {
+	metadata, _ := response["metadata"].(map[string]any)
+	responseUID, _ := metadata["uid"].(string)
+	resourceVersion, _ := metadata["resourceVersion"].(string)
+	if response["apiVersion"] != "autoscaling/v1" || response["kind"] != "Scale" ||
+		metadata["name"] != runtime.Deployment || metadata["namespace"] != runtime.Namespace ||
+		uid == "" || responseUID != uid || resourceVersion == "" {
+		return ErrRegistryMaintenanceInvalid
+	}
+	// Kubernetes servers may omit Scale.spec from an update response even
+	// after applying the requested replica count. The authoritative Deployment
+	// GET below proves the exact UID and desired replicas before we proceed.
 	return nil
 }
 

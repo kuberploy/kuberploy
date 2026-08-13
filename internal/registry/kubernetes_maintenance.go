@@ -219,6 +219,13 @@ func (s *kubernetesMaintenanceSession) Enter(ctx context.Context) (MaintenanceRe
 		if err != nil {
 			return MaintenanceReady{}, err
 		}
+		// Stop may successfully scale the Deployment to zero and then lose its
+		// response or fail while proving pod termination. Publish the durable
+		// prepared identity to the session before that mutation so deferred
+		// recovery can always restore the exact Deployment and replica count.
+		s.mu.Lock()
+		s.lease = lease
+		s.mu.Unlock()
 	}
 	proof, err := s.adapter.workloads.Stop(ctx, s.adapter.runtime, lease)
 	if err != nil {

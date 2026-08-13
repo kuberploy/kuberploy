@@ -134,6 +134,47 @@ health:
 	}
 }
 
+func TestScaleMutationResponseAllowsOmittedSpecButFencesIdentity(t *testing.T) {
+	config := testManagedRuntimeConfig(t)
+	uid := "95eb1f67-f930-48ee-9e93-66db3963a73c"
+	response := map[string]any{
+		"apiVersion": "autoscaling/v1",
+		"kind":       "Scale",
+		"metadata": map[string]any{
+			"name":            config.Deployment,
+			"namespace":       config.Namespace,
+			"uid":             uid,
+			"resourceVersion": "79550",
+		},
+		"spec": map[string]any{},
+	}
+	if err := validateScaleMutationResponse(response, config, uid); err != nil {
+		t.Fatalf("valid response with omitted spec rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"api-version": func(value map[string]any) { value["apiVersion"] = "v1" },
+		"kind":        func(value map[string]any) { value["kind"] = "Deployment" },
+		"name": func(value map[string]any) {
+			value["metadata"].(map[string]any)["name"] = "other"
+		},
+		"namespace": func(value map[string]any) {
+			value["metadata"].(map[string]any)["namespace"] = "other"
+		},
+		"uid": func(value map[string]any) {
+			value["metadata"].(map[string]any)["uid"] = "other"
+		},
+		"resource-version": func(value map[string]any) {
+			value["metadata"].(map[string]any)["resourceVersion"] = ""
+		},
+	} {
+		changed := cloneRegistryTestJSON(t, response)
+		mutate(changed)
+		if err := validateScaleMutationResponse(changed, config, uid); !errors.Is(err, ErrRegistryMaintenanceInvalid) {
+			t.Fatalf("%s substitution accepted: %v", name, err)
+		}
+	}
+}
+
 func TestMaintenanceJobAdoptionRejectsMutation(t *testing.T) {
 	config := testManagedRuntimeConfig(t)
 	digests := []string{"sha256:" + repeatHex("1", 64), "sha256:" + repeatHex("2", 64)}
