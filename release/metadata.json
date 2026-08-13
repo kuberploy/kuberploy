@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "The installer permits the fixed tokenless Helm renderer namespace in the control-plane AppProject so approved external Helm applications can reconcile without expanding tenant or cluster scope.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.135"
+  "version": "0.1.0-rc.137"
 }
