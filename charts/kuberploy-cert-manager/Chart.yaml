@@ -2,8 +2,8 @@ apiVersion: v2
 name: kuberploy-cert-manager
 description: Independent cert-manager release and approved Let's Encrypt issuers for Kuberploy
 type: application
-version: 0.1.0-rc.115
-appVersion: "0.1.0-rc.115"
+version: 0.1.0-rc.116
+appVersion: "0.1.0-rc.116"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   kuberploy.io/cert-manager-chart-sha256: c27101f3f3e2349fb4a9e704316105bf7b52ad73b8c8257d3498ef7f2f6a4adc

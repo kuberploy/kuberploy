@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup preserves the exact current Git image across transient dependency-readiness invalidation.",
+  "summary": "Managed registry offline garbage collection now acquires maintenance with exact UUID-scoped cleanup authority.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.115"
+  "version": "0.1.0-rc.116"
 }
