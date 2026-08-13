@@ -200,6 +200,59 @@ func TestAcquireRegistryMaintenanceAcceptsMatchingUUIDTarget(t *testing.T) {
 	if lease.TargetID != targetID || lease.PlanID != planID || lease.CandidateSetDigest != candidateDigest || lease.State != "acquired" || lease.Epoch != 1 {
 		t.Fatalf("unexpected maintenance lease: %+v", lease)
 	}
+	lease, err = st.PrepareRegistryMaintenanceStop(ctx, lease, "registry-deployment-uid", 1, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err = st.EnterRegistryMaintenance(ctx, lease, "registry-deployment-uid", 1, "stopped", now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err = st.RecordRegistryCheckpoint(ctx, lease, "checkpoint-first", postgresRegistryDigest("c"), now.Add(2*time.Second), now.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sweepJob = "kuberploy-registry-gc-recovery"
+	if _, replay, beginErr := st.BeginRegistryGCSweep(ctx, lease, sweepJob, now.Add(4*time.Second)); beginErr != nil || replay {
+		t.Fatalf("first sweep begin replay=%v err=%v", replay, beginErr)
+	}
+	if err = st.MarkRegistryMaintenanceRestored(ctx, lease, now.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.ReleaseRegistryMaintenance(ctx, lease, now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := st.AcquireRegistryMaintenance(ctx, targetID, planID, lease.ExecutionKey, candidateDigest, owner, now.Add(7*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.State != "acquired" || recovered.Epoch != 2 || recovered.SweepJobUID != sweepJob {
+		t.Fatalf("released sweep marker was not retained: %+v", recovered)
+	}
+	recovered, err = st.PrepareRegistryMaintenanceStop(ctx, recovered, "registry-deployment-uid", 1, now.Add(8*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = st.EnterRegistryMaintenance(ctx, recovered, "registry-deployment-uid", 1, "stopped", now.Add(9*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = st.RecordRegistryCheckpoint(ctx, recovered, "checkpoint-recovery", postgresRegistryDigest("d"), now.Add(9*time.Second), now.Add(10*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, replay, beginErr := st.BeginRegistryGCSweep(ctx, recovered, sweepJob, now.Add(11*time.Second)); beginErr != nil || !replay {
+		t.Fatalf("recovered sweep begin replay=%v err=%v", replay, beginErr)
+	}
+	var recoveredState string
+	if err = st.pool.QueryRow(ctx, `SELECT state FROM registry_runtime_maintenance_executions
+		WHERE registry_target_id=$1 AND execution_key=$2`, targetID, lease.ExecutionKey).Scan(&recoveredState); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredState != "sweeping" {
+		t.Fatalf("recovered sweep state=%q", recoveredState)
+	}
 }
 
 func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {

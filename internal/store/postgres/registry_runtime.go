@@ -396,7 +396,10 @@ func (s *Store) AcquireRegistryMaintenance(ctx context.Context, targetID, planID
 		if !lease.ReleasedAt.IsZero() || lease.State == "restored" || lease.State == "failed" {
 			lease.State, lease.Mode, lease.DeploymentUID, lease.OriginalReplicas = "acquired", "", "", 0
 			lease.CheckpointRevision, lease.CheckpointDigest, lease.CheckpointObservedAt = "", "", time.Time{}
-			lease.SweepJobUID, lease.RestoredAt, lease.ReleasedAt = "", time.Time{}, time.Time{}
+			// Keep the deterministic sweep marker across a released failed attempt.
+			// A later fresh checkpoint can then distinguish first execution from
+			// recovery after physical GC completed without its durable receipt.
+			lease.RestoredAt, lease.ReleasedAt = time.Time{}, time.Time{}
 		}
 		_, err = tx.Exec(ctx, `UPDATE registry_runtime_maintenance_executions SET
 			state=$4,maintenance_mode=NULLIF($5,''),deployment_uid=$6,original_replicas=$7,
@@ -613,6 +616,7 @@ func (s *Store) BeginRegistryGCSweep(ctx context.Context, lease base.RegistryMai
 	if current.State != "checkpointed" && (current.State != "sweeping" || current.SweepJobUID != helperJobUID) {
 		return base.RegistryGCSweepReceipt{}, false, base.ErrConflict
 	}
+	priorBegin := current.State == "checkpointed" && current.SweepJobUID == helperJobUID
 	if current.State == "checkpointed" {
 		_, err = tx.Exec(ctx, `UPDATE registry_runtime_maintenance_executions SET state='sweeping',sweep_job_uid=$6,updated_at=$7
 			WHERE registry_target_id=$1 AND execution_key=$2 AND plan_id=$3 AND lease_owner=$4 AND lease_epoch=$5`,
@@ -624,7 +628,7 @@ func (s *Store) BeginRegistryGCSweep(ctx context.Context, lease base.RegistryMai
 	if err = tx.Commit(ctx); err != nil {
 		return base.RegistryGCSweepReceipt{}, false, classify(err)
 	}
-	return base.RegistryGCSweepReceipt{}, false, nil
+	return base.RegistryGCSweepReceipt{}, priorBegin, nil
 }
 
 func (s *Store) RegistryGCSweepReceipt(ctx context.Context, lease base.RegistryMaintenanceLease, now time.Time) (base.RegistryGCSweepReceipt, bool, error) {
