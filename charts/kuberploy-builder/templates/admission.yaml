@@ -90,7 +90,7 @@ spec:
   failurePolicy: Fail
   matchConditions:
     - name: run-policy-only
-      expression: "object.metadata.name != 'default-deny' && object.metadata.name != 'kuberploy-builder-managed-registry' && (!has(object.metadata.labels) || !('kuberploy.io/static-registry-egress' in object.metadata.labels) || object.metadata.labels['kuberploy.io/static-registry-egress'] != 'true')"
+      expression: "object.metadata.name != 'default-deny' && object.metadata.name != 'kuberploy-builder-managed-registry' && object.metadata.name != 'kuberploy-builder-private-egress' && (!has(object.metadata.labels) || !('kuberploy.io/static-registry-egress' in object.metadata.labels) || object.metadata.labels['kuberploy.io/static-registry-egress'] != 'true')"
   matchConstraints:
     resourceRules:
       - apiGroups: ["networking.k8s.io"]
@@ -124,6 +124,54 @@ metadata:
     {{- include "kuberploy-builder.labels" . | nindent 4 }}
 spec:
   policyName: {{ include "kuberploy-builder.policyName" . }}-egress
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kuberploy.io/builder-namespace: dind
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-private-egress
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConditions:
+    - name: private-egress-only
+      expression: "object.metadata.name == 'kuberploy-builder-private-egress'"
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["networkpolicies"]
+        scope: Namespaced
+  validations:
+    - expression: "(!has(object.spec.podSelector.matchLabels) || object.spec.podSelector.matchLabels.size() == 0) && (!has(object.spec.podSelector.matchExpressions) || object.spec.podSelector.matchExpressions.size() == 0)"
+      message: private egress must select every builder pod
+    - expression: "object.spec.policyTypes.size() == 1 && object.spec.policyTypes[0] == 'Egress' && (!has(object.spec.ingress) || object.spec.ingress.size() == 0)"
+      message: private egress must be egress-only
+    - expression: "object.spec.egress.size() == 1 && (!has(object.spec.egress[0].ports) || object.spec.egress[0].ports.size() == 0) && object.spec.egress[0].to.size() == 3"
+      message: private egress must contain one unported three-peer rule
+    - expression: "object.spec.egress[0].to.all(t, has(t.ipBlock) && !has(t.namespaceSelector) && !has(t.podSelector) && (!has(t.ipBlock.except) || t.ipBlock.except.size() == 0))"
+      message: private egress peers must be plain IP blocks
+    - expression: "object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '10.0.0.0/8') && object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '172.16.0.0/12') && object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '192.168.0.0/16')"
+      message: private egress must contain the exact RFC1918 ranges
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy-builder.policyName" . }}-private-egress
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kuberploy-builder.policyName" . }}-private-egress
   validationActions: [Deny]
   matchResources:
     namespaceSelector:

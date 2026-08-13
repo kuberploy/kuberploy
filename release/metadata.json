@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Protected Helm publication reads the exact current Git projection generation, release status queries remain unambiguous after joins, and renderer cleanup compares Kubernetes Jobs against the canonical desired plan.",
+  "summary": "Builder-wide private egress is validated by a dedicated exact RFC1918 admission contract, while per-build egress remains restricted to the configured controller identity.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.145"
+  "version": "0.1.0-rc.146"
 }
