@@ -103,6 +103,19 @@ func (a *KubernetesMaintenanceAdapter) Acquire(ctx context.Context, request Main
 	if plan.RegistryTargetID != request.TargetID || plan.State != "executing" || !validDigest(plan.PlanDigest) {
 		return nil, ErrRegistryMaintenanceInvalid
 	}
+	// A failed offline sweep may be retried after its original repository
+	// leases expired. Revalidate the mutable protection authorities before
+	// acquiring the exclusive runtime lease or stopping the registry. The
+	// physical checkpoint below remains a second fence, but it must not be the
+	// first place a stale plan is discovered because that causes avoidable
+	// registry downtime.
+	snapshot, err := a.registry.RegistryLifecycleSnapshot(ctx, plan.RegistryTargetID, plan.ServiceID, a.now())
+	if err != nil {
+		return nil, err
+	}
+	if store.RegistryAuthorityToken(snapshot) != plan.AuthorityToken {
+		return nil, store.ErrRegistrySnapshotStale
+	}
 	candidates := cleanupBlobItems(plan.Items)
 	if len(candidates) < 1 || len(candidates) > maximumMaintenanceCandidates {
 		return nil, ErrRegistryMaintenanceInvalid
