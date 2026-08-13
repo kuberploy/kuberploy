@@ -315,7 +315,10 @@ func assembleKubernetesRenderWorkload(plan RenderPlan, invocation RenderInvocati
 				"kuberploy.io/helm-render-pass":    strconv.Itoa(invocation.Pass),
 				"kuberploy.io/helm-render-spec":    rendererDigestLabel(specDigest),
 			}},
-			"policyTypes": []any{"Ingress", "Egress"}, "ingress": []any{}, "egress": []any{},
+			// Explicit policy types with no rule fields is the Kubernetes-native
+			// deny-all form. The API server omits empty rule arrays on round-trip,
+			// so omitting them here also keeps strict adoption byte-semantic.
+			"policyTypes": []any{"Ingress", "Egress"},
 		},
 	}
 	return KubernetesRenderWorkload{Namespace: config.Namespace, Name: name, InputDigest: plan.InputDigest,

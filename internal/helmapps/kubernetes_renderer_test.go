@@ -59,7 +59,8 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 	}
 
 	policySpec := first.NetworkPolicy["spec"].(map[string]any)
-	if len(policySpec["ingress"].([]any)) != 0 || len(policySpec["egress"].([]any)) != 0 {
+	if policySpec["ingress"] != nil || policySpec["egress"] != nil ||
+		!reflect.DeepEqual(policySpec["policyTypes"], []any{"Ingress", "Egress"}) {
 		t.Fatalf("renderer NetworkPolicy was not deny-all: %#v", policySpec)
 	}
 	podSpec := first.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
