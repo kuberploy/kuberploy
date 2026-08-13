@@ -219,6 +219,23 @@ func TestOCIHTTPPackageSourceFetchesExactApprovedArtifact(t *testing.T) {
 	}
 }
 
+func TestOCIHTTPPackageSourceAcceptsHelmManifestWithHeaderOnlyMediaType(t *testing.T) {
+	fixture := newOCIRegistryFixture(t, false)
+	var manifest map[string]any
+	if err := json.Unmarshal(fixture.manifestBytes, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	delete(manifest, "mediaType")
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.replaceManifest(raw)
+	if _, err = fixture.source(nil).Fetch(t.Context(), fixture.approval); err != nil {
+		t.Fatalf("fetch Helm-pushed manifest without redundant JSON mediaType: %v", err)
+	}
+}
+
 func TestOCIHTTPPackageSourceRejectsUnapprovedRegistryBehavior(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -230,6 +247,18 @@ func TestOCIHTTPPackageSourceRejectsUnapprovedRegistryBehavior(t *testing.T) {
 		}, want: ErrUnsafeChart},
 		{name: "manifest media type", mutate: func(f *ociRegistryFixture, _ *OCIHTTPPackageSource) {
 			f.manifestMediaType = "application/json"
+		}, want: ErrUnsafeChart},
+		{name: "embedded manifest media type", mutate: func(f *ociRegistryFixture, _ *OCIHTTPPackageSource) {
+			var manifest map[string]any
+			if err := json.Unmarshal(f.manifestBytes, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest["mediaType"] = "application/json"
+			raw, err := json.Marshal(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.replaceManifest(raw)
 		}, want: ErrUnsafeChart},
 		{name: "extra chart layer", mutate: func(f *ociRegistryFixture, _ *OCIHTTPPackageSource) {
 			layer := ociDescriptor{MediaType: HelmChartMediaType, Digest: f.approval.PackageDigest, Size: int64(len(f.packageBytes))}

@@ -353,7 +353,7 @@ func decodeHelmOCIManifest(raw []byte) (helmOCIManifest, error) {
 	decoder.DisallowUnknownFields()
 	var manifest helmOCIManifest
 	if err := decoder.Decode(&manifest); err != nil || manifest.SchemaVersion != 2 ||
-		manifest.MediaType != OCIManifestMediaType || !validOCIDescriptor(manifest.Config, 1<<20) ||
+		(manifest.MediaType != "" && manifest.MediaType != OCIManifestMediaType) || !validOCIDescriptor(manifest.Config, 1<<20) ||
 		manifest.ArtifactType != "" ||
 		len(manifest.Layers) < 1 || len(manifest.Layers) > 4 ||
 		len(manifest.Annotations) > 64 || len(manifest.Config.Annotations) > 64 {
