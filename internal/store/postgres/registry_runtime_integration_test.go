@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/registry"
 	base "github.com/kuberploy/kuberploy/internal/store"
+	"github.com/kuberploy/kuberploy/internal/testdb"
 )
 
 func TestRegistryRuntimeObservationLeaseRecoveryAndFencing(t *testing.T) {
@@ -135,6 +137,68 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now)
 	if err != nil || accepted != planID {
 		t.Fatalf("accepted cleanup=%q want=%q err=%v", accepted, planID, err)
+	}
+}
+
+func TestAcquireRegistryMaintenanceAcceptsMatchingUUIDTarget(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		pool.Close()
+		t.Fatal(err)
+	}
+	pool.Close()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := databaseTime(time.Now().UTC())
+	targetID, planID := id.New(), id.New()
+	owner := "registry-maintenance-integration"
+	blobDigest := postgresRegistryDigest("b")
+	candidateDigest, err := registryCandidateSetDigest([]string{blobDigest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{
+		ID: targetID, Name: "maintenance-" + targetID, Mode: domain.RegistryTargetManaged,
+		Endpoint: "https://registry-maintenance.integration.test", RepositoryPrefix: "integration",
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at,claimed_at
+	) VALUES($1,$2,'service','snapshot','authority',$3,'executing','{}','{}','{}',$4,$4)`,
+		planID, targetID, postgresRegistryDigest("f"), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_items(
+		plan_id,ordinal,repository,resource_kind,digest,disposition,action,estimated_bytes,reasons,state,updated_at
+	) VALUES($1,0,'*','blob',$2,'delete','garbage-collect-blob',1,'["globally-unreachable"]','deleting',$3)`,
+		planID, blobDigest, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_leases(
+		registry_target_id,repository,plan_id,owner,lease_until
+	) VALUES($1,'*',$2,$3,$4)`, targetID, planID, owner, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := st.AcquireRegistryMaintenance(ctx, targetID, planID, postgresRegistryDigest("e"), candidateDigest, owner, now, time.Minute)
+	if err != nil {
+		t.Fatalf("acquire maintenance for matching UUID target: %v", err)
+	}
+	if lease.TargetID != targetID || lease.PlanID != planID || lease.CandidateSetDigest != candidateDigest || lease.State != "acquired" || lease.Epoch != 1 {
+		t.Fatalf("unexpected maintenance lease: %+v", lease)
 	}
 }
 
