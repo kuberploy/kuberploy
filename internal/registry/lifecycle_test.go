@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -276,6 +277,27 @@ func TestBuildCleanupPlanFailsClosedAndNeverPlansExternalLifecycle(t *testing.T)
 	external.Target.Mode = domain.RegistryTargetExternal
 	if _, err := BuildCleanupPlan(external, now, time.Hour); !errors.Is(err, store.ErrRegistryExternalLifecycle) {
 		t.Fatalf("external err=%v", err)
+	}
+}
+
+func TestBuildCleanupPlanRejectsOversizedOfflineBlobBatch(t *testing.T) {
+	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	snapshot := fixtureSnapshot(now)
+	old := now.Add(-30 * 24 * time.Hour)
+	for i := 0; i <= maximumMaintenanceCandidates; i++ {
+		snapshot.Blobs = append(snapshot.Blobs, domain.RegistryBlob{
+			RegistryTargetID: snapshot.Target.ID, Repository: snapshot.Policy.Repository,
+			Digest: "sha256:" + fmt.Sprintf("%064x", 100+i), SizeBytes: 1, Present: true,
+			FirstObservedAt: old, LastObservedAt: now, LastObservationRevision: 1,
+		})
+	}
+	for i := range snapshot.CatalogObservations {
+		if snapshot.CatalogObservations[i].Repository == snapshot.Policy.Repository {
+			snapshot.CatalogObservations[i].BlobCount += maximumMaintenanceCandidates + 1
+		}
+	}
+	if _, err := BuildCleanupPlan(snapshot, now, time.Hour); !errors.Is(err, store.ErrRegistryPolicyInvalid) {
+		t.Fatalf("err = %v", err)
 	}
 }
 

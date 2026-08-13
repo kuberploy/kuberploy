@@ -457,6 +457,9 @@ func BuildCleanupPlan(snapshot domain.RegistryLifecycleSnapshot, now time.Time, 
 
 	sortCleanupItems(items)
 	summary := summarize(items, cacheBefore, cacheAfter, snapshot.Policy.CacheByteQuota)
+	if summary.GarbageCollectBlobs > maximumMaintenanceCandidates {
+		return domain.RegistryCleanupPlan{}, fmt.Errorf("%w: cleanup exceeds the bounded offline blob batch", store.ErrRegistryPolicyInvalid)
+	}
 	plan := domain.RegistryCleanupPlan{
 		RegistryTargetID: snapshot.Target.ID,
 		ServiceID:        snapshot.Policy.ServiceID,

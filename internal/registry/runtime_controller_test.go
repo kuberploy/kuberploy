@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,16 +35,52 @@ func (s targetReaderStub) RegistryTarget(context.Context, string) (domain.Regist
 }
 
 type cleanupExecutorStub struct {
-	calls int
-	plan  string
-	owner string
-	err   error
+	calls   int
+	plan    string
+	owner   string
+	err     error
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
 }
 
 func (s *cleanupExecutorStub) Execute(_ context.Context, plan, owner string) error {
 	s.calls++
 	s.plan, s.owner = plan, owner
+	if s.entered != nil {
+		s.once.Do(func() { close(s.entered) })
+		<-s.release
+	}
 	return s.err
+}
+
+func TestRuntimeControllerSerializesObservationAgainstCleanup(t *testing.T) {
+	config := testManagedRuntimeConfig(t)
+	target, err := config.ManagedTarget()
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller, _, executor := runtimeControllerForCleanup(t, target)
+	executor.entered, executor.release = make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	go func() { _, runErr := controller.ReconcileCleanup(t.Context()); done <- runErr }()
+	<-executor.entered
+	locked := make(chan struct{})
+	go func() { controller.runtimeMu.RLock(); close(locked); controller.runtimeMu.RUnlock() }()
+	select {
+	case <-locked:
+		t.Fatal("observation lock entered during cleanup")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(executor.release)
+	if err = <-done; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-locked:
+	case <-time.After(time.Second):
+		t.Fatal("observation lock remained blocked after cleanup")
+	}
 }
 
 func runtimeControllerForCleanup(t *testing.T, target domain.RegistryTarget) (*RuntimeController, *runtimeStoreStub, *cleanupExecutorStub) {

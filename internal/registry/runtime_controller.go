@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -16,8 +17,9 @@ var ErrRegistryRuntimeUnavailable = errors.New("managed registry runtime is unav
 var registryRuntimeControllerOwnerRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,109}$`)
 
 type RuntimeController struct {
-	Store   store.RegistryRuntimeStore
-	Targets interface {
+	runtimeMu sync.RWMutex
+	Store     store.RegistryRuntimeStore
+	Targets   interface {
 		RegistryTarget(context.Context, string) (domain.RegistryTarget, error)
 	}
 	Credentials       DistributionCredentialSource
@@ -104,6 +106,8 @@ func (c *RuntimeController) runLoop(ctx context.Context, name string, reconcile 
 }
 
 func (c *RuntimeController) ReconcileObservation(ctx context.Context) (bool, error) {
+	c.runtimeMu.RLock()
+	defer c.runtimeMu.RUnlock()
 	if err := c.validate(); err != nil {
 		return false, err
 	}
@@ -162,6 +166,8 @@ func (c *RuntimeController) ReconcileObservation(ctx context.Context) (bool, err
 }
 
 func (c *RuntimeController) ReconcileCleanup(ctx context.Context) (bool, error) {
+	c.runtimeMu.Lock()
+	defer c.runtimeMu.Unlock()
 	if err := c.validate(); err != nil {
 		return false, err
 	}
