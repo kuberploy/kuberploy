@@ -102,6 +102,39 @@ func TestObservationCoordinatorCompletesAndDurablyBacksOffFailures(t *testing.T)
 	}
 }
 
+func TestObservationCoordinatorAdvancesHealthWhenArgoReconciledAtIsUnchanged(t *testing.T) {
+	base := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
+	clock := base
+	store := NewMemoryObservationStore()
+	application := observerApplication(base)
+	application.HealthStatus = "Progressing"
+	coordinator := &ObservationCoordinator{Store: store,
+		Source:    &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "600", Applications: []KubernetesApplication{application}}}},
+		Resolver:  observerResolver{targets: map[string]ObservationTarget{observerDeploymentID: observerTarget()}},
+		Namespace: "argocd", Owner: "observer-owner-a", LeaseDuration: 30 * time.Second, HeartbeatInterval: 10 * time.Second,
+		WorkTimeout: time.Minute, PollInterval: time.Minute, MinimumBackoff: 5 * time.Second, MaximumBackoff: time.Minute,
+		IdleDelay: time.Second, Now: func() time.Time { return clock }}
+	if worked, err := coordinator.RunOnce(t.Context()); err != nil || !worked {
+		t.Fatalf("progressing observation worked=%v err=%v", worked, err)
+	}
+	progressing, err := store.Observation(t.Context(), observerDeploymentID)
+	if err != nil || progressing.Health != HealthProgressing || !progressing.ObservedAt.Equal(base) {
+		t.Fatalf("progressing=%#v err=%v", progressing, err)
+	}
+
+	clock = base.Add(time.Minute)
+	application.HealthStatus = "Healthy"
+	// Argo keeps the original reconciledAt while workload health advances.
+	coordinator.Source = &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "601", Applications: []KubernetesApplication{application}}}}
+	if worked, err := coordinator.RunOnce(t.Context()); err != nil || !worked {
+		t.Fatalf("healthy observation worked=%v err=%v", worked, err)
+	}
+	healthy, err := store.Observation(t.Context(), observerDeploymentID)
+	if err != nil || healthy.Health != HealthHealthy || !healthy.ObservedAt.Equal(clock) {
+		t.Fatalf("healthy=%#v err=%v", healthy, err)
+	}
+}
+
 func TestObservationOutcomeRejectsAmbiguousSuccessAndFailure(t *testing.T) {
 	now := time.Now().UTC()
 	invalid := []ObservationOutcome{

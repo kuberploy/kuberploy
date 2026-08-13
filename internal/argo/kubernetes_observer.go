@@ -95,6 +95,7 @@ type KubernetesObserver struct {
 	Store     ObservationSink
 	Namespace string
 	PageSize  int
+	Now       func() time.Time
 }
 
 func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, error) {
@@ -150,6 +151,18 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 			}
 			if decodeErr != nil {
 				return result, decodeErr
+			}
+			// Argo's status.reconciledAt identifies the desired-state reconcile,
+			// but it does not necessarily advance when rollout health changes after
+			// that reconcile. Stamp the exact poll time so later health transitions
+			// can replace an older durable observation of the same revision.
+			if o.Now != nil {
+				observedAt := o.Now().UTC()
+				if observedAt.IsZero() {
+					return result, ErrInvalid
+				}
+				observation.ObservedAt = observedAt
+				observation.UpdatedAt = observedAt
 			}
 			if err = o.Store.PutObservation(ctx, observation); err != nil {
 				if errors.Is(err, ErrConflict) {

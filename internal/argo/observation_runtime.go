@@ -152,7 +152,7 @@ func (c *ObservationCoordinator) RunOnce(ctx context.Context) (bool, error) {
 	go func() { heartbeatDone <- c.heartbeat(workCtx, work.Lease) }()
 
 	observer := KubernetesObserver{Source: c.Source, Resolver: c.Resolver,
-		Store: fencedObservationSink{store: c.Store, lease: work.Lease, now: c.now}, Namespace: c.Namespace}
+		Store: fencedObservationSink{store: c.Store, lease: work.Lease, now: c.now}, Namespace: c.Namespace, Now: c.now}
 	batch, observeErr := observer.PollOnce(workCtx)
 	cancel()
 	heartbeatErr := <-heartbeatDone
