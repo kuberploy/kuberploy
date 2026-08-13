@@ -131,14 +131,15 @@ func TestRegistryApplicationWrappersAreScopedReplaySafeAndManagedOnly(t *testing
 		}
 		failed.Items[index].State = "deleted"
 		if failed.Items[index].ResourceKind == "blob" {
-			failed.Items[index].State = "deleting"
+			failed.Items[index].State = "failed"
+			failed.Items[index].ProviderMessage = "managed registry cleanup failed"
 			pendingBlobs++
 		}
 	}
 	if pendingBlobs == 0 {
 		failed.Items = append(failed.Items, domain.RegistryCleanupItem{
 			Ordinal: len(failed.Items), Repository: "*", ResourceKind: "blob", Digest: registryDigest("f"),
-			Disposition: domain.RegistryCleanupDelete, Action: "garbage-collect-blob", State: "deleting",
+			Disposition: domain.RegistryCleanupDelete, Action: "garbage-collect-blob", State: "failed",
 		})
 	}
 	st.registryPlans[plan.ID] = failed
@@ -146,6 +147,15 @@ func TestRegistryApplicationWrappersAreScopedReplaySafeAndManagedOnly(t *testing
 	preparedRecovery, err := st.PrepareRegistryCleanupExecutionForActor(ctx, "project-admin", "execute-recovery", "execute-recovery-fingerprint", "request-execute-recovery", seed.serviceID, plan.ID)
 	if err != nil || preparedRecovery.Replay || !base.RegistryCleanupPlanCanResumeOfflineSweep(preparedRecovery.Value) || st.AuditCount() != auditsBefore+4 {
 		t.Fatalf("recovery=%#v audits=%d err=%v", preparedRecovery, st.AuditCount(), err)
+	}
+	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, plan.ID, "recovery-worker", seed.now.Add(time.Minute), time.Minute)
+	if err != nil || !claimed || recovered.State != "executing" {
+		t.Fatalf("claim recovery=%#v claimed=%v err=%v", recovered, claimed, err)
+	}
+	for _, item := range recovered.Items {
+		if item.Disposition == domain.RegistryCleanupDelete && item.ResourceKind == "blob" && item.State != "deleting" {
+			t.Fatalf("recovered blob state=%q", item.State)
+		}
 	}
 
 	externalID := "66666666-6666-4666-8666-666666666666"

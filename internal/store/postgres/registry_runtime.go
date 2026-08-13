@@ -283,11 +283,11 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 			AND EXISTS(SELECT 1 FROM registry_cleanup_items pending
 				WHERE pending.plan_id=p.id AND pending.disposition='delete'
 				AND pending.resource_kind='blob' AND pending.action='garbage-collect-blob'
-				AND pending.state='deleting')
+				AND pending.state IN ('deleting','failed'))
 			AND NOT EXISTS(SELECT 1 FROM registry_cleanup_items unsafe
 				WHERE unsafe.plan_id=p.id AND unsafe.disposition='delete' AND NOT (
 					unsafe.state='deleted' OR unsafe.resource_kind='blob'
-					AND unsafe.action='garbage-collect-blob' AND unsafe.state='deleting'))
+					AND unsafe.action='garbage-collect-blob' AND unsafe.state IN ('deleting','failed')))
 		)
 		ORDER BY CASE p.state WHEN 'executing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,p.created_at,p.id LIMIT 1`, targetID, databaseTime(now)).Scan(&planID)
 	return planID, classify(err)

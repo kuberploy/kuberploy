@@ -165,7 +165,7 @@ func RegistryCleanupPlanCanResumeOfflineSweep(plan domain.RegistryCleanupPlan) b
 		}
 		switch item.State {
 		case "deleted":
-		case "deleting":
+		case "deleting", "failed":
 			if item.ResourceKind != "blob" || item.Action != "garbage-collect-blob" {
 				return false
 			}

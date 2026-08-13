@@ -544,6 +544,15 @@ func (s *Store) ClaimRegistryCleanupPlan(_ context.Context, planID, owner string
 			s.registryLeases[registryScopeKey(plan.RegistryTargetID, repository)] = registryCleanupLease{planID: plan.ID, owner: owner, until: until}
 		}
 		claimed := now.UTC()
+		for index := range plan.Items {
+			item := &plan.Items[index]
+			if item.Disposition == domain.RegistryCleanupDelete && item.ResourceKind == "blob" &&
+				item.Action == "garbage-collect-blob" && item.State == "failed" {
+				item.State = "deleting"
+				item.ProviderMessage = ""
+				item.UpdatedAt = claimed
+			}
+		}
 		plan.State = "executing"
 		plan.ClaimedAt = &claimed
 		plan.CompletedAt = nil

@@ -72,12 +72,18 @@ func TestRegistryCleanupPlanCanResumeOnlyUnfinishedOfflineSweep(t *testing.T) {
 	if !RegistryCleanupPlanCanResumeOfflineSweep(plan) {
 		t.Fatal("exact unfinished offline sweep was not recoverable")
 	}
+	failedBlob := plan
+	failedBlob.Items = append([]domain.RegistryCleanupItem(nil), plan.Items...)
+	failedBlob.Items[1].State = "failed"
+	if !RegistryCleanupPlanCanResumeOfflineSweep(failedBlob) {
+		t.Fatal("terminal failed offline sweep was not recoverable")
+	}
 
 	cases := map[string]func(*domain.RegistryCleanupPlan){
 		"non-terminal":        func(plan *domain.RegistryCleanupPlan) { plan.State = "executing" },
 		"missing failure":     func(plan *domain.RegistryCleanupPlan) { plan.Failure = "" },
 		"planned candidate":   func(plan *domain.RegistryCleanupPlan) { plan.Items[1].State = "planned" },
-		"failed candidate":    func(plan *domain.RegistryCleanupPlan) { plan.Items[1].State = "failed" },
+		"skipped candidate":   func(plan *domain.RegistryCleanupPlan) { plan.Items[1].State = "skipped" },
 		"manifest unfinished": func(plan *domain.RegistryCleanupPlan) { plan.Items[0].State = "deleting" },
 		"wrong blob action":   func(plan *domain.RegistryCleanupPlan) { plan.Items[1].Action = "delete-manifest" },
 		"nothing unfinished":  func(plan *domain.RegistryCleanupPlan) { plan.Items[1].State = "deleted" },

@@ -262,7 +262,7 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 	if accepted, nextErr := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(time.Second)); !errors.Is(nextErr, base.ErrNotFound) || accepted != "" {
 		t.Fatalf("unsafe failed cleanup was selected: accepted=%q err=%v", accepted, nextErr)
 	}
-	if _, err = st.pool.Exec(ctx, `UPDATE registry_cleanup_items SET state='deleting' WHERE plan_id=$1 AND resource_kind='blob'`, planID); err != nil {
+	if _, err = st.pool.Exec(ctx, `UPDATE registry_cleanup_items SET state='failed',provider_message='managed registry cleanup failed' WHERE plan_id=$1 AND resource_kind='blob'`, planID); err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(time.Second))
@@ -281,6 +281,13 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 	}
 	if state != "executing" || failure != "" || completedAt != nil {
 		t.Fatalf("persisted state=%q failure=%q completedAt=%v", state, failure, completedAt)
+	}
+	var blobState, providerMessage string
+	if err = st.pool.QueryRow(ctx, `SELECT state,provider_message FROM registry_cleanup_items WHERE plan_id=$1 AND resource_kind='blob'`, planID).Scan(&blobState, &providerMessage); err != nil {
+		t.Fatal(err)
+	}
+	if blobState != "deleting" || providerMessage != "" {
+		t.Fatalf("persisted blob state=%q providerMessage=%q", blobState, providerMessage)
 	}
 }
 

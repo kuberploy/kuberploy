@@ -215,6 +215,29 @@ func (s *Store) ClaimRegistryCleanupPlan(ctx context.Context, planID, owner stri
 		if err = acquireRegistryCleanupLeases(ctx, tx, plan, owner, now, leaseDuration); err != nil {
 			return domain.RegistryCleanupPlan{}, false, err
 		}
+		failedBlobs := 0
+		for index := range plan.Items {
+			item := &plan.Items[index]
+			if item.Disposition == domain.RegistryCleanupDelete && item.ResourceKind == "blob" &&
+				item.Action == "garbage-collect-blob" && item.State == "failed" {
+				failedBlobs++
+				item.State = "deleting"
+				item.ProviderMessage = ""
+				item.UpdatedAt = now
+			}
+		}
+		if failedBlobs > 0 {
+			tag, resetErr := tx.Exec(ctx, `UPDATE registry_cleanup_items
+				SET state='deleting',provider_message='',updated_at=$2
+				WHERE plan_id=$1 AND resource_kind='blob' AND disposition='delete'
+				AND action='garbage-collect-blob' AND state='failed'`, planID, now)
+			if resetErr != nil {
+				return domain.RegistryCleanupPlan{}, false, classify(resetErr)
+			}
+			if tag.RowsAffected() != int64(failedBlobs) {
+				return domain.RegistryCleanupPlan{}, false, base.ErrConflict
+			}
+		}
 		_, err = tx.Exec(ctx, `UPDATE registry_cleanup_plans SET state='executing',
 			claimed_at=$2,completed_at=NULL,failure='' WHERE id=$1 AND state='failed'`, planID, now)
 		if err != nil {
