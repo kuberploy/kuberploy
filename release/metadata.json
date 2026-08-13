@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry maintenance now survives Kubernetes Scale response omission, response loss, and Argo replica self-heal.",
+  "summary": "Managed registry offline cleanup now traverses validated platform descriptors in ordinary OCI indexes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.119"
+  "version": "0.1.0-rc.120"
 }
