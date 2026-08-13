@@ -64,9 +64,14 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 		t.Fatalf("renderer NetworkPolicy was not deny-all: %#v", policySpec)
 	}
 	podSpec := first.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-	if podSpec["automountServiceAccountToken"] != false || podSpec["hostNetwork"] != false ||
-		podSpec["hostPID"] != false || podSpec["hostIPC"] != false {
+	if podSpec["automountServiceAccountToken"] != false ||
+		podSpec["serviceAccount"] != config.ServiceAccount || podSpec["serviceAccountName"] != config.ServiceAccount {
 		t.Fatalf("renderer Pod retained ambient Kubernetes/host authority: %#v", podSpec)
+	}
+	for _, key := range []string{"hostNetwork", "hostPID", "hostIPC"} {
+		if _, exists := podSpec[key]; exists {
+			t.Fatalf("renderer Pod must use the API-native false default for %s: %#v", key, podSpec)
+		}
 	}
 	containers := append(append([]any{}, podSpec["initContainers"].([]any)...), podSpec["containers"].([]any)...)
 	for _, raw := range containers {
@@ -84,6 +89,16 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 				t.Fatalf("renderer plan exposed forbidden control %q: %s", forbidden, encoded)
 			}
 		}
+		for _, rawMount := range container["volumeMounts"].([]any) {
+			mount := rawMount.(map[string]any)
+			if mount["mountPath"] == "/chunks" || (container["name"] == RendererContainerName && mount["mountPath"] == "/input") {
+				if mount["readOnly"] != true {
+					t.Fatalf("renderer read-only mount was not explicit: %#v", mount)
+				}
+			} else if _, exists := mount["readOnly"]; exists {
+				t.Fatalf("renderer writable mount must use the API-native false default: %#v", mount)
+			}
+		}
 	}
 
 	mutated := first
@@ -91,6 +106,12 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 	mutated.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)["securityContext"].(map[string]any)["privileged"] = true
 	if CanAdoptKubernetesRenderWorkload(mutated, plan, firstInvocation, config) {
 		t.Fatal("mutated privileged renderer Job was adoptable")
+	}
+	mutated = first
+	mutated.Job = cloneRendererMap(first.Job).(map[string]any)
+	mutated.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["hostNetwork"] = true
+	if CanAdoptKubernetesRenderWorkload(mutated, plan, firstInvocation, config) {
+		t.Fatal("mutated host-network renderer Job was adoptable")
 	}
 	mutated = first
 	mutated.NetworkPolicy = cloneRendererMap(first.NetworkPolicy).(map[string]any)

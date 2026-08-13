@@ -139,7 +139,7 @@ chmod 0440 /input/chart.tgz /input/values.yaml`},
 		"resources":       rendererResources(RendererStageCPURequest, RendererStageMemoryRequest),
 		"volumeMounts": []any{
 			map[string]any{"name": RendererChunksVolume, "mountPath": "/chunks", "readOnly": true},
-			map[string]any{"name": RendererInputVolume, "mountPath": "/input", "readOnly": false},
+			map[string]any{"name": RendererInputVolume, "mountPath": "/input"},
 		},
 		"terminationMessagePath": "/dev/termination-log", "terminationMessagePolicy": "File",
 	}
@@ -169,7 +169,7 @@ cat /tmp/rendered.yaml`, "helm-render"}
 		"resources":       rendererResources(RendererCPURequest, RendererMemoryRequest),
 		"volumeMounts": []any{
 			map[string]any{"name": RendererInputVolume, "mountPath": "/input", "readOnly": true},
-			map[string]any{"name": RendererTemporaryVolume, "mountPath": "/tmp", "readOnly": false},
+			map[string]any{"name": RendererTemporaryVolume, "mountPath": "/tmp"},
 		},
 		"terminationMessagePath": "/dev/termination-log", "terminationMessagePolicy": "File",
 	}
@@ -291,9 +291,9 @@ func assembleKubernetesRenderWorkload(plan RenderPlan, invocation RenderInvocati
 			"template": map[string]any{
 				"metadata": map[string]any{"labels": cloneRendererMap(labels)},
 				"spec": map[string]any{
-					"serviceAccountName": config.ServiceAccount, "automountServiceAccountToken": false,
-					"restartPolicy": "Never", "enableServiceLinks": false,
-					"hostNetwork": false, "hostPID": false, "hostIPC": false,
+					"serviceAccount": config.ServiceAccount, "serviceAccountName": config.ServiceAccount,
+					"automountServiceAccountToken": false,
+					"restartPolicy":                "Never", "enableServiceLinks": false,
 					"dnsPolicy": "ClusterFirst", "schedulerName": "default-scheduler",
 					"terminationGracePeriodSeconds": int64(30),
 					"securityContext": map[string]any{"runAsNonRoot": true, "runAsUser": int64(65532),
