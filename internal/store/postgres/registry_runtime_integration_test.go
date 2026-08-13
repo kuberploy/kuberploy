@@ -223,7 +223,11 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 	}
 	defer st.Close()
 	now := databaseTime(time.Now().UTC())
-	targetID, planID := id.New(), id.New()
+	actorID, targetID, planID := id.New(), id.New(), id.New()
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-sweep-recovery-"+actorID, now); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{
 		ID: targetID, Name: "sweep-recovery-" + targetID, Mode: domain.RegistryTargetManaged,
 		Endpoint: "https://registry-sweep-recovery.integration.test", RepositoryPrefix: "integration",
@@ -245,6 +249,25 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 		($1,1,'*','blob',$3,'delete','garbage-collect-blob',1,'["globally-unreachable"]','deleting',$4)`,
 		planID, postgresRegistryDigest("a"), postgresRegistryDigest("b"), now); err != nil {
 		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO mutation_receipts(
+		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,created_at
+	) VALUES($1,'resource',$2,'global','registry-sweep-recovery-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
+		actorID, "registry-cleanup.execute:"+planID, planID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `UPDATE registry_cleanup_items SET state='planned' WHERE plan_id=$1 AND resource_kind='blob'`, planID); err != nil {
+		t.Fatal(err)
+	}
+	if accepted, nextErr := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(time.Second)); !errors.Is(nextErr, base.ErrNotFound) || accepted != "" {
+		t.Fatalf("unsafe failed cleanup was selected: accepted=%q err=%v", accepted, nextErr)
+	}
+	if _, err = st.pool.Exec(ctx, `UPDATE registry_cleanup_items SET state='deleting' WHERE plan_id=$1 AND resource_kind='blob'`, planID); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(time.Second))
+	if err != nil || accepted != planID {
+		t.Fatalf("recoverable failed cleanup=%q want=%q err=%v", accepted, planID, err)
 	}
 
 	recovered, claimed, err := st.ClaimRegistryCleanupPlan(ctx, planID, "sweep-recovery-worker", now.Add(time.Second), time.Minute)

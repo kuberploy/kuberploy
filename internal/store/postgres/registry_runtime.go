@@ -277,8 +277,19 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 		JOIN registry_targets t ON t.id=p.registry_target_id AND t.mode='managed'
 		JOIN mutation_receipts i ON i.receipt_kind='resource' AND i.resource_type='registry-cleanup-plan' AND i.resource_id=p.id
 			AND i.namespace='registry-cleanup.execute:'||p.id::text AND i.scope_key='global'
-		WHERE p.registry_target_id=$1 AND p.state IN ('preview','executing') AND p.created_at<=$2
-		ORDER BY CASE p.state WHEN 'executing' THEN 0 ELSE 1 END,p.created_at,p.id LIMIT 1`, targetID, databaseTime(now)).Scan(&planID)
+		WHERE p.registry_target_id=$1 AND p.created_at<=$2 AND (
+			p.state IN ('preview','executing') OR
+			p.state='failed' AND p.failure<>''
+			AND EXISTS(SELECT 1 FROM registry_cleanup_items pending
+				WHERE pending.plan_id=p.id AND pending.disposition='delete'
+				AND pending.resource_kind='blob' AND pending.action='garbage-collect-blob'
+				AND pending.state='deleting')
+			AND NOT EXISTS(SELECT 1 FROM registry_cleanup_items unsafe
+				WHERE unsafe.plan_id=p.id AND unsafe.disposition='delete' AND NOT (
+					unsafe.state='deleted' OR unsafe.resource_kind='blob'
+					AND unsafe.action='garbage-collect-blob' AND unsafe.state='deleting'))
+		)
+		ORDER BY CASE p.state WHEN 'executing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,p.created_at,p.id LIMIT 1`, targetID, databaseTime(now)).Scan(&planID)
 	return planID, classify(err)
 }
 
