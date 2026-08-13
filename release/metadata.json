@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Managed registry cleanup derives exact Git, live runtime and active-operation protection roots at every destructive boundary.",
+  "summary": "Managed registry cleanup preserves the exact current Git image across transient dependency-readiness invalidation.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.114"
+  "version": "0.1.0-rc.115"
 }
