@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +21,12 @@ import (
 )
 
 type Store struct{ pool *pgxpool.Pool }
+
+const (
+	startupPingTimeout        = 30 * time.Second
+	startupPingAttemptTimeout = 3 * time.Second
+	startupPingBackoff        = 500 * time.Millisecond
+)
 
 func advisoryIdentity(parts ...string) string {
 	hash := sha256.New()
@@ -39,7 +47,7 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
-	if err = pool.Ping(ctx); err != nil {
+	if err = pingPostgresAtStartup(ctx, startupPingTimeout, startupPingAttemptTimeout, startupPingBackoff, pool.Ping); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
@@ -48,6 +56,62 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		return nil, err
 	}
 	return &Store{pool: pool}, nil
+}
+
+func pingPostgresAtStartup(ctx context.Context, timeout, attemptTimeout, backoff time.Duration, ping func(context.Context) error) error {
+	retryCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := retryCtx.Err(); err != nil {
+		return err
+	}
+
+	var lastErr error
+	for {
+		attemptCtx, cancelAttempt := context.WithTimeout(retryCtx, attemptTimeout)
+		err := ping(attemptCtx)
+		cancelAttempt()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if !isRetryablePostgresStartupError(err) {
+			return err
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-retryCtx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return fmt.Errorf("startup retry timed out after %s (last error: %v): %w", timeout, lastErr, retryCtx.Err())
+		}
+	}
+}
+
+func isRetryablePostgresStartupError(err error) bool {
+	var postgresErr *pgconn.PgError
+	if errors.As(err, &postgresErr) {
+		return postgresErr.Code == "57P03"
+	}
+	if pgconn.Timeout(err) || errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.ETIMEDOUT) || errors.Is(err, syscall.EHOSTUNREACH) ||
+		errors.Is(err, syscall.ENETUNREACH) {
+		return true
+	}
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && (dnsErr.IsTimeout || dnsErr.IsTemporary)
 }
 
 func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }

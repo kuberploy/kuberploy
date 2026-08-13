@@ -87,7 +87,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.automated.allowEmpty] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "false" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.automated.prune] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.automated.selfHeal] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
-[[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.syncOptions | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "CreateNamespace=false,PruneLast=true,RespectIgnoreDifferences=true,ServerSideApply=true" ]]
+[[ "$(yq eval-all '[select(.kind == "Application") | .spec.syncPolicy.syncOptions | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "CreateNamespace=false,PrunePropagationPolicy=foreground,RespectIgnoreDifferences=true,ServerSideApply=true" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject") | .metadata.name] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "kuberploy-platform-bootstrap" ]]
 [[ "$(yq eval-all '[select(.kind == "AppProject") | .spec.sourceRepos | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "https://github.com/kuberploy/platform-gitops.git" ]]
 [[ "$(yq eval-all '[select(.kind == "Job" and .metadata.name == "kuberploy-platform-bootstrap-reconciler")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]

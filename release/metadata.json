@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Protected Git deployments now bind runtime desired state to the exact effective projected revision, including both merge/index orderings and upgrade repair of older RC rows.",
+  "summary": "PostgreSQL startup now tolerates bounded dependency readiness delays, and platform Git pruning preserves each AppProject until its generated applications and workloads are fully removed.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.155"
+  "version": "0.1.0-rc.156"
 }

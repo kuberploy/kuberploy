@@ -115,7 +115,7 @@ func RenderAppProject(target EnvironmentTarget) ([]byte, error) {
 		return nil, err
 	}
 	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: target.Environment.ArgoProject, Namespace: target.ArgoNamespace, Labels: baseLabels(target),
-		Annotations: map[string]string{"argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest, "kuberploy.io/renderer-image": target.Runtime.RendererImage}}}
+		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest, "kuberploy.io/renderer-image": target.Runtime.RendererImage}}}
 	manifest.Spec.SourceRepos = []string{gitRemote, chartRepoForArgo(target.Runtime)}
 	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": target.Environment.Namespace}}
 	manifest.Spec.ClusterResourceWhitelist = []map[string]string{}

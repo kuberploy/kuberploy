@@ -153,6 +153,9 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	if !strings.Contains(string(project), "argocd.argoproj.io/sync-wave: \"-10\"") {
 		t.Fatal("AppProject does not follow foundation sync waves")
 	}
+	if !strings.Contains(string(project), "argocd.argoproj.io/sync-options: PruneLast=true") {
+		t.Fatal("AppProject is not retained until generated Applications are pruned")
+	}
 	otherApplication := domain.Application{ID: "66666666-6666-4666-8666-666666666666", ProjectID: projectID}
 	otherDeployment := domain.Deployment{ID: "77777777-7777-4777-8777-777777777777", EnvironmentID: environmentID, ApplicationID: otherApplication.ID}
 	setA, err := argo.RenderApplicationSet(target, []domain.Application{otherApplication, application}, []domain.Deployment{deployment, otherDeployment})

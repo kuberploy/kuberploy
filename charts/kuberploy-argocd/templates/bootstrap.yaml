@@ -49,7 +49,7 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=false
-      - PruneLast=true
+      - PrunePropagationPolicy=foreground
       - RespectIgnoreDifferences=true
       - ServerSideApply=true
 {{- end -}}

@@ -611,7 +611,7 @@ func platformRootApplicationSpec(expectation PlatformRootApplicationExpectation)
 		Destination: rootApplicationDestinationWire{Server: InClusterServer, Namespace: expectation.Namespace},
 		SyncPolicy: rootApplicationSyncPolicyWire{
 			Automated:   rootApplicationAutomatedWire{AllowEmpty: false, Prune: true, SelfHeal: true},
-			SyncOptions: []string{"CreateNamespace=false", "PruneLast=true", "RespectIgnoreDifferences=true", "ServerSideApply=true"},
+			SyncOptions: []string{"CreateNamespace=false", "PrunePropagationPolicy=foreground", "RespectIgnoreDifferences=true", "ServerSideApply=true"},
 		},
 	}
 }
