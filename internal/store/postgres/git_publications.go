@@ -140,9 +140,9 @@ func convergeVerifiedPublicationTx(ctx context.Context, tx pgx.Tx, publication g
 		AND b.projection_generation>0 AND g.binding_id=b.id AND g.generation=b.projection_generation AND g.state='active'
 		AND doc.binding_id=b.id AND doc.generation=b.projection_generation AND doc.path=c.path
 		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
-		RETURNING c.operation_id,c.deployment_id,c.command_kind,c.indexed_generation
+		RETURNING c.operation_id,c.deployment_id,c.command_kind,c.indexed_generation,doc.config_revision AS desired_revision
 	)
-	UPDATE deployments d SET state='git-committed',desired_revision=$2,updated_at=$3
+	UPDATE deployments d SET state='git-committed',desired_revision=i.desired_revision,updated_at=$3
 	FROM indexed i,operations o
 	WHERE i.command_kind='deployment' AND i.deployment_id IS NOT NULL AND o.id=i.operation_id
 	AND d.id=i.deployment_id AND d.operation_id=i.operation_id AND d.generation=o.generation`,

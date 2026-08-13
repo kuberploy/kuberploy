@@ -691,10 +691,12 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		AND d.valid AND d.content_sha256=c.content_sha256 AND d.raw=c.content`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=p.target_revision,updated_at=$3
-		FROM git_write_commands c,git_pull_request_publications p
+	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=doc.config_revision,updated_at=$3
+		FROM git_write_commands c,git_pull_request_publications p,git_projected_documents doc
 		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.publication_mode='pull-request' AND c.state='indexed' AND c.indexed_generation=$2
 		AND p.operation_id=c.operation_id AND p.state='merge-verified' AND d.id=c.deployment_id
+		AND doc.binding_id=c.binding_id AND doc.generation=c.indexed_generation AND doc.path=c.path
+		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
 		AND d.operation_id=c.operation_id AND d.generation=(SELECT generation FROM operations WHERE id=c.operation_id)`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}

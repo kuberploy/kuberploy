@@ -18,7 +18,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is compared with
 // the verified release manifest before accepting a platform upgrade.
-const CurrentSchema = "002_team_access_grants"
+const CurrentSchema = "003_repair_protected_desired_revisions"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 

@@ -121,8 +121,9 @@ func TestProjectionAcceptancePersistsExactCreateUpdateAndConfigCommands(t *testi
 		t.Fatalf("deployment=%#v operation=%#v deploymentErr=%v operationErr=%v", protectedDeployment, protectedOperation, err, operationErr)
 	}
 
+	effectiveRevision := strings.Repeat("9", 40)
 	document, err := gitprojection.NewDocument(binding, binding.ProjectionGeneration, application.Value.ID, binding.IndexedRevision,
-		binding.IndexedRevision, strings.Repeat("e", 40), created.Value.ConfigRaw, nil, nil, time.Now().UTC())
+		effectiveRevision, strings.Repeat("e", 40), created.Value.ConfigRaw, nil, nil, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestProjectionAcceptancePersistsExactCreateUpdateAndConfigCommands(t *testi
 	mergePending, err := opened.WithPullRequest(gitpublication.PullRequestObservation{
 		Repository: opened.Repository, Number: opened.PullRequestNumber, URL: opened.PullRequestURL,
 		TargetRef: opened.TargetRef, HeadRef: opened.CandidateRef, HeadRevision: opened.CandidateRevision,
-		State: gitpublication.PullRequestClosed, Merged: true, MergeRevision: strings.Repeat("9", 40), ObservedAt: mergedAt,
+		State: gitpublication.PullRequestClosed, Merged: true, MergeRevision: effectiveRevision, ObservedAt: mergedAt,
 	}, mergedAt)
 	if err != nil || st.CompareAndSwapPublication(ctx, opened, mergePending) != nil {
 		t.Fatalf("merge pending=%#v err=%v", mergePending, err)
@@ -150,7 +151,7 @@ func TestProjectionAcceptancePersistsExactCreateUpdateAndConfigCommands(t *testi
 	protectedDeployment, deploymentErr := st.GetDeployment(ctx, created.Value.ID)
 	if err != nil || deploymentErr != nil || command.State != gitprojection.WriteCommandIndexed ||
 		command.CommittedRevision != mergeVerified.TargetRevision || command.IndexedGeneration != binding.ProjectionGeneration ||
-		protectedDeployment.State != "git-committed" || protectedDeployment.DesiredRevision != mergeVerified.TargetRevision {
+		protectedDeployment.State != "git-committed" || protectedDeployment.DesiredRevision != effectiveRevision {
 		t.Fatalf("late provider convergence command=%#v deployment=%#v commandErr=%v deploymentErr=%v", command, protectedDeployment, err, deploymentErr)
 	}
 	etag, err := gitprojection.StrongETag(binding, []gitprojection.Document{document}, nil, chartDigest, "appconfig-v1alpha1")

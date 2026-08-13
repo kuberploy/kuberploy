@@ -82,7 +82,7 @@ func (s *Store) CompareAndSwapPublication(_ context.Context, previous, next gitp
 					command.State, command.CommittedRevision, command.CommittedAt = gitprojection.WriteCommandIndexed, next.TargetRevision, &indexedAt
 					command.IndexedGeneration, command.IndexedAt, command.UpdatedAt = binding.ProjectionGeneration, &indexedAt, indexedAt
 					s.gitWriteCommands[next.OperationID] = command
-					deployment.State, deployment.DesiredRevision = "git-committed", next.TargetRevision
+					deployment.State, deployment.DesiredRevision = "git-committed", document.ConfigRevision
 				}
 			}
 			s.deployments[deployment.ID] = deployment
