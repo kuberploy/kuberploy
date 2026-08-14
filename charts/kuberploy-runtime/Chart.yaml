@@ -2,8 +2,8 @@ apiVersion: v2
 name: kuberploy-runtime
 description: Deterministic runtime chart for a Kuberploy AppConfig
 type: application
-version: 0.1.0-rc.167
-appVersion: "0.1.0-rc.167"
+version: 0.1.0-rc.168
+appVersion: "0.1.0-rc.168"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   config.kuberploy.io/app-config-version: config.kuberploy.io/v1alpha1

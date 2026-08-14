@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Database schema advances to 008 to schema-qualify protected Helm payload and Application validators, restoring cross-release adoption under hardened search paths.",
+  "summary": "Database schema advances to 009 so Helm phase-two Application publication preserves verified payload provenance while requiring fresh current AppProject, materialization, and foundation authority with safe pristine replacement.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.167"
+  "version": "0.1.0-rc.168"
 }

@@ -141,12 +141,30 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	if prerequisite.ValidateFor(intent.ReleaseRevisionID, intent.Target, intent.Binding) != nil {
 		return intent, guard.Result(ErrConflict)
 	}
+	prerequisites := []string{prerequisite.FoundationRevision, prerequisite.DesiredStateRevision,
+		intent.PayloadRevision}
+	if intent.ContinuationRequired {
+		continuation, continuationErr := p.Store.ApplicationContinuation(guard.Context(), intent.ID)
+		if continuationErr != nil {
+			return intent, guard.Result(continuationErr)
+		}
+		if continuation.ApplicationIntentID != intent.ID ||
+			continuation.ReleaseRevisionID != intent.ReleaseRevisionID ||
+			continuation.PayloadIntentID != intent.PayloadIntentID ||
+			continuation.ApplicationContentDigest != intent.ContentDigest ||
+			continuation.ApplicationIntentDigest != intent.IntentDigest ||
+			continuation.PlannedBaseRevision != intent.Binding.PlannedBaseRevision {
+			return intent, guard.Result(ErrConflict)
+		}
+		prerequisites = []string{continuation.CurrentFoundationRevision,
+			continuation.CurrentDesiredStateRevision, intent.PayloadRevision}
+	}
 	work := protectedPublicationWork{
 		state:         func() ProtectedIntentState { return intent.State },
 		mutation:      func() (ProtectedMutation, error) { return intent.Mutation() },
 		writeBase:     func() string { return intent.WriteBaseRevision },
 		committed:     func() string { return intent.CommittedRevision },
-		prerequisites: []string{prerequisite.FoundationRevision, prerequisite.DesiredStateRevision},
+		prerequisites: prerequisites,
 		bind: func(current ProtectedIntentLease, revision string, observedAt, now time.Time) error {
 			var bindErr error
 			intent, bindErr = p.Store.BindApplicationWriteBase(ctx, current, revision, observedAt, now)

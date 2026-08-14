@@ -47,8 +47,23 @@ func (s *PostgresProtectedPublicationStore) NextApplicationCandidate(ctx context
 		FROM helm_protected_payload_intents payload
 		JOIN helm_release_heads head ON head.revision_id=payload.release_revision_id
 		LEFT JOIN helm_protected_application_intents application
-		  ON application.payload_intent_id=payload.id
-		WHERE payload.state='verified' AND application.id IS NULL
+		  ON application.payload_intent_id=payload.id AND application.state<>'superseded'
+		WHERE payload.state='verified' AND application.id IS NULL AND (
+		  NOT EXISTS(SELECT 1 FROM helm_protected_application_intents prior
+		    WHERE prior.payload_intent_id=payload.id) OR
+		  EXISTS(SELECT 1 FROM helm_protected_application_intents prior
+		    WHERE prior.payload_intent_id=payload.id AND prior.state='superseded'
+		      AND prior.last_failure_code='projection-superseded'
+		      AND prior.lease_epoch=0 AND prior.attempts=0 AND prior.lease_owner IS NULL
+		      AND prior.lease_until IS NULL AND prior.write_base_revision=''
+		      AND prior.write_base_observed_at IS NULL AND prior.committed_revision=''
+		      AND prior.committed_parent_revision='' AND prior.committed_at IS NULL
+		      AND prior.verified_at IS NULL AND prior.verified_path_digest=''
+		      AND prior.provider_request='' AND prior.completed_at IS NOT NULL
+		      AND NOT EXISTS(SELECT 1 FROM helm_protected_application_intents newer
+		        WHERE newer.payload_intent_id=prior.payload_intent_id AND
+		          (newer.created_at,newer.id)>(prior.created_at,prior.id)))
+		)
 		ORDER BY payload.verified_at,payload.id LIMIT 1`).Scan(&candidate.ReleaseRevisionID,
 		&candidate.PayloadIntentID, &candidate.Target.ProjectID,
 		&candidate.Target.EnvironmentID, &candidate.Target.ApplicationID)

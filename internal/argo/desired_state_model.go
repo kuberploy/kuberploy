@@ -1,6 +1,7 @@
 package argo
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -125,6 +126,7 @@ type DesiredStateCommand struct {
 	CatalogDigest       string                             `json:"catalogDigest"`
 	Runtime             RuntimeLock                        `json:"runtime"`
 	DigestEnforcement   ChartDigestEnforcement             `json:"chartDigestEnforcement"`
+	AppProjectContent   []byte                             `json:"-"`
 	Content             []byte                             `json:"-"`
 	ContentSHA256       string                             `json:"contentSha256"`
 	Message             string                             `json:"message"`
@@ -144,6 +146,10 @@ type DesiredStateCommand struct {
 
 func newDesiredStateCommand(id string, target DesiredStateTarget, approval DesiredStateProjectionApproval, previous *DesiredStateCommand, now time.Time) (DesiredStateCommand, error) {
 	if !uuidRE.MatchString(id) || target.Validate() != nil || now.IsZero() {
+		return DesiredStateCommand{}, ErrInvalid
+	}
+	appProjectContent, err := RenderAppProject(target)
+	if err != nil {
 		return DesiredStateCommand{}, ErrInvalid
 	}
 	content, err := RenderEnvironment(target, approval.Applications, approval.Deployments)
@@ -180,7 +186,8 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 		ArgoProject: target.Environment.Environment.ArgoProject, BaseRevision: target.PlatformBinding.TargetHeadRevision,
 		Precondition: precondition, ExpectedETag: expectedETag, PolicyDigest: approval.PolicyDigest,
 		CatalogDigest: approval.CatalogDigest, Runtime: target.Environment.Runtime,
-		DigestEnforcement: ChartDigestNativeOCI, Content: append([]byte(nil), content...), ContentSHA256: contentSHA,
+		DigestEnforcement: ChartDigestNativeOCI, AppProjectContent: append([]byte(nil), appProjectContent...),
+		Content: append([]byte(nil), content...), ContentSHA256: contentSHA,
 		Message: fmt.Sprintf("Reconcile Argo desired state for environment %s generation %d", target.Environment.Environment.ID, generation),
 		State:   DesiredStatePending, NextAttemptAt: createdAt, CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
@@ -205,6 +212,7 @@ func (c DesiredStateCommand) Validate() error {
 		!commitRE.MatchString(c.BaseRevision) || !validPrecondition ||
 		(c.PolicyDigest != "" && !digestRE.MatchString(c.PolicyDigest)) || !digestRE.MatchString(c.CatalogDigest) || c.Runtime.Validate() != nil ||
 		len(c.Content) == 0 || len(c.Content) > gitprojection.MaxDocumentBytes || c.ContentSHA256 != contentDigest(c.Content) ||
+		(len(c.AppProjectContent) > 0 && !bytes.HasPrefix(c.Content, append(append([]byte(nil), c.AppProjectContent...), []byte("---\n")...))) ||
 		len(c.Message) == 0 || len(c.Message) > 512 || !utf8.ValidString(c.Message) || strings.ContainsAny(c.Message, "\x00\r") ||
 		c.CreatedAt.IsZero() || c.UpdatedAt.IsZero() || c.NextAttemptAt.IsZero() || c.UpdatedAt.Before(c.CreatedAt) ||
 		c.NextAttemptAt.Before(c.CreatedAt) || c.ConsecutiveFailures < 0 || c.ConsecutiveFailures > 30 || c.LeaseEpoch < 0 ||

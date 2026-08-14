@@ -1,6 +1,7 @@
 package argo
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"time"
@@ -12,7 +13,7 @@ const desiredStateColumns = `id::text,generation,project_id::text,environment_id
 platform_binding_id::text,environment_binding_id::text,cluster_id::text,
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
 base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,COALESCE(policy_digest,''),catalog_digest,chart_repository,chart_name,chart_version,
-chart_digest,renderer_image,chart_digest_enforcement,content,content_sha256,message,state,
+chart_digest,renderer_image,chart_digest_enforcement,COALESCE(app_project_content,''::bytea),content,content_sha256,message,state,
 committed_revision,committed_at,verified_at,next_attempt_at,consecutive_failures,last_failure_code,
 lease_owner,lease_epoch,lease_until,worker_contract,worker_config_digest,created_at,updated_at,completed_at`
 
@@ -28,7 +29,7 @@ func scanDesiredState(row pgx.Row) (DesiredStateCommand, error) {
 		&command.DestinationNamespace, &command.ArgoProject, &command.BaseRevision, &command.WriteBaseRevision, &command.WriteBaseObservedAt, &command.Precondition,
 		&command.ExpectedETag, &command.PolicyDigest, &command.CatalogDigest, &command.Runtime.ChartRepository, &command.Runtime.ChartName,
 		&command.Runtime.ChartVersion, &command.Runtime.ChartDigest, &command.Runtime.RendererImage,
-		&command.DigestEnforcement, &command.Content, &command.ContentSHA256, &command.Message, &command.State,
+		&command.DigestEnforcement, &command.AppProjectContent, &command.Content, &command.ContentSHA256, &command.Message, &command.State,
 		&command.CommittedRevision, &command.CommittedAt, &command.VerifiedAt, &command.NextAttemptAt,
 		&command.ConsecutiveFailures, &command.LastFailureCode, &leaseOwner, &command.LeaseEpoch, &leaseUntil,
 		&workerContract, &workerConfigDigest, &command.CreatedAt, &command.UpdatedAt, &command.CompletedAt,
@@ -47,7 +48,7 @@ func scanDesiredState(row pgx.Row) (DesiredStateCommand, error) {
 }
 
 func (s *PostgreSQLStore) CreateDesiredState(ctx context.Context, command DesiredStateCommand) (bool, error) {
-	if command.Validate() != nil || !digestRE.MatchString(command.PolicyDigest) || command.Lease != nil ||
+	if command.Validate() != nil || len(command.AppProjectContent) == 0 || !digestRE.MatchString(command.PolicyDigest) || command.Lease != nil ||
 		command.WriteBaseRevision != "" || command.WriteBaseObservedAt != nil ||
 		command.State != DesiredStatePending && command.State != DesiredStateBlockedPrerequisite {
 		return false, ErrInvalid
@@ -56,16 +57,16 @@ func (s *PostgreSQLStore) CreateDesiredState(ctx context.Context, command Desire
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,cluster_id,
 		platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,precondition,expected_etag,policy_digest,catalog_digest,chart_repository,chart_name,chart_version,
-		chart_digest,renderer_image,chart_digest_enforcement,content,content_sha256,message,state,
+		chart_digest,renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,message,state,
 		next_attempt_at,consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at,completed_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
 	ON CONFLICT DO NOTHING`,
 		command.ID, command.Generation, command.ProjectID, command.EnvironmentID, command.PlatformBindingID,
 		command.EnvironmentBindingID, command.ClusterID, command.PlatformTargetRef, command.EnvironmentTargetRef,
 		command.EnvironmentRevision, command.EnvironmentGeneration, command.Path, command.ArgoNamespace, command.DestinationNamespace, command.ArgoProject, command.BaseRevision,
 		command.Precondition, command.ExpectedETag, command.PolicyDigest, command.CatalogDigest, command.Runtime.ChartRepository,
 		command.Runtime.ChartName, command.Runtime.ChartVersion, command.Runtime.ChartDigest, command.Runtime.RendererImage,
-		command.DigestEnforcement, command.Content, command.ContentSHA256, command.Message, command.State,
+		command.DigestEnforcement, command.AppProjectContent, command.Content, command.ContentSHA256, command.Message, command.State,
 		command.NextAttemptAt.UTC(), command.ConsecutiveFailures, command.LastFailureCode, command.LeaseEpoch,
 		command.CreatedAt.UTC(), command.UpdatedAt.UTC(), command.CompletedAt)
 	if err != nil {
@@ -97,7 +98,8 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 	current, verified DesiredStateCommand, now time.Time,
 ) (bool, error) {
 	if s == nil || s.pool == nil || ctx == nil || current.Validate() != nil || !digestRE.MatchString(current.PolicyDigest) ||
-		verified.Validate() != nil || verified.State != DesiredStateVerified || now.IsZero() ||
+		verified.Validate() != nil || len(current.AppProjectContent) == 0 || len(verified.AppProjectContent) == 0 ||
+		!bytes.Equal(current.AppProjectContent, verified.AppProjectContent) || verified.State != DesiredStateVerified || now.IsZero() ||
 		current.ProjectID != verified.ProjectID || current.EnvironmentID != verified.EnvironmentID ||
 		current.PlatformBindingID != verified.PlatformBindingID ||
 		current.EnvironmentBindingID != verified.EnvironmentBindingID ||
@@ -113,15 +115,16 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 		environment_target_ref,desired_state_command_id,desired_state_generation,
 		desired_state_revision,desired_state_content_sha256,policy_digest,catalog_digest,
 		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
-		chart_digest_enforcement,created_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+		chart_digest_enforcement,app_project_content,created_at
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
 	ON CONFLICT(id) DO NOTHING`, current.ID,
 		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
 		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
 		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
 		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
 		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
-		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement, now.UTC())
+		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement,
+		current.AppProjectContent, now.UTC())
 	if err != nil {
 		return false, classifyPostgres(err)
 	}
@@ -138,13 +141,14 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 		  AND desired_state_revision=$13 AND desired_state_content_sha256=$14
 		  AND policy_digest=$15 AND catalog_digest=$16 AND chart_repository=$17 AND chart_name=$18
 		  AND chart_version=$19 AND chart_digest=$20 AND renderer_image=$21
-		  AND chart_digest_enforcement=$22)`, current.ID,
+		  AND chart_digest_enforcement=$22 AND app_project_content=$23)`, current.ID,
 		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
 		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
 		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
 		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
 		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
-		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement).Scan(&exact)
+		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement,
+		current.AppProjectContent).Scan(&exact)
 	if err != nil {
 		return false, classifyPostgres(err)
 	}

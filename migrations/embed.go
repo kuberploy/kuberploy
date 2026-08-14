@@ -16,9 +16,9 @@ import (
 //go:embed prisma/migrations/*/migration.sql
 var FS embed.FS
 
-// CurrentSchema is bumped with every ordered migration and is compared with
-// the verified release manifest before accepting a platform upgrade.
-const CurrentSchema = "008_qualify_helm_intent_validators"
+// CurrentSchema is bumped with every ordered migration and is published in the
+// immutable release manifest for Helm-driven install and upgrade qualification.
+const CurrentSchema = "009_helm_application_continuation"
 
 var namePattern = regexp.MustCompile(`^[0-9]{3}_[a-z0-9]+(?:_[a-z0-9]+)*$`)
 

@@ -106,27 +106,48 @@ func chartRepoForArgo(runtime RuntimeLock) string {
 	return strings.TrimSuffix(runtime.ChartRepository, "/") + "/" + runtime.ChartName
 }
 
-func RenderAppProject(target DesiredStateTarget) ([]byte, error) {
-	if err := target.Validate(); err != nil {
-		return nil, err
+// AppProjectAuthority is the minimal server-derived authority needed to
+// independently render one environment's canonical AppProject.
+type AppProjectAuthority struct {
+	ProjectID, EnvironmentID, EnvironmentBindingID string
+	Namespace, ArgoProject, ArgoNamespace          string
+	EnvironmentRepository, PlatformRepository      gitprojection.RepositoryIdentity
+	Runtime                                        RuntimeLock
+}
+
+func (a AppProjectAuthority) Validate() error {
+	if !uuidRE.MatchString(a.ProjectID) || !uuidRE.MatchString(a.EnvironmentID) ||
+		!uuidRE.MatchString(a.EnvironmentBindingID) || !kubeRE.MatchString(a.Namespace) ||
+		a.ArgoProject != a.Namespace || !kubeRE.MatchString(a.ArgoNamespace) ||
+		a.EnvironmentRepository.Validate() != nil || a.PlatformRepository.Validate() != nil ||
+		a.Runtime.Validate() != nil {
+		return ErrInvalid
 	}
-	environment := target.Environment
-	gitRemote, err := environment.Binding.Repository.CanonicalRemote()
+	return nil
+}
+
+func RenderAppProjectAuthority(authority AppProjectAuthority) ([]byte, error) {
+	if authority.Validate() != nil {
+		return nil, ErrInvalid
+	}
+	gitRemote, err := authority.EnvironmentRepository.CanonicalRemote()
 	if err != nil {
 		return nil, err
 	}
-	platformRemote, err := target.PlatformBinding.Repository.CanonicalRemote()
+	platformRemote, err := authority.PlatformRepository.CanonicalRemote()
 	if err != nil {
 		return nil, err
 	}
-	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: environment.Environment.ArgoProject, Namespace: environment.ArgoNamespace, Labels: baseLabels(environment),
-		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": environment.Binding.ID, "kuberploy.io/runtime-chart-digest": environment.Runtime.ChartDigest, "kuberploy.io/renderer-image": environment.Runtime.RendererImage}}}
+	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: authority.ArgoProject, Namespace: authority.ArgoNamespace,
+		Labels: map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/project-id": authority.ProjectID, "kuberploy.io/environment-id": authority.EnvironmentID},
+		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": authority.EnvironmentBindingID,
+			"kuberploy.io/runtime-chart-digest": authority.Runtime.ChartDigest, "kuberploy.io/renderer-image": authority.Runtime.RendererImage}}}
 	manifest.Spec.SourceRepos = []string{gitRemote}
 	if platformRemote != gitRemote {
 		manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, platformRemote)
 	}
-	manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, chartRepoForArgo(environment.Runtime))
-	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": environment.Environment.Namespace}}
+	manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, chartRepoForArgo(authority.Runtime))
+	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": authority.Namespace}}
 	manifest.Spec.ClusterResourceWhitelist = []map[string]string{}
 	manifest.Spec.NamespaceResourceWhitelist = []map[string]string{
 		{"group": "", "kind": "ConfigMap"}, {"group": "", "kind": "PersistentVolumeClaim"}, {"group": "", "kind": "Service"}, {"group": "", "kind": "ServiceAccount"},
@@ -137,6 +158,18 @@ func RenderAppProject(target DesiredStateTarget) ([]byte, error) {
 	}
 	manifest.Spec.OrphanedResources = map[string]bool{"warn": true}
 	return yaml.Marshal(manifest)
+}
+
+func RenderAppProject(target DesiredStateTarget) ([]byte, error) {
+	if err := target.Validate(); err != nil {
+		return nil, err
+	}
+	environment := target.Environment
+	return RenderAppProjectAuthority(AppProjectAuthority{ProjectID: environment.Project.ID,
+		EnvironmentID: environment.Environment.ID, EnvironmentBindingID: environment.Binding.ID,
+		Namespace: environment.Environment.Namespace, ArgoProject: environment.Environment.ArgoProject,
+		ArgoNamespace: environment.ArgoNamespace, EnvironmentRepository: environment.Binding.Repository,
+		PlatformRepository: target.PlatformBinding.Repository, Runtime: environment.Runtime})
 }
 
 func RenderApplication(target EnvironmentTarget, application domain.Application, deployment domain.Deployment) ([]byte, error) {

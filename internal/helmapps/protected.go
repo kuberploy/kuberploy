@@ -15,6 +15,7 @@ const (
 	ProtectedPublisherContract     = "helm-protected-publisher.v1"
 	ProtectedGitPolicy             = "helm-protected-git.v1"
 	protectedPrerequisiteContract  = "helm-publication-prerequisite.v1"
+	protectedContinuationContract  = "helm-application-continuation.v1"
 	ArgoApplicationAPIVersion      = "argoproj.io/v1alpha1"
 	ArgoApplicationKind            = "Application"
 	ArgoInClusterServer            = "https://kubernetes.default.svc"
@@ -83,6 +84,57 @@ type ProtectedPublicationPrerequisiteReceipt struct {
 	DesiredStateCommandID, DesiredStateRevision                string
 	PlannedBaseRevision                                        string
 	CreatedAt                                                  time.Time
+}
+
+// ProtectedApplicationContinuationReceipt is immutable phase-two authority.
+// It preserves phase-one provenance while proving an independently verified
+// current AppProject materialization, foundation, and provider write base.
+type ProtectedApplicationContinuationReceipt struct {
+	ApplicationIntentID, ReleaseRevisionID, PayloadIntentID   string
+	ProjectID, EnvironmentID, ApplicationID                   string
+	PlatformBindingID, EnvironmentBindingID, ClusterID        string
+	SourceEnvironmentRevision                                 string
+	SourceEnvironmentGeneration                               int64
+	SourceFoundationIntentID, SourceFoundationRevision        string
+	SourceDesiredStateCommandID, SourceDesiredStateRevision   string
+	SourceDesiredStateContentDigest                           string
+	CurrentEnvironmentRevision                                string
+	CurrentEnvironmentGeneration                              int64
+	CurrentFoundationIntentID, CurrentFoundationRevision      string
+	CurrentMaterializationReceiptID                           string
+	CurrentDesiredStateCommandID, CurrentDesiredStateRevision string
+	CurrentDesiredStateContentDigest, PlannedBaseRevision     string
+	CurrentPolicyDigest                                       string
+	CurrentRuntime                                            argo.RuntimeLock
+	CurrentChartDigestEnforcement                             argo.ChartDigestEnforcement
+	CurrentAppProjectContent                                  []byte
+	ApplicationContentDigest, ApplicationIntentDigest         string
+	CreatedAt                                                 time.Time
+}
+
+func (r ProtectedApplicationContinuationReceipt) Validate() error {
+	if !uuidRE.MatchString(r.ApplicationIntentID) || !uuidRE.MatchString(r.ReleaseRevisionID) ||
+		!uuidRE.MatchString(r.PayloadIntentID) ||
+		!uuidRE.MatchString(r.ProjectID) || !uuidRE.MatchString(r.EnvironmentID) ||
+		!uuidRE.MatchString(r.ApplicationID) || !uuidRE.MatchString(r.PlatformBindingID) ||
+		!uuidRE.MatchString(r.EnvironmentBindingID) || !uuidRE.MatchString(r.ClusterID) ||
+		!gitCommitRE.MatchString(r.SourceEnvironmentRevision) || r.SourceEnvironmentGeneration < 1 ||
+		!uuidRE.MatchString(r.SourceFoundationIntentID) || !gitCommitRE.MatchString(r.SourceFoundationRevision) ||
+		!uuidRE.MatchString(r.SourceDesiredStateCommandID) || !gitCommitRE.MatchString(r.SourceDesiredStateRevision) ||
+		!validDigest(r.SourceDesiredStateContentDigest) || !gitCommitRE.MatchString(r.CurrentEnvironmentRevision) ||
+		r.CurrentEnvironmentGeneration < 1 || !uuidRE.MatchString(r.CurrentFoundationIntentID) ||
+		!gitCommitRE.MatchString(r.CurrentFoundationRevision) || !uuidRE.MatchString(r.CurrentMaterializationReceiptID) ||
+		!uuidRE.MatchString(r.CurrentDesiredStateCommandID) || !gitCommitRE.MatchString(r.CurrentDesiredStateRevision) ||
+		!validDigest(r.CurrentDesiredStateContentDigest) || !gitCommitRE.MatchString(r.PlannedBaseRevision) ||
+		!validDigest(r.CurrentPolicyDigest) || r.CurrentRuntime.Validate() != nil ||
+		r.CurrentChartDigestEnforcement != argo.ChartDigestNativeOCI ||
+		len(r.CurrentAppProjectContent) == 0 || len(r.CurrentAppProjectContent) > gitprojection.MaxDocumentBytes ||
+		(r.ApplicationContentDigest != "" && !validDigest(r.ApplicationContentDigest)) ||
+		!validDigest(r.ApplicationIntentDigest) ||
+		r.CreatedAt.IsZero() {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func (r ProtectedPublicationPrerequisiteReceipt) Validate() error {
@@ -240,6 +292,8 @@ type ProtectedApplicationIntent struct {
 	Publisher                                              ProtectedPublisherIdentity
 	OriginalPublisherConfigDigest                          string
 	PublisherAdoptionEpoch                                 int64
+	ContinuationRequired                                   bool
+	ContinuationReceiptID, ContinuationContract            string
 	Message                                                string
 	State                                                  ProtectedIntentState
 	NextAttemptAt                                          time.Time
@@ -271,6 +325,9 @@ func (i ProtectedApplicationIntent) Validate() error {
 		(i.OriginalPublisherConfigDigest != "" && !validDigest(i.OriginalPublisherConfigDigest)) ||
 		(i.PublisherAdoptionEpoch == 0 && i.OriginalPublisherConfigDigest != "" &&
 			i.OriginalPublisherConfigDigest != i.Publisher.ConfigDigest) ||
+		(i.ContinuationRequired && (!uuidRE.MatchString(i.ContinuationReceiptID) ||
+			i.ContinuationReceiptID != i.ID || i.ContinuationContract != protectedContinuationContract)) ||
+		(!i.ContinuationRequired && (i.ContinuationReceiptID != "" || i.ContinuationContract != "")) ||
 		len(i.Message) < 1 || len(i.Message) > 512 ||
 		containsControl(i.Message) || i.CreatedAt.IsZero() || i.UpdatedAt.Before(i.CreatedAt) ||
 		i.NextAttemptAt.Before(i.CreatedAt) || i.Attempts < 0 || i.Attempts > MaximumProtectedAttempts ||
@@ -505,6 +562,7 @@ type ProtectedPublicationStore interface {
 	RetryPayload(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedPayloadIntent, error)
 	FailPayload(context.Context, ProtectedIntentLease, string, time.Time) (ProtectedPayloadIntent, error)
 	PublicationPrerequisite(context.Context, string) (ProtectedPublicationPrerequisiteReceipt, error)
+	ApplicationContinuation(context.Context, string) (ProtectedApplicationContinuationReceipt, error)
 
 	CreateApplicationForPayload(context.Context, string, string, ProtectedApplicationRuntime, ProtectedPublisherIdentity, time.Time) (ProtectedApplicationIntent, bool, error)
 	Application(context.Context, string) (ProtectedApplicationIntent, error)

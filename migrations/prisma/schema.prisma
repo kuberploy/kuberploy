@@ -130,6 +130,7 @@ model argo_desired_state_commands {
   updated_at               DateTime  @db.Timestamptz(6)
   completed_at             DateTime? @db.Timestamptz(6)
   policy_digest            String?
+  app_project_content      Bytes?
 
   @@unique([environment_id, generation])
   @@index([next_attempt_at, created_at, id], map: "argo_desired_state_commands_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
@@ -162,6 +163,7 @@ model argo_desired_state_materialization_receipts {
   renderer_image               String
   chart_digest_enforcement     String
   created_at                   DateTime @db.Timestamptz(6)
+  app_project_content          Bytes?
 
   @@index([environment_binding_id, environment_revision, environment_generation, created_at(sort: Desc), id(sort: Desc)], map: "argo_desired_state_materialization_exact_idx")
   @@index([desired_state_command_id, desired_state_generation, desired_state_revision], map: "argo_desired_state_materialization_command_idx")
@@ -1018,8 +1020,8 @@ model helm_chart_approvals {
 /// This table contains check constraints and requires additional setup for migrations. Migration 008 owns its schema-qualified trigger validator because Prisma cannot represent trigger functions losslessly.
 model helm_protected_application_intents {
   id                               String    @id @db.Uuid
-  release_revision_id              String    @unique @db.Uuid
-  payload_intent_id                String    @unique @db.Uuid
+  release_revision_id              String    @unique(map: "helm_protected_application_release_live_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
+  payload_intent_id                String    @unique(map: "helm_protected_application_payload_live_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
   release_generation               BigInt
   project_id                       String    @db.Uuid
   environment_id                   String    @db.Uuid
@@ -1072,10 +1074,57 @@ model helm_protected_application_intents {
   prerequisite_epoch               BigInt    @default(0)
   original_publisher_config_digest String
   publisher_adoption_epoch         BigInt    @default(0)
+  continuation_required            Boolean   @default(true)
+  continuation_receipt_id          String?   @db.Uuid
+  continuation_contract            String    @default("")
 
-  @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_in_environment_id_application_id_key")
+  @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_generation_live_key", where: raw("(state <> 'superseded'::text)"))
   @@index([platform_binding_id, state, created_at], map: "helm_protected_application_intents_binding_idx")
   @@index([next_attempt_at, created_at, id], map: "helm_protected_application_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+}
+
+/// Immutable proof that phase two has canonical current AppProject, materialization, and foundation authority.
+/// Native migration SQL owns admission, immutability, current projection, and exact Application binding.
+model helm_application_continuation_receipts {
+  application_intent_id                String   @id @db.Uuid
+  release_revision_id                  String   @db.Uuid
+  payload_intent_id                    String   @db.Uuid
+  project_id                           String   @db.Uuid
+  environment_id                       String   @db.Uuid
+  application_id                       String   @db.Uuid
+  platform_binding_id                  String   @db.Uuid
+  environment_binding_id               String   @db.Uuid
+  cluster_id                           String   @db.Uuid
+  source_environment_revision          String
+  source_environment_generation        BigInt
+  source_foundation_intent_id          String   @db.Uuid
+  source_foundation_revision           String
+  source_desired_state_command_id      String   @db.Uuid
+  source_desired_state_revision        String
+  source_desired_state_content_digest  String
+  current_environment_revision         String
+  current_environment_generation       BigInt
+  current_foundation_intent_id         String   @db.Uuid
+  current_foundation_revision          String
+  current_materialization_receipt_id   String   @db.Uuid
+  current_desired_state_command_id     String   @db.Uuid
+  current_desired_state_revision       String
+  current_desired_state_content_digest String
+  planned_base_revision                String
+  current_policy_digest                String
+  current_chart_repository             String
+  current_chart_name                   String
+  current_chart_version                String
+  current_chart_digest                 String
+  current_renderer_image               String
+  current_chart_digest_enforcement     String
+  current_app_project_content          Bytes
+  application_content_digest           String
+  application_intent_digest            String
+  created_at                           DateTime @db.Timestamptz(6)
+
+  @@unique([release_revision_id, application_intent_id], map: "helm_application_continuation_release_attempt_key")
+  @@index([payload_intent_id, created_at(sort: Desc)], map: "helm_application_continuation_payload_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Migration 008 owns its schema-qualified trigger validator because Prisma cannot represent trigger functions losslessly.

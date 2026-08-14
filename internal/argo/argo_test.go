@@ -166,6 +166,20 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	authorityProject, err := argo.RenderAppProjectAuthority(argo.AppProjectAuthority{
+		ProjectID: desiredTarget.Environment.Project.ID, EnvironmentID: desiredTarget.Environment.Environment.ID,
+		EnvironmentBindingID:  desiredTarget.Environment.Binding.ID,
+		Namespace:             desiredTarget.Environment.Environment.Namespace,
+		ArgoProject:           desiredTarget.Environment.Environment.ArgoProject,
+		ArgoNamespace:         desiredTarget.Environment.ArgoNamespace,
+		EnvironmentRepository: desiredTarget.Environment.Binding.Repository,
+		PlatformRepository:    desiredTarget.PlatformBinding.Repository,
+		Runtime:               desiredTarget.Environment.Runtime,
+	})
+	if err != nil || !bytes.Equal(authorityProject, project) {
+		t.Fatalf("independent AppProject authority render differs from desired-state render: err=%v\n%s\n%s",
+			err, authorityProject, project)
+	}
 	projectDocument := decodeYAML(t, project)
 	projectSpec, ok := projectDocument["spec"].(map[string]any)
 	if !ok {

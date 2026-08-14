@@ -434,7 +434,12 @@ const releaseStatusSelect = `SELECT release.id::text,release.generation,release.
 	FROM helm_release_revisions release
 	LEFT JOIN helm_render_commands render ON render.id=release.render_command_id
 	LEFT JOIN helm_protected_payload_intents payload ON payload.release_revision_id=release.id
-	LEFT JOIN helm_protected_application_intents application ON application.release_revision_id=release.id `
+	LEFT JOIN LATERAL (
+		SELECT candidate.* FROM helm_protected_application_intents candidate
+		WHERE candidate.release_revision_id=release.id
+		ORDER BY (candidate.state<>'superseded') DESC,candidate.created_at DESC,candidate.id DESC
+		LIMIT 1
+	) application ON true `
 
 func scanReleaseStatus(row rowScanner) (ReleaseStatus, error) {
 	var status ReleaseStatus

@@ -89,7 +89,8 @@ const protectedApplicationColumns = `id::text,release_revision_id::text,payload_
 	catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 	application_path,operation,precondition,expected_etag,content,content_digest,
 	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,
-	original_publisher_config_digest,publisher_adoption_epoch,message,state,
+	original_publisher_config_digest,publisher_adoption_epoch,continuation_required,
+	COALESCE(continuation_receipt_id::text,''),continuation_contract,message,state,
 	next_attempt_at,attempts,consecutive_failures,last_failure_code,COALESCE(lease_owner,''),
 	lease_epoch,lease_until,write_base_revision,write_base_observed_at,committed_revision,
 	committed_parent_revision,committed_at,verified_at,verified_path_digest,provider_request,
@@ -109,7 +110,8 @@ func scanProtectedApplication(row rowScanner) (ProtectedApplicationIntent, error
 		&value.ExpectedETag, &value.Content, &value.ContentDigest, &value.IntentDigest,
 		&value.CommitTrailer, &value.Publisher.Contract, &value.Publisher.ConfigDigest,
 		&value.OriginalPublisherConfigDigest, &value.PublisherAdoptionEpoch,
-		&value.Message, &value.State, &value.NextAttemptAt, &value.Attempts,
+		&value.ContinuationRequired, &value.ContinuationReceiptID,
+		&value.ContinuationContract, &value.Message, &value.State, &value.NextAttemptAt, &value.Attempts,
 		&value.ConsecutiveFailures, &value.LastFailureCode, &value.LeaseOwner,
 		&value.LeaseEpoch, &value.LeaseUntil, &value.WriteBaseRevision,
 		&value.WriteBaseObservedAt, &value.CommittedRevision,
@@ -315,7 +317,9 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		ApplicationPath: protectedApplicationPath(binding.ClusterID, release.Target.EnvironmentID,
 			release.Target.ApplicationID), Publisher: publisher,
 		OriginalPublisherConfigDigest: publisher.ConfigDigest, State: ProtectedPending,
-		NextAttemptAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC(),
+		ContinuationRequired: true, ContinuationReceiptID: intentID,
+		ContinuationContract: protectedContinuationContract,
+		NextAttemptAt:        now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC(),
 		CommitTrailer: "Kuberploy-Helm-Application-Intent: " + intentID,
 		Message:       "Publish protected Helm Application " + release.ID,
 	}
@@ -352,6 +356,13 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	if err != nil || value.Validate() != nil {
 		return ProtectedApplicationIntent{}, false, ErrInvalid
 	}
+	continuation, err := ensureApplicationContinuation(ctx, tx, release, payload, value, s.authority, now)
+	if err != nil {
+		return ProtectedApplicationIntent{}, false, err
+	}
+	if continuation.PlannedBaseRevision != value.Binding.PlannedBaseRevision {
+		return ProtectedApplicationIntent{}, false, ErrConflict
+	}
 	result, err := tx.Exec(ctx, `INSERT INTO public.helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,environment_id,
 		application_id,action,platform_binding_id,environment_binding_id,cluster_id,
@@ -359,12 +370,13 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 		application_path,operation,precondition,expected_etag,content,content_digest,intent_digest,
 		commit_trailer,publisher_contract,publisher_config_digest,original_publisher_config_digest,
-		publisher_adoption_epoch,message,state,next_attempt_at,
+		publisher_adoption_epoch,continuation_required,continuation_receipt_id,
+		continuation_contract,message,state,next_attempt_at,
 		attempts,consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-		$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,$31,'pending',$32,0,0,'',0,
-		$2,$33,0,$32,$32)
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
+			$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,TRUE,$1,$31,$32,'pending',$33,0,0,'',0,
+			$2,$34,0,$33,$33)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.PayloadIntentID,
 		value.ReleaseGeneration, value.Target.ProjectID, value.Target.EnvironmentID,
 		value.Target.ApplicationID, value.Action, value.Binding.PlatformBindingID,
@@ -375,14 +387,16 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.PayloadPath, value.SourceDirectory, value.ApplicationPath, value.Operation,
 		value.Precondition, value.ExpectedETag, value.Content, value.ContentDigest,
 		value.IntentDigest, value.CommitTrailer, value.Publisher.Contract,
-		value.Publisher.ConfigDigest, value.Message, value.CreatedAt, protectedPrerequisiteContract)
+		value.Publisher.ConfigDigest, value.ContinuationContract, value.Message, value.CreatedAt,
+		protectedPrerequisiteContract)
 	if err != nil {
 		return ProtectedApplicationIntent{}, false, classifyPostgres(err)
 	}
 	created := result.RowsAffected() == 1
 	if !created {
 		existing, getErr := scanProtectedApplication(tx.QueryRow(ctx, `SELECT `+protectedApplicationColumns+`
-			FROM public.helm_protected_application_intents WHERE payload_intent_id=$1`, payload.ID))
+			FROM public.helm_protected_application_intents
+			WHERE payload_intent_id=$1 AND state<>'superseded'`, payload.ID))
 		if getErr != nil || !equalProtectedApplicationIdentity(existing, value) {
 			if getErr != nil {
 				return ProtectedApplicationIntent{}, false, getErr
@@ -535,23 +549,51 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 	// Only pristine, never-attempted work is retired when its projection snapshot
 	// is stale. Previously leased work may represent an unacknowledged Git push
 	// and remains recoverable by its own trailer and path digest.
+	staleEligibility := `NOT (` + freshProtectedProjectionSQL("candidate") + `)`
+	stalePublisherEligibility := `candidate.publisher_config_digest=$3`
+	if table == protectedApplicationTable {
+		staleEligibility = `((candidate.continuation_required AND NOT (` +
+			applicationContinuationIsExactSQL("candidate") + `)) OR
+			(NOT candidate.continuation_required AND NOT (` + freshProtectedProjectionSQL("candidate") + `)))`
+		stalePublisherEligibility = `(candidate.continuation_required OR candidate.publisher_config_digest=$3)`
+	}
 	_, err = tx.Exec(ctx, `UPDATE `+table+` candidate SET state='superseded',
 		completed_at=$1,updated_at=$1,consecutive_failures=1,
 		last_failure_code='projection-superseded',prerequisite_epoch=prerequisite_epoch+1
-		WHERE candidate.state='pending' AND candidate.lease_epoch=0
-		AND candidate.publisher_contract=$2 AND candidate.publisher_config_digest=$3
-		AND NOT (`+freshProtectedProjectionSQL("candidate")+`)`, now.UTC(),
+		WHERE candidate.state='pending' AND candidate.lease_epoch=0 AND candidate.attempts=0
+		AND candidate.lease_owner IS NULL AND candidate.lease_until IS NULL
+		AND candidate.write_base_revision='' AND candidate.write_base_observed_at IS NULL
+		AND candidate.committed_revision='' AND candidate.committed_parent_revision=''
+		AND candidate.committed_at IS NULL AND candidate.verified_at IS NULL
+		AND candidate.verified_path_digest='' AND candidate.provider_request=''
+		AND candidate.completed_at IS NULL
+		AND candidate.publisher_contract=$2 AND (`+stalePublisherEligibility+`)
+		AND (`+staleEligibility+`)
+		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
+			WHERE held.platform_binding_id=candidate.platform_binding_id
+			AND (`+protectedLaneExclusion(table, protectedPayloadTable)+`)
+			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
+		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
+			WHERE held.platform_binding_id=candidate.platform_binding_id
+			AND (`+protectedLaneExclusion(table, protectedApplicationTable)+`)
+			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)`, now.UTC(),
 		publisher.Contract, publisher.ConfigDigest)
 	if err != nil {
 		return "", classifyPostgres(err)
 	}
 	var intentID string
+	initialAuthority := freshProtectedProjectionSQL("candidate")
+	if table == protectedApplicationTable {
+		initialAuthority = `((candidate.continuation_required AND (` +
+			applicationContinuationIsExactSQL("candidate") + `)) OR
+			(NOT candidate.continuation_required AND (` + freshProtectedProjectionSQL("candidate") + `)))`
+	}
 	err = tx.QueryRow(ctx, `SELECT candidate.id::text FROM `+table+` candidate
 		WHERE candidate.state IN ('pending','claimed','git-committed')
 		AND candidate.next_attempt_at<=$1
 		AND (candidate.lease_owner IS NULL OR candidate.lease_until<=$1)
 		AND candidate.publisher_contract=$2 AND candidate.publisher_config_digest=$3
-		AND (candidate.lease_epoch>0 OR (`+freshProtectedProjectionSQL("candidate")+`))
+		AND (candidate.lease_epoch>0 OR (`+initialAuthority+`))
 		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
 			WHERE held.platform_binding_id=candidate.platform_binding_id
 			AND (`+protectedLaneExclusion(table, protectedPayloadTable)+`)
@@ -616,6 +658,13 @@ func freshProtectedProjectionSQL(alias string) string {
 			SELECT 1 FROM public.git_projected_documents invalid
 			WHERE invalid.binding_id=environment.id
 			AND invalid.generation=` + alias + `.environment_generation AND NOT invalid.valid))`
+}
+
+func applicationContinuationIsExactSQL(alias string) string {
+	if alias != "candidate" {
+		panic("closed SQL alias")
+	}
+	return `public.helm_application_continuation_is_exact(` + alias + `.id)`
 }
 
 func protectedLaneExclusion(candidateTable, heldTable string) string {
@@ -1076,6 +1125,9 @@ func equalProtectedApplicationIdentity(left, right ProtectedApplicationIntent) b
 		left.Publisher.Contract == right.Publisher.Contract &&
 		left.Publisher.PolicyVersion == right.Publisher.PolicyVersion &&
 		left.OriginalPublisherConfigDigest == right.OriginalPublisherConfigDigest &&
+		left.ContinuationRequired == right.ContinuationRequired &&
+		left.ContinuationReceiptID == right.ContinuationReceiptID &&
+		left.ContinuationContract == right.ContinuationContract &&
 		left.Message == right.Message
 }
 

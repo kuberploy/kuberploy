@@ -1,6 +1,7 @@
 package helmapps
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/argo"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
 )
 
@@ -112,7 +114,7 @@ func TestPostgresHelmReleaseTwoPhasePublicationContract(t *testing.T) {
 		return nestedErr
 	})
 
-	applicationOne, applicationOneDigest := id.New(), helmPGDigest([]byte("application-one"))
+	applicationOne, applicationOneDigest := id.New(), helmPGDigest([]byte("application-one\n"))
 	payloadOneCommit := strings.Repeat("b", 40)
 	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
 		return insertHelmApplication(ctx, nested, f, helmApplicationInsert{
@@ -488,12 +490,456 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = legacyTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Recreate the immutable phase-one receipt, then advance the environment to
+	// a different verified current AppProject command and runtime. Phase two
+	// must bind that current canonical authority without changing payload identity.
+	sourceReceiptTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceBinding := payload.Binding
+	sourceBinding.PlannedBaseRevision = payloadCommit
+	if _, err = ensurePublicationPrerequisite(ctx, sourceReceiptTx, release, sourceBinding,
+		helmPGArgoAuthority(), observedAt.Add(3*time.Second)); err != nil {
+		_ = sourceReceiptTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = sourceReceiptTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	currentAuthority := helmPGArgoAuthority()
+	currentAuthority.PolicyDigest = helmPGDigest([]byte("argo-materialization-policy-current"))
+	currentAuthority.Runtime.ChartVersion = "1.2.4"
+	currentAuthority.Runtime.ChartDigest = helmPGDigest([]byte("runtime-chart-current"))
+	currentAuthority.Runtime.RendererImage = "registry.example.com/kuberploy/runtime@" +
+		helmPGDigest([]byte("renderer-current"))
+	currentEnvironmentRevision, currentDesiredRevision := strings.Repeat("2", 40), strings.Repeat("3", 40)
+	currentCommandID := id.New()
+	currentProject, renderErr := argo.RenderAppProjectAuthority(argo.AppProjectAuthority{
+		ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		EnvironmentBindingID: f.environmentBindingID, Namespace: f.namespace,
+		ArgoProject: f.argoProject, ArgoNamespace: "argocd",
+		EnvironmentRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 102, Owner: "kuberploy", Name: "environment"},
+		PlatformRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 101, Owner: "kuberploy", Name: "platform"}, Runtime: currentAuthority.Runtime,
+	})
+	if renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	currentBundle := append(append([]byte(nil), currentProject...),
+		[]byte("---\napiVersion: argoproj.io/v1alpha1\nkind: ApplicationSet\nmetadata:\n  name: current\n")...)
+	currentTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
+		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+			VALUES($1,2,$2,'gitprojection.v1','active',$3,$3)`, []any{f.environmentBindingID, currentEnvironmentRevision, observedAt.Add(3 * time.Second)}},
+		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
+			projection_generation=2,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			[]any{f.environmentBindingID, currentEnvironmentRevision, observedAt.Add(3 * time.Second)}},
+	} {
+		if _, err = currentTx.Exec(ctx, statement.query, statement.args...); err != nil {
+			_ = currentTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+	}
+	if _, err = currentTx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		DISABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		_ = currentTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	_, err = currentTx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
+		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
+		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		environment_generation,path,argo_namespace,destination_namespace,argo_project,
+		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
+		policy_digest,catalog_digest,chart_repository,chart_name,chart_version,chart_digest,
+		renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,
+		message,state,committed_revision,committed_at,verified_at,next_attempt_at,
+		created_at,updated_at,completed_at
+	) VALUES($1,2,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,2,$8,
+		'argocd',$9,$10,$11,$11,$12,'match-etag',$13,$14,$15,$16,'kuberploy-runtime',$17,$18,
+		$19,'native-oci-digest-v1',$20,$21,$22,'current canonical AppProject','verified',$23,
+		$12,$12,$12,$12,$12,$12)`, currentCommandID, f.projectID, f.environmentID,
+		f.platformBindingID, f.environmentBindingID, f.clusterID, currentEnvironmentRevision,
+		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml", f.namespace,
+		f.argoProject, payloadCommit, observedAt.Add(3*time.Second), `"`+helmPGDigest([]byte("previous"))+`"`,
+		currentAuthority.PolicyDigest, f.catalogDigest, currentAuthority.Runtime.ChartRepository,
+		currentAuthority.Runtime.ChartVersion, currentAuthority.Runtime.ChartDigest,
+		currentAuthority.Runtime.RendererImage, currentProject, currentBundle,
+		helmPGDigest(currentBundle), currentDesiredRevision)
+	if err != nil {
+		_ = currentTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = currentTx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		ENABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		_ = currentTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = currentTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// Preserve the exact previous-release failure shape: phase two was planned against the
+	// source projection, then retired pristine when the environment projection
+	// advanced before its first claim. Migration 009 keeps that immutable
+	// history and permits exactly one continuation-backed replacement.
+	legacyApplicationID := id.New()
+	legacyApplicationContent := []byte("legacy projection-superseded application\n")
+	legacyApplicationTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacyApplicationTx.Exec(ctx, `ALTER TABLE helm_protected_application_intents
+		DISABLE TRIGGER helm_protected_application_continuation_validate`); err == nil {
+		err = insertLegacyHelmApplication(ctx, legacyApplicationTx, f, helmApplicationInsert{
+			id: legacyApplicationID, releaseID: release.ID, payloadID: payload.ID,
+			generation: release.Generation, action: "publish", payloadRevision: payloadCommit,
+			payloadPath: payload.Path, sourceDirectory: helmSourceDirectory(f, release.ID),
+			applicationPath: helmApplicationPath(f), operation: "create",
+			precondition: "create-if-absent", content: legacyApplicationContent,
+			contentDigest: helmPGDigest(legacyApplicationContent),
+		}, observedAt.Add(3*time.Second))
+	}
+	if _, enableErr := legacyApplicationTx.Exec(ctx, `ALTER TABLE helm_protected_application_intents
+		ENABLE TRIGGER helm_protected_application_continuation_validate`); err == nil {
+		err = enableErr
+	}
+	if err != nil {
+		_ = legacyApplicationTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = legacyApplicationTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = store.ClaimApplication(ctx, "helm-publisher-worker-0003", publisher,
+		observedAt.Add(4*time.Second), time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale pristine Application was not retired before replacement: %v", err)
+	}
+	legacyApplication, err := store.Application(ctx, legacyApplicationID)
+	if err != nil || legacyApplication.State != ProtectedSuperseded ||
+		legacyApplication.LastFailureCode != "projection-superseded" ||
+		legacyApplication.LeaseEpoch != 0 || legacyApplication.Attempts != 0 {
+		t.Fatalf("legacy replacement predecessor=%+v err=%v", legacyApplication, err)
+	}
+	if candidate, candidateErr := store.NextApplicationCandidate(ctx); candidateErr != nil ||
+		candidate.PayloadIntentID != payload.ID {
+		t.Fatalf("pristine superseded predecessor did not reopen phase two: %+v err=%v",
+			candidate, candidateErr)
+	}
+	currentStore, err := NewPostgresProtectedPublicationStore(pool, currentAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
 	applicationID := id.New()
-	application, replay, err := store.CreateApplicationForPayload(ctx, applicationID, payload.ID,
+	application, replay, err := currentStore.CreateApplicationForPayload(ctx, applicationID, payload.ID,
 		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, observedAt.Add(4*time.Second))
 	if err != nil || replay || application.State != ProtectedPending ||
 		application.PayloadRevision != payloadCommit || application.Operation != "create" {
 		t.Fatalf("application=%+v replay=%v err=%v", application, replay, err)
+	}
+	continuation, continuationErr := currentStore.ApplicationContinuation(ctx, application.ID)
+	if continuationErr != nil || continuation.SourceDesiredStateCommandID == continuation.CurrentDesiredStateCommandID ||
+		continuation.SourceDesiredStateRevision == continuation.CurrentDesiredStateRevision ||
+		continuation.CurrentDesiredStateCommandID != currentCommandID ||
+		continuation.CurrentDesiredStateRevision != currentDesiredRevision ||
+		continuation.CurrentRuntime != currentAuthority.Runtime ||
+		!bytes.Equal(continuation.CurrentAppProjectContent, currentProject) {
+		t.Fatalf("current continuation=%+v err=%v", continuation, continuationErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE helm_application_continuation_receipts
+		SET current_app_project_content=$2 WHERE application_intent_id=$1`,
+		application.ID, []byte("revoked AppProject authority\n")); err == nil {
+		t.Fatal("continuation AppProject authority mutation bypassed immutable receipt trigger")
+	}
+	replayedApplication, replay, err := currentStore.CreateApplicationForPayload(ctx, applicationID, payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, observedAt.Add(4*time.Second))
+	if err != nil || !replay || replayedApplication.ID != application.ID {
+		t.Fatalf("continuation replacement replay=%+v replay=%v err=%v", replayedApplication, replay, err)
+	}
+	if _, _, err = currentStore.CreateApplicationForPayload(ctx, id.New(), payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		observedAt.Add(4*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate continuation replacement was accepted: %v", err)
+	}
+	// A continuation is current authority, not an everlasting capability. Move
+	// the environment route to a new active projection before a matching
+	// materialization exists. The untouched Application must retire and phase
+	// two must remain blocked until the new AppProject is independently rendered.
+	changedEnvironmentRevision := strings.Repeat("4", 40)
+	changedProjectionAt := observedAt.Add(5 * time.Second)
+	changedProjectionTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL
+			WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
+		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+			VALUES($1,3,$2,'gitprojection.v1','active',$3,$3)`,
+			[]any{f.environmentBindingID, changedEnvironmentRevision, changedProjectionAt}},
+		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
+			projection_generation=3,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			[]any{f.environmentBindingID, changedEnvironmentRevision, changedProjectionAt}},
+	} {
+		if _, err = changedProjectionTx.Exec(ctx, statement.query, statement.args...); err != nil {
+			_ = changedProjectionTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+	}
+	if err = changedProjectionTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var continuationExact bool
+	if err = pool.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
+		application.ID).Scan(&continuationExact); err != nil {
+		t.Fatal(err)
+	}
+	if continuationExact {
+		t.Fatal("changed current projection retained stale continuation authority")
+	}
+	rotatedPublisher := publisher
+	rotatedPublisher.ConfigDigest = helmPGDigest([]byte("rotated-continuation-publisher"))
+	if _, _, err = currentStore.ClaimApplication(ctx, "helm-publisher-worker-0003", rotatedPublisher,
+		changedProjectionAt, time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale current continuation was not retired before claim: %v", err)
+	}
+	staleContinuationApplication, err := currentStore.Application(ctx, application.ID)
+	if err != nil || staleContinuationApplication.State != ProtectedSuperseded ||
+		staleContinuationApplication.LastFailureCode != "projection-superseded" ||
+		staleContinuationApplication.LeaseEpoch != 0 || staleContinuationApplication.Attempts != 0 ||
+		!staleContinuationApplication.ContinuationRequired {
+		t.Fatalf("stale continuation predecessor=%+v err=%v", staleContinuationApplication, err)
+	}
+	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx); candidateErr != nil ||
+		candidate.PayloadIntentID != payload.ID {
+		t.Fatalf("stale continuation did not reopen phase two: %+v err=%v", candidate, candidateErr)
+	}
+	publisher = rotatedPublisher
+	blockedReplacementID := id.New()
+	if _, _, err = currentStore.CreateApplicationForPayload(ctx, blockedReplacementID, payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		changedProjectionAt.Add(time.Second)); err == nil {
+		t.Fatal("changed current projection was accepted without a fresh materialization")
+	}
+	var blockedReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM helm_application_continuation_receipts
+		WHERE application_intent_id=$1`, blockedReplacementID).Scan(&blockedReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if blockedReceipts != 0 {
+		t.Fatalf("failed changed-authority attempt persisted continuation receipts=%d", blockedReceipts)
+	}
+
+	changedAuthority := currentAuthority
+	changedAuthority.PolicyDigest = helmPGDigest([]byte("argo-materialization-policy-changed"))
+	changedAuthority.Runtime.ChartVersion = "1.2.5"
+	changedAuthority.Runtime.ChartDigest = helmPGDigest([]byte("runtime-chart-changed"))
+	changedAuthority.Runtime.RendererImage = "registry.example.com/kuberploy/runtime@" +
+		helmPGDigest([]byte("renderer-changed"))
+	changedProject, renderErr := argo.RenderAppProjectAuthority(argo.AppProjectAuthority{
+		ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		EnvironmentBindingID: f.environmentBindingID, Namespace: f.namespace,
+		ArgoProject: f.argoProject, ArgoNamespace: "argocd",
+		EnvironmentRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 102, Owner: "kuberploy", Name: "environment"},
+		PlatformRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 101, Owner: "kuberploy", Name: "platform"}, Runtime: changedAuthority.Runtime,
+	})
+	if renderErr != nil || bytes.Equal(changedProject, currentProject) {
+		t.Fatalf("changed current AppProject render did not change authority: err=%v", renderErr)
+	}
+	changedBundle := append(append([]byte(nil), changedProject...),
+		[]byte("---\napiVersion: argoproj.io/v1alpha1\nkind: ApplicationSet\nmetadata:\n  name: changed\n")...)
+	changedDesiredStateCommandID, changedDesiredStateRevision := id.New(), strings.Repeat("5", 40)
+	changedCommandTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertVerifiedArgoDesiredStateCommand(t, ctx, changedCommandTx, f,
+		changedDesiredStateCommandID, 3, changedEnvironmentRevision, 3,
+		changedDesiredStateRevision, payloadCommit, changedAuthority,
+		changedProject, changedBundle, changedProjectionAt.Add(2*time.Second))
+	if err = changedCommandTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	currentStore, err = NewPostgresProtectedPublicationStore(pool, changedAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationID = id.New()
+	application, replay, err = currentStore.CreateApplicationForPayload(ctx, applicationID, payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		changedProjectionAt.Add(3*time.Second))
+	if err != nil || replay || application.State != ProtectedPending {
+		t.Fatalf("fresh changed-authority replacement=%+v replay=%v err=%v", application, replay, err)
+	}
+	continuation, continuationErr = currentStore.ApplicationContinuation(ctx, application.ID)
+	if continuationErr != nil || continuation.CurrentEnvironmentRevision != changedEnvironmentRevision ||
+		continuation.CurrentEnvironmentGeneration != 3 ||
+		continuation.CurrentDesiredStateCommandID != changedDesiredStateCommandID ||
+		continuation.CurrentDesiredStateRevision != changedDesiredStateRevision ||
+		continuation.CurrentRuntime != changedAuthority.Runtime ||
+		!bytes.Equal(continuation.CurrentAppProjectContent, changedProject) {
+		t.Fatalf("fresh changed continuation=%+v err=%v", continuation, continuationErr)
+	}
+	// A newer verified materialization in the same active projection also
+	// revokes an untouched continuation: its policy, runtime, and canonical
+	// AppProject are no longer current even though the Git projection is equal.
+	latestAuthority := changedAuthority
+	latestAuthority.PolicyDigest = helmPGDigest([]byte("argo-materialization-policy-latest"))
+	latestAuthority.Runtime.ChartVersion = "1.2.6"
+	latestAuthority.Runtime.ChartDigest = helmPGDigest([]byte("runtime-chart-latest"))
+	latestAuthority.Runtime.RendererImage = "registry.example.com/kuberploy/runtime@" +
+		helmPGDigest([]byte("renderer-latest"))
+	latestProject, renderErr := argo.RenderAppProjectAuthority(argo.AppProjectAuthority{
+		ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		EnvironmentBindingID: f.environmentBindingID, Namespace: f.namespace,
+		ArgoProject: f.argoProject, ArgoNamespace: "argocd",
+		EnvironmentRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 102, Owner: "kuberploy", Name: "environment"},
+		PlatformRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 101, Owner: "kuberploy", Name: "platform"}, Runtime: latestAuthority.Runtime,
+	})
+	if renderErr != nil || bytes.Equal(latestProject, changedProject) {
+		t.Fatalf("latest AppProject render did not change authority: err=%v", renderErr)
+	}
+	latestBundle := append(append([]byte(nil), latestProject...),
+		[]byte("---\napiVersion: argoproj.io/v1alpha1\nkind: ApplicationSet\nmetadata:\n  name: latest\n")...)
+	latestDesiredStateCommandID, latestDesiredStateRevision := id.New(), strings.Repeat("7", 40)
+	latestCommandAt := changedProjectionAt.Add(3500 * time.Millisecond)
+	latestCommandTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insertVerifiedArgoDesiredStateCommand(t, ctx, latestCommandTx, f,
+		latestDesiredStateCommandID, 4, changedEnvironmentRevision, 3,
+		latestDesiredStateRevision, payloadCommit, latestAuthority,
+		latestProject, latestBundle, latestCommandAt)
+	if err = latestCommandTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
+		application.ID).Scan(&continuationExact); err != nil {
+		t.Fatal(err)
+	}
+	if continuationExact {
+		t.Fatal("newer materialization retained stale policy/runtime/AppProject authority")
+	}
+	latestRetirementAt := changedProjectionAt.Add(4 * time.Second)
+	if _, _, err = currentStore.ClaimApplication(ctx, "helm-publisher-worker-0003", publisher,
+		latestRetirementAt, time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale materialization continuation was not retired: %v", err)
+	}
+	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx); candidateErr != nil ||
+		candidate.PayloadIntentID != payload.ID {
+		t.Fatalf("newer materialization did not reopen phase two: %+v err=%v", candidate, candidateErr)
+	}
+	staleMaterializationReplacementID := id.New()
+	if _, _, err = currentStore.CreateApplicationForPayload(ctx, staleMaterializationReplacementID,
+		payload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		latestRetirementAt.Add(100*time.Millisecond)); err == nil {
+		t.Fatal("stale runtime authority created a continuation after newer materialization")
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM helm_application_continuation_receipts
+		WHERE application_intent_id=$1`, staleMaterializationReplacementID).Scan(&blockedReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if blockedReceipts != 0 {
+		t.Fatalf("stale materialization attempt persisted continuation receipts=%d", blockedReceipts)
+	}
+	currentStore, err = NewPostgresProtectedPublicationStore(pool, latestAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationID = id.New()
+	application, replay, err = currentStore.CreateApplicationForPayload(ctx, applicationID, payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		latestRetirementAt.Add(500*time.Millisecond))
+	if err != nil || replay || application.State != ProtectedPending {
+		t.Fatalf("latest materialization replacement=%+v replay=%v err=%v", application, replay, err)
+	}
+	continuation, continuationErr = currentStore.ApplicationContinuation(ctx, application.ID)
+	if continuationErr != nil || continuation.CurrentDesiredStateCommandID != latestDesiredStateCommandID ||
+		continuation.CurrentDesiredStateRevision != latestDesiredStateRevision ||
+		continuation.CurrentRuntime != latestAuthority.Runtime ||
+		!bytes.Equal(continuation.CurrentAppProjectContent, latestProject) {
+		t.Fatalf("latest continuation=%+v err=%v", continuation, continuationErr)
+	}
+	firstApplicationClaimAt := latestRetirementAt.Add(time.Second)
+	var firstApplicationLease ProtectedIntentLease
+	application, firstApplicationLease, err = currentStore.ClaimApplication(ctx,
+		"helm-publisher-worker-0003", publisher, firstApplicationClaimAt, time.Minute)
+	if err != nil || application.ID != applicationID || firstApplicationLease.Epoch != 1 {
+		t.Fatalf("initial exact continuation claim=%+v lease=%+v err=%v",
+			application, firstApplicationLease, err)
+	}
+	recoveryAt := firstApplicationClaimAt.Add(time.Second)
+	application, err = currentStore.RetryApplication(ctx, firstApplicationLease,
+		"provider-unavailable", recoveryAt, firstApplicationClaimAt)
+	if err != nil || application.State != ProtectedPending || application.LeaseEpoch != 1 {
+		t.Fatalf("continuation recovery setup=%+v err=%v", application, err)
+	}
+	recoveryEnvironmentRevision := strings.Repeat("6", 40)
+	recoveryProjectionTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL
+			WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
+		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+			VALUES($1,4,$2,'gitprojection.v1','active',$3,$3)`,
+			[]any{f.environmentBindingID, recoveryEnvironmentRevision, recoveryAt}},
+		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
+			projection_generation=4,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			[]any{f.environmentBindingID, recoveryEnvironmentRevision, recoveryAt}},
+	} {
+		if _, err = recoveryProjectionTx.Exec(ctx, statement.query, statement.args...); err != nil {
+			_ = recoveryProjectionTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+	}
+	if err = recoveryProjectionTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
+		application.ID).Scan(&continuationExact); err != nil {
+		t.Fatal(err)
+	}
+	if continuationExact {
+		t.Fatal("post-attempt projection change retained current continuation authority")
+	}
+	var applicationLease ProtectedIntentLease
+	application, applicationLease, err = currentStore.ClaimApplication(ctx,
+		"helm-publisher-worker-0003", publisher, recoveryAt, time.Minute)
+	if err != nil || application.ID != applicationID || applicationLease.Epoch != 2 {
+		t.Fatalf("attempted continuation was not recoverable after authority advance: application=%+v lease=%+v err=%v",
+			application, applicationLease, err)
+	}
+	var applicationRows, supersededRows, liveRows int
+	if err = pool.QueryRow(ctx, `SELECT count(*),
+		count(*) FILTER (WHERE state='superseded'),
+		count(*) FILTER (WHERE state<>'superseded')
+		FROM helm_protected_application_intents WHERE payload_intent_id=$1`, payload.ID).
+		Scan(&applicationRows, &supersededRows, &liveRows); err != nil {
+		t.Fatal(err)
+	}
+	if applicationRows != 4 || supersededRows != 3 || liveRows != 1 {
+		t.Fatalf("continuation replacement history rows=%d superseded=%d live=%d",
+			applicationRows, supersededRows, liveRows)
 	}
 	if receipt, receiptErr := store.PublicationPrerequisite(ctx, release.ID); receiptErr != nil ||
 		receipt.PlannedBaseRevision != payloadCommit {
@@ -506,32 +952,28 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		!strings.Contains(bytes, "targetRevision: "+payloadCommit) || strings.Contains(bytes, "helm:") {
 		t.Fatalf("unsafe Application source:\n%s", bytes)
 	}
-	application, applicationLease, err := store.ClaimApplication(ctx,
-		"helm-publisher-worker-0003", publisher, observedAt.Add(5*time.Second), time.Minute)
-	if err != nil || application.ID != applicationID {
-		t.Fatalf("claimed application=%+v lease=%+v err=%v", application, applicationLease, err)
-	}
+	applicationWorkAt := recoveryAt
 	application, err = store.BindApplicationWriteBase(ctx, applicationLease, payloadCommit,
-		observedAt.Add(6*time.Second), observedAt.Add(6*time.Second))
+		applicationWorkAt.Add(time.Second), applicationWorkAt.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	applicationRebind := strings.Repeat("e", 40)
 	application, err = store.RebindApplicationWriteBase(ctx, applicationLease, payloadCommit,
-		applicationRebind, observedAt.Add(7*time.Second), observedAt.Add(7*time.Second))
+		applicationRebind, applicationWorkAt.Add(2*time.Second), applicationWorkAt.Add(2*time.Second))
 	if err != nil || application.WriteBaseRevision != applicationRebind {
 		t.Fatalf("rebound application=%+v err=%v", application, err)
 	}
 	staleApplicationLease := applicationLease
 	staleApplicationLease.Owner = "helm-publisher-worker-0999"
 	if _, err = store.RebindApplicationWriteBase(ctx, staleApplicationLease, applicationRebind,
-		strings.Repeat("f", 40), observedAt.Add(8*time.Second),
-		observedAt.Add(8*time.Second)); !errors.Is(err, ErrConflict) {
+		strings.Repeat("f", 40), applicationWorkAt.Add(3*time.Second),
+		applicationWorkAt.Add(3*time.Second)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale application lease rebound protected authority: %v", err)
 	}
 	if _, err = store.RebindApplicationWriteBase(ctx, applicationLease, payloadCommit,
-		strings.Repeat("f", 40), observedAt.Add(8*time.Second),
-		observedAt.Add(8*time.Second)); !errors.Is(err, ErrConflict) {
+		strings.Repeat("f", 40), applicationWorkAt.Add(3*time.Second),
+		applicationWorkAt.Add(3*time.Second)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("wrong application base rebound protected authority: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE helm_protected_application_intents
@@ -540,17 +982,17 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	applicationCommit := strings.Repeat("c", 40)
 	application, err = store.MarkApplicationCommitted(ctx, applicationLease, applicationCommit,
-		applicationRebind, observedAt.Add(8*time.Second))
+		applicationRebind, applicationWorkAt.Add(3*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.RebindApplicationWriteBase(ctx, applicationLease, applicationRebind,
-		strings.Repeat("f", 40), observedAt.Add(9*time.Second),
-		observedAt.Add(9*time.Second)); !errors.Is(err, ErrConflict) {
+		strings.Repeat("f", 40), applicationWorkAt.Add(4*time.Second),
+		applicationWorkAt.Add(4*time.Second)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("committed application write base was mutable: %v", err)
 	}
 	application, err = store.VerifyApplication(ctx, applicationLease, applicationCommit,
-		application.ContentDigest, "provider-application-verified", observedAt.Add(8*time.Second))
+		application.ContentDigest, "provider-application-verified", applicationWorkAt.Add(3*time.Second))
 	if err != nil || application.State != ProtectedVerified {
 		t.Fatalf("verified application=%+v err=%v", application, err)
 	}
@@ -814,8 +1256,8 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Even the shared schema owner cannot use a paired receipt+intent write to
-	// bypass a projection change after the receipt was admitted: the authority
-	// UPDATE independently rechecks the current protected snapshot.
+	// bypass a route-authority change after the continuation receipt was
+	// admitted: the authority UPDATE independently rechecks terminal authority.
 	directBypass, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -840,8 +1282,8 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		_ = directBypass.Rollback(ctx)
 		t.Fatalf("receipt-first projection setup: %v", err)
 	}
-	if _, err = directBypass.Exec(ctx, `UPDATE public.git_repository_bindings
-		SET state='indexing' WHERE id=$1`, f.environmentBindingID); err != nil {
+	if _, err = directBypass.Exec(ctx, `UPDATE public.environments
+		SET namespace='receipt-first-invalid',argo_project='receipt-first-invalid' WHERE id=$1`, f.environmentID); err != nil {
 		_ = directBypass.Rollback(ctx)
 		t.Fatal(err)
 	}
@@ -1097,6 +1539,10 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 			DISABLE TRIGGER argo_desired_state_materialization_receipts_validate`); deleteErr != nil {
 			t.Fatal(deleteErr)
 		}
+		if _, deleteErr := nested.Exec(ctx, `ALTER TABLE argo_desired_state_materialization_receipts
+			DISABLE TRIGGER argo_materialization_app_project_content_validate`); deleteErr != nil {
+			t.Fatal(deleteErr)
+		}
 		if _, deleteErr := nested.Exec(ctx, `DELETE FROM argo_desired_state_materialization_receipts
 			WHERE desired_state_command_id=$1`, f.desiredStateCommandID); deleteErr != nil {
 			t.Fatal(deleteErr)
@@ -1343,7 +1789,7 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+	if err = applyHelmMigrationsThrough(ctx, pool, "003_repair_protected_desired_revisions"); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -1351,118 +1797,6 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
-	if _, err = tx.Exec(ctx, `
-		DROP TRIGGER runtime_readiness_helm_publisher_bounds ON runtime_readiness;
-		DROP FUNCTION validate_helm_protected_publisher_readiness_bounds();
-		DROP FUNCTION adopt_helm_protected_payload_intent(uuid,text,bigint,text,text,text,bigint);
-		DROP FUNCTION adopt_helm_protected_application_intent(uuid,text,bigint,text,text,text,bigint);
-		DROP FUNCTION helm_protected_adoption_projection_is_fresh(uuid,uuid,uuid,uuid,uuid,text,text,text,bigint);
-		DROP TRIGGER helm_protected_payload_publisher_authority ON helm_protected_payload_intents;
-		DROP TRIGGER helm_protected_application_publisher_authority ON helm_protected_application_intents;
-		DROP FUNCTION validate_helm_protected_publisher_authority();
-		DROP TRIGGER helm_protected_publisher_adoption_postimage ON helm_protected_publisher_adoption_receipts;
-		DROP TRIGGER helm_protected_publisher_adoption_receipts_validate ON helm_protected_publisher_adoption_receipts;
-		DROP FUNCTION verify_helm_protected_publisher_adoption_postimage();
-		DROP FUNCTION validate_helm_protected_publisher_adoption_receipt();
-		DROP TABLE helm_protected_publisher_adoption_receipts;
-		ALTER FUNCTION validate_helm_protected_payload_intent() RESET search_path;
-		ALTER FUNCTION validate_helm_protected_application_intent() RESET search_path;
-		DO $rollback_publisher_adoption$
-		DECLARE definition text;
-		BEGIN
-			definition := pg_get_functiondef('validate_helm_protected_payload_intent()'::regprocedure);
-			definition := replace(definition,
-				'release_row public.helm_release_revisions%ROWTYPE;',
-				'release_row helm_release_revisions%ROWTYPE;');
-			definition := replace(definition,
-				'platform_row public.git_repository_bindings%ROWTYPE;',
-				'platform_row git_repository_bindings%ROWTYPE;');
-			definition := replace(definition,
-				'environment_row public.git_repository_bindings%ROWTYPE;',
-				'environment_row git_repository_bindings%ROWTYPE;');
-			definition := replace(definition,'FROM public.helm_release_revisions','FROM helm_release_revisions');
-			definition := replace(definition,'FROM public.helm_release_heads','FROM helm_release_heads');
-			definition := replace(definition,'FROM public.git_repository_bindings','FROM git_repository_bindings');
-			definition := replace(definition,'FROM public.git_projection_generations','FROM git_projection_generations');
-			definition := replace(definition,'FROM public.git_projected_documents','FROM git_projected_documents');
-			definition := replace(definition,'FROM public.helm_render_results','FROM helm_render_results');
-			definition := replace(definition,'JOIN public.helm_render_commands','JOIN helm_render_commands');
-			definition := replace(definition,'pg_catalog.convert_from(NEW.content','convert_from(NEW.content');
-			definition := replace(definition,'pg_catalog.jsonb_build_object(','jsonb_build_object(');
-			definition := replace(definition,
-				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
-				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
-			definition := replace(definition,
-				'OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.message',
-				'OLD.publisher_contract,OLD.publisher_config_digest,OLD.message');
-			EXECUTE definition;
-			definition := pg_get_functiondef('validate_helm_protected_application_intent()'::regprocedure);
-			definition := replace(definition,
-				'release_row public.helm_release_revisions%ROWTYPE;',
-				'release_row helm_release_revisions%ROWTYPE;');
-			definition := replace(definition,
-				'payload_row public.helm_protected_payload_intents%ROWTYPE;',
-				'payload_row helm_protected_payload_intents%ROWTYPE;');
-			definition := replace(definition,
-				'base_row public.helm_protected_application_intents%ROWTYPE;',
-				'base_row helm_protected_application_intents%ROWTYPE;');
-			definition := replace(definition,
-				'platform_row public.git_repository_bindings%ROWTYPE;',
-				'platform_row git_repository_bindings%ROWTYPE;');
-			definition := replace(definition,'FROM public.helm_release_revisions','FROM helm_release_revisions');
-			definition := replace(definition,'FROM public.helm_protected_payload_intents','FROM helm_protected_payload_intents');
-			definition := replace(definition,'FROM public.helm_release_heads','FROM helm_release_heads');
-			definition := replace(definition,'FROM public.git_repository_bindings','FROM git_repository_bindings');
-			definition := replace(definition,'FROM public.helm_protected_application_intents','FROM helm_protected_application_intents');
-			definition := replace(definition,
-				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
-				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
-			definition := replace(definition,
-				'OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.message',
-				'OLD.publisher_contract,OLD.publisher_config_digest,OLD.message');
-			EXECUTE definition;
-			definition := pg_get_functiondef(
-				'public.require_helm_publication_prerequisite_receipt()'::regprocedure
-			);
-			definition := replace(definition,
-				'FROM public.helm_publication_prerequisite_receipts receipt',
-				'FROM helm_publication_prerequisite_receipts receipt');
-			EXECUTE definition;
-		END;
-		$rollback_publisher_adoption$;
-		ALTER FUNCTION require_helm_publication_prerequisite_receipt() RESET search_path;
-		ALTER TABLE helm_protected_payload_intents
-			DROP COLUMN original_publisher_config_digest,
-			DROP COLUMN publisher_adoption_epoch;
-		ALTER TABLE helm_protected_application_intents
-			DROP COLUMN original_publisher_config_digest,
-			DROP COLUMN publisher_adoption_epoch;
-		DROP TRIGGER argo_desired_state_commands_require_policy_digest ON argo_desired_state_commands;
-		DROP FUNCTION require_argo_desired_state_policy_digest();
-		DROP TRIGGER argo_desired_state_commands_fence_legacy_recovery ON argo_desired_state_commands;
-		DROP FUNCTION fence_legacy_argo_desired_state_recovery();
-		DROP TRIGGER argo_desired_state_materialization_on_verified ON argo_desired_state_commands;
-		DROP FUNCTION record_verified_argo_desired_state_materialization();
-		DROP TRIGGER argo_desired_state_materialization_receipts_validate
-			ON argo_desired_state_materialization_receipts;
-		DROP FUNCTION validate_argo_desired_state_materialization_receipt();
-		DROP TABLE argo_desired_state_materialization_receipts;
-		ALTER TABLE argo_desired_state_commands DROP COLUMN policy_digest;
-		DROP TRIGGER helm_protected_payload_prerequisite_receipt ON helm_protected_payload_intents;
-		DROP TRIGGER helm_protected_application_prerequisite_receipt ON helm_protected_application_intents;
-		DROP FUNCTION require_helm_publication_prerequisite_receipt();
-		ALTER TABLE helm_protected_payload_intents
-			DROP COLUMN prerequisite_receipt_id,
-			DROP COLUMN prerequisite_contract,
-			DROP COLUMN prerequisite_epoch;
-		ALTER TABLE helm_protected_application_intents
-			DROP COLUMN prerequisite_receipt_id,
-			DROP COLUMN prerequisite_contract,
-			DROP COLUMN prerequisite_epoch;
-		DROP TABLE helm_publication_prerequisite_receipts;
-		DROP FUNCTION validate_helm_publication_prerequisite_receipt();`); err != nil {
-		t.Fatal(err)
-	}
 	createRelease := func(f helmReleasePGFixture, suffix string) ReleaseRevision {
 		t.Helper()
 		setupHelmReleasePGFixture(t, ctx, tx, f)
@@ -1875,6 +2209,13 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	if recoveredReceipts != 1 {
 		t.Fatalf("fresh current-policy materialization receipts=%d", recoveredReceipts)
 	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/006_remove_platform_self_upgrade/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
 	body, err = migrations.FS.ReadFile("prisma/migrations/007_helm_publisher_adoption/migration.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -1889,6 +2230,68 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	if _, err = tx.Exec(ctx, string(body)); err != nil {
 		t.Fatal(err)
 	}
+	malformedLegacyCommand := id.New()
+	if _, err = tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		DISABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands
+		SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+			to_jsonb(command) || jsonb_build_object(
+				'id',$2::text,'generation',99,'content',to_jsonb(convert_to('malformed legacy bundle','UTF8')),
+				'content_sha256',$3::text,'policy_digest',$5::text,
+				'state','failed','write_base_revision','',
+			'write_base_observed_at',NULL,'committed_revision','','committed_at',NULL,
+			'verified_at',NULL,'completed_at',$4::timestamptz,'lease_owner',NULL,
+			'lease_until',NULL,'worker_contract',NULL,'worker_config_digest',NULL,
+			'created_at',$4::timestamptz,'updated_at',$4::timestamptz,
+			'next_attempt_at',$4::timestamptz,'consecutive_failures',1,
+			'last_failure_code','malformed-legacy'))).*
+		FROM argo_desired_state_commands command WHERE command.id=$1`,
+		legacyPendingRecovery.desiredStateCommandID, malformedLegacyCommand,
+		helmPGDigest([]byte("malformed legacy bundle")), legacyPendingRecovery.now.Add(6*time.Second),
+		helmPGArgoAuthority().PolicyDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		ENABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		t.Fatal(err)
+	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/009_helm_application_continuation/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
+	var malformedBackfill []byte
+	if err = tx.QueryRow(ctx, `SELECT COALESCE(app_project_content,''::bytea)
+		FROM argo_desired_state_commands WHERE id=$1`, malformedLegacyCommand).Scan(&malformedBackfill); err != nil {
+		t.Fatal(err)
+	}
+	if len(malformedBackfill) != 0 {
+		t.Fatal("malformed legacy desired-state bundle received AppProject authority")
+	}
+	var validCommandProject, validMaterializationProject []byte
+	if err = tx.QueryRow(ctx, `SELECT command.app_project_content,receipt.app_project_content
+		FROM argo_desired_state_commands command
+		JOIN argo_desired_state_materialization_receipts receipt
+		  ON receipt.desired_state_command_id=command.id
+		WHERE command.id=$1`, legacyPendingRecoveryID).
+		Scan(&validCommandProject, &validMaterializationProject); err != nil {
+		t.Fatal(err)
+	}
+	if len(validCommandProject) == 0 || !bytes.Equal(validCommandProject, validMaterializationProject) {
+		t.Fatal("valid legacy desired-state authority was not backfilled exactly through materialization")
+	}
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `INSERT INTO argo_desired_state_commands
+			SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+				to_jsonb(command) || jsonb_build_object('id',$2::text,'generation',100))).*
+			FROM argo_desired_state_commands command WHERE command.id=$1`,
+			malformedLegacyCommand, id.New())
+		return nestedErr
+	})
 	assertProtectedIntentValidatorsAreHardened(t, ctx, tx)
 	for _, intent := range []struct {
 		table string
@@ -2099,30 +2502,73 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		"Kuberploy-Environment-Foundation-Intent: "+f.foundationIntentID, f.now, f.foundationRevision); err != nil {
 		t.Fatal(err)
 	}
-	argoContent := []byte("apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: " + f.argoProject + "\n")
+	appProjectContent, err := argo.RenderAppProjectAuthority(argo.AppProjectAuthority{
+		ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		EnvironmentBindingID: f.environmentBindingID, Namespace: f.namespace,
+		ArgoProject: f.argoProject, ArgoNamespace: "argocd",
+		EnvironmentRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 102, Owner: "kuberploy", Name: "environment"},
+		PlatformRepository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1,
+			RepositoryID: 101, Owner: "kuberploy", Name: "platform"},
+		Runtime: helmPGArgoAuthority().Runtime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoContent := append(append([]byte(nil), appProjectContent...), []byte("---\napiVersion: argoproj.io/v1alpha1\nkind: ApplicationSet\nmetadata:\n  name: fixture\n")...)
 	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands DISABLE TRIGGER USER`); err != nil {
 		t.Fatal(err)
 	}
-	_, argoErr := tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
+	var hasAppProjectContent bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='argo_desired_state_commands'
+		  AND column_name='app_project_content')`).Scan(&hasAppProjectContent); err != nil {
+		t.Fatal(err)
+	}
+	var argoErr error
+	if hasAppProjectContent {
+		_, argoErr = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
 		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
 		catalog_digest,chart_repository,chart_name,chart_version,chart_digest,renderer_image,
-		chart_digest_enforcement,content,content_sha256,message,state,committed_revision,
+		chart_digest_enforcement,app_project_content,content,content_sha256,message,state,committed_revision,
 		committed_at,verified_at,next_attempt_at,created_at,updated_at,completed_at
 	) VALUES($1,1,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,1,$8,'argocd',$9,$10,
 		$11,$11,$12,'create-if-absent','',$13,'oci://registry.example.com/kuberploy/runtime',
-		'kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',$16,$17,
-		'reconcile fixture AppProject','verified',$18,$12,$12,$12,$12,$12,$12)`,
-		f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
-		f.environmentBindingID, f.clusterID, f.environmentHead,
-		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
-		f.namespace, f.argoProject, f.foundationRevision, f.now,
-		helmPGDigest([]byte("argo-desired-state-catalog")),
-		helmPGDigest([]byte("runtime-chart")),
-		"registry.example.com/kuberploy/runtime@"+helmPGDigest([]byte("renderer")),
-		argoContent, helmPGDigest(argoContent), f.desiredStateRevision)
+		'kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',$16,$17,$18,
+		'reconcile fixture AppProject','verified',$19,$12,$12,$12,$12,$12,$12)`,
+			f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
+			f.environmentBindingID, f.clusterID, f.environmentHead,
+			"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+			f.namespace, f.argoProject, f.foundationRevision, f.now,
+			helmPGDigest([]byte("argo-desired-state-catalog")),
+			helmPGDigest([]byte("runtime-chart")),
+			"registry.example.com/kuberploy/runtime@"+helmPGDigest([]byte("renderer")),
+			appProjectContent, argoContent, helmPGDigest(argoContent), f.desiredStateRevision)
+	} else {
+		_, argoErr = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
+			id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
+			cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+			environment_generation,path,argo_namespace,destination_namespace,argo_project,
+			base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
+			catalog_digest,chart_repository,chart_name,chart_version,chart_digest,renderer_image,
+			chart_digest_enforcement,content,content_sha256,message,state,committed_revision,
+			committed_at,verified_at,next_attempt_at,created_at,updated_at,completed_at
+		) VALUES($1,1,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,1,$8,'argocd',$9,$10,
+			$11,$11,$12,'create-if-absent','',$13,'oci://registry.example.com/kuberploy/runtime',
+			'kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',$16,$17,
+			'reconcile fixture AppProject','verified',$18,$12,$12,$12,$12,$12,$12)`,
+			f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
+			f.environmentBindingID, f.clusterID, f.environmentHead,
+			"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+			f.namespace, f.argoProject, f.foundationRevision, f.now,
+			helmPGDigest([]byte("argo-desired-state-catalog")),
+			helmPGDigest([]byte("runtime-chart")),
+			"registry.example.com/kuberploy/runtime@"+helmPGDigest([]byte("renderer")),
+			argoContent, helmPGDigest(argoContent), f.desiredStateRevision)
+	}
 	var hasPolicyDigest, hasMaterializationReceipts bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM information_schema.columns
@@ -2179,20 +2625,44 @@ func insertArgoMaterializationReceipt(t *testing.T, ctx context.Context, tx pgx.
 	f helmReleasePGFixture, receiptID, environmentRevision string, environmentGeneration int64,
 	commandID string, at time.Time) {
 	t.Helper()
-	_, err := tx.Exec(ctx, `INSERT INTO argo_desired_state_materialization_receipts(
+	var hasAppProjectContent bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='argo_desired_state_materialization_receipts'
+		  AND column_name='app_project_content')`).Scan(&hasAppProjectContent); err != nil {
+		t.Fatal(err)
+	}
+	query := `INSERT INTO argo_desired_state_materialization_receipts(
 		id,environment_binding_id,environment_revision,environment_generation,
 		project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
 		environment_target_ref,desired_state_command_id,desired_state_generation,
 		desired_state_revision,desired_state_content_sha256,catalog_digest,policy_digest,
 		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
-		chart_digest_enforcement,created_at
+		chart_digest_enforcement,app_project_content,created_at
 	) SELECT $2,command.environment_binding_id,$3,$4,command.project_id,
 		command.environment_id,command.platform_binding_id,command.cluster_id,
 		command.platform_target_ref,command.environment_target_ref,command.id,
 		command.generation,command.committed_revision,command.content_sha256,command.catalog_digest,$5,
 		command.chart_repository,command.chart_name,command.chart_version,
-		command.chart_digest,command.renderer_image,command.chart_digest_enforcement,$6
-	FROM argo_desired_state_commands command WHERE command.id=$1`, commandID, receiptID,
+		command.chart_digest,command.renderer_image,command.chart_digest_enforcement,
+		command.app_project_content,$6
+	FROM argo_desired_state_commands command WHERE command.id=$1`
+	if !hasAppProjectContent {
+		query = `INSERT INTO argo_desired_state_materialization_receipts(
+			id,environment_binding_id,environment_revision,environment_generation,
+			project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+			environment_target_ref,desired_state_command_id,desired_state_generation,
+			desired_state_revision,desired_state_content_sha256,catalog_digest,policy_digest,
+			chart_repository,chart_name,chart_version,chart_digest,renderer_image,
+			chart_digest_enforcement,created_at
+		) SELECT $2,command.environment_binding_id,$3,$4,command.project_id,
+			command.environment_id,command.platform_binding_id,command.cluster_id,
+			command.platform_target_ref,command.environment_target_ref,command.id,
+			command.generation,command.committed_revision,command.content_sha256,command.catalog_digest,$5,
+			command.chart_repository,command.chart_name,command.chart_version,
+			command.chart_digest,command.renderer_image,command.chart_digest_enforcement,$6
+		FROM argo_desired_state_commands command WHERE command.id=$1`
+	}
+	_, err := tx.Exec(ctx, query, commandID, receiptID,
 		environmentRevision, environmentGeneration,
 		helmPGDigest([]byte("argo-materialization-policy")), at.UTC())
 	if err != nil {
@@ -2345,34 +2815,36 @@ func insertLegacyHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePG
 	if content == nil {
 		content = []byte{}
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
-		id,release_revision_id,payload_intent_id,release_generation,project_id,
-		environment_id,application_id,action,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
-		environment_generation,catalog_digest,planned_base_revision,payload_revision,
-		payload_path,source_directory,application_path,operation,precondition,expected_etag,
-		content,content_digest,intent_digest,commit_trailer,publisher_contract,
-		publisher_config_digest,message,state,next_attempt_at,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
-		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		'helm-protected-publisher.v1',$26,$27,'pending',$28,$28,$28)`,
-		application.id, application.releaseID, application.payloadID, application.generation,
-		f.projectID, f.environmentID, f.applicationID, application.action,
-		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
-		f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
-		application.payloadRevision, application.payloadPath, application.sourceDirectory,
-		application.applicationPath, application.operation, application.precondition,
-		application.expectedETag, content, application.contentDigest,
-		helmPGDigest([]byte("application-"+application.id)),
-		"Kuberploy-Helm-Application-Intent: "+application.id, f.publisherDigest,
-		"publish protected Helm Application "+application.id, at)
-	return err
-}
-
-func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture, application helmApplicationInsert, at time.Time) error {
-	content := application.content
-	if content == nil {
-		content = []byte{}
+	var continuationColumns bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='helm_protected_application_intents'
+		AND column_name='continuation_required')`).Scan(&continuationColumns); err != nil {
+		return err
+	}
+	if !continuationColumns {
+		_, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
+			id,release_revision_id,payload_intent_id,release_generation,project_id,
+			environment_id,application_id,action,platform_binding_id,environment_binding_id,
+			cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+			environment_generation,catalog_digest,planned_base_revision,payload_revision,
+			payload_path,source_directory,application_path,operation,precondition,expected_etag,
+			content,content_digest,intent_digest,commit_trailer,publisher_contract,
+			publisher_config_digest,message,state,next_attempt_at,created_at,updated_at
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
+			$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+			'helm-protected-publisher.v1',$26,$27,'pending',$28,$28,$28)`,
+			application.id, application.releaseID, application.payloadID, application.generation,
+			f.projectID, f.environmentID, f.applicationID, application.action,
+			f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
+			f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
+			application.payloadRevision, application.payloadPath, application.sourceDirectory,
+			application.applicationPath, application.operation, application.precondition,
+			application.expectedETag, content, application.contentDigest,
+			helmPGDigest([]byte("application-"+application.id)),
+			"Kuberploy-Helm-Application-Intent: "+application.id, f.publisherDigest,
+			"publish protected Helm Application "+application.id, at)
+		return err
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,
@@ -2382,11 +2854,12 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 		payload_path,source_directory,application_path,operation,precondition,expected_etag,
 		content,content_digest,intent_digest,commit_trailer,publisher_contract,
 		publisher_config_digest,original_publisher_config_digest,publisher_adoption_epoch,
+		continuation_required,continuation_contract,
 		message,state,next_attempt_at,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
 		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		'helm-protected-publisher.v1',$26,$26,0,$27,'pending',$28,$2,$29,0,$28,$28)`,
+		'helm-protected-publisher.v1',$26,$26,0,false,'',$27,'pending',$28,$2,$29,0,$28,$28)`,
 		application.id, application.releaseID, application.payloadID, application.generation,
 		f.projectID, f.environmentID, f.applicationID, application.action,
 		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
@@ -2397,6 +2870,74 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 		helmPGDigest([]byte("application-"+application.id)),
 		"Kuberploy-Helm-Application-Intent: "+application.id, f.publisherDigest,
 		"publish protected Helm Application "+application.id, at, protectedPrerequisiteContract)
+	return err
+}
+
+func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture, application helmApplicationInsert, at time.Time) error {
+	content := application.content
+	if content == nil {
+		content = []byte{}
+	}
+	payload, err := scanProtectedPayload(tx.QueryRow(ctx, `SELECT `+protectedPayloadColumns+`
+		FROM public.helm_protected_payload_intents WHERE id=$1 FOR KEY SHARE`, application.payloadID))
+	if err != nil {
+		return err
+	}
+	release, err := scanReleaseRevision(tx.QueryRow(ctx, releaseRevisionSelect+`
+		WHERE id=$1 FOR KEY SHARE`, application.releaseID))
+	if err != nil {
+		return err
+	}
+	binding := payload.Binding
+	binding.PlannedBaseRevision = currentPlatformHead(ctx, tx, f.platformBindingID)
+	intentDigest := helmPGDigest([]byte("application-" + application.id))
+	value := ProtectedApplicationIntent{
+		ID: application.id, ReleaseRevisionID: application.releaseID,
+		PayloadIntentID: application.payloadID, ReleaseGeneration: application.generation,
+		Target: release.Target, Binding: binding, Action: ProtectedApplicationAction(application.action),
+		PayloadRevision: application.payloadRevision, PayloadPath: application.payloadPath,
+		SourceDirectory: application.sourceDirectory, ApplicationPath: application.applicationPath,
+		Operation: application.operation, Precondition: application.precondition,
+		ExpectedETag: application.expectedETag, Content: content,
+		ContentDigest: application.contentDigest, IntentDigest: intentDigest,
+		CommitTrailer: "Kuberploy-Helm-Application-Intent: " + application.id,
+		Publisher: ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
+			PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest},
+		OriginalPublisherConfigDigest: f.publisherDigest,
+		ContinuationRequired:          true, ContinuationReceiptID: application.id,
+		ContinuationContract: protectedContinuationContract,
+		Message:              "publish protected Helm Application " + application.id,
+		State:                ProtectedPending, NextAttemptAt: at, CreatedAt: at, UpdatedAt: at,
+	}
+	// Invalid rows intentionally continue to the database below so this
+	// migration integration fixture proves the trigger rejects them. Valid
+	// rows receive the exact continuation receipt before the cyclic intent FK.
+	_, _ = ensureApplicationContinuation(ctx, tx, release, payload, value, helmPGArgoAuthority(), at)
+	_, err = tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
+		id,release_revision_id,payload_intent_id,release_generation,project_id,
+		environment_id,application_id,action,platform_binding_id,environment_binding_id,
+		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		environment_generation,catalog_digest,planned_base_revision,payload_revision,
+		payload_path,source_directory,application_path,operation,precondition,expected_etag,
+		content,content_digest,intent_digest,commit_trailer,publisher_contract,
+		publisher_config_digest,original_publisher_config_digest,publisher_adoption_epoch,
+		continuation_required,continuation_receipt_id,continuation_contract,
+		message,state,next_attempt_at,prerequisite_receipt_id,
+		prerequisite_contract,prerequisite_epoch,created_at,updated_at
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
+		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
+		'helm-protected-publisher.v1',$26,$26,0,true,$1,$27,$28,'pending',$29,$2,$30,0,$29,$29)`,
+		application.id, application.releaseID, application.payloadID, application.generation,
+		f.projectID, f.environmentID, f.applicationID, application.action,
+		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
+		f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
+		application.payloadRevision, application.payloadPath, application.sourceDirectory,
+		application.applicationPath, application.operation, application.precondition,
+		application.expectedETag, content, application.contentDigest,
+		intentDigest,
+		"Kuberploy-Helm-Application-Intent: "+application.id, f.publisherDigest,
+		protectedContinuationContract, "publish protected Helm Application "+application.id,
+		at, protectedPrerequisiteContract)
 	return err
 }
 
@@ -2491,6 +3032,48 @@ func currentPlatformHead(ctx context.Context, tx pgx.Tx, bindingID string) strin
 	return revision
 }
 
+func insertVerifiedArgoDesiredStateCommand(t *testing.T, ctx context.Context, tx pgx.Tx,
+	f helmReleasePGFixture, commandID string, commandGeneration int64,
+	environmentRevision string, environmentGeneration int64,
+	desiredStateRevision, baseRevision string, authority ArgoMaterializationAuthority,
+	appProjectContent, content []byte, at time.Time,
+) {
+	t.Helper()
+	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		DISABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		t.Fatal(err)
+	}
+	_, insertErr := tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
+		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
+		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		environment_generation,path,argo_namespace,destination_namespace,argo_project,
+		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
+		policy_digest,catalog_digest,chart_repository,chart_name,chart_version,chart_digest,
+		renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,
+		message,state,committed_revision,committed_at,verified_at,next_attempt_at,
+		created_at,updated_at,completed_at
+	) VALUES($1,$2,$3,$4,$5,$6,$7,'refs/heads/main','refs/heads/main',$8,$25,$9,
+		'argocd',$10,$11,$12,$12,$13,'match-etag',$14,$15,$16,$17,'kuberploy-runtime',$18,$19,
+		$20,'native-oci-digest-v1',$21,$22,$23,'current canonical AppProject','verified',$24,
+		$13,$13,$13,$13,$13,$13)`, commandID, commandGeneration, f.projectID,
+		f.environmentID, f.platformBindingID, f.environmentBindingID, f.clusterID,
+		environmentRevision,
+		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+		f.namespace, f.argoProject, baseRevision, at,
+		`"`+helmPGDigest([]byte("previous"))+`"`, authority.PolicyDigest, f.catalogDigest,
+		authority.Runtime.ChartRepository, authority.Runtime.ChartVersion,
+		authority.Runtime.ChartDigest, authority.Runtime.RendererImage,
+		appProjectContent, content, helmPGDigest(content), desiredStateRevision,
+		environmentGeneration)
+	if insertErr != nil {
+		t.Fatal(insertErr)
+	}
+	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
+		ENABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func helmPayloadPath(f helmReleasePGFixture, releaseID string, disabled bool) string {
 	name := "release.yaml"
 	if disabled {
@@ -2523,6 +3106,39 @@ func helmPGNotBefore(value time.Time, floors ...time.Time) time.Time {
 		}
 	}
 	return result
+}
+
+func applyHelmMigrationsThrough(ctx context.Context, pool *pgxpool.Pool, target string) error {
+	history, err := migrations.History()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, migration := range history {
+		body, readErr := migrations.FS.ReadFile("prisma/migrations/" + migration.Name + "/migration.sql")
+		if readErr != nil {
+			return readErr
+		}
+		tx, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			return beginErr
+		}
+		if _, err = tx.Exec(ctx, string(body)); err != nil {
+			_ = tx.Rollback(ctx)
+			return err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return err
+		}
+		if migration.Name == target {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("migration %s not found", target)
+	}
+	return nil
 }
 
 func helmPGDatabaseNow(t *testing.T, ctx context.Context, q helmPGQuerier) time.Time {

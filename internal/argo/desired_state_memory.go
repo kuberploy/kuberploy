@@ -20,6 +20,7 @@ func NewMemoryDesiredStateStore() *MemoryDesiredStateStore {
 }
 
 func cloneDesiredStateCommand(value DesiredStateCommand) DesiredStateCommand {
+	value.AppProjectContent = append([]byte(nil), value.AppProjectContent...)
 	value.Content = append([]byte(nil), value.Content...)
 	value.CommittedAt = cloneTimePointer(value.CommittedAt)
 	value.VerifiedAt = cloneTimePointer(value.VerifiedAt)
@@ -34,12 +35,13 @@ func cloneDesiredStateCommand(value DesiredStateCommand) DesiredStateCommand {
 
 func equalDesiredStateCommand(left, right DesiredStateCommand) bool {
 	leftContent, rightContent := left.Content, right.Content
-	left.Content, right.Content = nil, nil
-	return reflect.DeepEqual(left, right) && bytes.Equal(leftContent, rightContent)
+	leftProject, rightProject := left.AppProjectContent, right.AppProjectContent
+	left.Content, right.Content, left.AppProjectContent, right.AppProjectContent = nil, nil, nil, nil
+	return reflect.DeepEqual(left, right) && bytes.Equal(leftContent, rightContent) && bytes.Equal(leftProject, rightProject)
 }
 
 func (s *MemoryDesiredStateStore) CreateDesiredState(_ context.Context, command DesiredStateCommand) (bool, error) {
-	if command.Validate() != nil || command.Lease != nil || command.WriteBaseRevision != "" || command.WriteBaseObservedAt != nil ||
+	if command.Validate() != nil || len(command.AppProjectContent) == 0 || command.Lease != nil || command.WriteBaseRevision != "" || command.WriteBaseObservedAt != nil ||
 		command.State != DesiredStatePending && command.State != DesiredStateBlockedPrerequisite {
 		return false, ErrInvalid
 	}
