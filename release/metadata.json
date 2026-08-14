@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Platform releases are now read-only in Kuberploy, cluster administrators own installer upgrades through Helm, legacy in-app upgrade authority is removed, and Helm-only publication is fenced by exact materialization receipts.",
+  "summary": "Database schema advances to 008 to schema-qualify protected Helm payload and Application validators, restoring cross-release adoption under hardened search paths.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.166"
+  "version": "0.1.0-rc.167"
 }

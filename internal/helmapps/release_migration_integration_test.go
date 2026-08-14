@@ -286,6 +286,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	assertProtectedIntentValidatorsAreHardened(t, ctx, pool)
 	f := newHelmReleasePGFixture()
 	setup, err := pool.Begin(ctx)
 	if err != nil {
@@ -587,6 +588,7 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	assertProtectedIntentValidatorsAreHardened(t, ctx, pool)
 	f := newHelmReleasePGFixture()
 	f.now = time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Microsecond)
 	setup, err := pool.Begin(ctx)
@@ -646,7 +648,9 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	// Readiness is bounded by database time. Use that same clock so a host clock
+	// a few milliseconds ahead cannot create an otherwise valid future row.
+	now := helmPGDatabaseNow(t, ctx, pool)
 	currentWorker := "helm-publisher-current-0001"
 	farFuture := now.Add(10 * time.Minute)
 	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
@@ -683,6 +687,9 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		t.Fatal(err)
 	}
 	var shadowAdoptedID string
+	// This call enters the payload validator through the adoption function's
+	// pg_catalog,pg_temp search path. Migration 008 must keep every public
+	// dependency exact even while matching temp objects exist.
 	err = shadowTx.QueryRow(ctx, `SELECT public.adopt_helm_protected_payload_intent(
 		$1,$2,$3,$4,$5,$6,$7)::text`, id.New(), currentWorker, 7, current.Contract,
 		current.PolicyVersion, current.ConfigDigest, minimumProtectedLease.Milliseconds()).Scan(&shadowAdoptedID)
@@ -927,6 +934,8 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		t.Fatal("preplanted adoption receipt committed without atomic intent postimage")
 	}
 
+	// The Application adoption function has the same hardened nested-trigger
+	// path and must succeed without ambient public resolution.
 	application, appLease, err := store.AdoptApplication(ctx, currentWorker, 7, current, minimumProtectedLease)
 	if err != nil || application.Publisher != current ||
 		application.OriginalPublisherConfigDigest != original.ConfigDigest ||
@@ -943,7 +952,7 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	third := current
 	third.ConfigDigest = helmPGDigest([]byte("publisher-third-release"))
 	thirdWorker := "helm-publisher-current-0002"
-	now = helmPGNotBefore(time.Now().UTC().Truncate(time.Microsecond), application.UpdatedAt)
+	now = helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), application.UpdatedAt)
 	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
 		WorkerID: thirdWorker, WorkerEpoch: 11, Publisher: third,
 		StartedAt: now.Add(-time.Second), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
@@ -1356,10 +1365,30 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 		DROP FUNCTION verify_helm_protected_publisher_adoption_postimage();
 		DROP FUNCTION validate_helm_protected_publisher_adoption_receipt();
 		DROP TABLE helm_protected_publisher_adoption_receipts;
+		ALTER FUNCTION validate_helm_protected_payload_intent() RESET search_path;
+		ALTER FUNCTION validate_helm_protected_application_intent() RESET search_path;
 		DO $rollback_publisher_adoption$
 		DECLARE definition text;
 		BEGIN
 			definition := pg_get_functiondef('validate_helm_protected_payload_intent()'::regprocedure);
+			definition := replace(definition,
+				'release_row public.helm_release_revisions%ROWTYPE;',
+				'release_row helm_release_revisions%ROWTYPE;');
+			definition := replace(definition,
+				'platform_row public.git_repository_bindings%ROWTYPE;',
+				'platform_row git_repository_bindings%ROWTYPE;');
+			definition := replace(definition,
+				'environment_row public.git_repository_bindings%ROWTYPE;',
+				'environment_row git_repository_bindings%ROWTYPE;');
+			definition := replace(definition,'FROM public.helm_release_revisions','FROM helm_release_revisions');
+			definition := replace(definition,'FROM public.helm_release_heads','FROM helm_release_heads');
+			definition := replace(definition,'FROM public.git_repository_bindings','FROM git_repository_bindings');
+			definition := replace(definition,'FROM public.git_projection_generations','FROM git_projection_generations');
+			definition := replace(definition,'FROM public.git_projected_documents','FROM git_projected_documents');
+			definition := replace(definition,'FROM public.helm_render_results','FROM helm_render_results');
+			definition := replace(definition,'JOIN public.helm_render_commands','JOIN helm_render_commands');
+			definition := replace(definition,'pg_catalog.convert_from(NEW.content','convert_from(NEW.content');
+			definition := replace(definition,'pg_catalog.jsonb_build_object(','jsonb_build_object(');
 			definition := replace(definition,
 				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
 				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
@@ -1368,6 +1397,23 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 				'OLD.publisher_contract,OLD.publisher_config_digest,OLD.message');
 			EXECUTE definition;
 			definition := pg_get_functiondef('validate_helm_protected_application_intent()'::regprocedure);
+			definition := replace(definition,
+				'release_row public.helm_release_revisions%ROWTYPE;',
+				'release_row helm_release_revisions%ROWTYPE;');
+			definition := replace(definition,
+				'payload_row public.helm_protected_payload_intents%ROWTYPE;',
+				'payload_row helm_protected_payload_intents%ROWTYPE;');
+			definition := replace(definition,
+				'base_row public.helm_protected_application_intents%ROWTYPE;',
+				'base_row helm_protected_application_intents%ROWTYPE;');
+			definition := replace(definition,
+				'platform_row public.git_repository_bindings%ROWTYPE;',
+				'platform_row git_repository_bindings%ROWTYPE;');
+			definition := replace(definition,'FROM public.helm_release_revisions','FROM helm_release_revisions');
+			definition := replace(definition,'FROM public.helm_protected_payload_intents','FROM helm_protected_payload_intents');
+			definition := replace(definition,'FROM public.helm_release_heads','FROM helm_release_heads');
+			definition := replace(definition,'FROM public.git_repository_bindings','FROM git_repository_bindings');
+			definition := replace(definition,'FROM public.helm_protected_application_intents','FROM helm_protected_application_intents');
 			definition := replace(definition,
 				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
 				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
@@ -1836,6 +1882,14 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	if _, err = tx.Exec(ctx, string(body)); err != nil {
 		t.Fatal(err)
 	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/008_qualify_helm_intent_validators/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
+	assertProtectedIntentValidatorsAreHardened(t, ctx, tx)
 	for _, intent := range []struct {
 		table string
 		id    string
@@ -2471,11 +2525,55 @@ func helmPGNotBefore(value time.Time, floors ...time.Time) time.Time {
 	return result
 }
 
+func helmPGDatabaseNow(t *testing.T, ctx context.Context, q helmPGQuerier) time.Time {
+	t.Helper()
+	var now time.Time
+	if err := q.QueryRow(ctx, `SELECT pg_catalog.clock_timestamp()`).Scan(&now); err != nil {
+		t.Fatal(err)
+	}
+	return now.UTC()
+}
+
 func nullableUUID(value string) any {
 	if value == "" {
 		return nil
 	}
 	return value
+}
+
+type helmPGQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func assertProtectedIntentValidatorsAreHardened(t *testing.T, ctx context.Context, query helmPGQuerier) {
+	t.Helper()
+	for _, function := range []string{
+		"public.validate_helm_protected_payload_intent()",
+		"public.validate_helm_protected_application_intent()",
+	} {
+		var settings []string
+		var definition string
+		if err := query.QueryRow(ctx, `SELECT function.proconfig,pg_catalog.pg_get_functiondef(function.oid)
+			FROM pg_catalog.pg_proc function WHERE function.oid=$1::pg_catalog.regprocedure`, function).
+			Scan(&settings, &definition); err != nil {
+			t.Fatal(err)
+		}
+		if len(settings) != 1 || settings[0] != "search_path=pg_catalog, pg_temp" {
+			t.Fatalf("%s search path=%v", function, settings)
+		}
+		for _, ambient := range []string{
+			" helm_release_revisions%ROWTYPE", " helm_protected_payload_intents%ROWTYPE",
+			" helm_protected_application_intents%ROWTYPE", " git_repository_bindings%ROWTYPE",
+			"FROM helm_release_revisions", "FROM helm_protected_payload_intents",
+			"FROM helm_release_heads", "FROM git_repository_bindings",
+			"FROM helm_protected_application_intents", "FROM git_projection_generations",
+			"FROM git_projected_documents", "FROM helm_render_results", "JOIN helm_render_commands",
+		} {
+			if strings.Contains(definition, ambient) {
+				t.Fatalf("%s retains ambient dependency %q", function, ambient)
+			}
+		}
+	}
 }
 
 func expectPGCheck(t *testing.T, ctx context.Context, tx pgx.Tx, call func(pgx.Tx) error) {

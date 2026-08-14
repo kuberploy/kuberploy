@@ -1015,7 +1015,7 @@ model helm_chart_approvals {
   @@unique([oci_repository, chart_version, manifest_digest, package_digest, values_schema_digest, renderer_image, policy_version])
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains check constraints and requires additional setup for migrations. Migration 008 owns its schema-qualified trigger validator because Prisma cannot represent trigger functions losslessly.
 model helm_protected_application_intents {
   id                               String    @id @db.Uuid
   release_revision_id              String    @unique @db.Uuid
@@ -1078,7 +1078,7 @@ model helm_protected_application_intents {
   @@index([next_attempt_at, created_at, id], map: "helm_protected_application_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This table contains check constraints and requires additional setup for migrations. Migration 008 owns its schema-qualified trigger validator because Prisma cannot represent trigger functions losslessly.
 model helm_protected_payload_intents {
   id                               String    @id @db.Uuid
   release_revision_id              String    @unique @db.Uuid
