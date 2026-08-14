@@ -242,7 +242,7 @@ def main() -> None:
     require(yaml_scalar(builder_values, ("enabled",)) == "false", "embedded builder chart is enabled by default")
     for image in images:
         if image["component"] == "upgrader":
-            # Signed schema-v1 manifests retain this historical artifact for
+            # Immutable schema-v1 manifests retain this historical artifact for
             # compatibility. It must never be injected into the chart.
             continue
         if image["component"] == "builder-agent":

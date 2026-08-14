@@ -59,7 +59,7 @@ export function UpgradePage() {
       <PageHeader
         eyebrow="Platform settings"
         title="Kuberploy releases"
-        description="Inspect the signed public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
+        description="Inspect the verified immutable public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
         actions={
           canReadReleases ? (
             <Button

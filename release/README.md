@@ -55,7 +55,7 @@ references. The published OCI chart and `.tgz` therefore render the same
 immutable images.
 
 Release-manifest schema v1 still carries the historical `upgrader` image field
-so already-published signed manifests remain verifiable. The control-plane
+so already-published immutable manifests remain structurally verifiable. The control-plane
 chart does not deploy or invoke that artifact; platform changes are performed
 only by a cluster administrator upgrading the installer Helm release.
 
