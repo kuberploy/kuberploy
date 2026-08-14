@@ -385,11 +385,38 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err != nil || payload.WriteBaseRevision != f.platformHead {
 		t.Fatalf("bound payload=%+v err=%v", payload, err)
 	}
+	payloadRebind := strings.Repeat("d", 40)
+	payload, err = store.RebindPayloadWriteBase(ctx, lease, f.platformHead, payloadRebind,
+		observedAt.Add(time.Second), observedAt.Add(time.Second))
+	if err != nil || payload.WriteBaseRevision != payloadRebind {
+		t.Fatalf("rebound payload=%+v err=%v", payload, err)
+	}
+	stalePayloadLease := lease
+	stalePayloadLease.Epoch--
+	if _, err = store.RebindPayloadWriteBase(ctx, stalePayloadLease, payloadRebind,
+		strings.Repeat("e", 40), observedAt.Add(2*time.Second),
+		observedAt.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale payload lease rebound protected authority: %v", err)
+	}
+	if _, err = store.RebindPayloadWriteBase(ctx, lease, f.platformHead,
+		strings.Repeat("e", 40), observedAt.Add(2*time.Second),
+		observedAt.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("wrong payload base rebound protected authority: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE helm_protected_payload_intents
+		SET content=$2 WHERE id=$1`, payload.ID, []byte("identity mutation\n")); err == nil {
+		t.Fatal("payload identity mutation bypassed the migration trigger")
+	}
 	payloadCommit := strings.Repeat("b", 40)
-	payload, err = store.MarkPayloadCommitted(ctx, lease, payloadCommit, f.platformHead,
-		observedAt.Add(time.Second))
+	payload, err = store.MarkPayloadCommitted(ctx, lease, payloadCommit, payloadRebind,
+		observedAt.Add(2*time.Second))
 	if err != nil || payload.State != ProtectedGitCommitted {
 		t.Fatalf("committed payload=%+v err=%v", payload, err)
+	}
+	if _, err = store.RebindPayloadWriteBase(ctx, lease, payloadRebind,
+		strings.Repeat("e", 40), observedAt.Add(3*time.Second),
+		observedAt.Add(3*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("committed payload write base was mutable: %v", err)
 	}
 	if _, err = store.VerifyPayload(ctx, lease, payloadCommit, helmPGDigest([]byte("wrong")),
 		"provider-wrong-path", observedAt.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
@@ -488,16 +515,47 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applicationRebind := strings.Repeat("e", 40)
+	application, err = store.RebindApplicationWriteBase(ctx, applicationLease, payloadCommit,
+		applicationRebind, observedAt.Add(7*time.Second), observedAt.Add(7*time.Second))
+	if err != nil || application.WriteBaseRevision != applicationRebind {
+		t.Fatalf("rebound application=%+v err=%v", application, err)
+	}
+	staleApplicationLease := applicationLease
+	staleApplicationLease.Owner = "helm-publisher-worker-0999"
+	if _, err = store.RebindApplicationWriteBase(ctx, staleApplicationLease, applicationRebind,
+		strings.Repeat("f", 40), observedAt.Add(8*time.Second),
+		observedAt.Add(8*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale application lease rebound protected authority: %v", err)
+	}
+	if _, err = store.RebindApplicationWriteBase(ctx, applicationLease, payloadCommit,
+		strings.Repeat("f", 40), observedAt.Add(8*time.Second),
+		observedAt.Add(8*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("wrong application base rebound protected authority: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE helm_protected_application_intents
+		SET content=$2 WHERE id=$1`, application.ID, []byte("identity mutation\n")); err == nil {
+		t.Fatal("application identity mutation bypassed the migration trigger")
+	}
 	applicationCommit := strings.Repeat("c", 40)
 	application, err = store.MarkApplicationCommitted(ctx, applicationLease, applicationCommit,
-		payloadCommit, observedAt.Add(7*time.Second))
+		applicationRebind, observedAt.Add(8*time.Second))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err = store.RebindApplicationWriteBase(ctx, applicationLease, applicationRebind,
+		strings.Repeat("f", 40), observedAt.Add(9*time.Second),
+		observedAt.Add(9*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("committed application write base was mutable: %v", err)
 	}
 	application, err = store.VerifyApplication(ctx, applicationLease, applicationCommit,
 		application.ContentDigest, "provider-application-verified", observedAt.Add(8*time.Second))
 	if err != nil || application.State != ProtectedVerified {
 		t.Fatalf("verified application=%+v err=%v", application, err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE argo_desired_state_commands
+		SET policy_digest=NULL WHERE id=$1`, f.desiredStateCommandID); err == nil {
+		t.Fatal("policy digest mutation bypassed the migration 005 fence")
 	}
 	readiness := ProtectedPublisherReadiness{WorkerID: "helm-publisher-worker-0003",
 		WorkerEpoch: 1, Publisher: publisher, StartedAt: observedAt,

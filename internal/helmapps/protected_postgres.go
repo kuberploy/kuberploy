@@ -628,6 +628,51 @@ func (s *PostgresProtectedPublicationStore) BindApplicationWriteBase(ctx context
 	return s.Application(ctx, lease.IntentID)
 }
 
+func (s *PostgresProtectedPublicationStore) RebindPayloadWriteBase(ctx context.Context,
+	lease ProtectedIntentLease, previous, revision string, observedAt, now time.Time) (ProtectedPayloadIntent, error) {
+	if err := s.rebindProtectedWriteBase(ctx, protectedPayloadTable, lease, previous, revision, observedAt, now); err != nil {
+		return ProtectedPayloadIntent{}, err
+	}
+	return s.Payload(ctx, lease.IntentID)
+}
+
+func (s *PostgresProtectedPublicationStore) RebindApplicationWriteBase(ctx context.Context,
+	lease ProtectedIntentLease, previous, revision string, observedAt, now time.Time) (ProtectedApplicationIntent, error) {
+	if err := s.rebindProtectedWriteBase(ctx, protectedApplicationTable, lease, previous, revision, observedAt, now); err != nil {
+		return ProtectedApplicationIntent{}, err
+	}
+	return s.Application(ctx, lease.IntentID)
+}
+
+// rebindProtectedWriteBase repairs only a claimed operation whose previous
+// CAS base lost to an unrelated protected-lane commit. The publisher calls it
+// only after a fresh provider read proves the operation trailer is absent and
+// the protected path precondition still holds at revision.
+func (s *PostgresProtectedPublicationStore) rebindProtectedWriteBase(ctx context.Context, table string,
+	lease ProtectedIntentLease, previous, revision string, observedAt, now time.Time) error {
+	if !validProtectedTable(table) || lease.Validate() != nil || !gitCommitRE.MatchString(previous) ||
+		!gitCommitRE.MatchString(revision) || previous == revision || observedAt.IsZero() || now.IsZero() ||
+		observedAt.After(now) {
+		return ErrInvalid
+	}
+	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET write_base_revision=$7,
+		write_base_observed_at=$8,updated_at=$9,prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND publisher_contract=$4
+		AND publisher_config_digest=$5 AND lease_until>$9 AND state='claimed'
+		AND write_base_revision=$6 AND write_base_observed_at IS NOT NULL
+		AND committed_revision='' AND committed_parent_revision='' AND committed_at IS NULL
+		AND updated_at<=$9`, lease.IntentID, lease.Owner, lease.Epoch,
+		lease.Publisher.Contract, lease.Publisher.ConfigDigest, previous, revision,
+		observedAt.UTC(), now.UTC())
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	if result.RowsAffected() != 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
 func (s *PostgresProtectedPublicationStore) bindProtectedWriteBase(ctx context.Context, table string,
 	lease ProtectedIntentLease, revision string, observedAt, now time.Time) error {
 	if !validProtectedTable(table) || lease.Validate() != nil || !gitCommitRE.MatchString(revision) ||

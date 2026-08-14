@@ -20,6 +20,8 @@ type protectedPublisherStoreStub struct {
 	application     ProtectedApplicationIntent
 	prerequisite    ProtectedPublicationPrerequisiteReceipt
 	prerequisiteErr error
+	payloadRebinds  int
+	appRebinds      int
 }
 
 func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
@@ -120,6 +122,28 @@ func (s *protectedPublisherStoreStub) BindApplicationWriteBase(_ context.Context
 		return ProtectedApplicationIntent{}, ErrConflict
 	}
 	s.application.WriteBaseRevision, s.application.WriteBaseObservedAt, s.application.UpdatedAt = revision, &observedAt, now
+	return s.application, s.application.Validate()
+}
+
+func (s *protectedPublisherStoreStub) RebindPayloadWriteBase(_ context.Context, lease ProtectedIntentLease,
+	previous, revision string, observedAt, now time.Time) (ProtectedPayloadIntent, error) {
+	if !activePayloadLease(s.payload, lease, now) || s.payload.State != ProtectedClaimed ||
+		s.payload.WriteBaseRevision != previous || s.payload.CommittedRevision != "" || previous == revision {
+		return ProtectedPayloadIntent{}, ErrConflict
+	}
+	s.payload.WriteBaseRevision, s.payload.WriteBaseObservedAt, s.payload.UpdatedAt = revision, &observedAt, now
+	s.payloadRebinds++
+	return s.payload, s.payload.Validate()
+}
+
+func (s *protectedPublisherStoreStub) RebindApplicationWriteBase(_ context.Context, lease ProtectedIntentLease,
+	previous, revision string, observedAt, now time.Time) (ProtectedApplicationIntent, error) {
+	if !activeApplicationLease(s.application, lease, now) || s.application.State != ProtectedClaimed ||
+		s.application.WriteBaseRevision != previous || s.application.CommittedRevision != "" || previous == revision {
+		return ProtectedApplicationIntent{}, ErrConflict
+	}
+	s.application.WriteBaseRevision, s.application.WriteBaseObservedAt, s.application.UpdatedAt = revision, &observedAt, now
+	s.appRebinds++
 	return s.application, s.application.Validate()
 }
 
@@ -415,6 +439,87 @@ func TestProtectedGitPublisherOrdersBothPrerequisiteRevisionsBeforeApplication(t
 			t.Fatalf("%s revision %s is not an ancestor of application %s: %v", name, revision, application.CommittedRevision, err)
 		}
 	}
+}
+
+func TestProtectedGitPublisherRebindsUncommittedIntentAfterUnrelatedHeadAdvance(t *testing.T) {
+	advanceHead := func(t *testing.T, fixture *protectedPublisherFixture, name string) string {
+		t.Helper()
+		if _, err := runProtectedPublisherGit(t, fixture.seed, "fetch", "origin", "refs/heads/platform"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := runProtectedPublisherGit(t, fixture.seed, "reset", "--hard", "FETCH_HEAD"); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(fixture.seed, name), []byte("unrelated protected-lane progress\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		for _, command := range [][]string{{"add", name}, {"commit", "-m", "unrelated protected-lane progress"},
+			{"push", "origin", "HEAD:refs/heads/platform"}} {
+			if output, err := runProtectedPublisherGit(t, fixture.seed, command...); err != nil {
+				t.Fatalf("git %v: %v: %s", command, err, output)
+			}
+		}
+		revision, err := runProtectedPublisherGit(t, fixture.remote, "rev-parse", "refs/heads/platform")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return revision
+	}
+	expireClaim := func(state *ProtectedIntentState, owner *string, attempts *int, epoch *int64,
+		until **time.Time, writeBase *string, observedAt **time.Time, base string, now time.Time) {
+		*state, *owner, *attempts, *epoch = ProtectedClaimed, "expired-worker-0001", 1, 1
+		*until, *writeBase, *observedAt = &now, base, &now
+	}
+
+	t.Run("payload", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		intent := &fixture.store.payload
+		expireClaim(&intent.State, &intent.LeaseOwner, &intent.Attempts, &intent.LeaseEpoch,
+			&intent.LeaseUntil, &intent.WriteBaseRevision, &intent.WriteBaseObservedAt, fixture.base, fixture.now)
+		unrelated := advanceHead(t, fixture, "unrelated-payload.yaml")
+
+		published, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+		if err != nil || published.State != ProtectedVerified || published.CommittedParentRevision != unrelated ||
+			fixture.store.payloadRebinds != 1 {
+			t.Fatalf("published=%#v rebinds=%d err=%v", published, fixture.store.payloadRebinds, err)
+		}
+		log, err := runProtectedPublisherGit(t, fixture.remote, "log", "--format=%B", "refs/heads/platform")
+		if err != nil || strings.Count(log, "Kuberploy-Helm-Payload-Intent: "+published.ID) != 1 {
+			t.Fatalf("operation was not published exactly once: %v\n%s", err, log)
+		}
+		if _, err = fixture.worker(t).ProcessPayloadOne(t.Context()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("verified operation was processed twice: %v", err)
+		}
+	})
+
+	t.Run("application", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.store.application = fixture.pendingApplication(payload,
+			[]byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n"),
+			ProtectedApplicationPublish, "create-if-absent", "")
+		intent := &fixture.store.application
+		expireClaim(&intent.State, &intent.LeaseOwner, &intent.Attempts, &intent.LeaseEpoch,
+			&intent.LeaseUntil, &intent.WriteBaseRevision, &intent.WriteBaseObservedAt,
+			payload.CommittedRevision, fixture.now)
+		unrelated := advanceHead(t, fixture, "unrelated-application.yaml")
+
+		published, err := fixture.worker(t).ProcessApplicationOne(t.Context())
+		if err != nil || published.State != ProtectedVerified || published.CommittedParentRevision != unrelated ||
+			fixture.store.appRebinds != 1 {
+			t.Fatalf("published=%#v rebinds=%d err=%v", published, fixture.store.appRebinds, err)
+		}
+		log, err := runProtectedPublisherGit(t, fixture.remote, "log", "--format=%B", "refs/heads/platform")
+		if err != nil || strings.Count(log, "Kuberploy-Helm-Application-Intent: "+published.ID) != 1 {
+			t.Fatalf("operation was not published exactly once: %v\n%s", err, log)
+		}
+		if _, err = fixture.worker(t).ProcessApplicationOne(t.Context()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("verified operation was processed twice: %v", err)
+		}
+	})
 }
 
 func TestProtectedGitPublisherRecoversExactCommitAndRejectsPostimageSubstitution(t *testing.T) {

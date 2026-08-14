@@ -91,6 +91,11 @@ func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (Protecte
 			intent, bindErr = p.Store.BindPayloadWriteBase(ctx, current, revision, observedAt, now)
 			return bindErr
 		},
+		rebind: func(current ProtectedIntentLease, previous, revision string, observedAt, now time.Time) error {
+			var rebindErr error
+			intent, rebindErr = p.Store.RebindPayloadWriteBase(ctx, current, previous, revision, observedAt, now)
+			return rebindErr
+		},
 		mark: func(current ProtectedIntentLease, revision, parent string, now time.Time) error {
 			var markErr error
 			intent, markErr = p.Store.MarkPayloadCommitted(ctx, current, revision, parent, now)
@@ -135,6 +140,11 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 			intent, bindErr = p.Store.BindApplicationWriteBase(ctx, current, revision, observedAt, now)
 			return bindErr
 		},
+		rebind: func(current ProtectedIntentLease, previous, revision string, observedAt, now time.Time) error {
+			var rebindErr error
+			intent, rebindErr = p.Store.RebindApplicationWriteBase(ctx, current, previous, revision, observedAt, now)
+			return rebindErr
+		},
 		mark: func(current ProtectedIntentLease, revision, parent string, now time.Time) error {
 			var markErr error
 			intent, markErr = p.Store.MarkApplicationCommitted(ctx, current, revision, parent, now)
@@ -157,6 +167,7 @@ type protectedPublicationWork struct {
 	committed     func() string
 	prerequisites []string
 	bind          func(ProtectedIntentLease, string, time.Time, time.Time) error
+	rebind        func(ProtectedIntentLease, string, string, time.Time, time.Time) error
 	mark          func(ProtectedIntentLease, string, string, time.Time) error
 	verify        func(ProtectedIntentLease, string, string, string, time.Time) error
 }
@@ -254,8 +265,39 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		}
 	}
 
-	if work.state() == ProtectedGitCommitted || head.Commit != work.writeBase() {
+	if work.state() == ProtectedGitCommitted {
 		return p.recoverClaim(guard, work, binding, prepared, head, mutation)
+	}
+	if head.Commit != work.writeBase() {
+		found, present, findErr := prepared.FindOperationCommit(ctx, mutation)
+		if findErr != nil {
+			return findErr
+		}
+		if present {
+			return p.recoverFoundClaim(guard, work, binding, prepared, head, mutation, found)
+		}
+		if work.state() != ProtectedClaimed || work.committed() != "" {
+			return ErrConflict
+		}
+		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+			return errors.Join(ErrConflict, err)
+		}
+		previous := work.writeBase()
+		rebindAt := p.notBefore(head.ObservedAt)
+		if err = guard.Do(func(current ProtectedIntentLease) error {
+			return work.rebind(current, previous, head.Commit, head.ObservedAt, rebindAt)
+		}); err != nil {
+			return err
+		}
+		guard.AdvanceTimeFloor(rebindAt)
+		protectedMutation, err = work.mutation()
+		if err != nil {
+			return err
+		}
+		mutation, err = protectedMutation.gitMutation()
+		if err != nil {
+			return err
+		}
 	}
 	if work.state() != ProtectedClaimed || mutation.BaseRevision != head.Commit {
 		return ErrConflict
@@ -295,15 +337,25 @@ func (p *ProtectedGitPublisher) recoverClaim(guard *protectedPublicationLeaseGua
 	if err != nil {
 		return err
 	}
-	if !present || work.committed() != "" && work.committed() != found {
+	if !present {
 		return ErrConflict
 	}
-	if err = prepared.VerifyProtectedMutationPostimage(ctx, mutation); err != nil {
+	return p.recoverFoundClaim(guard, work, binding, prepared, head, mutation, found)
+}
+
+func (p *ProtectedGitPublisher) recoverFoundClaim(guard *protectedPublicationLeaseGuard, work protectedPublicationWork,
+	binding gitprojection.Binding, prepared *gitprojection.PreparedRepository, head gitprojection.VerifiedHead,
+	mutation gitprojection.Mutation, found string) error {
+	ctx := guard.Context()
+	if work.committed() != "" && work.committed() != found {
+		return ErrConflict
+	}
+	if err := prepared.VerifyProtectedMutationPostimage(ctx, mutation); err != nil {
 		return err
 	}
 	if work.committed() == "" {
 		commitAt := p.notBefore(head.ObservedAt)
-		if err = guard.Do(func(current ProtectedIntentLease) error {
+		if err := guard.Do(func(current ProtectedIntentLease) error {
 			return work.mark(current, found, mutation.BaseRevision, commitAt)
 		}); err != nil {
 			return err
