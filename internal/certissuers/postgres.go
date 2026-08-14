@@ -314,7 +314,15 @@ func (s *PostgresStore) Observation(ctx context.Context, profileID string, revis
 	o.ProfileID = profileID
 	o.Revision = revision
 	err := s.pool.QueryRow(ctx, `SELECT state,COALESCE(observed_spec_digest,''),COALESCE(observed_generation,0),reason,observed_at,updated_at FROM cert_manager_issuer_observations WHERE profile_id=$1 AND revision=$2`, profileID, revision).Scan(&o.State, &o.ObservedSpecDigest, &o.ObservedGeneration, &o.Reason, &o.ObservedAt, &o.UpdatedAt)
-	return o, mapError(err)
+	if err != nil {
+		return Observation{}, mapError(err)
+	}
+	if o.ObservedAt != nil {
+		observedAt := o.ObservedAt.UTC()
+		o.ObservedAt = &observedAt
+	}
+	o.UpdatedAt = o.UpdatedAt.UTC()
+	return o, nil
 }
 func (s *PostgresStore) ReadyForHostname(ctx context.Context, host string, now time.Time, maxAge time.Duration, limit int) ([]TenantIdentity, error) {
 	if !validHostname(host, true) || !validFreshness(now, maxAge) || limit < 1 || limit > 500 {

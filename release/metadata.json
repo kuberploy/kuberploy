@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Certificate-issuer observer leases retain PostgreSQL timestamp authority across heartbeats, and managed registry inventory canonicalizes exact BuildKit cache blob relationships.",
+  "summary": "Certificate-issuer observations normalize PostgreSQL timestamps to UTC so configured issuer management remains available after the first live target is observed.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.158"
+  "version": "0.1.0-rc.159"
 }

@@ -75,6 +75,13 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	if err = store.RecordObservation(ctx, Observation{ProfileID: created.Profile.ID, Revision: 1, State: Ready, ObservedSpecDigest: created.Revision.SpecDigest, ObservedGeneration: 1, ObservedAt: &observed, UpdatedAt: observed}); err != nil {
 		t.Fatal(err)
 	}
+	storedObservation, err := store.Observation(ctx, created.Profile.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedObservation.ObservedAt == nil || storedObservation.ObservedAt.Location() != time.UTC || storedObservation.UpdatedAt.Location() != time.UTC {
+		t.Fatalf("PostgreSQL observation timestamps were not normalized to UTC: %#v", storedObservation)
+	}
 	identities, err := store.ReadyForHostname(ctx, "api.example.com", observed, 5*time.Minute, 20)
 	if err != nil || len(identities) != 1 || identities[0].Name != created.Profile.Name {
 		t.Fatalf("identities=%v err=%v", identities, err)
