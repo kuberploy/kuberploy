@@ -455,6 +455,12 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["maxSkew", "topologyKey", "whenUnsatisfiable", "labelSelector"],
+      "allOf": [
+        {
+          "if": { "required": ["minDomains"] },
+          "then": { "properties": { "whenUnsatisfiable": { "const": "DoNotSchedule" } } }
+        }
+      ],
       "properties": {
         "maxSkew": { "type": "integer", "minimum": 1, "maximum": 100 },
         "topologyKey": { "$ref": "#/$defs/schedulingLabelKey" },

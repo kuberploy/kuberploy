@@ -88,6 +88,24 @@ func TestCompleteSchedulingContractIsValid(t *testing.T) {
 	}
 }
 
+func TestTopologySpreadMinDomainsRequiresDoNotSchedule(t *testing.T) {
+	minDomains := 1
+	runtime := NormalizeWorkloadRuntime(WorkloadRuntime{
+		Ports: []WorkloadPort{{Name: "http", ContainerPort: 8080}},
+		TopologySpreadConstraints: []TopologySpreadConstraint{{
+			MaxSkew:           1,
+			TopologyKey:       "kubernetes.io/hostname",
+			WhenUnsatisfiable: "ScheduleAnyway",
+			LabelSelector:     LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "api"}},
+			MinDomains:        &minDomains,
+		}},
+	})
+	problems := ValidateWorkloadRuntime(runtime)
+	if len(problems) != 1 || problems[0].Pointer != "/runtime/topologySpreadConstraints/0/minDomains" || problems[0].Code != "InvalidValue" {
+		t.Fatalf("invalid minDomains policy was accepted: %#v", problems)
+	}
+}
+
 func TestWorkloadCommandContractIsBoundedAndRoundTrips(t *testing.T) {
 	grace := 30
 	runtime := NormalizeWorkloadRuntime(WorkloadRuntime{

@@ -25,6 +25,7 @@ import (
 
 const (
 	Contract             = "appconfig-rendered-preview.v1"
+	RendererImage        = "docker.io/alpine/helm:4.2"
 	ProductionChartPath  = "/opt/kuberploy/charts/kuberploy-runtime"
 	ProductionHelmPath   = "/usr/local/bin/helm"
 	MaximumInputBytes    = 256 << 10
@@ -32,6 +33,10 @@ const (
 	MaximumResources     = helmapps.MaximumResources
 	RenderTimeout        = helmapps.RenderTimeout
 )
+
+// RendererVersion is replaced from the selected Helm binary at image build
+// time. The default keeps local builds and tests deterministic.
+var RendererVersion = "4.2.3"
 
 var (
 	ErrInvalid     = errors.New("AppConfig rendered preview input is invalid")
@@ -52,8 +57,8 @@ type Identity struct {
 
 func (i Identity) Validate() error {
 	if i.Contract != Contract || i.ChartName != "kuberploy-runtime" || i.ChartVersion == "" || len(i.ChartVersion) > 64 ||
-		!digestRE.MatchString(i.ChartDigest) || i.RendererImage != helmapps.RendererImage ||
-		i.RendererVersion != helmapps.HelmVersion || i.PolicyVersion != helmapps.PolicyVersion {
+		!digestRE.MatchString(i.ChartDigest) || i.RendererImage != RendererImage ||
+		i.RendererVersion != RendererVersion || i.PolicyVersion != helmapps.PolicyVersion {
 		return ErrInvalid
 	}
 	return nil

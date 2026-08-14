@@ -14,8 +14,8 @@ import (
 
 func testIdentity() Identity {
 	return Identity{Contract: Contract, ChartName: "kuberploy-runtime", ChartVersion: "1.2.3",
-		ChartDigest: "sha256:" + strings.Repeat("a", 64), RendererImage: helmapps.RendererImage,
-		RendererVersion: helmapps.HelmVersion, PolicyVersion: helmapps.PolicyVersion}
+		ChartDigest: "sha256:" + strings.Repeat("a", 64), RendererImage: RendererImage,
+		RendererVersion: RendererVersion, PolicyVersion: helmapps.PolicyVersion}
 }
 
 func TestRendererProducesDeterministicBoundedRedactedDiff(t *testing.T) {

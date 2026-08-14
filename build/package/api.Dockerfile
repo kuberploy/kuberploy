@@ -1,4 +1,11 @@
 # syntax=docker/dockerfile:1.7
+FROM docker.io/alpine/helm:4.2 AS helm-runtime
+
+# Capture exact selected patch as readable build input. Render identity changes
+# whenever major/minor selector advances to a new hotfix.
+RUN /usr/bin/helm version --template '{{ .Version }}' > /helm-version && \
+    grep -Eq '^v4[.]2[.][0-9]+$' /helm-version
+
 FROM docker.io/library/golang:1.26-alpine3.24 AS build
 
 WORKDIR /src
@@ -10,6 +17,7 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 COPY schema ./schema
+COPY --from=helm-runtime /helm-version /tmp/helm-version
 
 ARG TARGETOS=linux
 ARG TARGETARCH
@@ -18,9 +26,11 @@ ARG REVISION=unknown
 ARG BUILD_DATE=unknown
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    kp_helm_version="$(cat /tmp/helm-version)" && \
+    kp_helm_version="${kp_helm_version#v}" && \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -trimpath \
-      -ldflags="-s -w -buildid= -X main.version=${VERSION}" \
+      -ldflags="-s -w -buildid= -X main.version=${VERSION} -X github.com/kuberploy/kuberploy/internal/appconfigpreview.RendererVersion=${kp_helm_version}" \
       -o /out/kuberploy-api ./cmd/kuberploy-api
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
@@ -28,8 +38,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath \
       -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-bootstrap-token ./cmd/kuberploy-bootstrap-token
-
-FROM docker.io/alpine/helm:4.2 AS helm-runtime
 
 FROM docker.io/library/alpine:3.24
 

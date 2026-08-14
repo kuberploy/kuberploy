@@ -476,8 +476,12 @@ func ValidateWorkloadRuntime(runtime WorkloadRuntime) []WorkloadValidationError 
 			add(pointer+"/whenUnsatisfiable", "InvalidValue", "use DoNotSchedule or ScheduleAnyway")
 		}
 		validateLabelSelector(constraint.LabelSelector, pointer+"/labelSelector", add)
-		if constraint.MinDomains != nil && (*constraint.MinDomains < 1 || *constraint.MinDomains > 1000) {
-			add(pointer+"/minDomains", "OutOfRange", "minDomains must be between 1 and 1000")
+		if constraint.MinDomains != nil {
+			if constraint.WhenUnsatisfiable != "DoNotSchedule" {
+				add(pointer+"/minDomains", "InvalidValue", "minDomains is supported only when whenUnsatisfiable is DoNotSchedule")
+			} else if *constraint.MinDomains < 1 || *constraint.MinDomains > 1000 {
+				add(pointer+"/minDomains", "OutOfRange", "minDomains must be between 1 and 1000")
+			}
 		}
 		for _, policy := range []struct{ value, suffix string }{{constraint.NodeAffinityPolicy, "nodeAffinityPolicy"}, {constraint.NodeTaintsPolicy, "nodeTaintsPolicy"}} {
 			if policy.value != "" && policy.value != "Honor" && policy.value != "Ignore" {

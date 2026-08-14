@@ -743,7 +743,7 @@ func (s *Store) FailOperation(ctx context.Context, operationID string, generatio
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: operation generation changed", base.ErrConflict)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='failed',updated_at=$2,result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$3,'detail',$4) WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, now, code, detail); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='failed',updated_at=$2,result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$3::text,'detail',$4::text) WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, now, code, detail); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

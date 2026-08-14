@@ -273,7 +273,7 @@ func (s *Store) RequeueOperation(ctx context.Context, operationID string, genera
 		return err
 	}
 	if kind == "platform.upgrade" {
-		upgradeTag, updateErr := tx.Exec(ctx, `UPDATE platform_upgrades SET state='queued',result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$2,'detail',$3),updated_at=$4 WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, code, detail, now)
+		upgradeTag, updateErr := tx.Exec(ctx, `UPDATE platform_upgrades SET state='queued',result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$2::text,'detail',$3::text),updated_at=$4 WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, code, detail, now)
 		if updateErr != nil {
 			return updateErr
 		}

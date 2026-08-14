@@ -102,6 +102,38 @@ podAntiAffinity:
     });
   });
 
+  it("removes minDomains when topology spread becomes soft", async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        initial={{
+          topologySpreadYaml: `- maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: DoNotSchedule
+  minDomains: 2
+  labelSelector:
+    matchLabels:
+      kuberploy.io/application: ${applicationId}`,
+        }}
+      />,
+    );
+
+    const minDomains = screen.getByLabelText("Topology spread 1 min domains");
+    expect(minDomains).toBeEnabled();
+    await user.selectOptions(
+      screen.getByLabelText("Topology spread 1 unsatisfiable"),
+      "ScheduleAnyway",
+    );
+    expect(minDomains).toBeDisabled();
+
+    const serialized = JSON.parse(
+      screen.getByLabelText("scheduling value").textContent ?? "{}",
+    ) as SchedulingEditorValue;
+    expect(parse(serialized.topologySpreadYaml)[0]).not.toHaveProperty(
+      "minDomains",
+    );
+  });
+
   it("adds and removes direct node placement values", async () => {
     const user = userEvent.setup();
     render(<Harness />);

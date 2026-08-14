@@ -452,7 +452,8 @@ export function SchedulingEditor({
         source.whenUnsatisfiable === "ScheduleAnyway"
           ? ("ScheduleAnyway" as const)
           : ("DoNotSchedule" as const),
-      ...(typeof source.minDomains === "number"
+      ...(source.whenUnsatisfiable !== "ScheduleAnyway" &&
+      typeof source.minDomains === "number"
         ? { minDomains: source.minDomains }
         : {}),
       ...(source.nodeAffinityPolicy === "Ignore" ||
@@ -1094,6 +1095,10 @@ export function SchedulingEditor({
                           ? {
                               whenUnsatisfiable: event.target
                                 .value as TopologyDraft["whenUnsatisfiable"],
+                              minDomains:
+                                event.target.value === "DoNotSchedule"
+                                  ? current.minDomains
+                                  : undefined,
                             }
                           : {}),
                       })),
@@ -1113,7 +1118,9 @@ export function SchedulingEditor({
                 type="number"
                 min={1}
                 value={item.minDomains ?? ""}
-                disabled={disabled}
+                disabled={
+                  disabled || item.whenUnsatisfiable !== "DoNotSchedule"
+                }
                 onChange={(event) =>
                   update({
                     topologySpreadYaml: fragment(
