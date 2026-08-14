@@ -32,6 +32,37 @@ RELEASE_COMPONENT_CHARTS = (
 )
 
 
+def validate_installer_dependency_source(root: Path, version: str) -> None:
+    installer = root / "charts/kuberploy-installer"
+    epoch = (installer / "dependencies.source-date-epoch").read_text(encoding="utf-8")
+    if not re.fullmatch(r"(?:0|[1-9][0-9]*)\n", epoch) or int(epoch) > 4_102_444_800:
+        raise SystemExit("installer dependency source-date epoch must be one supported canonical integer line")
+
+    expected_names = [
+        f"charts/kuberploy-argocd-{version}.tgz",
+        f"charts/kuberploy-valkey-{version}.tgz",
+    ]
+    lines = (installer / "dependencies.lock").read_text(encoding="utf-8").splitlines()
+    if len(lines) != len(expected_names):
+        raise SystemExit("installer dependencies.lock must contain exactly two entries")
+    for line, expected_name in zip(lines, expected_names, strict=True):
+        match = re.fullmatch(r"([a-f0-9]{64})  (charts/[A-Za-z0-9._+-]+\.tgz)", line)
+        if match is None or match.group(2) != expected_name:
+            raise SystemExit("installer dependencies.lock has a non-canonical entry")
+
+    preparer = (root / "scripts/helm/prepare-dependencies.sh").read_text(encoding="utf-8")
+    required_controls = (
+        "scripts/helm/package-installer-dependencies.py",
+        "scripts/helm/replace-installer-dependencies.py",
+        "dependencies.source-date-epoch",
+        "dependencies.lock",
+    )
+    if any(control not in preparer for control in required_controls):
+        raise SystemExit("installer dependency preparation lacks deterministic lock controls")
+    if re.search(r"helm dependency (?:build|update)[^\n]*kuberploy-installer", preparer):
+        raise SystemExit("installer wrapper dependencies must not use timestamp-bearing Helm packaging")
+
+
 def validate_stable_qualification(root: Path, version: str) -> None:
     if "-" in version:
         return
@@ -134,6 +165,7 @@ def main() -> None:
     if args.tag and args.tag != f"v{version}":
         raise SystemExit(f"tag {args.tag} does not match source version v{version}")
     validate_stable_qualification(args.root, version)
+    validate_installer_dependency_source(args.root, version)
 
     installer_fixtures = (
         ("managed-values.yaml", "postgresql"),
@@ -220,6 +252,8 @@ def main() -> None:
             "CI does not test the production Prisma migration image: "
             + ", ".join(missing_ci_controls)
         )
+    if ci_workflow_text.count("        run: ./scripts/helm/prepare-dependencies.sh\n") != 2:
+        raise SystemExit("CI must prepare deterministic Helm dependencies in both consuming jobs")
     checkout_count = ci_workflow_text.count("uses: actions/checkout@v7")
     if checkout_count == 0 or ci_workflow_text.count("persist-credentials: false") != checkout_count:
         raise SystemExit("every CI checkout must disable persisted Git credentials")

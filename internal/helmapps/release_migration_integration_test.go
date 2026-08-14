@@ -573,6 +573,408 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	f := newHelmReleasePGFixture()
+	f.now = time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Microsecond)
+	setup, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupHelmReleasePGFixture(t, ctx, setup, f)
+	if err = setup.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	releases, err := NewPostgresReleaseService(pool, helmPGOperatorDigest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := ReleaseTarget{ProjectID: f.projectID, EnvironmentID: f.environmentID, ApplicationID: f.applicationID}
+	release, _, err := releases.Upsert(ctx, UpsertReleaseRequest{
+		Target: target, Approval: ApprovalKey{ID: f.approvalID, Revision: 1}, ValuesYAML: f.values,
+		Actor: ReleaseActor{ID: f.userID, IdempotencyKey: "publisher-adoption-" + id.New(), RequestID: "publisher-adoption"},
+	}, f.now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeHelmRender(t, ctx, renderTx, f, release.RenderCommandID, f.now.Add(2*time.Second))
+	if err = renderTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
+		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
+	current := original
+	current.ConfigDigest = helmPGDigest([]byte("publisher-next-release"))
+	binding := ProtectedBindingSnapshot{
+		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
+		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main",
+		EnvironmentTargetRef: "refs/heads/main", EnvironmentRevision: f.environmentHead,
+		EnvironmentGeneration: 1, CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead,
+	}
+	payload, _, err := store.CreatePayloadForHead(ctx, id.New(), target, binding, original, f.now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, oldLease, err := store.ClaimPayload(ctx, "helm-publisher-old-0001", original,
+		f.now.Add(5*time.Second), minimumProtectedLease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err = store.BindPayloadWriteBase(ctx, oldLease, f.platformHead,
+		f.now.Add(6*time.Second), f.now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	currentWorker := "helm-publisher-current-0001"
+	farFuture := now.Add(10 * time.Minute)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: currentWorker, WorkerEpoch: 7, Publisher: current,
+		StartedAt: now.Add(-time.Second), ObservedAt: farFuture,
+		LeaseUntil: farFuture.Add(time.Minute),
+	}); err == nil {
+		t.Fatal("far-future protected publisher readiness was accepted")
+	}
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: currentWorker, WorkerEpoch: 7, Publisher: current,
+		StartedAt: now.Add(-time.Second), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.runtime_readiness
+		SET updated_at=observed_at+interval '1 second'
+		WHERE runtime_kind='helm-protected-publisher' AND scope_key='global' AND worker_id=$1`,
+		currentWorker); err == nil {
+		t.Fatal("publisher readiness accepted updated/observed timestamp divergence")
+	}
+	shadowTx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = shadowTx.Exec(ctx, `
+		CREATE TEMP TABLE runtime_readiness(dummy text);
+		CREATE FUNCTION pg_temp.helm_protected_adoption_projection_is_fresh(
+			uuid,uuid,uuid,uuid,uuid,text,text,text,bigint
+		) RETURNS boolean LANGUAGE plpgsql AS $shadow$
+		BEGIN RAISE EXCEPTION 'temporary projection function was invoked'; END
+		$shadow$;`); err != nil {
+		_ = shadowTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	var shadowAdoptedID string
+	err = shadowTx.QueryRow(ctx, `SELECT public.adopt_helm_protected_payload_intent(
+		$1,$2,$3,$4,$5,$6,$7)::text`, id.New(), currentWorker, 7, current.Contract,
+		current.PolicyVersion, current.ConfigDigest, minimumProtectedLease.Milliseconds()).Scan(&shadowAdoptedID)
+	if err != nil || shadowAdoptedID != payload.ID {
+		_ = shadowTx.Rollback(ctx)
+		t.Fatalf("schema-qualified shadow adoption id=%s err=%v", shadowAdoptedID, err)
+	}
+	if _, err = shadowTx.Exec(ctx, `DROP TABLE pg_temp.runtime_readiness;
+		DROP FUNCTION pg_temp.helm_protected_adoption_projection_is_fresh(
+			uuid,uuid,uuid,uuid,uuid,text,text,text,bigint
+		)`); err != nil {
+		_ = shadowTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = shadowTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload, err = store.Payload(ctx, payload.ID)
+	adoptedLease := payloadLease(payload)
+	if err != nil || payload.Publisher != current || payload.OriginalPublisherConfigDigest != original.ConfigDigest ||
+		payload.PublisherAdoptionEpoch != 1 || adoptedLease.Epoch != oldLease.Epoch+1 ||
+		payload.WriteBaseRevision != f.platformHead || payload.State != ProtectedClaimed {
+		t.Fatalf("adopted payload=%+v lease=%+v err=%v", payload, adoptedLease, err)
+	}
+	replayedPayload, replay, err := store.CreatePayloadForHead(ctx, payload.ID, target, binding,
+		original, helmPGNotBefore(time.Now().UTC(), payload.UpdatedAt))
+	if err != nil || !replay || replayedPayload.ID != payload.ID || replayedPayload.Publisher != current ||
+		replayedPayload.PublisherAdoptionEpoch != 1 {
+		t.Fatalf("adopted payload replay=%+v replay=%v err=%v", replayedPayload, replay, err)
+	}
+	var payloadReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM helm_protected_publisher_adoption_receipts
+		WHERE intent_kind='payload' AND payload_intent_id=$1 AND adoption_epoch=1
+		AND original_config_digest=$2 AND previous_config_digest=$2 AND adopted_config_digest=$3
+		AND intent_digest=$4 AND content_digest=$5 AND protected_path=$6
+		AND precondition='create-if-absent' AND expected_etag=''
+		AND write_base_revision=$7 AND committed_revision=''`, payload.ID, original.ConfigDigest,
+		current.ConfigDigest, payload.IntentDigest, payload.ContentDigest, payload.Path,
+		f.platformHead).Scan(&payloadReceipts); err != nil || payloadReceipts != 1 {
+		t.Fatalf("payload adoption receipts=%d err=%v", payloadReceipts, err)
+	}
+	if _, _, err = store.ClaimPayload(ctx, "helm-publisher-old-0002", original,
+		time.Now().UTC(), minimumProtectedLease); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("old publisher reclaimed adopted payload: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE helm_protected_payload_intents
+		SET original_publisher_config_digest=$2,prerequisite_epoch=prerequisite_epoch+1,updated_at=clock_timestamp()
+		WHERE id=$1`, payload.ID, current.ConfigDigest); err == nil {
+		t.Fatal("original payload publisher identity was mutable")
+	}
+
+	payloadCommit := strings.Repeat("6", 40)
+	payloadOperationAt := helmPGNotBefore(time.Now().UTC(), payload.UpdatedAt)
+	payload, err = store.MarkPayloadCommitted(ctx, adoptedLease, payloadCommit, f.platformHead,
+		payloadOperationAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadOperationAt = helmPGNotBefore(time.Now().UTC(), payload.UpdatedAt)
+	payload, err = store.VerifyPayload(ctx, adoptedLease, payloadCommit, payload.ContentDigest,
+		"publisher-adoption-payload", payloadOperationAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanceTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, payloadCommit,
+		helmPGNotBefore(time.Now().UTC(), payload.UpdatedAt))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	application, _, err := store.CreateApplicationForPayload(ctx, id.New(), payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, original,
+		helmPGNotBefore(time.Now().UTC(), payload.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	competing := newHelmReleasePGFixture()
+	competing.platformBindingID = f.platformBindingID
+	competing.clusterID = f.clusterID
+	competing.platformHead = payloadCommit
+	competingSetup, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupHelmReleasePGFixture(t, ctx, competingSetup, competing)
+	if err = competingSetup.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	competingTarget := ReleaseTarget{ProjectID: competing.projectID,
+		EnvironmentID: competing.environmentID, ApplicationID: competing.applicationID}
+	competingRelease, _, err := releases.Upsert(ctx, UpsertReleaseRequest{
+		Target: competingTarget, Approval: ApprovalKey{ID: competing.approvalID, Revision: 1},
+		ValuesYAML: competing.values, Actor: ReleaseActor{ID: competing.userID,
+			IdempotencyKey: "publisher-competing-" + id.New(), RequestID: "publisher-competing"},
+	}, competing.now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	competingRender, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeHelmRender(t, ctx, competingRender, competing, competingRelease.RenderCommandID,
+		competing.now.Add(2*time.Second))
+	if err = competingRender.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	competingBinding := ProtectedBindingSnapshot{
+		PlatformBindingID:    competing.platformBindingID,
+		EnvironmentBindingID: competing.environmentBindingID, ClusterID: competing.clusterID,
+		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentRevision: competing.environmentHead, EnvironmentGeneration: 1,
+		CatalogDigest: competing.catalogDigest, PlannedBaseRevision: payloadCommit,
+	}
+	competingPayload, _, err := store.CreatePayloadForHead(ctx, id.New(), competingTarget,
+		competingBinding, original, competing.now.Add(4*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Even the shared schema owner cannot use a paired receipt+intent write to
+	// bypass a projection change after the receipt was admitted: the authority
+	// UPDATE independently rechecks the current protected snapshot.
+	directBypass, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directReceiptID := id.New()
+	_, err = directBypass.Exec(ctx, `INSERT INTO public.helm_protected_publisher_adoption_receipts(
+		id,intent_kind,payload_intent_id,application_intent_id,adoption_epoch,
+		publisher_contract,original_config_digest,previous_config_digest,adopted_config_digest,
+		policy_version,intent_digest,content_digest,protected_path,precondition,expected_etag,
+		commit_trailer,prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,
+		recovery_state,write_base_revision,committed_revision,committed_parent_revision,
+		previous_lease_epoch,adopted_lease_epoch,adopted_by_worker,adopted_worker_epoch,created_at)
+		SELECT $1,'application',NULL,intent.id,intent.publisher_adoption_epoch+1,
+		intent.publisher_contract,intent.original_publisher_config_digest,intent.publisher_config_digest,$2,
+		$3,intent.intent_digest,intent.content_digest,intent.application_path,intent.precondition,
+		intent.expected_etag,intent.commit_trailer,intent.prerequisite_receipt_id,
+		intent.prerequisite_contract,intent.prerequisite_epoch,intent.state,intent.write_base_revision,
+		intent.committed_revision,intent.committed_parent_revision,intent.lease_epoch,intent.lease_epoch+1,
+		$4,$5,clock_timestamp() FROM public.helm_protected_application_intents intent WHERE intent.id=$6`,
+		directReceiptID, current.ConfigDigest, current.PolicyVersion, currentWorker, 7, application.ID)
+	if err != nil {
+		_ = directBypass.Rollback(ctx)
+		t.Fatalf("receipt-first projection setup: %v", err)
+	}
+	if _, err = directBypass.Exec(ctx, `UPDATE public.git_repository_bindings
+		SET state='indexing' WHERE id=$1`, f.environmentBindingID); err != nil {
+		_ = directBypass.Rollback(ctx)
+		t.Fatal(err)
+	}
+	_, err = directBypass.Exec(ctx, `UPDATE public.helm_protected_application_intents intent SET
+		publisher_config_digest=$2,publisher_adoption_epoch=intent.publisher_adoption_epoch+1,
+		state='claimed',lease_owner=$3,lease_epoch=intent.lease_epoch+1,
+		lease_until=receipt.created_at+interval '15 seconds',attempts=LEAST(intent.attempts+1,30),
+		updated_at=receipt.created_at,prerequisite_epoch=intent.prerequisite_epoch+1
+		FROM public.helm_protected_publisher_adoption_receipts receipt
+		WHERE intent.id=$1 AND receipt.id=$4`, application.ID, current.ConfigDigest,
+		currentWorker, directReceiptID)
+	_ = directBypass.Rollback(ctx)
+	if err == nil {
+		t.Fatal("receipt-first paired DML bypassed the authority projection recheck")
+	}
+
+	// The authority UPDATE also owns the final cross-table lane check. A receipt
+	// admitted first cannot be consumed after another payload takes that lane.
+	laneBypass, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneReceiptID := id.New()
+	_, err = laneBypass.Exec(ctx, `INSERT INTO public.helm_protected_publisher_adoption_receipts(
+		id,intent_kind,payload_intent_id,application_intent_id,adoption_epoch,
+		publisher_contract,original_config_digest,previous_config_digest,adopted_config_digest,
+		policy_version,intent_digest,content_digest,protected_path,precondition,expected_etag,
+		commit_trailer,prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,
+		recovery_state,write_base_revision,committed_revision,committed_parent_revision,
+		previous_lease_epoch,adopted_lease_epoch,adopted_by_worker,adopted_worker_epoch,created_at)
+		SELECT $1,'application',NULL,intent.id,intent.publisher_adoption_epoch+1,
+		intent.publisher_contract,intent.original_publisher_config_digest,intent.publisher_config_digest,$2,
+		$3,intent.intent_digest,intent.content_digest,intent.application_path,intent.precondition,
+		intent.expected_etag,intent.commit_trailer,intent.prerequisite_receipt_id,
+		intent.prerequisite_contract,intent.prerequisite_epoch,intent.state,intent.write_base_revision,
+		intent.committed_revision,intent.committed_parent_revision,intent.lease_epoch,intent.lease_epoch+1,
+		$4,$5,clock_timestamp() FROM public.helm_protected_application_intents intent WHERE intent.id=$6`,
+		laneReceiptID, current.ConfigDigest, current.PolicyVersion, currentWorker, 7, application.ID)
+	if err != nil {
+		_ = laneBypass.Rollback(ctx)
+		t.Fatalf("receipt-first lane setup: %v", err)
+	}
+	claimAt := competingPayload.UpdatedAt.Add(time.Second)
+	if _, err = laneBypass.Exec(ctx, `UPDATE public.helm_protected_payload_intents SET
+		state='claimed',lease_owner='helm-publisher-competing-0001',lease_epoch=lease_epoch+1,
+		lease_until=$2::timestamptz+interval '1 minute',attempts=LEAST(attempts+1,30),
+		updated_at=$2,prerequisite_epoch=prerequisite_epoch+1 WHERE id=$1`,
+		competingPayload.ID, claimAt); err != nil {
+		_ = laneBypass.Rollback(ctx)
+		t.Fatalf("competing lane setup: %v", err)
+	}
+	_, err = laneBypass.Exec(ctx, `UPDATE public.helm_protected_application_intents intent SET
+		publisher_config_digest=$2,publisher_adoption_epoch=intent.publisher_adoption_epoch+1,
+		state='claimed',lease_owner=$3,lease_epoch=intent.lease_epoch+1,
+		lease_until=receipt.created_at+interval '15 seconds',attempts=LEAST(intent.attempts+1,30),
+		updated_at=receipt.created_at,prerequisite_epoch=intent.prerequisite_epoch+1
+		FROM public.helm_protected_publisher_adoption_receipts receipt
+		WHERE intent.id=$1 AND receipt.id=$4`, application.ID, current.ConfigDigest,
+		currentWorker, laneReceiptID)
+	_ = laneBypass.Rollback(ctx)
+	if err == nil {
+		t.Fatal("receipt-first paired DML bypassed the authority cross-table lane recheck")
+	}
+	// A receipt inserted without the same transaction's exact authority+lease
+	// postimage must fail at the deferred constraint boundary.
+	preplant, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = preplant.Exec(ctx, `INSERT INTO helm_protected_publisher_adoption_receipts(
+		id,intent_kind,payload_intent_id,application_intent_id,adoption_epoch,
+		publisher_contract,original_config_digest,previous_config_digest,adopted_config_digest,
+		policy_version,intent_digest,content_digest,protected_path,precondition,expected_etag,
+		commit_trailer,prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,
+		recovery_state,write_base_revision,committed_revision,committed_parent_revision,
+		previous_lease_epoch,adopted_lease_epoch,adopted_by_worker,adopted_worker_epoch,created_at)
+		SELECT $1,'application',NULL,intent.id,intent.publisher_adoption_epoch+1,
+		intent.publisher_contract,intent.original_publisher_config_digest,intent.publisher_config_digest,$2,
+		$3,intent.intent_digest,intent.content_digest,intent.application_path,intent.precondition,
+		intent.expected_etag,intent.commit_trailer,intent.prerequisite_receipt_id,
+		intent.prerequisite_contract,intent.prerequisite_epoch,intent.state,intent.write_base_revision,
+		intent.committed_revision,intent.committed_parent_revision,intent.lease_epoch,intent.lease_epoch+1,
+		$4,$5,clock_timestamp() FROM helm_protected_application_intents intent WHERE intent.id=$6`,
+		id.New(), current.ConfigDigest, current.PolicyVersion, currentWorker, 7, application.ID)
+	if err != nil {
+		_ = preplant.Rollback(ctx)
+		t.Fatalf("preplant setup should reach deferred postimage fence: %v", err)
+	}
+	if err = preplant.Commit(ctx); err == nil {
+		t.Fatal("preplanted adoption receipt committed without atomic intent postimage")
+	}
+
+	application, appLease, err := store.AdoptApplication(ctx, currentWorker, 7, current, minimumProtectedLease)
+	if err != nil || application.Publisher != current ||
+		application.OriginalPublisherConfigDigest != original.ConfigDigest ||
+		application.PublisherAdoptionEpoch != 1 || application.State != ProtectedClaimed {
+		t.Fatalf("adopted application=%+v lease=%+v err=%v", application, appLease, err)
+	}
+	replayedApplication, replay, err := store.CreateApplicationForPayload(ctx, application.ID,
+		payload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, original,
+		helmPGNotBefore(time.Now().UTC(), application.UpdatedAt))
+	if err != nil || !replay || replayedApplication.ID != application.ID ||
+		replayedApplication.Publisher != current || replayedApplication.PublisherAdoptionEpoch != 1 {
+		t.Fatalf("adopted application replay=%+v replay=%v err=%v", replayedApplication, replay, err)
+	}
+	third := current
+	third.ConfigDigest = helmPGDigest([]byte("publisher-third-release"))
+	thirdWorker := "helm-publisher-current-0002"
+	now = helmPGNotBefore(time.Now().UTC().Truncate(time.Microsecond), application.UpdatedAt)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: thirdWorker, WorkerEpoch: 11, Publisher: third,
+		StartedAt: now.Add(-time.Second), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	application, err = store.RetryApplication(ctx, appLease, "provider-unavailable",
+		now, now)
+	if err != nil || application.State != ProtectedPending {
+		t.Fatalf("application retry=%+v err=%v", application, err)
+	}
+	application, chainedLease, err := store.AdoptApplication(ctx, thirdWorker, 11, third, minimumProtectedLease)
+	if err != nil || application.Publisher != third ||
+		application.OriginalPublisherConfigDigest != original.ConfigDigest ||
+		application.PublisherAdoptionEpoch != 2 || chainedLease.Epoch != appLease.Epoch+1 {
+		t.Fatalf("chained application=%+v lease=%+v err=%v", application, chainedLease, err)
+	}
+	var chainReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM helm_protected_publisher_adoption_receipts
+		WHERE application_intent_id=$1 AND
+		((adoption_epoch=1 AND previous_config_digest=$2 AND adopted_config_digest=$3) OR
+		 (adoption_epoch=2 AND previous_config_digest=$3 AND adopted_config_digest=$4))`,
+		application.ID, original.ConfigDigest, current.ConfigDigest, third.ConfigDigest).Scan(&chainReceipts); err != nil || chainReceipts != 2 {
+		t.Fatalf("application adoption chain receipts=%d err=%v", chainReceipts, err)
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM helm_protected_publisher_adoption_receipts
+		WHERE application_intent_id=$1 AND adoption_epoch=1`, application.ID); err == nil {
+		t.Fatal("immutable publisher adoption receipt was deleted")
+	}
+}
+
 func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -941,6 +1343,54 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
 	if _, err = tx.Exec(ctx, `
+		DROP TRIGGER runtime_readiness_helm_publisher_bounds ON runtime_readiness;
+		DROP FUNCTION validate_helm_protected_publisher_readiness_bounds();
+		DROP FUNCTION adopt_helm_protected_payload_intent(uuid,text,bigint,text,text,text,bigint);
+		DROP FUNCTION adopt_helm_protected_application_intent(uuid,text,bigint,text,text,text,bigint);
+		DROP FUNCTION helm_protected_adoption_projection_is_fresh(uuid,uuid,uuid,uuid,uuid,text,text,text,bigint);
+		DROP TRIGGER helm_protected_payload_publisher_authority ON helm_protected_payload_intents;
+		DROP TRIGGER helm_protected_application_publisher_authority ON helm_protected_application_intents;
+		DROP FUNCTION validate_helm_protected_publisher_authority();
+		DROP TRIGGER helm_protected_publisher_adoption_postimage ON helm_protected_publisher_adoption_receipts;
+		DROP TRIGGER helm_protected_publisher_adoption_receipts_validate ON helm_protected_publisher_adoption_receipts;
+		DROP FUNCTION verify_helm_protected_publisher_adoption_postimage();
+		DROP FUNCTION validate_helm_protected_publisher_adoption_receipt();
+		DROP TABLE helm_protected_publisher_adoption_receipts;
+		DO $rollback_publisher_adoption$
+		DECLARE definition text;
+		BEGIN
+			definition := pg_get_functiondef('validate_helm_protected_payload_intent()'::regprocedure);
+			definition := replace(definition,
+				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
+				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
+			definition := replace(definition,
+				'OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.message',
+				'OLD.publisher_contract,OLD.publisher_config_digest,OLD.message');
+			EXECUTE definition;
+			definition := pg_get_functiondef('validate_helm_protected_application_intent()'::regprocedure);
+			definition := replace(definition,
+				'NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message',
+				'NEW.publisher_contract,NEW.publisher_config_digest,NEW.message');
+			definition := replace(definition,
+				'OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.message',
+				'OLD.publisher_contract,OLD.publisher_config_digest,OLD.message');
+			EXECUTE definition;
+			definition := pg_get_functiondef(
+				'public.require_helm_publication_prerequisite_receipt()'::regprocedure
+			);
+			definition := replace(definition,
+				'FROM public.helm_publication_prerequisite_receipts receipt',
+				'FROM helm_publication_prerequisite_receipts receipt');
+			EXECUTE definition;
+		END;
+		$rollback_publisher_adoption$;
+		ALTER FUNCTION require_helm_publication_prerequisite_receipt() RESET search_path;
+		ALTER TABLE helm_protected_payload_intents
+			DROP COLUMN original_publisher_config_digest,
+			DROP COLUMN publisher_adoption_epoch;
+		ALTER TABLE helm_protected_application_intents
+			DROP COLUMN original_publisher_config_digest,
+			DROP COLUMN publisher_adoption_epoch;
 		DROP TRIGGER argo_desired_state_commands_require_policy_digest ON argo_desired_state_commands;
 		DROP FUNCTION require_argo_desired_state_policy_digest();
 		DROP TRIGGER argo_desired_state_commands_fence_legacy_recovery ON argo_desired_state_commands;
@@ -1379,6 +1829,39 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	if recoveredReceipts != 1 {
 		t.Fatalf("fresh current-policy materialization receipts=%d", recoveredReceipts)
 	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/007_helm_publisher_adoption/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
+	for _, intent := range []struct {
+		table string
+		id    string
+	}{
+		{table: "helm_protected_application_intents", id: legacyApplication.id},
+		{table: "helm_protected_application_intents", id: committedApplication.id},
+	} {
+		var active, original string
+		var adoptionEpoch int64
+		query := `SELECT publisher_config_digest,original_publisher_config_digest,
+			publisher_adoption_epoch FROM ` + intent.table + ` WHERE id=$1`
+		if err = tx.QueryRow(ctx, query, intent.id).Scan(&active, &original, &adoptionEpoch); err != nil {
+			t.Fatal(err)
+		}
+		if active != original || adoptionEpoch != 0 {
+			t.Fatalf("migration 007 backfill table=%s active=%s original=%s epoch=%d",
+				intent.table, active, original, adoptionEpoch)
+		}
+	}
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE helm_protected_application_intents SET
+			publisher_config_digest=$2,prerequisite_epoch=prerequisite_epoch+1,
+			updated_at=updated_at WHERE id=$1`, legacyApplication.id,
+			helmPGDigest([]byte("unreceipted-publisher-adoption")))
+		return nestedErr
+	})
 }
 
 func testPostgresReleaseServiceTransaction(t *testing.T, ctx context.Context, tx pgx.Tx, at time.Time) {
@@ -1522,7 +2005,8 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 			credential_mode,state,target_head_revision,projection_generation,parser_version,
 			target_head_observed_at,created_at,updated_at
 		) VALUES($1,'platform',$2,$2,'github',1,101,'kuberploy','platform',
-			'refs/heads/main',$3,'','github-app','indexing',$4,0,'gitprojection.v1',$5,$5,$5)`,
+			'refs/heads/main',$3,'','github-app','indexing',$4,0,'gitprojection.v1',$5,$5,$5)
+			ON CONFLICT (id) DO NOTHING`,
 			[]any{f.platformBindingID, f.clusterID, "clusters/" + f.clusterID, f.platformHead, f.now}},
 		{`INSERT INTO git_repository_bindings(
 			id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,
@@ -1785,11 +2269,12 @@ func insertHelmPayloadRow(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture
 		environment_target_ref,environment_revision,environment_generation,catalog_digest,
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
-		publisher_contract,publisher_config_digest,message,state,next_attempt_at,
+		publisher_contract,publisher_config_digest,original_publisher_config_digest,
+		publisher_adoption_epoch,message,state,next_attempt_at,
 		prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
 		$11,1,$12,$13,$14,'create-if-absent','',$15,$16,$17,$18,$19,$20,
-		'helm-protected-publisher.v1',$21,$22,'pending',$23,$2,$24,0,$23,$23)`,
+		'helm-protected-publisher.v1',$21,$21,0,$22,'pending',$23,$2,$24,0,$23,$23)`,
 		payload.id, payload.releaseID, payload.generation, f.projectID, f.environmentID,
 		f.applicationID, payload.action, f.platformBindingID, f.environmentBindingID,
 		f.clusterID, f.environmentHead, f.catalogDigest,
@@ -1842,11 +2327,12 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 		environment_generation,catalog_digest,planned_base_revision,payload_revision,
 		payload_path,source_directory,application_path,operation,precondition,expected_etag,
 		content,content_digest,intent_digest,commit_trailer,publisher_contract,
-		publisher_config_digest,message,state,next_attempt_at,prerequisite_receipt_id,
+		publisher_config_digest,original_publisher_config_digest,publisher_adoption_epoch,
+		message,state,next_attempt_at,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
 		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		'helm-protected-publisher.v1',$26,$27,'pending',$28,$2,$29,0,$28,$28)`,
+		'helm-protected-publisher.v1',$26,$26,0,$27,'pending',$28,$2,$29,0,$28,$28)`,
 		application.id, application.releaseID, application.payloadID, application.generation,
 		f.projectID, f.environmentID, f.applicationID, application.action,
 		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
@@ -1973,6 +2459,16 @@ func helmApplicationPath(f helmReleasePGFixture) string {
 func helmPGDigest(value []byte) string {
 	sum := sha256.Sum256(value)
 	return fmt.Sprintf("sha256:%x", sum[:])
+}
+
+func helmPGNotBefore(value time.Time, floors ...time.Time) time.Time {
+	result := value.UTC()
+	for _, floor := range floors {
+		if result.Before(floor) {
+			result = floor.UTC()
+		}
+	}
+	return result
 }
 
 func nullableUUID(value string) any {

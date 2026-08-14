@@ -12,13 +12,15 @@ import (
 )
 
 const (
-	ProtectedPublisherContract    = "helm-protected-publisher.v1"
-	ProtectedGitPolicy            = "helm-protected-git.v1"
-	protectedPrerequisiteContract = "helm-publication-prerequisite.v1"
-	ArgoApplicationAPIVersion     = "argoproj.io/v1alpha1"
-	ArgoApplicationKind           = "Application"
-	ArgoInClusterServer           = "https://kubernetes.default.svc"
-	MaximumProtectedAttempts      = 30
+	ProtectedPublisherContract     = "helm-protected-publisher.v1"
+	ProtectedGitPolicy             = "helm-protected-git.v1"
+	protectedPrerequisiteContract  = "helm-publication-prerequisite.v1"
+	ArgoApplicationAPIVersion      = "argoproj.io/v1alpha1"
+	ArgoApplicationKind            = "Application"
+	ArgoInClusterServer            = "https://kubernetes.default.svc"
+	MaximumProtectedAttempts       = 30
+	maximumPublisherReadinessAge   = 5 * time.Minute
+	maximumPublisherReadinessLease = 5 * time.Minute
 )
 
 var (
@@ -153,6 +155,8 @@ type ProtectedPayloadIntent struct {
 	IntentDigest                               string
 	CommitTrailer                              string
 	Publisher                                  ProtectedPublisherIdentity
+	OriginalPublisherConfigDigest              string
+	PublisherAdoptionEpoch                     int64
 	Message                                    string
 	State                                      ProtectedIntentState
 	NextAttemptAt                              time.Time
@@ -175,7 +179,11 @@ func (i ProtectedPayloadIntent) Validate() error {
 		len(i.Content) < 1 || len(i.Content) > MaximumOutputSize ||
 		!validDigest(i.ContentDigest) || digestBytes(i.Content) != i.ContentDigest ||
 		!validDigest(i.IntentDigest) || i.CommitTrailer != "Kuberploy-Helm-Payload-Intent: "+i.ID ||
-		i.Publisher.Validate() != nil || len(i.Message) < 1 || len(i.Message) > 512 ||
+		i.Publisher.Validate() != nil || i.PublisherAdoptionEpoch < 0 ||
+		(i.OriginalPublisherConfigDigest != "" && !validDigest(i.OriginalPublisherConfigDigest)) ||
+		(i.PublisherAdoptionEpoch == 0 && i.OriginalPublisherConfigDigest != "" &&
+			i.OriginalPublisherConfigDigest != i.Publisher.ConfigDigest) ||
+		len(i.Message) < 1 || len(i.Message) > 512 ||
 		containsControl(i.Message) || i.CreatedAt.IsZero() || i.UpdatedAt.Before(i.CreatedAt) ||
 		i.NextAttemptAt.Before(i.CreatedAt) || i.Attempts < 0 || i.Attempts > MaximumProtectedAttempts ||
 		i.ConsecutiveFailures < 0 || i.ConsecutiveFailures > MaximumProtectedAttempts ||
@@ -230,6 +238,8 @@ type ProtectedApplicationIntent struct {
 	Content                                                []byte
 	ContentDigest, IntentDigest, CommitTrailer             string
 	Publisher                                              ProtectedPublisherIdentity
+	OriginalPublisherConfigDigest                          string
+	PublisherAdoptionEpoch                                 int64
 	Message                                                string
 	State                                                  ProtectedIntentState
 	NextAttemptAt                                          time.Time
@@ -257,7 +267,11 @@ func (i ProtectedApplicationIntent) Validate() error {
 			i.Target.EnvironmentID, i.Target.ApplicationID) ||
 		!validDigest(i.IntentDigest) ||
 		i.CommitTrailer != "Kuberploy-Helm-Application-Intent: "+i.ID ||
-		i.Publisher.Validate() != nil || len(i.Message) < 1 || len(i.Message) > 512 ||
+		i.Publisher.Validate() != nil || i.PublisherAdoptionEpoch < 0 ||
+		(i.OriginalPublisherConfigDigest != "" && !validDigest(i.OriginalPublisherConfigDigest)) ||
+		(i.PublisherAdoptionEpoch == 0 && i.OriginalPublisherConfigDigest != "" &&
+			i.OriginalPublisherConfigDigest != i.Publisher.ConfigDigest) ||
+		len(i.Message) < 1 || len(i.Message) > 512 ||
 		containsControl(i.Message) || i.CreatedAt.IsZero() || i.UpdatedAt.Before(i.CreatedAt) ||
 		i.NextAttemptAt.Before(i.CreatedAt) || i.Attempts < 0 || i.Attempts > MaximumProtectedAttempts ||
 		i.ConsecutiveFailures < 0 || i.ConsecutiveFailures > MaximumProtectedAttempts ||
@@ -482,6 +496,7 @@ type ProtectedPublicationStore interface {
 	CreatePayloadForHead(context.Context, string, ReleaseTarget, ProtectedBindingSnapshot, ProtectedPublisherIdentity, time.Time) (ProtectedPayloadIntent, bool, error)
 	Payload(context.Context, string) (ProtectedPayloadIntent, error)
 	ClaimPayload(context.Context, string, ProtectedPublisherIdentity, time.Time, time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error)
+	AdoptPayload(context.Context, string, int64, ProtectedPublisherIdentity, time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error)
 	HeartbeatPayload(context.Context, ProtectedIntentLease, time.Time, time.Duration) (ProtectedIntentLease, error)
 	BindPayloadWriteBase(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedPayloadIntent, error)
 	RebindPayloadWriteBase(context.Context, ProtectedIntentLease, string, string, time.Time, time.Time) (ProtectedPayloadIntent, error)
@@ -494,6 +509,7 @@ type ProtectedPublicationStore interface {
 	CreateApplicationForPayload(context.Context, string, string, ProtectedApplicationRuntime, ProtectedPublisherIdentity, time.Time) (ProtectedApplicationIntent, bool, error)
 	Application(context.Context, string) (ProtectedApplicationIntent, error)
 	ClaimApplication(context.Context, string, ProtectedPublisherIdentity, time.Time, time.Duration) (ProtectedApplicationIntent, ProtectedIntentLease, error)
+	AdoptApplication(context.Context, string, int64, ProtectedPublisherIdentity, time.Duration) (ProtectedApplicationIntent, ProtectedIntentLease, error)
 	HeartbeatApplication(context.Context, ProtectedIntentLease, time.Time, time.Duration) (ProtectedIntentLease, error)
 	BindApplicationWriteBase(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedApplicationIntent, error)
 	RebindApplicationWriteBase(context.Context, ProtectedIntentLease, string, string, time.Time, time.Time) (ProtectedApplicationIntent, error)
@@ -526,7 +542,8 @@ type ProtectedPublisherReadiness struct {
 func (r ProtectedPublisherReadiness) Validate() error {
 	if !workerIDRE.MatchString(r.WorkerID) || r.WorkerEpoch < 1 ||
 		r.Publisher.Validate() != nil || r.StartedAt.IsZero() ||
-		r.ObservedAt.Before(r.StartedAt) || !r.LeaseUntil.After(r.ObservedAt) {
+		r.ObservedAt.Before(r.StartedAt) || !r.LeaseUntil.After(r.ObservedAt) ||
+		r.LeaseUntil.Sub(r.ObservedAt) > maximumPublisherReadinessLease {
 		return ErrInvalid
 	}
 	return nil

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,12 +17,15 @@ import (
 
 type protectedPublisherStoreStub struct {
 	ProtectedPublicationStore
-	payload         ProtectedPayloadIntent
-	application     ProtectedApplicationIntent
-	prerequisite    ProtectedPublicationPrerequisiteReceipt
-	prerequisiteErr error
-	payloadRebinds  int
-	appRebinds      int
+	payload          ProtectedPayloadIntent
+	application      ProtectedApplicationIntent
+	prerequisite     ProtectedPublicationPrerequisiteReceipt
+	prerequisiteErr  error
+	payloadRebinds   int
+	appRebinds       int
+	payloadAdoptions int
+	appAdoptions     int
+	payloadHeartbeat chan time.Time
 }
 
 func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
@@ -49,7 +53,7 @@ func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
 
 func (s *protectedPublisherStoreStub) ClaimPayload(_ context.Context, owner string, publisher ProtectedPublisherIdentity,
 	now time.Time, duration time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error) {
-	if s.payload.ID == "" || s.payload.State == ProtectedVerified {
+	if s.payload.ID == "" || s.payload.State == ProtectedVerified || publisher != s.payload.Publisher {
 		return ProtectedPayloadIntent{}, ProtectedIntentLease{}, ErrNotFound
 	}
 	s.payload.State, s.payload.LeaseOwner = ProtectedClaimed, owner
@@ -61,7 +65,7 @@ func (s *protectedPublisherStoreStub) ClaimPayload(_ context.Context, owner stri
 	until := now.Add(duration)
 	s.payload.LeaseUntil, s.payload.UpdatedAt = &until, now
 	lease := payloadLease(s.payload)
-	if publisher != s.payload.Publisher || s.payload.Validate() != nil || lease.Validate() != nil {
+	if s.payload.Validate() != nil || lease.Validate() != nil {
 		return ProtectedPayloadIntent{}, ProtectedIntentLease{}, ErrInvalid
 	}
 	return s.payload, lease, nil
@@ -69,7 +73,7 @@ func (s *protectedPublisherStoreStub) ClaimPayload(_ context.Context, owner stri
 
 func (s *protectedPublisherStoreStub) ClaimApplication(_ context.Context, owner string, publisher ProtectedPublisherIdentity,
 	now time.Time, duration time.Duration) (ProtectedApplicationIntent, ProtectedIntentLease, error) {
-	if s.application.ID == "" || s.application.State == ProtectedVerified {
+	if s.application.ID == "" || s.application.State == ProtectedVerified || publisher != s.application.Publisher {
 		return ProtectedApplicationIntent{}, ProtectedIntentLease{}, ErrNotFound
 	}
 	s.application.State, s.application.LeaseOwner = ProtectedClaimed, owner
@@ -81,10 +85,52 @@ func (s *protectedPublisherStoreStub) ClaimApplication(_ context.Context, owner 
 	until := now.Add(duration)
 	s.application.LeaseUntil, s.application.UpdatedAt = &until, now
 	lease := applicationLease(s.application)
-	if publisher != s.application.Publisher || s.application.Validate() != nil || lease.Validate() != nil {
+	if s.application.Validate() != nil || lease.Validate() != nil {
 		return ProtectedApplicationIntent{}, ProtectedIntentLease{}, ErrInvalid
 	}
 	return s.application, lease, nil
+}
+
+func (s *protectedPublisherStoreStub) AdoptPayload(_ context.Context, owner string, workerEpoch int64,
+	publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error) {
+	if s.payload.ID == "" || s.payload.State == ProtectedVerified || workerEpoch < 1 ||
+		publisher == s.payload.Publisher {
+		return ProtectedPayloadIntent{}, ProtectedIntentLease{}, ErrNotFound
+	}
+	now := s.payload.UpdatedAt
+	s.payload.Publisher, s.payload.PublisherAdoptionEpoch = publisher, s.payload.PublisherAdoptionEpoch+1
+	s.payload.State, s.payload.LeaseOwner = ProtectedClaimed, owner
+	if s.payload.CommittedRevision != "" {
+		s.payload.State = ProtectedGitCommitted
+	}
+	s.payload.Attempts++
+	s.payload.LeaseEpoch++
+	until := now.Add(duration)
+	s.payload.LeaseUntil = &until
+	s.payloadAdoptions++
+	lease := payloadLease(s.payload)
+	return s.payload, lease, lease.Validate()
+}
+
+func (s *protectedPublisherStoreStub) AdoptApplication(_ context.Context, owner string, workerEpoch int64,
+	publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedApplicationIntent, ProtectedIntentLease, error) {
+	if s.application.ID == "" || s.application.State == ProtectedVerified || workerEpoch < 1 ||
+		publisher == s.application.Publisher {
+		return ProtectedApplicationIntent{}, ProtectedIntentLease{}, ErrNotFound
+	}
+	now := s.application.UpdatedAt
+	s.application.Publisher, s.application.PublisherAdoptionEpoch = publisher, s.application.PublisherAdoptionEpoch+1
+	s.application.State, s.application.LeaseOwner = ProtectedClaimed, owner
+	if s.application.CommittedRevision != "" {
+		s.application.State = ProtectedGitCommitted
+	}
+	s.application.Attempts++
+	s.application.LeaseEpoch++
+	until := now.Add(duration)
+	s.application.LeaseUntil = &until
+	s.appAdoptions++
+	lease := applicationLease(s.application)
+	return s.application, lease, lease.Validate()
 }
 
 func (s *protectedPublisherStoreStub) HeartbeatPayload(_ context.Context, lease ProtectedIntentLease,
@@ -94,6 +140,12 @@ func (s *protectedPublisherStoreStub) HeartbeatPayload(_ context.Context, lease 
 	}
 	until := now.Add(duration)
 	s.payload.LeaseUntil, s.payload.UpdatedAt = &until, now
+	if s.payloadHeartbeat != nil {
+		select {
+		case s.payloadHeartbeat <- now:
+		default:
+		}
+	}
 	return payloadLease(s.payload), nil
 }
 
@@ -287,7 +339,8 @@ func (f *protectedPublisherFixture) pendingPayload(releaseID string, content []b
 			EnvironmentTargetRef: "refs/heads/main", EnvironmentRevision: strings.Repeat("a", 40), EnvironmentGeneration: 1,
 			CatalogDigest: digestBytes([]byte("catalog")), PlannedBaseRevision: plannedBase},
 		Content: content, ContentDigest: digestBytes(content), IntentDigest: digestBytes([]byte("payload-intent-" + releaseID)),
-		Publisher: f.publisher, Message: "publish protected payload", State: ProtectedPending,
+		Publisher: f.publisher, OriginalPublisherConfigDigest: f.publisher.ConfigDigest,
+		Message: "publish protected payload", State: ProtectedPending,
 		NextAttemptAt: f.now, CreatedAt: f.now, UpdatedAt: f.now}
 	if !disabled {
 		value.InventoryDigest, value.ResourceCount = digestBytes([]byte("inventory")), 1
@@ -312,7 +365,8 @@ func (f *protectedPublisherFixture) pendingApplication(payload ProtectedPayloadI
 		ApplicationPath: protectedApplicationPath(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID),
 		Operation:       operation, Precondition: precondition, ExpectedETag: etag, Content: content,
 		IntentDigest: digestBytes([]byte("application-intent-" + payload.ReleaseRevisionID)), Publisher: f.publisher,
-		Message: "publish protected application", State: ProtectedPending, NextAttemptAt: f.now, CreatedAt: f.now, UpdatedAt: f.now}
+		OriginalPublisherConfigDigest: f.publisher.ConfigDigest,
+		Message:                       "publish protected application", State: ProtectedPending, NextAttemptAt: f.now, CreatedAt: f.now, UpdatedAt: f.now}
 	if action == ProtectedApplicationPublish {
 		value.SourceDirectory = protectedSourceDirectory(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID, payload.ReleaseRevisionID)
 		value.ContentDigest = digestBytes(content)
@@ -342,7 +396,8 @@ func (f protectedHeadVerifierFunc) VerifyTargetHead(ctx context.Context, binding
 
 func (f *protectedPublisherFixture) worker(t *testing.T) *ProtectedGitPublisher {
 	return &ProtectedGitPublisher{Store: f.store, Bindings: f.bindings, Provider: f.headVerifier(t), Manager: f.manager,
-		Publisher: f.publisher, WorkerID: "helm-protected-worker-0001", Now: func() time.Time { return f.now }}
+		Publisher: f.publisher, WorkerID: "helm-protected-worker-0001", WorkerEpoch: 1,
+		Now: func() time.Time { return f.now }}
 }
 
 func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t *testing.T) {
@@ -378,6 +433,186 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	}
 	if _, showErr := runProtectedPublisherGit(t, fixture.remote, "show", deleted.CommittedRevision+":"+deleted.ApplicationPath); showErr == nil {
 		t.Fatal("match-delete receipt was verified while the stable Application still existed")
+	}
+}
+
+func TestProtectedGitPublisherAdoptsExactCrossReleaseIntentsOnce(t *testing.T) {
+	t.Run("payload", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		originalDigest := fixture.publisher.ConfigDigest
+		current := fixture.publisher
+		current.ConfigDigest = digestBytes([]byte("protected-publisher-next-release"))
+		worker := fixture.worker(t)
+		worker.Publisher = current
+
+		payload, err := worker.ProcessPayloadOne(t.Context())
+		if err != nil || payload.State != ProtectedVerified ||
+			payload.Publisher.ConfigDigest != current.ConfigDigest ||
+			payload.OriginalPublisherConfigDigest != originalDigest ||
+			payload.PublisherAdoptionEpoch != 1 || fixture.store.payloadAdoptions != 1 {
+			t.Fatalf("payload=%+v adoptions=%d err=%v", payload, fixture.store.payloadAdoptions, err)
+		}
+		assertProtectedTrailerCount(t, fixture.remote, payload.CommitTrailer, 1)
+		if _, err = worker.ProcessPayloadOne(t.Context()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("completed adopted payload replayed: %v", err)
+		}
+		assertProtectedTrailerCount(t, fixture.remote, payload.CommitTrailer, 1)
+	})
+
+	t.Run("application", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.store.application = fixture.pendingApplication(payload,
+			[]byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: adopted\n"),
+			ProtectedApplicationPublish, "create-if-absent", "")
+		originalDigest := fixture.publisher.ConfigDigest
+		current := fixture.publisher
+		current.ConfigDigest = digestBytes([]byte("protected-publisher-next-release"))
+		worker := fixture.worker(t)
+		worker.Publisher = current
+
+		application, err := worker.ProcessApplicationOne(t.Context())
+		if err != nil || application.State != ProtectedVerified ||
+			application.Publisher.ConfigDigest != current.ConfigDigest ||
+			application.OriginalPublisherConfigDigest != originalDigest ||
+			application.PublisherAdoptionEpoch != 1 || fixture.store.appAdoptions != 1 {
+			t.Fatalf("application=%+v adoptions=%d err=%v", application, fixture.store.appAdoptions, err)
+		}
+		assertProtectedTrailerCount(t, fixture.remote, application.CommitTrailer, 1)
+		if _, err = worker.ProcessApplicationOne(t.Context()); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("completed adopted Application replayed: %v", err)
+		}
+		assertProtectedTrailerCount(t, fixture.remote, application.CommitTrailer, 1)
+	})
+}
+
+func TestProtectedGitPublisherFloorsAdoptedIntentTimestampsAcrossNegativeClockSkew(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	adoptedAt := fixture.now.Add(2 * time.Minute)
+	fixture.store.payload.UpdatedAt = adoptedAt
+	fixture.store.payload.NextAttemptAt = adoptedAt
+	current := fixture.publisher
+	current.ConfigDigest = digestBytes([]byte("protected-publisher-clock-skew-release"))
+	worker := fixture.worker(t)
+	worker.Publisher = current
+
+	payload, err := worker.ProcessPayloadOne(t.Context())
+	if err != nil || payload.State != ProtectedVerified || payload.WriteBaseObservedAt == nil ||
+		payload.CommittedAt == nil || payload.VerifiedAt == nil {
+		t.Fatalf("clock-skew payload=%+v err=%v", payload, err)
+	}
+	for name, value := range map[string]time.Time{
+		"write base": *payload.WriteBaseObservedAt,
+		"committed":  *payload.CommittedAt,
+		"verified":   *payload.VerifiedAt,
+		"updated":    payload.UpdatedAt,
+	} {
+		if value.Before(adoptedAt) {
+			t.Fatalf("%s timestamp=%s precedes adoption=%s", name, value, adoptedAt)
+		}
+	}
+}
+
+func TestProtectedPublisherReadinessRejectsOversizedLease(t *testing.T) {
+	now := time.Now().UTC()
+	readiness := ProtectedPublisherReadiness{WorkerID: "helm-publisher-readiness-0001", WorkerEpoch: 1,
+		Publisher: ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
+			PolicyVersion: ProtectedGitPolicy, ConfigDigest: digestBytes([]byte("publisher-readiness"))},
+		StartedAt: now.Add(-time.Minute), ObservedAt: now,
+		LeaseUntil: now.Add(maximumPublisherReadinessLease + time.Nanosecond)}
+	if !errors.Is(readiness.Validate(), ErrInvalid) {
+		t.Fatal("oversized protected publisher readiness lease was accepted")
+	}
+	readiness.LeaseUntil = now.Add(maximumPublisherReadinessLease)
+	if err := readiness.Validate(); err != nil {
+		t.Fatalf("exact maximum protected publisher readiness lease: %v", err)
+	}
+}
+
+func TestProtectedPublicationLeaseGuardRetainsForwardHeartbeatFloorAcrossClockRegression(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	adoptedAt := fixture.now
+	forwardAt := adoptedAt.Add(30 * time.Second)
+	backwardAt := adoptedAt.Add(-time.Minute)
+	payload, lease, err := fixture.store.ClaimPayload(t.Context(), "helm-protected-worker-0001",
+		fixture.publisher, adoptedAt, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.store.payloadHeartbeat = make(chan time.Time, 1)
+	var clockMu sync.Mutex
+	clockNow := forwardAt
+	now := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clockNow
+	}
+	guard := newProtectedPublicationLeaseGuard(t.Context(), fixture.store, lease, true,
+		time.Minute, 5*time.Millisecond, now, payload.UpdatedAt)
+	defer guard.Close()
+	select {
+	case heartbeatAt := <-fixture.store.payloadHeartbeat:
+		if !heartbeatAt.Equal(forwardAt) {
+			t.Fatalf("heartbeat=%s want=%s", heartbeatAt, forwardAt)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("forward heartbeat was not observed")
+	}
+	clockMu.Lock()
+	clockNow = backwardAt
+	clockMu.Unlock()
+	operationAt := guard.NotBefore(now())
+	if operationAt.Before(forwardAt) {
+		t.Fatalf("operation floor=%s regressed behind heartbeat=%s", operationAt, forwardAt)
+	}
+	if err = guard.Do(func(current ProtectedIntentLease) error {
+		var bindErr error
+		payload, bindErr = fixture.store.BindPayloadWriteBase(t.Context(), current,
+			fixture.base, operationAt, operationAt)
+		return bindErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	commit := strings.Repeat("7", 40)
+	if err = guard.Do(func(current ProtectedIntentLease) error {
+		var markErr error
+		payload, markErr = fixture.store.MarkPayloadCommitted(t.Context(), current,
+			commit, fixture.base, operationAt)
+		return markErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = guard.Finish(func(current ProtectedIntentLease) error {
+		var verifyErr error
+		payload, verifyErr = fixture.store.VerifyPayload(t.Context(), current, commit,
+			payload.ContentDigest, "clock-regression", operationAt)
+		return verifyErr
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]time.Time{
+		"write base": *payload.WriteBaseObservedAt,
+		"committed":  *payload.CommittedAt,
+		"verified":   *payload.VerifiedAt,
+		"updated":    payload.UpdatedAt,
+	} {
+		if value.Before(forwardAt) {
+			t.Fatalf("%s timestamp=%s regressed behind heartbeat=%s", name, value, forwardAt)
+		}
+	}
+}
+
+func assertProtectedTrailerCount(t *testing.T, remote, trailer string, want int) {
+	t.Helper()
+	output, err := runProtectedPublisherGit(t, remote, "log", "--format=%B", "refs/heads/platform")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(output, trailer); got != want {
+		t.Fatalf("trailer %q count=%d want=%d", trailer, got, want)
 	}
 }
 

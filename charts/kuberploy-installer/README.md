@@ -73,7 +73,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.165 \
+  --version 0.1.0-rc.166 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -98,17 +98,19 @@ The source checkout form `charts/kuberploy-installer` is for development and
 chart tests. Operators should use the public OCI package so the selected chart
 and its nested bootstrap dependencies share one readable release version.
 
-Source checkouts rebuild the dependency with the repository's deterministic
-`release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
-replace it with Helm's timestamp-bearing local package output. `Chart.lock`
-pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.165.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.165.tgz` make bootstrap rendering
-network-independent.
-`dependencies.lock` records package-integrity checks for both archives; the
-render test verifies those bytes independently from their readable filenames.
-Release packaging must rebuild that archive from the reviewed wrapper source
-and verify the lock rather than resolving a newer dependency.
+Source checkouts generate the ignored nested wrapper archives with
+`scripts/helm/prepare-dependencies.sh`; the archives are not tracked. The
+preparer stages only reviewed chart files plus the exact locked upstream
+archive, then uses `release/package_chart_archive.py` and the explicit
+`dependencies.source-date-epoch`. It never uses Helm's timestamp-bearing local
+wrapper packaging. `Chart.lock` pins the wrapper dependency metadata, while
+`dependencies.lock` pins the exact generated archive bytes. Preparation and
+render tests both reject missing, extra, or checksum-mismatched archives. The
+validated replacement is staged beside the target and uses a recoverable,
+same-filesystem rename/swap so interruption cannot leave partial archive bytes.
+Release packaging independently repeats the same staging rules with the release
+`SOURCE_DATE_EPOCH` so published nested archives are byte-identical to their
+standalone release artifacts.
 
 ## Ownership and readiness truth
 

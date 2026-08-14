@@ -22,7 +22,7 @@ config:
     clusterID: 22222222-2222-4222-8222-222222222222
     namespace: kuberploy-e2e-render
     runtimeChartRepository: oci://ghcr.io/kuberploy/charts
-    runtimeChartVersion: 0.1.0-rc.165
+    runtimeChartVersion: 0.1.0-rc.166
     runtimeChartDigest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
     pollIntervalSeconds: 2
     catalogMaxAgeSeconds: 300

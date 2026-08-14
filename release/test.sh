@@ -15,11 +15,14 @@ kp_python_files=(
   "${kp_root}/release/test_validate_source.py"
   "${kp_root}/release/validate_semantics.py"
   "${kp_root}/release/validate_source.py"
+  "${kp_root}/scripts/helm/package-installer-dependencies.py"
+  "${kp_root}/scripts/helm/replace-installer-dependencies.py"
 )
 python3 -m py_compile "${kp_python_files[@]}"
 python3 "${kp_root}/release/check_public_source.py" --root "${kp_root}"
 python3 "${kp_root}/release/validate_source.py" --root "${kp_root}" >/dev/null
 python3 "${kp_root}/release/test_validate_source.py"
+"${kp_root}/scripts/helm/test-installer-dependency-packaging.sh"
 (
   cd "${kp_root}/release/tools"
   go test ./...

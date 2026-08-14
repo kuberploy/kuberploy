@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from validate_source import validate_stable_qualification
+from validate_source import validate_installer_dependency_source, validate_stable_qualification
 
 
 def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.CompletedProcess[str]:
@@ -25,9 +25,34 @@ def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.Comple
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory(prefix="kuberploy-installer-lock-validation-") as temporary:
+        fixture = Path(temporary)
+        installer = fixture / "charts/kuberploy-installer"
+        installer.mkdir(parents=True)
+        (fixture / "scripts/helm").mkdir(parents=True)
+        for name in ("dependencies.lock", "dependencies.source-date-epoch"):
+            (installer / name).write_bytes(
+                (root / "charts/kuberploy-installer" / name).read_bytes()
+            )
+        (fixture / "scripts/helm/prepare-dependencies.sh").write_text(
+            (root / "scripts/helm/prepare-dependencies.sh").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        validate_installer_dependency_source(fixture, "0.1.0-rc.166")
+        lock = installer / "dependencies.lock"
+        body = lock.read_text(encoding="utf-8")
+        lock.write_text(body.replace("kuberploy-argocd", "other-argocd", 1), encoding="utf-8")
+        try:
+            validate_installer_dependency_source(fixture, "0.1.0-rc.166")
+        except SystemExit as error:
+            if "non-canonical" not in str(error):
+                raise
+        else:
+            raise SystemExit("validator accepted a mutated installer dependency identity")
+
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, "0.1.0-rc.165")
+        validate_stable_qualification(qualification_root, "0.1.0-rc.166")
         try:
             validate_stable_qualification(qualification_root, "0.1.0")
         except SystemExit as error:
@@ -39,8 +64,8 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": "0.1.0-rc.165",
-            "candidateTag": "v0.1.0-rc.165",
+            "candidateVersion": "0.1.0-rc.166",
+            "candidateTag": "v0.1.0-rc.166",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
@@ -108,6 +133,17 @@ def main() -> None:
             missing_migration_ci.stdout + missing_migration_ci.stderr
         ):
             raise SystemExit("validator accepted CI without the production migration-image test")
+        (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
+
+        (fixture / ".github/workflows/ci.yml").write_text(
+            ci_workflow.replace("        run: ./scripts/helm/prepare-dependencies.sh\n", "", 1),
+            encoding="utf-8",
+        )
+        missing_helm_preparation = run_validator(root, fixture, workflow)
+        if missing_helm_preparation.returncode == 0 or "deterministic Helm dependencies" not in (
+            missing_helm_preparation.stdout + missing_helm_preparation.stderr
+        ):
+            raise SystemExit("validator accepted CI without deterministic Helm dependency preparation")
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
 
         (fixture / ".github/dependabot.yml").write_text(

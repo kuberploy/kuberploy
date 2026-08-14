@@ -293,7 +293,7 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	}
 	publisher := &ProtectedGitPublisher{Store: publications, Bindings: dependencies.GitBindings,
 		Provider: dependencies.GitProvider, Manager: dependencies.GitManager,
-		Publisher: config.Publisher, WorkerID: dependencies.WorkerID,
+		Publisher: config.Publisher, WorkerID: dependencies.WorkerID, WorkerEpoch: dependencies.WorkerEpoch,
 		LeaseDuration: config.PublishLeaseDuration, Now: dependencies.Now}
 	if publisher.Validate() != nil {
 		return nil, ErrInvalid

@@ -1017,59 +1017,61 @@ model helm_chart_approvals {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model helm_protected_application_intents {
-  id                        String    @id @db.Uuid
-  release_revision_id       String    @unique @db.Uuid
-  payload_intent_id         String    @unique @db.Uuid
-  release_generation        BigInt
-  project_id                String    @db.Uuid
-  environment_id            String    @db.Uuid
-  application_id            String    @db.Uuid
-  action                    String
-  platform_binding_id       String    @db.Uuid
-  environment_binding_id    String    @db.Uuid
-  cluster_id                String    @db.Uuid
-  platform_target_ref       String
-  environment_target_ref    String
-  environment_revision      String
-  environment_generation    BigInt
-  catalog_digest            String
-  planned_base_revision     String
-  payload_revision          String
-  payload_path              String
-  source_directory          String
-  application_path          String
-  operation                 String
-  precondition              String
-  expected_etag             String
-  content                   Bytes
-  content_digest            String
-  intent_digest             String
-  commit_trailer            String
-  publisher_contract        String
-  publisher_config_digest   String
-  message                   String
-  state                     String
-  next_attempt_at           DateTime  @db.Timestamptz(6)
-  attempts                  Int       @default(0)
-  consecutive_failures      Int       @default(0)
-  last_failure_code         String    @default("")
-  lease_owner               String?
-  lease_epoch               BigInt    @default(0)
-  lease_until               DateTime? @db.Timestamptz(6)
-  write_base_revision       String    @default("")
-  write_base_observed_at    DateTime? @db.Timestamptz(6)
-  committed_revision        String    @default("")
-  committed_parent_revision String    @default("")
-  committed_at              DateTime? @db.Timestamptz(6)
-  verified_at               DateTime? @db.Timestamptz(6)
-  verified_path_digest      String    @default("")
-  provider_request          String    @default("")
-  created_at                DateTime  @db.Timestamptz(6)
-  updated_at                DateTime  @db.Timestamptz(6)
-  completed_at              DateTime? @db.Timestamptz(6)
-  prerequisite_receipt_id   String?   @db.Uuid
-  prerequisite_contract     String    @default("")
-  prerequisite_epoch        BigInt    @default(0)
+  id                               String    @id @db.Uuid
+  release_revision_id              String    @unique @db.Uuid
+  payload_intent_id                String    @unique @db.Uuid
+  release_generation               BigInt
+  project_id                       String    @db.Uuid
+  environment_id                   String    @db.Uuid
+  application_id                   String    @db.Uuid
+  action                           String
+  platform_binding_id              String    @db.Uuid
+  environment_binding_id           String    @db.Uuid
+  cluster_id                       String    @db.Uuid
+  platform_target_ref              String
+  environment_target_ref           String
+  environment_revision             String
+  environment_generation           BigInt
+  catalog_digest                   String
+  planned_base_revision            String
+  payload_revision                 String
+  payload_path                     String
+  source_directory                 String
+  application_path                 String
+  operation                        String
+  precondition                     String
+  expected_etag                    String
+  content                          Bytes
+  content_digest                   String
+  intent_digest                    String
+  commit_trailer                   String
+  publisher_contract               String
+  publisher_config_digest          String
+  message                          String
+  state                            String
+  next_attempt_at                  DateTime  @db.Timestamptz(6)
+  attempts                         Int       @default(0)
+  consecutive_failures             Int       @default(0)
+  last_failure_code                String    @default("")
+  lease_owner                      String?
+  lease_epoch                      BigInt    @default(0)
+  lease_until                      DateTime? @db.Timestamptz(6)
+  write_base_revision              String    @default("")
+  write_base_observed_at           DateTime? @db.Timestamptz(6)
+  committed_revision               String    @default("")
+  committed_parent_revision        String    @default("")
+  committed_at                     DateTime? @db.Timestamptz(6)
+  verified_at                      DateTime? @db.Timestamptz(6)
+  verified_path_digest             String    @default("")
+  provider_request                 String    @default("")
+  created_at                       DateTime  @db.Timestamptz(6)
+  updated_at                       DateTime  @db.Timestamptz(6)
+  completed_at                     DateTime? @db.Timestamptz(6)
+  prerequisite_receipt_id          String?   @db.Uuid
+  prerequisite_contract            String    @default("")
+  prerequisite_epoch               BigInt    @default(0)
+  original_publisher_config_digest String
+  publisher_adoption_epoch         BigInt    @default(0)
 
   @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_in_environment_id_application_id_key")
   @@index([platform_binding_id, state, created_at], map: "helm_protected_application_intents_binding_idx")
@@ -1078,56 +1080,58 @@ model helm_protected_application_intents {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model helm_protected_payload_intents {
-  id                        String    @id @db.Uuid
-  release_revision_id       String    @unique @db.Uuid
-  release_generation        BigInt
-  project_id                String    @db.Uuid
-  environment_id            String    @db.Uuid
-  application_id            String    @db.Uuid
-  action                    String
-  platform_binding_id       String    @db.Uuid
-  environment_binding_id    String    @db.Uuid
-  cluster_id                String    @db.Uuid
-  platform_target_ref       String
-  environment_target_ref    String
-  environment_revision      String
-  environment_generation    BigInt
-  catalog_digest            String
-  planned_base_revision     String
-  path                      String
-  precondition              String
-  expected_etag             String
-  content                   Bytes
-  content_digest            String
-  manifest_inventory_digest String?
-  manifest_resource_count   Int?
-  intent_digest             String
-  commit_trailer            String
-  publisher_contract        String
-  publisher_config_digest   String
-  message                   String
-  state                     String
-  next_attempt_at           DateTime  @db.Timestamptz(6)
-  attempts                  Int       @default(0)
-  consecutive_failures      Int       @default(0)
-  last_failure_code         String    @default("")
-  lease_owner               String?
-  lease_epoch               BigInt    @default(0)
-  lease_until               DateTime? @db.Timestamptz(6)
-  write_base_revision       String    @default("")
-  write_base_observed_at    DateTime? @db.Timestamptz(6)
-  committed_revision        String    @default("")
-  committed_parent_revision String    @default("")
-  committed_at              DateTime? @db.Timestamptz(6)
-  verified_at               DateTime? @db.Timestamptz(6)
-  verified_path_digest      String    @default("")
-  provider_request          String    @default("")
-  created_at                DateTime  @db.Timestamptz(6)
-  updated_at                DateTime  @db.Timestamptz(6)
-  completed_at              DateTime? @db.Timestamptz(6)
-  prerequisite_receipt_id   String?   @db.Uuid
-  prerequisite_contract     String    @default("")
-  prerequisite_epoch        BigInt    @default(0)
+  id                               String    @id @db.Uuid
+  release_revision_id              String    @unique @db.Uuid
+  release_generation               BigInt
+  project_id                       String    @db.Uuid
+  environment_id                   String    @db.Uuid
+  application_id                   String    @db.Uuid
+  action                           String
+  platform_binding_id              String    @db.Uuid
+  environment_binding_id           String    @db.Uuid
+  cluster_id                       String    @db.Uuid
+  platform_target_ref              String
+  environment_target_ref           String
+  environment_revision             String
+  environment_generation           BigInt
+  catalog_digest                   String
+  planned_base_revision            String
+  path                             String
+  precondition                     String
+  expected_etag                    String
+  content                          Bytes
+  content_digest                   String
+  manifest_inventory_digest        String?
+  manifest_resource_count          Int?
+  intent_digest                    String
+  commit_trailer                   String
+  publisher_contract               String
+  publisher_config_digest          String
+  message                          String
+  state                            String
+  next_attempt_at                  DateTime  @db.Timestamptz(6)
+  attempts                         Int       @default(0)
+  consecutive_failures             Int       @default(0)
+  last_failure_code                String    @default("")
+  lease_owner                      String?
+  lease_epoch                      BigInt    @default(0)
+  lease_until                      DateTime? @db.Timestamptz(6)
+  write_base_revision              String    @default("")
+  write_base_observed_at           DateTime? @db.Timestamptz(6)
+  committed_revision               String    @default("")
+  committed_parent_revision        String    @default("")
+  committed_at                     DateTime? @db.Timestamptz(6)
+  verified_at                      DateTime? @db.Timestamptz(6)
+  verified_path_digest             String    @default("")
+  provider_request                 String    @default("")
+  created_at                       DateTime  @db.Timestamptz(6)
+  updated_at                       DateTime  @db.Timestamptz(6)
+  completed_at                     DateTime? @db.Timestamptz(6)
+  prerequisite_receipt_id          String?   @db.Uuid
+  prerequisite_contract            String    @default("")
+  prerequisite_epoch               BigInt    @default(0)
+  original_publisher_config_digest String
+  publisher_adoption_epoch         BigInt    @default(0)
 
   @@unique([environment_id, application_id, release_generation], map: "helm_protected_payload_intent_environment_id_application_id_key")
   @@index([platform_binding_id, state, created_at], map: "helm_protected_payload_intents_binding_idx")
@@ -1156,6 +1160,42 @@ model helm_publication_prerequisite_receipts {
   @@unique([release_revision_id, project_id, environment_id, application_id], map: "helm_publication_prerequisite_target_key")
   @@unique([release_revision_id, platform_binding_id, environment_binding_id, environment_revision, environment_generation], map: "helm_publication_prerequisite_authority_key")
   @@index([environment_id, environment_generation, release_revision_id], map: "helm_publication_prerequisite_environment_idx")
+}
+
+/// Immutable, exact authority-transfer receipt for recovery of one protected Helm Git intent.
+/// Native migration SQL owns atomic adoption, readiness, lease, and deferred postimage fences.
+model helm_protected_publisher_adoption_receipts {
+  id                        String   @id @db.Uuid
+  intent_kind               String
+  payload_intent_id         String?  @db.Uuid
+  application_intent_id     String?  @db.Uuid
+  adoption_epoch            BigInt
+  publisher_contract        String
+  original_config_digest    String
+  previous_config_digest    String
+  adopted_config_digest     String
+  policy_version            String
+  intent_digest             String
+  content_digest            String
+  protected_path            String
+  precondition              String
+  expected_etag             String
+  commit_trailer            String
+  prerequisite_receipt_id   String   @db.Uuid
+  prerequisite_contract     String
+  prerequisite_epoch        BigInt
+  recovery_state            String
+  write_base_revision       String
+  committed_revision        String
+  committed_parent_revision String
+  previous_lease_epoch      BigInt
+  adopted_lease_epoch       BigInt
+  adopted_by_worker         String
+  adopted_worker_epoch      BigInt
+  created_at                DateTime @db.Timestamptz(6)
+
+  @@unique([payload_intent_id, adoption_epoch], map: "helm_protected_publisher_payload_adoption_epoch", where: raw("(payload_intent_id IS NOT NULL)"))
+  @@unique([application_intent_id, adoption_epoch], map: "helm_protected_publisher_application_adoption_epoch", where: raw("(application_intent_id IS NOT NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

@@ -31,6 +31,7 @@ type ProtectedGitPublisher struct {
 	Manager           *gitprojection.MirrorManager
 	Publisher         ProtectedPublisherIdentity
 	WorkerID          string
+	WorkerEpoch       int64
 	LeaseDuration     time.Duration
 	HeartbeatInterval time.Duration
 	Now               func() time.Time
@@ -38,7 +39,8 @@ type ProtectedGitPublisher struct {
 
 func (p *ProtectedGitPublisher) Validate() error {
 	if p == nil || p.Store == nil || p.Bindings == nil || p.Provider == nil || p.Manager == nil ||
-		p.Manager.Validate() != nil || p.Publisher.Validate() != nil || !workerIDRE.MatchString(p.WorkerID) || p.Now == nil {
+		p.Manager.Validate() != nil || p.Publisher.Validate() != nil ||
+		!workerIDRE.MatchString(p.WorkerID) || p.WorkerEpoch < 1 || p.Now == nil {
 		return ErrInvalid
 	}
 	lease, heartbeat := p.settings()
@@ -68,10 +70,15 @@ func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (Protecte
 	}
 	leaseDuration, heartbeat := p.settings()
 	intent, lease, err := p.Store.ClaimPayload(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
+	if errors.Is(err, ErrNotFound) {
+		intent, lease, err = p.Store.AdoptPayload(ctx, p.WorkerID, p.WorkerEpoch,
+			p.Publisher, leaseDuration)
+	}
 	if err != nil {
 		return ProtectedPayloadIntent{}, err
 	}
-	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, true, leaseDuration, heartbeat, p.Now)
+	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, true, leaseDuration, heartbeat,
+		p.Now, intent.UpdatedAt)
 	defer guard.Close()
 	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
 	if err != nil {
@@ -117,10 +124,15 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	}
 	leaseDuration, heartbeat := p.settings()
 	intent, lease, err := p.Store.ClaimApplication(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
+	if errors.Is(err, ErrNotFound) {
+		intent, lease, err = p.Store.AdoptApplication(ctx, p.WorkerID, p.WorkerEpoch,
+			p.Publisher, leaseDuration)
+	}
 	if err != nil {
 		return ProtectedApplicationIntent{}, err
 	}
-	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, false, leaseDuration, heartbeat, p.Now)
+	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, false, leaseDuration, heartbeat,
+		p.Now, intent.UpdatedAt)
 	defer guard.Close()
 	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
 	if err != nil {
@@ -196,7 +208,7 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 	if err != nil {
 		return err
 	}
-	if head.ValidateFor(binding) != nil || head.ObservedAt.After(p.now()) {
+	if head.ValidateFor(binding) != nil || head.ObservedAt.After(guard.NotBefore(p.now())) {
 		return ErrInvalid
 	}
 	if err = p.Manager.CleanupOperation(ctx, binding.ID, protectedMutation.IntentID); err != nil {
@@ -232,9 +244,9 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
 			return err
 		}
-		receiptAt := p.notBefore(head.ObservedAt)
+		receiptAt := guard.NotBefore(p.now(), head.ObservedAt)
 		if err = guard.Do(func(current ProtectedIntentLease) error {
-			return work.bind(current, head.Commit, head.ObservedAt, receiptAt)
+			return work.bind(current, head.Commit, receiptAt, receiptAt)
 		}); err != nil {
 			return err
 		}
@@ -283,9 +295,9 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 			return errors.Join(ErrConflict, err)
 		}
 		previous := work.writeBase()
-		rebindAt := p.notBefore(head.ObservedAt)
+		rebindAt := guard.NotBefore(p.now(), head.ObservedAt)
 		if err = guard.Do(func(current ProtectedIntentLease) error {
-			return work.rebind(current, previous, head.Commit, head.ObservedAt, rebindAt)
+			return work.rebind(current, previous, head.Commit, rebindAt, rebindAt)
 		}); err != nil {
 			return err
 		}
@@ -309,7 +321,7 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 	if err != nil {
 		return err
 	}
-	commitAt := p.notBefore(head.ObservedAt)
+	commitAt := guard.NotBefore(p.now(), head.ObservedAt)
 	if err = guard.Do(func(current ProtectedIntentLease) error {
 		return work.mark(current, revision, mutation.BaseRevision, commitAt)
 	}); err != nil {
@@ -320,12 +332,14 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 	if err != nil {
 		return err
 	}
-	if verified.ValidateFor(binding) != nil || verified.Commit != revision || verified.ObservedAt.After(p.now()) {
+	if verified.ValidateFor(binding) != nil || verified.Commit != revision ||
+		verified.ObservedAt.After(guard.NotBefore(p.now())) {
 		return gitprojection.ErrProviderMismatch
 	}
+	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, revision, mutation.ContentSHA256, verified.ProviderRequest,
-			p.notBefore(verified.ObservedAt))
+			verifyAt)
 	})
 }
 
@@ -354,7 +368,7 @@ func (p *ProtectedGitPublisher) recoverFoundClaim(guard *protectedPublicationLea
 		return err
 	}
 	if work.committed() == "" {
-		commitAt := p.notBefore(head.ObservedAt)
+		commitAt := guard.NotBefore(p.now(), head.ObservedAt)
 		if err := guard.Do(func(current ProtectedIntentLease) error {
 			return work.mark(current, found, mutation.BaseRevision, commitAt)
 		}); err != nil {
@@ -366,28 +380,20 @@ func (p *ProtectedGitPublisher) recoverFoundClaim(guard *protectedPublicationLea
 	if err != nil {
 		return err
 	}
-	if verified.ValidateFor(binding) != nil || verified.Commit != head.Commit || verified.ObservedAt.After(p.now()) {
+	if verified.ValidateFor(binding) != nil || verified.Commit != head.Commit ||
+		verified.ObservedAt.After(guard.NotBefore(p.now())) {
 		return gitprojection.ErrProviderMismatch
 	}
+	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, found, mutation.ContentSHA256, verified.ProviderRequest,
-			p.notBefore(verified.ObservedAt))
+			verifyAt)
 	})
 }
 
 func validProtectedBindingPrefix(prefix, clusterID, protectedPath string) bool {
 	expected := "clusters/" + clusterID
 	return prefix == expected && len(protectedPath) > len(expected) && protectedPath[:len(expected)+1] == expected+"/"
-}
-
-func (p *ProtectedGitPublisher) notBefore(values ...time.Time) time.Time {
-	now := p.now()
-	for _, value := range values {
-		if now.Before(value) {
-			now = value.UTC()
-		}
-	}
-	return now
 }
 
 type protectedPublicationLeaseGuard struct {
@@ -407,10 +413,11 @@ type protectedPublicationLeaseGuard struct {
 
 func newProtectedPublicationLeaseGuard(parent context.Context, store ProtectedPublicationStore,
 	lease ProtectedIntentLease, payload bool, duration, interval time.Duration,
-	now func() time.Time) *protectedPublicationLeaseGuard {
+	now func() time.Time, timeFloor time.Time) *protectedPublicationLeaseGuard {
 	ctx, cancel := context.WithCancel(parent)
 	guard := &protectedPublicationLeaseGuard{store: store, lease: lease, payload: payload,
-		duration: duration, now: now, ctx: ctx, cancel: cancel, done: make(chan struct{})}
+		duration: duration, now: now, timeFloor: timeFloor.UTC(), ctx: ctx, cancel: cancel,
+		done: make(chan struct{})}
 	go guard.run(interval)
 	return guard
 }
@@ -447,6 +454,9 @@ func (g *protectedPublicationLeaseGuard) run(interval time.Duration) {
 				return
 			}
 			g.lease = updated
+			if g.timeFloor.Before(heartbeatAt) {
+				g.timeFloor = heartbeatAt
+			}
 			g.mu.Unlock()
 		}
 	}
@@ -460,6 +470,21 @@ func (g *protectedPublicationLeaseGuard) AdvanceTimeFloor(value time.Time) {
 		g.timeFloor = value.UTC()
 	}
 	g.mu.Unlock()
+}
+
+func (g *protectedPublicationLeaseGuard) NotBefore(now time.Time, values ...time.Time) time.Time {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	result := now.UTC()
+	if result.Before(g.timeFloor) {
+		result = g.timeFloor
+	}
+	for _, value := range values {
+		if result.Before(value) {
+			result = value.UTC()
+		}
+	}
+	return result
 }
 
 func (g *protectedPublicationLeaseGuard) Do(operation func(ProtectedIntentLease) error) error {

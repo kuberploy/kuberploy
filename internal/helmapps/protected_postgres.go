@@ -8,11 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/id"
 )
 
 const (
-	protectedPayloadTable     = "helm_protected_payload_intents"
-	protectedApplicationTable = "helm_protected_application_intents"
+	protectedPayloadTable     = "public.helm_protected_payload_intents"
+	protectedApplicationTable = "public.helm_protected_application_intents"
 	minimumProtectedLease     = 15 * time.Second
 	maximumProtectedLease     = 5 * time.Minute
 	maximumProtectedRetry     = 24 * time.Hour
@@ -44,7 +45,8 @@ const protectedPayloadColumns = `id::text,release_revision_id::text,release_gene
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 	catalog_digest,planned_base_revision,path,content,content_digest,
 	COALESCE(manifest_inventory_digest,''),COALESCE(manifest_resource_count,0),
-	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,message,state,
+	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,
+	original_publisher_config_digest,publisher_adoption_epoch,message,state,
 	next_attempt_at,attempts,consecutive_failures,last_failure_code,COALESCE(lease_owner,''),
 	lease_epoch,lease_until,write_base_revision,write_base_observed_at,committed_revision,
 	committed_parent_revision,committed_at,verified_at,verified_path_digest,provider_request,
@@ -61,7 +63,8 @@ func scanProtectedPayload(row rowScanner) (ProtectedPayloadIntent, error) {
 		&value.Binding.PlannedBaseRevision, &value.Path, &value.Content,
 		&value.ContentDigest, &value.InventoryDigest, &value.ResourceCount,
 		&value.IntentDigest, &value.CommitTrailer, &value.Publisher.Contract,
-		&value.Publisher.ConfigDigest, &value.Message, &value.State, &value.NextAttemptAt,
+		&value.Publisher.ConfigDigest, &value.OriginalPublisherConfigDigest,
+		&value.PublisherAdoptionEpoch, &value.Message, &value.State, &value.NextAttemptAt,
 		&value.Attempts, &value.ConsecutiveFailures, &value.LastFailureCode,
 		&value.LeaseOwner, &value.LeaseEpoch, &value.LeaseUntil, &value.WriteBaseRevision,
 		&value.WriteBaseObservedAt, &value.CommittedRevision,
@@ -85,7 +88,8 @@ const protectedApplicationColumns = `id::text,release_revision_id::text,payload_
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 	catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 	application_path,operation,precondition,expected_etag,content,content_digest,
-	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,message,state,
+	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,
+	original_publisher_config_digest,publisher_adoption_epoch,message,state,
 	next_attempt_at,attempts,consecutive_failures,last_failure_code,COALESCE(lease_owner,''),
 	lease_epoch,lease_until,write_base_revision,write_base_observed_at,committed_revision,
 	committed_parent_revision,committed_at,verified_at,verified_path_digest,provider_request,
@@ -104,6 +108,7 @@ func scanProtectedApplication(row rowScanner) (ProtectedApplicationIntent, error
 		&value.ApplicationPath, &value.Operation, &value.Precondition,
 		&value.ExpectedETag, &value.Content, &value.ContentDigest, &value.IntentDigest,
 		&value.CommitTrailer, &value.Publisher.Contract, &value.Publisher.ConfigDigest,
+		&value.OriginalPublisherConfigDigest, &value.PublisherAdoptionEpoch,
 		&value.Message, &value.State, &value.NextAttemptAt, &value.Attempts,
 		&value.ConsecutiveFailures, &value.LastFailureCode, &value.LeaseOwner,
 		&value.LeaseEpoch, &value.LeaseUntil, &value.WriteBaseRevision,
@@ -154,7 +159,8 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 	}
 	value := ProtectedPayloadIntent{
 		ID: intentID, ReleaseRevisionID: release.ID, ReleaseGeneration: release.Generation,
-		Target: target, Binding: binding, Publisher: publisher, State: ProtectedPending,
+		Target: target, Binding: binding, Publisher: publisher,
+		OriginalPublisherConfigDigest: publisher.ConfigDigest, State: ProtectedPending,
 		NextAttemptAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC(),
 		CommitTrailer: "Kuberploy-Helm-Payload-Intent: " + intentID,
 		Message:       "Publish protected Helm payload " + release.ID,
@@ -197,17 +203,18 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 	if err != nil || value.Validate() != nil {
 		return ProtectedPayloadIntent{}, false, ErrInvalid
 	}
-	result, err := tx.Exec(ctx, `INSERT INTO helm_protected_payload_intents(
+	result, err := tx.Exec(ctx, `INSERT INTO public.helm_protected_payload_intents(
 		id,release_revision_id,release_generation,project_id,environment_id,application_id,
 		action,platform_binding_id,environment_binding_id,cluster_id,platform_target_ref,
 		environment_target_ref,environment_revision,environment_generation,catalog_digest,
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
-		publisher_contract,publisher_config_digest,message,state,next_attempt_at,attempts,
+		publisher_contract,publisher_config_digest,original_publisher_config_digest,
+		publisher_adoption_epoch,message,state,next_attempt_at,attempts,
 		consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-		'create-if-absent','',$18,$19,$20,$21,$22,$23,$24,$25,$26,'pending',$27,0,0,'',0,
+		'create-if-absent','',$18,$19,$20,$21,$22,$23,$24,$25,$25,0,$26,'pending',$27,0,0,'',0,
 		$2,$28,0,$27,$27)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.ReleaseGeneration,
 		value.Target.ProjectID, value.Target.EnvironmentID, value.Target.ApplicationID,
@@ -225,7 +232,7 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 	created := result.RowsAffected() == 1
 	if !created {
 		existing, getErr := scanProtectedPayload(tx.QueryRow(ctx, `SELECT `+protectedPayloadColumns+`
-			FROM helm_protected_payload_intents WHERE release_revision_id=$1`, release.ID))
+			FROM public.helm_protected_payload_intents WHERE release_revision_id=$1`, release.ID))
 		if getErr != nil || !equalProtectedPayloadIdentity(existing, value) {
 			if getErr != nil {
 				return ProtectedPayloadIntent{}, false, getErr
@@ -253,7 +260,7 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	payload, err := scanProtectedPayload(tx.QueryRow(ctx, `SELECT `+protectedPayloadColumns+`
-		FROM helm_protected_payload_intents WHERE id=$1 FOR KEY SHARE`, payloadID))
+		FROM public.helm_protected_payload_intents WHERE id=$1 FOR KEY SHARE`, payloadID))
 	if err != nil || payload.State != ProtectedVerified {
 		if err != nil {
 			return ProtectedApplicationIntent{}, false, err
@@ -282,7 +289,7 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	var repositoryOwner, repositoryName, platformHead, destinationNamespace, argoProject string
 	err = tx.QueryRow(ctx, `SELECT platform.repository_owner,platform.repository_name,
 		platform.target_head_revision,environment.namespace,environment.argo_project
-		FROM git_repository_bindings platform CROSS JOIN environments environment
+		FROM public.git_repository_bindings platform CROSS JOIN public.environments environment
 		WHERE platform.id=$1 AND environment.id=$2 AND environment.project_id=$3
 		FOR KEY SHARE OF platform,environment`, payload.Binding.PlatformBindingID,
 		payload.Target.EnvironmentID, payload.Target.ProjectID).Scan(&repositoryOwner,
@@ -306,7 +313,8 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		ReleaseGeneration: release.Generation, Target: release.Target, Binding: binding,
 		PayloadRevision: payload.CommittedRevision, PayloadPath: payload.Path,
 		ApplicationPath: protectedApplicationPath(binding.ClusterID, release.Target.EnvironmentID,
-			release.Target.ApplicationID), Publisher: publisher, State: ProtectedPending,
+			release.Target.ApplicationID), Publisher: publisher,
+		OriginalPublisherConfigDigest: publisher.ConfigDigest, State: ProtectedPending,
 		NextAttemptAt: now.UTC(), CreatedAt: now.UTC(), UpdatedAt: now.UTC(),
 		CommitTrailer: "Kuberploy-Helm-Application-Intent: " + intentID,
 		Message:       "Publish protected Helm Application " + release.ID,
@@ -344,17 +352,18 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	if err != nil || value.Validate() != nil {
 		return ProtectedApplicationIntent{}, false, ErrInvalid
 	}
-	result, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
+	result, err := tx.Exec(ctx, `INSERT INTO public.helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,environment_id,
 		application_id,action,platform_binding_id,environment_binding_id,cluster_id,
 		platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 		catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 		application_path,operation,precondition,expected_etag,content,content_digest,intent_digest,
-		commit_trailer,publisher_contract,publisher_config_digest,message,state,next_attempt_at,
+		commit_trailer,publisher_contract,publisher_config_digest,original_publisher_config_digest,
+		publisher_adoption_epoch,message,state,next_attempt_at,
 		attempts,consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-		$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,'pending',$32,0,0,'',0,
+		$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,$31,'pending',$32,0,0,'',0,
 		$2,$33,0,$32,$32)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.PayloadIntentID,
 		value.ReleaseGeneration, value.Target.ProjectID, value.Target.EnvironmentID,
@@ -373,7 +382,7 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	created := result.RowsAffected() == 1
 	if !created {
 		existing, getErr := scanProtectedApplication(tx.QueryRow(ctx, `SELECT `+protectedApplicationColumns+`
-			FROM helm_protected_application_intents WHERE payload_intent_id=$1`, payload.ID))
+			FROM public.helm_protected_application_intents WHERE payload_intent_id=$1`, payload.ID))
 		if getErr != nil || !equalProtectedApplicationIdentity(existing, value) {
 			if getErr != nil {
 				return ProtectedApplicationIntent{}, false, getErr
@@ -393,7 +402,7 @@ func baseApplicationETag(ctx context.Context, tx pgx.Tx, intentID, applicationPa
 		return "", ErrInvalid
 	}
 	var digest string
-	err := tx.QueryRow(ctx, `SELECT content_digest FROM helm_protected_application_intents
+	err := tx.QueryRow(ctx, `SELECT content_digest FROM public.helm_protected_application_intents
 		WHERE id=$1 AND state='verified' AND action='publish' AND application_path=$2
 		FOR KEY SHARE`, intentID, applicationPath).Scan(&digest)
 	if err != nil {
@@ -411,7 +420,7 @@ func (s *PostgresProtectedPublicationStore) Payload(ctx context.Context, intentI
 		return ProtectedPayloadIntent{}, ErrInvalid
 	}
 	return scanProtectedPayload(s.pool.QueryRow(ctx, `SELECT `+protectedPayloadColumns+`
-		FROM helm_protected_payload_intents WHERE id=$1`, intentID))
+		FROM public.helm_protected_payload_intents WHERE id=$1`, intentID))
 }
 
 func (s *PostgresProtectedPublicationStore) Application(ctx context.Context, intentID string) (ProtectedApplicationIntent, error) {
@@ -419,7 +428,7 @@ func (s *PostgresProtectedPublicationStore) Application(ctx context.Context, int
 		return ProtectedApplicationIntent{}, ErrInvalid
 	}
 	return scanProtectedApplication(s.pool.QueryRow(ctx, `SELECT `+protectedApplicationColumns+`
-		FROM helm_protected_application_intents WHERE id=$1`, intentID))
+		FROM public.helm_protected_application_intents WHERE id=$1`, intentID))
 }
 
 func (s *PostgresProtectedPublicationStore) ClaimPayload(ctx context.Context, owner string,
@@ -448,6 +457,68 @@ func (s *PostgresProtectedPublicationStore) ClaimApplication(ctx context.Context
 	}
 	lease := applicationLease(value)
 	return value, lease, lease.Validate()
+}
+
+func (s *PostgresProtectedPublicationStore) AdoptPayload(ctx context.Context, owner string,
+	workerEpoch int64, publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error) {
+	id, err := s.adoptProtected(ctx, protectedPayloadTable, owner, workerEpoch, publisher, duration)
+	if err != nil {
+		return ProtectedPayloadIntent{}, ProtectedIntentLease{}, err
+	}
+	value, err := s.Payload(ctx, id)
+	if err != nil {
+		return ProtectedPayloadIntent{}, ProtectedIntentLease{}, err
+	}
+	lease := payloadLease(value)
+	return value, lease, lease.Validate()
+}
+
+func (s *PostgresProtectedPublicationStore) AdoptApplication(ctx context.Context, owner string,
+	workerEpoch int64, publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedApplicationIntent, ProtectedIntentLease, error) {
+	id, err := s.adoptProtected(ctx, protectedApplicationTable, owner, workerEpoch, publisher, duration)
+	if err != nil {
+		return ProtectedApplicationIntent{}, ProtectedIntentLease{}, err
+	}
+	value, err := s.Application(ctx, id)
+	if err != nil {
+		return ProtectedApplicationIntent{}, ProtectedIntentLease{}, err
+	}
+	lease := applicationLease(value)
+	return value, lease, lease.Validate()
+}
+
+func (s *PostgresProtectedPublicationStore) adoptProtected(ctx context.Context, table, owner string,
+	workerEpoch int64, publisher ProtectedPublisherIdentity, duration time.Duration) (string, error) {
+	if !validProtectedTable(table) || !workerIDRE.MatchString(owner) || publisher.Validate() != nil ||
+		workerEpoch < 1 || !validProtectedLeaseDuration(duration) {
+		return "", ErrInvalid
+	}
+	function := "public.adopt_helm_protected_payload_intent"
+	if table == protectedApplicationTable {
+		function = "public.adopt_helm_protected_application_intent"
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	var intentID *string
+	err = tx.QueryRow(ctx, `SELECT `+function+`($1,$2,$3,$4,$5,$6,$7)::text`,
+		id.New(), owner, workerEpoch, publisher.Contract, publisher.PolicyVersion,
+		publisher.ConfigDigest, duration.Milliseconds()).Scan(&intentID)
+	if err != nil {
+		return "", classifyPostgres(err)
+	}
+	if intentID == nil {
+		if err = tx.Commit(ctx); err != nil {
+			return "", classifyPostgres(err)
+		}
+		return "", ErrNotFound
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return "", classifyPostgres(err)
+	}
+	return *intentID, nil
 }
 
 func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, table, owner string,
@@ -481,11 +552,11 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 		AND (candidate.lease_owner IS NULL OR candidate.lease_until<=$1)
 		AND candidate.publisher_contract=$2 AND candidate.publisher_config_digest=$3
 		AND (candidate.lease_epoch>0 OR (`+freshProtectedProjectionSQL("candidate")+`))
-		AND NOT EXISTS(SELECT 1 FROM helm_protected_payload_intents held
+		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
 			WHERE held.platform_binding_id=candidate.platform_binding_id
 			AND (`+protectedLaneExclusion(table, protectedPayloadTable)+`)
 			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
-		AND NOT EXISTS(SELECT 1 FROM helm_protected_application_intents held
+		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
 			WHERE held.platform_binding_id=candidate.platform_binding_id
 			AND (`+protectedLaneExclusion(table, protectedApplicationTable)+`)
 			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
@@ -525,9 +596,9 @@ func freshProtectedProjectionSQL(alias string) string {
 	if alias != "candidate" {
 		panic("closed SQL alias")
 	}
-	return `EXISTS(SELECT 1 FROM git_repository_bindings platform
-		JOIN git_repository_bindings environment ON environment.id=` + alias + `.environment_binding_id
-		JOIN git_projection_generations generation ON generation.binding_id=environment.id
+	return `EXISTS(SELECT 1 FROM public.git_repository_bindings platform
+		JOIN public.git_repository_bindings environment ON environment.id=` + alias + `.environment_binding_id
+		JOIN public.git_projection_generations generation ON generation.binding_id=environment.id
 			AND generation.generation=` + alias + `.environment_generation
 		WHERE platform.id=` + alias + `.platform_binding_id AND platform.kind='platform'
 		AND platform.credential_mode='github-app' AND platform.cluster_id=` + alias + `.cluster_id
@@ -542,7 +613,7 @@ func freshProtectedProjectionSQL(alias string) string {
 		AND environment.projection_generation=` + alias + `.environment_generation
 		AND environment.state='ready' AND generation.head_revision=` + alias + `.environment_revision
 		AND generation.state='active' AND NOT EXISTS(
-			SELECT 1 FROM git_projected_documents invalid
+			SELECT 1 FROM public.git_projected_documents invalid
 			WHERE invalid.binding_id=environment.id
 			AND invalid.generation=` + alias + `.environment_generation AND NOT invalid.valid))`
 }
@@ -891,7 +962,7 @@ func (s *PostgresProtectedPublicationStore) PutPublisherReadiness(ctx context.Co
 	if err = pruneExpiredHelmReadinessTx(ctx, tx, "helm-protected-publisher", readiness.WorkerID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+	_, err = tx.Exec(ctx, `INSERT INTO public.runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
 		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
 		VALUES('helm-protected-publisher','global',$1,$2,$3,$5,jsonb_build_object('policyVersion',$4::text),
 		'{}'::jsonb,$6,$7,$8,$7)
@@ -914,14 +985,23 @@ func (s *PostgresProtectedPublicationStore) PublisherReady(ctx context.Context,
 		return false, ErrInvalid
 	}
 	var ready bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.runtime_readiness
 		WHERE runtime_kind='helm-protected-publisher' AND scope_key='global' AND contract_version=$1
-		AND identity->>'policyVersion'=$2 AND config_digest=$3 AND lease_until>$4)`, publisher.Contract,
-		publisher.PolicyVersion, publisher.ConfigDigest, now.UTC()).Scan(&ready)
+		AND identity->>'policyVersion'=$2 AND config_digest=$3
+		AND updated_at=observed_at AND observed_at<=$4
+		AND observed_at>=$5 AND lease_until>$4
+		AND lease_until<=observed_at+interval '5 minutes'
+		AND lease_until<=$6)`, publisher.Contract, publisher.PolicyVersion,
+		publisher.ConfigDigest, now.UTC(), now.UTC().Add(-maximumPublisherReadinessAge),
+		now.UTC().Add(maximumPublisherReadinessLease)).Scan(&ready)
 	return ready, classifyPostgres(err)
 }
 
 func payloadIntentDigest(value ProtectedPayloadIntent) (string, error) {
+	publisher := value.Publisher
+	if value.OriginalPublisherConfigDigest != "" {
+		publisher.ConfigDigest = value.OriginalPublisherConfigDigest
+	}
 	return protectedIntentDigest(struct {
 		Contract          string                     `json:"contract"`
 		ID                string                     `json:"id"`
@@ -937,10 +1017,14 @@ func payloadIntentDigest(value ProtectedPayloadIntent) (string, error) {
 		Publisher         ProtectedPublisherIdentity `json:"publisher"`
 	}{"helm-protected-payload-intent.v1", value.ID, value.ReleaseRevisionID,
 		value.ReleaseGeneration, value.Target, value.Action, value.Binding, value.Path,
-		value.ContentDigest, value.InventoryDigest, value.ResourceCount, value.Publisher})
+		value.ContentDigest, value.InventoryDigest, value.ResourceCount, publisher})
 }
 
 func applicationIntentDigest(value ProtectedApplicationIntent) (string, error) {
+	publisher := value.Publisher
+	if value.OriginalPublisherConfigDigest != "" {
+		publisher.ConfigDigest = value.OriginalPublisherConfigDigest
+	}
 	return protectedIntentDigest(struct {
 		Contract          string                     `json:"contract"`
 		ID                string                     `json:"id"`
@@ -963,7 +1047,7 @@ func applicationIntentDigest(value ProtectedApplicationIntent) (string, error) {
 		value.PayloadIntentID, value.ReleaseGeneration, value.Target, value.Action,
 		value.Binding, value.PayloadRevision, value.PayloadPath, value.SourceDirectory,
 		value.ApplicationPath, value.Operation, value.Precondition, value.ExpectedETag,
-		value.ContentDigest, value.Publisher})
+		value.ContentDigest, publisher})
 }
 
 func equalProtectedPayloadIdentity(left, right ProtectedPayloadIntent) bool {
@@ -973,7 +1057,10 @@ func equalProtectedPayloadIdentity(left, right ProtectedPayloadIntent) bool {
 		equalBytes(left.Content, right.Content) && left.ContentDigest == right.ContentDigest &&
 		left.InventoryDigest == right.InventoryDigest && left.ResourceCount == right.ResourceCount &&
 		left.IntentDigest == right.IntentDigest && left.CommitTrailer == right.CommitTrailer &&
-		left.Publisher == right.Publisher && left.Message == right.Message
+		left.Publisher.Contract == right.Publisher.Contract &&
+		left.Publisher.PolicyVersion == right.Publisher.PolicyVersion &&
+		left.OriginalPublisherConfigDigest == right.OriginalPublisherConfigDigest &&
+		left.Message == right.Message
 }
 
 func equalProtectedApplicationIdentity(left, right ProtectedApplicationIntent) bool {
@@ -985,7 +1072,10 @@ func equalProtectedApplicationIdentity(left, right ProtectedApplicationIntent) b
 		left.Operation == right.Operation && left.Precondition == right.Precondition &&
 		left.ExpectedETag == right.ExpectedETag && equalBytes(left.Content, right.Content) &&
 		left.ContentDigest == right.ContentDigest && left.IntentDigest == right.IntentDigest &&
-		left.CommitTrailer == right.CommitTrailer && left.Publisher == right.Publisher &&
+		left.CommitTrailer == right.CommitTrailer &&
+		left.Publisher.Contract == right.Publisher.Contract &&
+		left.Publisher.PolicyVersion == right.Publisher.PolicyVersion &&
+		left.OriginalPublisherConfigDigest == right.OriginalPublisherConfigDigest &&
 		left.Message == right.Message
 }
 
@@ -1009,12 +1099,14 @@ func applicationLease(value ProtectedApplicationIntent) ProtectedIntentLease {
 
 func activePayloadLease(value ProtectedPayloadIntent, lease ProtectedIntentLease, now time.Time) bool {
 	return value.LeaseOwner == lease.Owner && value.LeaseEpoch == lease.Epoch &&
-		value.Publisher == lease.Publisher && value.LeaseUntil != nil && value.LeaseUntil.After(now)
+		value.Publisher == lease.Publisher &&
+		value.LeaseUntil != nil && value.LeaseUntil.After(now)
 }
 
 func activeApplicationLease(value ProtectedApplicationIntent, lease ProtectedIntentLease, now time.Time) bool {
 	return value.LeaseOwner == lease.Owner && value.LeaseEpoch == lease.Epoch &&
-		value.Publisher == lease.Publisher && value.LeaseUntil != nil && value.LeaseUntil.After(now)
+		value.Publisher == lease.Publisher &&
+		value.LeaseUntil != nil && value.LeaseUntil.After(now)
 }
 
 func protectedPayloadWriteMiss(value ProtectedPayloadIntent, getErr error,
