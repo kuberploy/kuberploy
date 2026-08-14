@@ -113,6 +113,7 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 	continuation := ""
 	seenContinuations := map[string]struct{}{}
 	seenApplications := map[string]struct{}{}
+	scannedApplications := 0
 	for {
 		page, err := o.Source.ListKuberployApplications(ctx, o.Namespace, continuation, pageSize)
 		if err != nil {
@@ -127,11 +128,21 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 			return result, errors.New("Argo Application pagination changed resourceVersion")
 		}
 		for _, application := range page.Applications {
-			if len(seenApplications) >= MaximumObservedApplications {
+			scannedApplications++
+			if scannedApplications > MaximumObservedApplications {
 				return result, errors.New("Argo Application observation exceeded its bound")
 			}
 			deploymentID := strings.TrimSpace(application.Labels["kuberploy.io/deployment-id"])
-			if _, duplicate := seenApplications[deploymentID]; duplicate || deploymentID == "" {
+			if deploymentID == "" {
+				if isProtectedHelmApplication(application) {
+					// Protected Helm Applications deliberately carry application and
+					// environment identity but no deployment identity.
+					result.IgnoredUnknown++
+					continue
+				}
+				return result, ErrInvalid
+			}
+			if _, duplicate := seenApplications[deploymentID]; duplicate {
 				return result, ErrInvalid
 			}
 			seenApplications[deploymentID] = struct{}{}
@@ -185,6 +196,16 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 		seenContinuations[page.Continue] = struct{}{}
 		continuation = page.Continue
 	}
+}
+
+func isProtectedHelmApplication(application KubernetesApplication) bool {
+	labels := application.Labels
+	applicationID := strings.TrimSpace(labels["kuberploy.io/application-id"])
+	return labels["app.kubernetes.io/managed-by"] == "kuberploy" &&
+		labels["app.kubernetes.io/component"] == "approved-helm-application" &&
+		uuidRE.MatchString(applicationID) && uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/project-id"])) &&
+		uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/environment-id"])) &&
+		application.Name == "kp-h-"+strings.ReplaceAll(applicationID, "-", "")
 }
 
 func ObservationFromKubernetesApplication(application KubernetesApplication, target ObservationTarget, argoNamespace string) (Observation, error) {

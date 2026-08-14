@@ -170,14 +170,19 @@ func TestKubernetesObserverPaginatesIgnoresUnknownAndRejectsSnapshotDrift(t *tes
 	unknown.Name = "kp-a-55555555555545558555555555555555"
 	unknown.UID = "66666666-6666-4666-8666-666666666666"
 	unknown.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/deployment-id": "55555555-5555-4555-8555-555555555555", "kuberploy.io/application-id": "55555555-5555-4555-8555-555555555555"}
+	helmApplication := observerApplication(now)
+	helmApplication.Name = "kp-h-11111111111141118111111111111111"
+	helmApplication.UID = "88888888-8888-4888-8888-888888888888"
+	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "approved-helm-application", "kuberploy.io/application-id": observerApplicationID,
+		"kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
 	source := &observerSource{pages: []KubernetesApplicationPage{
 		{ResourceVersion: "100", Continue: "second", Applications: []KubernetesApplication{observerApplication(now)}},
-		{ResourceVersion: "100", Applications: []KubernetesApplication{unknown}},
+		{ResourceVersion: "100", Applications: []KubernetesApplication{unknown, helmApplication}},
 	}}
 	store := NewMemoryObservationStore()
 	observer := KubernetesObserver{Source: source, Resolver: observerResolver{targets: map[string]ObservationTarget{observerDeploymentID: observerTarget()}}, Store: store, Namespace: "argocd", PageSize: 1}
 	result, err := observer.PollOnce(t.Context())
-	if err != nil || result.Observed != 1 || result.IgnoredUnknown != 1 || result.SnapshotVersion != "100" || source.calls != 2 {
+	if err != nil || result.Observed != 1 || result.IgnoredUnknown != 2 || result.SnapshotVersion != "100" || source.calls != 2 {
 		t.Fatalf("result=%#v calls=%d err=%v", result, source.calls, err)
 	}
 	if _, err = store.Observation(t.Context(), observerDeploymentID); err != nil {
@@ -188,6 +193,40 @@ func TestKubernetesObserverPaginatesIgnoresUnknownAndRejectsSnapshotDrift(t *tes
 	observer.Source = drift
 	if _, err = observer.PollOnce(t.Context()); err == nil || !strings.Contains(err.Error(), "resourceVersion") {
 		t.Fatalf("expected snapshot resourceVersion rejection, got %v", err)
+	}
+}
+
+func TestKubernetesObserverRejectsMalformedMissingAndDuplicateDeploymentIdentity(t *testing.T) {
+	now := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
+	malformed := observerApplication(now)
+	delete(malformed.Labels, "kuberploy.io/deployment-id")
+	observer := KubernetesObserver{Source: &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "101", Applications: []KubernetesApplication{malformed}}}},
+		Resolver: observerResolver{targets: map[string]ObservationTarget{observerDeploymentID: observerTarget()}}, Store: NewMemoryObservationStore(), Namespace: "argocd"}
+	if _, err := observer.PollOnce(t.Context()); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("malformed missing deployment identity was not rejected: %v", err)
+	}
+
+	duplicate := observerApplication(now)
+	observer.Source = &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "102", Applications: []KubernetesApplication{duplicate, duplicate}}}}
+	if _, err := observer.PollOnce(t.Context()); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("duplicate deployment identity was not rejected: %v", err)
+	}
+}
+
+func TestKubernetesObserverBoundsIgnoredProtectedHelmApplications(t *testing.T) {
+	now := time.Date(2026, 8, 14, 8, 1, 0, 0, time.UTC)
+	helmApplication := observerApplication(now)
+	helmApplication.Name = "kp-h-11111111111141118111111111111111"
+	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "approved-helm-application",
+		"kuberploy.io/application-id": observerApplicationID, "kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
+	applications := make([]KubernetesApplication, MaximumObservedApplications+1)
+	for index := range applications {
+		applications[index] = helmApplication
+	}
+	observer := KubernetesObserver{Source: &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "103", Applications: applications}}},
+		Resolver: observerResolver{targets: map[string]ObservationTarget{}}, Store: NewMemoryObservationStore(), Namespace: "argocd"}
+	if _, err := observer.PollOnce(t.Context()); err == nil || !strings.Contains(err.Error(), "exceeded its bound") {
+		t.Fatalf("ignored protected Helm Applications bypassed observation bound: %v", err)
 	}
 }
 

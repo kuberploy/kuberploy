@@ -2,5 +2,5 @@
   "breakingChanges": false,
   "summary": "Helm-only environments now receive exact Argo project authority, protected Helm publication waits for immutable foundation and desired-state ancestry receipts, and transient edge readiness recovers safely.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.161"
+  "version": "0.1.0-rc.162"
 }
