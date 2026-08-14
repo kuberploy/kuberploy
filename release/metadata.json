@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Database schema advances to 009 so Helm phase-two Application publication preserves verified payload provenance while requiring fresh current AppProject, materialization, and foundation authority with safe pristine replacement.",
+  "summary": "Database schema advances to 010 so Helm phase-two Application publication accepts a current no-change materialization that reuses an older verified command while retaining current projection, content, runtime, AppProject, and foundation authority.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.168"
+  "version": "0.1.0-rc.169"
 }

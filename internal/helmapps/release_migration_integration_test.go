@@ -586,6 +586,67 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = currentTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// A no-change materialization is stamped with the newly indexed projection,
+	// but deliberately points at the older verified command whose exact bytes it
+	// reused. Continuation authority must follow the current receipt tuple, not
+	// require the referenced command's immutable origin tuple to match it.
+	argoStore, err := argo.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifiedCurrentCommand, err := argoStore.DesiredStateCommand(ctx, currentCommandID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	noChangeEnvironmentRevision := strings.Repeat("0", 40)
+	noChangeProjectionAt := observedAt.Add(3500 * time.Millisecond)
+	noChangeProjectionTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL
+			WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
+		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+			VALUES($1,3,$2,'gitprojection.v1','active',$3,$3)`,
+			[]any{f.environmentBindingID, noChangeEnvironmentRevision, noChangeProjectionAt}},
+		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
+			projection_generation=3,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			[]any{f.environmentBindingID, noChangeEnvironmentRevision, noChangeProjectionAt}},
+	} {
+		if _, err = noChangeProjectionTx.Exec(ctx, statement.query, statement.args...); err != nil {
+			_ = noChangeProjectionTx.Rollback(ctx)
+			t.Fatal(err)
+		}
+	}
+	if err = noChangeProjectionTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	currentMaterialization := verifiedCurrentCommand
+	currentMaterialization.ID = id.New()
+	currentMaterialization.Generation++
+	currentMaterialization.EnvironmentRevision = noChangeEnvironmentRevision
+	currentMaterialization.EnvironmentGeneration = 3
+	currentMaterialization.WriteBaseRevision = ""
+	currentMaterialization.WriteBaseObservedAt = nil
+	currentMaterialization.State = argo.DesiredStatePending
+	currentMaterialization.CommittedRevision = ""
+	currentMaterialization.CommittedAt = nil
+	currentMaterialization.VerifiedAt = nil
+	currentMaterialization.CompletedAt = nil
+	currentMaterialization.LeaseEpoch = 0
+	currentMaterialization.NextAttemptAt = noChangeProjectionAt
+	currentMaterialization.CreatedAt = noChangeProjectionAt
+	currentMaterialization.UpdatedAt = noChangeProjectionAt
+	createdMaterialization, materializationErr := argoStore.RecordDesiredStateMaterialization(ctx,
+		currentMaterialization, verifiedCurrentCommand, noChangeProjectionAt)
+	if materializationErr != nil || !createdMaterialization {
+		t.Fatalf("current no-change materialization created=%v err=%v",
+			createdMaterialization, materializationErr)
+	}
 	// Preserve the exact previous-release failure shape: phase two was planned against the
 	// source projection, then retired pristine when the environment projection
 	// advanced before its first claim. Migration 009 keeps that immutable
@@ -647,12 +708,76 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	continuation, continuationErr := currentStore.ApplicationContinuation(ctx, application.ID)
 	if continuationErr != nil || continuation.SourceDesiredStateCommandID == continuation.CurrentDesiredStateCommandID ||
 		continuation.SourceDesiredStateRevision == continuation.CurrentDesiredStateRevision ||
+		continuation.CurrentEnvironmentRevision != noChangeEnvironmentRevision ||
+		continuation.CurrentEnvironmentGeneration != 3 ||
+		continuation.CurrentMaterializationReceiptID != currentMaterialization.ID ||
 		continuation.CurrentDesiredStateCommandID != currentCommandID ||
 		continuation.CurrentDesiredStateRevision != currentDesiredRevision ||
 		continuation.CurrentRuntime != currentAuthority.Runtime ||
 		!bytes.Equal(continuation.CurrentAppProjectContent, currentProject) {
 		t.Fatalf("current continuation=%+v err=%v", continuation, continuationErr)
 	}
+	var continuationExact bool
+	if err = pool.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
+		application.ID).Scan(&continuationExact); err != nil || !continuationExact {
+		t.Fatalf("no-change continuation exact=%v err=%v", continuationExact, err)
+	}
+	routeMutation, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = routeMutation.Exec(ctx, `UPDATE public.environments
+		SET namespace='changed-current-route',argo_project='changed-current-route' WHERE id=$1`,
+		f.environmentID); err != nil {
+		_ = routeMutation.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = routeMutation.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
+		application.ID).Scan(&continuationExact); err != nil {
+		_ = routeMutation.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if continuationExact {
+		_ = routeMutation.Rollback(ctx)
+		t.Fatal("changed current route retained no-change continuation authority")
+	}
+	if err = routeMutation.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertMaterializationMutationDenied := func(name, statement string, value any) {
+		t.Helper()
+		mutation, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		if _, mutationErr := mutation.Exec(ctx, `ALTER TABLE public.argo_desired_state_materialization_receipts
+			DISABLE TRIGGER USER`); mutationErr == nil {
+			_, mutationErr = mutation.Exec(ctx, statement, currentMaterialization.ID, value)
+			if mutationErr == nil {
+				mutationErr = mutation.QueryRow(ctx,
+					`SELECT public.helm_application_continuation_is_exact($1)`,
+					application.ID).Scan(&continuationExact)
+			}
+			if mutationErr != nil {
+				_ = mutation.Rollback(ctx)
+				t.Fatal(mutationErr)
+			}
+		} else {
+			_ = mutation.Rollback(ctx)
+			t.Fatal(mutationErr)
+		}
+		if continuationExact {
+			_ = mutation.Rollback(ctx)
+			t.Fatalf("changed current materialization %s retained continuation authority", name)
+		}
+		if rollbackErr := mutation.Rollback(ctx); rollbackErr != nil {
+			t.Fatal(rollbackErr)
+		}
+	}
+	assertMaterializationMutationDenied("content", `UPDATE public.argo_desired_state_materialization_receipts
+		SET desired_state_content_sha256=$2 WHERE id=$1`, helmPGDigest([]byte("changed-current-content")))
+	assertMaterializationMutationDenied("runtime", `UPDATE public.argo_desired_state_materialization_receipts
+		SET chart_version=$2 WHERE id=$1`, "99.0.0")
 	if _, err = pool.Exec(ctx, `UPDATE helm_application_continuation_receipts
 		SET current_app_project_content=$2 WHERE application_intent_id=$1`,
 		application.ID, []byte("revoked AppProject authority\n")); err == nil {
@@ -685,10 +810,10 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL
 			WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
 		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
-			VALUES($1,3,$2,'gitprojection.v1','active',$3,$3)`,
+			VALUES($1,4,$2,'gitprojection.v1','active',$3,$3)`,
 			[]any{f.environmentBindingID, changedEnvironmentRevision, changedProjectionAt}},
 		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
-			projection_generation=3,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			projection_generation=4,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
 			[]any{f.environmentBindingID, changedEnvironmentRevision, changedProjectionAt}},
 	} {
 		if _, err = changedProjectionTx.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -699,7 +824,6 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = changedProjectionTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	var continuationExact bool
 	if err = pool.QueryRow(ctx, `SELECT public.helm_application_continuation_is_exact($1)`,
 		application.ID).Scan(&continuationExact); err != nil {
 		t.Fatal(err)
@@ -766,7 +890,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertVerifiedArgoDesiredStateCommand(t, ctx, changedCommandTx, f,
-		changedDesiredStateCommandID, 3, changedEnvironmentRevision, 3,
+		changedDesiredStateCommandID, 3, changedEnvironmentRevision, 4,
 		changedDesiredStateRevision, payloadCommit, changedAuthority,
 		changedProject, changedBundle, changedProjectionAt.Add(2*time.Second))
 	if err = changedCommandTx.Commit(ctx); err != nil {
@@ -785,7 +909,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	continuation, continuationErr = currentStore.ApplicationContinuation(ctx, application.ID)
 	if continuationErr != nil || continuation.CurrentEnvironmentRevision != changedEnvironmentRevision ||
-		continuation.CurrentEnvironmentGeneration != 3 ||
+		continuation.CurrentEnvironmentGeneration != 4 ||
 		continuation.CurrentDesiredStateCommandID != changedDesiredStateCommandID ||
 		continuation.CurrentDesiredStateRevision != changedDesiredStateRevision ||
 		continuation.CurrentRuntime != changedAuthority.Runtime ||
@@ -822,7 +946,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	insertVerifiedArgoDesiredStateCommand(t, ctx, latestCommandTx, f,
-		latestDesiredStateCommandID, 4, changedEnvironmentRevision, 3,
+		latestDesiredStateCommandID, 4, changedEnvironmentRevision, 4,
 		latestDesiredStateRevision, payloadCommit, latestAuthority,
 		latestProject, latestBundle, latestCommandAt)
 	if err = latestCommandTx.Commit(ctx); err != nil {
@@ -901,10 +1025,10 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		{`UPDATE git_projection_generations SET state='failed',activated_at=NULL
 			WHERE binding_id=$1 AND state='active'`, []any{f.environmentBindingID}},
 		{`INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
-			VALUES($1,4,$2,'gitprojection.v1','active',$3,$3)`,
+			VALUES($1,5,$2,'gitprojection.v1','active',$3,$3)`,
 			[]any{f.environmentBindingID, recoveryEnvironmentRevision, recoveryAt}},
 		{`UPDATE git_repository_bindings SET target_head_revision=$2,indexed_revision=$2,
-			projection_generation=4,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+			projection_generation=5,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
 			[]any{f.environmentBindingID, recoveryEnvironmentRevision, recoveryAt}},
 	} {
 		if _, err = recoveryProjectionTx.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -2263,6 +2387,36 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	}
 	if _, err = tx.Exec(ctx, string(body)); err != nil {
 		t.Fatal(err)
+	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/010_helm_application_materialization_bridge/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
+	for _, function := range []string{
+		"public.validate_helm_application_continuation_receipt()",
+		"public.helm_application_continuation_is_exact(uuid)",
+	} {
+		var definition string
+		if err = tx.QueryRow(ctx, `SELECT pg_catalog.pg_get_functiondef($1::pg_catalog.regprocedure)`,
+			function).Scan(&definition); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(definition, "current_command.environment_revision=NEW.current_environment_revision") ||
+			strings.Contains(definition, "current_command.environment_generation=NEW.current_environment_generation") ||
+			strings.Contains(definition, "current_command.environment_revision=receipt.current_environment_revision") ||
+			strings.Contains(definition, "current_command.environment_generation=receipt.current_environment_generation") {
+			t.Fatalf("migration 010 retained command-origin projection equality in %s", function)
+		}
+		if !strings.Contains(definition, "materialization.environment_revision=") ||
+			!strings.Contains(definition, "materialization.environment_generation=") ||
+			!strings.Contains(definition, "current_command.content_sha256=") ||
+			!strings.Contains(definition, "current_command.policy_digest=") ||
+			!strings.Contains(definition, "current_command.app_project_content=") {
+			t.Fatalf("migration 010 weakened current materialization authority in %s", function)
+		}
 	}
 	var malformedBackfill []byte
 	if err = tx.QueryRow(ctx, `SELECT COALESCE(app_project_content,''::bytea)

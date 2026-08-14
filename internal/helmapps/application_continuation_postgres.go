@@ -148,8 +148,6 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 			AND current_command.cluster_id=payload.cluster_id
 			AND current_command.platform_target_ref=payload.platform_target_ref
 			AND current_command.environment_target_ref=payload.environment_target_ref
-			AND current_command.environment_revision=environment.indexed_revision
-			AND current_command.environment_generation=environment.projection_generation
 			AND current_command.state='verified'
 			AND current_command.committed_revision=materialization.desired_state_revision
 			AND current_command.content_sha256=materialization.desired_state_content_sha256
