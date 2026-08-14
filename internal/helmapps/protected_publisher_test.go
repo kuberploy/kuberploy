@@ -16,8 +16,33 @@ import (
 
 type protectedPublisherStoreStub struct {
 	ProtectedPublicationStore
-	payload     ProtectedPayloadIntent
-	application ProtectedApplicationIntent
+	payload         ProtectedPayloadIntent
+	application     ProtectedApplicationIntent
+	prerequisite    ProtectedPublicationPrerequisiteReceipt
+	prerequisiteErr error
+}
+
+func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
+	releaseID string) (ProtectedPublicationPrerequisiteReceipt, error) {
+	if s.prerequisiteErr != nil {
+		return ProtectedPublicationPrerequisiteReceipt{}, s.prerequisiteErr
+	}
+	value := s.prerequisite
+	var target ReleaseTarget
+	var binding ProtectedBindingSnapshot
+	if s.payload.ReleaseRevisionID == releaseID {
+		target, binding = s.payload.Target, s.payload.Binding
+	} else if s.application.ReleaseRevisionID == releaseID {
+		target, binding = s.application.Target, s.application.Binding
+	} else {
+		return ProtectedPublicationPrerequisiteReceipt{}, ErrNotFound
+	}
+	value.ReleaseRevisionID, value.ProjectID = releaseID, target.ProjectID
+	value.EnvironmentID, value.ApplicationID = target.EnvironmentID, target.ApplicationID
+	value.PlatformBindingID, value.EnvironmentBindingID = binding.PlatformBindingID, binding.EnvironmentBindingID
+	value.ClusterID, value.EnvironmentRevision = binding.ClusterID, binding.EnvironmentRevision
+	value.EnvironmentGeneration, value.PlannedBaseRevision = binding.EnvironmentGeneration, binding.PlannedBaseRevision
+	return value, nil
 }
 
 func (s *protectedPublisherStoreStub) ClaimPayload(_ context.Context, owner string, publisher ProtectedPublisherIdentity,
@@ -214,6 +239,16 @@ func newProtectedPublisherFixture(t *testing.T) *protectedPublisherFixture {
 		manager: &gitprojection.MirrorManager{Root: filepath.Join(root, "cache"), AllowLocalTests: true, LocalRemote: remote},
 		store:   &protectedPublisherStoreStub{}, publisher: publisher, target: target}
 	fixture.store.payload = fixture.pendingPayload(id.New(), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: approved\n"), false, base)
+	fixture.store.prerequisite = ProtectedPublicationPrerequisiteReceipt{
+		ReleaseRevisionID: fixture.store.payload.ReleaseRevisionID,
+		ProjectID:         target.ProjectID, EnvironmentID: target.EnvironmentID, ApplicationID: target.ApplicationID,
+		PlatformBindingID: binding.ID, EnvironmentBindingID: fixture.store.payload.Binding.EnvironmentBindingID,
+		ClusterID: binding.ClusterID, EnvironmentRevision: fixture.store.payload.Binding.EnvironmentRevision,
+		EnvironmentGeneration: fixture.store.payload.Binding.EnvironmentGeneration,
+		FoundationIntentID:    id.New(), FoundationRevision: base,
+		DesiredStateCommandID: id.New(), DesiredStateRevision: base,
+		PlannedBaseRevision: base, CreatedAt: now,
+	}
 	return fixture
 }
 
@@ -322,6 +357,66 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	}
 }
 
+func TestProtectedGitPublisherOrdersBothPrerequisiteRevisionsBeforeApplication(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	if _, err := runProtectedPublisherGit(t, fixture.seed, "fetch", "origin", "refs/heads/platform"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runProtectedPublisherGit(t, fixture.seed, "reset", "--hard", "FETCH_HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	commit := func(name, body string) string {
+		t.Helper()
+		path := filepath.Join(fixture.seed, name)
+		if err := os.WriteFile(path, []byte(body), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		for _, command := range [][]string{{"add", name}, {"commit", "-m", name}} {
+			if output, err := runProtectedPublisherGit(t, fixture.seed, command...); err != nil {
+				t.Fatalf("git %v: %v: %s", command, err, output)
+			}
+		}
+		revision, err := runProtectedPublisherGit(t, fixture.seed, "rev-parse", "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return revision
+	}
+	foundationRevision := commit("foundation.yaml", "kind: Namespace\n")
+	desiredStateRevision := commit("app-project.yaml", "kind: AppProject\n")
+	if output, err := runProtectedPublisherGit(t, fixture.seed, "push", "origin", "HEAD:refs/heads/platform"); err != nil {
+		t.Fatalf("push prerequisites: %v: %s", err, output)
+	}
+	fixture.binding.TargetHeadRevision = desiredStateRevision
+	fixture.binding.TargetHeadObservedAt, fixture.binding.UpdatedAt = fixture.now, fixture.now
+	if err := fixture.bindings.PutBinding(t.Context(), fixture.binding); err != nil {
+		t.Fatal(err)
+	}
+	fixture.store.payload.Binding.PlannedBaseRevision = desiredStateRevision
+	fixture.store.prerequisite.FoundationRevision = foundationRevision
+	fixture.store.prerequisite.DesiredStateRevision = desiredStateRevision
+	fixture.store.prerequisite.PlannedBaseRevision = desiredStateRevision
+
+	payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.store.application = fixture.pendingApplication(payload,
+		[]byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\n"),
+		ProtectedApplicationPublish, "create-if-absent", "")
+	application, err := fixture.worker(t).ProcessApplicationOne(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, revision := range map[string]string{
+		"foundation": foundationRevision, "Argo project": desiredStateRevision,
+	} {
+		if _, err = runProtectedPublisherGit(t, fixture.remote, "merge-base", "--is-ancestor", revision, application.CommittedRevision); err != nil {
+			t.Fatalf("%s revision %s is not an ancestor of application %s: %v", name, revision, application.CommittedRevision, err)
+		}
+	}
+}
+
 func TestProtectedGitPublisherRecoversExactCommitAndRejectsPostimageSubstitution(t *testing.T) {
 	fixture := newProtectedPublisherFixture(t)
 	intent := &fixture.store.payload
@@ -404,7 +499,113 @@ func TestProtectedGitPublisherRecoversExactCommitAndRejectsPostimageSubstitution
 	}
 }
 
+func TestProtectedGitPublisherRecoversLegacyApplicationPushAfterV004Adoption(t *testing.T) {
+	for _, state := range []ProtectedIntentState{ProtectedClaimed, ProtectedGitCommitted} {
+		t.Run(string(state), func(t *testing.T) {
+			fixture := newProtectedPublisherFixture(t)
+			payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			fixture.store.application = fixture.pendingApplication(payload,
+				[]byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: legacy\n"),
+				ProtectedApplicationPublish, "create-if-absent", "")
+			intent := &fixture.store.application
+			intent.State, intent.LeaseOwner, intent.Attempts, intent.LeaseEpoch =
+				ProtectedClaimed, "helm-protected-worker-0001", 1, 1
+			until := fixture.now.Add(time.Minute)
+			intent.LeaseUntil = &until
+			head, err := fixture.headVerifier(t).VerifyTargetHead(t.Context(), fixture.binding,
+				gitprojection.ObservationWrite)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intent.WriteBaseRevision, intent.WriteBaseObservedAt = head.Commit, &fixture.now
+			mutation, err := intent.Mutation()
+			if err != nil {
+				t.Fatal(err)
+			}
+			gitMutation, err := mutation.gitMutation()
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := fixture.manager.Prepare(t.Context(), fixture.binding, head, intent.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pushed, err := prepared.Commit(t.Context(), gitMutation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = prepared.Close(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if state == ProtectedGitCommitted {
+				intent.State = ProtectedGitCommitted
+				intent.CommittedRevision, intent.CommittedParentRevision = pushed, head.Commit
+				intent.CommittedAt = &fixture.now
+			}
+			// 004 adopts the exact legacy row only after its old lease expires.
+			// The new publisher must find the old trailer, prove prerequisite and
+			// payload ancestry, verify the exact stable path, and finish in place.
+			intent.LeaseUntil, intent.LeaseOwner = &fixture.now, ""
+			recovered, err := fixture.worker(t).ProcessApplicationOne(t.Context())
+			if err != nil || recovered.State != ProtectedVerified || recovered.CommittedRevision != pushed ||
+				recovered.VerifiedPathDigest != recovered.ContentDigest {
+				t.Fatalf("recovered=%+v pushed=%s err=%v", recovered, pushed, err)
+			}
+			for name, revision := range map[string]string{
+				"foundation": fixture.store.prerequisite.FoundationRevision,
+				"AppProject": fixture.store.prerequisite.DesiredStateRevision,
+				"payload":    payload.CommittedRevision,
+			} {
+				if _, err = runProtectedPublisherGit(t, fixture.remote, "merge-base", "--is-ancestor",
+					revision, recovered.CommittedRevision); err != nil {
+					t.Fatalf("%s revision %s not in recovered application ancestry: %v", name, revision, err)
+				}
+			}
+		})
+	}
+}
+
 func TestProtectedGitPublisherRejectsDigestCASAncestryAndTrailerSubstitution(t *testing.T) {
+	t.Run("publication prerequisite", func(t *testing.T) {
+		for _, test := range []struct {
+			name   string
+			mutate func(*protectedPublisherFixture)
+			err    error
+		}{
+			{name: "missing foundation", mutate: func(f *protectedPublisherFixture) {
+				f.store.prerequisiteErr = ErrFoundationNotReady
+			}, err: ErrFoundationNotReady},
+			{name: "missing Argo project", mutate: func(f *protectedPublisherFixture) {
+				f.store.prerequisiteErr = ErrArgoProjectNotReady
+			}, err: ErrArgoProjectNotReady},
+			{name: "foundation outside ancestry", mutate: func(f *protectedPublisherFixture) {
+				f.store.prerequisite.FoundationRevision = strings.Repeat("f", 40)
+			}, err: gitprojection.ErrConflict},
+			{name: "Argo project outside ancestry", mutate: func(f *protectedPublisherFixture) {
+				f.store.prerequisite.DesiredStateRevision = strings.Repeat("e", 40)
+			}, err: gitprojection.ErrConflict},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				fixture := newProtectedPublisherFixture(t)
+				test.mutate(fixture)
+				before, gitErr := runProtectedPublisherGit(t, fixture.remote, "rev-parse", "refs/heads/platform")
+				if gitErr != nil {
+					t.Fatal(gitErr)
+				}
+				if _, err := fixture.worker(t).ProcessPayloadOne(t.Context()); !errors.Is(err, test.err) {
+					t.Fatalf("publication prerequisite error=%v, want %v", err, test.err)
+				}
+				after, gitErr := runProtectedPublisherGit(t, fixture.remote, "rev-parse", "refs/heads/platform")
+				if gitErr != nil || after != before {
+					t.Fatalf("denied prerequisite mutated Git: before=%s after=%s err=%v", before, after, gitErr)
+				}
+			})
+		}
+	})
+
 	t.Run("digest", func(t *testing.T) {
 		fixture := newProtectedPublisherFixture(t)
 		mutation, err := fixture.store.payload.Mutation()

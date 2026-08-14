@@ -90,7 +90,7 @@ func (g *PostgreSQLDesiredStateProjectionGate) ValidateDesiredStateClaim(ctx con
 		!approval.SecretReferencesResolved || approval.RegistryReferencesResolved {
 		return ErrInvalid
 	}
-	content, err := RenderEnvironment(target.Environment, approval.Applications, approval.Deployments)
+	content, err := RenderEnvironment(target, approval.Applications, approval.Deployments)
 	if err != nil || contentDigest(content) != command.ContentSHA256 || !constantTimeBytesEqual(content, command.Content) {
 		return ErrInvalid
 	}
@@ -158,9 +158,6 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 	documents, err := desiredStatePolicyDocumentsTx(ctx, tx, binding)
 	if err != nil {
 		return DesiredStateProjectionApproval{}, err
-	}
-	if len(documents) == 0 {
-		return DesiredStateProjectionApproval{}, ErrConflict
 	}
 	generation := gitprojection.Generation{BindingID: binding.ID, Number: binding.ProjectionGeneration,
 		HeadRevision: binding.IndexedRevision, ParserVersion: binding.ParserVersion, State: gitprojection.ProjectionStaging,
@@ -289,7 +286,7 @@ func desiredStateResourcesTx(ctx context.Context, tx pgx.Tx, projectID, environm
 		}
 	}
 	if len(applicationIDs) == 0 {
-		return nil, nil, ErrConflict
+		return []domain.Application{}, []domain.Deployment{}, nil
 	}
 	slices.Sort(applicationIDs)
 	for index := 1; index < len(applicationIDs); index++ {
@@ -474,9 +471,6 @@ func (g *PostgreSQLDesiredStateProjectionGate) validateRecoveryReceipt(ctx conte
 		       (c.state='git-committed' AND c.committed_revision<>''))
 		  AND generation.state='active'
 		  AND generation.head_revision=c.environment_revision
-		  AND EXISTS(SELECT 1 FROM git_projected_documents document
-		    WHERE document.binding_id=c.environment_binding_id AND document.generation=c.environment_generation
-		      AND document.application_id IS NOT NULL)
 		  AND NOT EXISTS(SELECT 1 FROM git_projected_documents document
 		    WHERE document.binding_id=c.environment_binding_id AND document.generation=c.environment_generation AND NOT document.valid)
 	)`, command.ID, command.Generation, command.ProjectID, command.EnvironmentID,

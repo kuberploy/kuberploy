@@ -11,12 +11,13 @@ import (
 )
 
 const (
-	ProtectedPublisherContract = "helm-protected-publisher.v1"
-	ProtectedGitPolicy         = "helm-protected-git.v1"
-	ArgoApplicationAPIVersion  = "argoproj.io/v1alpha1"
-	ArgoApplicationKind        = "Application"
-	ArgoInClusterServer        = "https://kubernetes.default.svc"
-	MaximumProtectedAttempts   = 30
+	ProtectedPublisherContract    = "helm-protected-publisher.v1"
+	ProtectedGitPolicy            = "helm-protected-git.v1"
+	protectedPrerequisiteContract = "helm-publication-prerequisite.v1"
+	ArgoApplicationAPIVersion     = "argoproj.io/v1alpha1"
+	ArgoApplicationKind           = "Application"
+	ArgoInClusterServer           = "https://kubernetes.default.svc"
+	MaximumProtectedAttempts      = 30
 )
 
 var (
@@ -44,6 +45,50 @@ type ProtectedBindingSnapshot struct {
 	EnvironmentRevision                                string
 	EnvironmentGeneration                              int64
 	CatalogDigest, PlannedBaseRevision                 string
+}
+
+// ProtectedPublicationPrerequisiteReceipt is immutable proof that one release
+// was planned against the exact environment foundation and Argo desired-state
+// command which owns its AppProject. The protected Git publisher revalidates
+// its immutable terminal identities, then proves both commits are ancestors
+// of its claim-time write base.
+type ProtectedPublicationPrerequisiteReceipt struct {
+	ReleaseRevisionID, ProjectID, EnvironmentID, ApplicationID string
+	PlatformBindingID, EnvironmentBindingID, ClusterID         string
+	EnvironmentRevision                                        string
+	EnvironmentGeneration                                      int64
+	FoundationIntentID, FoundationRevision                     string
+	DesiredStateCommandID, DesiredStateRevision                string
+	PlannedBaseRevision                                        string
+	CreatedAt                                                  time.Time
+}
+
+func (r ProtectedPublicationPrerequisiteReceipt) Validate() error {
+	if !uuidRE.MatchString(r.ReleaseRevisionID) || !uuidRE.MatchString(r.ProjectID) ||
+		!uuidRE.MatchString(r.EnvironmentID) || !uuidRE.MatchString(r.ApplicationID) ||
+		!uuidRE.MatchString(r.PlatformBindingID) || !uuidRE.MatchString(r.EnvironmentBindingID) ||
+		!uuidRE.MatchString(r.ClusterID) || !gitCommitRE.MatchString(r.EnvironmentRevision) ||
+		r.EnvironmentGeneration < 1 || !uuidRE.MatchString(r.FoundationIntentID) ||
+		!gitCommitRE.MatchString(r.FoundationRevision) || !uuidRE.MatchString(r.DesiredStateCommandID) ||
+		!gitCommitRE.MatchString(r.DesiredStateRevision) ||
+		!gitCommitRE.MatchString(r.PlannedBaseRevision) || r.CreatedAt.IsZero() {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (r ProtectedPublicationPrerequisiteReceipt) ValidateFor(releaseID string, target ReleaseTarget,
+	binding ProtectedBindingSnapshot) error {
+	if r.Validate() != nil || target.Validate() != nil || binding.Validate() != nil ||
+		r.ReleaseRevisionID != releaseID || r.ProjectID != target.ProjectID ||
+		r.EnvironmentID != target.EnvironmentID || r.ApplicationID != target.ApplicationID ||
+		r.PlatformBindingID != binding.PlatformBindingID ||
+		r.EnvironmentBindingID != binding.EnvironmentBindingID || r.ClusterID != binding.ClusterID ||
+		r.EnvironmentRevision != binding.EnvironmentRevision ||
+		r.EnvironmentGeneration != binding.EnvironmentGeneration {
+		return ErrConflict
+	}
+	return nil
 }
 
 func (s ProtectedBindingSnapshot) Validate() error {
@@ -423,6 +468,7 @@ type ProtectedPublicationStore interface {
 	VerifyPayload(context.Context, ProtectedIntentLease, string, string, string, time.Time) (ProtectedPayloadIntent, error)
 	RetryPayload(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedPayloadIntent, error)
 	FailPayload(context.Context, ProtectedIntentLease, string, time.Time) (ProtectedPayloadIntent, error)
+	PublicationPrerequisite(context.Context, string) (ProtectedPublicationPrerequisiteReceipt, error)
 
 	CreateApplicationForPayload(context.Context, string, string, ProtectedApplicationRuntime, ProtectedPublisherIdentity, time.Time) (ProtectedApplicationIntent, bool, error)
 	Application(context.Context, string) (ProtectedApplicationIntent, error)

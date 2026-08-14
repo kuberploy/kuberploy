@@ -331,6 +331,8 @@ func (s *PostgreSQLStore) RecordTargetReady(ctx context.Context, lease Lease, re
 		if err = invalidateEdgeProjectionBindings(ctx, tx, observedAt.UTC()); err != nil {
 			return Target{}, err
 		}
+	} else if err = invalidateMatchingEdgeRuntimeDiagnostic(ctx, tx, current.DesiredTarget, observedAt.UTC()); err != nil {
+		return Target{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Target{}, classifyPostgreSQL(err)
@@ -339,6 +341,52 @@ func (s *PostgreSQLStore) RecordTargetReady(ctx context.Context, lease Lease, re
 		return Target{}, ErrConflict
 	}
 	return result, nil
+}
+
+// invalidateMatchingEdgeRuntimeDiagnostic closes the narrow recovery race in
+// which projection activation observes an approved target just after its
+// previous readiness window expired, then the ordinary successful poll that
+// follows keeps StateReady. Only bindings whose exact active generation still
+// carries the corresponding runtime-derived diagnostic are woken. The next
+// same-head activation reparses schema and binding identity and re-runs the
+// complete transaction-aware policy; this function never clears diagnostics
+// or makes an invalid document readable by itself.
+func invalidateMatchingEdgeRuntimeDiagnostic(ctx context.Context, tx pgx.Tx, target DesiredTarget, observedAt time.Time) error {
+	if tx == nil || target.Validate() != nil || observedAt.IsZero() {
+		return ErrInvalid
+	}
+	var diagnostic string
+	switch target.Kind {
+	case KindTraefik:
+		diagnostic = "TraefikRuntimeUnobserved"
+	case KindCertManager:
+		diagnostic = "CertManagerRuntimeUnobserved"
+	case KindExternalDNS:
+		diagnostic = "ExternalDNSRuntimeUnobserved"
+	default:
+		return ErrInvalid
+	}
+	_, err := tx.Exec(ctx, `UPDATE git_repository_bindings b
+		SET state='indexing',updated_at=GREATEST(b.updated_at+interval '1 microsecond',$2)
+		WHERE b.kind='environment' AND b.state='ready'
+		  AND b.target_head_revision IS NOT NULL AND b.target_head_revision=b.indexed_revision
+		  AND EXISTS (
+			SELECT 1 FROM git_projection_generations g
+			WHERE g.binding_id=b.id AND g.generation=b.projection_generation
+			  AND g.state='active' AND g.head_revision=b.indexed_revision
+		  )
+		  AND EXISTS (
+			SELECT 1 FROM git_projected_documents d
+			WHERE d.binding_id=b.id AND d.generation=b.projection_generation AND NOT d.valid
+			  AND d.diagnostics @> jsonb_build_array(jsonb_build_object('code',$1::text))
+			  AND ($3::text='' OR EXISTS (
+				SELECT 1 FROM external_dns_integrations i,
+					LATERAL jsonb_array_elements(COALESCE(d.parsed #> '{spec,routes}','[]'::jsonb)) route
+				WHERE i.id=NULLIF($3::text,'')::uuid AND route #>> '{dns,mode}'='externalDns'
+				  AND route #>> '{dns,integrationRef}'=i.slug
+			  ))
+		  )`, diagnostic, observedAt.UTC(), target.IntegrationID)
+	return classifyPostgreSQL(err)
 }
 
 func (s *PostgreSQLStore) SSLIPIngressObservation(ctx context.Context, key string, revision int64) (SSLIPIngressObservation, error) {

@@ -334,21 +334,48 @@ func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T
 		projectID     = "a1111111-1111-4111-8111-111111111111"
 		environmentID = "a2222222-2222-4222-8222-222222222222"
 		bindingID     = "a3333333-3333-4333-8333-333333333333"
+		applicationID = "a4444444-4444-4444-8444-444444444444"
+		userID        = "a5555555-5555-4555-8555-555555555555"
+		integrationA  = "a6666666-6666-4666-8666-666666666666"
+		integrationB  = "a7777777-7777-4777-8777-777777777777"
 	)
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key='traefik'`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=$1`, bindingID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM applications WHERE id=$1`, applicationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, environmentID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM projects WHERE id=$1`, projectID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM external_dns_integrations WHERE id IN ($1,$2)`, integrationA, integrationB)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM users WHERE id=$1`, userID)
 	}
 	cleanup(ctx)
 	defer cleanup(context.Background())
 	now := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+		VALUES($1,'edge-wake-admin','platform-admin','edge-wake-admin','edge-wake-admin',1,$2)`, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, integration := range []struct{ id, slug, owner string }{
+		{id: integrationA, slug: "edge-wake-a", owner: "kuberploy.wake-a"},
+		{id: integrationB, slug: "edge-wake-b", owner: "kuberploy.wake-b"},
+	} {
+		if _, err = pool.Exec(ctx, `INSERT INTO external_dns_integrations(
+			id,slug,name,mode,provider_kind,txt_owner_id,allowed_domain_suffixes,sync_policy,
+			destructive_sync_confirmed,operator_profile_ref,created_by,created_at,updated_at
+		) VALUES($1,$2,'Edge wake DNS','adopted','cloudflare',$3,'["example.test"]'::jsonb,
+			'upsert-only',false,'external-dns-profile',$4,$5,$5)`, integration.id, integration.slug, integration.owner, userID, now); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Edge wake project','edge-wake-project',NULL,$2)`, projectID, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,'Production','production','edge-wake-runtime','edge-wake-argo',$3)`, environmentID, projectID, now); err != nil {
+		VALUES($1,$2,'Production','production','edge-wake-runtime','edge-wake-runtime',$3)`, environmentID, projectID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)
+		VALUES($1,$2,'Edge wake application','edge-wake-application',$3)`, applicationID, projectID, now); err != nil {
 		t.Fatal(err)
 	}
 	head := strings.Repeat("a", 40)
@@ -360,6 +387,24 @@ func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T
 	) VALUES($1,'environment',$2,$3,$2,NULL,'github',9000000000000001,9000000000000002,
 		'kuberploy','edge-wake','refs/heads/main',$4,'github-app','','ready',$5,$5,1,'appconfig-v1alpha1',$6,$6,$6,$6)`,
 		bindingID, environmentID, projectID, "tenants/"+projectID+"/environments/"+environmentID, head, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(
+		binding_id,generation,head_revision,parser_version,state,started_at,activated_at
+	) VALUES($1,1,$2,'appconfig-v1alpha1','active',$3,$3)`, bindingID, head, now); err != nil {
+		t.Fatal(err)
+	}
+	documentPath := "tenants/" + projectID + "/environments/" + environmentID + "/apps/" + applicationID + "/app.yaml"
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(
+		binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,
+		raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at
+	) VALUES($1,1,$2,$3,$4,$4,$5,$6,$7,'{}'::jsonb,false,
+		'[{
+			"code":"TraefikRuntimeUnobserved",
+			"detail":"No fresh exact Traefik runtime observation is available for this route.",
+			"pointer":"/spec/routes/0"
+		}]'::jsonb,'config.kuberploy.io/v1alpha1','appconfig-v1alpha1',$8)`, bindingID, documentPath, applicationID,
+		head, strings.Repeat("b", 40), "sha256:"+strings.Repeat("c", 64), []byte("kind: AppConfig\n"), now); err != nil {
 		t.Fatal(err)
 	}
 	config := testRuntimeConfig()
@@ -406,12 +451,151 @@ func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T
 	}
 	assertState("indexing")
 	resetReady(now.Add(5 * time.Second))
-	retryLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(config.PollInterval), config.WorkLease)
+
+	// An ordinary successful poll used to leave this exact persisted dynamic
+	// diagnostic stranded forever. It now wakes only the matching binding so a
+	// same-head policy activation can authoritatively clear or re-emit it.
+	ordinaryLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("ordinary claim found=%v lease=%#v err=%v", found, ordinaryLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, ordinaryLease, receipt, now.Add(config.PollInterval+time.Second), now.Add(2*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("indexing")
+	resetReady(now.Add(config.PollInterval + 2*time.Second))
+
+	// Immutable parser/binding diagnostics are not runtime recovery signals.
+	// Successful polls must neither clear them nor request a generation that
+	// could make them readable without the exact schema/identity fences.
+	if _, err = pool.Exec(ctx, `UPDATE git_projected_documents SET diagnostics=$2::jsonb
+		WHERE binding_id=$1 AND generation=1 AND path=$3`, bindingID,
+		`[{"code":"SchemaViolation","detail":"spec must be an object","pointer":"/spec"}]`, documentPath); err != nil {
+		t.Fatal(err)
+	}
+	schemaLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(2*config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("schema claim found=%v lease=%#v err=%v", found, schemaLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, schemaLease, receipt, now.Add(2*config.PollInterval+time.Second), now.Add(3*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("ready")
+	if _, err = pool.Exec(ctx, `UPDATE git_projected_documents SET diagnostics=$2::jsonb
+		WHERE binding_id=$1 AND generation=1 AND path=$3`, bindingID,
+		`[{"code":"BindingMismatch","detail":"document identity does not match binding","pointer":"/metadata/id"}]`, documentPath); err != nil {
+		t.Fatal(err)
+	}
+	bindingLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(3*config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("binding claim found=%v lease=%#v err=%v", found, bindingLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, bindingLease, receipt, now.Add(3*config.PollInterval+time.Second), now.Add(4*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("ready")
+
+	// A diagnostic row is authoritative only through the binding's exact active
+	// generation at its indexed head. Staging, failed, and missing generations
+	// cannot be used to request same-head recovery.
+	if _, err = pool.Exec(ctx, `UPDATE git_projected_documents SET diagnostics=$2::jsonb
+		WHERE binding_id=$1 AND generation=1 AND path=$3`, bindingID,
+		`[{"code":"TraefikRuntimeUnobserved","detail":"runtime stale","pointer":"/spec/routes/0"}]`, documentPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE git_projection_generations SET state='staging',activated_at=NULL
+		WHERE binding_id=$1 AND generation=1`, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	stagingLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(4*config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("staging claim found=%v lease=%#v err=%v", found, stagingLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, stagingLease, receipt, now.Add(4*config.PollInterval+time.Second), now.Add(5*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("ready")
+	if _, err = pool.Exec(ctx, `UPDATE git_projection_generations SET state='failed',activated_at=NULL
+		WHERE binding_id=$1 AND generation=1`, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	failedLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(5*config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("failed claim found=%v lease=%#v err=%v", found, failedLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, failedLease, receipt, now.Add(5*config.PollInterval+time.Second), now.Add(6*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("ready")
+	if _, err = pool.Exec(ctx, `UPDATE git_repository_bindings SET projection_generation=2 WHERE id=$1`, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	missingLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(6*config.PollInterval), config.WorkLease)
+	if err != nil || !found {
+		t.Fatalf("missing-generation claim found=%v lease=%#v err=%v", found, missingLease, err)
+	}
+	if _, err = store.RecordTargetReady(ctx, missingLease, receipt, now.Add(6*config.PollInterval+time.Second), now.Add(7*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	assertState("ready")
+	if _, err = pool.Exec(ctx, `UPDATE git_repository_bindings SET projection_generation=1 WHERE id=$1`, bindingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE git_projection_generations SET state='active',activated_at=$2
+		WHERE binding_id=$1 AND generation=1`, bindingID, now.Add(7*config.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+
+	// ExternalDNS runtime recovery is scoped to the exact target integration.
+	// A healthy integration A cannot wake a document that references B.
+	if _, err = pool.Exec(ctx, `UPDATE git_projected_documents SET parsed=$2::jsonb,diagnostics=$3::jsonb
+		WHERE binding_id=$1 AND generation=1 AND path=$4`, bindingID,
+		`{"spec":{"routes":[{"dns":{"mode":"externalDns","integrationRef":"edge-wake-b"}}]}}`,
+		`[{"code":"ExternalDNSRuntimeUnobserved","detail":"runtime stale","pointer":"/spec/routes/0/dns/integrationRef"}]`, documentPath); err != nil {
+		t.Fatal(err)
+	}
+	externalConfig := testRuntimeConfig()
+	profileA := externalConfig.Profiles.ExternalDNS[0]
+	profileA.IntegrationID = integrationA
+	profileB := profileA
+	profileB.IntegrationID = integrationB
+	targetA, targetErr := (TargetProfile{Kind: KindExternalDNS, ExternalDNS: &profileA}).Desired(testDigest("edge-wake-config-a"))
+	if targetErr != nil {
+		t.Fatal(targetErr)
+	}
+	targetB, targetErr := (TargetProfile{Kind: KindExternalDNS, ExternalDNS: &profileB}).Desired(testDigest("edge-wake-config-b"))
+	if targetErr != nil {
+		t.Fatal(targetErr)
+	}
+	for _, candidate := range []struct {
+		target    DesiredTarget
+		at        time.Time
+		wantState string
+	}{
+		{target: targetA, at: now.Add(7*config.PollInterval + time.Second), wantState: "ready"},
+		{target: targetB, at: now.Add(7*config.PollInterval + 2*time.Second), wantState: "indexing"},
+	} {
+		tx, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		if wakeErr := invalidateMatchingEdgeRuntimeDiagnostic(ctx, tx, candidate.target, candidate.at); wakeErr != nil {
+			tx.Rollback(ctx) //nolint:errcheck
+			t.Fatal(wakeErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			t.Fatal(commitErr)
+		}
+		assertState(candidate.wantState)
+	}
+	resetReady(now.Add(7*config.PollInterval + 3*time.Second))
+
+	retryLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, digest, now.Add(7*config.PollInterval), config.WorkLease)
 	if err != nil || !found {
 		t.Fatalf("retry claim found=%v lease=%#v err=%v", found, retryLease, err)
 	}
 	if _, err = store.RecordTargetRetry(ctx, retryLease, "kubernetes-unavailable", false,
-		now.Add(2*config.PollInterval), now.Add(config.PollInterval+time.Second)); err != nil {
+		now.Add(8*config.PollInterval), now.Add(7*config.PollInterval+time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	assertState("indexing")

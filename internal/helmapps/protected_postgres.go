@@ -138,6 +138,9 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 	if release.Target != target || now.Before(release.CreatedAt) {
 		return ProtectedPayloadIntent{}, false, ErrConflict
 	}
+	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, now); err != nil {
+		return ProtectedPayloadIntent{}, false, err
+	}
 	value := ProtectedPayloadIntent{
 		ID: intentID, ReleaseRevisionID: release.ID, ReleaseGeneration: release.Generation,
 		Target: target, Binding: binding, Publisher: publisher, State: ProtectedPending,
@@ -190,9 +193,11 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
 		publisher_contract,publisher_config_digest,message,state,next_attempt_at,attempts,
-		consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at
+		consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
+		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-		'create-if-absent','',$18,$19,$20,$21,$22,$23,$24,$25,$26,'pending',$27,0,0,'',0,$27,$27)
+		'create-if-absent','',$18,$19,$20,$21,$22,$23,$24,$25,$26,'pending',$27,0,0,'',0,
+		$2,$28,0,$27,$27)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.ReleaseGeneration,
 		value.Target.ProjectID, value.Target.EnvironmentID, value.Target.ApplicationID,
 		value.Action, value.Binding.PlatformBindingID, value.Binding.EnvironmentBindingID,
@@ -202,7 +207,7 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 		value.Binding.PlannedBaseRevision, value.Path, value.Content, value.ContentDigest,
 		nullableProtectedDigest(value.InventoryDigest), nullableProtectedCount(value.ResourceCount),
 		value.IntentDigest, value.CommitTrailer, value.Publisher.Contract,
-		value.Publisher.ConfigDigest, value.Message, value.CreatedAt)
+		value.Publisher.ConfigDigest, value.Message, value.CreatedAt, protectedPrerequisiteContract)
 	if err != nil {
 		return ProtectedPayloadIntent{}, false, classifyPostgres(err)
 	}
@@ -279,6 +284,12 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	}
 	binding := payload.Binding
 	binding.PlannedBaseRevision = platformHead
+	// Legacy installations can already have a verified phase-one payload when
+	// the prerequisite receipt migration lands. Create/replay the exact receipt
+	// here as well so phase two recovers without granting imperative authority.
+	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, now); err != nil {
+		return ProtectedApplicationIntent{}, false, err
+	}
 	value := ProtectedApplicationIntent{
 		ID: intentID, ReleaseRevisionID: release.ID, PayloadIntentID: payload.ID,
 		ReleaseGeneration: release.Generation, Target: release.Target, Binding: binding,
@@ -329,9 +340,11 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 		application_path,operation,precondition,expected_etag,content,content_digest,intent_digest,
 		commit_trailer,publisher_contract,publisher_config_digest,message,state,next_attempt_at,
-		attempts,consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at
+		attempts,consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
+		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-		$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,'pending',$32,0,0,'',0,$32,$32)
+		$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,'pending',$32,0,0,'',0,
+		$2,$33,0,$32,$32)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.PayloadIntentID,
 		value.ReleaseGeneration, value.Target.ProjectID, value.Target.EnvironmentID,
 		value.Target.ApplicationID, value.Action, value.Binding.PlatformBindingID,
@@ -342,7 +355,7 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.PayloadPath, value.SourceDirectory, value.ApplicationPath, value.Operation,
 		value.Precondition, value.ExpectedETag, value.Content, value.ContentDigest,
 		value.IntentDigest, value.CommitTrailer, value.Publisher.Contract,
-		value.Publisher.ConfigDigest, value.Message, value.CreatedAt)
+		value.Publisher.ConfigDigest, value.Message, value.CreatedAt, protectedPrerequisiteContract)
 	if err != nil {
 		return ProtectedApplicationIntent{}, false, classifyPostgres(err)
 	}
@@ -442,7 +455,7 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 	// and remains recoverable by its own trailer and path digest.
 	_, err = tx.Exec(ctx, `UPDATE `+table+` candidate SET state='superseded',
 		completed_at=$1,updated_at=$1,consecutive_failures=1,
-		last_failure_code='projection-superseded'
+		last_failure_code='projection-superseded',prerequisite_epoch=prerequisite_epoch+1
 		WHERE candidate.state='pending' AND candidate.lease_epoch=0
 		AND candidate.publisher_contract=$2 AND candidate.publisher_config_digest=$3
 		AND NOT (`+freshProtectedProjectionSQL("candidate")+`)`, now.UTC(),
@@ -480,7 +493,8 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 	result, err := tx.Exec(ctx, `UPDATE `+table+` SET
 		state=CASE WHEN state='pending' THEN 'claimed' ELSE state END,
 		lease_owner=$2,lease_epoch=lease_epoch+1,lease_until=$3,
-		attempts=LEAST(attempts+1,30),updated_at=$1
+		attempts=LEAST(attempts+1,30),updated_at=$1,
+		prerequisite_epoch=prerequisite_epoch+1
 		WHERE id=$4 AND (lease_owner IS NULL OR lease_until<=$1)
 		AND state IN ('pending','claimed','git-committed')`, now.UTC(), owner,
 		now.UTC().Add(duration), intentID)
@@ -562,7 +576,8 @@ func (s *PostgresProtectedPublicationStore) heartbeatProtected(ctx context.Conte
 		!validProtectedLeaseDuration(duration) {
 		return ErrInvalid
 	}
-	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET lease_until=$6,updated_at=$5
+	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET lease_until=$6,updated_at=$5,
+		prerequisite_epoch=prerequisite_epoch+1
 		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND publisher_contract=$4
 		AND publisher_config_digest=$7 AND lease_until>$5
 		AND state IN ('claimed','git-committed')`, lease.IntentID, lease.Owner, lease.Epoch,
@@ -609,7 +624,8 @@ func (s *PostgresProtectedPublicationStore) bindProtectedWriteBase(ctx context.C
 		return ErrInvalid
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET write_base_revision=$6,
-		write_base_observed_at=$7,updated_at=$8 WHERE id=$1 AND lease_owner=$2
+		write_base_observed_at=$7,updated_at=$8,prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND lease_owner=$2
 		AND lease_epoch=$3 AND publisher_contract=$4 AND publisher_config_digest=$5
 		AND lease_until>$8 AND state='claimed' AND write_base_revision=''
 		AND created_at<=$7 AND updated_at<=$8`, lease.IntentID, lease.Owner, lease.Epoch,
@@ -656,7 +672,8 @@ func (s *PostgresProtectedPublicationStore) markProtectedCommitted(ctx context.C
 		return ErrInvalid
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET state='git-committed',
-		committed_revision=$6,committed_parent_revision=$7,committed_at=$8,updated_at=$8
+		committed_revision=$6,committed_parent_revision=$7,committed_at=$8,updated_at=$8,
+		prerequisite_epoch=prerequisite_epoch+1
 		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND publisher_contract=$4
 		AND publisher_config_digest=$5 AND lease_until>$8 AND state='claimed'
 		AND write_base_revision=$7 AND write_base_observed_at IS NOT NULL
@@ -710,7 +727,8 @@ func (s *PostgresProtectedPublicationStore) verifyProtected(ctx context.Context,
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET state='verified',verified_at=$8,
 		verified_path_digest=$7,provider_request=$6,completed_at=$8,lease_owner=NULL,
-		lease_until=NULL,updated_at=$8 WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3
+		lease_until=NULL,updated_at=$8,prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3
 		AND publisher_contract=$4 AND publisher_config_digest=$5 AND lease_until>$8
 		AND state='git-committed' AND committed_revision=$9 AND committed_at<=$8
 		AND content_digest=$7`, lease.IntentID, lease.Owner, lease.Epoch,
@@ -752,7 +770,8 @@ func (s *PostgresProtectedPublicationStore) retryProtected(ctx context.Context, 
 		consecutive_failures=LEAST(consecutive_failures+1,30),last_failure_code=$7,
 		lease_owner=CASE WHEN state='git-committed' THEN lease_owner ELSE NULL END,
 		lease_until=CASE WHEN state='git-committed' THEN $8+interval '1 microsecond' ELSE NULL END,
-		updated_at=$8 WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3
+		updated_at=$8,prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3
 		AND publisher_contract=$4 AND publisher_config_digest=$5 AND lease_until>$8
 		AND state IN ('claimed','git-committed')`, lease.IntentID, lease.Owner, lease.Epoch,
 		lease.Publisher.Contract, lease.Publisher.ConfigDigest, nextAttemptAt.UTC(), code, now.UTC())
@@ -788,7 +807,8 @@ func (s *PostgresProtectedPublicationStore) failProtected(ctx context.Context, t
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE `+table+` SET state='failed',
 		consecutive_failures=LEAST(consecutive_failures+1,30),last_failure_code=$6,
-		lease_owner=NULL,lease_until=NULL,completed_at=$7,updated_at=$7
+		lease_owner=NULL,lease_until=NULL,completed_at=$7,updated_at=$7,
+		prerequisite_epoch=prerequisite_epoch+1
 		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND publisher_contract=$4
 		AND publisher_config_digest=$5 AND lease_until>$7 AND state='claimed'`,
 		lease.IntentID, lease.Owner, lease.Epoch, lease.Publisher.Contract,

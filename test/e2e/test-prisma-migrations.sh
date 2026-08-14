@@ -106,7 +106,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'3\n102\n66\n71\n737\n10\n2'
+kp_expected_counts=$'4\n103\n68\n74\n746\n10\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -120,6 +120,89 @@ docker run --rm --network "${kp_network}" \
   --env DATABASE_URL="${kp_fresh_url}" \
   --entrypoint node \
   "${kp_image}" check-schema-drift.mjs >/dev/null
+
+# Exercise the ordered 003 -> 004 production upgrade, not only a fresh apply.
+# Prisma owns the history rows; psql supplies the already-released SQL exactly
+# as it existed before the new image starts.
+docker exec "${kp_postgres}" createdb --username postgres upgrade
+docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --set ON_ERROR_STOP=1 --command '
+  CREATE TABLE _prisma_migrations (
+    id varchar(36) PRIMARY KEY,
+    checksum varchar(64) NOT NULL,
+    finished_at timestamptz,
+    migration_name varchar(255) NOT NULL,
+    logs text,
+    rolled_back_at timestamptz,
+    started_at timestamptz NOT NULL DEFAULT now(),
+    applied_steps_count integer NOT NULL DEFAULT 0
+  );' >/dev/null
+kp_migration_index=0
+for kp_migration_name in \
+  001_initial \
+  002_team_access_grants \
+  003_repair_protected_desired_revisions; do
+  kp_migration_index=$((kp_migration_index + 1))
+  kp_migration_file="${kp_root}/migrations/prisma/migrations/${kp_migration_name}/migration.sql"
+  kp_container_file="/tmp/${kp_migration_name}.sql"
+  docker cp "${kp_migration_file}" "${kp_postgres}:${kp_container_file}"
+  docker exec "${kp_postgres}" psql --username postgres --dbname upgrade \
+    --set ON_ERROR_STOP=1 --single-transaction --file "${kp_container_file}" >/dev/null
+  if command -v sha256sum >/dev/null 2>&1; then
+    kp_migration_checksum="$(sha256sum "${kp_migration_file}" | awk '{print $1}')"
+  else
+    kp_migration_checksum="$(shasum -a 256 "${kp_migration_file}" | awk '{print $1}')"
+  fi
+  kp_migration_id="00000000-0000-0000-0000-$(printf '%012d' "${kp_migration_index}")"
+  docker exec "${kp_postgres}" psql --username postgres --dbname upgrade \
+    --set ON_ERROR_STOP=1 --command "
+      INSERT INTO _prisma_migrations(
+        id,checksum,finished_at,migration_name,started_at,applied_steps_count
+      ) VALUES(
+        '${kp_migration_id}','${kp_migration_checksum}',now(),
+        '${kp_migration_name}',now(),1
+      );" >/dev/null
+done
+kp_upgrade_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/upgrade?schema=public"
+docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" >/dev/null
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
+  "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" == "4" ]]
+
+# The 004 insertion fence must reject an old API/worker binary even after the
+# one-time legacy cleanup has completed. Probe the same trigger function with
+# the exact shared identity columns, then confirm both real table triggers exist.
+docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --set ON_ERROR_STOP=1 --command "
+  CREATE TEMP TABLE old_helm_writer_probe(
+    release_revision_id uuid, project_id uuid, environment_id uuid, application_id uuid,
+    platform_binding_id uuid, environment_binding_id uuid, cluster_id uuid,
+    environment_revision text, environment_generation bigint
+  );
+  CREATE TRIGGER old_helm_writer_probe_receipt
+    BEFORE INSERT ON old_helm_writer_probe
+    FOR EACH ROW EXECUTE FUNCTION require_helm_publication_prerequisite_receipt();
+  DO \$\$
+  BEGIN
+    BEGIN
+      INSERT INTO old_helm_writer_probe VALUES(
+        '10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002',
+        '10000000-0000-4000-8000-000000000003','10000000-0000-4000-8000-000000000004',
+        '10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000006',
+        '10000000-0000-4000-8000-000000000007','1111111111111111111111111111111111111111',1
+      );
+      RAISE EXCEPTION 'old Helm writer bypassed prerequisite receipt';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END
+  \$\$;
+  SELECT CASE WHEN count(*)=2 THEN 1 ELSE
+    CAST(current_setting('kuberploy.missing_helm_receipt_triggers') AS integer) END
+  FROM pg_trigger trigger
+  JOIN pg_class relation ON relation.oid=trigger.tgrelid
+  WHERE NOT trigger.tgisinternal
+    AND relation.relname IN ('helm_protected_payload_intents','helm_protected_application_intents')
+    AND trigger.tgname LIKE 'helm_protected_%_prerequisite_receipt';
+" >/dev/null
+kp_upgrade_second="$(docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" 2>&1)"
+grep -q 'No pending migrations to apply' <<<"${kp_upgrade_second}"
 
 # Personal projects have no team, while team-owned projects retain an exact
 # organization fence. Prove both legal rows and reject both substitutions at
@@ -190,4 +273,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh apply, declarative drift, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh and 003-to-004 apply, declarative drift, old-writer fencing, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

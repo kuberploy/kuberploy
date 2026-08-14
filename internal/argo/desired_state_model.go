@@ -145,7 +145,7 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 	if !uuidRE.MatchString(id) || target.Validate() != nil || now.IsZero() {
 		return DesiredStateCommand{}, ErrInvalid
 	}
-	content, err := RenderEnvironment(target.Environment, approval.Applications, approval.Deployments)
+	content, err := RenderEnvironment(target, approval.Applications, approval.Deployments)
 	if err != nil || len(content) > gitprojection.MaxDocumentBytes {
 		return DesiredStateCommand{}, ErrInvalid
 	}

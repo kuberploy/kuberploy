@@ -106,24 +106,34 @@ func chartRepoForArgo(runtime RuntimeLock) string {
 	return strings.TrimSuffix(runtime.ChartRepository, "/") + "/" + runtime.ChartName
 }
 
-func RenderAppProject(target EnvironmentTarget) ([]byte, error) {
+func RenderAppProject(target DesiredStateTarget) ([]byte, error) {
 	if err := target.Validate(); err != nil {
 		return nil, err
 	}
-	gitRemote, err := target.Binding.Repository.CanonicalRemote()
+	environment := target.Environment
+	gitRemote, err := environment.Binding.Repository.CanonicalRemote()
 	if err != nil {
 		return nil, err
 	}
-	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: target.Environment.ArgoProject, Namespace: target.ArgoNamespace, Labels: baseLabels(target),
-		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest, "kuberploy.io/renderer-image": target.Runtime.RendererImage}}}
-	manifest.Spec.SourceRepos = []string{gitRemote, chartRepoForArgo(target.Runtime)}
-	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": target.Environment.Namespace}}
+	platformRemote, err := target.PlatformBinding.Repository.CanonicalRemote()
+	if err != nil {
+		return nil, err
+	}
+	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: environment.Environment.ArgoProject, Namespace: environment.ArgoNamespace, Labels: baseLabels(environment),
+		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": environment.Binding.ID, "kuberploy.io/runtime-chart-digest": environment.Runtime.ChartDigest, "kuberploy.io/renderer-image": environment.Runtime.RendererImage}}}
+	manifest.Spec.SourceRepos = []string{gitRemote}
+	if platformRemote != gitRemote {
+		manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, platformRemote)
+	}
+	manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, chartRepoForArgo(environment.Runtime))
+	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": environment.Environment.Namespace}}
 	manifest.Spec.ClusterResourceWhitelist = []map[string]string{}
 	manifest.Spec.NamespaceResourceWhitelist = []map[string]string{
-		{"group": "", "kind": "ConfigMap"}, {"group": "", "kind": "Service"}, {"group": "", "kind": "ServiceAccount"},
-		{"group": "apps", "kind": "Deployment"}, {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
+		{"group": "", "kind": "ConfigMap"}, {"group": "", "kind": "PersistentVolumeClaim"}, {"group": "", "kind": "Service"}, {"group": "", "kind": "ServiceAccount"},
+		{"group": "apps", "kind": "Deployment"}, {"group": "apps", "kind": "StatefulSet"}, {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
+		{"group": "batch", "kind": "CronJob"}, {"group": "batch", "kind": "Job"},
 		{"group": "networking.k8s.io", "kind": "Ingress"}, {"group": "networking.k8s.io", "kind": "NetworkPolicy"},
-		{"group": "policy", "kind": "PodDisruptionBudget"}, {"group": "traefik.io", "kind": "Middleware"}, {"group": "cert-manager.io", "kind": "Certificate"},
+		{"group": "policy", "kind": "PodDisruptionBudget"}, {"group": "traefik.io", "kind": "Middleware"},
 	}
 	manifest.Spec.OrphanedResources = map[string]bool{"warn": true}
 	return yaml.Marshal(manifest)
@@ -246,12 +256,12 @@ func RenderApplicationSet(target EnvironmentTarget, applications []domain.Applic
 	return yaml.Marshal(manifest)
 }
 
-func RenderEnvironment(target EnvironmentTarget, applications []domain.Application, deployments []domain.Deployment) ([]byte, error) {
+func RenderEnvironment(target DesiredStateTarget, applications []domain.Application, deployments []domain.Deployment) ([]byte, error) {
 	project, err := RenderAppProject(target)
 	if err != nil {
 		return nil, err
 	}
-	set, err := RenderApplicationSet(target, applications, deployments)
+	set, err := RenderApplicationSet(target.Environment, applications, deployments)
 	if err != nil {
 		return nil, err
 	}

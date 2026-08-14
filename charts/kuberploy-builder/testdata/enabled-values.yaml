@@ -1,5 +1,5 @@
 enabled: true
-builderAgentImage: registry.example.test/kuberploy/builder-agent:0.1.0-rc.160
+builderAgentImage: registry.example.test/kuberploy/builder-agent:0.1.0-rc.161
 
 namespace:
   create: true

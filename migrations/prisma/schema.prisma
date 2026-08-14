@@ -1035,6 +1035,9 @@ model helm_protected_application_intents {
   created_at                DateTime  @db.Timestamptz(6)
   updated_at                DateTime  @db.Timestamptz(6)
   completed_at              DateTime? @db.Timestamptz(6)
+  prerequisite_receipt_id   String?   @db.Uuid
+  prerequisite_contract     String    @default("")
+  prerequisite_epoch        BigInt    @default(0)
 
   @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_in_environment_id_application_id_key")
   @@index([platform_binding_id, state, created_at], map: "helm_protected_application_intents_binding_idx")
@@ -1090,10 +1093,37 @@ model helm_protected_payload_intents {
   created_at                DateTime  @db.Timestamptz(6)
   updated_at                DateTime  @db.Timestamptz(6)
   completed_at              DateTime? @db.Timestamptz(6)
+  prerequisite_receipt_id   String?   @db.Uuid
+  prerequisite_contract     String    @default("")
+  prerequisite_epoch        BigInt    @default(0)
 
   @@unique([environment_id, application_id, release_generation], map: "helm_protected_payload_intent_environment_id_application_id_key")
   @@index([platform_binding_id, state, created_at], map: "helm_protected_payload_intents_binding_idx")
   @@index([next_attempt_at, created_at, id], map: "helm_protected_payload_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+}
+
+/// Immutable exact foundation and AppProject authority receipt for protected Helm Git publication.
+/// Native migration SQL owns current-authority validation and update/delete rejection.
+model helm_publication_prerequisite_receipts {
+  release_revision_id      String   @id @db.Uuid
+  project_id               String   @db.Uuid
+  environment_id           String   @db.Uuid
+  application_id           String   @db.Uuid
+  platform_binding_id      String   @db.Uuid
+  environment_binding_id   String   @db.Uuid
+  cluster_id               String   @db.Uuid
+  environment_revision     String
+  environment_generation   BigInt
+  foundation_intent_id     String   @db.Uuid
+  foundation_revision      String
+  desired_state_command_id String   @db.Uuid
+  desired_state_revision   String
+  planned_base_revision    String
+  created_at               DateTime @db.Timestamptz(6)
+
+  @@unique([release_revision_id, project_id, environment_id, application_id], map: "helm_publication_prerequisite_target_key")
+  @@unique([release_revision_id, platform_binding_id, environment_binding_id, environment_revision, environment_generation], map: "helm_publication_prerequisite_authority_key")
+  @@index([environment_id, environment_generation, release_revision_id], map: "helm_publication_prerequisite_environment_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

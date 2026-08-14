@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -28,6 +29,8 @@ const (
 	deploymentID  = "99999999-9999-4999-8999-999999999999"
 	bindingID     = "11111111-1111-4111-8111-111111111111"
 	operationID   = "55555555-5555-4555-8555-555555555555"
+	platformID    = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	clusterID     = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 )
 
 func targetFixture(t *testing.T) (argo.EnvironmentTarget, domain.Application) {
@@ -36,7 +39,9 @@ func targetFixture(t *testing.T) (argo.EnvironmentTarget, domain.Application) {
 	project := domain.Project{ID: projectID, Name: "Demo", Slug: "demo", CreatedAt: now}
 	namespace, argoProject := domain.DeriveEnvironmentDestination(project, "production")
 	environment := domain.Environment{ID: environmentID, ProjectID: projectID, Name: "Production", Slug: "production", Namespace: namespace, ArgoProject: argoProject, CreatedAt: now}
-	binding, err := gitprojection.NewEnvironmentBinding(bindingID, projectID, environmentID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "environments"}, "refs/heads/main", "kuberploy-git-writer", now)
+	binding, err := gitprojection.NewGitHubEnvironmentBinding(bindingID, projectID, environmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "environments"},
+		"refs/heads/main", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,6 +55,22 @@ func targetFixture(t *testing.T) (argo.EnvironmentTarget, domain.Application) {
 	target := argo.EnvironmentTarget{Project: project, Environment: environment, Binding: binding, ArgoNamespace: "argocd", Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime", ChartVersion: "1.2.3", ChartDigest: "sha256:" + strings.Repeat("b", 64), RendererImage: "ghcr.io/kuberploy/runtime-renderer@sha256:" + strings.Repeat("c", 64)}}
 	application := domain.Application{ID: applicationID, ProjectID: projectID, Name: "API", Slug: "api", CreatedAt: now}
 	return target, application
+}
+
+func desiredTargetFixture(t *testing.T) (argo.DesiredStateTarget, domain.Application) {
+	t.Helper()
+	environment, application := targetFixture(t)
+	now := time.Now().UTC()
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, clusterID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 9, RepositoryID: 10, Owner: "kuberploy", Name: "platform"},
+		"refs/heads/platform", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform.TargetHeadRevision = strings.Repeat("e", 40)
+	platform.TargetHeadObservedAt = now
+	platform.State, platform.UpdatedAt = gitprojection.BindingIndexing, now
+	return argo.DesiredStateTarget{Environment: environment, PlatformBinding: platform}, application
 }
 
 func decodeYAML(t *testing.T, body []byte) map[string]any {
@@ -66,7 +87,8 @@ func deploymentFixture() domain.Deployment {
 }
 
 func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T) {
-	target, application := targetFixture(t)
+	desiredTarget, application := desiredTargetFixture(t)
+	target := desiredTarget.Environment
 	deployment := deploymentFixture()
 	deployment.DesiredRevision = strings.Repeat("d", 40)
 	first, err := argo.RenderApplication(target, application, deployment)
@@ -140,15 +162,57 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 	if !ok || len(valuesSource) != 3 || valuesSource["repoURL"] != "https://github.com/kuberploy/environments.git" || valuesSource["targetRevision"] != deployment.DesiredRevision || valuesSource["ref"] != "values" || valuesSource["path"] != nil {
 		t.Fatalf("Git values source is not closed: %#v", sources[1])
 	}
-	project, err := argo.RenderAppProject(target)
+	project, err := argo.RenderAppProject(desiredTarget)
 	if err != nil {
 		t.Fatal(err)
+	}
+	projectDocument := decodeYAML(t, project)
+	projectSpec, ok := projectDocument["spec"].(map[string]any)
+	if !ok {
+		t.Fatalf("AppProject spec is missing: %#v", projectDocument)
+	}
+	whitelist, ok := projectSpec["namespaceResourceWhitelist"].([]any)
+	if !ok {
+		t.Fatalf("AppProject namespace whitelist is missing: %#v", projectSpec)
+	}
+	actualWhitelist := make([]string, 0, len(whitelist))
+	for _, entry := range whitelist {
+		resource, resourceOK := entry.(map[string]any)
+		group, groupOK := resource["group"].(string)
+		kind, kindOK := resource["kind"].(string)
+		if !resourceOK || !groupOK || !kindOK {
+			t.Fatalf("AppProject whitelist entry is malformed: %#v", entry)
+		}
+		actualWhitelist = append(actualWhitelist, group+"/"+kind)
+	}
+	expectedWhitelist := []string{
+		"/ConfigMap", "/PersistentVolumeClaim", "/Service", "/ServiceAccount",
+		"apps/Deployment", "apps/StatefulSet", "autoscaling/HorizontalPodAutoscaler",
+		"batch/CronJob", "batch/Job", "networking.k8s.io/Ingress",
+		"networking.k8s.io/NetworkPolicy", "policy/PodDisruptionBudget", "traefik.io/Middleware",
+	}
+	if !reflect.DeepEqual(actualWhitelist, expectedWhitelist) {
+		t.Fatalf("AppProject namespace whitelist is not the exact runtime/Helm union: got=%v want=%v", actualWhitelist, expectedWhitelist)
 	}
 	if strings.Contains(string(project), "kind: Secret\n") {
 		t.Fatal("AppProject permits tenant Secret materialization")
 	}
 	if !strings.Contains(string(project), "clusterResourceWhitelist: []") {
 		t.Fatalf("cluster resources were not denied:\n%s", project)
+	}
+	for _, required := range []string{
+		"https://github.com/kuberploy/environments.git",
+		"https://github.com/kuberploy/platform.git",
+		"kind: PersistentVolumeClaim", "kind: StatefulSet", "kind: Job", "kind: CronJob",
+	} {
+		if !strings.Contains(string(project), required) {
+			t.Fatalf("AppProject is missing exact Helm source/RBAC %q:\n%s", required, project)
+		}
+	}
+	for _, forbidden := range []string{"repoURL: '*'", "- '*'", "kind: '*'", "group: '*'"} {
+		if strings.Contains(string(project), forbidden) {
+			t.Fatalf("AppProject contains wildcard authority %q:\n%s", forbidden, project)
+		}
 	}
 	if !strings.Contains(string(project), "argocd.argoproj.io/sync-wave: \"-10\"") {
 		t.Fatal("AppProject does not follow foundation sync waves")
@@ -179,22 +243,22 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 }
 
 func TestEachEnvironmentOwnsOneDistinctAppProject(t *testing.T) {
-	first, _ := targetFixture(t)
+	first, _ := desiredTargetFixture(t)
 	now := time.Now().UTC()
 	second := first
-	second.Environment.ID = "88888888-8888-4888-8888-888888888888"
-	second.Environment.Name, second.Environment.Slug = "Staging", "staging"
-	second.Environment.Namespace, second.Environment.ArgoProject = domain.DeriveEnvironmentDestination(second.Project, second.Environment.Slug)
-	binding, err := gitprojection.NewEnvironmentBinding("77777777-7777-4777-8777-777777777777", projectID, second.Environment.ID,
+	second.Environment.Environment.ID = "88888888-8888-4888-8888-888888888888"
+	second.Environment.Environment.Name, second.Environment.Environment.Slug = "Staging", "staging"
+	second.Environment.Environment.Namespace, second.Environment.Environment.ArgoProject = domain.DeriveEnvironmentDestination(second.Environment.Project, second.Environment.Environment.Slug)
+	binding, err := gitprojection.NewGitHubEnvironmentBinding("77777777-7777-4777-8777-777777777777", projectID, second.Environment.Environment.ID,
 		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "environments"},
-		"refs/heads/main", "kuberploy-git-writer", now)
+		"refs/heads/main", now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	binding.TargetHeadRevision, binding.IndexedRevision = strings.Repeat("a", 40), strings.Repeat("a", 40)
 	binding.TargetHeadObservedAt, binding.IndexedAt, binding.UpdatedAt = now, now, now
 	binding.ProjectionGeneration, binding.State = 1, gitprojection.BindingReady
-	second.Binding = binding
+	second.Environment.Binding = binding
 	firstManifest, err := argo.RenderAppProject(first)
 	if err != nil {
 		t.Fatal(err)
@@ -205,8 +269,24 @@ func TestEachEnvironmentOwnsOneDistinctAppProject(t *testing.T) {
 	}
 	firstProject := decodeYAML(t, firstManifest)["metadata"].(map[string]any)["name"]
 	secondProject := decodeYAML(t, secondManifest)["metadata"].(map[string]any)["name"]
-	if firstProject == secondProject || firstProject != first.Environment.Namespace || secondProject != second.Environment.Namespace {
+	if firstProject == secondProject || firstProject != first.Environment.Environment.Namespace || secondProject != second.Environment.Environment.Namespace {
 		t.Fatalf("environment AppProjects overlap: first=%v second=%v", firstProject, secondProject)
+	}
+}
+
+func TestAppProjectDeduplicatesExactGitSource(t *testing.T) {
+	target, _ := desiredTargetFixture(t)
+	target.PlatformBinding.Repository = target.Environment.Binding.Repository
+	manifest, err := argo.RenderAppProject(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := target.Environment.Binding.Repository.CanonicalRemote()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(manifest), remote) != 1 {
+		t.Fatalf("same exact environment/platform Git source was not deduplicated:\n%s", manifest)
 	}
 }
 

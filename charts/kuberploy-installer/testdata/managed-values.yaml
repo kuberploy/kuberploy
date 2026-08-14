@@ -9,14 +9,14 @@ bootstrap:
 source:
   chartRepository: ghcr.io/kuberploy/charts
   valuesRepository: https://github.com/kuberploy/kuberploy.git
-  valuesRevision: "v0.1.0-rc.160"
+  valuesRevision: "v0.1.0-rc.161"
 
 components:
   postgresql:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.160
+    expectedPackageVersion: 0.1.0-rc.161
     valueFiles:
       - examples/installer/postgresql.yaml
 

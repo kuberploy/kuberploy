@@ -60,6 +60,8 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		installationEnvironmentID = "8b111111-1111-4111-8111-111111111111"
 		repositoryPlatformID      = "8c111111-1111-4111-8111-111111111111"
 		repositoryEnvironmentID   = "8d111111-1111-4111-8111-111111111111"
+		foundationEnvironmentID   = "8f111111-1111-4111-8111-111111111111"
+		foundationBindingID       = "80111111-1111-4111-8111-111111111111"
 	)
 	cleanup := func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -67,13 +69,13 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		for _, statement := range []string{
 			`DELETE FROM runtime_readiness WHERE runtime_kind='argo-desired-state' AND platform_binding_id='` + platformID + `'`,
 			`DELETE FROM argo_desired_state_commands WHERE platform_binding_id='` + platformID + `'`,
-			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,
-			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + platformID + `')`,
-			`DELETE FROM git_repository_bindings WHERE id IN ('` + bindingID + `','` + platformID + `')`,
+			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
+			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
+			`DELETE FROM git_repository_bindings WHERE id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
 			`DELETE FROM deployments WHERE id='` + deploymentID + `'`,
 			`DELETE FROM operations WHERE id='` + operationID + `'`,
 			`DELETE FROM applications WHERE id='` + applicationID + `'`,
-			`DELETE FROM environments WHERE id='` + environmentID + `'`,
+			`DELETE FROM environments WHERE id IN ('` + environmentID + `','` + foundationEnvironmentID + `')`,
 			`DELETE FROM projects WHERE id='` + projectID + `'`,
 			`DELETE FROM github_repositories WHERE id IN ('` + repositoryPlatformID + `','` + repositoryEnvironmentID + `')`,
 			`DELETE FROM github_installations WHERE id IN ('` + installationPlatformID + `','` + installationEnvironmentID + `')`,
@@ -196,20 +198,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	materializer.newID = func() string { return "8e111111-1111-4111-8111-111111111111" }
-	if _, err = pool.Exec(ctx, `DELETE FROM git_projected_documents WHERE binding_id=$1`, binding.ID); err != nil {
-		t.Fatal(err)
-	}
 	created, err := materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(time.Second))
-	if err != nil || created {
-		t.Fatalf("foundation-only environment materialized desired state: created=%v err=%v", created, err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
-		VALUES($1,1,$2,$3,$4,$5,$6,$7,$8,$9,true,$10,$11,$12,$13)`, binding.ID, document.Path, applicationID,
-		document.SourceRevision, document.ConfigRevision, document.BlobID, document.ContentSHA256, document.Raw, parsedJSON,
-		diagnosticsJSON, document.SchemaVersion, document.ParserVersion, document.IndexedAt); err != nil {
-		t.Fatal(err)
-	}
-	created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(time.Second))
 	if err != nil || !created {
 		t.Fatalf("created=%v err=%v", created, err)
 	}
@@ -220,8 +209,56 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(2*time.Second)); err != nil || created {
 		t.Fatalf("duplicate materialization created=%v err=%v", created, err)
 	}
+
+	// An environment foundation is useful before the environment owns any
+	// applications or deployments. Its ready, exact empty projection must still
+	// publish the environment-owned AppProject and empty ApplicationSet so Helm-
+	// only Applications never require a dummy Deployment to make their project.
+	foundationNamespace, foundationArgoProject := domain.DeriveEnvironmentDestination(project, "helm-only")
+	foundationEnvironment := domain.Environment{ID: foundationEnvironmentID, ProjectID: projectID, Name: "Helm only",
+		Slug: "helm-only", Namespace: foundationNamespace, ArgoProject: foundationArgoProject, CreatedAt: now}
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`, foundationEnvironment.ID, projectID, foundationEnvironment.Name,
+		foundationEnvironment.Slug, foundationEnvironment.Namespace, foundationEnvironment.ArgoProject, now); err != nil {
+		t.Fatal(err)
+	}
+	foundationBinding, err := gitprojection.NewGitHubEnvironmentBinding(foundationBindingID, projectID, foundationEnvironmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 502, RepositoryID: 602, Owner: "kuberploy", Name: "environment"},
+		"refs/heads/main", activatedAt.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundationRevision := strings.Repeat("5", 40)
+	foundationBinding.TargetHeadRevision, foundationBinding.IndexedRevision = foundationRevision, foundationRevision
+	foundationBinding.TargetHeadObservedAt, foundationBinding.IndexedAt = activatedAt.Add(2*time.Second), activatedAt.Add(2*time.Second)
+	foundationBinding.ProjectionGeneration, foundationBinding.State, foundationBinding.UpdatedAt = 1, gitprojection.BindingReady, activatedAt.Add(2*time.Second)
+	if err = projectionStore.PutBinding(ctx, foundationBinding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,1,$2,$3,'active',$4,$4)`, foundationBinding.ID, foundationRevision, foundationBinding.ParserVersion,
+		activatedAt.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	materializer.newID = func() string { return "8e333333-3333-4333-8333-333333333333" }
+	created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(3*time.Second))
+	if err != nil || !created {
+		t.Fatalf("foundation-only environment was not materialized: created=%v err=%v", created, err)
+	}
+	foundationStatus, err := argoStore.LatestDesiredState(ctx, projectID, foundationEnvironmentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundationCommand, err := argoStore.DesiredStateCommand(ctx, foundationStatus.CommandID)
+	if err != nil || foundationCommand.ArgoProject != foundationArgoProject ||
+		strings.Count(string(foundationCommand.Content), "\nkind: ") != 2 ||
+		!strings.Contains(string(foundationCommand.Content), "kind: AppProject") ||
+		!strings.Contains(string(foundationCommand.Content), "kind: ApplicationSet") ||
+		!strings.Contains(string(foundationCommand.Content), "elements: []") {
+		t.Fatalf("foundation-only desired state is not AppProject plus empty ApplicationSet: command=%#v err=%v", foundationCommand, err)
+	}
 	work, err := argoStore.ClaimDesiredState(ctx, "production-argo-worker", identity.DesiredStateWorkerIdentity,
-		activatedAt.Add(3*time.Second), minimumDesiredStateLease)
+		activatedAt.Add(4*time.Second), minimumDesiredStateLease)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,6 +346,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	rotatedMaterializer.newID = func() string { return "8e222222-2222-4222-8222-222222222222" }
+	registry.resolved = true
 	created, err = rotatedMaterializer.MaterializeDesiredStateOnce(ctx, receiptAt.Add(4*time.Second))
 	if err != nil || !created {
 		t.Fatalf("verified desired state did not rotate with runtime lock: created=%v err=%v", created, err)
@@ -321,20 +359,56 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatalf("duplicate runtime-lock rotation created=%v err=%v", created, err)
 	}
 
+	foundationWork, err := argoStore.ClaimDesiredState(ctx, "foundation-argo-worker", identity.DesiredStateWorkerIdentity,
+		receiptAt.Add(6*time.Second), minimumDesiredStateLease)
+	if err != nil || foundationWork.Command.EnvironmentID != foundationEnvironmentID {
+		t.Fatalf("foundation-only command was not independently claimable: work=%#v err=%v", foundationWork, err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, foundationWork.Command, DesiredStateClaimActive); err != nil {
+		t.Fatalf("foundation-only active claim rejected: %v", err)
+	}
+	foundationReceiptAt := receiptAt.Add(7 * time.Second)
+	foundationBound, err := argoStore.BindDesiredStateWriteBase(ctx, foundationWork.Lease,
+		platform.TargetHeadRevision, foundationReceiptAt, foundationReceiptAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, foundationBound, DesiredStateClaimRecovery); err != nil {
+		t.Fatalf("foundation-only durable recovery receipt rejected: %v", err)
+	}
+	foundationCommit := strings.Repeat("6", 40)
+	foundationCommitted, err := argoStore.MarkDesiredStateGitCommitted(ctx, *foundationBound.Lease,
+		foundationCommit, foundationReceiptAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, foundationCommitted, DesiredStateClaimRecovery); err != nil {
+		t.Fatalf("foundation-only Git-committed recovery rejected: %v", err)
+	}
+	if completed, completeErr := argoStore.CompleteDesiredStateVerified(ctx, *foundationCommitted.Lease,
+		foundationCommit, foundationReceiptAt.Add(2*time.Second)); completeErr != nil || completed.State != DesiredStateVerified {
+		t.Fatalf("foundation-only command not verifiable: command=%#v err=%v", completed, completeErr)
+	}
+
 	catalog, err := NewPostgreSQLRuntimeBindingCatalog(pool)
 	if err != nil {
 		t.Fatal(err)
 	}
 	authorities, err := catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now, time.Minute)
-	if err != nil || len(authorities) != 2 || !authorities[0].Authorized || authorities[0].RevocationRequired ||
-		!authorities[1].Authorized || authorities[1].RevocationRequired {
+	if err != nil || len(authorities) != 3 {
 		t.Fatalf("authorities=%#v err=%v", authorities, err)
+	}
+	for _, authority := range authorities {
+		if !authority.Authorized || authority.RevocationRequired {
+			t.Fatalf("ready binding was not authorized: %#v", authority)
+		}
 	}
 	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET lifecycle='removed',removed_at=$2,updated_at=$2 WHERE id=$1`, repositoryEnvironmentID, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now.Add(time.Second), 2*time.Minute)
-	if err != nil || len(authorities) != 2 || authorities[1].Authorized || !authorities[1].RevocationRequired {
+	if err != nil || len(authorities) != 3 || !authorities[0].Authorized || authorities[0].RevocationRequired ||
+		authorities[1].Authorized || !authorities[1].RevocationRequired || authorities[2].Authorized || !authorities[2].RevocationRequired {
 		t.Fatalf("removed repository was not retained for revocation: %#v err=%v", authorities, err)
 	}
 }

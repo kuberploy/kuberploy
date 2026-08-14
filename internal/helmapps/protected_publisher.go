@@ -73,11 +73,19 @@ func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (Protecte
 	}
 	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, true, leaseDuration, heartbeat, p.Now)
 	defer guard.Close()
+	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
+	if err != nil {
+		return intent, guard.Result(err)
+	}
+	if prerequisite.ValidateFor(intent.ReleaseRevisionID, intent.Target, intent.Binding) != nil {
+		return intent, guard.Result(ErrConflict)
+	}
 	work := protectedPublicationWork{
-		state:     func() ProtectedIntentState { return intent.State },
-		mutation:  func() (ProtectedMutation, error) { return intent.Mutation() },
-		writeBase: func() string { return intent.WriteBaseRevision },
-		committed: func() string { return intent.CommittedRevision },
+		state:         func() ProtectedIntentState { return intent.State },
+		mutation:      func() (ProtectedMutation, error) { return intent.Mutation() },
+		writeBase:     func() string { return intent.WriteBaseRevision },
+		committed:     func() string { return intent.CommittedRevision },
+		prerequisites: []string{prerequisite.FoundationRevision, prerequisite.DesiredStateRevision},
 		bind: func(current ProtectedIntentLease, revision string, observedAt, now time.Time) error {
 			var bindErr error
 			intent, bindErr = p.Store.BindPayloadWriteBase(ctx, current, revision, observedAt, now)
@@ -109,11 +117,19 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	}
 	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, false, leaseDuration, heartbeat, p.Now)
 	defer guard.Close()
+	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
+	if err != nil {
+		return intent, guard.Result(err)
+	}
+	if prerequisite.ValidateFor(intent.ReleaseRevisionID, intent.Target, intent.Binding) != nil {
+		return intent, guard.Result(ErrConflict)
+	}
 	work := protectedPublicationWork{
-		state:     func() ProtectedIntentState { return intent.State },
-		mutation:  func() (ProtectedMutation, error) { return intent.Mutation() },
-		writeBase: func() string { return intent.WriteBaseRevision },
-		committed: func() string { return intent.CommittedRevision },
+		state:         func() ProtectedIntentState { return intent.State },
+		mutation:      func() (ProtectedMutation, error) { return intent.Mutation() },
+		writeBase:     func() string { return intent.WriteBaseRevision },
+		committed:     func() string { return intent.CommittedRevision },
+		prerequisites: []string{prerequisite.FoundationRevision, prerequisite.DesiredStateRevision},
 		bind: func(current ProtectedIntentLease, revision string, observedAt, now time.Time) error {
 			var bindErr error
 			intent, bindErr = p.Store.BindApplicationWriteBase(ctx, current, revision, observedAt, now)
@@ -135,13 +151,14 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 }
 
 type protectedPublicationWork struct {
-	state     func() ProtectedIntentState
-	mutation  func() (ProtectedMutation, error)
-	writeBase func() string
-	committed func() string
-	bind      func(ProtectedIntentLease, string, time.Time, time.Time) error
-	mark      func(ProtectedIntentLease, string, string, time.Time) error
-	verify    func(ProtectedIntentLease, string, string, string, time.Time) error
+	state         func() ProtectedIntentState
+	mutation      func() (ProtectedMutation, error)
+	writeBase     func() string
+	committed     func() string
+	prerequisites []string
+	bind          func(ProtectedIntentLease, string, time.Time, time.Time) error
+	mark          func(ProtectedIntentLease, string, string, time.Time) error
+	verify        func(ProtectedIntentLease, string, string, string, time.Time) error
 }
 
 func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGuard, work protectedPublicationWork) error {
@@ -188,6 +205,14 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		if err = prepared.VerifyAncestor(ctx, protectedMutation.BaseRevision); err != nil {
 			return err
 		}
+		for _, revision := range work.prerequisites {
+			if !gitCommitRE.MatchString(revision) {
+				return ErrConflict
+			}
+			if err = prepared.VerifyAncestor(ctx, revision); err != nil {
+				return err
+			}
+		}
 		if protectedMutation.RequiredAncestor != "" {
 			if err = prepared.VerifyAncestor(ctx, protectedMutation.RequiredAncestor); err != nil {
 				return err
@@ -214,6 +239,14 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 	}
 	if err = prepared.VerifyAncestor(ctx, work.writeBase()); err != nil {
 		return err
+	}
+	for _, revision := range work.prerequisites {
+		if !gitCommitRE.MatchString(revision) {
+			return ErrConflict
+		}
+		if err = prepared.VerifyAncestor(ctx, revision); err != nil {
+			return err
+		}
 	}
 	if protectedMutation.RequiredAncestor != "" {
 		if err = prepared.VerifyAncestor(ctx, protectedMutation.RequiredAncestor); err != nil {

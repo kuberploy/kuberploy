@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Certificate, secret, registry, image-admission, Helm-readiness, OCI redirect, and Argo desired-state fences now fail closed while recovering safely from transient runtime state.",
+  "summary": "Helm-only environments now receive exact Argo project authority, protected Helm publication waits for immutable foundation and desired-state ancestry receipts, and transient edge readiness recovers safely.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.160"
+  "version": "0.1.0-rc.161"
 }
