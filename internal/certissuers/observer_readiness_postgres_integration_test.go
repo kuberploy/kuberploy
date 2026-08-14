@@ -31,7 +31,9 @@ func TestPostgresObserverReadinessFencesIdentityTargetsAndLeaseEpoch(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	// Deliberately retain sub-microsecond precision. PostgreSQL truncates it;
+	// the returned lease must still remain usable for the next heartbeat.
+	now := time.Now().UTC().Truncate(time.Microsecond).Add(321 * time.Nanosecond)
 	config := ObserverConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(), Namespace: "kuberploy-system",
 		ServiceAccount: "kuberploy-worker", PollInterval: 5 * time.Second, RequestTimeout: time.Second,
 		MaximumAge: 30 * time.Second, ReadinessLease: 30 * time.Second}
@@ -61,6 +63,9 @@ func TestPostgresObserverReadinessFencesIdentityTargetsAndLeaseEpoch(t *testing.
 	updated, err := store.HeartbeatObserverReadiness(ctx, lease, heartbeat, config.ReadinessLease)
 	if err != nil || updated.Epoch != lease.Epoch || updated.TargetDigest != targetB {
 		t.Fatalf("heartbeat=%#v err=%v", updated, err)
+	}
+	if updated.Until.Nanosecond()%int(time.Microsecond) != 0 {
+		t.Fatalf("returned lease did not adopt PostgreSQL timestamp precision: %s", updated.Until)
 	}
 	if err = store.ObserverRuntimeReady(ctx, identity, targetA, 1, now.Add(3*time.Second), config.MaximumAge); !errors.Is(err, ErrObservationUnavailable) {
 		t.Fatalf("old target identity remained ready: %v", err)

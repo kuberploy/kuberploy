@@ -37,6 +37,24 @@ func TestDistributionObserverAcceptsExactBuildxAttestation(t *testing.T) {
 	}
 }
 
+func TestDistributionObserverDeduplicatesExactBuildKitCacheBlobEdge(t *testing.T) {
+	const emptyDigest = "sha256:4f4fb700ef54461cfa02571ae0db9a0dc1e0cdb5577484a6d75e68dc38e8acc1"
+	body := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","digest":"` + emptyDigest + `","size":32},"layers":[{"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","digest":"` + emptyDigest + `","size":32}]}`)
+	sum := sha256.Sum256(body)
+	digest := "sha256:" + fmt.Sprintf("%x", sum[:])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", ociManifestMediaType)
+		w.Header().Set("Docker-Content-Digest", digest)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	observer := testDistributionObserver(t, testManagedTarget(server.URL), nil)
+	manifest, present, err := observer.fetchManifest(t.Context(), "kuberploy-qualification/cache", digest)
+	if err != nil || !present || len(manifest.blobs) != 1 || manifest.blobs[0].Digest != emptyDigest {
+		t.Fatalf("manifest=%+v present=%v err=%v", manifest, present, err)
+	}
+}
+
 func TestDistributionObserverRejectsUntrustedArtifactAndInlineData(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"artifact":    []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.example.unknown","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:70e84cdc49c9bc20fb1150d17e1aa76cb71be6b3a891900439352aeea5fe1bd2","size":2185},"config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[]}`),

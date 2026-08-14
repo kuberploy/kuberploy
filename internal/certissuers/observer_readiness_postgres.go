@@ -87,7 +87,12 @@ func (s *PostgresStore) HeartbeatObserverReadiness(ctx context.Context, lease Ob
 	if err != nil {
 		return ObserverReadinessLease{}, err
 	}
-	if returnedEpoch != updated.Epoch || !returnedUntil.Equal(updated.Until) {
+	// PostgreSQL timestamptz and pgx encode at microsecond precision. Keep the
+	// returned database value as the next CAS authority; comparing it against
+	// the caller's nanosecond value would report a false lease loss after the
+	// UPDATE already succeeded and strand the in-memory lease one heartbeat
+	// behind the durable row.
+	if returnedEpoch != updated.Epoch || !returnedUntil.Equal(updated.Until.Truncate(time.Microsecond)) {
 		return ObserverReadinessLease{}, ErrObserverLeaseLost
 	}
 	updated.Until = returnedUntil.UTC()

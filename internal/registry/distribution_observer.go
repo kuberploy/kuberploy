@@ -454,7 +454,24 @@ func (o *DistributionObserver) fetchManifest(ctx context.Context, repository, di
 			if !validBlobDescriptor(layer) {
 				return observedManifest{}, false, errRegistryObservation
 			}
-			manifest.blobs = append(manifest.blobs, layer)
+			duplicate := false
+			for _, existing := range manifest.blobs {
+				if existing.Digest != layer.Digest {
+					continue
+				}
+				if existing.Size != layer.Size || existing.MediaType != layer.MediaType {
+					return observedManifest{}, false, errRegistryObservation
+				}
+				duplicate = true
+				break
+			}
+			// BuildKit cache manifests can legally reuse the exact empty blob as
+			// both config and a layer. Catalog edges are set relationships, so emit
+			// one exact manifest/blob edge while retaining metadata conflicts as a
+			// fail-closed observation error.
+			if !duplicate {
+				manifest.blobs = append(manifest.blobs, layer)
+			}
 		}
 	default:
 		return observedManifest{}, false, errRegistryObservation

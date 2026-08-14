@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "PostgreSQL startup now tolerates bounded dependency readiness delays, and platform Git pruning preserves each AppProject until its generated applications and workloads are fully removed.",
+  "summary": "Certificate-issuer observer leases retain PostgreSQL timestamp authority across heartbeats, and managed registry inventory canonicalizes exact BuildKit cache blob relationships.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.157"
+  "version": "0.1.0-rc.158"
 }
