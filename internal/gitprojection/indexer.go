@@ -170,7 +170,7 @@ func (i Indexer) readDocuments(ctx context.Context, repository *PreparedReposito
 			for _, diagnostic := range appDiagnostics {
 				diagnostics = append(diagnostics, Diagnostic{Code: diagnostic.Code, Detail: diagnostic.Detail, Pointer: diagnostic.Pointer})
 			}
-			diagnostics = append(diagnostics, bindingDiagnostics(parsed, repository.Binding, parts[0])...)
+			diagnostics = append(diagnostics, AppConfigBindingDiagnostics(parsed, repository.Binding, parts[0])...)
 			document, documentErr = NewDocument(repository.Binding, generation.Number, parts[0], generation.HeadRevision, configRevision, fields[2], []byte(raw), parsed, diagnostics, now)
 		} else {
 			parsed, variableDiagnostics := variables.ParseAndValidate([]byte(raw))
@@ -188,7 +188,9 @@ func (i Indexer) readDocuments(ctx context.Context, repository *PreparedReposito
 	return documents, nil
 }
 
-func bindingDiagnostics(parsed map[string]any, binding Binding, applicationID string) []Diagnostic {
+// AppConfigBindingDiagnostics applies the server-owned identity fence shared
+// by indexing and every later revalidation of the exact indexed bytes.
+func AppConfigBindingDiagnostics(parsed map[string]any, binding Binding, applicationID string) []Diagnostic {
 	if parsed == nil {
 		return nil
 	}

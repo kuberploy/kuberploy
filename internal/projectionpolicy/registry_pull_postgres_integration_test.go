@@ -76,7 +76,7 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,$2,$3,$4,$5)`, []any{teamID, "Pull policy " + suffix, "pull-policy-" + suffix, userID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,$2,$3,$4,$5)`, []any{projectID, "Pull project " + suffix, "pull-project-" + suffix, teamID, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-			VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "production-" + suffix, namespace, "argo-" + suffix, now}},
+				VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "production-" + suffix, namespace, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "api-" + suffix, now}},
 		{`INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,pull_credential_ref,created_at,updated_at)
 			VALUES($1,$2,'external',$3,'tenant',$4,$5,$5)`, []any{targetID, "pull-target-" + suffix, "https://" + server, pullRef, now}},

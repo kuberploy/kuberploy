@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -181,10 +182,8 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 		}
 		return DesiredStateProjectionApproval{}, ErrConflict
 	}
-	for _, diagnostics := range validation.Diagnostics {
-		if len(diagnostics) != 0 {
-			return DesiredStateProjectionApproval{}, ErrConflict
-		}
+	if desiredStatePolicyValidationReady(validation) != nil {
+		return DesiredStateProjectionApproval{}, ErrConflict
 	}
 	applications, deployments, err := desiredStateResourcesTx(ctx, tx, project.ID, environment.ID, documents)
 	if err != nil {
@@ -198,6 +197,15 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 		IndexedRevision: binding.IndexedRevision, ProjectionGeneration: binding.ProjectionGeneration, CatalogDigest: digest,
 		Applications: applications, Deployments: deployments, AppConfigsValid: true, DependenciesValid: true,
 		SecretReferencesResolved: true, RegistryReferencesResolved: false}, nil
+}
+
+func desiredStatePolicyValidationReady(validation gitprojection.AppConfigPolicyValidation) error {
+	for _, diagnostics := range validation.Diagnostics {
+		if len(diagnostics) != 0 {
+			return ErrConflict
+		}
+	}
+	return nil
 }
 
 func desiredStatePolicyDocumentsTx(ctx context.Context, tx pgx.Tx, binding gitprojection.Binding) ([]gitprojection.Document, error) {
@@ -226,7 +234,8 @@ func desiredStatePolicyDocumentsTx(ctx context.Context, tx pgx.Tx, binding gitpr
 		if err = json.Unmarshal(diagnosticsJSON, &document.Diagnostics); err != nil || document.Diagnostics == nil {
 			return nil, ErrConflict
 		}
-		if document.Validate(binding) != nil || !document.Valid || document.SourceRevision != binding.IndexedRevision {
+		document, err = revalidateDesiredStatePolicyDocument(binding, document)
+		if err != nil {
 			return nil, ErrConflict
 		}
 		documents = append(documents, document)
@@ -235,6 +244,39 @@ func desiredStatePolicyDocumentsTx(ctx context.Context, tx pgx.Tx, binding gitpr
 		return nil, classifyPostgres(err)
 	}
 	return documents, nil
+}
+
+// revalidateDesiredStatePolicyDocument separates immutable schema validity
+// from dynamic policy observations. Projection activation persists both kinds
+// of diagnostics, but runtime observations may recover without another Git
+// revision. Reparse the exact indexed AppConfig bytes and let the current
+// transaction-aware policy below authoritatively re-evaluate every dynamic
+// reference. Dependency documents remain strict because their diagnostics are
+// compile-time desired-state failures, not recoverable runtime observations.
+func revalidateDesiredStatePolicyDocument(binding gitprojection.Binding, document gitprojection.Document) (gitprojection.Document, error) {
+	if document.Validate(binding) != nil || document.SourceRevision != binding.IndexedRevision {
+		return gitprojection.Document{}, ErrConflict
+	}
+	if document.ApplicationID == "" {
+		if !document.Valid {
+			return gitprojection.Document{}, ErrConflict
+		}
+		return document, nil
+	}
+	parsed, _, diagnostics := appconfig.ParseAndValidate(document.Raw)
+	if parsed == nil || len(diagnostics) != 0 {
+		return gitprojection.Document{}, ErrConflict
+	}
+	if len(gitprojection.AppConfigBindingDiagnostics(parsed, binding, document.ApplicationID)) != 0 {
+		return gitprojection.Document{}, ErrConflict
+	}
+	document.Parsed = parsed
+	document.Valid = true
+	document.Diagnostics = []gitprojection.Diagnostic{}
+	if document.Validate(binding) != nil {
+		return gitprojection.Document{}, ErrConflict
+	}
+	return document, nil
 }
 
 func desiredStateResourcesTx(ctx context.Context, tx pgx.Tx, projectID, environmentID string, documents []gitprojection.Document) ([]domain.Application, []domain.Deployment, error) {

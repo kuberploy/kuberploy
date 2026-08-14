@@ -28,6 +28,7 @@ type RuntimeConfig struct {
 	OCIRequestTimeout      time.Duration
 	OCIRegistryHosts       []string
 	OCIAuthHosts           []string
+	OCIRedirectHosts       []string
 	OCICredentialProfiles  []OCIRegistryCredentialProfile
 	PackageCacheBytes      int
 	Application            ProtectedApplicationRuntime
@@ -53,6 +54,7 @@ func (c RuntimeConfig) Validate() error {
 		c.Application.Validate() != nil || c.Publisher.Validate() != nil ||
 		validateOCIHostList(c.OCIRegistryHosts, true) != nil ||
 		validateOCIHostList(c.OCIAuthHosts, false) != nil ||
+		validateOCIHostList(c.OCIRedirectHosts, false) != nil ||
 		validateOCICredentialProfiles(c.OCICredentialProfiles, c.OCIRegistryHosts, c.OCIAuthHosts) != nil {
 		return ErrInvalid
 	}
@@ -87,6 +89,7 @@ func (c RuntimeConfig) IdentityDigest() (string, error) {
 		OCIRequestSeconds      int64                          `json:"ociRequestSeconds"`
 		OCIRegistryHosts       []string                       `json:"ociRegistryHosts"`
 		OCIAuthHosts           []string                       `json:"ociAuthHosts"`
+		OCIRedirectHosts       []string                       `json:"ociRedirectHosts"`
 		OCICredentialProfiles  []OCIRegistryCredentialProfile `json:"ociCredentialProfiles"`
 		PackageCacheBytes      int                            `json:"packageCacheBytes"`
 		Application            ProtectedApplicationRuntime    `json:"application"`
@@ -95,7 +98,8 @@ func (c RuntimeConfig) IdentityDigest() (string, error) {
 		c.Renderer.ServiceAccount, c.WorkPollInterval.Milliseconds(),
 		int64(c.RenderLeaseDuration.Seconds()), int64(c.PublishLeaseDuration.Seconds()), int64(c.ReadinessLeaseDuration.Seconds()),
 		int64(c.OCIRequestTimeout.Seconds()), append([]string(nil), c.OCIRegistryHosts...),
-		append([]string(nil), c.OCIAuthHosts...), append([]OCIRegistryCredentialProfile(nil), c.OCICredentialProfiles...),
+		append([]string(nil), c.OCIAuthHosts...), append([]string(nil), c.OCIRedirectHosts...),
+		append([]OCIRegistryCredentialProfile(nil), c.OCICredentialProfiles...),
 		c.PackageCacheBytes, c.Application, c.Publisher})
 }
 
@@ -123,6 +127,7 @@ func ProtectedPublisherIdentityForRuntime(baseGitProjection gitprojection.Runtim
 		OCIRequestSeconds      int64                          `json:"ociRequestSeconds"`
 		OCIRegistryHosts       []string                       `json:"ociRegistryHosts"`
 		OCIAuthHosts           []string                       `json:"ociAuthHosts"`
+		OCIRedirectHosts       []string                       `json:"ociRedirectHosts"`
 		OCICredentialProfiles  []OCIRegistryCredentialProfile `json:"ociCredentialProfiles"`
 		PackageCacheBytes      int                            `json:"packageCacheBytes"`
 		Application            ProtectedApplicationRuntime    `json:"application"`
@@ -131,7 +136,8 @@ func ProtectedPublisherIdentityForRuntime(baseGitProjection gitprojection.Runtim
 		config.WorkPollInterval.Milliseconds(), int64(config.RenderLeaseDuration.Seconds()),
 		int64(config.PublishLeaseDuration.Seconds()), int64(config.ReadinessLeaseDuration.Seconds()),
 		int64(config.OCIRequestTimeout.Seconds()), append([]string(nil), config.OCIRegistryHosts...),
-		append([]string(nil), config.OCIAuthHosts...), append([]OCIRegistryCredentialProfile(nil), config.OCICredentialProfiles...),
+		append([]string(nil), config.OCIAuthHosts...), append([]string(nil), config.OCIRedirectHosts...),
+		append([]OCIRegistryCredentialProfile(nil), config.OCICredentialProfiles...),
 		config.PackageCacheBytes, config.Application})
 	if err != nil {
 		return ProtectedPublisherIdentity{}, err
@@ -266,7 +272,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	client.Timeout = config.OCIRequestTimeout
 	packages := &CachedChartPackageSource{Upstream: OCIHTTPPackageSource{Client: &client,
 		AllowedRegistryHosts: append([]string(nil), config.OCIRegistryHosts...),
-		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...), Credentials: dependencies.Credentials},
+		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...),
+		AllowedRedirectHosts: append([]string(nil), config.OCIRedirectHosts...), Credentials: dependencies.Credentials},
 		MaxBytes: config.PackageCacheBytes}
 	worker := Worker{Store: store, Packages: packages,
 		Renderer:      KubernetesRenderExecutor{API: dependencies.RendererAPI, Config: config.Renderer},

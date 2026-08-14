@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
@@ -105,6 +106,25 @@ func decodeRoutePolicyDocument(spec map[string]any) ([]AppConfigRouteDocument, [
 		return nil, nil, nil, nil, gitprojection.ErrInvalid
 	}
 	return routes, middlewareNames, secretReferences, definitions, nil
+}
+
+// AppConfigCertificateReferences returns every typed custom-certificate use
+// from one already parsed AppConfig. The same closed route decoder used by the
+// projection worker prevents API admission from accepting a wider shape.
+func AppConfigCertificateReferences(parsed map[string]any) ([]certificates.ReferenceSelection, error) {
+	selections, err := appconfig.CertificateReferences(parsed)
+	if err != nil {
+		return nil, gitprojection.ErrInvalid
+	}
+	result := make([]certificates.ReferenceSelection, 0, len(selections))
+	for _, selection := range selections {
+		reference := certificates.Reference{BindingID: selection.BindingID, Name: selection.Name, Version: selection.Version}
+		if reference.Validate() != nil {
+			return nil, gitprojection.ErrInvalid
+		}
+		result = append(result, certificates.ReferenceSelection{Host: selection.Host, Reference: reference})
+	}
+	return result, nil
 }
 
 func decodeRoute(value map[string]any) (AppConfigRouteDocument, error) {

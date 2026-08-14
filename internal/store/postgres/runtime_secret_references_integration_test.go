@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -49,7 +48,7 @@ func (referenceIntegrationSealer) DeleteStrictSealedSecret(_ context.Context, ar
 	return secrets.DeleteObservation{Artifact: artifact, Absent: true, ObservedAt: time.Now().UTC()}, nil
 }
 
-func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *testing.T) {
+func TestPostgreSQLAPIAcceptancePreservesIndexedRuntimeSecretGuards(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
@@ -82,7 +81,7 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 			VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, []any{id.New(), actorID, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Store secret team',$2,$3,$4)`, []any{organizationID, "store-secret-team-" + suffix, actorID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Store secret project',$2,$3,$4)`, []any{projectID, "store-secret-project-" + suffix, organizationID, now}},
-		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "production-" + suffix, namespace, "kp-p-" + suffix, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "production-" + suffix, namespace, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "api-" + suffix, now}},
 	} {
 		if _, err = st.pool.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -192,10 +191,35 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 	if err != nil {
 		t.Fatal(err)
 	}
+	head := strings.Repeat("7", 40)
+	binding.State, binding.TargetHeadRevision, binding.IndexedRevision, binding.ProjectionGeneration = gitprojection.BindingReady, head, head, 1
+	binding.TargetHeadObservedAt, binding.IndexedAt, binding.UpdatedAt = now.Add(time.Second), now.Add(time.Second), now.Add(time.Second)
+	projectionStore, err := gitprojection.NewPostgreSQLStore(st.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = projectionStore.PutBinding(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
 	referenceID, err := gitprojection.ApplicationPath(binding, applicationID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	writePlan := &gitprojection.WritePlan{BindingID: binding.ID, ProjectID: projectID, EnvironmentID: environmentID,
+		ApplicationID: applicationID, BaseRevision: head, Precondition: gitprojection.MutationCreateIfAbsent,
+		ChartDigest: "sha256:" + strings.Repeat("6", 64), PolicyVersion: binding.ParserVersion}
+	workloadDigest, err := plan.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	create := domain.CreateDeployment{EnvironmentID: environmentID, ApplicationID: applicationID,
+		Image: "registry.example/runtime-secret@sha256:" + strings.Repeat("5", 64), Runtime: runtime}
+	initial, initialOperation, err := st.CreateDeployment(ctx, actorID, "secret-initial-create-0001", "secret-initial-create",
+		"secret-initial-create", create, writePlan, &base.AppConfigReferencePlan{RuntimeSecretDigest: workloadDigest})
+	if err != nil || initial.Replay || initialOperation.Status != "queued" {
+		t.Fatalf("initial create=%#v operation=%#v err=%v", initial, initialOperation, err)
+	}
+	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 0, 0)
 	tx, err := st.pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -207,117 +231,41 @@ func TestPostgreSQLNoReferencePlanAtomicallyRemovesOnlyExactGitCurrentGuards(t *
 	if err = tx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	retained := secrets.Reference{BindingID: active.Binding.ID, VersionID: active.Version.ID, Kind: secrets.ReferenceRetainedRelease,
-		Reference: "store-reference-retained", Revision: strings.Repeat("e", 40), CreatedAt: now.Add(3 * time.Second)}
-	retainedEvent := secrets.Event{ID: id.New(), BindingID: retained.BindingID, VersionID: retained.VersionID, ActorID: actorID,
-		Kind: secrets.EventReferenceAdded, RequestID: "store-reference-retained", OccurredAt: retained.CreatedAt}
-	if err = secretStore.AddReference(ctx, retained, retainedEvent); err != nil {
-		t.Fatal(err)
-	}
 
-	tx, err = st.pool.Begin(ctx)
+	// API acceptance is not Git activation. An ordinary candidate must preserve
+	// the previous indexed guard while queued, running, failed, or superseded.
+	ordinary := create
+	ordinary.Runtime = domain.DefaultWorkloadRuntime(8080, nil)
+	queued, queuedOperation, err := st.CreateDeployment(ctx, actorID, "secret-ordinary-queued-0001", "secret-ordinary-queued",
+		"secret-ordinary-queued", ordinary, writePlan)
+	if err != nil || queued.Replay || queuedOperation.Status != "queued" {
+		t.Fatalf("queued candidate=%#v operation=%#v err=%v", queued, queuedOperation, err)
+	}
+	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 1, 0)
+	runningOperation, execute, err := st.StartOperation(ctx, queuedOperation.ID, queuedOperation.Generation, "secret-guard-worker", time.Minute)
+	if err != nil || !execute || runningOperation.Status != "running" {
+		t.Fatalf("running operation=%#v execute=%t err=%v", runningOperation, execute, err)
+	}
+	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 1, 0)
+	if err = st.FailOperation(ctx, queuedOperation.ID, queuedOperation.Generation, "secret-guard-worker", "GitWriteFailed", "synthetic Git failure"); err != nil {
+		t.Fatal(err)
+	}
+	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 1, 0)
+	_, supersededOperation, err := st.CreateDeployment(ctx, actorID, "secret-superseded-old-0001", "secret-superseded-old",
+		"secret-superseded-old", ordinary, writePlan)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = removeRuntimeSecretReferencesTx(ctx, tx, actorID, binding, projectID, environmentID, applicationID,
-		[]byte("ordinary-appconfig"), "store-reference-remove", now.Add(4*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatal(err)
+	_, newestOperation, err := st.CreateDeployment(ctx, actorID, "secret-superseded-new-0001", "secret-superseded-new",
+		"secret-superseded-new", ordinary, writePlan)
+	if err != nil || newestOperation.Status != "queued" {
+		t.Fatalf("newest operation=%#v err=%v", newestOperation, err)
 	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
+	oldOperation, err := st.GetOperation(ctx, supersededOperation.ID)
+	if err != nil || oldOperation.Status != "superseded" {
+		t.Fatalf("superseded operation=%#v err=%v", oldOperation, err)
 	}
-	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 0, 1)
-
-	// Re-add and prove a caller rollback cannot leak the removal.
-	tx, err = st.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, actorID, referenceID, "sha256:"+strings.Repeat("f", 64), "store-reference-readd", now.Add(5*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatal(err)
-	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = st.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = removeRuntimeSecretReferencesTx(ctx, tx, actorID, binding, projectID, environmentID, applicationID,
-		[]byte("ordinary-appconfig-next"), "store-reference-rollback", now.Add(6*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatal(err)
-	}
-	if err = tx.Rollback(ctx); err != nil {
-		t.Fatal(err)
-	}
-	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 1, 1)
-
-	// A platform project with no organization is an unaffected proven-empty
-	// no-op, but a cross-scope/corrupt row at its exact path fails closed.
-	platformProjectID, platformEnvironmentID, platformApplicationID := id.New(), id.New(), id.New()
-	platformSuffix := strings.ReplaceAll(platformProjectID, "-", "")[:12]
-	for _, statement := range []struct {
-		query string
-		args  []any
-	}{
-		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Platform project',$2,$3)`, []any{platformProjectID, "platform-" + platformSuffix, now}},
-		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Platform',$3,$4,$5,$6)`, []any{platformEnvironmentID, platformProjectID, "platform-" + platformSuffix, "platform-" + platformSuffix, "kp-p-" + platformSuffix, now}},
-		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Platform API',$3,$4)`, []any{platformApplicationID, platformProjectID, "platform-api-" + platformSuffix, now}},
-	} {
-		if _, err = st.pool.Exec(ctx, statement.query, statement.args...); err != nil {
-			t.Fatal(err)
-		}
-	}
-	platformBinding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), platformProjectID, platformEnvironmentID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 33, RepositoryID: 44, Owner: "kuberploy", Name: "platform-state"},
-		"refs/heads/main", now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err = st.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = removeRuntimeSecretReferencesTx(ctx, tx, actorID, platformBinding, platformProjectID, platformEnvironmentID,
-		platformApplicationID, []byte("platform-ordinary"), "platform-reference-empty", now.Add(7*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatal(err)
-	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	platformPath, err := gitprojection.ApplicationPath(platformBinding, platformApplicationID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err = st.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, actorID, platformPath, "sha256:"+strings.Repeat("1", 64), "platform-reference-corrupt", now.Add(8*time.Second)); err != nil {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatal(err)
-	}
-	if err = tx.Commit(ctx); err != nil {
-		t.Fatal(err)
-	}
-	tx, err = st.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = removeRuntimeSecretReferencesTx(ctx, tx, actorID, platformBinding, platformProjectID, platformEnvironmentID,
-		platformApplicationID, []byte("platform-ordinary"), "platform-reference-corrupt-remove", now.Add(9*time.Second)); !errors.Is(err, base.ErrPreconditionFailed) {
-		tx.Rollback(ctx) //nolint:errcheck
-		t.Fatalf("cross-scope platform cleanup error=%v", err)
-	}
-	tx.Rollback(ctx) //nolint:errcheck
-	var corruptCount int
-	if err = st.pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references WHERE kind='git-current' AND reference_id=$1`, platformPath).Scan(&corruptCount); err != nil || corruptCount != 1 {
-		t.Fatalf("cross-scope guard count=%d err=%v", corruptCount, err)
-	}
+	assertStoreReferenceCounts(t, st, active.Binding.ID, referenceID, 1, 0)
 }
 
 func assertStoreReferenceCounts(t *testing.T, st *Store, bindingID, referenceID string, gitCurrent, retained int) {

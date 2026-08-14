@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
+	"github.com/kuberploy/kuberploy/internal/secrets"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
@@ -57,6 +59,12 @@ type projectionHTTPReadiness struct{ err error }
 func (p *projectionHTTPReadiness) Probe(context.Context) error { return p.err }
 
 func newProjectionAPI(t *testing.T, backend *projectionHTTPBackend, readiness *projectionHTTPReadiness, argoReadiness ...*projectionHTTPReadiness) *apiFixture {
+	return newProjectionAPIWithCertificates(t, backend, readiness, nil, argoReadiness...)
+}
+
+func newProjectionAPIWithCertificates(t *testing.T, backend *projectionHTTPBackend, readiness *projectionHTTPReadiness,
+	certificateReferences httpapi.CertificateReferenceBackend, argoReadiness ...*projectionHTTPReadiness,
+) *apiFixture {
 	t.Helper()
 	argo := &projectionHTTPReadiness{}
 	if len(argoReadiness) == 1 && argoReadiness[0] != nil {
@@ -64,11 +72,36 @@ func newProjectionAPI(t *testing.T, backend *projectionHTTPBackend, readiness *p
 	}
 	st := memory.New()
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "test",
-		GitProjection: backend, GitProjectionReadiness: readiness, ArgoReadiness: argo, AppConfigRenderedPreviews: staticAppConfigRenderer{}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+		GitProjection: backend, GitProjectionReadiness: readiness, ArgoReadiness: argo, CertificateReferences: certificateReferences,
+		AppConfigRenderedPreviews: staticAppConfigRenderer{}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
 	jar, _ := cookiejar.New(nil)
 	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)
 	return f
+}
+
+type certificateReferenceHTTPBackend struct {
+	err   error
+	calls int
+}
+
+func (b *certificateReferenceHTTPBackend) ResolveCertificateReferences(
+	_ context.Context, scope secrets.Scope, selections []certificates.ReferenceSelection, now time.Time,
+) (certificates.ReferencePlan, error) {
+	b.calls++
+	if b.err != nil {
+		return certificates.ReferencePlan{}, b.err
+	}
+	uses := make([]certificates.ResolvedSelection, 0, len(selections))
+	for _, selection := range selections {
+		uses = append(uses, certificates.ResolvedSelection{Host: selection.Host, Reference: selection.Reference,
+			Resolved: certificates.ResolvedReference{BindingID: selection.Reference.BindingID,
+				SecretVersionID: "88888888-8888-4888-8888-888888888888", Name: selection.Reference.Name,
+				Version: selection.Reference.Version, Namespace: scope.Namespace, TargetSecretName: "kp-public-edge-v1-0123456789",
+				LeafFingerprint: "sha256:" + strings.Repeat("1", 64), PublicKeyFingerprint: "sha256:" + strings.Repeat("2", 64),
+				NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour)}})
+	}
+	return certificates.ReferencePlan{Scope: scope, Uses: uses}, nil
 }
 
 func projectedHTTPBinding(t *testing.T, projectID, environmentID string, now time.Time) gitprojection.Binding {
@@ -274,6 +307,120 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale optional Git projection removed API readiness: status=%d", r.StatusCode)
 	}
 	r.Body.Close()
+}
+
+func TestCustomCertificatePreviewAndSaveRevalidateExactReference(t *testing.T) {
+	backend := &projectionHTTPBackend{}
+	certificateBackend := &certificateReferenceHTTPBackend{err: certificates.ErrHostMismatch}
+	fixture := newProjectionAPIWithCertificates(t, backend, &projectionHTTPReadiness{}, certificateBackend)
+	admin := fixture.bootstrap()
+	project, err := fixture.store.CreateProject(t.Context(), admin.ID, "certificate-reference-project", "certificate-reference-project",
+		domain.CreateProject{Name: "Certificate reference", Slug: "certificate-reference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := fixture.store.CreateEnvironment(t.Context(), admin.ID, "certificate-reference-environment", "certificate-reference-environment",
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := fixture.store.CreateApplication(t.Context(), admin.ID, "certificate-reference-application", "certificate-reference-application",
+		domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := projectedHTTPBinding(t, project.Value.ID, environment.Value.ID, time.Now().UTC().Add(-time.Minute))
+	if err = fixture.store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	chartDigest := "sha256:" + strings.Repeat("d", 64)
+	backend.plan = gitprojection.WritePlan{BindingID: binding.ID, ProjectID: project.Value.ID, EnvironmentID: environment.Value.ID,
+		ApplicationID: application.Value.ID, BaseRevision: binding.IndexedRevision, Precondition: gitprojection.MutationCreateIfAbsent,
+		ChartDigest: chartDigest, PolicyVersion: "appconfig-v1alpha1"}
+	response := fixture.request(http.MethodPost, "/v1/deployments", "certificate-reference-deployment", map[string]any{
+		"environmentId": environment.Value.ID, "applicationId": application.Value.ID,
+		"image": "registry.example/api@sha256:" + strings.Repeat("a", 64), "runtime": domain.DefaultWorkloadRuntime(8080, nil),
+	})
+	operation := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("deployment status=%d operation=%#v", response.StatusCode, operation)
+	}
+	snapshot, err := fixture.store.GetDeploymentForOperation(t.Context(), operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := gitprojection.NewDocument(binding, 1, application.Value.ID, binding.IndexedRevision, binding.IndexedRevision,
+		strings.Repeat("e", 40), snapshot.ConfigRaw, nil, nil, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = fixture.store.PutProjectionDocument(t.Context(), document); err != nil {
+		t.Fatal(err)
+	}
+	etag, err := gitprojection.StrongETag(binding, []gitprojection.Document{document}, nil, chartDigest, "appconfig-v1alpha1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend.bundle = gitprojection.Bundle{BindingID: binding.ID, TargetRef: binding.TargetRef, TargetHeadRevision: binding.TargetHeadRevision,
+		IndexedRevision: binding.IndexedRevision, ConfigRevision: document.ConfigRevision, ETag: etag,
+		Documents: []gitprojection.Document{document}, Dependencies: []gitprojection.DependencyState{
+			{Path: "tenants/" + binding.ProjectID + "/variables.yaml"},
+			{Path: binding.Prefix + "/variables.yaml"},
+		}, IndexedAt: binding.IndexedAt}
+	backend.plan.Precondition, backend.plan.ExpectedETag = gitprojection.MutationMatchETag, etag
+
+	change := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "add", Path: "/spec/routes", Value: []any{map[string]any{
+		"id": "public", "host": "api.example.test", "path": "/", "port": "http", "dns": map[string]any{"mode": "manual"},
+		"tls": map[string]any{"mode": "customCertificate", "secretRef": map[string]any{
+			"bindingId": "77777777-7777-4777-8777-777777777777", "name": "public-edge", "version": 1,
+		}},
+	}}}}}
+	path := "/v1/deployments/" + operation.TargetID + "/config"
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": etag})
+	if response.StatusCode != http.StatusUnprocessableEntity {
+		problem := decode[httpapi.Problem](t, response)
+		t.Fatalf("SAN mismatch preview status=%d problem=%#v", response.StatusCode, problem)
+	}
+	mismatch := decode[validationWire](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || mismatch.Valid ||
+		!hasConfigDiagnostic(mismatch.Diagnostics, "CustomCertificateHostMismatch", "/spec/routes") {
+		t.Fatalf("SAN mismatch preview accepted status=%d body=%#v", response.StatusCode, mismatch)
+	}
+	if backend.planCallCount != 1 {
+		t.Fatalf("SAN mismatch reached Git planning: calls=%d", backend.planCallCount)
+	}
+
+	certificateBackend.err = nil
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": etag})
+	preview := decode[previewWire](t, response)
+	if response.StatusCode != http.StatusOK || preview.PreviewToken == "" {
+		t.Fatalf("ready certificate preview status=%d body=%#v", response.StatusCode, preview)
+	}
+	if backend.planCallCount != 2 {
+		t.Fatalf("ready preview did not reach one exact Git plan: calls=%d", backend.planCallCount)
+	}
+
+	certificateBackend.err = certificates.ErrNotReady
+	response = configRequest(t, fixture, http.MethodPut, path, "certificate-reference-stale-save", change,
+		map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
+	stale := decode[validationWire](t, response)
+	if response.StatusCode != http.StatusUnprocessableEntity || stale.Valid ||
+		!hasConfigDiagnostic(stale.Diagnostics, "CustomCertificateNotReady", "/spec/routes") {
+		t.Fatalf("certificate changed after preview was accepted status=%d body=%#v", response.StatusCode, stale)
+	}
+	if backend.planCallCount != 2 || certificateBackend.calls != 3 {
+		t.Fatalf("stale save crossed Git boundary: planCalls=%d certificateCalls=%d", backend.planCallCount, certificateBackend.calls)
+	}
+	unchanged, err := fixture.store.GetDeploymentConfigForActor(t.Context(), admin.ID, operation.TargetID)
+	if err != nil || unchanged.ETag == "" || !strings.Contains(string(unchanged.RawYAML), "replicas") || strings.Contains(string(unchanged.RawYAML), "customCertificate") {
+		t.Fatalf("rejected stale save changed durable config: etag=%q err=%v", unchanged.ETag, err)
+	}
+	certificateBackend.err = certificates.ErrObservationUnavailable
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": etag})
+	unavailable := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusServiceUnavailable || unavailable.Code != "CertificateReferenceRuntimeUnavailable" || !unavailable.Retryable {
+		t.Fatalf("certificate observation outage was not retryable 503: status=%d problem=%#v", response.StatusCode, unavailable)
+	}
 }
 
 func TestArgoCapabilityRequiresBothGitAndProductionReadiness(t *testing.T) {

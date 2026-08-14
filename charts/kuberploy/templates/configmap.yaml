@@ -528,11 +528,11 @@
 {{- if and .Values.config.autoDeploy.enabled (or (not .Values.config.githubApp.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled)) -}}
 {{- fail "auto-deploy requires source builds, Git projection, protected Argo desired state, and environment foundations" -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.helmApplications))) "enabled,ociAuthHosts,ociCredentialProfiles,ociRegistryHosts,ociRequestSeconds,packageCacheBytes,publishLeaseSeconds,readinessLeaseSeconds,renderLeaseSeconds,rendererNamespace,rendererPollMilliseconds,workPollMilliseconds" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.helmApplications))) "enabled,ociAuthHosts,ociCredentialProfiles,ociRedirectHosts,ociRegistryHosts,ociRequestSeconds,packageCacheBytes,publishLeaseSeconds,readinessLeaseSeconds,renderLeaseSeconds,rendererNamespace,rendererPollMilliseconds,workPollMilliseconds" -}}
 {{- fail "config.helmApplications accepts only the closed production runtime contract" -}}
 {{- end -}}
 {{- if not .Values.config.helmApplications.enabled -}}
-  {{- if or .Values.config.helmApplications.rendererNamespace (not (empty .Values.config.helmApplications.ociRegistryHosts)) (not (empty .Values.config.helmApplications.ociAuthHosts)) (not (empty .Values.config.helmApplications.ociCredentialProfiles)) (ne (int64 .Values.config.helmApplications.rendererPollMilliseconds) 250) (ne (int64 .Values.config.helmApplications.workPollMilliseconds) 1000) (ne (int64 .Values.config.helmApplications.renderLeaseSeconds) 60) (ne (int64 .Values.config.helmApplications.publishLeaseSeconds) 90) (ne (int64 .Values.config.helmApplications.readinessLeaseSeconds) 30) (ne (int64 .Values.config.helmApplications.ociRequestSeconds) 15) (ne (int64 .Values.config.helmApplications.packageCacheBytes) 67108864) -}}
+  {{- if or .Values.config.helmApplications.rendererNamespace (not (empty .Values.config.helmApplications.ociRegistryHosts)) (not (empty .Values.config.helmApplications.ociAuthHosts)) (not (empty .Values.config.helmApplications.ociRedirectHosts)) (not (empty .Values.config.helmApplications.ociCredentialProfiles)) (ne (int64 .Values.config.helmApplications.rendererPollMilliseconds) 250) (ne (int64 .Values.config.helmApplications.workPollMilliseconds) 1000) (ne (int64 .Values.config.helmApplications.renderLeaseSeconds) 60) (ne (int64 .Values.config.helmApplications.publishLeaseSeconds) 90) (ne (int64 .Values.config.helmApplications.readinessLeaseSeconds) 30) (ne (int64 .Values.config.helmApplications.ociRequestSeconds) 15) (ne (int64 .Values.config.helmApplications.packageCacheBytes) 67108864) -}}
   {{- fail "disabled approved Helm applications reject dormant identity, hosts, timing, and cache settings" -}}
   {{- end -}}
 {{- end -}}
@@ -549,7 +549,7 @@
   {{- if empty .Values.config.helmApplications.ociRegistryHosts -}}
   {{- fail "approved Helm applications require at least one exact OCI registry host" -}}
   {{- end -}}
-  {{- range $hosts := list .Values.config.helmApplications.ociRegistryHosts .Values.config.helmApplications.ociAuthHosts -}}
+  {{- range $hosts := list .Values.config.helmApplications.ociRegistryHosts .Values.config.helmApplications.ociAuthHosts .Values.config.helmApplications.ociRedirectHosts -}}
     {{- if or (ne (join "," $hosts) (join "," (sortAlpha $hosts))) (ne (len $hosts) (len (uniq $hosts))) -}}
     {{- fail "approved Helm OCI registry and auth hosts must be sorted and unique" -}}
     {{- end -}}
@@ -774,6 +774,13 @@ data:
   KUBERPLOY_HELM_OCI_REGISTRY_HOSTS: {{ join "," .Values.config.helmApplications.ociRegistryHosts | quote }}
   {{- if .Values.config.helmApplications.ociAuthHosts }}
   KUBERPLOY_HELM_OCI_AUTH_HOSTS: {{ join "," .Values.config.helmApplications.ociAuthHosts | quote }}
+  {{- end }}
+  {{- $ociRedirectHosts := .Values.config.helmApplications.ociRedirectHosts -}}
+  {{- if has "ghcr.io" .Values.config.helmApplications.ociRegistryHosts -}}
+    {{- $ociRedirectHosts = uniq (sortAlpha (append $ociRedirectHosts "pkg-containers.githubusercontent.com")) -}}
+  {{- end }}
+  {{- if $ociRedirectHosts }}
+  KUBERPLOY_HELM_OCI_REDIRECT_HOSTS: {{ join "," $ociRedirectHosts | quote }}
   {{- end }}
   {{- if .Values.config.helmApplications.ociCredentialProfiles }}
   {{- $runtimeCredentialProfiles := list -}}

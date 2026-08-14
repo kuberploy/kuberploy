@@ -321,6 +321,7 @@ func run() error {
 	var runtimeSecretReadiness httpapi.ReadinessProbe
 	var certificateBackend httpapi.CertificateManagementBackend
 	var certificateReadiness httpapi.ReadinessProbe
+	var certificateReferences httpapi.CertificateReferenceBackend
 	var helmApplicationBackend httpapi.HelmApplicationBackend
 	var helmApprovalBackend httpapi.HelmApprovalAdmissionBackend
 	var helmPreviewBackend httpapi.HelmRenderedManifestPreviewBackend
@@ -346,7 +347,10 @@ func run() error {
 		runtimeSecretBackend, runtimeSecretReadiness = runtimeSecrets.backend, runtimeSecrets.readiness
 	}
 	if certificateRuntime != nil {
-		certificateBackend, certificateReadiness = certificateRuntime.backend, certificateRuntime.readiness
+		certificateBackend, certificateReadiness, certificateReferences = certificateRuntime.backend, certificateRuntime.readiness, certificateRuntime.resolver
+		if err = db.ConfigureCertificateReferences(certificateRuntime.resolver); err != nil {
+			return err
+		}
 	}
 	if helmApplications != nil {
 		helmApplicationBackend = helmApplications.runtime
@@ -390,7 +394,7 @@ func run() error {
 		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
 		GitProjection: gitProjectionBackend, GitProjectionReadiness: gitProjectionReadiness, ArgoReadiness: argoReadiness,
 		RuntimeSecrets: runtimeSecretBackend, RuntimeSecretReadiness: runtimeSecretReadiness,
-		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, CertificateIssuers: certificateIssuerCatalog,
+		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, CertificateReferences: certificateReferences, CertificateIssuers: certificateIssuerCatalog,
 		CertificateIssuerAdmin: certificateIssuerAdmin, CertificateIssuerRuntimeReadiness: certificateIssuerReadiness,
 		RegistryPullReadiness: runtimeRegistryPullReadiness(runtimeRegistryPulls), RegistryPulls: db, RegistryPullConfig: runtimeRegistryPullConfig,
 		ImageResolution: imageResolution,

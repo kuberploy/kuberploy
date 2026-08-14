@@ -233,6 +233,13 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_HELM_OCI_AUTH_HOSTS
             {{- end }}
+            {{- if or $.Values.config.helmApplications.ociRedirectHosts (has "ghcr.io" $.Values.config.helmApplications.ociRegistryHosts) }}
+            - name: KUBERPLOY_HELM_OCI_REDIRECT_HOSTS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_HELM_OCI_REDIRECT_HOSTS
+            {{- end }}
             {{- if $.Values.config.helmApplications.ociCredentialProfiles }}
             - name: KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON
               valueFrom:

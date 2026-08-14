@@ -166,26 +166,92 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 		t.Fatal(err)
 	}
 	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, custom, now)
+	if err == nil && len(diagnostics) == 0 {
+		err = policy.ReconcileCurrentTx(ctx, tx, custom, now)
+	}
 	_ = tx.Rollback(ctx)
 	if err != nil || !diagnosticCodesContain(diagnostics, "CustomCertificateBindingUnavailable") {
 		t.Fatalf("unwired custom certificate accepted diagnostics=%#v err=%v", diagnostics, err)
 	}
-	policy.Certificates = fakeCertificateReferenceResolver{result: certificates.ResolvedReference{
+	certificateResolver := &fakeCertificateReferenceResolver{result: certificates.ResolvedReference{
 		BindingID: "77777777-7777-4777-8777-777777777777", SecretVersionID: "88888888-8888-4888-8888-888888888888",
 		Name: "tenant-secret", Version: 7, Namespace: custom.Scope().Namespace, TargetSecretName: "kp-tenant-secret-v7-0123456789",
 		LeafFingerprint: "sha256:" + strings.Repeat("1", 64), PublicKeyFingerprint: "sha256:" + strings.Repeat("2", 64),
 		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour),
 	}}
+	policy.Certificates = certificateResolver
 	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal(err)
 	}
 	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, custom, now)
+	if err == nil && len(diagnostics) == 0 {
+		err = policy.ReconcileCurrentTx(ctx, tx, custom, now)
+	}
 	_ = tx.Rollback(ctx)
 	if err != nil || len(diagnostics) != 0 {
 		t.Fatalf("ready typed certificate rejected diagnostics=%#v err=%v", diagnostics, err)
 	}
-	policy.Certificates = fakeCertificateReferenceResolver{err: certificates.ErrHostMismatch}
+	if certificateResolver.reconcileDigest != "" || certificateResolver.reconcileReference != custom.Scope().Path ||
+		certificateResolver.reconcileRevision != custom.Scope().SourceRevision || len(certificateResolver.reconciled) != 1 {
+		t.Fatalf("direct-Git certificate guard was not reconciled from authoritative bytes: %#v", certificateResolver)
+	}
+	personal := custom
+	personal.scope.OrganizationID = ""
+	certificateResolver.reconciled = nil
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, personal, now)
+	if err == nil && len(diagnostics) == 0 {
+		err = policy.ReconcileCurrentTx(ctx, tx, personal, now)
+	}
+	_ = tx.Rollback(ctx)
+	if err != nil || len(diagnostics) != 0 || len(certificateResolver.reconciled) != 1 {
+		t.Fatalf("personal-project certificate reference was rejected diagnostics=%#v reconciled=%#v err=%v", diagnostics, certificateResolver.reconciled, err)
+	}
+	sharedHost := edgeRouteSharedHostCertificateDocument(t)
+	certificateResolver.reconciled = nil
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, sharedHost, now)
+	if err == nil && len(diagnostics) == 0 {
+		err = policy.ReconcileCurrentTx(ctx, tx, sharedHost, now)
+	}
+	_ = tx.Rollback(ctx)
+	if err != nil || len(diagnostics) != 0 || len(certificateResolver.reconciled) != 2 {
+		t.Fatalf("same hostname/certificate on two paths was rejected diagnostics=%#v reconciled=%#v err=%v", diagnostics, certificateResolver.reconciled, err)
+	}
+	noRoutes := edgeRouteNoRoutesDocument(t)
+	certificateResolver.reconciled = []certificates.ReferenceSelection{{Host: "stale.example.test"}}
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err = policy.ValidateCurrentTx(ctx, tx, noRoutes, now)
+	if err == nil && len(diagnostics) == 0 {
+		err = policy.ReconcileCurrentTx(ctx, tx, noRoutes, now)
+	}
+	_ = tx.Rollback(ctx)
+	if err != nil || len(diagnostics) != 0 || len(certificateResolver.reconciled) != 0 {
+		t.Fatalf("route removal did not prune certificate guards diagnostics=%#v reconciled=%#v err=%v", diagnostics, certificateResolver.reconciled, err)
+	}
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = policy.ReconcileDeletedTx(ctx, tx, custom.Scope(), now); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("direct-Git deletion did not prune certificate guards: %v", err)
+	}
+	_ = tx.Rollback(ctx)
+	if len(certificateResolver.reconciled) != 0 || certificateResolver.reconcileReference != custom.Scope().Path {
+		t.Fatalf("deletion reconciled unexpected certificate selections: %#v", certificateResolver)
+	}
+	policy.Certificates = &fakeCertificateReferenceResolver{err: certificates.ErrHostMismatch}
 	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal(err)
@@ -276,6 +342,39 @@ func edgeRouteSSLIPTestDocument(t *testing.T, hostname string) AppConfigPolicyDo
 	return document
 }
 
+func edgeRouteSharedHostCertificateDocument(t *testing.T) AppConfigPolicyDocument {
+	t.Helper()
+	scope := runtimeSecretDocumentScope(t, "apps-production")
+	runtime := domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))
+	parsed := privatePolicyParsed("66666666-6666-4666-8666-666666666666", "managed-main", 7)
+	spec := parsed["spec"].(map[string]any)
+	tls := map[string]any{"mode": "customCertificate", "secretRef": map[string]any{
+		"bindingId": "77777777-7777-4777-8777-777777777777", "name": "tenant-secret", "version": json.Number("7"),
+	}}
+	spec["routes"] = []any{
+		map[string]any{"id": "root", "host": "api.example.test", "path": "/", "port": "http", "ingressClassName": "traefik", "middlewareRefs": []any{}, "dns": map[string]any{"mode": "manual"}, "tls": tls},
+		map[string]any{"id": "health", "host": "api.example.test", "path": "/health", "port": "http", "ingressClassName": "traefik", "middlewareRefs": []any{}, "dns": map[string]any{"mode": "manual"}, "tls": tls},
+	}
+	document, err := newAppConfigPolicyDocument(scope, parsed, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
+
+func edgeRouteNoRoutesDocument(t *testing.T) AppConfigPolicyDocument {
+	t.Helper()
+	scope := runtimeSecretDocumentScope(t, "apps-production")
+	runtime := domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))
+	parsed := privatePolicyParsed("66666666-6666-4666-8666-666666666666", "managed-main", 7)
+	delete(parsed["spec"].(map[string]any), "routes")
+	document, err := newAppConfigPolicyDocument(scope, parsed, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
+
 func edgeRouteTestConfig(t *testing.T) edge.RuntimeConfig {
 	t.Helper()
 	digest := "sha256:" + strings.Repeat("a", 64)
@@ -329,8 +428,12 @@ func diagnosticCodesContain(diagnostics []gitprojection.Diagnostic, code string)
 }
 
 type fakeCertificateReferenceResolver struct {
-	result certificates.ResolvedReference
-	err    error
+	result             certificates.ResolvedReference
+	err                error
+	reconciled         []certificates.ReferenceSelection
+	reconcileDigest    string
+	reconcileReference string
+	reconcileRevision  string
 }
 
 type fakeCertificateIssuerReferencePolicy struct {
@@ -377,4 +480,17 @@ func (f fakeCertificateReferenceResolver) ResolveCertificateReferenceTx(
 	_ time.Time,
 ) (certificates.ResolvedReference, error) {
 	return f.result, f.err
+}
+
+func (f *fakeCertificateReferenceResolver) ReconcileGitCurrentCertificateReferencesTx(
+	_ context.Context,
+	_ pgx.Tx,
+	_ secrets.Scope,
+	selections []certificates.ReferenceSelection,
+	expectedDigest, referenceID, revision string,
+	_ time.Time,
+) error {
+	f.reconciled = append([]certificates.ReferenceSelection(nil), selections...)
+	f.reconcileDigest, f.reconcileReference, f.reconcileRevision = expectedDigest, referenceID, revision
+	return f.err
 }

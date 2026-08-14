@@ -73,7 +73,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.159 \
+  --version 0.1.0-rc.160 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -102,8 +102,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.159.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.159.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.160.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.160.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.

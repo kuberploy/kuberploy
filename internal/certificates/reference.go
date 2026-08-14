@@ -2,14 +2,78 @@ package certificates
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
+
+// ReferenceSelection is one exact custom-certificate use in AppConfig.
+// Host is part of the authority because certificate scope alone does not prove
+// SAN coverage.
+type ReferenceSelection struct {
+	Host      string    `json:"host"`
+	Reference Reference `json:"reference"`
+}
+
+// ResolvedSelection binds editable route intent to immutable public
+// certificate metadata. It contains no PEM, key, ciphertext, or provider
+// object identity.
+type ResolvedSelection struct {
+	Host      string            `json:"host"`
+	Reference Reference         `json:"reference"`
+	Resolved  ResolvedReference `json:"resolved"`
+}
+
+type ReferencePlan struct {
+	Scope secrets.Scope       `json:"scope"`
+	Uses  []ResolvedSelection `json:"uses"`
+}
+
+func referenceSelectionKey(value ResolvedSelection) string {
+	return value.Host + "\x00" + value.Reference.BindingID + "\x00" + value.Reference.Name + "\x00" +
+		strconv.FormatInt(value.Reference.Version, 10)
+}
+
+func (p ReferencePlan) Validate() error {
+	if p.Scope.Validate() != nil || len(p.Uses) == 0 || len(p.Uses) > 32 {
+		return ErrInvalid
+	}
+	previous := ""
+	for _, use := range p.Uses {
+		if use.Reference.Validate() != nil || use.Resolved.Validate() != nil ||
+			use.Resolved.BindingID != use.Reference.BindingID || use.Resolved.Name != use.Reference.Name ||
+			use.Resolved.Version != use.Reference.Version || use.Resolved.Namespace != p.Scope.Namespace {
+			return ErrInvalid
+		}
+		key := referenceSelectionKey(use)
+		if previous != "" && key <= previous {
+			return ErrInvalid
+		}
+		previous = key
+	}
+	return nil
+}
+
+func (p ReferencePlan) Digest() (string, error) {
+	if p.Validate() != nil {
+		return "", ErrInvalid
+	}
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		return "", ErrInvalid
+	}
+	digest := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
 
 // referenceCandidate is the exact locked metadata needed to authorize a
 // custom-certificate reference. It is deliberately package-private: callers
@@ -81,6 +145,69 @@ func (r *PostgreSQLReferenceResolver) ResolveCertificateReferenceTx(
 		return ResolvedReference{}, err
 	}
 	return candidate.Resolved, nil
+}
+
+func (r *PostgreSQLReferenceResolver) ResolveCertificateReferences(
+	ctx context.Context, expectedScope secrets.Scope, selections []ReferenceSelection, now time.Time,
+) (ReferencePlan, error) {
+	if r == nil || r.Store == nil || r.Store.pool == nil || ctx == nil {
+		return ReferencePlan{}, ErrInvalid
+	}
+	tx, err := r.Store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ReferencePlan{}, ErrUnavailable
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	plan, err := r.ResolveCertificateReferencesTx(ctx, tx, expectedScope, selections, now)
+	if err != nil {
+		return ReferencePlan{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return ReferencePlan{}, ErrUnavailable
+	}
+	return plan, nil
+}
+
+func (r *PostgreSQLReferenceResolver) ResolveCertificateReferencesTx(
+	ctx context.Context, tx pgx.Tx, expectedScope secrets.Scope, selections []ReferenceSelection, now time.Time,
+) (ReferencePlan, error) {
+	if r == nil || tx == nil || expectedScope.Validate() != nil || len(selections) == 0 || len(selections) > 32 || now.IsZero() {
+		return ReferencePlan{}, ErrInvalid
+	}
+	selections = deduplicateReferenceSelections(selections)
+	plan := ReferencePlan{Scope: expectedScope, Uses: make([]ResolvedSelection, 0, len(selections))}
+	for _, selection := range selections {
+		resolved, err := r.ResolveCertificateReferenceTx(ctx, tx, expectedScope, selection.Reference, selection.Host, now)
+		if err != nil {
+			return ReferencePlan{}, err
+		}
+		plan.Uses = append(plan.Uses, ResolvedSelection{Host: selection.Host, Reference: selection.Reference, Resolved: resolved})
+	}
+	slices.SortFunc(plan.Uses, func(left, right ResolvedSelection) int {
+		if leftKey, rightKey := referenceSelectionKey(left), referenceSelectionKey(right); leftKey < rightKey {
+			return -1
+		} else if leftKey > rightKey {
+			return 1
+		}
+		return 0
+	})
+	if plan.Validate() != nil {
+		return ReferencePlan{}, ErrInvalid
+	}
+	return plan, nil
+}
+
+func deduplicateReferenceSelections(selections []ReferenceSelection) []ReferenceSelection {
+	unique := make([]ReferenceSelection, 0, len(selections))
+	seen := make(map[ReferenceSelection]struct{}, len(selections))
+	for _, selection := range selections {
+		if _, exists := seen[selection]; exists {
+			continue
+		}
+		seen[selection] = struct{}{}
+		unique = append(unique, selection)
+	}
+	return unique
 }
 
 func (c referenceCandidate) validate(expectedScope secrets.Scope, ref Reference, host string, now time.Time) error {

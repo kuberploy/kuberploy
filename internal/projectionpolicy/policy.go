@@ -44,6 +44,14 @@ type ReferencePolicy interface {
 	ReconcileDeletedTx(context.Context, pgx.Tx, DocumentScope, time.Time) error
 }
 
+// CurrentReferenceReconciler mutates deletion guards only after every policy
+// family and cross-document conflict check accepted the exact current
+// AppConfig. It runs inside the document savepoint used to fence legacy policy
+// seams that still combine validation with reconciliation.
+type CurrentReferenceReconciler interface {
+	ReconcileCurrentTx(context.Context, pgx.Tx, AppConfigPolicyDocument, time.Time) error
+}
+
 // ExternalDNSRuntimePolicy is intentionally separate from configured profile
 // metadata. A configured/assigned profile never implies a ready controller.
 type ExternalDNSRuntimePolicy interface {
@@ -81,6 +89,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 	}
 	validation := gitprojection.AppConfigPolicyValidation{Diagnostics: map[string][]gitprojection.Diagnostic{}}
 	currentPaths := make(map[string]struct{}, len(input.Current))
+	currentDocuments := make([]AppConfigPolicyDocument, 0, len(input.Current))
 	type routeOwner struct {
 		path  string
 		index int
@@ -111,6 +120,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 			// never a partially interpreted policy document.
 			return gitprojection.AppConfigPolicyValidation{}, gitprojection.ErrConflict
 		}
+		currentDocuments = append(currentDocuments, policyDocument)
 		for index, route := range policyDocument.Routes() {
 			ingressClass := route.IngressClassName
 			if ingressClass == "" {
@@ -119,10 +129,38 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 			key := ingressClass + "\x00" + route.Host + "\x00" + route.Path
 			routeOwners[key] = append(routeOwners[key], routeOwner{path: document.Path, index: index})
 		}
-		policyDiagnostics, err := v.externalDNSDiagnosticsTx(ctx, tx, scope, policyDocument, now)
+	}
+	conflictKeys := make([]string, 0, len(routeOwners))
+	for key, owners := range routeOwners {
+		if len(owners) > 1 {
+			conflictKeys = append(conflictKeys, key)
+		}
+	}
+	sort.Strings(conflictKeys)
+	for _, key := range conflictKeys {
+		for _, owner := range routeOwners[key] {
+			validation.Diagnostics[owner.path] = append(validation.Diagnostics[owner.path], gitprojection.Diagnostic{
+				Code: "RouteConflict", Detail: "The exact ingress class, hostname, and path are already claimed by another AppConfig in this environment.",
+				Pointer: "/spec/routes/" + strconv.Itoa(owner.index) + "/host",
+			})
+		}
+	}
+	// Some legacy policy seams both validate and reconcile their current
+	// references. Fence each document behind a savepoint so any diagnostic from
+	// any later family (or a cross-document route conflict computed above)
+	// discards every current-reference/artifact mutation for that document.
+	// Infrastructure errors still abort the outer serializable activation.
+	for _, policyDocument := range currentDocuments {
+		scope, runtime := policyDocument.Scope(), policyDocument.Runtime()
+		if _, err := tx.Exec(ctx, "SAVEPOINT appconfig_policy_document"); err != nil {
+			return gitprojection.AppConfigPolicyValidation{}, err
+		}
+		policyDiagnostics := append([]gitprojection.Diagnostic(nil), validation.Diagnostics[scope.Path]...)
+		externalDNSDiagnostics, err := v.externalDNSDiagnosticsTx(ctx, tx, scope, policyDocument, now)
 		if err != nil {
 			return gitprojection.AppConfigPolicyValidation{}, err
 		}
+		policyDiagnostics = append(policyDiagnostics, externalDNSDiagnostics...)
 		definitions := policyDocument.MiddlewareDefinitions()
 		hasReusableMiddleware := false
 		for _, definition := range definitions {
@@ -169,11 +207,7 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		}
 		if v.Registry == nil {
 			if policyDocument.Delivery().HasRegistryPull {
-				policyDiagnostics = append(policyDiagnostics, gitprojection.Diagnostic{
-					Code:    "RegistryPullReferencePolicyUnavailable",
-					Detail:  "Private-image pull metadata cannot be resolved by the active projection policy.",
-					Pointer: "/spec/delivery/registryPull",
-				})
+				policyDiagnostics = append(policyDiagnostics, gitprojection.Diagnostic{Code: "RegistryPullReferencePolicyUnavailable", Detail: "Private-image pull metadata cannot be resolved by the active projection policy.", Pointer: "/spec/delivery/registryPull"})
 			}
 		} else {
 			registryDiagnostics, registryErr := v.Registry.ValidateCurrentTx(ctx, tx, policyDocument, now)
@@ -183,22 +217,21 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 			policyDiagnostics = append(policyDiagnostics, registryDiagnostics...)
 		}
 		if len(policyDiagnostics) != 0 {
-			validation.Diagnostics[document.Path] = policyDiagnostics
+			validation.Diagnostics[scope.Path] = policyDiagnostics
+			if _, err = tx.Exec(ctx, "ROLLBACK TO SAVEPOINT appconfig_policy_document"); err != nil {
+				return gitprojection.AppConfigPolicyValidation{}, err
+			}
+		} else {
+			for _, family := range []ReferencePolicy{v.Edge, v.Secrets, v.Registry} {
+				if reconciler, ok := family.(CurrentReferenceReconciler); ok {
+					if err = reconciler.ReconcileCurrentTx(ctx, tx, policyDocument, now); err != nil {
+						return gitprojection.AppConfigPolicyValidation{}, err
+					}
+				}
+			}
 		}
-	}
-	conflictKeys := make([]string, 0, len(routeOwners))
-	for key, owners := range routeOwners {
-		if len(owners) > 1 {
-			conflictKeys = append(conflictKeys, key)
-		}
-	}
-	sort.Strings(conflictKeys)
-	for _, key := range conflictKeys {
-		for _, owner := range routeOwners[key] {
-			validation.Diagnostics[owner.path] = append(validation.Diagnostics[owner.path], gitprojection.Diagnostic{
-				Code: "RouteConflict", Detail: "The exact ingress class, hostname, and path are already claimed by another AppConfig in this environment.",
-				Pointer: "/spec/routes/" + strconv.Itoa(owner.index) + "/host",
-			})
+		if _, err = tx.Exec(ctx, "RELEASE SAVEPOINT appconfig_policy_document"); err != nil {
+			return gitprojection.AppConfigPolicyValidation{}, err
 		}
 	}
 

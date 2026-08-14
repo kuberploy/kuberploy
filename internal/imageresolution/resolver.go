@@ -44,14 +44,19 @@ func (r *Resolver) Resolve(ctx context.Context, actor, applicationID, environmen
 	if !validActorIdentity(actor) || !uuidPattern.MatchString(applicationID) || !uuidPattern.MatchString(environmentID) {
 		return result, ErrInvalid
 	}
-	if IsImmutableImage(image) {
-		result.ImmutableImage = image
-		return result, nil
-	}
-	if r == nil || r.Catalog == nil || r.Provider == nil || r.Config.Validate() != nil {
+	immutable := IsImmutableImage(image)
+	if r == nil || r.Catalog == nil || !immutable && (r.Provider == nil || r.Config.Validate() != nil) {
 		return result, ErrUnavailable
 	}
-	reference, err := ParseTagReference(image)
+	var (
+		reference TagReference
+		err       error
+	)
+	if immutable {
+		reference, err = ParseRepository(image[:strings.LastIndexByte(image, '@')])
+	} else {
+		reference, err = ParseTagReference(image)
+	}
 	if err != nil {
 		return result, err
 	}
@@ -63,13 +68,29 @@ func (r *Resolver) Resolve(ctx context.Context, actor, applicationID, environmen
 		return result, ErrConflict
 	}
 	matches := make([]AuthorizedSource, 0, 1)
+	sameServer := false
 	for _, source := range sources {
 		if source.Validate(applicationID) != nil {
 			return result, ErrConflict
 		}
 		server, _ := canonicalRegistryServer(source.Target.Endpoint)
+		sameServer = sameServer || server == reference.Server
 		if server == reference.Server && source.Policy.Repository == reference.Repository {
 			matches = append(matches, source)
+		}
+	}
+	if immutable {
+		switch {
+		case len(matches) > 1:
+			return result, ErrConflict
+		case len(matches) == 0 && sameServer:
+			// A private registry host already bound to this application is
+			// fail-closed by exact repository. An arbitrary immutable digest on
+			// another host remains the explicit public-image form.
+			return result, ErrNotFound
+		default:
+			result.ImmutableImage = image
+			return result, nil
 		}
 	}
 	if len(matches) == 0 {

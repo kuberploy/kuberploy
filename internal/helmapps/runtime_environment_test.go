@@ -14,6 +14,7 @@ func runtimeEnvironmentFixture(t *testing.T) (map[string]string, ProtectedPublis
 		RuntimeRenderLeaseSecondsEnv: "60", RuntimePublishLeaseSecondsEnv: "60", RuntimeReadinessSecondsEnv: "30",
 		RuntimeOCIRequestSecondsEnv: "15", RuntimeOCIRegistryHostsEnv: "ghcr.io,registry.example.com",
 		RuntimeOCIAuthHostsEnv: "auth.example.com,ghcr.io", RuntimePackageCacheBytesEnv: "67108864",
+		RuntimeOCIRedirectHostsEnv:      "pkg-containers.githubusercontent.com",
 		RuntimeOCICredentialProfilesEnv: `[{"registryHost":"registry.example.com","authHost":"auth.example.com","name":"private-main","mode":"basic","projectionDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]`,
 		RuntimeArgoNamespaceEnv:         config.Application.ArgoNamespace,
 	}
@@ -44,7 +45,7 @@ func TestRuntimeConfigFromLookupBuildsExactEnabledPolicy(t *testing.T) {
 	values, publisher := runtimeEnvironmentFixture(t)
 	config, err := RuntimeConfigFromLookup(runtimeLookup(values), publisher)
 	if err != nil || config.Validate() != nil || config.Publisher != publisher ||
-		len(config.OCIRegistryHosts) != 2 || len(config.OCIAuthHosts) != 2 ||
+		len(config.OCIRegistryHosts) != 2 || len(config.OCIAuthHosts) != 2 || len(config.OCIRedirectHosts) != 1 ||
 		len(config.OCICredentialProfiles) != 1 || config.OCICredentialProfiles[0].Name != "private-main" {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
@@ -58,7 +59,7 @@ func TestRuntimeConfigFromLookupBuildsExactEnabledPolicy(t *testing.T) {
 				mutation[key] = value
 			}
 		}
-		if name == RuntimeOCIAuthHostsEnv || name == RuntimeOCICredentialProfilesEnv {
+		if name == RuntimeOCIAuthHostsEnv || name == RuntimeOCIRedirectHostsEnv || name == RuntimeOCICredentialProfilesEnv {
 			continue
 		}
 		if _, err = RuntimeConfigFromLookup(runtimeLookup(mutation), publisher); err == nil {
@@ -73,6 +74,10 @@ func TestRuntimeConfigFromLookupRejectsNonCanonicalOrUntrustedInput(t *testing.T
 		func(v map[string]string) { v[RuntimeOCIRegistryHostsEnv] = "registry.example.com,ghcr.io" },
 		func(v map[string]string) { v[RuntimeOCIRegistryHostsEnv] = "ghcr.io,ghcr.io" },
 		func(v map[string]string) { v[RuntimeOCIAuthHostsEnv] = "" },
+		func(v map[string]string) {
+			v[RuntimeOCIRedirectHostsEnv] = "https://pkg-containers.githubusercontent.com/path?query=1"
+		},
+		func(v map[string]string) { v[RuntimeOCIRedirectHostsEnv] = "z.example.com,a.example.com" },
 		func(v map[string]string) {
 			v[RuntimeOCICredentialProfilesEnv] = `[{"registryHost":"registry.example.com","authHost":"auth.example.com","name":"private-main","mode":"basic","projectionDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","secret":"caller"}]`
 		},

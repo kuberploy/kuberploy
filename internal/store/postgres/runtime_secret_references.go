@@ -4,14 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
-	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
@@ -95,111 +92,6 @@ func validateRuntimeSecretReferencesTx(
 		authorized[use.BindingID] = struct{}{}
 	}
 	return resolved, nil
-}
-
-func replaceRuntimeSecretReferencesTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	actor string,
-	referencePlan *base.AppConfigReferencePlan,
-	binding gitprojection.Binding,
-	projectID, environmentID, applicationID string,
-	runtime domain.WorkloadRuntime,
-	middlewareRefs []domain.SecretBindingRef,
-	raw []byte,
-	requestID string,
-	now time.Time,
-) error {
-	if referencePlan == nil {
-		return removeRuntimeSecretReferencesTx(ctx, tx, actor, binding, projectID, environmentID, applicationID, raw, requestID, now)
-	}
-	resolved, err := validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, runtime, middlewareRefs)
-	if err != nil {
-		return err
-	}
-	referenceID, err := gitprojection.ApplicationPath(binding, applicationID)
-	if err != nil || len(raw) == 0 || now.IsZero() {
-		return base.ErrPreconditionFailed
-	}
-	digest := sha256.Sum256(raw)
-	revision := "sha256:" + hex.EncodeToString(digest[:])
-	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, resolved, actor, referenceID, revision, requestID, now.UTC()); err != nil {
-		return classifyRuntimeSecretReferenceError(err)
-	}
-	return nil
-}
-
-// removeRuntimeSecretReferencesTx closes the last-reference transition. An
-// ordinary AppConfig needs no resolver plan, but a Git write must still remove
-// any prior Git-current deletion guards atomically. Platform-owned projects
-// have no organization scope and therefore can only take the proven-empty
-// no-op path; unexpected rows fail closed instead of being orphaned or deleted.
-func removeRuntimeSecretReferencesTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	actor string,
-	binding gitprojection.Binding,
-	projectID, environmentID, applicationID string,
-	raw []byte,
-	requestID string,
-	now time.Time,
-) error {
-	if tx == nil || len(raw) == 0 || now.IsZero() {
-		return base.ErrPreconditionFailed
-	}
-	referenceID, err := gitprojection.ApplicationPath(binding, applicationID)
-	if err != nil {
-		return base.ErrPreconditionFailed
-	}
-	var organizationID string
-	var namespace string
-	if err = tx.QueryRow(ctx, `SELECT COALESCE(p.team_id::text,''),e.namespace
-		FROM projects p
-		JOIN environments e ON e.project_id=p.id AND e.id=$2
-		JOIN applications a ON a.project_id=p.id AND a.id=$3
-		WHERE p.id=$1
-		FOR SHARE OF p,e,a`, projectID, environmentID, applicationID).Scan(&organizationID, &namespace); err != nil {
-		return classify(err)
-	}
-	rows, err := tx.Query(ctx, `SELECT COALESCE(b.organization_id::text,''),b.project_id::text,b.environment_id::text,b.application_id::text,b.target_namespace
-		FROM secret_binding_references r
-		JOIN secret_bindings b ON b.id=r.binding_id
-		WHERE r.kind='git-current' AND r.reference_id=$1
-		ORDER BY b.id
-		FOR UPDATE OF r,b`, referenceID)
-	if err != nil {
-		return classify(err)
-	}
-	found := false
-	for rows.Next() {
-		found = true
-		var rowOrganization, rowProject, rowEnvironment, rowApplication, rowNamespace string
-		if err = rows.Scan(&rowOrganization, &rowProject, &rowEnvironment, &rowApplication, &rowNamespace); err != nil {
-			rows.Close()
-			return classify(err)
-		}
-		if rowOrganization != organizationID || rowProject != projectID ||
-			rowEnvironment != environmentID || rowApplication != applicationID || rowNamespace != namespace {
-			rows.Close()
-			return base.ErrPreconditionFailed
-		}
-	}
-	if err = rows.Err(); err != nil {
-		rows.Close()
-		return classify(err)
-	}
-	rows.Close()
-	if !found {
-		return nil
-	}
-	digest := sha256.Sum256(raw)
-	plan := secrets.BindingReferencePlan{Scope: secrets.Scope{OrganizationID: organizationID, ProjectID: projectID,
-		EnvironmentID: environmentID, ApplicationID: applicationID, Namespace: namespace}, Uses: []secrets.ResolvedBindingReference{}}
-	if err = secrets.ReplaceGitCurrentReferencesTx(ctx, tx, plan, actor, referenceID,
-		"sha256:"+hex.EncodeToString(digest[:]), requestID, now.UTC()); err != nil {
-		return classifyRuntimeSecretReferenceError(err)
-	}
-	return nil
 }
 
 func classifyRuntimeSecretReferenceError(err error) error {

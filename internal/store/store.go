@@ -63,10 +63,16 @@ type AppConfigReferencePlan struct {
 	// re-resolves the immutable candidate under row locks and requires the same
 	// combined digest.
 	RuntimeSecretDigest string
+	// CertificateDigest binds every custom-certificate route to its exact
+	// application/environment/namespace, active immutable version, hostname
+	// coverage, and fresh observation identity.
+	CertificateDigest string
 }
 
 func (p *AppConfigReferencePlan) Validate() error {
-	if p == nil || !validSHA256Digest(p.RuntimeSecretDigest) {
+	if p == nil || p.RuntimeSecretDigest == "" && p.CertificateDigest == "" ||
+		p.RuntimeSecretDigest != "" && !validSHA256Digest(p.RuntimeSecretDigest) ||
+		p.CertificateDigest != "" && !validSHA256Digest(p.CertificateDigest) {
 		return ErrPreconditionFailed
 	}
 	return nil

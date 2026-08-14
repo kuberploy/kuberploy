@@ -188,9 +188,13 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	if err = insertGitWriteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "deploy("+in.ApplicationID+"): accept immutable release", now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if projection != nil {
-		if err = replaceRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectionBinding, projectID, in.EnvironmentID,
-			in.ApplicationID, d.Runtime, middlewareRefs, d.ConfigRaw, requestID, now); err != nil {
+	// API acceptance validates the immutable candidate and its authorization,
+	// but it is not proof that Git contains the candidate. Keep the currently
+	// indexed AppConfig's deletion guards until exact projection activation
+	// reconciles them in the same transaction as the new active generation.
+	if projection != nil && (base.AppConfigUsesRuntimeSecrets(d.Runtime) || len(middlewareRefs) != 0) {
+		if _, err = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, in.EnvironmentID,
+			in.ApplicationID, d.Runtime, middlewareRefs); err != nil {
 			return base.Result[domain.Deployment]{}, domain.Operation{}, err
 		}
 	}

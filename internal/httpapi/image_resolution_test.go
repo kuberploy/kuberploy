@@ -111,6 +111,55 @@ func TestImageResolutionPreviewIsAuthorizedNoStoreAndSafe(t *testing.T) {
 	response.Body.Close()
 }
 
+func TestImageResolutionPreviewRejectsImmutableSiblingRepositoryOnPrivateHost(t *testing.T) {
+	fixture := newImageResolutionAPI(t, true)
+	response := fixture.request(http.MethodPost, "/v1/deployments/image-resolution-preview", "", map[string]any{
+		"environmentId": fixture.environment.ID,
+		"applicationId": fixture.application.ID,
+		"image":         "registry.example.test/tenant/sibling@sha256:" + strings.Repeat("a", 64),
+	})
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusNotFound || problem.Code != "ImageSourceNotFound" || fixture.provider.calls != 0 {
+		t.Fatalf("status=%d problem=%+v calls=%d", response.StatusCode, problem, fixture.provider.calls)
+	}
+}
+
+func TestExistingImageAdmissionRejectsImmutableSiblingRepositoryBeforeOperation(t *testing.T) {
+	fixture := newImageResolutionAPI(t, true)
+	body := map[string]any{
+		"environmentId": fixture.environment.ID,
+		"applicationId": fixture.application.ID,
+		"image":         "registry.example.test/tenant/sibling@sha256:" + strings.Repeat("a", 64),
+		"runtime": map[string]any{
+			"replicas": 1,
+			"ports":    []map[string]any{{"name": "http", "containerPort": 8080}},
+			"resources": map[string]any{"requests": map[string]string{
+				"cpu": "50m", "memory": "100Mi",
+			}},
+		},
+	}
+	response := fixture.request(http.MethodPost, "/v1/deployments", "immutable-sibling-repository", body)
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusNotFound || problem.Code != "ImageSourceNotFound" || fixture.provider.calls != 0 {
+		t.Fatalf("status=%d problem=%+v calls=%d", response.StatusCode, problem, fixture.provider.calls)
+	}
+	deployments, err := fixture.store.ListDeployments(t.Context())
+	if err != nil || len(deployments) != 0 {
+		t.Fatalf("rejected repository created deployment: deployments=%#v err=%v", deployments, err)
+	}
+	operations, err := fixture.store.ListOperations(t.Context())
+	if err != nil || len(operations) != 0 {
+		t.Fatalf("rejected repository created operation: operations=%#v err=%v", operations, err)
+	}
+
+	body["image"] = "docker.io/library/nginx@sha256:" + strings.Repeat("b", 64)
+	response = fixture.request(http.MethodPost, "/v1/deployments", "immutable-public-repository", body)
+	operation := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || operation.ID == "" || fixture.provider.calls != 0 {
+		t.Fatalf("public immutable image status=%d operation=%+v calls=%d", response.StatusCode, operation, fixture.provider.calls)
+	}
+}
+
 func TestExistingImageTagPersistsOnlyDigestAndReplaysBeforeTagAndSSLIPResolution(t *testing.T) {
 	fixture := newImageResolutionAPI(t, true)
 	body := map[string]any{

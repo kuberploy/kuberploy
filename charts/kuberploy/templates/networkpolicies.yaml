@@ -88,7 +88,7 @@ spec:
 {{- end -}}
 {{- $_ := set $externalPorts "443" true -}}
 {{- if and $.Values.config.helmApplications.enabled (or (eq $component "api") (eq $component "worker")) -}}
-  {{- range $host := concat $.Values.config.helmApplications.ociRegistryHosts $.Values.config.helmApplications.ociAuthHosts -}}
+  {{- range $host := concat $.Values.config.helmApplications.ociRegistryHosts $.Values.config.helmApplications.ociAuthHosts $.Values.config.helmApplications.ociRedirectHosts -}}
     {{- $parts := splitList ":" $host -}}
     {{- $port := "443" -}}
     {{- if eq (len $parts) 2 -}}

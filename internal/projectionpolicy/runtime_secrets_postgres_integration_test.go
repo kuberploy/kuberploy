@@ -95,7 +95,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "policy-" + suffix, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Policy team',$2,$3,$4)`, []any{organizationID, "policy-team-" + suffix, actorID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Policy project',$2,$3,$4)`, []any{projectID, "policy-project-" + suffix, organizationID, now}},
-		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "production-" + suffix, namespace, "kp-p-" + suffix, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "production-" + suffix, namespace, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "api-" + suffix, now}},
 	} {
 		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {
@@ -134,7 +134,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	// destinations.
 	environmentBID := id.New()
 	namespaceB := namespace + "-b"
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Staging',$3,$4,$5,$6)`, environmentBID, projectID, "staging-"+suffix, namespaceB, "kp-s-"+suffix, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Staging',$3,$4,$4,$5)`, environmentBID, projectID, "staging-"+suffix, namespaceB, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -413,7 +413,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
 	}{
 		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "personal-policy-" + suffix, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Personal project',$2,NULL,$3)`, []any{projectID, "personal-policy-" + suffix, now}},
-		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$5,$6)`, []any{environmentID, projectID, "personal-production-" + suffix, namespace, "kp-personal-" + suffix, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "personal-production-" + suffix, namespace, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "personal-api-" + suffix, now}},
 	} {
 		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {

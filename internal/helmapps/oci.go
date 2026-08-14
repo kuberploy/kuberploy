@@ -86,6 +86,7 @@ type OCIHTTPPackageSource struct {
 	Client               *http.Client
 	AllowedRegistryHosts []string
 	AllowedAuthHosts     []string
+	AllowedRedirectHosts []string
 	Credentials          OCIRegistryCredentialProvider
 }
 
@@ -116,7 +117,7 @@ func (s OCIHTTPPackageSource) Fetch(ctx context.Context, approval Approval) (Cha
 		}
 	}
 	manifestURL := "https://" + host + "/v2/" + repository + "/manifests/" + url.PathEscape(approval.ManifestDigest)
-	manifestBytes, header, err := session.get(ctx, manifestURL, OCIManifestMediaType, maximumOCIManifest)
+	manifestBytes, header, err := session.get(ctx, manifestURL, OCIManifestMediaType, maximumOCIManifest, false)
 	if err != nil {
 		return ChartArtifact{}, err
 	}
@@ -133,7 +134,7 @@ func (s OCIHTTPPackageSource) Fetch(ctx context.Context, approval Approval) (Cha
 		return ChartArtifact{}, ErrUnsafeChart
 	}
 	blobURL := "https://" + host + "/v2/" + repository + "/blobs/" + url.PathEscape(approval.PackageDigest)
-	packageBytes, _, err := session.get(ctx, blobURL, "application/octet-stream", MaximumChartSize)
+	packageBytes, _, err := session.get(ctx, blobURL, "application/octet-stream", MaximumChartSize, true)
 	if err != nil {
 		return ChartArtifact{}, err
 	}
@@ -148,10 +149,11 @@ func (s OCIHTTPPackageSource) Fetch(ctx context.Context, approval Approval) (Cha
 func (s OCIHTTPPackageSource) validate() error {
 	if s.Client == nil || len(s.AllowedRegistryHosts) < 1 ||
 		len(s.AllowedRegistryHosts) > maximumOCIHostCount ||
-		len(s.AllowedAuthHosts) > maximumOCIHostCount {
+		len(s.AllowedAuthHosts) > maximumOCIHostCount ||
+		len(s.AllowedRedirectHosts) > maximumOCIHostCount {
 		return ErrInvalid
 	}
-	for _, hosts := range [][]string{s.AllowedRegistryHosts, s.AllowedAuthHosts} {
+	for _, hosts := range [][]string{s.AllowedRegistryHosts, s.AllowedAuthHosts, s.AllowedRedirectHosts} {
 		if !sort.StringsAreSorted(hosts) {
 			return ErrInvalid
 		}
@@ -182,7 +184,7 @@ func (s *ociFetchSession) destroy() {
 	}
 }
 
-func (s *ociFetchSession) get(ctx context.Context, requestURL, accept string, maximum int) ([]byte, http.Header, error) {
+func (s *ociFetchSession) get(ctx context.Context, requestURL, accept string, maximum int, allowRedirect bool) ([]byte, http.Header, error) {
 	response, err := s.request(ctx, requestURL, accept)
 	if err != nil {
 		return nil, nil, err
@@ -194,6 +196,14 @@ func (s *ociFetchSession) get(ctx context.Context, requestURL, accept string, ma
 			return nil, nil, err
 		}
 		response, err = s.request(ctx, requestURL, accept)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if response.StatusCode == http.StatusTemporaryRedirect && allowRedirect {
+		location := response.Header.Get("Location")
+		closeBounded(response.Body)
+		response, err = s.redirect(ctx, location, accept)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -217,6 +227,40 @@ func (s *ociFetchSession) get(ctx context.Context, requestURL, accept string, ma
 		return nil, nil, ErrUnsafeChart
 	}
 	return content, response.Header.Clone(), nil
+}
+
+// redirect follows exactly one registry-selected immutable blob hop. The
+// registry bearer token, operator credentials, cookies, and caller headers are
+// never copied to the CDN request. The returned response is not followed
+// again, so a redirect chain cannot escape the exact host allowlist.
+func (s *ociFetchSession) redirect(ctx context.Context, location, accept string) (*http.Response, error) {
+	if len(location) < len("https://a/b") || len(location) > 8192 {
+		return nil, ErrOCIUnavailable
+	}
+	parsed, err := url.Parse(location)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" ||
+		parsed.Opaque != "" || parsed.Host == "" || parsed.Path == "" ||
+		!containsExactHost(s.source.AllowedRedirectHosts, parsed.Host) {
+		return nil, ErrOCIUnavailable
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, ErrOCIUnavailable
+	}
+	request.Header.Set("Accept", accept)
+	request.Header.Set("User-Agent", "kuberploy-helm-fetcher/"+ProtectedGitPolicy)
+	request.Header.Del("Authorization")
+	request.Header.Del("Cookie")
+	redirectClient := *s.client
+	redirectClient.Jar = nil
+	response, err := redirectClient.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, ErrOCIUnavailable
+	}
+	return response, nil
 }
 
 func (s *ociFetchSession) request(ctx context.Context, requestURL, accept string) (*http.Response, error) {

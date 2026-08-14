@@ -210,6 +210,9 @@ config:
     ociRequestSeconds: 15
     ociRegistryHosts: []
     ociAuthHosts: []
+    # Exact HTTPS hosts allowed for one immutable chart-blob redirect. GHCR's
+    # CDN host is added automatically only when ghcr.io is configured.
+    ociRedirectHosts: []
     # Optional operator-owned host profiles. Secret names/keys are projected
     # into API and worker only; callers and renderer Jobs never receive them.
     ociCredentialProfiles: []
@@ -251,7 +254,7 @@ components:
   api:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.159
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.160
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -260,7 +263,7 @@ components:
   worker:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.159
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.160
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 50m, memory: 64Mi}
@@ -268,7 +271,7 @@ components:
   web:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.159
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.160
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -276,7 +279,7 @@ components:
       limits: {cpu: 250m, memory: 128Mi}
   migration:
     image:
-      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.159
+      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.160
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 25m, memory: 64Mi}
@@ -364,7 +367,7 @@ networkPolicy:
 
 upgrade:
   image:
-    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.159
+    reference: ghcr.io/kuberploy/kuberploy-upgrader:0.1.0-rc.160
     pullPolicy: IfNotPresent
   runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
   job:

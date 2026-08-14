@@ -61,14 +61,33 @@ func (p *resolverProvider) ResolveTag(_ context.Context, _ AuthorizedSource, _ T
 	return p.digest, p.err
 }
 
-func TestResolverFastPathsDigestWithoutCatalogOrProvider(t *testing.T) {
-	catalog := &resolverCatalog{}
+func TestResolverAuthorizesDigestWithoutProvider(t *testing.T) {
+	catalog := &resolverCatalog{sources: []AuthorizedSource{resolutionSource()}}
 	provider := &resolverProvider{}
 	resolver := &Resolver{Catalog: catalog, Provider: provider, Config: RuntimeConfig{Platform: DefaultPlatform()}}
 	image := "registry.example.test:5000/tenant/service@sha256:" + strings.Repeat("a", 64)
 	result, err := resolver.Resolve(t.Context(), "deployer", resolutionApplicationID, resolutionEnvironmentID, image)
-	if err != nil || result.ImmutableImage != image || result.Resolved || catalog.calls != 0 || provider.calls != 0 {
+	if err != nil || result.ImmutableImage != image || result.Resolved || catalog.calls != 1 || provider.calls != 0 {
 		t.Fatalf("result=%+v catalog=%d provider=%d err=%v", result, catalog.calls, provider.calls, err)
+	}
+}
+
+func TestResolverDigestRejectsSiblingRepositoryOnAuthorizedPrivateHost(t *testing.T) {
+	catalog := &resolverCatalog{sources: []AuthorizedSource{resolutionSource()}}
+	resolver := &Resolver{Catalog: catalog}
+	image := "registry.example.test:5000/tenant/sibling@sha256:" + strings.Repeat("a", 64)
+	if _, err := resolver.Resolve(t.Context(), "deployer", resolutionApplicationID, resolutionEnvironmentID, image); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestResolverDigestAllowsExplicitPublicHostAfterScopeAuthorization(t *testing.T) {
+	catalog := &resolverCatalog{sources: []AuthorizedSource{resolutionSource()}}
+	resolver := &Resolver{Catalog: catalog}
+	image := "public.example.test/library/service@sha256:" + strings.Repeat("a", 64)
+	result, err := resolver.Resolve(t.Context(), "deployer", resolutionApplicationID, resolutionEnvironmentID, image)
+	if err != nil || result.ImmutableImage != image || result.Resolved || catalog.calls != 1 {
+		t.Fatalf("result=%+v catalog=%d err=%v", result, catalog.calls, err)
 	}
 }
 

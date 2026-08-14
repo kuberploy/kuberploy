@@ -58,7 +58,10 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 		return nil, err
 	}
 	startedAt := time.Now().UTC()
-	processIdentity := host + "/" + strconv.Itoa(os.Getpid())
+	// A container restart in the same Pod reuses both hostname and PID. Include
+	// the process start instant so readiness upserts cannot collide with the
+	// prior process row while its lease ages out.
+	processIdentity := helmApplicationsProcessIdentity(host, os.Getpid(), startedAt)
 	runtime, err := helmapps.NewRuntime(config, helmapps.RuntimeDependencies{
 		Pool: pool, OCIClient: &http.Client{}, Credentials: credentials, RendererAPI: renderer, Bindings: bindings,
 		GitBindings: projection.store, GitProvider: projection.headVerifier, GitManager: projection.writeManager,
@@ -73,6 +76,10 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 		return nil, err
 	}
 	return &helmApplicationsRuntime{pool: pool, runtime: runtime}, nil
+}
+
+func helmApplicationsProcessIdentity(host string, pid int, startedAt time.Time) string {
+	return host + "/" + strconv.Itoa(pid) + "/" + startedAt.UTC().Format(time.RFC3339Nano)
 }
 
 func protectedHelmRuntimeConfigForWorker(projection *gitProjectionRuntime,

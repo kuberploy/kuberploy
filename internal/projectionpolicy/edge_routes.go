@@ -21,6 +21,7 @@ import (
 // accepts or returns certificate/key material.
 type CertificateReferenceResolver interface {
 	ResolveCertificateReferenceTx(context.Context, pgx.Tx, secrets.Scope, certificates.Reference, string, time.Time) (certificates.ResolvedReference, error)
+	ReconcileGitCurrentCertificateReferencesTx(context.Context, pgx.Tx, secrets.Scope, []certificates.ReferenceSelection, string, string, string, time.Time) error
 }
 
 type SSLIPHostnameResolver interface {
@@ -57,9 +58,9 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 		return nil, gitprojection.ErrInvalid
 	}
 	routes := document.Routes()
+	scope := document.Scope()
 	if len(routes) == 0 {
 		if p.ManagedIssuers != nil {
-			scope := document.Scope()
 			ok, err := p.ManagedIssuers.ReconcileReferencesTx(ctx, tx, scope.ApplicationID, scope.Binding.EnvironmentID,
 				scope.Path, nil, now.UTC(), p.ManagedIssuerMaxAge)
 			if err != nil {
@@ -87,7 +88,6 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 	managedIssuerSelections := []certissuers.Selection{}
 	managedIssuerPointers := []string{}
 	runtime := document.Runtime()
-	scope := document.Scope()
 	middlewareNames := document.MiddlewareNames()
 	middlewareCounts := map[string]int{}
 	for _, name := range middlewareNames {
@@ -183,7 +183,7 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 				diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "CertManagerRuntimeUnobserved", Detail: "No fresh exact cert-manager and approved issuer observation is available for this route.", Pointer: pointer + "/tls"})
 			}
 		case "customCertificate":
-			if route.TLS.SecretRef == nil || p.Certificates == nil || scope.OrganizationID == "" {
+			if route.TLS.SecretRef == nil || p.Certificates == nil {
 				diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "CustomCertificateBindingUnavailable", Detail: "Custom certificates require an exact ready certificate binding and fresh provider observation.", Pointer: pointer + "/tls/secretRef"})
 				continue
 			}
@@ -235,14 +235,45 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 	return diagnostics, nil
 }
 
+func (p *EdgeRouteReferencePolicy) ReconcileCurrentTx(ctx context.Context, tx pgx.Tx, document AppConfigPolicyDocument, now time.Time) error {
+	if p == nil || tx == nil || now.IsZero() || document.validate() != nil {
+		return gitprojection.ErrInvalid
+	}
+	if p.Certificates == nil {
+		return nil
+	}
+	scope := document.Scope()
+	selections := []certificates.ReferenceSelection{}
+	for _, route := range document.Routes() {
+		if route.TLS.Mode != "customCertificate" {
+			continue
+		}
+		if route.TLS.SecretRef == nil {
+			return gitprojection.ErrConflict
+		}
+		selections = append(selections, certificates.ReferenceSelection{Host: route.Host, Reference: *route.TLS.SecretRef})
+	}
+	return p.Certificates.ReconcileGitCurrentCertificateReferencesTx(ctx, tx, certificateScope(scope), selections, "", scope.Path, scope.SourceRevision, now.UTC())
+}
+
 func (p *EdgeRouteReferencePolicy) ReconcileDeletedTx(ctx context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) error {
 	if tx == nil || now.IsZero() || !validDocumentScope(scope) {
 		return gitprojection.ErrInvalid
 	}
 	if p.ManagedIssuers != nil {
-		return p.ManagedIssuers.ReconcileDeletedTx(ctx, tx, scope.Path)
+		if err := p.ManagedIssuers.ReconcileDeletedTx(ctx, tx, scope.Path); err != nil {
+			return err
+		}
+	}
+	if p.Certificates != nil {
+		return p.Certificates.ReconcileGitCurrentCertificateReferencesTx(ctx, tx, certificateScope(scope), nil, "", scope.Path, scope.SourceRevision, now.UTC())
 	}
 	return nil
+}
+
+func certificateScope(scope DocumentScope) secrets.Scope {
+	return secrets.Scope{OrganizationID: scope.OrganizationID, ProjectID: scope.Binding.ProjectID,
+		EnvironmentID: scope.Binding.EnvironmentID, ApplicationID: scope.ApplicationID, Namespace: scope.Namespace}
 }
 
 // ReadyExternalDNSIntegrationTx implements the independent runtime readiness
@@ -318,4 +349,5 @@ func middlewareNamePointer(names []string, target string) string {
 }
 
 var _ ReferencePolicy = (*EdgeRouteReferencePolicy)(nil)
+var _ CurrentReferenceReconciler = (*EdgeRouteReferencePolicy)(nil)
 var _ ExternalDNSRuntimePolicy = (*EdgeRouteReferencePolicy)(nil)

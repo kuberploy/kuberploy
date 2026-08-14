@@ -36,6 +36,8 @@ var EditablePointers = []string{
 	"/spec/routes", "/spec/middlewares",
 }
 
+var errInvalidCertificateReferences = errors.New("invalid AppConfig certificate references")
+
 var LockedPointers = []string{
 	"/apiVersion", "/kind", "/metadata/id", "/metadata/name",
 	"/spec/projectId", "/spec/applicationId", "/spec/environmentId", "/spec/delivery",
@@ -74,6 +76,57 @@ type Candidate struct {
 	Hash        []byte
 	Changes     []SemanticChange
 	Diagnostics []Diagnostic
+}
+
+type CertificateReferenceSelection struct {
+	Host      string
+	BindingID string
+	Name      string
+	Version   int64
+}
+
+// CertificateReferences extracts the exact custom-certificate authority from
+// a schema-validated parsed AppConfig. It deliberately excludes route path:
+// one hostname and certificate may serve multiple paths.
+func CertificateReferences(parsed map[string]any) ([]CertificateReferenceSelection, error) {
+	spec, ok := parsed["spec"].(map[string]any)
+	if !ok {
+		return nil, errInvalidCertificateReferences
+	}
+	rawRoutes, present := spec["routes"]
+	if !present {
+		return []CertificateReferenceSelection{}, nil
+	}
+	routes, ok := rawRoutes.([]any)
+	if !ok || len(routes) > 32 {
+		return nil, errInvalidCertificateReferences
+	}
+	result := make([]CertificateReferenceSelection, 0, len(routes))
+	for _, rawRoute := range routes {
+		route, routeOK := rawRoute.(map[string]any)
+		host, hostOK := route["host"].(string)
+		tls, tlsOK := route["tls"].(map[string]any)
+		mode, modeOK := tls["mode"].(string)
+		if !routeOK || !hostOK || !tlsOK || !modeOK {
+			return nil, errInvalidCertificateReferences
+		}
+		if mode != "customCertificate" {
+			continue
+		}
+		rawReference, referenceOK := tls["secretRef"].(map[string]any)
+		bindingID, bindingOK := rawReference["bindingId"].(string)
+		name, nameOK := rawReference["name"].(string)
+		versionNumber, versionOK := rawReference["version"].(json.Number)
+		if !referenceOK || !bindingOK || !nameOK || !versionOK || len(rawReference) != 3 {
+			return nil, errInvalidCertificateReferences
+		}
+		version, parseErr := strconv.ParseInt(versionNumber.String(), 10, 64)
+		if parseErr != nil || strconv.FormatInt(version, 10) != versionNumber.String() || version <= 0 {
+			return nil, errInvalidCertificateReferences
+		}
+		result = append(result, CertificateReferenceSelection{Host: host, BindingID: bindingID, Name: name, Version: version})
+	}
+	return result, nil
 }
 
 type SemanticChange struct {

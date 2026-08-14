@@ -15,12 +15,29 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/secrets"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-type Store struct{ pool *pgxpool.Pool }
+type certificateReferenceResolver interface {
+	ResolveCertificateReferencesTx(context.Context, pgx.Tx, secrets.Scope, []certificates.ReferenceSelection, time.Time) (certificates.ReferencePlan, error)
+}
+
+type Store struct {
+	pool                  *pgxpool.Pool
+	certificateReferences certificateReferenceResolver
+}
+
+func (s *Store) ConfigureCertificateReferences(resolver certificateReferenceResolver) error {
+	if s == nil || s.pool == nil || resolver == nil || s.certificateReferences != nil {
+		return base.ErrPreconditionFailed
+	}
+	s.certificateReferences = resolver
+	return nil
+}
 
 const (
 	startupPingTimeout        = 30 * time.Second

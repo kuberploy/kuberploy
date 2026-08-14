@@ -48,6 +48,7 @@ type ociRegistryFixture struct {
 	tokenStatus        int
 	tokenBody          string
 	redirectManifest   bool
+	blobRedirectURL    string
 	tokenAuthorization string
 	manifestRequests   atomic.Int64
 	blobRequests       atomic.Int64
@@ -146,6 +147,11 @@ func (f *ociRegistryFixture) serve(writer http.ResponseWriter, request *http.Req
 	case blobPath:
 		f.blobRequests.Add(1)
 		if f.rejectRegistryAuthorization(writer, request) {
+			return
+		}
+		if f.blobRedirectURL != "" {
+			writer.Header().Set("Location", f.blobRedirectURL)
+			writer.WriteHeader(http.StatusTemporaryRedirect)
 			return
 		}
 		if request.Method != http.MethodGet || request.URL.RawQuery != "" || request.Header.Get("Accept") != "application/octet-stream" {
@@ -264,6 +270,81 @@ func TestOCIHTTPPackageSourceAcceptsHelmManifestWithHeaderOnlyMediaType(t *testi
 	}
 }
 
+func TestOCIHTTPPackageSourceFollowsOneExactCredentialFreeBlobRedirect(t *testing.T) {
+	fixture := newOCIRegistryFixture(t, true)
+	var redirected atomic.Int64
+	redirectServer := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		redirected.Add(1)
+		if request.Method != http.MethodGet || request.URL.Path != "/immutable/chart.tgz" ||
+			request.URL.Query().Get("signature") != "provider-signed" || len(request.URL.Query()) != 1 ||
+			request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" ||
+			request.Header.Get("Accept") != "application/octet-stream" {
+			http.Error(writer, "unsafe redirect request", http.StatusBadRequest)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/octet-stream")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(fixture.packageBytes)
+	}))
+	t.Cleanup(redirectServer.Close)
+	redirectHost := strings.TrimPrefix(redirectServer.URL, "https://")
+	fixture.blobRedirectURL = redirectServer.URL + "/immutable/chart.tgz?signature=provider-signed"
+	credential := &OCIRegistryCredential{Username: []byte("registry-user"), Password: []byte("registry-password"),
+		AuthHost: fixture.host, ExpiresAt: time.Now().UTC().Add(time.Hour)}
+	provider := &recordingOCICredentialProvider{host: fixture.host, repository: fixture.repository, credential: credential}
+	source := fixture.source(provider)
+	source.AllowedRedirectHosts = []string{redirectHost}
+	artifact, err := source.Fetch(t.Context(), fixture.approval)
+	if err != nil || redirected.Load() != 1 || !equalBytes(artifact.PackageBytes, fixture.packageBytes) {
+		t.Fatalf("redirected fetch error=%v requests=%d bytes=%d", err, redirected.Load(), len(artifact.PackageBytes))
+	}
+}
+
+func TestOCIHTTPPackageSourceRejectsUnsafeBlobRedirects(t *testing.T) {
+	tests := []struct {
+		name     string
+		location func(*httptest.Server) string
+		allow    func(*httptest.Server) []string
+		handler  http.Handler
+	}{
+		{name: "unapproved host", location: func(server *httptest.Server) string { return server.URL + "/chart" }},
+		{name: "http", location: func(server *httptest.Server) string {
+			return strings.Replace(server.URL, "https://", "http://", 1) + "/chart"
+		},
+			allow: func(server *httptest.Server) []string { return []string{strings.TrimPrefix(server.URL, "https://")} }},
+		{name: "userinfo", location: func(server *httptest.Server) string {
+			return strings.Replace(server.URL, "https://", "https://user@", 1) + "/chart"
+		},
+			allow: func(server *httptest.Server) []string { return []string{strings.TrimPrefix(server.URL, "https://")} }},
+		{name: "fragment", location: func(server *httptest.Server) string { return server.URL + "/chart#fragment" },
+			allow: func(server *httptest.Server) []string { return []string{strings.TrimPrefix(server.URL, "https://")} }},
+		{name: "redirect chain", location: func(server *httptest.Server) string { return server.URL + "/chart" },
+			allow: func(server *httptest.Server) []string { return []string{strings.TrimPrefix(server.URL, "https://")} },
+			handler: http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				http.Redirect(writer, request, "/second", http.StatusTemporaryRedirect)
+			})},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newOCIRegistryFixture(t, false)
+			handler := test.handler
+			if handler == nil {
+				handler = http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { writer.WriteHeader(http.StatusOK) })
+			}
+			redirectServer := httptest.NewTLSServer(handler)
+			t.Cleanup(redirectServer.Close)
+			fixture.blobRedirectURL = test.location(redirectServer)
+			source := fixture.source(nil)
+			if test.allow != nil {
+				source.AllowedRedirectHosts = test.allow(redirectServer)
+			}
+			if _, err := source.Fetch(t.Context(), fixture.approval); !errors.Is(err, ErrOCIUnavailable) {
+				t.Fatalf("Fetch() error = %v, want %v", err, ErrOCIUnavailable)
+			}
+		})
+	}
+}
+
 func TestOCIHTTPPackageSourceRejectsUnapprovedRegistryBehavior(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -311,6 +392,18 @@ func TestOCIHTTPPackageSourceRejectsUnapprovedRegistryBehavior(t *testing.T) {
 		}, want: ErrInvalid},
 		{name: "unsorted registry allowlist", mutate: func(f *ociRegistryFixture, source *OCIHTTPPackageSource) {
 			source.AllowedRegistryHosts = []string{"z.example.com", f.host}
+		}, want: ErrInvalid},
+		{name: "duplicate redirect allowlist", mutate: func(_ *ociRegistryFixture, source *OCIHTTPPackageSource) {
+			source.AllowedRedirectHosts = []string{"cdn.example.com", "cdn.example.com"}
+		}, want: ErrInvalid},
+		{name: "unsorted redirect allowlist", mutate: func(_ *ociRegistryFixture, source *OCIHTTPPackageSource) {
+			source.AllowedRedirectHosts = []string{"z.example.com", "a.example.com"}
+		}, want: ErrInvalid},
+		{name: "oversized redirect allowlist", mutate: func(_ *ociRegistryFixture, source *OCIHTTPPackageSource) {
+			source.AllowedRedirectHosts = make([]string, maximumOCIHostCount+1)
+			for index := range source.AllowedRedirectHosts {
+				source.AllowedRedirectHosts[index] = fmt.Sprintf("%03d.example.com", index)
+			}
 		}, want: ErrInvalid},
 	}
 	for _, test := range tests {

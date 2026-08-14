@@ -218,7 +218,7 @@ func (s *Server) validateDeploymentConfig(w http.ResponseWriter, r *http.Request
 		if resolutionErr != nil {
 			candidate.Diagnostics = append(candidate.Diagnostics, appconfig.Diagnostic{Code: "VariableDependencyInvalid", Detail: "The exact inherited VariableSet snapshot is invalid.", Pointer: "/spec/runtime/env"})
 		} else if _, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), currentUser(r.Context()).ID, deployment, resolution.Runtime, candidate.Parsed); referenceErr != nil {
-			candidate.Diagnostics = append(candidate.Diagnostics, appConfigSecretReferenceDiagnostic(referenceErr))
+			candidate.Diagnostics = append(candidate.Diagnostics, appConfigReferenceDiagnostic(referenceErr))
 		}
 	}
 	resolution, _ := resolveBundleVariables(bundle, candidate.Runtime)
@@ -270,7 +270,7 @@ func (s *Server) previewDeploymentConfig(w http.ResponseWriter, r *http.Request)
 				mappedSecretError(w, r, err)
 				return
 			}
-			candidate.Diagnostics = append(candidate.Diagnostics, appConfigSecretReferenceDiagnostic(err))
+			candidate.Diagnostics = append(candidate.Diagnostics, appConfigReferenceDiagnostic(err))
 		}
 	}
 	if len(candidate.Diagnostics) > 0 {
@@ -343,7 +343,7 @@ func (s *Server) previewDeploymentConfig(w http.ResponseWriter, r *http.Request)
 		projection = &plan
 	}
 	if err = s.store.CreateDeploymentConfigPreview(r.Context(), currentUser(r.Context()).ID, domain.CreateConfigPreview{DeploymentID: deployment.ID, BaseETag: baseETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash, CandidateRaw: candidate.Raw, Runtime: candidate.Runtime, ExpiresAt: expires}, projection, references); err != nil {
-		mappedError(w, r, err)
+		mappedDeploymentConfigTransactionError(w, r, err)
 		return
 	}
 	warnings := []string{}
@@ -465,7 +465,7 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 			mappedSecretError(w, r, referenceErr)
 			return
 		}
-		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{appConfigSecretReferenceDiagnostic(referenceErr)}})
+		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: []appconfig.Diagnostic{appConfigReferenceDiagnostic(referenceErr)}})
 		return
 	}
 	input.CandidateHash, input.RawYAML, input.Runtime = candidate.Hash, candidate.Raw, candidate.Runtime
@@ -480,13 +480,24 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	result, operation, err := s.store.SaveDeploymentConfig(r.Context(), currentUser(r.Context()).ID, key, fp, requestID(r.Context()), input, projection, references)
 	if err != nil {
-		mappedError(w, r, err)
+		mappedDeploymentConfigTransactionError(w, r, err)
 		return
 	}
 	if result.Replay {
 		w.Header().Set("Idempotent-Replay", "true")
 	}
 	writeJSON(w, 202, operation)
+}
+
+func mappedDeploymentConfigTransactionError(w http.ResponseWriter, r *http.Request, err error) {
+	// The transaction repeats certificate observation and provider readiness
+	// under locks after the HTTP precheck. A disappearing observation is an
+	// expected retryable dependency failure, not an internal server error.
+	if runtimeSecretReferenceUnavailable(err) {
+		mappedSecretError(w, r, err)
+		return
+	}
+	mappedError(w, r, err)
 }
 
 var (

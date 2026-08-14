@@ -11,6 +11,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
+	"github.com/kuberploy/kuberploy/internal/imageresolution"
 	"github.com/kuberploy/kuberploy/internal/operationcache"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
 	"github.com/kuberploy/kuberploy/internal/store"
@@ -21,6 +22,14 @@ type cacheIdentityStore struct {
 	store.Store
 	grantRevision int64
 	identities    int
+}
+
+func (s *cacheIdentityStore) AuthorizedImageSourcesForActor(ctx context.Context, actor, applicationID, environmentID string) ([]imageresolution.AuthorizedSource, error) {
+	catalog, ok := s.Store.(imageresolution.Catalog)
+	if !ok {
+		return nil, imageresolution.ErrUnavailable
+	}
+	return catalog.AuthorizedImageSourcesForActor(ctx, actor, applicationID, environmentID)
 }
 
 func (s *cacheIdentityStore) OperationCacheIdentityForActor(ctx context.Context, actor, operationID string) (operationcache.Identity, error) {

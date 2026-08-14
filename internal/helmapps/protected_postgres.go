@@ -807,7 +807,15 @@ func (s *PostgresProtectedPublicationStore) PutPublisherReadiness(ctx context.Co
 	if readiness.Validate() != nil {
 		return ErrInvalid
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err = pruneExpiredHelmReadinessTx(ctx, tx, "helm-protected-publisher", readiness.WorkerID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
 		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
 		VALUES('helm-protected-publisher','global',$1,$2,$3,$5,jsonb_build_object('policyVersion',$4::text),
 		'{}'::jsonb,$6,$7,$8,$7)
@@ -818,7 +826,10 @@ func (s *PostgresProtectedPublicationStore) PutPublisherReadiness(ctx context.Co
 		readiness.WorkerEpoch, readiness.Publisher.Contract, readiness.Publisher.PolicyVersion,
 		readiness.Publisher.ConfigDigest, readiness.StartedAt.UTC(), readiness.ObservedAt.UTC(),
 		readiness.LeaseUntil.UTC())
-	return classifyPostgres(err)
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	return classifyPostgres(tx.Commit(ctx))
 }
 
 func (s *PostgresProtectedPublicationStore) PublisherReady(ctx context.Context,

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -68,7 +69,7 @@ func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *tes
 	}
 	namespace := "policy-" + identity
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,'Production','production',$3,$4,$5)`, environmentID, projectID, namespace, "argo-"+identity, now); err != nil {
+		VALUES($1,$2,'Production','production',$3,$3,$4)`, environmentID, projectID, namespace, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API','api',$3)`, applicationID, projectID, now); err != nil {
@@ -148,6 +149,90 @@ func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *tes
 		projected.Diagnostics[1].Code != "EdgeRoutePolicyUnavailable" {
 		t.Fatalf("dynamic policy result was not persisted exactly: binding=%#v document=%#v", activated, projected)
 	}
+
+	// A later policy diagnostic must roll back every mutation performed by an
+	// earlier policy for this document. A zero-diagnostic generation releases
+	// the same savepoint and commits both validation and reconciliation.
+	plainDeployment := deployment
+	plainDeployment.Route = nil
+	plainRaw, renderErr := gitops.RenderAppConfig(project, environment, application, plainDeployment)
+	if renderErr != nil {
+		t.Fatal(renderErr)
+	}
+	stageAggregate := func(sequence int, validator *projectionpolicy.Validator) gitprojection.Document {
+		t.Helper()
+		headCharacter := string(rune('d' + sequence))
+		head := strings.Repeat(headCharacter, 40)
+		observedAt := now.Add(time.Duration(6+sequence*5) * time.Second)
+		binding, _, err = store.RecordVerifiedHead(ctx, gitprojection.VerifiedHead{BindingID: binding.ID, Repository: binding.Repository,
+			TargetRef: binding.TargetRef, Commit: head, Source: gitprojection.ObservationPoll,
+			ProviderRequest: "policy-aggregate-" + headCharacter, ObservedAt: observedAt})
+		if err != nil {
+			t.Fatal(err)
+		}
+		generation, beginErr := store.BeginGeneration(ctx, work.Lease, head, binding.ParserVersion, observedAt.Add(time.Second))
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		parsed, _, diagnostics := appconfig.ParseAndValidate(plainRaw)
+		if len(diagnostics) != 0 {
+			t.Fatalf("aggregate AppConfig invalid: %#v", diagnostics)
+		}
+		document, documentErr := gitprojection.NewDocument(binding, generation.Number, applicationID, head, head,
+			strings.Repeat(string(rune('7'+sequence)), 40), plainRaw, parsed, nil, observedAt.Add(2*time.Second))
+		if documentErr != nil {
+			t.Fatal(documentErr)
+		}
+		if err = store.PutDocuments(ctx, generation, []gitprojection.Document{document}); err != nil {
+			t.Fatal(err)
+		}
+		if binding, err = store.ActivateGeneration(ctx, work.Lease, generation, validator, observedAt.Add(3*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		return document
+	}
+	originalProjectName := "Policy project " + identity
+	mutatedProjectName := "Policy reconciled " + identity
+	invalidDocument := stageAggregate(0, &projectionpolicy.Validator{
+		Secrets:  &projectNameMutationPolicy{projectID: projectID, name: mutatedProjectName},
+		Registry: diagnosticReferencePolicy{},
+	})
+	assertProjectedDiagnostic(t, store, bindingID, invalidDocument.Path, false, "SyntheticLaterPolicyDiagnostic")
+	var storedProjectName string
+	if err = pool.QueryRow(ctx, `SELECT name FROM projects WHERE id=$1`, projectID).Scan(&storedProjectName); err != nil || storedProjectName != originalProjectName {
+		t.Fatalf("diagnostic leaked earlier policy mutation: name=%q err=%v", storedProjectName, err)
+	}
+	validDocument := stageAggregate(1, &projectionpolicy.Validator{
+		Secrets: &projectNameMutationPolicy{projectID: projectID, name: mutatedProjectName},
+	})
+	assertProjectedDiagnostic(t, store, bindingID, validDocument.Path, true, "")
+	if err = pool.QueryRow(ctx, `SELECT name FROM projects WHERE id=$1`, projectID).Scan(&storedProjectName); err != nil || storedProjectName != mutatedProjectName {
+		t.Fatalf("zero-diagnostic policy mutation was not committed: name=%q err=%v", storedProjectName, err)
+	}
+}
+
+type projectNameMutationPolicy struct {
+	projectID string
+	name      string
+}
+
+func (p *projectNameMutationPolicy) ValidateCurrentTx(ctx context.Context, tx pgx.Tx, _ projectionpolicy.AppConfigPolicyDocument, _ time.Time) ([]gitprojection.Diagnostic, error) {
+	_, err := tx.Exec(ctx, `UPDATE projects SET name=$2 WHERE id=$1`, p.projectID, p.name)
+	return nil, err
+}
+
+func (*projectNameMutationPolicy) ReconcileDeletedTx(context.Context, pgx.Tx, projectionpolicy.DocumentScope, time.Time) error {
+	return nil
+}
+
+type diagnosticReferencePolicy struct{}
+
+func (diagnosticReferencePolicy) ValidateCurrentTx(context.Context, pgx.Tx, projectionpolicy.AppConfigPolicyDocument, time.Time) ([]gitprojection.Diagnostic, error) {
+	return []gitprojection.Diagnostic{{Code: "SyntheticLaterPolicyDiagnostic", Detail: "A later policy rejected this exact document.", Pointer: "/spec/delivery"}}, nil
+}
+
+func (diagnosticReferencePolicy) ReconcileDeletedTx(context.Context, pgx.Tx, projectionpolicy.DocumentScope, time.Time) error {
+	return nil
 }
 
 func TestPostgreSQLPolicyPlatformOwnedProjectNoRefsAndSemanticSecretDiagnostic(t *testing.T) {
@@ -185,7 +270,7 @@ func TestPostgreSQLPolicyPlatformOwnedProjectNoRefsAndSemanticSecretDiagnostic(t
 	}
 	namespace := "platform-" + identity
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,'Production','production',$3,$4,$5)`, environmentID, projectID, namespace, "argo-"+identity, now); err != nil {
+		VALUES($1,$2,'Production','production',$3,$3,$4)`, environmentID, projectID, namespace, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API','api',$3)`, applicationID, projectID, now); err != nil {

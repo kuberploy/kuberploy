@@ -106,11 +106,11 @@ func replaceGitCurrentReferencesTx(ctx context.Context, tx pgx.Tx, plan BindingR
 		Revision  string
 		CreatedAt time.Time
 	}
-	rows, err := tx.Query(ctx, `SELECT binding_id::text,version_id::text,revision,created_at
-		FROM secret_binding_references
-		WHERE kind='git-current' AND reference_id=$1
-		ORDER BY binding_id
-		FOR UPDATE`, referenceID)
+	rows, err := tx.Query(ctx, `SELECT r.binding_id::text,r.version_id::text,r.revision,r.created_at
+		FROM secret_binding_references r JOIN secret_bindings b ON b.id=r.binding_id
+		WHERE r.kind='git-current' AND r.reference_id=$1 AND b.purpose='runtime-secret'
+		ORDER BY r.binding_id
+		FOR UPDATE OF r,b`, referenceID)
 	if err != nil {
 		return classifyPostgres(err)
 	}

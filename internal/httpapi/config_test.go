@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -14,8 +15,11 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/appconfigpreview"
+	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
+	"github.com/kuberploy/kuberploy/internal/imageresolution"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
 	base "github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
@@ -47,6 +51,19 @@ type previewWire struct {
 	RenderIdentityDigest string                     `json:"renderIdentityDigest"`
 	SemanticChanges      []appconfig.SemanticChange `json:"semanticChanges"`
 	Warnings             []string                   `json:"warnings"`
+}
+
+type configPreviewFailureStore struct {
+	base.Store
+	err error
+}
+
+func (s *configPreviewFailureStore) AuthorizedImageSourcesForActor(ctx context.Context, actor, applicationID, environmentID string) ([]imageresolution.AuthorizedSource, error) {
+	return s.Store.(imageresolution.Catalog).AuthorizedImageSourcesForActor(ctx, actor, applicationID, environmentID)
+}
+
+func (s *configPreviewFailureStore) CreateDeploymentConfigPreview(context.Context, string, domain.CreateConfigPreview, *gitprojection.WritePlan, ...*base.AppConfigReferencePlan) error {
+	return s.err
 }
 
 func createConfigDeployment(t *testing.T, f *apiFixture) (domain.Operation, string) {
@@ -208,6 +225,25 @@ func TestDeploymentConfigPreviewFailsClosedWithoutPinnedRenderer(t *testing.T) {
 	problem := decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "AppConfigRendererUnavailable" {
 		t.Fatalf("unconfigured renderer issued preview authority: status=%d problem=%#v", response.StatusCode, problem)
+	}
+}
+
+func TestDeploymentConfigPreviewMapsTransactionalCertificateOutageTo503(t *testing.T) {
+	underlying := memory.New()
+	wrapped := &configPreviewFailureStore{Store: underlying, err: certificates.ErrObservationUnavailable}
+	server := httptest.NewServer(httpapi.New(httpapi.Options{Store: wrapped, BootstrapToken: "one-time-secret", Version: "test", AppConfigRenderedPreviews: staticAppConfigRenderer{}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	jar, _ := cookiejar.New(nil)
+	fixture := &apiFixture{t: t, server: server, client: &http.Client{Jar: jar}, store: underlying}
+	t.Cleanup(server.Close)
+	created, _ := createConfigDeployment(t, fixture)
+	path := "/v1/deployments/" + created.TargetID + "/config"
+	response := fixture.request(http.MethodGet, path, "", nil)
+	bundle := decode[configBundleWire](t, response)
+	change := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/replicas", Value: 2}}}
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": bundle.ETag})
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "CertificateReferenceRuntimeUnavailable" {
+		t.Fatalf("transactional certificate outage status=%d problem=%#v", response.StatusCode, problem)
 	}
 }
 

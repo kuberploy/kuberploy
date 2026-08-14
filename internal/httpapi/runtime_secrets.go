@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
@@ -40,6 +41,10 @@ type RuntimeSecretBackend interface {
 	Binding(context.Context, string) (secrets.Binding, error)
 	ListBindings(context.Context, string, string) ([]secrets.Binding, error)
 	Versions(context.Context, string) ([]secrets.Version, error)
+}
+
+type CertificateReferenceBackend interface {
+	ResolveCertificateReferences(context.Context, secrets.Scope, []certificates.ReferenceSelection, time.Time) (certificates.ReferencePlan, error)
 }
 
 type runtimeSecretBackend struct {
@@ -94,14 +99,20 @@ func (b *runtimeSecretBackend) Versions(ctx context.Context, bindingID string) (
 // transaction; this result is only a TOCTOU-resistant digest expectation.
 func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string, deployment domain.Deployment, runtime domain.WorkloadRuntime, parsed map[string]any) (*store.AppConfigReferencePlan, error) {
 	middlewareRefs := []domain.SecretBindingRef(nil)
+	certificateRefs := []certificates.ReferenceSelection(nil)
 	var err error
 	if parsed != nil {
 		middlewareRefs, err = middlewareprofiles.AppConfigSecretReferences(parsed)
 		if err != nil {
 			return nil, err
 		}
+		certificateRefs, err = appConfigCertificateReferences(parsed)
+		if err != nil {
+			return nil, err
+		}
 	}
-	usesReferences := store.AppConfigUsesRuntimeSecrets(runtime) || len(middlewareRefs) != 0
+	usesRuntimeSecrets := store.AppConfigUsesRuntimeSecrets(runtime) || len(middlewareRefs) != 0
+	usesReferences := usesRuntimeSecrets || len(certificateRefs) != 0
 	// Ordinary AppConfigs must not acquire a runtime-secret dependency merely
 	// because the subsystem is configured. In particular, platform-owned
 	// projects legitimately have no team scope to resolve when there are no
@@ -109,14 +120,10 @@ func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string
 	if !usesReferences {
 		return nil, nil
 	}
-	if s.runtimeSecrets == nil || s.runtimeSecretReadiness == nil || s.gitProjection == nil || s.gitReadiness == nil {
+	if s.gitProjection == nil || s.gitReadiness == nil {
 		return nil, secrets.ErrRuntimeUnavailable
 	}
 	probeContext, cancel := context.WithTimeout(ctx, 2*time.Second)
-	if err := s.runtimeSecretReadiness.Probe(probeContext); err != nil {
-		cancel()
-		return nil, secrets.ErrRuntimeUnavailable
-	}
 	if err := s.gitReadiness.Probe(probeContext); err != nil {
 		cancel()
 		return nil, secrets.ErrRuntimeUnavailable
@@ -126,46 +133,102 @@ func (s *Server) resolveAppConfigReferencePlan(ctx context.Context, actor string
 	if err != nil {
 		return nil, err
 	}
-	if !s.runtimeSecrets.AllowsNamespace(scope.Namespace) {
-		return nil, secrets.ErrRuntimeUnavailable
-	}
+	plan := &store.AppConfigReferencePlan{}
 	authorized := map[string]struct{}{}
-	for _, variable := range runtime.Env {
-		if variable.ValueFrom == nil {
-			continue
+	if usesRuntimeSecrets {
+		if s.runtimeSecrets == nil || s.runtimeSecretReadiness == nil || !s.runtimeSecrets.AllowsNamespace(scope.Namespace) {
+			return nil, secrets.ErrRuntimeUnavailable
 		}
-		bindingID := variable.ValueFrom.SecretBindingRef.BindingID
-		if _, exists := authorized[bindingID]; exists {
-			continue
+		probeContext, probeCancel := context.WithTimeout(ctx, 2*time.Second)
+		if err = s.runtimeSecretReadiness.Probe(probeContext); err != nil {
+			probeCancel()
+			return nil, secrets.ErrRuntimeUnavailable
 		}
-		target.ID = bindingID
-		if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+		probeCancel()
+		for _, variable := range runtime.Env {
+			if variable.ValueFrom == nil {
+				continue
+			}
+			bindingID := variable.ValueFrom.SecretBindingRef.BindingID
+			if _, exists := authorized[bindingID]; exists {
+				continue
+			}
+			target.ID = bindingID
+			if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+				return nil, err
+			}
+			authorized[bindingID] = struct{}{}
+		}
+		for _, ref := range middlewareRefs {
+			if _, exists := authorized[ref.BindingID]; exists {
+				continue
+			}
+			target.ID = ref.BindingID
+			if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+				return nil, err
+			}
+			authorized[ref.BindingID] = struct{}{}
+		}
+		resolved, resolveErr := secrets.ResolveAppConfigBindingReferences(ctx, s.runtimeSecrets, scope, runtime, middlewareRefs)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		plan.RuntimeSecretDigest, err = resolved.Digest()
+		if err != nil {
 			return nil, err
 		}
-		authorized[bindingID] = struct{}{}
 	}
-	for _, ref := range middlewareRefs {
-		if _, exists := authorized[ref.BindingID]; exists {
-			continue
+	if len(certificateRefs) != 0 {
+		if s.certificateReferences == nil {
+			return nil, certificates.ErrObservationUnavailable
 		}
-		target.ID = ref.BindingID
-		if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+		for _, selection := range certificateRefs {
+			if _, exists := authorized[selection.Reference.BindingID]; exists {
+				continue
+			}
+			target.ID = selection.Reference.BindingID
+			if err = s.store.Authorize(ctx, actor, domain.PermissionSecretsBind, target); err != nil {
+				return nil, err
+			}
+			authorized[selection.Reference.BindingID] = struct{}{}
+		}
+		resolved, resolveErr := s.certificateReferences.ResolveCertificateReferences(ctx, scope, certificateRefs, time.Now().UTC())
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		plan.CertificateDigest, err = resolved.Digest()
+		if err != nil {
 			return nil, err
 		}
-		authorized[ref.BindingID] = struct{}{}
 	}
-	resolved, err := secrets.ResolveAppConfigBindingReferences(ctx, s.runtimeSecrets, scope, runtime, middlewareRefs)
-	if err != nil {
-		return nil, err
-	}
-	digest, err := resolved.Digest()
-	if err != nil {
-		return nil, err
-	}
-	return &store.AppConfigReferencePlan{RuntimeSecretDigest: digest}, nil
+	return plan, plan.Validate()
 }
 
-func appConfigSecretReferenceDiagnostic(err error) appconfig.Diagnostic {
+func appConfigCertificateReferences(parsed map[string]any) ([]certificates.ReferenceSelection, error) {
+	values, err := appconfig.CertificateReferences(parsed)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]certificates.ReferenceSelection, 0, len(values))
+	for _, value := range values {
+		reference := certificates.Reference{BindingID: value.BindingID, Name: value.Name, Version: value.Version}
+		if reference.Validate() != nil {
+			return nil, certificates.ErrInvalid
+		}
+		result = append(result, certificates.ReferenceSelection{Host: value.Host, Reference: reference})
+	}
+	return result, nil
+}
+
+func appConfigReferenceDiagnostic(err error) appconfig.Diagnostic {
+	switch {
+	case errors.Is(err, certificates.ErrHostMismatch):
+		return appconfig.Diagnostic{Code: "CustomCertificateHostMismatch", Detail: "The certificate does not cover the exact route hostname.", Pointer: "/spec/routes"}
+	case errors.Is(err, certificates.ErrNotFound):
+		return appconfig.Diagnostic{Code: "CustomCertificateBindingNotFound", Detail: "The certificate binding does not exist in this application and environment.", Pointer: "/spec/routes"}
+	case errors.Is(err, certificates.ErrNotReady):
+		return appconfig.Diagnostic{Code: "CustomCertificateNotReady", Detail: "The exact certificate version is not active with a fresh provider observation.", Pointer: "/spec/routes"}
+	}
 	if secrets.IsMiddlewareReferenceError(err) {
 		return appconfig.Diagnostic{Code: "MiddlewareSecretReferenceUnresolved", Detail: "A BasicAuth runtime-secret binding is unavailable or not authorized for this exact application destination.", Pointer: "/spec/middlewares"}
 	}
@@ -674,7 +737,8 @@ func secretBackendUnavailable(w http.ResponseWriter, r *http.Request) {
 }
 
 func runtimeSecretReferenceUnavailable(err error) bool {
-	return errors.Is(err, secrets.ErrRuntimeUnavailable) || errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound)
+	return errors.Is(err, secrets.ErrRuntimeUnavailable) || errors.Is(err, certificates.ErrObservationUnavailable) ||
+		errors.Is(err, certificates.ErrUnavailable) || errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound)
 }
 
 func runtimeSecretReferenceDiagnostic(err error) appconfig.Diagnostic {
@@ -705,6 +769,8 @@ func mappedSecretError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, r, http.StatusServiceUnavailable, "SecretFingerprintKeyUnavailable", "Runtime secrets unavailable", "The runtime-secret fingerprint key is unavailable.")
 	case errors.Is(err, secrets.ErrRuntimeUnavailable):
 		secretBackendUnavailable(w, r)
+	case errors.Is(err, certificates.ErrObservationUnavailable), errors.Is(err, certificates.ErrUnavailable):
+		writeProblem(w, r, http.StatusServiceUnavailable, "CertificateReferenceRuntimeUnavailable", "Certificate reference unavailable", "The exact certificate observation runtime is unavailable. Retry after readiness is restored.")
 	case errors.Is(err, secrets.ErrProviderOperation):
 		writeProblem(w, r, http.StatusBadGateway, "SecretProviderFailed", "Secret provider failed", "The runtime-secret provider could not complete the operation.")
 	case errors.Is(err, secrets.ErrProviderMismatch):

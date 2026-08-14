@@ -229,4 +229,62 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM runtime_readiness WHERE runtime_kind='tls-certificate-observer' AND scope_key='global' AND worker_id=$1`, workerLease.WorkerID); err == nil {
 		t.Fatal("certificate observation worker receipt was deletable")
 	}
+
+	// Direct-Git acceptance owns the deletion guard. API preview/save never
+	// moves this guard ahead of the live indexed revision.
+	referenceID := "tenants/" + scope.ProjectID + "/environments/" + scope.EnvironmentID + "/apps/" + scope.ApplicationID + "/app.yaml"
+	revision := strings.Repeat("9", 40)
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = referenceResolver.ReconcileGitCurrentCertificateReferencesTx(ctx, tx, scope,
+		[]ReferenceSelection{{Host: "api.example.test", Reference: ref}}, "", referenceID, revision, readyAt.Add(2*time.Second))
+	if err == nil {
+		err = tx.Commit(ctx)
+	} else {
+		_ = tx.Rollback(ctx)
+	}
+	if err != nil {
+		t.Fatalf("direct-Git certificate guard: %v", err)
+	}
+	var references, addedEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references
+		WHERE binding_id=$1 AND version_id=$2 AND kind='git-current' AND reference_id=$3 AND revision=$4`,
+		created.Binding.ID, created.Version.ID, referenceID, revision).Scan(&references); err != nil || references != 1 {
+		t.Fatalf("direct-Git guard count=%d err=%v", references, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_events
+		WHERE binding_id=$1 AND version_id=$2 AND kind='reference-added' AND request_id=$3`, created.Binding.ID,
+		created.Version.ID, certificateReferenceRequestID(referenceID, revision)).Scan(&addedEvents); err != nil || addedEvents != 1 {
+		t.Fatalf("certificate reference-added events=%d err=%v", addedEvents, err)
+	}
+	if _, err = service.Delete(ctx, actorID, created.Binding.ID, "postgres-certificate-delete-guarded"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("guarded certificate deletion error=%v", err)
+	}
+
+	deletedRevision := strings.Repeat("8", 40)
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = referenceResolver.ReconcileGitCurrentCertificateReferencesTx(ctx, tx, scope, nil, "", referenceID, deletedRevision, readyAt.Add(3*time.Second))
+	if err == nil {
+		err = tx.Commit(ctx)
+	} else {
+		_ = tx.Rollback(ctx)
+	}
+	if err != nil {
+		t.Fatalf("direct-Git certificate prune: %v", err)
+	}
+	var removedEvents int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_references
+		WHERE binding_id=$1 AND kind='git-current' AND reference_id=$2`, created.Binding.ID, referenceID).Scan(&references); err != nil || references != 0 {
+		t.Fatalf("pruned certificate guards=%d err=%v", references, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM secret_binding_events
+		WHERE binding_id=$1 AND version_id=$2 AND kind='reference-removed' AND request_id=$3`, created.Binding.ID,
+		created.Version.ID, certificateReferenceRequestID(referenceID, deletedRevision)).Scan(&removedEvents); err != nil || removedEvents != 1 {
+		t.Fatalf("certificate reference-removed events=%d err=%v", removedEvents, err)
+	}
 }

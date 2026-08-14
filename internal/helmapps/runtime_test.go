@@ -22,6 +22,7 @@ func validRuntimeConfig(t *testing.T) RuntimeConfig {
 		ReadinessLeaseDuration: 30 * time.Second, OCIRequestTimeout: 15 * time.Second,
 		OCIRegistryHosts:  []string{"ghcr.io", "registry.example.com"},
 		OCIAuthHosts:      []string{"auth.example.com", "ghcr.io"},
+		OCIRedirectHosts:  []string{"pkg-containers.githubusercontent.com"},
 		PackageCacheBytes: 64 << 20, Application: runtime, Publisher: payload.Publisher}
 }
 
@@ -80,6 +81,11 @@ func TestRuntimeConfigEnabledFailsClosedOnEveryPartialPrerequisite(t *testing.T)
 		func() RuntimeConfig {
 			value := valid
 			value.OCIAuthHosts = []string{"HTTPS://auth.example.com"}
+			return value
+		}(),
+		func() RuntimeConfig {
+			value := valid
+			value.OCIRedirectHosts = []string{"z.example.com", "a.example.com"}
 			return value
 		}(),
 		func() RuntimeConfig {

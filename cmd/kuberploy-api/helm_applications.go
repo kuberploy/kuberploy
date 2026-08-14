@@ -68,7 +68,8 @@ func newHelmApplicationsAPIFromLookup(ctx context.Context, databaseURL string, p
 	client := &http.Client{Timeout: config.OCIRequestTimeout}
 	packages := &helmapps.CachedChartPackageSource{Upstream: helmapps.OCIHTTPPackageSource{
 		Client: client, AllowedRegistryHosts: append([]string(nil), config.OCIRegistryHosts...),
-		AllowedAuthHosts: append([]string(nil), config.OCIAuthHosts...), Credentials: credentials}, MaxBytes: config.PackageCacheBytes}
+		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...),
+		AllowedRedirectHosts: append([]string(nil), config.OCIRedirectHosts...), Credentials: credentials}, MaxBytes: config.PackageCacheBytes}
 	approvals := &helmapps.ApprovalAdmissionService{Store: admissionStore, Packages: packages,
 		Now: func() time.Time { return time.Now().UTC() }, NewID: id.New}
 	if approvals.Validate() != nil {

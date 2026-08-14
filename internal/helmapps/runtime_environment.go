@@ -22,6 +22,7 @@ const (
 	RuntimeOCIRequestSecondsEnv      = "KUBERPLOY_HELM_OCI_REQUEST_SECONDS"
 	RuntimeOCIRegistryHostsEnv       = "KUBERPLOY_HELM_OCI_REGISTRY_HOSTS"
 	RuntimeOCIAuthHostsEnv           = "KUBERPLOY_HELM_OCI_AUTH_HOSTS"
+	RuntimeOCIRedirectHostsEnv       = "KUBERPLOY_HELM_OCI_REDIRECT_HOSTS"
 	RuntimeOCICredentialProfilesEnv  = "KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON"
 	RuntimePackageCacheBytesEnv      = "KUBERPLOY_HELM_PACKAGE_CACHE_BYTES"
 	RuntimeArgoNamespaceEnv          = "KUBERPLOY_HELM_ARGO_NAMESPACE"
@@ -63,6 +64,12 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool), publisher Prote
 			return RuntimeConfig{}, ErrInvalid
 		}
 		config.OCIAuthHosts = strings.Split(authValue, ",")
+	}
+	if redirectValue, configured := lookup(RuntimeOCIRedirectHostsEnv); configured {
+		if redirectValue == "" || strings.TrimSpace(redirectValue) != redirectValue || strings.ContainsAny(redirectValue, "\x00\r\n") {
+			return RuntimeConfig{}, ErrInvalid
+		}
+		config.OCIRedirectHosts = strings.Split(redirectValue, ",")
 	}
 	if profilesValue, configured := lookup(RuntimeOCICredentialProfilesEnv); configured {
 		if len(profilesValue) > 32<<10 || strings.TrimSpace(profilesValue) != profilesValue || strings.ContainsAny(profilesValue, "\x00\r\n") {
@@ -131,5 +138,6 @@ func runtimeEnvironmentNames() []string {
 		RuntimeRendererPollMillisEnv, RuntimeWorkPollMillisEnv, RuntimeRenderLeaseSecondsEnv,
 		RuntimePublishLeaseSecondsEnv,
 		RuntimeReadinessSecondsEnv, RuntimeOCIRequestSecondsEnv, RuntimeOCIRegistryHostsEnv,
-		RuntimeOCIAuthHostsEnv, RuntimeOCICredentialProfilesEnv, RuntimePackageCacheBytesEnv, RuntimeArgoNamespaceEnv}
+		RuntimeOCIAuthHostsEnv, RuntimeOCIRedirectHostsEnv, RuntimeOCICredentialProfilesEnv,
+		RuntimePackageCacheBytesEnv, RuntimeArgoNamespaceEnv}
 }

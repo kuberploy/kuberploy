@@ -650,7 +650,7 @@
         "helmApplications": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "rendererNamespace", "rendererPollMilliseconds", "workPollMilliseconds", "renderLeaseSeconds", "publishLeaseSeconds", "readinessLeaseSeconds", "ociRequestSeconds", "ociRegistryHosts", "ociAuthHosts", "ociCredentialProfiles", "packageCacheBytes"],
+          "required": ["enabled", "rendererNamespace", "rendererPollMilliseconds", "workPollMilliseconds", "renderLeaseSeconds", "publishLeaseSeconds", "readinessLeaseSeconds", "ociRequestSeconds", "ociRegistryHosts", "ociAuthHosts", "ociRedirectHosts", "ociCredentialProfiles", "packageCacheBytes"],
           "properties": {
             "enabled": { "type": "boolean" },
             "rendererNamespace": { "$ref": "#/$defs/optionalDNSLabel" },
@@ -665,6 +665,10 @@
               "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
             },
             "ociAuthHosts": {
+              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
+            },
+            "ociRedirectHosts": {
               "type": "array", "maxItems": 64, "uniqueItems": true,
               "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
             },
@@ -710,6 +714,7 @@
                 "ociRequestSeconds": { "const": 15 },
                 "ociRegistryHosts": { "maxItems": 0 },
                 "ociAuthHosts": { "maxItems": 0 },
+                "ociRedirectHosts": { "maxItems": 0 },
                 "ociCredentialProfiles": { "maxItems": 0 },
                 "packageCacheBytes": { "const": 67108864 }
               } }

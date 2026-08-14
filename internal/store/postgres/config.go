@@ -88,8 +88,23 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 		if refsErr != nil {
 			return base.ErrPreconditionFailed
 		}
-		if _, candidateErr = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, candidateRuntime, middlewareRefs); candidateErr != nil {
-			return candidateErr
+		certificateRefs, refsErr := appConfigCertificateReferences(candidateParsed)
+		if refsErr != nil {
+			return base.ErrPreconditionFailed
+		}
+		usesRuntimeSecrets := base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0
+		if usesRuntimeSecrets != (referencePlan.RuntimeSecretDigest != "") || (len(certificateRefs) != 0) != (referencePlan.CertificateDigest != "") {
+			return base.ErrPreconditionFailed
+		}
+		if usesRuntimeSecrets {
+			if _, candidateErr = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, candidateRuntime, middlewareRefs); candidateErr != nil {
+				return candidateErr
+			}
+		}
+		if len(certificateRefs) != 0 {
+			if _, candidateErr = s.validateCertificateReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, certificateRefs, time.Now().UTC()); candidateErr != nil {
+				return candidateErr
+			}
 		}
 		if candidateErr = validateSchedulingRuntimeTx(ctx, tx, projectID, environmentID, applicationID, candidateRuntime); candidateErr != nil {
 			return candidateErr
@@ -100,7 +115,8 @@ func (s *Store) CreateDeploymentConfigPreview(ctx context.Context, actor string,
 			return candidateErr
 		}
 		middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(candidateParsed)
-		if refsErr != nil || base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0 {
+		certificateRefs, certificateErr := appConfigCertificateReferences(candidateParsed)
+		if refsErr != nil || certificateErr != nil || base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0 || len(certificateRefs) != 0 {
 			return base.ErrPreconditionFailed
 		}
 		if projection != nil {
@@ -223,7 +239,11 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(candidateParsed)
-	if refsErr != nil || (base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0) && referencePlan == nil {
+	certificateRefs, certificateRefsErr := appConfigCertificateReferences(candidateParsed)
+	usesRuntimeSecrets := base.AppConfigUsesRuntimeSecrets(candidateRuntime) || len(middlewareRefs) != 0
+	if refsErr != nil || certificateRefsErr != nil || referencePlan == nil && (usesRuntimeSecrets || len(certificateRefs) != 0) ||
+		referencePlan != nil && (usesRuntimeSecrets != (referencePlan.RuntimeSecretDigest != "") ||
+			(len(certificateRefs) != 0) != (referencePlan.CertificateDigest != "")) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	if projection != nil {
@@ -236,9 +256,17 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	if err = validateSchedulingRuntimeTx(ctx, tx, projectID, environmentID, applicationID, candidateRuntime); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if projection != nil {
-		if err = replaceRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectionBinding, projectID, environmentID,
-			applicationID, candidateRuntime, middlewareRefs, in.RawYAML, requestID, now); err != nil {
+	if len(certificateRefs) != 0 {
+		if _, err = s.validateCertificateReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID, applicationID, certificateRefs, time.Now().UTC()); err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, err
+		}
+	}
+	// A queued Git command is not the current Git document. Revalidate the
+	// candidate under locks, but preserve the currently indexed AppConfig's
+	// deletion guards until projection activation atomically reconciles them.
+	if projection != nil && usesRuntimeSecrets {
+		if _, err = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, environmentID,
+			applicationID, candidateRuntime, middlewareRefs); err != nil {
 			return base.Result[domain.Deployment]{}, domain.Operation{}, err
 		}
 	}

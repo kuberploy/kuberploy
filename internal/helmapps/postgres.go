@@ -366,7 +366,15 @@ func (s *PostgresStore) PutReadiness(ctx context.Context, readiness Readiness) e
 	if readiness.Validate() != nil || readiness.RenderWorkerIdentity != ExpectedRenderWorkerIdentity(s.operatorConfigDigest) {
 		return ErrInvalid
 	}
-	_, err := s.pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if err = pruneExpiredHelmReadinessTx(ctx, tx, "helm-renderer", readiness.WorkerID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
 		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at
 	) VALUES('helm-renderer','global',$1,$2,$3,$8,jsonb_build_object(
 		'rendererImage',$4::text,'rendererVersion',$5::text,'policyVersion',$6::text,'limitsDigest',$7::text
@@ -379,7 +387,10 @@ func (s *PostgresStore) PutReadiness(ctx context.Context, readiness Readiness) e
 		readiness.RendererVersion, readiness.PolicyVersion, readiness.LimitsDigest,
 		readiness.OperatorConfigDigest,
 		readiness.StartedAt, readiness.ObservedAt, readiness.LeaseUntil)
-	return classifyPostgres(err)
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	return classifyPostgres(tx.Commit(ctx))
 }
 
 func (s *PostgresStore) RuntimeReady(ctx context.Context, now time.Time) (bool, error) {

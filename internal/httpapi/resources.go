@@ -382,6 +382,24 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 		mappedError(w, r, replayErr)
 		return
 	}
+	// Every deployment source, including existing-image, build promotion, and
+	// rollback, crosses the exact actor/application/environment/repository
+	// catalog fence. Immutable syntax proves bytes, never repository authority.
+	if s.imageResolutionCatalog == nil || !imageresolution.IsImmutableImage(create.Image) {
+		mappedImageResolutionError(w, r, imageresolution.ErrUnavailable)
+		return
+	}
+	resolution, resolutionErr := (&imageresolution.Resolver{Catalog: s.imageResolutionCatalog}).Resolve(
+		r.Context(), actor, create.ApplicationID, create.EnvironmentID, create.Image,
+	)
+	if resolutionErr != nil {
+		mappedImageResolutionError(w, r, resolutionErr)
+		return
+	}
+	if resolution.ImmutableImage != create.Image || resolution.Resolved {
+		mappedImageResolutionError(w, r, imageresolution.ErrConflict)
+		return
+	}
 	resolvedRuntime, schedulingErr := s.resolveSchedulingRuntime(r.Context(), actor, domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, create.Runtime, true)
 	if schedulingErr != nil {
 		mappedSchedulingRuntimeError(w, r, schedulingErr)

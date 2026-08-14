@@ -1,6 +1,6 @@
 {
   "breakingChanges": false,
-  "summary": "Certificate-issuer observations normalize PostgreSQL timestamps to UTC so configured issuer management remains available after the first live target is observed.",
+  "summary": "Certificate, secret, registry, image-admission, Helm-readiness, OCI redirect, and Argo desired-state fences now fail closed while recovering safely from transient runtime state.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.159"
+  "version": "0.1.0-rc.160"
 }
