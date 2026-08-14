@@ -1140,6 +1140,230 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	f := newHelmReleasePGFixture()
+	setup, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupHelmReleasePGFixture(t, ctx, setup, f)
+	if err = setup.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	releases, err := NewPostgresReleaseService(pool, helmPGOperatorDigest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := ReleaseTarget{ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		ApplicationID: f.applicationID}
+	publisher := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
+		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
+	binding := ProtectedBindingSnapshot{PlatformBindingID: f.platformBindingID,
+		EnvironmentBindingID: f.environmentBindingID, ClusterID: f.clusterID,
+		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
+		CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead}
+
+	release, replay, err := releases.Upsert(ctx, UpsertReleaseRequest{
+		Target: target, Approval: ApprovalKey{ID: f.approvalID, Revision: 1}, ValuesYAML: f.values,
+		Actor: ReleaseActor{ID: f.userID, IdempotencyKey: "disable-predecessor-" + id.New(),
+			RequestID: "disable-predecessor"},
+	}, f.now.Add(time.Second))
+	if err != nil || replay || !release.DesiredEnabled {
+		t.Fatalf("predecessor release=%+v replay=%v err=%v", release, replay, err)
+	}
+	renderTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeHelmRender(t, ctx, renderTx, f, release.RenderCommandID, f.now.Add(2*time.Second))
+	if err = renderTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	payload, replay, err := store.CreatePayloadForHead(ctx, id.New(), target, binding,
+		publisher, f.now.Add(4*time.Second))
+	if err != nil || replay || payload.Action != ProtectedPayloadPublish {
+		t.Fatalf("predecessor payload=%+v replay=%v err=%v", payload, replay, err)
+	}
+	payload, payloadLease, err := store.ClaimPayload(ctx, "helm-disable-worker-0001", publisher,
+		f.now.Add(5*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err = store.BindPayloadWriteBase(ctx, payloadLease, f.platformHead,
+		f.now.Add(6*time.Second), f.now.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadCommit := strings.Repeat("b", 40)
+	payload, err = store.MarkPayloadCommitted(ctx, payloadLease, payloadCommit, f.platformHead,
+		f.now.Add(7*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err = store.VerifyPayload(ctx, payloadLease, payloadCommit, payload.ContentDigest,
+		"disable-predecessor-payload", f.now.Add(8*time.Second))
+	if err != nil || payload.State != ProtectedVerified {
+		t.Fatalf("verified predecessor payload=%+v err=%v", payload, err)
+	}
+	advanceTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, payloadCommit, f.now.Add(9*time.Second))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	application, replay, err := store.CreateApplicationForPayload(ctx, id.New(), payload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, f.now.Add(10*time.Second))
+	if err != nil || replay || application.Action != ProtectedApplicationPublish {
+		t.Fatalf("predecessor application=%+v replay=%v err=%v", application, replay, err)
+	}
+	application, applicationLease, err := store.ClaimApplication(ctx, "helm-disable-worker-0001",
+		publisher, f.now.Add(11*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err = store.BindApplicationWriteBase(ctx, applicationLease, payloadCommit,
+		f.now.Add(12*time.Second), f.now.Add(12*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationCommit := strings.Repeat("c", 40)
+	application, err = store.MarkApplicationCommitted(ctx, applicationLease, applicationCommit,
+		payloadCommit, f.now.Add(13*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err = store.VerifyApplication(ctx, applicationLease, applicationCommit,
+		application.ContentDigest, "disable-predecessor-application", f.now.Add(14*time.Second))
+	if err != nil || application.State != ProtectedVerified {
+		t.Fatalf("verified predecessor application=%+v err=%v", application, err)
+	}
+	advanceTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, applicationCommit, f.now.Add(15*time.Second))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	disableRequest := DisableReleaseRequest{Target: target, Actor: ReleaseActor{ID: f.userID,
+		IdempotencyKey: "disable-lifecycle-" + id.New(), RequestID: "disable-lifecycle"}}
+	disable, replay, err := releases.Disable(ctx, disableRequest, f.now.Add(16*time.Second))
+	if err != nil || replay || disable.DesiredEnabled || disable.Action != ReleaseDisable ||
+		disable.BaseApplicationIntentID != application.ID {
+		t.Fatalf("disable release=%+v replay=%v err=%v", disable, replay, err)
+	}
+	replayedDisable, replay, err := releases.Disable(ctx, disableRequest, f.now.Add(17*time.Second))
+	if err != nil || !replay || replayedDisable.ID != disable.ID {
+		t.Fatalf("disable replay=%+v replay=%v err=%v", replayedDisable, replay, err)
+	}
+
+	binding.PlannedBaseRevision = applicationCommit
+	disablePayloadID := id.New()
+	disablePayload, replay, err := store.CreatePayloadForHead(ctx, disablePayloadID, target, binding,
+		publisher, f.now.Add(18*time.Second))
+	if err != nil || replay || disablePayload.Action != ProtectedPayloadDisable {
+		t.Fatalf("disable payload=%+v replay=%v err=%v", disablePayload, replay, err)
+	}
+	disablePayload, disablePayloadLease, err := store.ClaimPayload(ctx, "helm-disable-worker-0001",
+		publisher, f.now.Add(19*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayload, err = store.BindPayloadWriteBase(ctx, disablePayloadLease, applicationCommit,
+		f.now.Add(20*time.Second), f.now.Add(20*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayloadCommit := strings.Repeat("d", 40)
+	disablePayload, err = store.MarkPayloadCommitted(ctx, disablePayloadLease, disablePayloadCommit,
+		applicationCommit, f.now.Add(21*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayload, err = store.VerifyPayload(ctx, disablePayloadLease, disablePayloadCommit,
+		disablePayload.ContentDigest, "disable-payload", f.now.Add(22*time.Second))
+	if err != nil || disablePayload.State != ProtectedVerified {
+		t.Fatalf("verified disable payload=%+v err=%v", disablePayload, err)
+	}
+	advanceTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, disablePayloadCommit, f.now.Add(23*time.Second))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	deleteID := id.New()
+	deleted, replay, err := store.CreateApplicationForPayload(ctx, deleteID, disablePayload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, f.now.Add(24*time.Second))
+	if err != nil || replay || deleted.Action != ProtectedApplicationDelete ||
+		deleted.Operation != "delete" || len(deleted.Content) != 0 || deleted.ContentDigest != "" {
+		t.Fatalf("delete application=%+v replay=%v err=%v", deleted, replay, err)
+	}
+	var contentNull bool
+	var contentLength int
+	if err = pool.QueryRow(ctx, `SELECT content IS NULL,octet_length(content)
+		FROM public.helm_protected_application_intents WHERE id=$1`, deleteID).
+		Scan(&contentNull, &contentLength); err != nil || contentNull || contentLength != 0 {
+		t.Fatalf("delete content null=%v length=%d err=%v", contentNull, contentLength, err)
+	}
+	replayedDelete, replay, err := store.CreateApplicationForPayload(ctx, deleteID, disablePayload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, f.now.Add(25*time.Second))
+	if err != nil || !replay || replayedDelete.ID != deleted.ID {
+		t.Fatalf("delete replay=%+v replay=%v err=%v", replayedDelete, replay, err)
+	}
+	if _, _, err = store.CreateApplicationForPayload(ctx, id.New(), disablePayload.ID,
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		f.now.Add(25*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("duplicate delete application was accepted: %v", err)
+	}
+	deleted, deleteLease, err := store.ClaimApplication(ctx, "helm-disable-worker-0001", publisher,
+		f.now.Add(26*time.Second), time.Minute)
+	if err != nil || deleted.ID != deleteID {
+		t.Fatalf("claimed delete=%+v lease=%+v err=%v", deleted, deleteLease, err)
+	}
+	deleted, err = store.BindApplicationWriteBase(ctx, deleteLease, disablePayloadCommit,
+		f.now.Add(27*time.Second), f.now.Add(27*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteCommit := strings.Repeat("e", 40)
+	deleted, err = store.MarkApplicationCommitted(ctx, deleteLease, deleteCommit,
+		disablePayloadCommit, f.now.Add(28*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err = store.VerifyApplication(ctx, deleteLease, deleteCommit, "",
+		"disable-application", f.now.Add(29*time.Second))
+	if err != nil || deleted.State != ProtectedVerified || deleted.VerifiedPathDigest != "" {
+		t.Fatalf("verified delete=%+v err=%v", deleted, err)
+	}
+}
+
 func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

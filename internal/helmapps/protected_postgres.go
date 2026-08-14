@@ -345,6 +345,9 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.ContentDigest = digestBytes(value.Content)
 	} else {
 		value.Action, value.Operation, value.Precondition = ProtectedApplicationDelete, "delete", "match-etag"
+		// pgx encodes a nil []byte as SQL NULL. Delete intents deliberately carry
+		// zero bytes, but the protected intent contract stores content as NOT NULL.
+		value.Content = []byte{}
 		value.Message = "Delete protected Helm Application " + release.ID
 		value.ExpectedETag, err = baseApplicationETag(ctx, tx,
 			release.BaseApplicationIntentID, value.ApplicationPath)

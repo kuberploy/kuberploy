@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Database schema advances to 010 so Helm phase-two Application publication accepts a current no-change materialization that reuses an older verified command while retaining current projection, content, runtime, AppProject, and foundation authority.",
+  "summary": "Helm disable publication now stores the protected Application delete intent as exact zero-length non-null content, allowing the existing schema 010 delete contract to complete safely and idempotently.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.169"
+  "version": "0.1.0-rc.170"
 }
