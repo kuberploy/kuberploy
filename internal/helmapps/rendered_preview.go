@@ -274,7 +274,7 @@ func sanitizeYAMLNode(node *yaml.Node, path []string) {
 		for index := 0; index+1 < len(node.Content); index += 2 {
 			key, value := node.Content[index], node.Content[index+1]
 			name := strings.ToLower(strings.TrimSpace(key.Value))
-			if name == "annotations" || sensitivePreviewLeaf(name) ||
+			if name == "command" || name == "args" || name == "annotations" || sensitivePreviewLeaf(name) ||
 				(name == "value" && pathContains(path, "env")) {
 				node.Content[index+1] = redactedYAMLNode()
 				continue
@@ -284,12 +284,6 @@ func sanitizeYAMLNode(node *yaml.Node, path []string) {
 	case yaml.SequenceNode:
 		for _, child := range node.Content {
 			sanitizeYAMLNode(child, path)
-		}
-	case yaml.ScalarNode:
-		// Commands and arguments often embed credentials as --token=value.
-		if (pathContains(path, "command") || pathContains(path, "args")) &&
-			containsSensitivePreviewText(node.Value) {
-			*node = *redactedYAMLNode()
 		}
 	}
 }
@@ -306,17 +300,6 @@ func sensitivePreviewLeaf(name string) bool {
 		"connection-string", "databaseurl", "database-url", "dsn", "dockerconfigjson", "sshkey",
 		"ssh-key"} {
 		if strings.Contains(name, token) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsSensitivePreviewText(value string) bool {
-	lower := strings.ToLower(value)
-	for _, token := range []string{"password", "passwd", "token", "credential", "private-key",
-		"private_key", "api-key", "apikey", "authorization", "bearer"} {
-		if strings.Contains(lower, token) {
 			return true
 		}
 	}

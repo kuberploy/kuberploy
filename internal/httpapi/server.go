@@ -379,8 +379,6 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/registry-cleanup-plans/{id}", registryNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.registry.cleanupPlan)))))
 	mux.Handle("POST /v1/registry-cleanup-plans/{id}/executions", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryExecuteLimit, http.HandlerFunc(s.registry.executeCleanup))))))
 	mux.Handle("GET /v1/platform/releases/latest", s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.latestRelease)))))
-	mux.Handle("GET /v1/platform/upgrades", s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.platformUpgrades)))))
-	mux.Handle("GET /v1/platform/upgrades/{id}", s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.platformUpgrade)))))
 	mux.Handle("GET /v1/config-schemas/config.kuberploy.io/v1alpha1", s.protect(http.HandlerFunc(s.configSchema)))
 	s.handler = s.withRequestID(s.recover(mux))
 	return s

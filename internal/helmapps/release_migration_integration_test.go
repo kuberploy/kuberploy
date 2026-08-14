@@ -15,8 +15,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/id"
 )
+
+func helmPGArgoAuthority() ArgoMaterializationAuthority {
+	return ArgoMaterializationAuthority{PolicyDigest: helmPGDigest([]byte("argo-materialization-policy")),
+		Runtime: argo.RuntimeLock{ChartRepository: "oci://registry.example.com/kuberploy/runtime",
+			ChartName: argo.RuntimeChartName, ChartVersion: "1.2.3",
+			ChartDigest:   helmPGDigest([]byte("runtime-chart")),
+			RendererImage: "registry.example.com/kuberploy/runtime@" + helmPGDigest([]byte("renderer"))},
+		DigestEnforcement: argo.ChartDigestNativeOCI}
+}
 
 type helmReleasePGFixture struct {
 	userID, projectID, environmentID, applicationID                string
@@ -305,7 +315,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = renderTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewPostgresProtectedPublicationStore(pool)
+	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +592,7 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 			f.foundationIntentID, f.now.Add(3*time.Second)); updateErr != nil {
 			t.Fatal(updateErr)
 		}
-		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrFoundationNotReady) {
+		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, helmPGArgoAuthority(), f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrFoundationNotReady) {
 			t.Fatalf("missing foundation error=%v", gateErr)
 		}
 	})
@@ -603,7 +613,7 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 			updated_at=$2 WHERE id=$1`, f.desiredStateCommandID, f.now.Add(3*time.Second)); updateErr != nil {
 			t.Fatal(updateErr)
 		}
-		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, helmPGArgoAuthority(), f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
 			t.Fatalf("unverified Argo project error=%v", gateErr)
 		}
 	})
@@ -614,20 +624,105 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 			t.Fatal(beginErr)
 		}
 		defer func() { _ = nested.Rollback(ctx) }()
+		if _, deleteErr := nested.Exec(ctx, `ALTER TABLE argo_desired_state_materialization_receipts
+			DISABLE TRIGGER argo_desired_state_materialization_receipts_validate`); deleteErr != nil {
+			t.Fatal(deleteErr)
+		}
+		if _, deleteErr := nested.Exec(ctx, `DELETE FROM argo_desired_state_materialization_receipts
+			WHERE desired_state_command_id=$1`, f.desiredStateCommandID); deleteErr != nil {
+			t.Fatal(deleteErr)
+		}
 		if _, deleteErr := nested.Exec(ctx, `DELETE FROM argo_desired_state_commands WHERE id=$1`,
 			f.desiredStateCommandID); deleteErr != nil {
 			t.Fatal(deleteErr)
 		}
-		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, binding, helmPGArgoAuthority(), f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
 			t.Fatalf("missing Argo project error=%v", gateErr)
 		}
 	})
 
 	t.Run("stale Argo project", func(t *testing.T) {
+		nested, beginErr := tx.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		defer func() { _ = nested.Rollback(ctx) }()
 		stale := binding
 		stale.EnvironmentRevision, stale.EnvironmentGeneration = strings.Repeat("2", 40), 2
-		if _, gateErr := ensurePublicationPrerequisite(ctx, tx, release, stale, f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, stale, helmPGArgoAuthority(), f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
 			t.Fatalf("stale Argo project error=%v", gateErr)
+		}
+	})
+
+	t.Run("rotated Argo policy requires fresh materialization", func(t *testing.T) {
+		rotated := helmPGArgoAuthority()
+		rotated.PolicyDigest = helmPGDigest([]byte("rotated-argo-materialization-policy"))
+		if _, gateErr := ensurePublicationPrerequisite(ctx, tx, release, binding, rotated,
+			f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+			t.Fatalf("stale policy materialization error=%v", gateErr)
+		}
+	})
+
+	t.Run("rotated Argo runtime requires fresh materialization", func(t *testing.T) {
+		rotated := helmPGArgoAuthority()
+		rotated.Runtime.ChartDigest = helmPGDigest([]byte("rotated-runtime-chart"))
+		if _, gateErr := ensurePublicationPrerequisite(ctx, tx, release, binding, rotated,
+			f.now.Add(4*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+			t.Fatalf("stale runtime materialization error=%v", gateErr)
+		}
+	})
+
+	t.Run("verified Argo policy digest is immutable", func(t *testing.T) {
+		expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+			_, nestedErr := nested.Exec(ctx, `UPDATE argo_desired_state_commands
+				SET policy_digest=$2 WHERE id=$1`, f.desiredStateCommandID,
+				helmPGDigest([]byte("mutated-verified-policy")))
+			return nestedErr
+		})
+	})
+
+	t.Run("unchanged AppProject survives unrelated branch advance", func(t *testing.T) {
+		nested, beginErr := tx.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		defer func() { _ = nested.Rollback(ctx) }()
+		advanced := binding
+		advanced.EnvironmentRevision, advanced.EnvironmentGeneration = strings.Repeat("2", 40), 2
+		if _, updateErr := nested.Exec(ctx, `INSERT INTO git_projection_generations(
+			binding_id,generation,head_revision,parser_version,state,started_at,activated_at
+		) VALUES($1,$2,$3,'gitprojection.v1','active',$4,$4)`, f.environmentBindingID,
+			advanced.EnvironmentGeneration, advanced.EnvironmentRevision, f.now.Add(4*time.Second)); updateErr != nil {
+			t.Fatal(updateErr)
+		}
+		if _, updateErr := nested.Exec(ctx, `UPDATE git_repository_bindings SET
+			target_head_revision=$2,indexed_revision=$2,projection_generation=$3,
+			target_head_observed_at=$4,indexed_at=$4,updated_at=$4 WHERE id=$1`,
+			f.environmentBindingID, advanced.EnvironmentRevision, advanced.EnvironmentGeneration,
+			f.now.Add(4*time.Second)); updateErr != nil {
+			t.Fatal(updateErr)
+		}
+		if _, gateErr := ensurePublicationPrerequisite(ctx, nested, release, advanced, helmPGArgoAuthority(),
+			f.now.Add(5*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+			t.Fatalf("pre-materializer branch advance error=%v", gateErr)
+		}
+		insertArgoMaterializationReceipt(t, ctx, nested, f, id.New(),
+			advanced.EnvironmentRevision, advanced.EnvironmentGeneration,
+			f.desiredStateCommandID, f.now.Add(5*time.Second))
+		receipt, gateErr := ensurePublicationPrerequisite(ctx, nested, release, advanced, helmPGArgoAuthority(), f.now.Add(5*time.Second))
+		if gateErr != nil || receipt.EnvironmentRevision != advanced.EnvironmentRevision ||
+			receipt.EnvironmentGeneration != advanced.EnvironmentGeneration ||
+			receipt.DesiredStateCommandID != f.desiredStateCommandID ||
+			receipt.DesiredStateRevision != f.desiredStateRevision {
+			t.Fatalf("unchanged AppProject receipt=%+v err=%v", receipt, gateErr)
+		}
+		replayed, replayErr := ensurePublicationPrerequisite(ctx, nested, release, advanced, helmPGArgoAuthority(),
+			f.now.Add(6*time.Second))
+		if replayErr != nil || replayed != receipt {
+			t.Fatalf("unchanged AppProject replay=%+v want=%+v err=%v", replayed, receipt, replayErr)
+		}
+		if readback, readErr := publicationPrerequisite(ctx, nested, release.ID); readErr != nil || readback != receipt {
+			t.Fatalf("unchanged AppProject readback=%+v want=%+v err=%v", readback, receipt, readErr)
 		}
 	})
 
@@ -652,23 +747,46 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 		ENABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
 		t.Fatal(err)
 	}
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE argo_desired_state_commands
+			SET policy_digest=$2 WHERE id=$1`, pendingDesiredStateID,
+			helmPGDigest([]byte("mutated-live-policy")))
+		return nestedErr
+	})
+	if _, gateErr := ensurePublicationPrerequisite(ctx, tx, release, binding, helmPGArgoAuthority(),
+		f.now.Add(5*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+		t.Fatalf("newer live Argo authority error=%v", gateErr)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE argo_desired_state_commands SET
+		state='failed',consecutive_failures=1,last_failure_code='materialization-test',
+		completed_at=$2,updated_at=$2 WHERE id=$1`, pendingDesiredStateID,
+		f.now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, gateErr := ensurePublicationPrerequisite(ctx, tx, release, binding, helmPGArgoAuthority(),
+		f.now.Add(6*time.Second)); !errors.Is(gateErr, ErrArgoProjectNotReady) {
+		t.Fatalf("newer failed Argo authority without fresh proof error=%v", gateErr)
+	}
+	insertArgoMaterializationReceipt(t, ctx, tx, f, id.New(), binding.EnvironmentRevision,
+		binding.EnvironmentGeneration, f.desiredStateCommandID,
+		f.now.Add(7*time.Second))
 
 	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
-		return insertHelmPayloadRow(ctx, nested, f, payloadFixture, f.now.Add(5*time.Second))
+		return insertHelmPayloadRow(ctx, nested, f, payloadFixture, f.now.Add(7*time.Second))
 	})
 
-	receipt, err := ensurePublicationPrerequisite(ctx, tx, release, binding, f.now.Add(5*time.Second))
+	receipt, err := ensurePublicationPrerequisite(ctx, tx, release, binding, helmPGArgoAuthority(), f.now.Add(8*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	replayed, err := ensurePublicationPrerequisite(ctx, tx, release, binding, f.now.Add(6*time.Second))
+	replayed, err := ensurePublicationPrerequisite(ctx, tx, release, binding, helmPGArgoAuthority(), f.now.Add(9*time.Second))
 	if err != nil || replayed != receipt {
 		t.Fatalf("receipt replay=%+v want=%+v err=%v", replayed, receipt, err)
 	}
 	if _, err = publicationPrerequisite(ctx, tx, release.ID); err != nil {
 		t.Fatalf("exact receipt was not readable: %v", err)
 	}
-	if err = insertHelmPayloadRow(ctx, tx, f, payloadFixture, f.now.Add(6*time.Second)); err != nil {
+	if err = insertHelmPayloadRow(ctx, tx, f, payloadFixture, f.now.Add(9*time.Second)); err != nil {
 		t.Fatalf("new writer receipt plus intent was rejected: %v", err)
 	}
 	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
@@ -724,7 +842,7 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 	}
 	phaseTwoBinding := binding
 	phaseTwoBinding.PlannedBaseRevision = strings.Repeat("4", 40)
-	if got, replayErr := ensurePublicationPrerequisite(ctx, tx, release, phaseTwoBinding,
+	if got, replayErr := ensurePublicationPrerequisite(ctx, tx, release, phaseTwoBinding, helmPGArgoAuthority(),
 		f.now.Add(10*time.Second)); replayErr != nil || got != receipt {
 		t.Fatalf("phase-local base advance stranded receipt replay: got=%+v err=%v", got, replayErr)
 	}
@@ -765,6 +883,17 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = tx.Rollback(context.Background()) })
 	if _, err = tx.Exec(ctx, `
+		DROP TRIGGER argo_desired_state_commands_require_policy_digest ON argo_desired_state_commands;
+		DROP FUNCTION require_argo_desired_state_policy_digest();
+		DROP TRIGGER argo_desired_state_commands_fence_legacy_recovery ON argo_desired_state_commands;
+		DROP FUNCTION fence_legacy_argo_desired_state_recovery();
+		DROP TRIGGER argo_desired_state_materialization_on_verified ON argo_desired_state_commands;
+		DROP FUNCTION record_verified_argo_desired_state_materialization();
+		DROP TRIGGER argo_desired_state_materialization_receipts_validate
+			ON argo_desired_state_materialization_receipts;
+		DROP FUNCTION validate_argo_desired_state_materialization_receipt();
+		DROP TABLE argo_desired_state_materialization_receipts;
+		ALTER TABLE argo_desired_state_commands DROP COLUMN policy_digest;
 		DROP TRIGGER helm_protected_payload_prerequisite_receipt ON helm_protected_payload_intents;
 		DROP TRIGGER helm_protected_application_prerequisite_receipt ON helm_protected_application_intents;
 		DROP FUNCTION require_helm_publication_prerequisite_receipt();
@@ -906,6 +1035,12 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 		generation: oldWriterRelease.Generation, action: "publish", path: helmPayloadPath(oldWriter, oldWriterRelease.ID, false),
 		content: oldWriter.manifest, contentDigest: oldWriter.manifestDigest,
 		inventoryDigest: oldWriter.inventoryDigest, resourceCount: 1}
+	legacyPending, legacyEmptyClaim, legacyRecovery, legacyPendingRecovery := newHelmReleasePGFixture(),
+		newHelmReleasePGFixture(), newHelmReleasePGFixture(), newHelmReleasePGFixture()
+	setupHelmReleasePGFixture(t, ctx, tx, legacyPending)
+	setupHelmReleasePGFixture(t, ctx, tx, legacyEmptyClaim)
+	setupHelmReleasePGFixture(t, ctx, tx, legacyRecovery)
+	setupHelmReleasePGFixture(t, ctx, tx, legacyPendingRecovery)
 
 	body, err := migrations.FS.ReadFile("prisma/migrations/004_helm_publication_prerequisites/migration.sql")
 	if err != nil {
@@ -1038,6 +1173,154 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
 		return insertLegacyHelmPayloadRow(ctx, nested, oldWriter, oldWriterPayload, oldWriter.now.Add(3*time.Second))
 	})
+
+	if _, err = tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands DISABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	legacyPendingID, legacyEmptyClaimID, legacyRecoveryID, legacyPendingRecoveryID :=
+		id.New(), id.New(), id.New(), id.New()
+	if _, err = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands
+		SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+			to_jsonb(command) || jsonb_build_object(
+			'id',$2::text,'generation',2,'state','pending','write_base_revision','',
+			'write_base_observed_at',NULL,'committed_revision','','committed_at',NULL,
+			'verified_at',NULL,'completed_at',NULL,'lease_owner',NULL,'lease_epoch',0,
+			'lease_until',NULL,'worker_contract',NULL,'worker_config_digest',NULL,
+			'next_attempt_at',$3::timestamptz,'created_at',$3::timestamptz,
+			'updated_at',$3::timestamptz))).*
+		FROM argo_desired_state_commands command WHERE command.id=$1`,
+		legacyPending.desiredStateCommandID, legacyPendingID, legacyPending.now); err != nil {
+		t.Fatal(err)
+	}
+	legacyWorkerDigest := helmPGDigest([]byte("legacy-argo-worker"))
+	if _, err = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands
+		SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+			to_jsonb(command) || jsonb_build_object(
+			'id',$2::text,'generation',2,'state','claimed','write_base_revision','',
+			'write_base_observed_at',NULL,'committed_revision','','committed_at',NULL,
+			'verified_at',NULL,'completed_at',NULL,'lease_owner','legacy-argo-worker-empty',
+			'lease_epoch',1,'lease_until',$3::timestamptz + interval '5 minutes',
+			'worker_contract','argo-desired-state.v1','worker_config_digest',$4::text,
+			'next_attempt_at',$3::timestamptz,'created_at',$3::timestamptz,
+			'updated_at',$3::timestamptz))).*
+		FROM argo_desired_state_commands command WHERE command.id=$1`,
+		legacyEmptyClaim.desiredStateCommandID, legacyEmptyClaimID,
+		legacyEmptyClaim.now, legacyWorkerDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands
+		SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+			to_jsonb(command) || jsonb_build_object(
+			'id',$2::text,'generation',2,'state','claimed','write_base_revision',$4::text,
+			'write_base_observed_at',$3::timestamptz,'committed_revision','','committed_at',NULL,
+			'verified_at',NULL,'completed_at',NULL,'lease_owner','legacy-argo-worker-recovery',
+			'lease_epoch',1,'lease_until',$3::timestamptz + interval '1 second',
+			'worker_contract','argo-desired-state.v1','worker_config_digest',$5::text,
+			'next_attempt_at',$3::timestamptz,'created_at',$3::timestamptz,
+			'updated_at',$3::timestamptz))).*
+		FROM argo_desired_state_commands command WHERE command.id=$1`,
+		legacyRecovery.desiredStateCommandID, legacyRecoveryID,
+		legacyRecovery.now, legacyRecovery.platformHead, legacyWorkerDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands
+		SELECT (jsonb_populate_record(NULL::argo_desired_state_commands,
+			to_jsonb(command) || jsonb_build_object(
+			'id',$2::text,'generation',2,'state','pending','write_base_revision',$4::text,
+			'write_base_observed_at',$3::timestamptz,'committed_revision','','committed_at',NULL,
+			'verified_at',NULL,'completed_at',NULL,'lease_owner',NULL,'lease_epoch',1,
+			'lease_until',NULL,'worker_contract',NULL,'worker_config_digest',NULL,
+			'next_attempt_at',$3::timestamptz,'created_at',$3::timestamptz,
+			'updated_at',$3::timestamptz))).*
+		FROM argo_desired_state_commands command WHERE command.id=$1`,
+		legacyPendingRecovery.desiredStateCommandID, legacyPendingRecoveryID,
+		legacyPendingRecovery.now, legacyPendingRecovery.platformHead); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands ENABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/005_helm_unchanged_project_receipt/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
+	var pendingState, emptyClaimState, recoveryState, pendingRecoveryState string
+	var recoveryPolicy *string
+	if err = tx.QueryRow(ctx, `SELECT state FROM argo_desired_state_commands WHERE id=$1`,
+		legacyPendingID).Scan(&pendingState); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT state FROM argo_desired_state_commands WHERE id=$1`,
+		legacyEmptyClaimID).Scan(&emptyClaimState); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT state,policy_digest FROM argo_desired_state_commands WHERE id=$1`,
+		legacyRecoveryID).Scan(&recoveryState, &recoveryPolicy); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT state FROM argo_desired_state_commands WHERE id=$1`,
+		legacyPendingRecoveryID).Scan(&pendingRecoveryState); err != nil {
+		t.Fatal(err)
+	}
+	if pendingState != "superseded" || emptyClaimState != "superseded" ||
+		recoveryState != "claimed" || pendingRecoveryState != "pending" || recoveryPolicy != nil {
+		t.Fatalf("legacy policy upgrade pending=%s empty_claim=%s recovery=%s pending_recovery=%s policy=%v",
+			pendingState, emptyClaimState, recoveryState, pendingRecoveryState, recoveryPolicy)
+	}
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE argo_desired_state_commands
+			SET policy_digest=$2 WHERE id=$1`, legacyRecoveryID,
+			helmPGDigest([]byte("mutated-legacy-live-policy")))
+		return nestedErr
+	})
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE argo_desired_state_commands
+			SET policy_digest=$2 WHERE id=$1`, legacyRecovery.desiredStateCommandID,
+			helmPGDigest([]byte("mutated-legacy-terminal-policy")))
+		return nestedErr
+	})
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE argo_desired_state_commands SET
+			state='pending',lease_owner=NULL,lease_until=NULL,worker_contract=NULL,
+			worker_config_digest=NULL,write_base_revision='',write_base_observed_at=NULL,
+			updated_at=$2 WHERE id=$1`, legacyPendingRecoveryID, legacyPendingRecovery.now.Add(2*time.Second))
+		return nestedErr
+	})
+	if _, err = tx.Exec(ctx, `UPDATE argo_desired_state_commands SET
+		state='claimed',lease_owner='argo-v005-recovery-worker',lease_epoch=lease_epoch+1,
+		lease_until=$2::timestamptz+interval '5 minutes',worker_contract='argo-desired-state.v1',
+		worker_config_digest=$3,updated_at=$2 WHERE id=$1`, legacyPendingRecoveryID,
+		legacyPendingRecovery.now.Add(2*time.Second), helmPGDigest([]byte("v005-argo-worker"))); err != nil {
+		t.Fatalf("v005 worker could not adopt legacy claimed recovery: %v", err)
+	}
+	legacyRecoveredRevision := strings.Repeat("e", 40)
+	if _, err = tx.Exec(ctx, `UPDATE argo_desired_state_commands SET
+		state='git-committed',committed_revision=$2,committed_at=$3,updated_at=$3
+		WHERE id=$1`, legacyPendingRecoveryID, legacyRecoveredRevision,
+		legacyPendingRecovery.now.Add(3*time.Second)); err != nil {
+		t.Fatalf("legacy claimed recovery could not acknowledge Git commit: %v", err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE argo_desired_state_commands SET
+		state='verified',lease_owner=NULL,lease_until=NULL,worker_contract=NULL,
+		worker_config_digest=NULL,verified_at=$2,completed_at=$2,updated_at=$2
+		WHERE id=$1`, legacyPendingRecoveryID, legacyPendingRecovery.now.Add(4*time.Second)); err != nil {
+		t.Fatalf("legacy committed recovery could not verify: %v", err)
+	}
+	insertArgoMaterializationReceipt(t, ctx, tx, legacyPendingRecovery, id.New(),
+		legacyPendingRecovery.environmentHead, 1, legacyPendingRecoveryID,
+		legacyPendingRecovery.now.Add(5*time.Second))
+	var recoveredReceipts int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM argo_desired_state_materialization_receipts
+		WHERE desired_state_command_id=$1 AND policy_digest=$2`, legacyPendingRecoveryID,
+		helmPGArgoAuthority().PolicyDigest).Scan(&recoveredReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if recoveredReceipts != 1 {
+		t.Fatalf("fresh current-policy materialization receipts=%d", recoveredReceipts)
+	}
 }
 
 func testPostgresReleaseServiceTransaction(t *testing.T, ctx context.Context, tx pgx.Tx, at time.Time) {
@@ -1221,8 +1504,7 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		t.Fatal(err)
 	}
 	argoContent := []byte("apiVersion: argoproj.io/v1alpha1\nkind: AppProject\nmetadata:\n  name: " + f.argoProject + "\n")
-	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
-		DISABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands DISABLE TRIGGER USER`); err != nil {
 		t.Fatal(err)
 	}
 	_, argoErr := tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
@@ -1240,16 +1522,38 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
 		f.environmentBindingID, f.clusterID, f.environmentHead,
 		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
-		f.namespace, f.argoProject, f.foundationRevision, f.now, f.catalogDigest,
+		f.namespace, f.argoProject, f.foundationRevision, f.now,
+		helmPGDigest([]byte("argo-desired-state-catalog")),
 		helmPGDigest([]byte("runtime-chart")),
 		"registry.example.com/kuberploy/runtime@"+helmPGDigest([]byte("renderer")),
 		argoContent, helmPGDigest(argoContent), f.desiredStateRevision)
-	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands
-		ENABLE TRIGGER argo_desired_state_commands_validate`); err != nil {
+	var hasPolicyDigest, hasMaterializationReceipts bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='argo_desired_state_commands'
+		  AND column_name='policy_digest'
+	)`).Scan(&hasPolicyDigest); err != nil {
+		t.Fatal(err)
+	}
+	if hasPolicyDigest {
+		if _, err := tx.Exec(ctx, `UPDATE argo_desired_state_commands SET policy_digest=$2 WHERE id=$1`,
+			f.desiredStateCommandID, helmPGDigest([]byte("argo-materialization-policy"))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `ALTER TABLE argo_desired_state_commands ENABLE TRIGGER USER`); err != nil {
 		t.Fatal(err)
 	}
 	if argoErr != nil {
 		t.Fatal(argoErr)
+	}
+	if err := tx.QueryRow(ctx, `SELECT to_regclass(
+		'public.argo_desired_state_materialization_receipts') IS NOT NULL`).Scan(&hasMaterializationReceipts); err != nil {
+		t.Fatal(err)
+	}
+	if hasMaterializationReceipts {
+		insertArgoMaterializationReceipt(t, ctx, tx, f, id.New(), f.environmentHead, 1,
+			f.desiredStateCommandID, f.now.Add(time.Microsecond))
 	}
 	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
 		_, nestedErr := nested.Exec(ctx, `UPDATE helm_chart_approval_documents
@@ -1270,6 +1574,31 @@ func insertHelmRenderCommand(t *testing.T, ctx context.Context, tx pgx.Tx, f hel
 		f.projectID, f.environmentID, f.applicationID, f.namespace, descriptor, values,
 		helmPGDigest(descriptor), valuesDigest, helmPGDigest(append(append([]byte{}, descriptor...), values...)),
 		helmPGOperatorDigest(), at)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertArgoMaterializationReceipt(t *testing.T, ctx context.Context, tx pgx.Tx,
+	f helmReleasePGFixture, receiptID, environmentRevision string, environmentGeneration int64,
+	commandID string, at time.Time) {
+	t.Helper()
+	_, err := tx.Exec(ctx, `INSERT INTO argo_desired_state_materialization_receipts(
+		id,environment_binding_id,environment_revision,environment_generation,
+		project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+		environment_target_ref,desired_state_command_id,desired_state_generation,
+		desired_state_revision,desired_state_content_sha256,catalog_digest,policy_digest,
+		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
+		chart_digest_enforcement,created_at
+	) SELECT $2,command.environment_binding_id,$3,$4,command.project_id,
+		command.environment_id,command.platform_binding_id,command.cluster_id,
+		command.platform_target_ref,command.environment_target_ref,command.id,
+		command.generation,command.committed_revision,command.content_sha256,command.catalog_digest,$5,
+		command.chart_repository,command.chart_name,command.chart_version,
+		command.chart_digest,command.renderer_image,command.chart_digest_enforcement,$6
+	FROM argo_desired_state_commands command WHERE command.id=$1`, commandID, receiptID,
+		environmentRevision, environmentGeneration,
+		helmPGDigest([]byte("argo-materialization-policy")), at.UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1352,7 +1681,7 @@ func insertHelmPayload(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture, p
 		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: f.catalogDigest, PlannedBaseRevision: currentPlatformHead(ctx, tx, f.platformBindingID),
 	}
-	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, at); err != nil {
+	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, helmPGArgoAuthority(), at); err != nil {
 		return err
 	}
 	return insertHelmPayloadRow(ctx, tx, f, payload, at)

@@ -514,7 +514,10 @@ func upgradeSnapshot() releases.Snapshot {
 			Kubernetes:           domain.KubernetesCompatibility{Constraint: ">=1.34.0-0 <1.37.0-0", TestedMinors: []string{"1.34", "1.35", "1.36"}},
 			Database:             domain.DatabaseCompatibility{CurrentSchema: migrations.CurrentSchema, MinimumUpgradeableSchema: "001_initial"},
 		},
-		Artifacts: domain.ManifestArtifacts{Chart: domain.ManifestChart{Name: "kuberploy", Version: version, OCIReference: "ghcr.io/kuberploy/charts/kuberploy:" + version, OCIDigest: artifactDigest}},
+		Artifacts: domain.ManifestArtifacts{
+			Chart:           domain.ManifestChart{Name: "kuberploy", Version: version, OCIReference: "ghcr.io/kuberploy/charts/kuberploy:" + version, OCIDigest: artifactDigest},
+			ComponentCharts: []domain.ManifestChart{{Name: "kuberploy-installer", Version: version, OCIReference: "ghcr.io/kuberploy/charts/kuberploy-installer:" + version, OCIDigest: artifactDigest}},
+		},
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
@@ -539,6 +542,14 @@ func TestReleaseCheckIsReadOnlyForInstallerManagedPlatform(t *testing.T) {
 	if latest["currentVersion"] != "1.0.0" || etag == "" {
 		t.Fatalf("latest=%#v etag=%q", latest, etag)
 	}
+	releaseView, ok := latest["release"].(map[string]any)
+	if !ok {
+		t.Fatalf("release=%#v", latest["release"])
+	}
+	chart, ok := releaseView["chart"].(map[string]any)
+	if !ok || chart["name"] != "kuberploy-installer" || chart["ociReference"] != "ghcr.io/kuberploy/charts/kuberploy-installer:1.1.0" {
+		t.Fatalf("operator chart=%#v", chart)
+	}
 	req, err := http.NewRequest("GET", f.server.URL+"/v1/platform/releases/latest", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -554,11 +565,23 @@ func TestReleaseCheckIsReadOnlyForInstallerManagedPlatform(t *testing.T) {
 	}
 	body := map[string]string{"targetVersion": "1.1.0", "manifestDigest": snapshot.Release.ManifestDigest}
 	r = f.request("POST", "/v1/platform/upgrades", "upgrade-1", body)
-	if r.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("installer-managed platform accepted child Helm mutation: %d", r.StatusCode)
+	if r.StatusCode != http.StatusNotFound {
+		t.Fatalf("removed platform mutation route returned %d", r.StatusCode)
 	}
 	if f.store.OutboxCount() != 0 || f.store.AuditCount() != 0 {
 		t.Fatalf("rejected child upgrade mutated durable state: outbox=%d audit=%d", f.store.OutboxCount(), f.store.AuditCount())
+	}
+}
+
+func TestReleaseCheckFailsClosedWithoutInstallerChart(t *testing.T) {
+	snapshot := upgradeSnapshot()
+	snapshot.Release.Manifest.Artifacts.ComponentCharts = nil
+	f := newUpgradeAPI(t, snapshot)
+	f.bootstrap()
+	r := f.request(http.MethodGet, "/v1/platform/releases/latest", "", nil)
+	problem := decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "ReleaseCheckUnavailable" {
+		t.Fatalf("missing installer chart status=%d problem=%#v", r.StatusCode, problem)
 	}
 }
 

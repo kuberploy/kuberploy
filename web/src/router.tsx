@@ -157,9 +157,9 @@ const setupRoute = createRoute({
   path: "/setup",
   component: SetupPage,
 });
-const upgradeRoute = createRoute({
+const platformReleasesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/settings/upgrade",
+  path: "/settings/releases",
   component: UpgradePage,
 });
 const platformArgoGitBindingRoute = createRoute({
@@ -201,7 +201,7 @@ const routeTree = rootRoute.addChildren([
   applicationRoute,
   operationRoute,
   setupRoute,
-  upgradeRoute,
+  platformReleasesRoute,
   platformArgoGitBindingRoute,
   helmApprovalsRoute,
   middlewareProfilesRoute,

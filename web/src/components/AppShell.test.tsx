@@ -128,7 +128,7 @@ describe("platform Git authority navigation", () => {
   });
 });
 
-describe("platform upgrade navigation", () => {
+describe("platform release navigation", () => {
   it("requires an exact platform release-read capability and human session", async () => {
     renderShell(
       {
@@ -155,7 +155,7 @@ describe("platform upgrade navigation", () => {
     renderShell(exact, "platform-admin", "session");
     expect(
       await screen.findByRole("link", { name: "Platform releases" }),
-    ).toHaveAttribute("href", "/settings/upgrade");
+    ).toHaveAttribute("href", "/settings/releases");
 
     cleanup();
     renderShell(exact, "platform-admin", "service-account");

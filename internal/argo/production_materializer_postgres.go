@@ -13,12 +13,18 @@ import (
 )
 
 type PostgreSQLDesiredStateMaterializer struct {
-	pool     *pgxpool.Pool
-	store    DesiredStateStore
-	bindings DesiredStateBindingStore
-	planner  DesiredStatePlanner
-	identity DesiredStateRuntimeIdentity
-	newID    func() string
+	pool         *pgxpool.Pool
+	store        DesiredStateStore
+	receipts     desiredStateMaterializationReceiptStore
+	bindings     DesiredStateBindingStore
+	planner      DesiredStatePlanner
+	identity     DesiredStateRuntimeIdentity
+	policyDigest string
+	newID        func() string
+}
+
+type desiredStateMaterializationReceiptStore interface {
+	RecordDesiredStateMaterialization(context.Context, DesiredStateCommand, DesiredStateCommand, time.Time) (bool, error)
 }
 
 type desiredStateMaterializationCandidate struct {
@@ -44,8 +50,13 @@ func NewPostgreSQLDesiredStateMaterializer(
 		gate.registryEligibility == nil {
 		return nil, ErrInvalid
 	}
+	receipts, ok := store.(desiredStateMaterializationReceiptStore)
+	if !ok {
+		return nil, ErrInvalid
+	}
 	return &PostgreSQLDesiredStateMaterializer{pool: pool, store: store, bindings: bindings,
-		planner: DesiredStatePlanner{Projection: gate, RegistryEligibility: registryEligibility}, identity: identity, newID: id.New}, nil
+		receipts: receipts, planner: DesiredStatePlanner{Projection: gate, RegistryEligibility: registryEligibility}, identity: identity,
+		policyDigest: gate.policyDigest, newID: id.New}, nil
 }
 
 func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx context.Context, now time.Time) (bool, error) {
@@ -92,14 +103,24 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	  AND b.state='ready' AND b.target_head_revision=b.indexed_revision AND b.indexed_revision IS NOT NULL
 	  AND b.projection_generation>0 AND generation.state='active'
 	  AND generation.head_revision=b.indexed_revision AND generation.parser_version=b.parser_version
+	  AND NOT EXISTS(
+	    SELECT 1 FROM argo_desired_state_materialization_receipts receipt
+	    WHERE receipt.environment_binding_id=b.id
+	      AND receipt.environment_revision=b.indexed_revision
+	      AND receipt.environment_generation=b.projection_generation
+	      AND receipt.policy_digest=$7
+	      AND receipt.chart_repository=$1 AND receipt.chart_name=$2
+	      AND receipt.chart_version=$3 AND receipt.chart_digest=$4
+	      AND receipt.renderer_image=$5 AND receipt.chart_digest_enforcement=$6
+	      AND NOT EXISTS(
+	        SELECT 1 FROM argo_desired_state_commands later
+	        WHERE later.environment_id=b.environment_id
+	          AND later.generation>receipt.desired_state_generation
+	          AND (later.state IN ('pending','claimed','git-committed','verified','blocked-prerequisite')
+	            OR (later.state IN ('failed','superseded') AND later.completed_at>=receipt.created_at))))
 	  AND NOT EXISTS(SELECT 1 FROM argo_desired_state_commands live
 	    WHERE live.environment_id=b.environment_id AND live.state IN ('pending','claimed','git-committed'))
-	  AND (latest.id IS NULL OR
-	    (latest.state='verified' AND
-	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
-	       latest.chart_repository<>$1 OR latest.chart_name<>$2 OR latest.chart_version<>$3 OR
-	       latest.chart_digest<>$4 OR latest.renderer_image<>$5 OR latest.chart_digest_enforcement<>$6 OR
-	       latest.argo_project<>e.argo_project)) OR
+	  AND (latest.id IS NULL OR latest.state='verified' OR
 	    (latest.state IN ('failed','superseded') AND
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
 	       latest.chart_repository<>$1 OR latest.chart_name<>$2 OR latest.chart_version<>$3 OR
@@ -107,7 +128,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	       latest.argo_project<>e.argo_project)))
 	ORDER BY b.indexed_at,b.id
 	LIMIT 64`, m.identity.Runtime.ChartRepository, m.identity.Runtime.ChartName, m.identity.Runtime.ChartVersion,
-		m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage, m.identity.DigestEnforcement)
+		m.identity.Runtime.ChartDigest, m.identity.Runtime.RendererImage, m.identity.DigestEnforcement, m.policyDigest)
 	if err != nil {
 		return false, classifyPostgres(err)
 	}
@@ -197,7 +218,11 @@ func (m *PostgreSQLDesiredStateMaterializer) materializeCandidate(
 	}
 	command, err := m.planner.Plan(ctx, commandID, target, previous, now.UTC())
 	if errors.Is(err, ErrNoDesiredStateChange) {
-		return false, nil
+		if previous == nil || command.ValidateFor(target) != nil ||
+			command.ContentSHA256 != previous.ContentSHA256 {
+			return false, ErrInvalid
+		}
+		return m.receipts.RecordDesiredStateMaterialization(ctx, command, *previous, now.UTC())
 	}
 	if errors.Is(err, ErrConflict) || errors.Is(err, ErrRegistryReferencesNotReady) {
 		return false, errDesiredStateCandidateBlocked

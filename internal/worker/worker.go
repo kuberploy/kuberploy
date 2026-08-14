@@ -9,7 +9,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/queue"
 	"github.com/kuberploy/kuberploy/internal/store"
-	"github.com/kuberploy/kuberploy/internal/upgrade"
 )
 
 type GitWriter interface {
@@ -25,7 +24,6 @@ type Processor struct {
 	Store                      store.Store
 	Queue                      queue.Consumer
 	Writer                     GitWriter
-	UpgradeRunner              upgrade.Runner
 	Name                       string
 	Batch                      int
 	OperationLeaseDuration     time.Duration
@@ -137,34 +135,6 @@ func (p *Processor) RunOnce(ctx context.Context) (int, error) {
 				pendingCode, pendingDetail = code, detail
 			}
 			workErr = writeErr
-		case "platform.upgrade":
-			if p.UpgradeRunner == nil {
-				workErr = fmt.Errorf("upgrade runner is not configured")
-			} else {
-				var u domain.PlatformUpgrade
-				u, workErr = p.Store.GetPlatformUpgrade(workCtx, op.TargetID)
-				if workErr == nil {
-					var result upgrade.Result
-					result, workErr = p.UpgradeRunner.Run(workCtx, op, u)
-					if result.RunnerRef != "" {
-						if recordErr := p.Store.RecordUpgradeRunner(workCtx, op.ID, op.Generation, name, result.RunnerRef); recordErr != nil {
-							_ = stopHeartbeat()
-							return processed, fmt.Errorf("record upgrade runner reference: %w", recordErr)
-						}
-					}
-					if workErr == nil && result.Pending {
-						if result.RunnerRef == "" {
-							workErr = fmt.Errorf("upgrade runner returned reconcile-pending without a runner reference")
-						} else {
-							pendingCode, pendingDetail = pendingDetails(result)
-						}
-					} else if workErr == nil && result.RunnerRef == "" {
-						workErr = fmt.Errorf("upgrade runner completed without a runner reference")
-					} else if workErr == nil {
-						workErr = p.Store.CompleteUpgradeOperation(workCtx, op.ID, op.Generation, name, result.RunnerRef, result.Details)
-					}
-				}
-			}
 		default:
 			workErr = fmt.Errorf("unsupported operation kind %q", op.Kind)
 		}
@@ -186,8 +156,6 @@ func (p *Processor) RunOnce(ctx context.Context) (int, error) {
 			code := "WorkFailed"
 			if op.Kind == "deployment.git-write" || op.Kind == "variable-set.git-write" {
 				code = "GitWriteFailed"
-			} else if op.Kind == "platform.upgrade" {
-				code = "UpgradeFailed"
 			}
 			if failErr := p.Store.FailOperation(ctx, op.ID, op.Generation, name, code, workErr.Error()); failErr != nil {
 				return processed, fmt.Errorf("work failed (%v) and recording failure failed: %w", workErr, failErr)
@@ -268,16 +236,4 @@ func reconcilePendingDetails(err error) (string, string, bool) {
 		return "", "", false
 	}
 	return code, detail, true
-}
-
-func pendingDetails(result upgrade.Result) (string, string) {
-	code := "UpgradeReconcilePending"
-	detail := "The deterministic Kubernetes upgrade Job will be reconciled again."
-	if value, ok := result.Details["code"].(string); ok && value != "" {
-		code = value
-	}
-	if value, ok := result.Details["detail"].(string); ok && value != "" {
-		detail = value
-	}
-	return code, detail
 }

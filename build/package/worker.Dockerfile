@@ -25,10 +25,6 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
     go build -trimpath \
       -ldflags="-s -w -buildid=" \
-      -o /out/kuberploy-upgrade-runner ./cmd/kuberploy-upgrade-runner && \
-    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
-    go build -trimpath \
-      -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-git-askpass ./cmd/kuberploy-git-askpass
 
 # The exact Distribution binary is used only by the stopped-registry helper
@@ -53,7 +49,6 @@ LABEL org.opencontainers.image.title="Kuberploy Worker" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
 COPY --from=build --chown=65532:65532 /out/kuberploy-worker /kuberploy-worker
-COPY --from=build --chown=65532:65532 /out/kuberploy-upgrade-runner /usr/local/bin/kuberploy-upgrade-runner
 COPY --from=build --chown=65532:65532 /out/kuberploy-git-askpass /usr/local/bin/kuberploy-git-askpass
 COPY --from=registry-cli --chown=65532:65532 /bin/registry /usr/local/bin/registry
 USER 65532:65532

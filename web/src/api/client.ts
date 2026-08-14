@@ -66,7 +66,6 @@ import type {
   ProblemDetail,
   Project,
   PlatformArgoGitBinding,
-  PlatformUpgrade,
   CreatePlatformArgoGitBinding,
   CreateEnvironmentGitBinding,
   ApplicationRegistryTarget,
@@ -3008,8 +3007,6 @@ export const api = {
       headers: { "Idempotency-Key": idempotencyKey },
       body: safeCreateHelmApproval(input),
     }).then(safeHelmApproval),
-  platformUpgrades: () =>
-    request<Collection<PlatformUpgrade>>("/v1/platform/upgrades"),
 };
 
 export function isUnauthorized(error: unknown): boolean {

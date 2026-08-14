@@ -38,11 +38,13 @@ The control-plane API and worker must not execute `helm upgrade` or
 - safely upgrading the installer itself requires operator-owned cluster-wide
   authority that the application must not retain.
 
-Therefore the mutation routes are not registered or advertised. The platform
-page is read-only release inspection plus historical status. Rollback uses
+Therefore the mutation routes and legacy operation-history routes are not
+registered or advertised. The platform page only checks and displays the
+latest verified release and an operator Helm command template. Rollback uses
 `helm rollback kuberploy-installer REVISION` with the same namespace and values
-authority as installation, and the same exact Argo lifecycle gate runs after
-rollback.
+authority as installation only when that release's verified manifest accepts
+the current database schema. Automatic rollback across a migration boundary is
+forbidden. The same exact Argo lifecycle gate runs after a permitted rollback.
 
 ## Consequences
 

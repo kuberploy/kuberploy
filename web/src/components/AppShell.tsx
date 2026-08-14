@@ -8,7 +8,7 @@ import { hasRegistryPlatformCapability } from "../lib/registryAccess";
 import { hasExternalDNSPlatformCapability } from "../lib/externalDNSAccess";
 import { hasPotentialBuildAccess } from "../lib/buildAccess";
 import { hasHelmApprovalManagementAccess } from "../lib/helmApprovalAccess";
-import { hasPlatformUpgradeCapability } from "../lib/upgradeAccess";
+import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 import {
   applyTheme,
   applyThemePreference,
@@ -187,12 +187,12 @@ export function AppShell({ user }: { user: Principal }) {
             <span>Setup & health</span>
           </Link>
           {user.authentication.kind === "session" &&
-          hasPlatformUpgradeCapability(
+          hasPlatformReleaseCapability(
             capabilities.data?.capabilities ?? [],
             "platform-releases:read",
           ) ? (
             <Link
-              to="/settings/upgrade"
+              to="/settings/releases"
               activeProps={{ className: "nav-link nav-link--active" }}
               inactiveProps={{ className: "nav-link" }}
               onClick={() => setMobileOpen(false)}

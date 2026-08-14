@@ -166,14 +166,24 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 	if _, err = pool.Exec(ctx, `UPDATE argo_desired_state_commands SET write_base_revision=$2 WHERE id=$1`, command.ID, strings.Repeat("f", 40)); err == nil {
 		t.Fatal("PostgreSQL trigger allowed write-base receipt mutation")
 	}
+	third, err := store.ClaimDesiredState(ctx, "argo-pg-worker-owner-c", identity.DesiredStateWorkerIdentity,
+		now.Add(62*time.Second), 30*time.Second)
+	if err != nil || third.Lease.Epoch != 3 || third.Command.State != argo.DesiredStateClaimed ||
+		third.Command.WriteBaseRevision != command.BaseRevision || third.Command.WriteBaseObservedAt == nil ||
+		!third.Command.WriteBaseObservedAt.Equal(writeBaseObservedAt) {
+		t.Fatalf("expired write-base recovery claim=%#v err=%v", third, err)
+	}
 	if _, err = store.MarkDesiredStateGitCommitted(ctx, first.Lease, strings.Repeat("d", 40), now.Add(32*time.Second)); !errors.Is(err, argo.ErrLeaseLost) {
 		t.Fatalf("stale PostgreSQL worker wrote: %v", err)
 	}
-	if _, err = store.MarkDesiredStateGitCommitted(ctx, second.Lease, strings.Repeat("d", 40), now.Add(32*time.Second)); err != nil {
+	if _, err = store.MarkDesiredStateGitCommitted(ctx, second.Lease, strings.Repeat("d", 40), now.Add(63*time.Second)); !errors.Is(err, argo.ErrLeaseLost) {
+		t.Fatalf("expired PostgreSQL write-base owner wrote: %v", err)
+	}
+	if _, err = store.MarkDesiredStateGitCommitted(ctx, third.Lease, strings.Repeat("d", 40), now.Add(63*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	lease := second.Lease
-	clock := now.Add(32 * time.Second)
+	lease := third.Lease
+	clock := now.Add(63 * time.Second)
 	for index := 0; index < 32; index++ {
 		clock = clock.Add(time.Second)
 		if _, err = store.RetryDesiredState(ctx, lease, argo.DesiredStateRetry{FailureCode: "provider-timeout", NextAttemptAt: clock}, clock); err != nil {

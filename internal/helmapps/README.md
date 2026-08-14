@@ -176,6 +176,12 @@ and promote a provider-verified payload before starting more phase-one work.
 The planner receives only durable identifiers; its binding snapshot comes
 from the trusted active-projection resolver and is rechecked in the protected
 store's serializable transaction. No HTTP request can provide that snapshot.
+Admission records the exact current environment projection and foundation plus
+the latest verified command that owns the environment AppProject. That command
+may precede unrelated commits on the shared branch when Argo proves the rendered
+desired-state bytes did not change. The publisher still requires its immutable
+commit, the foundation commit, and the payload commit to be ancestors of the
+fresh provider write base before making the Application reachable.
 
 `RuntimeConfig` and `NewRuntime` compose the PostgreSQL release/render stores,
 digest-only OCI source/cache, narrow Kubernetes renderer, planner, and the
@@ -266,6 +272,6 @@ inventory, and resource count, then returns API version, kind, namespace, name,
 and a deterministic bounded YAML projection for each resource. The projection
 keeps only declarative identity/spec fields; it removes status and renderer
 metadata and redacts Secret/ConfigMap payloads, annotations, literal environment
-values, credential-like arguments, and sensitive leaves. Oversized resources
+values, all commands and arguments, and sensitive leaves. Oversized resources
 remain visible in inventory with an explicit omission marker. Raw manifests,
 Kubernetes UIDs, Git identity, and renderer Job details never cross the seam.

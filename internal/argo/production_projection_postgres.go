@@ -86,7 +86,8 @@ func (g *PostgreSQLDesiredStateProjectionGate) ValidateDesiredStateClaim(ctx con
 	}
 	if approval.Contract != DesiredStateProjectionApprovalContract || approval.BindingID != command.EnvironmentBindingID ||
 		approval.IndexedRevision != command.EnvironmentRevision || approval.ProjectionGeneration != command.EnvironmentGeneration ||
-		approval.CatalogDigest != command.CatalogDigest || !approval.AppConfigsValid || !approval.DependenciesValid ||
+		approval.PolicyDigest != command.PolicyDigest || approval.CatalogDigest != command.CatalogDigest ||
+		!approval.AppConfigsValid || !approval.DependenciesValid ||
 		!approval.SecretReferencesResolved || approval.RegistryReferencesResolved {
 		return ErrInvalid
 	}
@@ -192,6 +193,7 @@ func (g *PostgreSQLDesiredStateProjectionGate) approveActiveTx(ctx context.Conte
 	}
 	return DesiredStateProjectionApproval{Contract: DesiredStateProjectionApprovalContract, BindingID: binding.ID,
 		IndexedRevision: binding.IndexedRevision, ProjectionGeneration: binding.ProjectionGeneration, CatalogDigest: digest,
+		PolicyDigest: g.policyDigest,
 		Applications: applications, Deployments: deployments, AppConfigsValid: true, DependenciesValid: true,
 		SecretReferencesResolved: true, RegistryReferencesResolved: false}, nil
 }
@@ -462,11 +464,12 @@ func (g *PostgreSQLDesiredStateProjectionGate) validateRecoveryReceipt(ctx conte
 		  AND c.environment_revision=$10 AND c.environment_generation=$11 AND c.path=$12
 		  AND c.argo_namespace=$13 AND c.destination_namespace=$14 AND c.argo_project=$15
 		  AND c.base_revision=$16 AND c.write_base_revision=$17 AND c.write_base_observed_at=$18
-		  AND c.precondition=$19 AND c.expected_etag=$20 AND c.catalog_digest=$21
-		  AND c.chart_repository=$22 AND c.chart_name=$23 AND c.chart_version=$24
-		  AND c.chart_digest=$25 AND c.renderer_image=$26 AND c.chart_digest_enforcement=$27
-		  AND c.content=$28 AND c.content_sha256=$29 AND c.message=$30
-		  AND c.state=$31 AND c.committed_revision=$32 AND c.write_base_revision<>''
+		  AND c.precondition=$19 AND c.expected_etag=$20
+		  AND COALESCE(c.policy_digest,'')=$21 AND c.catalog_digest=$22
+		  AND c.chart_repository=$23 AND c.chart_name=$24 AND c.chart_version=$25
+		  AND c.chart_digest=$26 AND c.renderer_image=$27 AND c.chart_digest_enforcement=$28
+		  AND c.content=$29 AND c.content_sha256=$30 AND c.message=$31
+		  AND c.state=$32 AND c.committed_revision=$33 AND c.write_base_revision<>''
 		  AND ((c.state='claimed' AND c.committed_revision='') OR
 		       (c.state='git-committed' AND c.committed_revision<>''))
 		  AND generation.state='active'
@@ -478,7 +481,7 @@ func (g *PostgreSQLDesiredStateProjectionGate) validateRecoveryReceipt(ctx conte
 		command.PlatformTargetRef, command.EnvironmentTargetRef, command.EnvironmentRevision, command.EnvironmentGeneration,
 		command.Path, command.ArgoNamespace, command.DestinationNamespace, command.ArgoProject,
 		command.BaseRevision, command.WriteBaseRevision, command.WriteBaseObservedAt,
-		command.Precondition, command.ExpectedETag, command.CatalogDigest,
+		command.Precondition, command.ExpectedETag, command.PolicyDigest, command.CatalogDigest,
 		command.Runtime.ChartRepository, command.Runtime.ChartName, command.Runtime.ChartVersion,
 		command.Runtime.ChartDigest, command.Runtime.RendererImage, command.DigestEnforcement,
 		command.Content, command.ContentSHA256, command.Message, command.State, command.CommittedRevision).Scan(&valid)

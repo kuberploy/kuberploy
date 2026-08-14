@@ -193,20 +193,21 @@ func (g CapabilityGate) Evaluate(ctx context.Context, now time.Time) (Capabiliti
 }
 
 type RuntimeDependencies struct {
-	Pool        *pgxpool.Pool
-	OCIClient   *http.Client
-	Credentials OCIRegistryCredentialProvider
-	RendererAPI RendererKubernetesAPI
-	Bindings    ProtectedBindingResolver
-	GitBindings ProtectedGitBindingStore
-	GitProvider gitprojection.HeadVerifier
-	GitManager  *gitprojection.MirrorManager
-	WorkerID    string
-	WorkerEpoch int64
-	StartedAt   time.Time
-	Now         func() time.Time
-	NewID       func() string
-	ReportError func(string, error)
+	Pool                *pgxpool.Pool
+	OCIClient           *http.Client
+	Credentials         OCIRegistryCredentialProvider
+	RendererAPI         RendererKubernetesAPI
+	Bindings            ProtectedBindingResolver
+	ArgoMaterialization ArgoMaterializationAuthority
+	GitBindings         ProtectedGitBindingStore
+	GitProvider         gitprojection.HeadVerifier
+	GitManager          *gitprojection.MirrorManager
+	WorkerID            string
+	WorkerEpoch         int64
+	StartedAt           time.Time
+	Now                 func() time.Time
+	NewID               func() string
+	ReportError         func(string, error)
 }
 
 type ociCredentialReadiness interface {
@@ -238,7 +239,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 		return &Runtime{Config: config}, nil
 	}
 	if dependencies.Pool == nil || dependencies.OCIClient == nil || dependencies.RendererAPI == nil ||
-		dependencies.Bindings == nil || dependencies.GitBindings == nil || dependencies.GitProvider == nil ||
+		dependencies.Bindings == nil || dependencies.ArgoMaterialization.Validate() != nil ||
+		dependencies.GitBindings == nil || dependencies.GitProvider == nil ||
 		dependencies.GitManager == nil || dependencies.GitManager.Validate() != nil ||
 		dependencies.Now == nil || dependencies.StartedAt.IsZero() ||
 		!workerIDRE.MatchString(dependencies.WorkerID) || dependencies.WorkerEpoch < 1 ||
@@ -264,7 +266,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	if err != nil {
 		return nil, err
 	}
-	publications, err := NewPostgresProtectedPublicationStore(dependencies.Pool)
+	publications, err := NewPostgresProtectedPublicationStore(dependencies.Pool,
+		dependencies.ArgoMaterialization)
 	if err != nil {
 		return nil, err
 	}

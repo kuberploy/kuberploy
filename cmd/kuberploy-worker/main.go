@@ -25,7 +25,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/registry"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	"github.com/kuberploy/kuberploy/internal/store/postgres"
-	"github.com/kuberploy/kuberploy/internal/upgrade"
 	"github.com/kuberploy/kuberploy/internal/worker"
 )
 
@@ -429,11 +428,7 @@ func run() error {
 	if gitProjection != nil {
 		operationWriter = gitProjection.writer
 	}
-	var upgradeRunner upgrade.Runner = upgrade.Unavailable{}
-	if path := stringsTrim(os.Getenv("KUBERPLOY_UPGRADER_EXECUTABLE")); path != "" {
-		upgradeRunner = upgrade.Executable{Path: path, Namespace: config.Get("KUBERPLOY_UPGRADER_NAMESPACE", "kuberploy-system"), ReleaseName: config.Get("KUBERPLOY_UPGRADER_RELEASE_NAME", "kuberploy")}
-	}
-	processor := &worker.Processor{Store: db, Queue: consumerStream, Writer: operationWriter, UpgradeRunner: upgradeRunner, Name: "worker-" + host, Batch: 10}
+	processor := &worker.Processor{Store: db, Queue: consumerStream, Writer: operationWriter, Name: "worker-" + host, Batch: 10}
 	relay := &queue.Relay{Store: db, Publisher: publisherStream, Batch: 100}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

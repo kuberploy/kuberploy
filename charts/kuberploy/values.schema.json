@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["global", "config", "components", "databaseMigration", "ingress", "rbac", "builder", "networkPolicy", "upgrade"],
+  "required": ["global", "config", "components", "databaseMigration", "ingress", "rbac", "builder", "networkPolicy"],
   "properties": {
     "global": {
       "type": "object",
@@ -873,25 +873,6 @@
         "externalEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
         "externalPostgreSQLEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
         "externalValkeyEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" }
-      }
-    },
-    "upgrade": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["image", "runnerExecutable", "job"],
-      "properties": {
-        "image": { "$ref": "#/$defs/image" },
-        "runnerExecutable": {
-          "const": "/usr/local/bin/kuberploy-upgrade-runner"
-        },
-        "job": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["activeDeadlineSeconds"],
-          "properties": {
-            "activeDeadlineSeconds": { "type": "integer", "minimum": 60, "maximum": 900 }
-          }
-        }
       }
     }
   },

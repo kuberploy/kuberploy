@@ -11,7 +11,7 @@ import {
   StatusPill,
 } from "../components/ui";
 import { formatDate, shortId, titleCase } from "../lib/format";
-import { hasPlatformUpgradeCapability } from "../lib/upgradeAccess";
+import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 
 export function UpgradePage() {
   const capabilities = useQuery({
@@ -20,7 +20,7 @@ export function UpgradePage() {
     retry: false,
     staleTime: 60_000,
   });
-  const canReadReleases = hasPlatformUpgradeCapability(
+  const canReadReleases = hasPlatformReleaseCapability(
     capabilities.data?.capabilities ?? [],
     "platform-releases:read",
   );
@@ -30,12 +30,6 @@ export function UpgradePage() {
     queryFn: api.latestPlatformRelease,
     retry: false,
     staleTime: 60_000,
-    enabled: canReadReleases,
-  });
-  const history = useQuery({
-    queryKey: ["platform-upgrades"],
-    queryFn: api.platformUpgrades,
-    retry: false,
     enabled: canReadReleases,
   });
   const currentVersion =
@@ -50,6 +44,15 @@ export function UpgradePage() {
   const canUpgrade =
     latest.data?.updateAvailable === true &&
     compatibility.status !== "incompatible";
+  const helmChart = release
+    ? `oci://${release.chart.ociReference
+        .replace(/^oci:\/\//, "")
+        .replace(/:[^/:]+$/, "")}`
+    : "";
+  const helmCommand =
+    release && canUpgrade
+      ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --wait --timeout 20m`
+      : "";
 
   return (
     <div className="page">
@@ -302,88 +305,70 @@ export function UpgradePage() {
 
           <div className="upgrade-action-bar">
             <div>
-              <Icon name="check" />
+              <Icon name={canUpgrade ? "check" : "settings"} />
               <span>
-                <strong>Upgrade the installer release, not its child.</strong>
+                <strong>
+                  {canUpgrade
+                    ? "Upgrade the installer release, not its child."
+                    : "No operator upgrade action is available."}
+                </strong>
                 <small>
-                  Run Helm against the installer release using the exact chart
-                  version above. Its lifecycle hooks require every enabled Argo
-                  Application to reach the requested revision, Synced and
-                  Healthy.
+                  {canUpgrade
+                    ? "Run Helm against the installer release using the exact chart version above. Its lifecycle hooks require every enabled Argo Application to reach the requested revision, Synced and Healthy."
+                    : "The release is equal, older, unknown, or incompatible with this installation."}
                 </small>
               </span>
             </div>
             <StatusPill
-              value={canUpgrade ? "available" : "healthy"}
+              value={
+                canUpgrade
+                  ? "available"
+                  : compatibility.status === "incompatible"
+                    ? "unavailable"
+                    : "healthy"
+              }
               label={
-                latest.data.updateAvailable
+                canUpgrade
                   ? "Operator Helm action required"
-                  : "Up to date"
+                  : compatibility.status === "incompatible"
+                    ? "Incompatible"
+                    : "No action"
               }
             />
           </div>
+
+          {canUpgrade ? (
+            <Card className="manifest-card">
+              <div className="card__header card__header--inside">
+                <div>
+                  <span className="eyebrow">Cluster administrator</span>
+                  <h2>Helm upgrade command</h2>
+                  <p>
+                    Set the existing installer release name, namespace, and a
+                    reviewed values file for the target chart. Remove any legacy
+                    upgrade section, then run this command from an administrator
+                    workstation. Do not automatically roll back across a
+                    database migration; first verify that the rollback release
+                    manifest accepts the current schema.
+                  </p>
+                </div>
+              </div>
+              <pre className="code-block">
+                <code>{helmCommand}</code>
+              </pre>
+            </Card>
+          ) : (
+            <Card>
+              <EmptyState
+                icon="settings"
+                title="No Helm upgrade command available"
+                description="Kuberploy only shows a command for a newer compatible release. Equal, older, unknown, or incompatible targets remain read-only."
+                compact
+              />
+            </Card>
+          )}
         </>
       )}
-
-      {canReadReleases ? (
-        <Card className="manifest-card">
-          <div className="card__header card__header--inside">
-            <div>
-              <span className="eyebrow">Pre-stable compatibility</span>
-              <h2>Legacy in-app operation history</h2>
-              <p>
-                Read-only records created by pre-stable builds remain visible
-                for audit. Current upgrades and rollbacks are recorded by the
-                operator-owned installer Helm release, not this table.
-              </p>
-            </div>
-          </div>
-          {history.isPending ? (
-            <Skeleton lines={4} />
-          ) : history.error ? (
-            <div className="notice notice--error" role="alert">
-              {errorMessage(history.error)}
-            </div>
-          ) : history.data?.items.length ? (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Action</th>
-                    <th>Version</th>
-                    <th>State</th>
-                    <th>Created</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {history.data.items.map((item) => (
-                    <tr key={item.id}>
-                      <td>{titleCase(item.action)}</td>
-                      <td>
-                        <code>{item.version}</code>
-                        {item.helmRevision ? (
-                          <small> revision {item.helmRevision}</small>
-                        ) : null}
-                      </td>
-                      <td>
-                        <StatusPill value={item.state} />
-                      </td>
-                      <td>{formatDate(item.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState
-              icon="refresh"
-              title="No legacy platform operations"
-              description="Use Helm history for current installer upgrade and rollback records."
-              compact
-            />
-          )}
-        </Card>
-      ) : null}
     </div>
   );
 }

@@ -985,22 +985,6 @@ export type LatestPlatformRelease = {
   lastCheckedAt: string;
 };
 
-export type PlatformUpgrade = {
-  id: string;
-  version: string;
-  manifestDigest: string;
-  manifest: PlatformReleaseManifest;
-  state: "queued" | "running" | "succeeded" | "failed" | "cancelled";
-  operationId: string;
-  runnerRef?: string;
-  result?: Record<string, unknown>;
-  action: "upgrade" | "rollback";
-  helmRevision?: number;
-  sourceUpgradeId?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export type ConfigDocument = {
   id: string;
   documentId?: string;

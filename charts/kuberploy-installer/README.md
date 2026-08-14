@@ -73,7 +73,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.162 \
+  --version 0.1.0-rc.163 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -102,8 +102,8 @@ Source checkouts rebuild the dependency with the repository's deterministic
 `release/package_chart_archive.py` and a release `SOURCE_DATE_EPOCH`; do not
 replace it with Helm's timestamp-bearing local package output. `Chart.lock`
 pins the local wrapper metadata digest, and the checked-in
-`charts/kuberploy-argocd-0.1.0-rc.162.tgz` and
-`charts/kuberploy-valkey-0.1.0-rc.162.tgz` make bootstrap rendering
+`charts/kuberploy-argocd-0.1.0-rc.163.tgz` and
+`charts/kuberploy-valkey-0.1.0-rc.163.tgz` make bootstrap rendering
 network-independent.
 `dependencies.lock` records package-integrity checks for both archives; the
 render test verifies those bytes independently from their readable filenames.
@@ -137,6 +137,11 @@ lifecycle falsely succeed. Its namespace Role grants only `get` and `watch` on
 the exact enabled Application names; it has no list, wildcard, Secret, or
 cluster-wide access. A failed or timed-out child leaves the Helm lifecycle
 failed instead of reporting a completed platform transition.
+
+Do not use automatic Helm rollback across a database migration. Before a
+manual `helm rollback`, verify that the target release manifest accepts the
+database's current schema; otherwise the older control-plane binaries must
+remain blocked rather than starting against an unsupported history.
 
 An enabled control-plane Application also requires an explicit
 `bootstrap.controlPlaneToken.mode`. `generated` requires exact Kubernetes API

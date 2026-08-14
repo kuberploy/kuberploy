@@ -389,6 +389,50 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		foundationCommit, foundationReceiptAt.Add(2*time.Second)); completeErr != nil || completed.State != DesiredStateVerified {
 		t.Fatalf("foundation-only command not verifiable: command=%#v err=%v", completed, completeErr)
 	}
+	var verifiedReceiptCommand string
+	if err = pool.QueryRow(ctx, `SELECT desired_state_command_id::text
+		FROM argo_desired_state_materialization_receipts
+		WHERE environment_binding_id=$1 AND environment_revision=$2 AND environment_generation=1`,
+		foundationBinding.ID, foundationRevision).Scan(&verifiedReceiptCommand); err != nil ||
+		verifiedReceiptCommand != foundationCommand.ID {
+		t.Fatalf("verified command receipt=%s err=%v", verifiedReceiptCommand, err)
+	}
+
+	// An unrelated shared-branch advance changes the exact projection receipt
+	// but not the empty environment's rendered AppProject/ApplicationSet bytes.
+	// The materializer must durably bind generation 2 to the verified generation
+	// 1 command before Helm may treat that older commit as current authority.
+	foundationAdvancedRevision := strings.Repeat("7", 40)
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(
+		binding_id,generation,head_revision,parser_version,state,started_at,activated_at
+	) VALUES($1,2,$2,$3,'active',$4,$4)`, foundationBinding.ID,
+		foundationAdvancedRevision, foundationBinding.ParserVersion, foundationReceiptAt.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE git_repository_bindings SET
+		target_head_revision=$2,indexed_revision=$2,projection_generation=2,
+		target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`,
+		foundationBinding.ID, foundationAdvancedRevision, foundationReceiptAt.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	materializer.newID = func() string { return "8e444444-4444-4444-8444-444444444444" }
+	if created, err = materializer.MaterializeDesiredStateOnce(ctx, foundationReceiptAt.Add(4*time.Second)); err != nil || !created {
+		t.Fatalf("unchanged generation receipt not materialized: created=%v err=%v", created, err)
+	}
+	var unchangedReceiptCommand, unchangedReceiptRevision, unchangedReceiptDigest string
+	if err = pool.QueryRow(ctx, `SELECT desired_state_command_id::text,desired_state_revision,
+		desired_state_content_sha256 FROM argo_desired_state_materialization_receipts
+		WHERE environment_binding_id=$1 AND environment_revision=$2 AND environment_generation=2`,
+		foundationBinding.ID, foundationAdvancedRevision).Scan(&unchangedReceiptCommand,
+		&unchangedReceiptRevision, &unchangedReceiptDigest); err != nil ||
+		unchangedReceiptCommand != foundationCommand.ID || unchangedReceiptRevision != foundationCommit ||
+		unchangedReceiptDigest != foundationCommand.ContentSHA256 {
+		t.Fatalf("unchanged receipt command=%s revision=%s digest=%s err=%v",
+			unchangedReceiptCommand, unchangedReceiptRevision, unchangedReceiptDigest, err)
+	}
+	if created, err = materializer.MaterializeDesiredStateOnce(ctx, foundationReceiptAt.Add(5*time.Second)); err != nil || created {
+		t.Fatalf("unchanged receipt replay created=%v err=%v", created, err)
+	}
 
 	catalog, err := NewPostgreSQLRuntimeBindingCatalog(pool)
 	if err != nil {

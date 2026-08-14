@@ -137,7 +137,7 @@ release platform contract.
 | Docker CLI base                       | `docker.io/library/docker:29-dind`                                                     |
 | Registry CLI base                     | `docker.io/library/registry:3`                                                         |
 | API, worker and builder-agent runtime | Alpine `3.24.1`, with CA certificates `20260611-r0` and Git `2.54.0-r0` where required |
-| Helm upgrader base                    | `docker.io/alpine/helm:4.2`                                                            |
+| Helm runtime base                     | `docker.io/alpine/helm:4.2`                                                            |
 
 Every runtime base uses a readable version tag. Generated Kuberploy application
 releases still record content digests as deployment integrity, but dependency

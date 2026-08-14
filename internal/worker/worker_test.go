@@ -2,9 +2,6 @@ package worker
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -17,7 +14,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitops"
 	base "github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
-	"github.com/kuberploy/kuberploy/internal/upgrade"
 )
 
 type unavailableQueue struct{}
@@ -26,6 +22,25 @@ func (unavailableQueue) Receive(context.Context, string, int) ([]domain.WorkMess
 	return nil, errors.New("Valkey unavailable")
 }
 func (unavailableQueue) Ack(context.Context, domain.WorkMessage) error { return nil }
+
+type oneDeliveryQueue struct {
+	message domain.WorkMessage
+	sent    bool
+	acks    int
+}
+
+func (q *oneDeliveryQueue) Receive(context.Context, string, int) ([]domain.WorkMessage, error) {
+	if q.sent {
+		return nil, nil
+	}
+	q.sent = true
+	return []domain.WorkMessage{q.message}, nil
+}
+
+func (q *oneDeliveryQueue) Ack(context.Context, domain.WorkMessage) error {
+	q.acks++
+	return nil
+}
 
 func TestProcessorFallsBackToDurableOperationAndCompletesGit(t *testing.T) {
 	ctx := context.Background()
@@ -103,119 +118,6 @@ func TestProcessorFallsBackToDurableOperationAndCompletesGit(t *testing.T) {
 	n, err = processor.RunOnce(ctx)
 	if err != nil || n != 0 {
 		t.Fatalf("terminal operation reprocessed: n=%d err=%v", n, err)
-	}
-}
-
-type fakeUpgradeRunner struct{ calls int }
-
-func (f *fakeUpgradeRunner) Run(_ context.Context, op domain.Operation, _ domain.PlatformUpgrade) (upgrade.Result, error) {
-	f.calls++
-	return upgrade.Result{RunnerRef: upgrade.JobName(op.ID, op.Generation), Details: map[string]any{"helmRevision": 2}}, nil
-}
-
-type reconcilingUpgradeRunner struct{ calls int }
-
-func (f *reconcilingUpgradeRunner) Run(_ context.Context, op domain.Operation, _ domain.PlatformUpgrade) (upgrade.Result, error) {
-	f.calls++
-	ref := upgrade.JobName(op.ID, op.Generation)
-	if f.calls == 1 {
-		return upgrade.Result{RunnerRef: ref, Pending: true, Details: map[string]any{"code": "JobObservationUnavailable", "detail": "temporary outage"}}, nil
-	}
-	return upgrade.Result{RunnerRef: ref, Details: map[string]any{"helmRevision": 2}}, nil
-}
-
-type oneDeliveryQueue struct {
-	message domain.WorkMessage
-	sent    bool
-	acks    int
-}
-
-func (q *oneDeliveryQueue) Receive(context.Context, string, int) ([]domain.WorkMessage, error) {
-	if q.sent {
-		return nil, nil
-	}
-	q.sent = true
-	return []domain.WorkMessage{q.message}, nil
-}
-func (q *oneDeliveryQueue) Ack(context.Context, domain.WorkMessage) error { q.acks++; return nil }
-
-func TestProcessorRunsPersistedUpgradeThroughDeterministicSeam(t *testing.T) {
-	ctx := context.Background()
-	st := memory.New()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
-	if err := st.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), []byte("session-hash"), time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	artifactDigest := "sha256:" + strings.Repeat("a", 64)
-	manifest := domain.ReleaseManifest{Release: domain.ManifestRelease{Tag: "v1.1.0", Version: "1.1.0"}, Artifacts: domain.ManifestArtifacts{Chart: domain.ManifestChart{OCIReference: "ghcr.io/kuberploy/charts/kuberploy:1.1.0", OCIDigest: artifactDigest}}}
-	manifestBytes, err := json.Marshal(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sum := sha256.Sum256(manifestBytes)
-	manifestDigest := "sha256:" + hex.EncodeToString(sum[:])
-	accepted, op, err := st.CreatePlatformUpgrade(ctx, admin.ID, "upgrade", "fingerprint", "request", domain.CreatePlatformUpgrade{Release: domain.ReleaseInfo{Version: "1.1.0", ManifestDigest: manifestDigest, Manifest: manifest, ManifestBytes: manifestBytes}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := &fakeUpgradeRunner{}
-	processor := &Processor{Store: st, Queue: unavailableQueue{}, UpgradeRunner: runner, Name: "upgrade-worker"}
-	n, err := processor.RunOnce(ctx)
-	if err != nil || n != 1 {
-		t.Fatalf("run n=%d err=%v", n, err)
-	}
-	finished, err := st.GetOperation(ctx, op.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	u, err := st.GetPlatformUpgrade(ctx, accepted.Value.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if finished.Status != "succeeded" || u.State != "succeeded" || u.RunnerRef != upgrade.JobName(op.ID, 1) || u.Result["helmRevision"] != 2 {
-		t.Fatalf("operation=%#v upgrade=%#v", finished, u)
-	}
-	n, err = processor.RunOnce(ctx)
-	if err != nil || n != 0 || runner.calls != 1 {
-		t.Fatalf("upgrade duplicated n=%d calls=%d err=%v", n, runner.calls, err)
-	}
-}
-
-func TestProcessorKeepsUpgradeActiveWhileJobReconciliationIsPending(t *testing.T) {
-	ctx := context.Background()
-	st := memory.New()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
-	if err := st.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), []byte("session-hash"), time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
-	}
-	manifestBytes := []byte(`{"release":{"version":"1.1.0"}}`)
-	sum := sha256.Sum256(manifestBytes)
-	digest := "sha256:" + hex.EncodeToString(sum[:])
-	release := domain.ReleaseInfo{Version: "1.1.0", ManifestDigest: digest, ManifestBytes: manifestBytes}
-	accepted, op, err := st.CreatePlatformUpgrade(ctx, admin.ID, "upgrade", "fingerprint", "request", domain.CreatePlatformUpgrade{Release: release})
-	if err != nil {
-		t.Fatal(err)
-	}
-	queue := &oneDeliveryQueue{message: domain.WorkMessage{OperationID: op.ID, Kind: op.Kind, ScopeID: accepted.Value.ID, Generation: op.Generation, DeliveryID: "1-0"}}
-	runner := &reconcilingUpgradeRunner{}
-	processor := &Processor{Store: st, Queue: queue, UpgradeRunner: runner, Name: "upgrade-worker"}
-	if n, runErr := processor.RunOnce(ctx); runErr != nil || n != 1 {
-		t.Fatalf("pending run n=%d err=%v", n, runErr)
-	}
-	pendingOp, _ := st.GetOperation(ctx, op.ID)
-	pendingUpgrade, _ := st.GetPlatformUpgrade(ctx, accepted.Value.ID)
-	if pendingOp.Status != "queued" || pendingUpgrade.State != "queued" || pendingUpgrade.RunnerRef != upgrade.JobName(op.ID, op.Generation) || queue.acks != 0 {
-		t.Fatalf("operation=%#v upgrade=%#v acks=%d", pendingOp, pendingUpgrade, queue.acks)
-	}
-	if _, _, err = st.CreatePlatformUpgrade(ctx, admin.ID, "second", "second", "request", domain.CreatePlatformUpgrade{Release: release}); !errors.Is(err, base.ErrUpgradeInProgress) {
-		t.Fatalf("active upgrade guard err=%v", err)
-	}
-	if n, runErr := processor.RunOnce(ctx); runErr != nil || n != 1 {
-		t.Fatalf("recovery run n=%d err=%v", n, runErr)
-	}
-	finished, _ := st.GetOperation(ctx, op.ID)
-	if finished.Status != "succeeded" || runner.calls != 2 {
-		t.Fatalf("finished=%#v calls=%d", finished, runner.calls)
 	}
 }
 

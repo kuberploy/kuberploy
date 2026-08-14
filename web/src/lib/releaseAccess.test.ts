@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { hasPlatformUpgradeCapability } from "./upgradeAccess";
+import { hasPlatformReleaseCapability } from "./releaseAccess";
 
-describe("platform upgrade access", () => {
-  it("requires an exact effective platform capability", () => {
-    const action = "platform-releases:read" as const;
+const action = "platform-releases:read" as const;
+
+describe("platform release access", () => {
+  it("accepts only the exact platform capability", () => {
     expect(
-      hasPlatformUpgradeCapability(
+      hasPlatformReleaseCapability(
         [
           {
+            role: "platform-admin",
             scopeType: "platform",
             scopeId: "platform",
             actions: [action],
@@ -17,9 +19,10 @@ describe("platform upgrade access", () => {
       ),
     ).toBe(true);
     expect(
-      hasPlatformUpgradeCapability(
+      hasPlatformReleaseCapability(
         [
           {
+            role: "project-admin",
             scopeType: "project",
             scopeId: "project-1",
             actions: [action],
@@ -28,6 +31,6 @@ describe("platform upgrade access", () => {
         action,
       ),
     ).toBe(false);
-    expect(hasPlatformUpgradeCapability([], action)).toBe(false);
+    expect(hasPlatformReleaseCapability([], action)).toBe(false);
   });
 });

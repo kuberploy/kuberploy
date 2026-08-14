@@ -242,8 +242,10 @@ def main() -> None:
     require(yaml_scalar(builder_values, ("enabled",)) == "false", "embedded builder chart is enabled by default")
     for image in images:
         if image["component"] == "upgrader":
-            packaged_reference = yaml_scalar(packaged_values, ("upgrade", "image", "reference"))
-        elif image["component"] == "builder-agent":
+            # Signed schema-v1 manifests retain this historical artifact for
+            # compatibility. It must never be injected into the chart.
+            continue
+        if image["component"] == "builder-agent":
             packaged_reference = yaml_scalar(packaged_values, ("builder", "builderAgentImage"))
             embedded_reference = yaml_scalar(builder_values, ("builderAgentImage",))
             require(

@@ -18,13 +18,24 @@ const (
 	maximumProtectedRetry     = 24 * time.Hour
 )
 
-type PostgresProtectedPublicationStore struct{ pool *pgxpool.Pool }
+type PostgresProtectedPublicationStore struct {
+	pool      *pgxpool.Pool
+	authority ArgoMaterializationAuthority
+}
 
-func NewPostgresProtectedPublicationStore(pool *pgxpool.Pool) (*PostgresProtectedPublicationStore, error) {
+func NewPostgresProtectedPublicationStore(pool *pgxpool.Pool,
+	authority ...ArgoMaterializationAuthority) (*PostgresProtectedPublicationStore, error) {
 	if pool == nil {
 		return nil, ErrInvalid
 	}
-	return &PostgresProtectedPublicationStore{pool: pool}, nil
+	if len(authority) > 1 || len(authority) == 1 && authority[0].Validate() != nil {
+		return nil, ErrInvalid
+	}
+	result := &PostgresProtectedPublicationStore{pool: pool}
+	if len(authority) == 1 {
+		result.authority = authority[0]
+	}
+	return result, nil
 }
 
 const protectedPayloadColumns = `id::text,release_revision_id::text,release_generation,
@@ -138,7 +149,7 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 	if release.Target != target || now.Before(release.CreatedAt) {
 		return ProtectedPayloadIntent{}, false, ErrConflict
 	}
-	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, now); err != nil {
+	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, s.authority, now); err != nil {
 		return ProtectedPayloadIntent{}, false, err
 	}
 	value := ProtectedPayloadIntent{
@@ -287,7 +298,7 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 	// Legacy installations can already have a verified phase-one payload when
 	// the prerequisite receipt migration lands. Create/replay the exact receipt
 	// here as well so phase two recovers without granting imperative authority.
-	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, now); err != nil {
+	if _, err = ensurePublicationPrerequisite(ctx, tx, release, binding, s.authority, now); err != nil {
 		return ProtectedApplicationIntent{}, false, err
 	}
 	value := ProtectedApplicationIntent{

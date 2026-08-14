@@ -51,10 +51,3 @@ networkPolicy:
   enabled: true
   edgeNamespace: @@RUN_NAMESPACE@@
   externalEgressCIDRs: [0.0.0.0/0, "::/0"]
-upgrade:
-  image:
-    reference: kuberploy-upgrader:e2e-@@RUN_ID@@
-    pullPolicy: Never
-  runnerExecutable: /usr/local/bin/kuberploy-upgrade-runner
-  job:
-    activeDeadlineSeconds: 900

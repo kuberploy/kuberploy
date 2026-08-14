@@ -149,55 +149,6 @@ roleRef:
   kind: Role
   name: {{ include "kuberploy.fullname" . }}-helm-renderer
 {{- end }}
----
-# Kubernetes RBAC cannot constrain Secret creation by label or name prefix.
-# This Role is therefore intentionally confined to the dedicated Kuberploy
-# installation namespace; it has no tenant or cluster-wide binding.
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: {{ include "kuberploy.fullname" . }}-upgrade
-  labels:
-    {{- include "kuberploy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: upgrade
-rules:
-  - apiGroups: [""]
-    resources: ["configmaps", "services", "serviceaccounts"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses", "networkpolicies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["policy"]
-    resources: ["poddisruptionbudgets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["rbac.authorization.k8s.io"]
-    resources: ["roles", "rolebindings"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "kuberploy.fullname" . }}-upgrade
-  labels:
-    {{- include "kuberploy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: upgrade
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "kuberploy.fullname" . }}-upgrade
-    namespace: {{ .Release.Namespace }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "kuberploy.fullname" . }}-upgrade
 {{- range $namespace := .Values.rbac.observedNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

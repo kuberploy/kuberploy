@@ -190,7 +190,8 @@ def main() -> None:
         if name == "builder-agent":
             continue
         if name == "upgrader":
-            replacements[("upgrade", "image", "reference")] = json.dumps(reference)
+            # Release-manifest v1 compatibility only. The chart no longer
+            # deploys an in-app platform upgrader.
             continue
         replacements[("components", name, "image", "reference")] = json.dumps(reference)
     values_path.write_text(

@@ -83,7 +83,6 @@ type Store struct {
 	gitPublications     map[string]gitpublication.Publication
 	gitDocuments        map[string]gitprojection.Document
 	operations          map[string]domain.Operation
-	upgrades            map[string]domain.PlatformUpgrade
 	idempotency         map[string]idemRecord
 	outbox              map[string]*outboxRecord
 	outboxDatasetID     string
@@ -128,7 +127,7 @@ func New() *Store {
 		userID   string
 		revision int64
 		expires  time.Time
-	}{}, invitations: map[string]invitationRecord{}, teams: map[string]domain.Team{}, memberships: map[string]map[string]domain.TeamMember{}, installations: map[string]domain.GitHubInstallation{}, accessGrants: map[string]domain.AccessGrant{}, serviceAccounts: map[string]domain.ServiceAccount{}, serviceAccountTokens: map[string]domain.ServiceAccountToken{}, serviceAccountTokenHashes: map[string]string{}, projects: map[string]domain.Project{}, environments: map[string]domain.Environment{}, applications: map[string]domain.Application{}, deployments: map[string]domain.Deployment{}, argoObservations: map[string]domain.ArgoRolloutObservation{}, deploymentInputs: map[string]domain.Deployment{}, configPreviews: map[string]domain.ConfigPreviewLease{}, configPreviewGit: map[string]gitprojection.WritePlan{}, variableSetPreviews: map[string]variableSetPreviewRecord{}, gitWriteCommands: map[string]gitprojection.WriteCommand{}, gitPublicationModes: map[string]gitpublication.Mode{}, gitPublications: map[string]gitpublication.Publication{}, gitDocuments: map[string]gitprojection.Document{}, operations: map[string]domain.Operation{}, upgrades: map[string]domain.PlatformUpgrade{}, idempotency: map[string]idemRecord{}, outbox: map[string]*outboxRecord{}, leases: map[string]struct {
+	}{}, invitations: map[string]invitationRecord{}, teams: map[string]domain.Team{}, memberships: map[string]map[string]domain.TeamMember{}, installations: map[string]domain.GitHubInstallation{}, accessGrants: map[string]domain.AccessGrant{}, serviceAccounts: map[string]domain.ServiceAccount{}, serviceAccountTokens: map[string]domain.ServiceAccountToken{}, serviceAccountTokenHashes: map[string]string{}, projects: map[string]domain.Project{}, environments: map[string]domain.Environment{}, applications: map[string]domain.Application{}, deployments: map[string]domain.Deployment{}, argoObservations: map[string]domain.ArgoRolloutObservation{}, deploymentInputs: map[string]domain.Deployment{}, configPreviews: map[string]domain.ConfigPreviewLease{}, configPreviewGit: map[string]gitprojection.WritePlan{}, variableSetPreviews: map[string]variableSetPreviewRecord{}, gitWriteCommands: map[string]gitprojection.WriteCommand{}, gitPublicationModes: map[string]gitpublication.Mode{}, gitPublications: map[string]gitpublication.Publication{}, gitDocuments: map[string]gitprojection.Document{}, operations: map[string]domain.Operation{}, idempotency: map[string]idemRecord{}, outbox: map[string]*outboxRecord{}, leases: map[string]struct {
 		owner string
 		until time.Time
 	}{}, registryTargets: map[string]domain.RegistryTarget{}, registryPolicies: map[string]domain.ServiceRegistryPolicy{}, registryInventories: map[string]domain.RegistryInventoryObservation{}, registryCatalogs: map[string]domain.RegistryCatalogSnapshot{}, registryAuthorities: map[string]domain.RegistryProtectionSnapshot{}, registryPins: map[string]domain.RegistryArtifactReference{}, registryReleases: map[string]domain.RegistryRelease{}, registryCaches: map[string]domain.RegistryCacheGeneration{}, registryPlans: map[string]domain.RegistryCleanupPlan{}, registryPlanDigests: map[string]string{}, registryLeases: map[string]registryCleanupLease{}, registryRuntimeReadiness: map[string]registry.RuntimeReadinessLease{}, externalDNSIntegrations: map[string]domain.ExternalDNSIntegration{}, gitBindings: map[string]gitprojection.Binding{}, platformGitBindings: map[string]gitprojection.Binding{}, autoDeployPolicies: map[string]autodeploy.Policy{}, autoDeployRevisions: map[string]map[int64]autodeploy.Revision{}, autoDeployCommands: map[string]autoDeployCommandRecord{}, autoDeployRuns: map[string][]autodeploy.Run{}}
@@ -747,18 +746,7 @@ func (s *Store) StartOperation(_ context.Context, v string, generation int64, wo
 	}{worker, now.Add(lease)}
 	op.Status = "running"
 	op.UpdatedAt = now
-	step := "git-write"
-	if op.Kind == "platform.upgrade" {
-		step = "upgrade"
-		u := s.upgrades[op.TargetID]
-		if u.Action == "rollback" {
-			step = "rollback"
-		}
-		u.State = "running"
-		u.UpdatedAt = now
-		s.upgrades[u.ID] = u
-	}
-	op.Progress = []domain.ProgressStep{{Name: step, Status: "running", StartedAt: &now}}
+	op.Progress = []domain.ProgressStep{{Name: "git-write", Status: "running", StartedAt: &now}}
 	s.operations[v] = op
 	return op, true, nil
 }
@@ -921,149 +909,9 @@ func (s *Store) FailOperation(_ context.Context, v string, generation int64, wor
 	op.Problem = &domain.ProblemData{Code: code, Detail: detail}
 	op.FinishedAt = &now
 	op.UpdatedAt = now
-	step := "git-write"
-	if op.Kind == "platform.upgrade" {
-		step = "upgrade"
-		if s.upgrades[op.TargetID].Action == "rollback" {
-			step = "rollback"
-		}
-		u := s.upgrades[op.TargetID]
-		u.State = "failed"
-		if u.Result == nil {
-			u.Result = map[string]any{}
-		}
-		u.Result["code"], u.Result["detail"] = code, detail
-		u.UpdatedAt = now
-		s.upgrades[u.ID] = u
-	}
-	op.Progress = []domain.ProgressStep{{Name: step, Status: "failed", Detail: detail, FinishedAt: &now}}
+	op.Progress = []domain.ProgressStep{{Name: "git-write", Status: "failed", Detail: detail, FinishedAt: &now}}
 	s.operations[v] = op
 	delete(s.leases, v)
-	return nil
-}
-
-func (s *Store) CreatePlatformUpgrade(_ context.Context, actor, key, fp, requestID string, in domain.CreatePlatformUpgrade) (base.Result[domain.PlatformUpgrade], domain.Operation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !base.ExactSHA256Matches(in.Release.ManifestBytes, in.Release.ManifestDigest) {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
-	}
-	k := ik(actor, "platform-upgrades.create", key)
-	old, ok := s.idempotency[k]
-	if err := check(old, ok, fp); err != nil {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
-	}
-	if ok {
-		u := s.upgrades[old.resourceID]
-		u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
-		return base.Result[domain.PlatformUpgrade]{Value: u, Replay: true}, s.operations[old.operationID], nil
-	}
-	for _, u := range s.upgrades {
-		if u.State == "queued" || u.State == "running" {
-			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
-		}
-	}
-	now := time.Now().UTC()
-	uID, opID := id.New(), id.New()
-	op := domain.Operation{ID: opID, Kind: "platform.upgrade", Status: "queued", TargetType: "platform-upgrade", TargetID: uID, RequestID: requestID, Generation: 1, Progress: []domain.ProgressStep{{Name: "upgrade", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
-	u := domain.PlatformUpgrade{ID: uID, Version: in.Release.Version, ManifestDigest: in.Release.ManifestDigest, Manifest: in.Release.Manifest, ManifestBytes: append([]byte(nil), in.Release.ManifestBytes...), State: "queued", OperationID: opID, Result: map[string]any{"action": "upgrade"}, Action: "upgrade", CreatedAt: now, UpdatedAt: now}
-	s.operations[opID] = op
-	s.upgrades[uID] = u
-	s.outbox[opID] = &outboxRecord{message: domain.WorkMessage{OperationID: opID, Kind: op.Kind, ScopeID: uID, Generation: 1, TraceID: requestID}}
-	s.idempotency[k] = idemRecord{fp, "platform-upgrade", uID, opID}
-	s.audits++
-	result := u
-	result.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
-	return base.Result[domain.PlatformUpgrade]{Value: result}, op, nil
-}
-
-func (s *Store) CreatePlatformRollback(_ context.Context, actor, key, fp, requestID string, in domain.CreatePlatformRollback) (base.Result[domain.PlatformUpgrade], domain.Operation, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if in.HelmRevision < 1 || in.HelmRevision > 1_000_000 {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
-	}
-	k := ik(actor, "platform-upgrades.rollback", key)
-	old, ok := s.idempotency[k]
-	if err := check(old, ok, fp); err != nil {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, err
-	}
-	if ok {
-		u := s.upgrades[old.resourceID]
-		u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
-		return base.Result[domain.PlatformUpgrade]{Value: u, Replay: true}, s.operations[old.operationID], nil
-	}
-	for _, u := range s.upgrades {
-		if u.State == "queued" || u.State == "running" {
-			return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrUpgradeInProgress
-		}
-	}
-	source, ok := s.upgrades[in.SourceUpgradeID]
-	if !ok {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrNotFound
-	}
-	if source.State != "succeeded" || !base.ExactSHA256Matches(source.ManifestBytes, source.ManifestDigest) {
-		return base.Result[domain.PlatformUpgrade]{}, domain.Operation{}, base.ErrConflict
-	}
-	now := time.Now().UTC()
-	uID, opID := id.New(), id.New()
-	metadata := map[string]any{"action": "rollback", "helmRevision": in.HelmRevision, "sourceUpgradeId": source.ID}
-	op := domain.Operation{ID: opID, Kind: "platform.upgrade", Status: "queued", TargetType: "platform-upgrade", TargetID: uID, RequestID: requestID, Generation: 1, Progress: []domain.ProgressStep{{Name: "rollback", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
-	u := domain.PlatformUpgrade{ID: uID, Version: source.Version, ManifestDigest: source.ManifestDigest, Manifest: source.Manifest, ManifestBytes: append([]byte(nil), source.ManifestBytes...), State: "queued", OperationID: opID, Result: metadata, Action: "rollback", HelmRevision: in.HelmRevision, SourceUpgradeID: source.ID, CreatedAt: now, UpdatedAt: now}
-	s.operations[opID] = op
-	s.upgrades[uID] = u
-	s.outbox[opID] = &outboxRecord{message: domain.WorkMessage{OperationID: opID, Kind: op.Kind, ScopeID: uID, Generation: 1, TraceID: requestID}}
-	s.idempotency[k] = idemRecord{fp, "platform-upgrade", uID, opID}
-	s.audits++
-	return base.Result[domain.PlatformUpgrade]{Value: u}, op, nil
-}
-
-func (s *Store) ListPlatformUpgrades(_ context.Context) ([]domain.PlatformUpgrade, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	items := make([]domain.PlatformUpgrade, 0, len(s.upgrades))
-	for _, u := range s.upgrades {
-		u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
-		items = append(items, u)
-	}
-	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
-	return items, nil
-}
-func (s *Store) GetPlatformUpgrade(_ context.Context, id string) (domain.PlatformUpgrade, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	u, ok := s.upgrades[id]
-	if !ok {
-		return u, base.ErrNotFound
-	}
-	u.ManifestBytes = append([]byte(nil), u.ManifestBytes...)
-	return u, nil
-}
-
-func (s *Store) RecordUpgradeRunner(_ context.Context, operationID string, generation int64, worker, runnerRef string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if runnerRef == "" {
-		return base.ErrConflict
-	}
-	op, ok := s.operations[operationID]
-	if !ok {
-		return base.ErrNotFound
-	}
-	lease := s.leases[operationID]
-	if op.Generation != generation || op.Kind != "platform.upgrade" || op.Status != "running" || worker == "" || lease.owner != worker || !lease.until.After(time.Now().UTC()) {
-		return base.ErrConflict
-	}
-	u, ok := s.upgrades[op.TargetID]
-	if !ok {
-		return base.ErrNotFound
-	}
-	if u.RunnerRef != "" && u.RunnerRef != runnerRef {
-		return base.ErrConflict
-	}
-	u.RunnerRef = runnerRef
-	u.UpdatedAt = time.Now().UTC()
-	s.upgrades[u.ID] = u
 	return nil
 }
 
@@ -1074,7 +922,7 @@ func (s *Store) RequeueOperation(_ context.Context, operationID string, generati
 	if !ok {
 		return base.ErrNotFound
 	}
-	if op.Generation != generation || op.Kind != "platform.upgrade" && op.Kind != "deployment.git-write" && op.Kind != "variable-set.git-write" {
+	if op.Generation != generation || (op.Kind != "deployment.git-write" && op.Kind != "variable-set.git-write") {
 		return base.ErrConflict
 	}
 	if op.Status == "succeeded" {
@@ -1092,67 +940,8 @@ func (s *Store) RequeueOperation(_ context.Context, operationID string, generati
 	op.Problem = nil
 	op.FinishedAt = nil
 	op.UpdatedAt = now
-	step := "git-write"
-	if op.Kind == "platform.upgrade" {
-		step = "upgrade"
-		if s.upgrades[op.TargetID].Action == "rollback" {
-			step = "rollback"
-		}
-	}
-	op.Progress = []domain.ProgressStep{{Name: step, Status: "pending", Detail: detail}}
+	op.Progress = []domain.ProgressStep{{Name: "git-write", Status: "pending", Detail: detail}}
 	s.operations[operationID] = op
-	if op.Kind == "platform.upgrade" {
-		u := s.upgrades[op.TargetID]
-		u.State = "queued"
-		if u.Result == nil {
-			u.Result = map[string]any{}
-		}
-		u.Result["code"], u.Result["detail"] = code, detail
-		u.UpdatedAt = now
-		s.upgrades[u.ID] = u
-	}
-	delete(s.leases, operationID)
-	return nil
-}
-func (s *Store) CompleteUpgradeOperation(_ context.Context, operationID string, generation int64, worker, runnerRef string, result map[string]any) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	op, ok := s.operations[operationID]
-	if !ok {
-		return base.ErrNotFound
-	}
-	if op.Status == "succeeded" {
-		return nil
-	}
-	if op.Generation != generation || op.Kind != "platform.upgrade" || op.Status != "running" {
-		return base.ErrConflict
-	}
-	now := time.Now().UTC()
-	lease := s.leases[operationID]
-	if worker == "" || lease.owner != worker || !lease.until.After(now) {
-		return base.ErrOperationLeaseLost
-	}
-	op.Status = "succeeded"
-	op.UpdatedAt = now
-	op.FinishedAt = &now
-	step := "upgrade"
-	if s.upgrades[op.TargetID].Action == "rollback" {
-		step = "rollback"
-	}
-	op.Progress = []domain.ProgressStep{{Name: step, Status: "succeeded", Detail: "runner completed: " + runnerRef, FinishedAt: &now}}
-	s.operations[op.ID] = op
-	u := s.upgrades[op.TargetID]
-	u.State = "succeeded"
-	u.RunnerRef = runnerRef
-	if u.Result == nil {
-		u.Result = map[string]any{}
-	}
-	for key, value := range result {
-		u.Result[key] = value
-	}
-	u.UpdatedAt = now
-	s.upgrades[u.ID] = u
-	s.audits++
 	delete(s.leases, operationID)
 	return nil
 }

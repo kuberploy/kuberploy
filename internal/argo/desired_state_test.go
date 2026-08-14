@@ -58,7 +58,8 @@ func (g staticDesiredStateProjectionGate) ValidateDesiredStateClaim(_ context.Co
 	approval := g.approval
 	if approval.Contract != argo.DesiredStateProjectionApprovalContract || approval.BindingID != command.EnvironmentBindingID ||
 		approval.IndexedRevision != command.EnvironmentRevision || approval.ProjectionGeneration != command.EnvironmentGeneration ||
-		approval.CatalogDigest != command.CatalogDigest || !approval.AppConfigsValid || !approval.DependenciesValid ||
+		approval.PolicyDigest != command.PolicyDigest || approval.CatalogDigest != command.CatalogDigest ||
+		!approval.AppConfigsValid || !approval.DependenciesValid ||
 		!approval.SecretReferencesResolved || !approval.RegistryReferencesResolved {
 		return argo.ErrInvalid
 	}
@@ -80,7 +81,8 @@ func desiredStateApproval(t *testing.T, target argo.DesiredStateTarget, applicat
 	return argo.DesiredStateProjectionApproval{
 		Contract: argo.DesiredStateProjectionApprovalContract, BindingID: target.Environment.Binding.ID,
 		IndexedRevision: target.Environment.Binding.IndexedRevision, ProjectionGeneration: target.Environment.Binding.ProjectionGeneration,
-		CatalogDigest: "sha256:" + hex.EncodeToString(digest[:]), Applications: applications, Deployments: deployments,
+		PolicyDigest: "sha256:" + strings.Repeat("d", 64), CatalogDigest: "sha256:" + hex.EncodeToString(digest[:]),
+		Applications: applications, Deployments: deployments,
 		AppConfigsValid: true, DependenciesValid: true, SecretReferencesResolved: true, RegistryReferencesResolved: true,
 	}
 }
@@ -206,8 +208,15 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 	indexedAdvance.Environment.Binding.ProjectionGeneration++
 	indexedAdvance.Environment.Binding.UpdatedAt = now.Add(4 * time.Second)
 	indexedAdvance.Environment.Binding.State = gitprojection.BindingReady
-	if _, err = planDesiredStateCommand(t, "19111111-1111-4111-8111-111111111111", indexedAdvance, applications, deployments, &completed, now.Add(5*time.Second)); !errors.Is(err, argo.ErrNoDesiredStateChange) {
+	unchanged, err := planDesiredStateCommand(t, "19111111-1111-4111-8111-111111111111", indexedAdvance,
+		applications, deployments, &completed, now.Add(5*time.Second))
+	if !errors.Is(err, argo.ErrNoDesiredStateChange) {
 		t.Fatalf("platform-only indexed advance changed tenant desired state: %v", err)
+	}
+	if unchanged.EnvironmentRevision != indexedAdvance.Environment.Binding.IndexedRevision ||
+		unchanged.EnvironmentGeneration != indexedAdvance.Environment.Binding.ProjectionGeneration ||
+		unchanged.ContentSHA256 != completed.ContentSHA256 || unchanged.CatalogDigest == completed.CatalogDigest {
+		t.Fatalf("no-change receipt candidate lost current authority: %#v", unchanged)
 	}
 	if _, err = planDesiredStateCommand(t, "15111111-1111-4111-8111-111111111111", target, applications, deployments, &completed, now.Add(3*time.Second)); !errors.Is(err, argo.ErrNoDesiredStateChange) {
 		t.Fatalf("unchanged catalog queued: %v", err)
@@ -237,6 +246,7 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 		"unresolved secret":     func(value *argo.DesiredStateProjectionApproval) { value.SecretReferencesResolved = false },
 		"stale revision":        func(value *argo.DesiredStateProjectionApproval) { value.IndexedRevision = strings.Repeat("8", 40) },
 		"stale generation":      func(value *argo.DesiredStateProjectionApproval) { value.ProjectionGeneration++ },
+		"forged policy digest":  func(value *argo.DesiredStateProjectionApproval) { value.PolicyDigest = "not-a-digest" },
 		"forged catalog digest": func(value *argo.DesiredStateProjectionApproval) { value.CatalogDigest = "not-a-digest" },
 	}
 	for name, mutate := range invalidApprovals {

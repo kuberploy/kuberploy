@@ -37,9 +37,9 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.162` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.163` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
-for all five release images (API, worker, web, upgrader, and builder-agent) and set
+for all five deployed release images (API, worker, web, migration, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
 fails closed if any component is not digest pinned.
 
@@ -456,8 +456,8 @@ namespace on TCP 5432, and managed Valkey is locked to labeled Pods in the
 `kuberploy-valkey` namespace on TCP 6379. Adopted external database or cache
 endpoints must be named through `externalPostgreSQLEgressCIDRs` or
 `externalValkeyEgressCIDRs`; all-address ranges are rejected for both. General
-`externalEgressCIDRs` permit only provider protocols: API HTTPS; worker HTTPS,
-SSH Git, and `git://`; and upgrader HTTPS. They never permit database, cache, or
+`externalEgressCIDRs` permit only provider protocols: API HTTPS; and worker HTTPS,
+SSH Git, and `git://`. They never permit database, cache, or
 Kubernetes API-specific ports. General provider CIDRs are also default-empty
 and reject all-address ranges so an HTTPS allowance cannot silently include a
 Kubernetes API on port 443. Configure exact provider ranges or a controlled

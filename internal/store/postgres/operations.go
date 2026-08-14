@@ -483,10 +483,10 @@ func (s *Store) StartOperation(ctx context.Context, operationID string, generati
 		return domain.Operation{}, false, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var status, owner, kind, targetID, upgradeAction string
+	var status, owner, kind, targetID string
 	var gen int64
 	var leaseUntil *time.Time
-	err = tx.QueryRow(ctx, `SELECT o.status,o.generation,COALESCE(o.lease_owner,''),o.lease_until,o.kind,o.target_id,COALESCE(u.result->>'action','') FROM operations o LEFT JOIN platform_upgrades u ON u.operation_id=o.id WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&status, &gen, &owner, &leaseUntil, &kind, &targetID, &upgradeAction)
+	err = tx.QueryRow(ctx, `SELECT status,generation,COALESCE(lease_owner,''),lease_until,kind,target_id FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&status, &gen, &owner, &leaseUntil, &kind, &targetID)
 	if err != nil {
 		return domain.Operation{}, false, classify(err)
 	}
@@ -528,22 +528,10 @@ func (s *Store) StartOperation(ctx context.Context, operationID string, generati
 			return op, false, e
 		}
 	}
-	step := "git-write"
-	if kind == "platform.upgrade" {
-		step = "upgrade"
-		if upgradeAction == "rollback" {
-			step = "rollback"
-		}
-	}
-	progress, _ := json.Marshal([]domain.ProgressStep{{Name: step, Status: "running", StartedAt: &now}})
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "running", StartedAt: &now}})
 	_, err = tx.Exec(ctx, `UPDATE operations SET status='running',progress=$2,lease_owner=$3,lease_until=now()+make_interval(secs=>$4),updated_at=now() WHERE id=$1`, operationID, progress, worker, lease.Seconds())
 	if err != nil {
 		return domain.Operation{}, false, err
-	}
-	if kind == "platform.upgrade" {
-		if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='running',updated_at=$2 WHERE operation_id=$1`, operationID, now); err != nil {
-			return domain.Operation{}, false, err
-		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return domain.Operation{}, false, err
@@ -576,6 +564,35 @@ func (s *Store) HeartbeatOperation(ctx context.Context, operationID string, gene
 		return nil
 	}
 	return base.ErrOperationLeaseLost
+}
+
+func (s *Store) RequeueOperation(ctx context.Context, operationID string, generation int64, worker, code, detail string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	now := time.Now().UTC()
+	var kind, status, owner string
+	var gen int64
+	var leaseUntil *time.Time
+	if err = tx.QueryRow(ctx, `SELECT kind,status,generation,COALESCE(lease_owner,''),lease_until FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&kind, &status, &gen, &owner, &leaseUntil); err != nil {
+		return classify(err)
+	}
+	if gen != generation || (kind != "deployment.git-write" && kind != "variable-set.git-write") {
+		return fmt.Errorf("%w: operation generation or kind changed", base.ErrConflict)
+	}
+	if status == "succeeded" || status == "queued" {
+		return nil
+	}
+	if !validOperationLease(status, owner, leaseUntil, worker, now) {
+		return base.ErrOperationLeaseLost
+	}
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "pending", Detail: detail}})
+	if _, err = tx.Exec(ctx, `UPDATE operations SET status='queued',problem=NULL,progress=$2,lease_owner=NULL,lease_until=NULL,updated_at=$3,finished_at=NULL WHERE id=$1`, operationID, progress, now); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func terminalOperationStatus(status string) bool {
@@ -709,11 +726,11 @@ func (s *Store) FailOperation(ctx context.Context, operationID string, generatio
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var kind, status, owner, upgradeAction string
+	var status, owner string
 	var gen int64
 	var leaseUntil *time.Time
 	var currentProblem []byte
-	if err = tx.QueryRow(ctx, `SELECT o.kind,o.status,o.generation,COALESCE(o.lease_owner,''),o.lease_until,o.problem,COALESCE(u.result->>'action','') FROM operations o LEFT JOIN platform_upgrades u ON u.operation_id=o.id WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&kind, &status, &gen, &owner, &leaseUntil, &currentProblem, &upgradeAction); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT status,generation,COALESCE(lease_owner,''),lease_until,problem FROM operations WHERE id=$1 FOR UPDATE`, operationID).Scan(&status, &gen, &owner, &leaseUntil, &currentProblem); err != nil {
 		return classify(err)
 	}
 	if gen != generation {
@@ -732,23 +749,13 @@ func (s *Store) FailOperation(ctx context.Context, operationID string, generatio
 	if !validOperationLease(status, owner, leaseUntil, worker, now) {
 		return base.ErrOperationLeaseLost
 	}
-	step := "git-write"
-	if kind == "platform.upgrade" {
-		step = "upgrade"
-		if upgradeAction == "rollback" {
-			step = "rollback"
-		}
-	}
-	progress, _ := json.Marshal([]domain.ProgressStep{{Name: step, Status: "failed", Detail: detail, FinishedAt: &now}})
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "failed", Detail: detail, FinishedAt: &now}})
 	tag, err := tx.Exec(ctx, `UPDATE operations SET status='failed',problem=$3,progress=$4,lease_owner=NULL,lease_until=NULL,updated_at=$5,finished_at=$5 WHERE id=$1 AND generation=$2 AND status='running' AND lease_owner=$6`, operationID, generation, problem, progress, now, worker)
 	if err != nil {
 		return err
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("%w: operation generation changed", base.ErrConflict)
-	}
-	if _, err = tx.Exec(ctx, `UPDATE platform_upgrades SET state='failed',updated_at=$2,result=COALESCE(result,'{}'::jsonb) || jsonb_build_object('code',$3::text,'detail',$4::text) WHERE operation_id=$1 AND state IN ('queued','running')`, operationID, now, code, detail); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }

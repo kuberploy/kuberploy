@@ -50,9 +50,14 @@ after publication starts requires explicit administrator review.
 
 The source chart intentionally uses exact development tags. Release packaging
 copies it to a temporary directory, enables `global.requireImageDigest`, and
-injects the API, worker, web, migration, upgrader, and builder-agent `image@sha256`
+injects the API, worker, web, migration, and builder-agent `image@sha256`
 references. The published OCI chart and `.tgz` therefore render the same
 immutable images.
+
+Release-manifest schema v1 still carries the historical `upgrader` image field
+so already-published signed manifests remain verifiable. The control-plane
+chart does not deploy or invoke that artifact; platform changes are performed
+only by a cluster administrator upgrading the installer Helm release.
 
 The migration image contains Prisma CLI 7.9.1 and the reviewed native SQL
 history. Its mandatory pre-install/pre-upgrade Job is the only production
@@ -135,5 +140,5 @@ It does not log in to GHCR, push an image or chart, create a release, or contact
 a Kubernetes cluster.
 
 `release-manifest.json` is the machine-readable release contract used by the
-API and upgrade runner. Its `$schema` URL is pinned to the exact source commit;
+read-only release checker and operator tooling. Its `$schema` URL is pinned to the exact source commit;
 the canonical schema is `release/release-manifest.schema.json`.

@@ -106,7 +106,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'4\n103\n68\n74\n746\n10\n2'
+kp_expected_counts=$'6\n103\n72\n78\n761\n9\n1'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -121,7 +121,7 @@ docker run --rm --network "${kp_network}" \
   --entrypoint node \
   "${kp_image}" check-schema-drift.mjs >/dev/null
 
-# Exercise the ordered 003 -> 004 production upgrade, not only a fresh apply.
+# Exercise the ordered 003 -> 006 production upgrade, not only a fresh apply.
 # Prisma owns the history rows; psql supplies the already-released SQL exactly
 # as it existed before the new image starts.
 docker exec "${kp_postgres}" createdb --username postgres upgrade
@@ -162,10 +162,32 @@ for kp_migration_name in \
         '${kp_migration_name}',now(),1
       );" >/dev/null
 done
+
+# Seed the removed pre-stable platform-upgrade state exactly as an old control
+# plane could leave it. Migration 006 must retire mutable work without erasing
+# terminal operation evidence.
+docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --set ON_ERROR_STOP=1 --command "
+  INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,lease_owner,lease_until) VALUES
+    ('60000000-0000-4000-8000-000000000002','platform.upgrade','running','platform','60000000-0000-4000-8000-000000000012','running-upgrade',1,'legacy-upgrade-worker',now()+interval '5 minutes'),
+    ('60000000-0000-4000-8000-000000000003','platform.upgrade','succeeded','platform','60000000-0000-4000-8000-000000000013','terminal-upgrade',1,NULL,NULL);
+  INSERT INTO platform_upgrades(id,version,manifest_digest,manifest,state,operation_id,manifest_bytes) VALUES
+    ('60000000-0000-4000-8000-000000000012','0.1.0-rc.1','sha256:'||repeat('b',64),'{}','running','60000000-0000-4000-8000-000000000002','{}'),
+    ('60000000-0000-4000-8000-000000000013','0.1.0-rc.1','sha256:'||repeat('c',64),'{}','succeeded','60000000-0000-4000-8000-000000000003','{}');
+  INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES
+    ('60000000-0000-4000-8000-000000000002','platform.upgrade','60000000-0000-4000-8000-000000000012',1,'running-upgrade');
+" >/dev/null
 kp_upgrade_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/upgrade?schema=public"
 docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" >/dev/null
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
-  "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" == "4" ]]
+  "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" == "6" ]]
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
+  "SELECT to_regclass('public.platform_upgrades') IS NULL")" == "t" ]]
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
+  "SELECT string_agg(status||':'||COALESCE(problem->>'code','none'),',' ORDER BY id) FROM operations WHERE kind='platform.upgrade'")" == "cancelled:FeatureRemoved,succeeded:none" ]]
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
+  "SELECT (progress->0->>'name')||':'||(progress->0->>'status')||':'||(progress->0 ? 'finishedAt') FROM operations WHERE id='60000000-0000-4000-8000-000000000002'")" == "platform-upgrade:cancelled:true" ]]
+[[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
+  "SELECT count(*) FROM outbox WHERE operation_id='60000000-0000-4000-8000-000000000002'")" == "0" ]]
 
 # The 004 insertion fence must reject an old API/worker binary even after the
 # one-time legacy cleanup has completed. Probe the same trigger function with
@@ -273,4 +295,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh and 003-to-004 apply, declarative drift, old-writer fencing, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh and 003-to-006 apply, self-upgrade retirement, declarative drift, old-writer fencing, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

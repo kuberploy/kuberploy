@@ -72,7 +72,8 @@ spec:
   template:
     spec:
       containers:
-      - env:
+      - command: ["/bin/sh", "-c"]
+        env:
         - name: ORDINARY
           value: env-must-not-appear
         - name: FROM_SECRET
@@ -80,7 +81,7 @@ spec:
             secretKeyRef:
               key: password
               name: safe-reference-name
-        args: ["--token=arg-must-not-appear", "--listen=:8080"]
+        args: ["--token=arg-must-not-appear", "--listen=ordinary-arg-must-not-appear"]
         image: registry.example.test/team/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 metadata:
 # comment-must-not-appear
@@ -107,7 +108,8 @@ apiVersion: apps/v1
 		t.Fatalf("sanitization is not deterministic: err=%v\nfirst=%s\nsecond=%s", err, first, second)
 	}
 	for _, forbidden := range []string{"status-must-not-appear", "env-must-not-appear",
-		"arg-must-not-appear", "annotation-must-not-appear", "comment-must-not-appear",
+		"arg-must-not-appear", "ordinary-arg-must-not-appear", "/bin/sh",
+		"annotation-must-not-appear", "comment-must-not-appear",
 		"label-must-not-appear", "uid-must-not-appear"} {
 		if strings.Contains(first, forbidden) {
 			t.Fatalf("sanitized YAML leaked %q: %s", forbidden, first)

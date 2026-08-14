@@ -17,7 +17,6 @@ var (
 	ErrConflict                      = errors.New("conflict")
 	ErrBootstrapConsumed             = errors.New("bootstrap already consumed")
 	ErrIdempotencyConflict           = errors.New("idempotency key reused with different input")
-	ErrUpgradeInProgress             = errors.New("a platform upgrade is already active")
 	ErrForbidden                     = errors.New("forbidden")
 	ErrInvitationInvalid             = errors.New("invitation is invalid, expired, or already used")
 	ErrRegistryExternalLifecycle     = errors.New("registry lifecycle is operator managed")
@@ -229,11 +228,6 @@ type Store interface {
 	ListOperations(context.Context) ([]domain.Operation, error)
 	GetOperationForActor(context.Context, string, string) (domain.Operation, error)
 	ListOperationsForActor(context.Context, string) ([]domain.Operation, error)
-	CreatePlatformUpgrade(context.Context, string, string, string, string, domain.CreatePlatformUpgrade) (Result[domain.PlatformUpgrade], domain.Operation, error)
-	CreatePlatformRollback(context.Context, string, string, string, string, domain.CreatePlatformRollback) (Result[domain.PlatformUpgrade], domain.Operation, error)
-	ListPlatformUpgrades(context.Context) ([]domain.PlatformUpgrade, error)
-	GetPlatformUpgrade(context.Context, string) (domain.PlatformUpgrade, error)
-
 	PendingOutbox(context.Context, int) ([]domain.WorkMessage, error)
 	MarkOutboxPublished(context.Context, string) error
 	MarkOutboxFailure(context.Context, string, string) error
@@ -241,8 +235,6 @@ type Store interface {
 	StartOperation(context.Context, string, int64, string, time.Duration) (domain.Operation, bool, error)
 	HeartbeatOperation(context.Context, string, int64, string, time.Duration) error
 	CompleteGitOperation(context.Context, string, int64, string, domain.GitPublicationResult) error
-	RecordUpgradeRunner(context.Context, string, int64, string, string) error
 	RequeueOperation(context.Context, string, int64, string, string, string) error
-	CompleteUpgradeOperation(context.Context, string, int64, string, string, map[string]any) error
 	FailOperation(context.Context, string, int64, string, string, string) error
 }

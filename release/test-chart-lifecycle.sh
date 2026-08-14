@@ -58,19 +58,17 @@ diff -u "${kp_tmp}/install.yaml" "${kp_tmp}/rollback.yaml" >/dev/null
 
 [[ "$(grep -c '^kind: Deployment$' "${kp_tmp}/install.yaml")" -eq 3 ]]
 [[ "$(grep -c '^kind: PodDisruptionBudget$' "${kp_tmp}/install.yaml")" -eq 3 ]]
-[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 8 ]]
+[[ "$(grep -c '^kind: NetworkPolicy$' "${kp_tmp}/install.yaml")" -eq 7 ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/install.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
 [[ "$(grep -Ec '^kind: (ClusterRole|ClusterRoleBinding|Namespace|Application|ApplicationSet|AppProject)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
 [[ "$(grep -Ec '^kind: (Namespace|ResourceQuota|ValidatingAdmissionPolicy|ValidatingAdmissionPolicyBinding)$' "${kp_tmp}/install.yaml")" -eq 0 ]]
 [[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 4 ]]
 grep -q 'ghcr.io/kuberploy/kuberploy-migration@sha256:' "${kp_tmp}/install.yaml"
 grep -q 'helm.sh/hook: pre-install,pre-upgrade' "${kp_tmp}/install.yaml"
-grep -q 'KUBERPLOY_UPGRADER_IMAGE' "${kp_tmp}/install.yaml"
-grep -q 'ghcr.io/kuberploy/kuberploy-upgrader@sha256:' "${kp_tmp}/install.yaml"
-grep -q 'name: kuberploy-upgrade' "${kp_tmp}/install.yaml"
-grep -q 'app.kubernetes.io/component: upgrade' "${kp_tmp}/install.yaml"
-grep -q 'jobs' "${kp_tmp}/install.yaml"
-grep -q 'secrets' "${kp_tmp}/install.yaml"
+! grep -q 'KUBERPLOY_UPGRADER' "${kp_tmp}/install.yaml"
+! grep -q 'kuberploy-upgrader' "${kp_tmp}/install.yaml"
+! grep -q 'name: kuberploy-upgrade' "${kp_tmp}/install.yaml"
+! grep -q 'app.kubernetes.io/component: upgrade' "${kp_tmp}/install.yaml"
 
 [[ "$(grep -c '^kind: Namespace$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 [[ "$(grep -c '^kind: ResourceQuota$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]

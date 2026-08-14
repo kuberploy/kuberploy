@@ -38,6 +38,7 @@ func helmWorkerAuthoritiesFixture(t *testing.T) (*gitProjectionRuntime, *argoDes
 		ConfigDigest: "sha256:" + strings.Repeat("a", 64), GitHubAppID: 12345}
 	client := &githubapp.Client{}
 	projection := &gitProjectionRuntime{store: projectionStore, identity: projectionIdentity,
+		policyDigest: "sha256:" + strings.Repeat("d", 64),
 		headVerifier: gitprojection.GitHubHeadVerifier{AppID: projectionIdentity.GitHubAppID,
 			Authorizations: projectionStore, Client: client},
 		writeManager: &gitprojection.MirrorManager{Root: "/tmp/kuberploy-helm-worker-test",

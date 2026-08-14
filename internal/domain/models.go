@@ -218,23 +218,6 @@ type ReleaseInfo struct {
 	PublishedAt    time.Time       `json:"publishedAt"`
 }
 
-type PlatformUpgrade struct {
-	ID              string          `json:"id"`
-	Version         string          `json:"version"`
-	ManifestDigest  string          `json:"manifestDigest"`
-	Manifest        ReleaseManifest `json:"manifest"`
-	ManifestBytes   []byte          `json:"-"`
-	State           string          `json:"state"`
-	OperationID     string          `json:"operationId"`
-	RunnerRef       string          `json:"runnerRef,omitempty"`
-	Result          map[string]any  `json:"result,omitempty"`
-	Action          string          `json:"action"`
-	HelmRevision    int64           `json:"helmRevision,omitempty"`
-	SourceUpgradeID string          `json:"sourceUpgradeId,omitempty"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
-}
-
 type Route struct {
 	Hostname   string `json:"hostname"`
 	PathPrefix string `json:"pathPrefix"`
@@ -328,15 +311,6 @@ type RegistryPullReference struct {
 
 func (r RegistryPullReference) Valid() bool {
 	return uuidPattern.MatchString(r.TargetID) && validDNSLabel(r.ProfileName) && r.ProfileRevision > 0
-}
-
-type CreatePlatformUpgrade struct {
-	Release ReleaseInfo
-}
-
-type CreatePlatformRollback struct {
-	SourceUpgradeID string
-	HelmRevision    int64
 }
 
 type CreateTeam struct{ Name, Slug string }

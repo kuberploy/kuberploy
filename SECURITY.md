@@ -19,7 +19,7 @@ promised while the project is community maintained.
 ## System and Scope
 
 This policy covers the Kuberploy API, worker, web UI, database migrations,
-GitOps writer, release upgrader, Helm charts, Kubernetes RBAC and network policy,
+GitOps writer, release checker, Helm charts, Kubernetes RBAC and network policy,
 and the repository's build and release automation. It also covers Kuberploy's
 handling of PostgreSQL, Valkey, Git, Argo CD, Traefik, OCI registries, and GitHub
 App integrations at their Kuberploy trust boundaries.

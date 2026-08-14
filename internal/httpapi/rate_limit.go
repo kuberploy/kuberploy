@@ -46,7 +46,6 @@ var (
 	registryExecuteLimit     = highRiskPolicy{bucket: "registry-cleanup-execute", limit: 10, window: time.Hour}
 	externalDNSManageLimit   = highRiskPolicy{bucket: "external-dns-integration", limit: 30, window: time.Hour}
 	helmApprovalLimit        = highRiskPolicy{bucket: "helm-approval-admission", limit: 20, window: time.Hour}
-	platformUpgradeLimit     = highRiskPolicy{bucket: "platform-upgrade", limit: 5, window: time.Hour}
 )
 
 type rateLimitSubject func(*http.Request) (string, error)

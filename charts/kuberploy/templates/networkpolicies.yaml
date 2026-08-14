@@ -80,7 +80,7 @@ spec:
               app.kubernetes.io/component: api
       ports:
         - {port: {{ .Values.components.api.port }}, protocol: TCP}
-{{- range $component := list "api" "worker" "upgrade" }}
+{{- range $component := list "api" "worker" }}
 {{- $externalPorts := dict -}}
 {{- if eq $component "worker" -}}
   {{- $_ := set $externalPorts "22" true -}}
@@ -141,9 +141,6 @@ spec:
   {{- else }}
   ingress: []
   {{- end }}
-  {{- if and (eq $component "upgrade") (empty $.Values.networkPolicy.kubeAPIServerCIDRs) (empty $.Values.networkPolicy.externalEgressCIDRs) }}
-  egress: []
-  {{- else }}
   egress:
     {{- if and (eq $component "api") (eq $.Values.config.monitoring.mode "managed") }}
     - to:
@@ -203,7 +200,7 @@ spec:
       ports:
         - {port: {{ $.Values.config.managedRegistry.servicePort }}, protocol: TCP}
     {{- end }}
-    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (eq $component "upgrade") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.environmentFoundation.enabled $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
+    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.environmentFoundation.enabled $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
     - to:
         {{- range $.Values.networkPolicy.kubeAPIServerCIDRs }}
         - ipBlock:
@@ -222,7 +219,6 @@ spec:
         - {port: {{ atoi $port }}, protocol: TCP}
         {{- end }}
   {{- end }}
-{{- end }}
 {{- end }}
 {{- if and .Values.networkPolicy.enabled .Values.builder.enabled .Values.config.managedRegistry.enabled }}
 ---

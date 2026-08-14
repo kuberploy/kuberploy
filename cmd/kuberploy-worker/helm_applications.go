@@ -64,6 +64,8 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 	processIdentity := helmApplicationsProcessIdentity(host, os.Getpid(), startedAt)
 	runtime, err := helmapps.NewRuntime(config, helmapps.RuntimeDependencies{
 		Pool: pool, OCIClient: &http.Client{}, Credentials: credentials, RendererAPI: renderer, Bindings: bindings,
+		ArgoMaterialization: helmapps.ArgoMaterializationAuthority{PolicyDigest: projection.policyDigest,
+			Runtime: identity.Runtime, DigestEnforcement: identity.DigestEnforcement},
 		GitBindings: projection.store, GitProvider: projection.headVerifier, GitManager: projection.writeManager,
 		WorkerID: workerLeaseOwner(processIdentity, "helm-applications"), WorkerEpoch: 1,
 		StartedAt: startedAt, Now: func() time.Time { return time.Now().UTC() },

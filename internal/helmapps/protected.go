@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"go.yaml.in/yaml/v3"
 )
@@ -47,11 +48,30 @@ type ProtectedBindingSnapshot struct {
 	CatalogDigest, PlannedBaseRevision                 string
 }
 
+// ArgoMaterializationAuthority is the worker-owned identity against which an
+// environment materialization receipt is admitted. It is not persisted in a
+// Helm intent: admission always uses the currently running worker authority.
+type ArgoMaterializationAuthority struct {
+	PolicyDigest      string
+	Runtime           argo.RuntimeLock
+	DigestEnforcement argo.ChartDigestEnforcement
+}
+
+func (a ArgoMaterializationAuthority) Validate() error {
+	if !validDigest(a.PolicyDigest) || a.Runtime.Validate() != nil ||
+		a.DigestEnforcement != argo.ChartDigestNativeOCI {
+		return ErrInvalid
+	}
+	return nil
+}
+
 // ProtectedPublicationPrerequisiteReceipt is immutable proof that one release
-// was planned against the exact environment foundation and Argo desired-state
-// command which owns its AppProject. The protected Git publisher revalidates
-// its immutable terminal identities, then proves both commits are ancestors
-// of its claim-time write base.
+// was planned against the exact current environment projection and foundation,
+// plus the latest verified Argo desired-state command which owns its AppProject.
+// The command may precede unrelated branch-only projection advances when the
+// rendered desired state did not change. The protected Git publisher revalidates
+// its immutable terminal identities, then proves both commits are ancestors of
+// its claim-time write base.
 type ProtectedPublicationPrerequisiteReceipt struct {
 	ReleaseRevisionID, ProjectID, EnvironmentID, ApplicationID string
 	PlatformBindingID, EnvironmentBindingID, ClusterID         string

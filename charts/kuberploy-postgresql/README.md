@@ -10,7 +10,7 @@ read-only root filesystem, and bounded resources/configuration.
 The chart never creates or prints credentials. Managed mode requires the
 existing `kuberploy-postgresql-auth` Secret with `username`, `password`, and
 `database`. The installer separately delivers the complete connection URL in
-the `kuberploy-system` Secret consumed by API, worker, and upgrader Pods.
+the `kuberploy-system` Secret consumed by API, worker, and the Helm migration Job.
 
 This profile is for small installations and recovery testing. It deliberately
 does not claim HA, TLS, backup, point-in-time recovery, or automatic major

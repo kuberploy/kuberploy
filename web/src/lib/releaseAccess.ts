@@ -1,10 +1,10 @@
 import type { Capability } from "../api/types";
 
-export type PlatformUpgradeAction = "platform-releases:read";
+export type PlatformReleaseAction = "platform-releases:read";
 
-export function hasPlatformUpgradeCapability(
+export function hasPlatformReleaseCapability(
   capabilities: Capability[],
-  action: PlatformUpgradeAction,
+  action: PlatformReleaseAction,
 ) {
   return capabilities.some(
     (capability) =>

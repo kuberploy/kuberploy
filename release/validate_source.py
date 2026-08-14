@@ -281,7 +281,7 @@ def main() -> None:
     if missing_controls:
         raise SystemExit(f"release workflow is missing fail-closed controls: {', '.join(missing_controls)}")
     if "actions/attest" in workflow_text or "attestations: write" in workflow_text:
-        raise SystemExit("release workflow must not publish attestations until the upgrader verifies them")
+        raise SystemExit("release workflow must not publish attestations until a public verifier policy exists")
     if "/immutable-releases" in workflow_text:
         raise SystemExit("release workflow must not require a repository-administration API from GITHUB_TOKEN")
     if "docker/setup-qemu-action" in workflow_text or "setup-qemu" in workflow_text:
@@ -478,12 +478,7 @@ def main() -> None:
             )
         if ":latest" in dockerfile.lower():
             raise SystemExit(f"release Dockerfile contains a latest reference: {dockerfile_path}")
-    worker_dockerfile = (args.root / "build/package/worker.Dockerfile").read_text(encoding="utf-8")
-    if "/usr/local/bin/kuberploy-upgrade-runner" not in worker_dockerfile:
-        raise SystemExit("worker image does not contain the dedicated upgrade runner")
     values = (args.root / "charts/kuberploy/values.yaml").read_text(encoding="utf-8")
-    if yaml_scalar(values, ("upgrade", "runnerExecutable")) != "/usr/local/bin/kuberploy-upgrade-runner":
-        raise SystemExit("chart upgrade runner executable is not the release contract path")
     if yaml_scalar(values, ("builder", "enabled")) != "false":
         raise SystemExit("source chart must keep the privileged builder boundary disabled")
     if yaml_scalar(values, ("builder", "builderAgentImage")) != "":

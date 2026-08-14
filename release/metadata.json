@@ -1,6 +1,6 @@
 {
-  "breakingChanges": false,
-  "summary": "Helm-only environments now receive exact Argo project authority, protected Helm publication waits for immutable foundation and desired-state ancestry receipts, and transient edge readiness recovers safely.",
+  "breakingChanges": true,
+  "summary": "Platform releases are now read-only in Kuberploy, cluster administrators own installer upgrades through Helm, legacy in-app upgrade authority is removed, and Helm-only publication is fenced by exact materialization receipts.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.162"
+  "version": "0.1.0-rc.163"
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
 
@@ -141,6 +142,12 @@ func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *te
 	fixture := newProtectedPublisherFixture(t)
 	dependencies := RuntimeDependencies{Pool: &pgxpool.Pool{}, OCIClient: &http.Client{},
 		RendererAPI: newFakeRendererKubernetesAPI(nil), Bindings: &bindingResolverStub{},
+		ArgoMaterialization: ArgoMaterializationAuthority{PolicyDigest: digestBytes([]byte("argo-policy")),
+			Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts",
+				ChartName: argo.RuntimeChartName, ChartVersion: "1.2.3",
+				ChartDigest:   digestBytes([]byte("runtime-chart")),
+				RendererImage: "ghcr.io/kuberploy/renderer@" + digestBytes([]byte("renderer"))},
+			DigestEnforcement: argo.ChartDigestNativeOCI},
 		GitBindings: fixture.bindings, GitProvider: fixture.headVerifier(t), GitManager: fixture.manager,
 		WorkerID: "helm-runtime-worker-0001", WorkerEpoch: 1, StartedAt: testTime,
 		Now: func() time.Time { return testTime }, ReportError: func(string, error) {}}

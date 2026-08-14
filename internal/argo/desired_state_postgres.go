@@ -11,7 +11,7 @@ import (
 const desiredStateColumns = `id::text,generation,project_id::text,environment_id::text,
 platform_binding_id::text,environment_binding_id::text,cluster_id::text,
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
-base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,catalog_digest,chart_repository,chart_name,chart_version,
+base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,COALESCE(policy_digest,''),catalog_digest,chart_repository,chart_name,chart_version,
 chart_digest,renderer_image,chart_digest_enforcement,content,content_sha256,message,state,
 committed_revision,committed_at,verified_at,next_attempt_at,consecutive_failures,last_failure_code,
 lease_owner,lease_epoch,lease_until,worker_contract,worker_config_digest,created_at,updated_at,completed_at`
@@ -26,7 +26,7 @@ func scanDesiredState(row pgx.Row) (DesiredStateCommand, error) {
 		&command.PlatformTargetRef, &command.EnvironmentTargetRef, &command.EnvironmentRevision, &command.EnvironmentGeneration,
 		&command.Path, &command.ArgoNamespace,
 		&command.DestinationNamespace, &command.ArgoProject, &command.BaseRevision, &command.WriteBaseRevision, &command.WriteBaseObservedAt, &command.Precondition,
-		&command.ExpectedETag, &command.CatalogDigest, &command.Runtime.ChartRepository, &command.Runtime.ChartName,
+		&command.ExpectedETag, &command.PolicyDigest, &command.CatalogDigest, &command.Runtime.ChartRepository, &command.Runtime.ChartName,
 		&command.Runtime.ChartVersion, &command.Runtime.ChartDigest, &command.Runtime.RendererImage,
 		&command.DigestEnforcement, &command.Content, &command.ContentSHA256, &command.Message, &command.State,
 		&command.CommittedRevision, &command.CommittedAt, &command.VerifiedAt, &command.NextAttemptAt,
@@ -47,22 +47,23 @@ func scanDesiredState(row pgx.Row) (DesiredStateCommand, error) {
 }
 
 func (s *PostgreSQLStore) CreateDesiredState(ctx context.Context, command DesiredStateCommand) (bool, error) {
-	if command.Validate() != nil || command.Lease != nil || command.WriteBaseRevision != "" || command.WriteBaseObservedAt != nil ||
+	if command.Validate() != nil || !digestRE.MatchString(command.PolicyDigest) || command.Lease != nil ||
+		command.WriteBaseRevision != "" || command.WriteBaseObservedAt != nil ||
 		command.State != DesiredStatePending && command.State != DesiredStateBlockedPrerequisite {
 		return false, ErrInvalid
 	}
 	result, err := s.pool.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,cluster_id,
 		platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
-		base_revision,precondition,expected_etag,catalog_digest,chart_repository,chart_name,chart_version,
+		base_revision,precondition,expected_etag,policy_digest,catalog_digest,chart_repository,chart_name,chart_version,
 		chart_digest,renderer_image,chart_digest_enforcement,content,content_sha256,message,state,
 		next_attempt_at,consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at,completed_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
 	ON CONFLICT DO NOTHING`,
 		command.ID, command.Generation, command.ProjectID, command.EnvironmentID, command.PlatformBindingID,
 		command.EnvironmentBindingID, command.ClusterID, command.PlatformTargetRef, command.EnvironmentTargetRef,
 		command.EnvironmentRevision, command.EnvironmentGeneration, command.Path, command.ArgoNamespace, command.DestinationNamespace, command.ArgoProject, command.BaseRevision,
-		command.Precondition, command.ExpectedETag, command.CatalogDigest, command.Runtime.ChartRepository,
+		command.Precondition, command.ExpectedETag, command.PolicyDigest, command.CatalogDigest, command.Runtime.ChartRepository,
 		command.Runtime.ChartName, command.Runtime.ChartVersion, command.Runtime.ChartDigest, command.Runtime.RendererImage,
 		command.DigestEnforcement, command.Content, command.ContentSHA256, command.Message, command.State,
 		command.NextAttemptAt.UTC(), command.ConsecutiveFailures, command.LastFailureCode, command.LeaseEpoch,
@@ -87,6 +88,72 @@ func (s *PostgreSQLStore) DesiredStateCommand(ctx context.Context, commandID str
 	return scanDesiredState(s.pool.QueryRow(ctx, `SELECT `+desiredStateColumns+` FROM argo_desired_state_commands WHERE id=$1`, commandID))
 }
 
+// RecordDesiredStateMaterialization persists the exact current projection only
+// after the trusted planner has fully revalidated it and proved that rendering
+// is byte-identical to one immutable verified command. PostgreSQL rechecks the
+// current binding and command identity in the insertion trigger; exact replay
+// is idempotent and any conflicting receipt fails closed.
+func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
+	current, verified DesiredStateCommand, now time.Time,
+) (bool, error) {
+	if s == nil || s.pool == nil || ctx == nil || current.Validate() != nil || !digestRE.MatchString(current.PolicyDigest) ||
+		verified.Validate() != nil || verified.State != DesiredStateVerified || now.IsZero() ||
+		current.ProjectID != verified.ProjectID || current.EnvironmentID != verified.EnvironmentID ||
+		current.PlatformBindingID != verified.PlatformBindingID ||
+		current.EnvironmentBindingID != verified.EnvironmentBindingID ||
+		current.ClusterID != verified.ClusterID ||
+		current.PlatformTargetRef != verified.PlatformTargetRef ||
+		current.EnvironmentTargetRef != verified.EnvironmentTargetRef ||
+		current.ContentSHA256 != verified.ContentSHA256 || verified.CommittedRevision == "" {
+		return false, ErrInvalid
+	}
+	result, err := s.pool.Exec(ctx, `INSERT INTO argo_desired_state_materialization_receipts(
+		id,environment_binding_id,environment_revision,environment_generation,
+		project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+		environment_target_ref,desired_state_command_id,desired_state_generation,
+		desired_state_revision,desired_state_content_sha256,policy_digest,catalog_digest,
+		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
+		chart_digest_enforcement,created_at
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+	ON CONFLICT(id) DO NOTHING`, current.ID,
+		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
+		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
+		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
+		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
+		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
+		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement, now.UTC())
+	if err != nil {
+		return false, classifyPostgres(err)
+	}
+	if result.RowsAffected() == 1 {
+		return true, nil
+	}
+	var exact bool
+	err = s.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM argo_desired_state_materialization_receipts
+		WHERE id=$1 AND environment_binding_id=$2 AND environment_revision=$3 AND environment_generation=$4
+		  AND project_id=$5 AND environment_id=$6 AND platform_binding_id=$7 AND cluster_id=$8
+		  AND platform_target_ref=$9 AND environment_target_ref=$10
+		  AND desired_state_command_id=$11 AND desired_state_generation=$12
+		  AND desired_state_revision=$13 AND desired_state_content_sha256=$14
+		  AND policy_digest=$15 AND catalog_digest=$16 AND chart_repository=$17 AND chart_name=$18
+		  AND chart_version=$19 AND chart_digest=$20 AND renderer_image=$21
+		  AND chart_digest_enforcement=$22)`, current.ID,
+		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
+		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
+		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
+		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
+		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
+		current.Runtime.ChartDigest, current.Runtime.RendererImage, current.DigestEnforcement).Scan(&exact)
+	if err != nil {
+		return false, classifyPostgres(err)
+	}
+	if !exact {
+		return false, ErrConflict
+	}
+	return false, nil
+}
+
 func (s *PostgreSQLStore) LatestDesiredState(ctx context.Context, projectID, environmentID string) (DesiredStateStatus, error) {
 	if !uuidRE.MatchString(projectID) || !uuidRE.MatchString(environmentID) {
 		return DesiredStateStatus{}, ErrInvalid
@@ -108,12 +175,15 @@ func (s *PostgreSQLStore) ClaimDesiredState(ctx context.Context, owner string, i
 		return DesiredStateWork{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	// Clear expired ownership before selecting work. lease_epoch is retained and
-	// incremented by the next claimant, fencing the crashed worker permanently.
+	// Clear expired ownership before selecting work. A claimed command with a
+	// durable write-base receipt remains structurally claimed and is adopted
+	// atomically below; exposing an unleased claimed row would violate the table
+	// shape. lease_epoch is always incremented, fencing the crashed worker.
 	if _, err = tx.Exec(ctx, `UPDATE argo_desired_state_commands SET
-		state=CASE WHEN state='claimed' THEN 'pending' ELSE state END,
+		state=CASE WHEN state='claimed' AND write_base_revision='' THEN 'pending' ELSE state END,
 		lease_owner=NULL,lease_until=NULL,worker_contract=NULL,worker_config_digest=NULL,updated_at=$1
-		WHERE lease_owner IS NOT NULL AND lease_until<=$1 AND state IN ('claimed','git-committed')`, now.UTC()); err != nil {
+		WHERE lease_owner IS NOT NULL AND lease_until<=$1
+		AND (state='git-committed' OR (state='claimed' AND write_base_revision=''))`, now.UTC()); err != nil {
 		return DesiredStateWork{}, classifyPostgres(err)
 	}
 	// A never-attempted command cannot have reached Git. Retire it when its
@@ -147,9 +217,11 @@ func (s *PostgreSQLStore) ClaimDesiredState(ctx context.Context, owner string, i
 	}
 	var commandID string
 	err = tx.QueryRow(ctx, `SELECT candidate.id::text FROM argo_desired_state_commands candidate
-		WHERE candidate.state IN ('pending','git-committed') AND candidate.next_attempt_at<=$1
-		AND candidate.lease_owner IS NULL
-		AND (candidate.state='git-committed' OR candidate.lease_epoch>0 OR EXISTS(
+		WHERE candidate.next_attempt_at<=$1 AND (
+		  (candidate.state IN ('pending','git-committed') AND candidate.lease_owner IS NULL) OR
+		  (candidate.state='claimed' AND candidate.write_base_revision<>''
+		   AND candidate.lease_owner IS NOT NULL AND candidate.lease_until<=$1))
+		AND (candidate.state IN ('claimed','git-committed') OR candidate.lease_epoch>0 OR EXISTS(
 			SELECT 1 FROM git_repository_bindings environment_binding
 			JOIN git_projection_generations active_generation
 			  ON active_generation.binding_id=environment_binding.id

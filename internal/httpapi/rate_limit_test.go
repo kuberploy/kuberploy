@@ -69,19 +69,6 @@ func TestHighRiskLimiterDeniesAndFailsClosed(t *testing.T) {
 	}
 }
 
-func TestHighRiskActorIsBoundToAuthenticatedUser(t *testing.T) {
-	limiter := &fixedHighRiskLimiter{decision: ratelimit.Decision{Allowed: true, Remaining: 4, RetryAfter: time.Minute}}
-	server := &Server{highRiskLimiter: limiter}
-	request := httptest.NewRequest(http.MethodPost, "/v1/platform/upgrades", nil)
-	request = request.WithContext(context.WithValue(request.Context(), userKey, domain.User{ID: "11111111-2222-4333-8444-555555555555"}))
-	response := httptest.NewRecorder()
-	called := false
-	server.highRiskActor(platformUpgradeLimit, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })).ServeHTTP(response, request)
-	if !called || len(limiter.requests) != 1 || limiter.requests[0].Subject != "user:11111111-2222-4333-8444-555555555555" || response.Header().Get("RateLimit-Remaining") != "4" {
-		t.Fatalf("called=%v requests=%#v headers=%v", called, limiter.requests, response.Header())
-	}
-}
-
 func TestVariableSetMutationLimitUsesDedicatedActorBucket(t *testing.T) {
 	limiter := &fixedHighRiskLimiter{decision: ratelimit.Decision{Allowed: true, Remaining: 119, RetryAfter: time.Minute}}
 	server := &Server{highRiskLimiter: limiter}

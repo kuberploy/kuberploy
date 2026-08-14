@@ -121,6 +121,7 @@ type DesiredStateCommand struct {
 	WriteBaseObservedAt *time.Time                         `json:"writeBaseObservedAt,omitempty"`
 	Precondition        gitprojection.MutationPrecondition `json:"precondition"`
 	ExpectedETag        string                             `json:"expectedETag,omitempty"`
+	PolicyDigest        string                             `json:"policyDigest,omitempty"`
 	CatalogDigest       string                             `json:"catalogDigest"`
 	Runtime             RuntimeLock                        `json:"runtime"`
 	DigestEnforcement   ChartDigestEnforcement             `json:"chartDigestEnforcement"`
@@ -156,15 +157,14 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 	generation := int64(1)
 	precondition := gitprojection.MutationCreateIfAbsent
 	expectedETag := ""
+	unchanged := false
 	if previous != nil {
 		if previous.Validate() != nil || previous.State != DesiredStateVerified || previous.ProjectID != target.Environment.Project.ID ||
 			previous.EnvironmentID != target.Environment.Environment.ID || previous.PlatformBindingID != target.PlatformBinding.ID ||
 			previous.EnvironmentBindingID != target.Environment.Binding.ID || previous.Generation == int64(^uint64(0)>>1) {
 			return DesiredStateCommand{}, ErrInvalid
 		}
-		if previous.ContentSHA256 == contentDigest(content) {
-			return DesiredStateCommand{}, ErrNoDesiredStateChange
-		}
+		unchanged = previous.ContentSHA256 == contentDigest(content)
 		generation = previous.Generation + 1
 		precondition = gitprojection.MutationMatchETag
 		expectedETag = `"` + previous.ContentSHA256 + `"`
@@ -178,12 +178,19 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 		EnvironmentRevision: target.Environment.Binding.IndexedRevision, EnvironmentGeneration: target.Environment.Binding.ProjectionGeneration, Path: commandPath,
 		ArgoNamespace: target.Environment.ArgoNamespace, DestinationNamespace: target.Environment.Environment.Namespace,
 		ArgoProject: target.Environment.Environment.ArgoProject, BaseRevision: target.PlatformBinding.TargetHeadRevision,
-		Precondition: precondition, ExpectedETag: expectedETag, CatalogDigest: approval.CatalogDigest, Runtime: target.Environment.Runtime,
+		Precondition: precondition, ExpectedETag: expectedETag, PolicyDigest: approval.PolicyDigest,
+		CatalogDigest: approval.CatalogDigest, Runtime: target.Environment.Runtime,
 		DigestEnforcement: ChartDigestNativeOCI, Content: append([]byte(nil), content...), ContentSHA256: contentSHA,
 		Message: fmt.Sprintf("Reconcile Argo desired state for environment %s generation %d", target.Environment.Environment.ID, generation),
 		State:   DesiredStatePending, NextAttemptAt: createdAt, CreatedAt: createdAt, UpdatedAt: createdAt,
 	}
-	return command, command.ValidateFor(target)
+	if err = command.ValidateFor(target); err != nil {
+		return DesiredStateCommand{}, err
+	}
+	if unchanged {
+		return command, ErrNoDesiredStateChange
+	}
+	return command, nil
 }
 
 func (c DesiredStateCommand) Validate() error {
@@ -195,7 +202,8 @@ func (c DesiredStateCommand) Validate() error {
 		c.EnvironmentGeneration <= 0 || pathErr != nil || c.Path != commandPath ||
 		!kubeRE.MatchString(c.ArgoNamespace) || !kubeRE.MatchString(c.DestinationNamespace) ||
 		(c.ArgoProject != c.DestinationNamespace && c.ArgoProject != ProjectName(c.ProjectID)) ||
-		!commitRE.MatchString(c.BaseRevision) || !validPrecondition || !digestRE.MatchString(c.CatalogDigest) || c.Runtime.Validate() != nil ||
+		!commitRE.MatchString(c.BaseRevision) || !validPrecondition ||
+		(c.PolicyDigest != "" && !digestRE.MatchString(c.PolicyDigest)) || !digestRE.MatchString(c.CatalogDigest) || c.Runtime.Validate() != nil ||
 		len(c.Content) == 0 || len(c.Content) > gitprojection.MaxDocumentBytes || c.ContentSHA256 != contentDigest(c.Content) ||
 		len(c.Message) == 0 || len(c.Message) > 512 || !utf8.ValidString(c.Message) || strings.ContainsAny(c.Message, "\x00\r") ||
 		c.CreatedAt.IsZero() || c.UpdatedAt.IsZero() || c.NextAttemptAt.IsZero() || c.UpdatedAt.Before(c.CreatedAt) ||

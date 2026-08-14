@@ -546,20 +546,6 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: {{ $name }}
             {{- end }}
-            - name: KUBERPLOY_UPGRADER_EXECUTABLE
-              value: {{ $.Values.upgrade.runnerExecutable | quote }}
-            - name: KUBERPLOY_UPGRADER_IMAGE
-              value: {{ include "kuberploy.image" (dict "root" $ "component" "upgrader" "config" $.Values.upgrade) | quote }}
-            - name: KUBERPLOY_UPGRADER_SERVICE_ACCOUNT
-              value: {{ printf "%s-upgrade" (include "kuberploy.fullname" $) | quote }}
-            - name: KUBERPLOY_UPGRADER_RELEASE_NAME
-              value: {{ $.Release.Name | quote }}
-            - name: KUBERPLOY_UPGRADER_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            - name: KUBERPLOY_UPGRADER_ACTIVE_DEADLINE_SECONDS
-              value: {{ $.Values.upgrade.job.activeDeadlineSeconds | quote }}
             {{- else }}
             - name: KUBERPLOY_API_UPSTREAM
               valueFrom:

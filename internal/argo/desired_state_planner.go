@@ -20,6 +20,7 @@ type DesiredStateProjectionApproval struct {
 	BindingID                  string
 	IndexedRevision            string
 	ProjectionGeneration       int64
+	PolicyDigest               string
 	CatalogDigest              string
 	Applications               []domain.Application
 	Deployments                []domain.Deployment
@@ -36,7 +37,7 @@ func (a DesiredStateProjectionApproval) ValidateFor(target DesiredStateTarget) e
 func (a DesiredStateProjectionApproval) validateFor(target DesiredStateTarget, requireRegistry bool) error {
 	if target.Validate() != nil || a.Contract != DesiredStateProjectionApprovalContract || a.BindingID != target.Environment.Binding.ID ||
 		a.IndexedRevision != target.Environment.Binding.IndexedRevision || a.ProjectionGeneration != target.Environment.Binding.ProjectionGeneration ||
-		!digestRE.MatchString(a.CatalogDigest) || !a.AppConfigsValid || !a.DependenciesValid ||
+		!digestRE.MatchString(a.PolicyDigest) || !digestRE.MatchString(a.CatalogDigest) || !a.AppConfigsValid || !a.DependenciesValid ||
 		!a.SecretReferencesResolved || requireRegistry && !a.RegistryReferencesResolved {
 		return ErrInvalid
 	}
