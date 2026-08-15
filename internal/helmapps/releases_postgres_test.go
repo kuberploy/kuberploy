@@ -16,6 +16,9 @@ func TestDeriveReleasePhaseReportsDurableCascadeProgress(t *testing.T) {
 		{name: "observation claimed", cascade: "verified", observation: "claimed", want: ReleasePhaseApplicationPending},
 		{name: "observation verified awaiting delete", cascade: "verified", observation: "verified", want: ReleasePhaseApplicationPending},
 		{name: "delete committed", cascade: "verified", observation: "verified", application: "git-committed", want: ReleasePhaseApplicationCommitted},
+		{name: "terminal delete remains published after readiness expiry", cascade: "verified", observation: "verified", application: "verified", want: ReleasePhasePublished},
+		{name: "terminal delete remains published across activation gap", cascade: "verified", application: "verified", want: ReleasePhasePublished},
+		{name: "legacy delete remains pending while cascade recovery runs", cascade: "claimed", application: "verified", want: ReleasePhaseApplicationPending},
 		{name: "publish has no cascade", desiredEnabled: true, want: ReleasePhasePayloadVerified},
 	}
 	for _, test := range tests {

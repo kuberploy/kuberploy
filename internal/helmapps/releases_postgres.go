@@ -512,6 +512,12 @@ func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, cas
 	case "failed", "superseded":
 		return ReleasePhaseFailed, payloadFailure
 	case "verified":
+		// A verified Application is terminal durable publication history. A
+		// later observer-authority rotation can temporarily leave no current
+		// observation job, but it must not regress an already-published release.
+		if status.ApplicationState == "verified" && (cascadeState == "" || cascadeState == "verified") {
+			return ReleasePhasePublished, ""
+		}
 		switch cascadeState {
 		case "pending", "claimed":
 			return ReleasePhaseApplicationPending, ""

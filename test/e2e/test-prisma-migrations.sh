@@ -111,7 +111,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'12\n110\n104\n101\n913\n13\n1'
+kp_expected_counts=$'13\n110\n104\n101\n913\n13\n1'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1
@@ -126,7 +126,7 @@ docker run --rm --network "${kp_network}" \
   --entrypoint node \
   "${kp_image}" check-schema-drift.mjs >/dev/null
 
-# Exercise the ordered 003 -> 012 production upgrade, not only a fresh apply.
+# Exercise the ordered 003 -> 013 production upgrade, not only a fresh apply.
 # Prisma owns the history rows; psql supplies the already-released SQL exactly
 # as it existed before the new image starts.
 docker exec "${kp_postgres}" createdb --username postgres upgrade
@@ -184,7 +184,7 @@ docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --set ON_
 kp_upgrade_url="postgresql://postgres:kuberploy-test-only@${kp_postgres}:5432/upgrade?schema=public"
 docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_upgrade_url}" "${kp_image}" >/dev/null
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
-  "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" == "12" ]]
+  "SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL")" == "13" ]]
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname upgrade --tuples-only --no-align --command \
   "SELECT to_regclass('public.helm_application_cascade_preflights') IS NOT NULL AND
           to_regclass('public.helm_application_cascade_observer_activations') IS NOT NULL AND
@@ -979,4 +979,4 @@ if docker run --rm --network "${kp_network}" --env DATABASE_URL="${kp_legacy_url
 fi
 [[ "$(docker exec "${kp_postgres}" psql --username postgres --dbname legacy --tuples-only --no-align --command "SELECT to_regclass('public.users') IS NULL")" == "t" ]]
 
-printf 'Prisma migration image delayed database wait, fresh and 003-to-012 apply, RC171 recovery, self-upgrade retirement, declarative drift, old-writer fencing, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'
+printf 'Prisma migration image delayed database wait, fresh and 003-to-013 apply, RC171 recovery, self-upgrade retirement, declarative drift, old-writer fencing, personal/team scope authority, idempotency, native authority, and legacy rejection passed\n'

@@ -503,7 +503,14 @@ func classifyPostgres(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23505" || pgErr.Code == "23514" || pgErr.Code == "40001") {
-		return fmt.Errorf("%w: %s", ErrConflict, pgErr.ConstraintName)
+		detail := pgErr.ConstraintName
+		if detail == "" {
+			// Trigger-raised check violations do not carry a constraint name. Keep
+			// their potentially sensitive database message private while retaining
+			// a useful, bounded SQLSTATE for operators.
+			detail = "database rejected operation (SQLSTATE " + pgErr.Code + ")"
+		}
+		return fmt.Errorf("%w: %s", ErrConflict, detail)
 	}
 	return err
 }

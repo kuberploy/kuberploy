@@ -19,7 +19,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is published in the
 // immutable release manifest for Helm-driven install and upgrade qualification.
-const CurrentSchema = "012_recover_rc171_cascade_preflight"
+const CurrentSchema = "013_rotate_cascade_observer_authority"
 
 // RecoverableRC171Migration identifies the one published migration failure
 // whose rolled-back Prisma evidence may coexist with the canonical successful

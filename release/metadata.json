@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 012 automatically recovers the exact RC171 migration-011 terminal-intent failure by preserving the published SQL and Prisma history, replaying it through a bounded no-op shim, and removing that shim after exact cascade-authority verification.",
+  "summary": "Schema 013 permits monotonic same-process publisher and Argo readiness-epoch rotation without reopening older authority, while protected-store conflicts now return bounded SQLSTATE diagnostics without exposing database messages.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.172"
+  "version": "0.1.0-rc.173"
 }
