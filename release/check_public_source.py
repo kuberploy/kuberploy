@@ -18,6 +18,13 @@ FORBIDDEN_PREFIXES = (
 )
 FORBIDDEN_TEXT = (
     (re.compile("orb" + "stack", re.IGNORECASE), "local workstation platform name"),
+    (
+        re.compile(
+            r"(?<![A-Za-z0-9-])(?:[A-Za-z0-9-]+\.)*" + "orb" + r"\.local(?![A-Za-z0-9.-])",
+            re.IGNORECASE,
+        ),
+        "local workstation cluster domain",
+    ),
     (re.compile(r"/Users/[A-Za-z0-9._-]+/"), "macOS user home path"),
     (re.compile("(?:admin" + "chatmate|torqe" + "soft)\\.com", re.IGNORECASE), "private test domain"),
     (re.compile(r"\b4543" + r"722\b"), "private GitHub App identifier"),

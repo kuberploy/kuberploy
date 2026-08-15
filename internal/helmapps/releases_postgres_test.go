@@ -42,4 +42,9 @@ func TestDeriveReleasePhaseReportsDurableCascadeProgress(t *testing.T) {
 			t.Fatalf("observation %s phase=%s failure=%s", state, phase, failure)
 		}
 	}
+	phase, failure := deriveReleasePhase(status, "", "", "failed",
+		"cascade-path-absent-recovery-required", "", "", "")
+	if phase != ReleasePhaseFailed || failure != "cascade-path-absent-recovery-required" {
+		t.Fatalf("path-absence recovery phase=%s failure=%s", phase, failure)
+	}
 }

@@ -396,6 +396,66 @@ func (s *PostgresProtectedPublicationStore) FailCascadePreflight(ctx context.Con
 	return s.CascadePreflight(ctx, lease.IntentID)
 }
 
+func (s *PostgresProtectedPublicationStore) FailCascadePreflightPathAbsent(ctx context.Context,
+	lease ProtectedIntentLease, proof ProtectedCascadePathAbsenceProof,
+	now time.Time) (ProtectedApplicationCascadePreflight, error) {
+	if s == nil || s.pool == nil || ctx == nil || lease.Validate() != nil ||
+		proof.Validate() != nil || now.IsZero() {
+		return ProtectedApplicationCascadePreflight{}, ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return ProtectedApplicationCascadePreflight{}, classifyPostgres(err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	var dbNow time.Time
+	if err = tx.QueryRow(ctx, `SELECT pg_catalog.clock_timestamp()`).Scan(&dbNow); err != nil {
+		return ProtectedApplicationCascadePreflight{}, classifyPostgres(err)
+	}
+	if now.UTC().Before(dbNow.Add(-30*time.Second)) || now.UTC().After(dbNow.Add(30*time.Second)) ||
+		proof.ProviderObservedAt.After(dbNow) || proof.ProviderObservedAt.Before(dbNow.Add(-5*time.Minute)) {
+		return ProtectedApplicationCascadePreflight{}, ErrConflict
+	}
+	var recordedAt time.Time
+	err = tx.QueryRow(ctx, `INSERT INTO public.helm_application_cascade_absence_receipts(
+		cascade_preflight_id,provider_head,provider_request,provider_observed_at,
+		operation_commit_absent)
+		VALUES($1,$2,$3,$4,$5)
+		RETURNING recorded_at`, lease.IntentID, proof.ProviderHead, proof.ProviderRequest,
+		proof.ProviderObservedAt.UTC(), proof.OperationCommitAbsent).Scan(&recordedAt)
+	if err != nil {
+		return ProtectedApplicationCascadePreflight{}, classifyPostgres(err)
+	}
+	result, err := tx.Exec(ctx, `UPDATE public.helm_application_cascade_preflights SET
+		state='failed',consecutive_failures=LEAST(consecutive_failures+1,30),
+		last_failure_code='cascade-path-absent-recovery-required',
+		lease_owner=NULL,lease_until=NULL,completed_at=$6,updated_at=$6,
+		prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND state='claimed' AND operation='update'
+		  AND lease_owner=$2 AND lease_epoch=$3 AND publisher_contract=$4
+		  AND publisher_config_digest=$5 AND lease_until>$6
+		  AND committed_revision='' AND committed_parent_revision=''
+		  AND committed_at IS NULL AND verified_at IS NULL
+		  AND verified_path_digest='' AND provider_request=''`, lease.IntentID,
+		lease.Owner, lease.Epoch, lease.Publisher.Contract, lease.Publisher.ConfigDigest,
+		recordedAt)
+	if err != nil {
+		return ProtectedApplicationCascadePreflight{}, classifyPostgres(err)
+	}
+	if result.RowsAffected() != 1 {
+		return ProtectedApplicationCascadePreflight{}, ErrConflict
+	}
+	value, err := scanProtectedCascade(tx.QueryRow(ctx, `SELECT `+protectedCascadeColumns+`
+		FROM public.helm_application_cascade_preflights WHERE id=$1`, lease.IntentID))
+	if err != nil {
+		return ProtectedApplicationCascadePreflight{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return ProtectedApplicationCascadePreflight{}, classifyPostgres(err)
+	}
+	return value, nil
+}
+
 func (s *PostgresProtectedPublicationStore) ClaimCascadeObservation(ctx context.Context, owner string,
 	workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time,
 	duration time.Duration) (ProtectedApplicationCascadePreflight, ProtectedCascadeObservationLease, error) {

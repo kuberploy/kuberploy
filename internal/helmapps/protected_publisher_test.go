@@ -13,6 +13,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"go.yaml.in/yaml/v3"
 )
 
 type protectedPublisherStoreStub struct {
@@ -20,6 +21,9 @@ type protectedPublisherStoreStub struct {
 	ProtectedCascadeStore
 	payload          ProtectedPayloadIntent
 	application      ProtectedApplicationIntent
+	cascade          ProtectedApplicationCascadePreflight
+	absenceProof     ProtectedCascadePathAbsenceProof
+	absenceFailures  int
 	prerequisite     ProtectedPublicationPrerequisiteReceipt
 	prerequisiteErr  error
 	payloadRebinds   int
@@ -97,6 +101,51 @@ func (s *protectedPublisherStoreStub) ClaimApplication(_ context.Context, owner 
 	return s.application, lease, nil
 }
 
+func (s *protectedPublisherStoreStub) ClaimCascadePreflight(_ context.Context, owner string,
+	publisher ProtectedPublisherIdentity, now time.Time,
+	duration time.Duration) (ProtectedApplicationCascadePreflight, ProtectedIntentLease, error) {
+	if s.cascade.ID == "" || s.cascade.State == ProtectedVerified || s.cascade.State == ProtectedFailed ||
+		publisher != s.cascade.Publisher {
+		return ProtectedApplicationCascadePreflight{}, ProtectedIntentLease{}, ErrNotFound
+	}
+	s.cascade.State, s.cascade.LeaseOwner = ProtectedClaimed, owner
+	if s.cascade.CommittedRevision != "" {
+		s.cascade.State = ProtectedGitCommitted
+	}
+	s.cascade.Attempts++
+	s.cascade.LeaseEpoch++
+	until := now.Add(duration)
+	s.cascade.LeaseUntil, s.cascade.UpdatedAt = &until, now
+	lease := cascadePreflightLease(s.cascade)
+	if s.cascade.Validate() != nil || lease.Validate() != nil {
+		return ProtectedApplicationCascadePreflight{}, ProtectedIntentLease{}, ErrInvalid
+	}
+	return s.cascade, lease, nil
+}
+
+func (s *protectedPublisherStoreStub) AdoptCascadePreflight(_ context.Context, owner string, workerEpoch int64,
+	publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedApplicationCascadePreflight, ProtectedIntentLease, error) {
+	if s.cascade.ID == "" || s.cascade.State != ProtectedPending || workerEpoch < 1 ||
+		publisher.Contract != s.cascade.Publisher.Contract ||
+		publisher.PolicyVersion != s.cascade.Publisher.PolicyVersion ||
+		publisher.ConfigDigest == s.cascade.Publisher.ConfigDigest {
+		return ProtectedApplicationCascadePreflight{}, ProtectedIntentLease{}, ErrNotFound
+	}
+	now := time.Now().UTC()
+	s.cascade.Publisher = publisher
+	s.cascade.PublisherAdoptionEpoch++
+	s.cascade.State, s.cascade.LeaseOwner = ProtectedClaimed, owner
+	s.cascade.Attempts++
+	s.cascade.LeaseEpoch++
+	until := now.Add(duration)
+	s.cascade.LeaseUntil, s.cascade.UpdatedAt = &until, now
+	lease := cascadePreflightLease(s.cascade)
+	if s.cascade.Validate() != nil || lease.Validate() != nil {
+		return ProtectedApplicationCascadePreflight{}, ProtectedIntentLease{}, ErrInvalid
+	}
+	return s.cascade, lease, nil
+}
+
 func (s *protectedPublisherStoreStub) AdoptPayload(_ context.Context, owner string, workerEpoch int64,
 	publisher ProtectedPublisherIdentity, duration time.Duration) (ProtectedPayloadIntent, ProtectedIntentLease, error) {
 	if s.payload.ID == "" || s.payload.State == ProtectedVerified || workerEpoch < 1 ||
@@ -163,6 +212,36 @@ func (s *protectedPublisherStoreStub) HeartbeatApplication(_ context.Context, le
 	until := now.Add(duration)
 	s.application.LeaseUntil, s.application.UpdatedAt = &until, now
 	return applicationLease(s.application), nil
+}
+
+func (s *protectedPublisherStoreStub) HeartbeatCascadePreflight(_ context.Context,
+	lease ProtectedIntentLease, now time.Time, duration time.Duration) (ProtectedIntentLease, error) {
+	if s.cascade.ID != lease.IntentID || s.cascade.LeaseOwner != lease.Owner ||
+		s.cascade.LeaseEpoch != lease.Epoch || s.cascade.LeaseUntil == nil ||
+		!s.cascade.LeaseUntil.After(now) {
+		return ProtectedIntentLease{}, ErrLeaseLost
+	}
+	until := now.Add(duration)
+	s.cascade.LeaseUntil, s.cascade.UpdatedAt = &until, now
+	return cascadePreflightLease(s.cascade), nil
+}
+
+func (s *protectedPublisherStoreStub) FailCascadePreflightPathAbsent(_ context.Context,
+	lease ProtectedIntentLease, proof ProtectedCascadePathAbsenceProof,
+	now time.Time) (ProtectedApplicationCascadePreflight, error) {
+	if proof.Validate() != nil || s.cascade.ID != lease.IntentID ||
+		s.cascade.State != ProtectedClaimed || s.cascade.Operation != "update" ||
+		s.cascade.LeaseOwner != lease.Owner || s.cascade.LeaseEpoch != lease.Epoch ||
+		s.cascade.LeaseUntil == nil || !s.cascade.LeaseUntil.After(now) ||
+		s.cascade.CommittedRevision != "" {
+		return ProtectedApplicationCascadePreflight{}, ErrConflict
+	}
+	s.absenceProof, s.absenceFailures = proof, s.absenceFailures+1
+	s.cascade.State, s.cascade.ConsecutiveFailures = ProtectedFailed, s.cascade.ConsecutiveFailures+1
+	s.cascade.LastFailureCode = "cascade-path-absent-recovery-required"
+	s.cascade.LeaseOwner, s.cascade.LeaseUntil = "", nil
+	s.cascade.CompletedAt, s.cascade.UpdatedAt = &now, now
+	return s.cascade, s.cascade.Validate()
 }
 
 func (s *protectedPublisherStoreStub) BindPayloadWriteBase(_ context.Context, lease ProtectedIntentLease,
@@ -451,6 +530,246 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	if _, showErr := runProtectedPublisherGit(t, fixture.remote, "show", deleted.CommittedRevision+":"+deleted.ApplicationPath); showErr == nil {
 		t.Fatal("match-delete receipt was verified while the stable Application still existed")
 	}
+}
+
+func pathAbsentCascadeFixture(t *testing.T, fixture *protectedPublisherFixture) ProtectedApplicationCascadePreflight {
+	t.Helper()
+	release, payload, runtime := protectedApplicationFixture(t)
+	release.Target = fixture.target
+	payload.Target, payload.ReleaseRevisionID = fixture.target, release.ID
+	payload.Binding.PlatformBindingID = fixture.binding.ID
+	payload.Binding.ClusterID = fixture.binding.ClusterID
+	payload.Binding.PlatformTargetRef = fixture.binding.TargetRef
+	payload.Binding.PlannedBaseRevision = fixture.base
+	payload.Path = protectedPayloadPath(payload.Binding.ClusterID, fixture.target.EnvironmentID,
+		fixture.target.ApplicationID, release.ID, false)
+	payload.WriteBaseRevision, payload.CommittedParentRevision = fixture.base, fixture.base
+	payload.CommittedRevision = fixture.base
+	adopted, err := renderProtectedArgoApplication(id.New(), release, payload, runtime,
+		fixture.binding.Repository.Owner, fixture.binding.Repository.Name, "application-ns", "project-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy protectedArgoApplication
+	if err = yaml.Unmarshal(adopted, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Metadata.Finalizers = nil
+	source, err := yaml.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := fixture.now
+	preflight := ProtectedApplicationCascadePreflight{ID: id.New(), DeleteIntentID: id.New(),
+		ReleaseRevisionID: id.New(), PayloadIntentID: id.New(), BaseApplicationIntentID: id.New(),
+		PayloadRevision: fixture.base, ArgoNamespace: runtime.ArgoNamespace, ReleaseGeneration: 2,
+		Target: fixture.target, Binding: payload.Binding,
+		ApplicationPath: protectedApplicationPath(payload.Binding.ClusterID,
+			fixture.target.EnvironmentID, fixture.target.ApplicationID),
+		SourceContent: source, SourceContentDigest: digestBytes(source), AdoptedContent: adopted,
+		AdoptedContentDigest: digestBytes(adopted), Operation: "update", Precondition: "match-etag",
+		Contract: protectedCascadeContract, Publisher: fixture.publisher,
+		OriginalPublisherConfigDigest: fixture.publisher.ConfigDigest,
+		State:                         ProtectedPending, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now}
+	preflight.ExpectedETag = `"` + preflight.SourceContentDigest + `"`
+	preflight.CommitTrailer = "Kuberploy-Helm-Cascade-Preflight: " + preflight.ID
+	preflight.IntentDigest, err = cascadePreflightIntentDigest(preflight)
+	if err != nil || preflight.Validate() != nil {
+		t.Fatalf("invalid cascade fixture: %+v err=%v", preflight, err)
+	}
+	return preflight
+}
+
+func commitProtectedPublisherFixturePath(t *testing.T, fixture *protectedPublisherFixture,
+	path string, content []byte, message string) string {
+	t.Helper()
+	fullPath := filepath.Join(fixture.seed, filepath.FromSlash(path))
+	if content == nil {
+		if err := os.Remove(fullPath); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, content, 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if output, err := runProtectedPublisherGit(t, fixture.seed, "add", "--all", "--", path); err != nil {
+		t.Fatalf("stage protected fixture path: %v: %s", err, output)
+	}
+	if output, err := runProtectedPublisherGit(t, fixture.seed, "commit", "-m", message); err != nil {
+		t.Fatalf("commit protected fixture path: %v: %s", err, output)
+	}
+	head, err := runProtectedPublisherGit(t, fixture.seed, "rev-parse", "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output, pushErr := runProtectedPublisherGit(t, fixture.seed, "push", "--force-with-lease", "origin",
+		"HEAD:"+fixture.binding.TargetRef); pushErr != nil {
+		t.Fatalf("push protected fixture path: %v: %s", pushErr, output)
+	}
+	fixture.binding.TargetHeadRevision = head
+	fixture.binding.TargetHeadObservedAt, fixture.binding.UpdatedAt = fixture.now, fixture.now
+	if err = fixture.bindings.PutBinding(t.Context(), fixture.binding); err != nil {
+		t.Fatal(err)
+	}
+	return head
+}
+
+func TestProtectedGitPublisherFailsClosedWhenLegacyCascadePathIsAbsent(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	preflight := pathAbsentCascadeFixture(t, fixture)
+	now := fixture.now
+	protectedMutation, err := preflight.Mutation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitMutation, err := protectedMutation.gitMutation()
+	if err != nil || gitMutation.Validate(fixture.binding) != nil {
+		t.Fatalf("invalid cascade Git mutation: %+v err=%v validate=%v binding=%+v",
+			gitMutation, err, gitMutation.Validate(fixture.binding), fixture.binding)
+	}
+	fixture.store.cascade = preflight
+	currentPublisher := fixture.publisher
+	currentPublisher.ConfigDigest = digestBytes([]byte("path-absence-current-publisher"))
+	fixture.publisher = currentPublisher
+	headBefore, err := runProtectedPublisherGit(t, fixture.remote, "rev-parse", fixture.binding.TargetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := fixture.worker(t).ProcessCascadePreflightOne(t.Context())
+	if err != nil || result.State != ProtectedFailed ||
+		result.LastFailureCode != "cascade-path-absent-recovery-required" ||
+		fixture.store.absenceFailures != 1 || !fixture.store.absenceProof.OperationCommitAbsent ||
+		fixture.store.absenceProof.ProviderHead != headBefore ||
+		result.Publisher.ConfigDigest != currentPublisher.ConfigDigest || result.PublisherAdoptionEpoch != 1 {
+		t.Fatalf("result=%+v proof=%+v failures=%d err=%v", result,
+			fixture.store.absenceProof, fixture.store.absenceFailures, err)
+	}
+	headAfter, err := runProtectedPublisherGit(t, fixture.remote, "rev-parse", fixture.binding.TargetRef)
+	if err != nil || headAfter != headBefore {
+		t.Fatalf("path-absence recovery wrote Git: before=%s after=%s err=%v", headBefore, headAfter, err)
+	}
+	if _, err = fixture.worker(t).ProcessCascadePreflightOne(t.Context()); !errors.Is(err, ErrNotFound) ||
+		fixture.store.absenceFailures != 1 {
+		t.Fatalf("terminal path-absence preflight was reclaimed: failures=%d err=%v",
+			fixture.store.absenceFailures, err)
+	}
+	committed := result
+	committed.State, committed.LastFailureCode, committed.ConsecutiveFailures = ProtectedGitCommitted, "", 0
+	committed.CompletedAt = nil
+	committed.WriteBaseRevision = headBefore
+	committed.WriteBaseObservedAt = &now
+	committed.CommittedRevision = strings.Repeat("f", 40)
+	committed.CommittedParentRevision = headBefore
+	committed.CommittedAt = &now
+	committed.LeaseOwner = "helm-publisher-git-committed-0001"
+	committed.LeaseEpoch++
+	committed.Attempts++
+	leaseUntil := now.Add(time.Minute)
+	committed.LeaseUntil = &leaseUntil
+	if committed.Validate() != nil {
+		t.Fatalf("invalid committed recovery fixture: %+v", committed)
+	}
+	fixture.store.cascade = committed
+	if _, err = fixture.worker(t).ProcessCascadePreflightOne(t.Context()); !errors.Is(err, ErrConflict) ||
+		fixture.store.absenceFailures != 1 {
+		t.Fatalf("git-committed path absence was terminalized as no-effect: failures=%d err=%v",
+			fixture.store.absenceFailures, err)
+	}
+}
+
+func TestProtectedGitPublisherPathAbsenceProofRejectsAdjacentFailures(t *testing.T) {
+	t.Run("wrong-etag", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		preflight := pathAbsentCascadeFixture(t, fixture)
+		driftedSource := append(append([]byte(nil), preflight.SourceContent...),
+			[]byte("\n# provider-side path drift\n")...)
+		base := commitProtectedPublisherFixturePath(t, fixture, preflight.ApplicationPath,
+			driftedSource, "drift legacy protected Application")
+		preflight.Binding.PlannedBaseRevision = base
+		var err error
+		preflight.IntentDigest, err = cascadePreflightIntentDigest(preflight)
+		if err != nil || preflight.Validate() != nil {
+			t.Fatalf("wrong-ETag durable preflight is invalid: %+v err=%v", preflight, err)
+		}
+		fixture.store.cascade = preflight
+		if _, err = fixture.worker(t).ProcessCascadePreflightOne(t.Context()); !errors.Is(err, gitprojection.ErrConflict) ||
+			errors.Is(err, gitprojection.ErrProtectedPathAbsent) || fixture.store.absenceFailures != 0 {
+			t.Fatalf("wrong ETag entered path-absence recovery: failures=%d err=%v",
+				fixture.store.absenceFailures, err)
+		}
+	})
+
+	t.Run("provider-error", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		fixture.store.cascade = pathAbsentCascadeFixture(t, fixture)
+		worker := fixture.worker(t)
+		providerErr := errors.New("provider unavailable")
+		worker.Provider = protectedHeadVerifierFunc(func(context.Context, gitprojection.Binding,
+			gitprojection.ObservationSource) (gitprojection.VerifiedHead, error) {
+			return gitprojection.VerifiedHead{}, providerErr
+		})
+		if _, err := worker.ProcessCascadePreflightOne(t.Context()); !errors.Is(err, providerErr) ||
+			fixture.store.absenceFailures != 0 {
+			t.Fatalf("provider error entered path-absence recovery: failures=%d err=%v",
+				fixture.store.absenceFailures, err)
+		}
+	})
+
+	t.Run("operation-trailer-present", func(t *testing.T) {
+		fixture := newProtectedPublisherFixture(t)
+		preflight := pathAbsentCascadeFixture(t, fixture)
+		base := commitProtectedPublisherFixturePath(t, fixture, preflight.ApplicationPath,
+			preflight.SourceContent, "publish legacy protected Application")
+		preflight.Binding.PlannedBaseRevision = base
+		var err error
+		preflight.IntentDigest, err = cascadePreflightIntentDigest(preflight)
+		if err != nil || preflight.Validate() != nil {
+			t.Fatalf("invalid operation recovery fixture: %+v err=%v", preflight, err)
+		}
+		protectedMutation, err := preflight.Mutation()
+		if err != nil {
+			t.Fatal(err)
+		}
+		mutation, err := protectedMutation.gitMutation()
+		if err != nil {
+			t.Fatal(err)
+		}
+		head, err := fixture.headVerifier(t).VerifyTargetHead(t.Context(), fixture.binding,
+			gitprojection.ObservationWrite)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := fixture.manager.Prepare(t.Context(), fixture.binding, head, preflight.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		operationCommit, err := prepared.Commit(t.Context(), mutation)
+		if closeErr := prepared.Close(t.Context()); err == nil && closeErr != nil {
+			err = closeErr
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if output, fetchErr := runProtectedPublisherGit(t, fixture.seed, "fetch", "origin",
+			fixture.binding.TargetRef); fetchErr != nil {
+			t.Fatalf("fetch recovered operation: %v: %s", fetchErr, output)
+		}
+		if output, resetErr := runProtectedPublisherGit(t, fixture.seed, "reset", "--hard",
+			operationCommit); resetErr != nil {
+			t.Fatalf("reset to recovered operation: %v: %s", resetErr, output)
+		}
+		commitProtectedPublisherFixturePath(t, fixture, preflight.ApplicationPath, nil,
+			"remove legacy protected Application after interrupted adoption")
+		fixture.store.cascade = preflight
+		if _, err = fixture.worker(t).ProcessCascadePreflightOne(t.Context()); !errors.Is(err, ErrConflict) || fixture.store.absenceFailures != 0 {
+			t.Fatalf("existing operation trailer was treated as no-effect: failures=%d err=%v",
+				fixture.store.absenceFailures, err)
+		}
+	})
 }
 
 func TestProtectedGitPublisherAdoptsExactCrossReleaseIntentsOnce(t *testing.T) {

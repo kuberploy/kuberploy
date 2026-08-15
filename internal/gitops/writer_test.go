@@ -18,7 +18,7 @@ func fixture() (domain.Operation, domain.Project, domain.Environment, domain.App
 	e := domain.Environment{ID: "22222222-2222-4222-8222-222222222222", ProjectID: p.ID, Slug: "dev"}
 	a := domain.Application{ID: "33333333-3333-4333-8333-333333333333", ProjectID: p.ID, Name: "Hello", Slug: "hello"}
 	op := domain.Operation{ID: "44444444-4444-4444-8444-444444444444", Generation: 1, CreatedAt: now}
-	d := domain.Deployment{ID: "55555555-5555-4555-8555-555555555555", EnvironmentID: e.ID, ApplicationID: a.ID, Image: "registry.test/hello@sha256:" + strings.Repeat("a", 64), Replicas: 2, Port: 8080, Environment: map[string]string{"Z_LAST": "z", "A_FIRST": "a"}, Route: &domain.Route{Hostname: "hello.k8s.orb.local", PathPrefix: "/", TLSMode: "httpOnly"}}
+	d := domain.Deployment{ID: "55555555-5555-4555-8555-555555555555", EnvironmentID: e.ID, ApplicationID: a.ID, Image: "registry.test/hello@sha256:" + strings.Repeat("a", 64), Replicas: 2, Port: 8080, Environment: map[string]string{"Z_LAST": "z", "A_FIRST": "a"}, Route: &domain.Route{Hostname: "hello.example.com", PathPrefix: "/", TLSMode: "httpOnly"}}
 	return op, p, e, a, d
 }
 func TestRenderAppConfigIsCanonicalAndIdentityBound(t *testing.T) {

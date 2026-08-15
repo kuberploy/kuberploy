@@ -26,7 +26,7 @@ spec:
         memory: 100Mi
   routes:
     - id: route-5555555555
-      host: hello.e2e.k8s.orb.local
+      host: hello.e2e.example.com
       path: /
       port: http
       tls:

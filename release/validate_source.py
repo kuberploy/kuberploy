@@ -162,6 +162,16 @@ def main() -> None:
     upper = tuple(int(part) for part in range_match.group(2).split("-", 1)[0].split("."))
     if lower >= upper:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
+    readme = (args.root / "README.md").read_text(encoding="utf-8")
+    upgrade_truth = (
+        "The dedicated Prisma migration Job automatically upgrades supported\n"
+        "> Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma\n"
+        "> schema histories require a fresh database."
+    )
+    if upgrade_truth not in readme:
+        raise SystemExit(
+            "README must state the supported Prisma-backed upgrade and unsupported pre-Prisma boundary"
+        )
     if args.tag and args.tag != f"v{version}":
         raise SystemExit(f"tag {args.tag} does not match source version v{version}")
     validate_stable_qualification(args.root, version)

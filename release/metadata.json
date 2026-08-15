@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 013 permits monotonic same-process publisher and Argo readiness-epoch rotation without reopening older authority, while protected-store conflicts now return bounded SQLSTATE diagnostics without exposing database messages.",
+  "summary": "Schema 014 records immutable provider-pinned proof when a legacy protected Application path is already absent, fails the disable release with recovery-required guidance, and narrowly authorizes an explicit direct rollback to recreate the finalizer-protected Application before a new disable.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.173"
+  "version": "0.1.0-rc.174"
 }

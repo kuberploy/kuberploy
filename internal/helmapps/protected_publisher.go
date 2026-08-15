@@ -265,6 +265,11 @@ func (p *ProtectedGitPublisher) ProcessCascadePreflightOne(ctx context.Context) 
 			intent, verifyErr = p.Cascade.VerifyCascadePreflight(ctx, current, revision, digest, request, now)
 			return verifyErr
 		},
+		pathAbsent: func(current ProtectedIntentLease, proof ProtectedCascadePathAbsenceProof, now time.Time) error {
+			var failErr error
+			intent, failErr = p.Cascade.FailCascadePreflightPathAbsent(ctx, current, proof, now)
+			return failErr
+		},
 	}
 	if intent.Operation == "observe" {
 		err = p.processCascadeObservation(guard, work)
@@ -371,6 +376,37 @@ type protectedPublicationWork struct {
 	rebind        func(ProtectedIntentLease, string, string, time.Time, time.Time) error
 	mark          func(ProtectedIntentLease, string, string, time.Time) error
 	verify        func(ProtectedIntentLease, string, string, string, time.Time) error
+	pathAbsent    func(ProtectedIntentLease, ProtectedCascadePathAbsenceProof, time.Time) error
+}
+
+func (p *ProtectedGitPublisher) handleProtectedPathAbsent(guard *protectedPublicationLeaseGuard,
+	work protectedPublicationWork, prepared *gitprojection.PreparedRepository,
+	mutation gitprojection.Mutation, head gitprojection.VerifiedHead, cause error) error {
+	if work.pathAbsent == nil || !errors.Is(cause, gitprojection.ErrProtectedPathAbsent) ||
+		work.state() != ProtectedClaimed || work.committed() != "" ||
+		mutation.Authority != gitprojection.MutationAuthorityHelmCascade ||
+		mutation.EffectivePrecondition() != gitprojection.MutationMatchETag {
+		return cause
+	}
+	ctx := guard.Context()
+	if err := prepared.VerifyPathAbsent(ctx, mutation.Path); err != nil {
+		return err
+	}
+	if found, present, err := prepared.FindOperationCommit(ctx, mutation); err != nil {
+		return err
+	} else if present || found != "" {
+		return ErrConflict
+	}
+	proof := ProtectedCascadePathAbsenceProof{ProviderHead: head.Commit,
+		ProviderRequest: head.ProviderRequest, ProviderObservedAt: head.ObservedAt,
+		OperationCommitAbsent: true}
+	if proof.Validate() != nil {
+		return ErrInvalid
+	}
+	failAt := guard.NotBefore(p.now(), head.ObservedAt)
+	return guard.Finish(func(current ProtectedIntentLease) error {
+		return work.pathAbsent(current, proof, failAt)
+	})
 }
 
 func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGuard, work protectedPublicationWork) error {
@@ -431,7 +467,7 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 			}
 		}
 		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
-			return err
+			return p.handleProtectedPathAbsent(guard, work, prepared, mutation, head, err)
 		}
 		receiptAt := guard.NotBefore(p.now(), head.ObservedAt)
 		if err = guard.Do(func(current ProtectedIntentLease) error {
@@ -481,7 +517,8 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 			return ErrConflict
 		}
 		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
-			return errors.Join(ErrConflict, err)
+			return p.handleProtectedPathAbsent(guard, work, prepared, mutation, head,
+				errors.Join(ErrConflict, err))
 		}
 		previous := work.writeBase()
 		rebindAt := guard.NotBefore(p.now(), head.ObservedAt)
@@ -504,7 +541,7 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		return ErrConflict
 	}
 	if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
-		return err
+		return p.handleProtectedPathAbsent(guard, work, prepared, mutation, head, err)
 	}
 	revision, err := prepared.Commit(ctx, mutation)
 	if err != nil {

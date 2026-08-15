@@ -1152,6 +1152,34 @@ model helm_application_cascade_preflights {
   @@index([verified_at, id], map: "helm_application_cascade_preflights_verified_idx", where: raw("(state = 'verified'::text)"))
 }
 
+/// Immutable provider-pinned proof that a legacy cascade update had no Git
+/// side effect because its protected Application path was already absent.
+model helm_application_cascade_absence_receipts {
+  cascade_preflight_id       String   @id @db.Uuid
+  release_revision_id        String   @db.Uuid
+  payload_intent_id          String   @db.Uuid
+  base_application_intent_id String   @db.Uuid
+  release_generation         BigInt
+  platform_binding_id        String   @db.Uuid
+  platform_binding_state     String
+  platform_indexed_revision  String
+  application_path           String
+  source_content_digest      String
+  adopted_content_digest     String
+  expected_etag              String
+  provider_head              String
+  provider_request           String
+  provider_observed_at       DateTime @db.Timestamptz(6)
+  operation_commit_absent    Boolean
+  publisher_contract         String
+  publisher_policy_version   String
+  publisher_config_digest    String
+  publisher_worker_id        String
+  publisher_worker_epoch     BigInt
+  lease_epoch                BigInt
+  recorded_at                DateTime @db.Timestamptz(6)
+}
+
 model helm_application_cascade_adoption_receipts {
   id                        String   @id @db.Uuid
   cascade_preflight_id      String   @db.Uuid

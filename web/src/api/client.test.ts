@@ -92,7 +92,7 @@ describe("typed API client", () => {
         resources: { requests: { cpu: "50m", memory: "100Mi" } },
       },
       route: {
-        hostname: "hello.e2e.k8s.orb.local",
+        hostname: "hello.example.com",
         pathPrefix: "/",
         tlsMode: "httpOnly",
       },
@@ -110,7 +110,7 @@ describe("typed API client", () => {
         resources: { requests: { cpu: "50m", memory: "100Mi" } },
       },
       route: {
-        hostname: "hello.e2e.k8s.orb.local",
+        hostname: "hello.example.com",
         pathPrefix: "/",
         tlsMode: "httpOnly",
       },

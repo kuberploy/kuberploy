@@ -34,8 +34,12 @@ const (
 )
 
 var (
-	ErrNotFound              = errors.New("Git projection record not found")
-	ErrConflict              = errors.New("Git projection compare-and-swap conflict")
+	ErrNotFound = errors.New("Git projection record not found")
+	ErrConflict = errors.New("Git projection compare-and-swap conflict")
+	// ErrProtectedPathAbsent is a closed conflict subtype. Callers must still
+	// prove absence against the exact provider-pinned head before treating it as
+	// durable evidence; ordinary CAS, provider, and Git failures never match it.
+	ErrProtectedPathAbsent   = errors.New("protected Git path is absent")
 	ErrInvalid               = errors.New("invalid Git projection input")
 	ErrStale                 = errors.New("Git projection is stale")
 	ErrLeaseHeld             = errors.New("Git projection path is reserved")

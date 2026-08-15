@@ -2,7 +2,7 @@ global:
   testRun: render
   requireImageDigest: false
 config:
-  publicURL: http://kuberploy.k8s.orb.local
+  publicURL: http://kuberploy.example.com
   logLevel: debug
   postgresql:
     secretRef: {name: external-postgresql, urlKey: url}
@@ -42,7 +42,7 @@ components:
 ingress:
   enabled: true
   className: kp-e2e-render
-  host: kuberploy.k8s.orb.local
+  host: kuberploy.example.com
   tls: {enabled: false, secretName: "", issuerName: ""}
 rbac:
   observedNamespaces: [kuberploy-e2e-render]

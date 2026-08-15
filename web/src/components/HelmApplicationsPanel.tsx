@@ -58,6 +58,8 @@ function publicationPhase(status: HelmReleaseStatus) {
 }
 
 function ReleaseTruth({ status }: { status: HelmReleaseStatus }) {
+  const pathAbsentRecovery =
+    status.failureCode === "cascade-path-absent-recovery-required";
   return (
     <div className="helm-release-truth">
       <Card className="helm-phase-card">
@@ -82,6 +84,19 @@ function ReleaseTruth({ status }: { status: HelmReleaseStatus }) {
           {status.applicationState ?? "pending"}
         </small>
       </Card>
+      {pathAbsentRecovery ? (
+        <div className="notice notice--error" role="alert">
+          <div>
+            <strong>Disable recovery requires an explicit rollback</strong>
+            <p>
+              The protected Argo Application path was already absent, so
+              Kuberploy did not recreate historical desired state. Roll back or
+              re-enable the previous release, wait until it is published, then
+              disable it again.
+            </p>
+          </div>
+        </div>
+      ) : null}
       <div className="notice">
         <div>
           <strong>

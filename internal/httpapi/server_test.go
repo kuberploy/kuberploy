@@ -406,7 +406,7 @@ func TestImageDeploymentWalkingSliceAndIdempotency(t *testing.T) {
 		t.Fatalf("application: %d", r.StatusCode)
 	}
 	image := "registry.example.test/hello@sha256:" + strings.Repeat("a", 64)
-	request := map[string]any{"environmentId": environment.ID, "applicationId": application.ID, "image": image, "port": 8080, "environment": map[string]string{"LOG_LEVEL": "info"}, "route": map[string]string{"hostname": "hello.k8s.orb.local"}}
+	request := map[string]any{"environmentId": environment.ID, "applicationId": application.ID, "image": image, "port": 8080, "environment": map[string]string{"LOG_LEVEL": "info"}, "route": map[string]string{"hostname": "hello.example.com"}}
 	r = f.request("POST", "/v1/deployments", "deployment-1", request)
 	op := decode[domain.Operation](t, r)
 	if r.StatusCode != 202 || op.Status != "queued" || op.TargetID == "" {

@@ -200,6 +200,23 @@ describe("Helm application panel", () => {
     expect(screen.queryByLabelText(/namespace/i)).not.toBeInTheDocument();
   });
 
+  it("explains the fail-closed recovery for an already-absent Application path", async () => {
+    vi.mocked(api.helmRelease).mockResolvedValue({
+      ...status,
+      revision: { ...revision, action: "disable", desiredEnabled: false },
+      phase: "failed",
+      cascadeState: "failed",
+      failureCode: "cascade-path-absent-recovery-required",
+    });
+    renderPanel();
+    expect(
+      await screen.findByText("Disable recovery requires an explicit rollback"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/wait until it is published, then disable it again/i),
+    ).toBeVisible();
+  });
+
   it("keeps service-account sessions read-only despite mutation permissions", async () => {
     renderPanel({ humanSession: false });
     expect(

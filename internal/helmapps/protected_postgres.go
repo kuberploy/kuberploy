@@ -381,7 +381,16 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.Action = ProtectedApplicationPublish
 		value.SourceDirectory = protectedSourceDirectory(binding.ClusterID,
 			release.Target.EnvironmentID, release.Target.ApplicationID, release.ID)
-		if release.BaseApplicationIntentID == "" {
+		recoveryCreate := false
+		if release.BaseApplicationIntentID != "" {
+			err = tx.QueryRow(ctx, `SELECT public.helm_application_cascade_recovery_create_is_authorized(
+				$1,$2,$3)`, release.ID, release.BaseApplicationIntentID, value.ApplicationPath).
+				Scan(&recoveryCreate)
+			if err != nil {
+				return ProtectedApplicationIntent{}, false, classifyPostgres(err)
+			}
+		}
+		if release.BaseApplicationIntentID == "" || recoveryCreate {
 			value.Operation, value.Precondition = "create", "create-if-absent"
 		} else {
 			value.Operation, value.Precondition = "update", "match-etag"

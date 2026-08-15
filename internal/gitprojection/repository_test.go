@@ -368,7 +368,8 @@ func TestPreparedRepositoryVerifiesExactPinnedPathContentETag(t *testing.T) {
 	if err = prepared.VerifyPathContentETag(t.Context(), applicationPath, expected); err != nil {
 		t.Fatalf("exact pinned blob ETag was rejected: %v", err)
 	}
-	if err = prepared.VerifyPathContentETag(t.Context(), applicationPath, `"sha256:`+strings.Repeat("0", 64)+`"`); !errors.Is(err, gitprojection.ErrConflict) {
+	if err = prepared.VerifyPathContentETag(t.Context(), applicationPath, `"sha256:`+strings.Repeat("0", 64)+`"`); !errors.Is(err, gitprojection.ErrConflict) ||
+		errors.Is(err, gitprojection.ErrProtectedPathAbsent) {
 		t.Fatalf("forged pinned blob ETag error=%v", err)
 	}
 	if err = prepared.VerifyPathContentETag(t.Context(), "outside/app.yaml", expected); !errors.Is(err, gitprojection.ErrInvalid) {
@@ -407,6 +408,11 @@ func TestPreparedRepositoryVerifiesAncestorAndProtectedPathAbsence(t *testing.T)
 	missing, _ := gitprojection.ApplicationPath(fixture.binding, "66666666-6666-4666-8666-666666666666")
 	if err = prepared.VerifyPathAbsent(t.Context(), missing); err != nil {
 		t.Fatalf("missing protected path was rejected: %v", err)
+	}
+	if err = prepared.VerifyPathContentETag(t.Context(), missing,
+		`"sha256:`+strings.Repeat("1", 64)+`"`); !errors.Is(err, gitprojection.ErrConflict) ||
+		!errors.Is(err, gitprojection.ErrProtectedPathAbsent) {
+		t.Fatalf("protected absence did not preserve its closed conflict subtype: %v", err)
 	}
 	for _, unsafePath := range []string{"../escape.yaml", "outside/app.yaml", fixture.binding.Prefix + "/../escape.yaml", fixture.binding.Prefix + "/notes/sibling.yaml"} {
 		if err = prepared.VerifyPathAbsent(t.Context(), unsafePath); !errors.Is(err, gitprojection.ErrInvalid) {

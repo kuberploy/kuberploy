@@ -558,7 +558,7 @@ func (p *PreparedRepository) VerifyPathContentETag(ctx context.Context, document
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%w: protected Git path is absent", ErrConflict)
+		return errors.Join(ErrConflict, ErrProtectedPathAbsent)
 	}
 	content, err := p.manager.git(ctx, p.MirrorPath, "cat-file", "blob", p.Head.Commit+":"+documentPath)
 	if err != nil {
@@ -638,7 +638,7 @@ func (p *PreparedRepository) VerifyMutationUnchangedSince(ctx context.Context, m
 // never interpreted as absence.
 func (p *PreparedRepository) VerifyPathAbsent(ctx context.Context, documentPath string) error {
 	if ctx == nil || p == nil || p.manager == nil || p.Binding.Validate() != nil || p.Head.ValidateFor(p.Binding) != nil ||
-		!validProtectedDocumentPath(p.Binding, documentPath) {
+		(!validProtectedDocumentPath(p.Binding, documentPath) && !validHelmApplicationPath(p.Binding, documentPath)) {
 		return ErrInvalid
 	}
 	present, err := p.pathExists(ctx, p.Head.Commit, documentPath)
@@ -712,7 +712,7 @@ func (p *PreparedRepository) protectedMutationPathContent(ctx context.Context, m
 		return nil, err
 	}
 	if !present {
-		return nil, fmt.Errorf("%w: protected Git path is absent", ErrConflict)
+		return nil, errors.Join(ErrConflict, ErrProtectedPathAbsent)
 	}
 	content, err := p.manager.git(ctx, p.MirrorPath, "cat-file", "blob", p.Head.Commit+":"+mutation.Path)
 	if err != nil {

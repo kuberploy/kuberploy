@@ -728,6 +728,26 @@ type ProtectedIntentLease struct {
 	Publisher       ProtectedPublisherIdentity
 }
 
+// ProtectedCascadePathAbsenceProof is produced only after a provider-pinned
+// Git read proves the legacy Application path is absent and bounded operation
+// recovery proves Kuberploy never committed the cascade update. PostgreSQL
+// derives every durable identity from the claimed preflight and accepts only
+// this small external observation tuple.
+type ProtectedCascadePathAbsenceProof struct {
+	ProviderHead, ProviderRequest string
+	ProviderObservedAt            time.Time
+	OperationCommitAbsent         bool
+}
+
+func (p ProtectedCascadePathAbsenceProof) Validate() error {
+	if !gitCommitRE.MatchString(p.ProviderHead) || p.ProviderRequest == "" ||
+		len(p.ProviderRequest) > 256 || containsControl(p.ProviderRequest) ||
+		p.ProviderObservedAt.IsZero() || !p.OperationCommitAbsent {
+		return ErrInvalid
+	}
+	return nil
+}
+
 func (l ProtectedIntentLease) Validate() error {
 	if !uuidRE.MatchString(l.IntentID) || !workerIDRE.MatchString(l.Owner) ||
 		l.Epoch < 1 || l.Until.IsZero() || l.Publisher.Validate() != nil {
@@ -921,6 +941,7 @@ type ProtectedCascadeStore interface {
 	VerifyCascadePreflight(context.Context, ProtectedIntentLease, string, string, string, time.Time) (ProtectedApplicationCascadePreflight, error)
 	RetryCascadePreflight(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedApplicationCascadePreflight, error)
 	FailCascadePreflight(context.Context, ProtectedIntentLease, string, time.Time) (ProtectedApplicationCascadePreflight, error)
+	FailCascadePreflightPathAbsent(context.Context, ProtectedIntentLease, ProtectedCascadePathAbsenceProof, time.Time) (ProtectedApplicationCascadePreflight, error)
 }
 
 type ProtectedCascadeObservationStore interface {

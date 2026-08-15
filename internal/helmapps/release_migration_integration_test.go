@@ -19,6 +19,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
+	"go.yaml.in/yaml/v3"
 )
 
 func helmPGArgoAuthority() ArgoMaterializationAuthority {
@@ -1349,6 +1350,59 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || application.State != ProtectedVerified {
 		t.Fatalf("verified predecessor application=%+v err=%v", application, err)
 	}
+	// Simulate the exact legacy pre-finalizer Application produced before the
+	// cascade contract existed. The test-only rewrite preserves every other
+	// immutable field so the new preflight must adopt only the foreground
+	// resources finalizer before it may delete.
+	var legacyApplication protectedArgoApplication
+	if err = yaml.Unmarshal(application.Content, &legacyApplication); err != nil {
+		t.Fatal(err)
+	}
+	legacyApplication.Metadata.Finalizers = nil
+	legacyContent, err := yaml.Marshal(legacyApplication)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyContent = bytes.Replace(legacyContent, []byte("    finalizers: []\n"), nil, 1)
+	if bytes.Contains(legacyContent, []byte("    finalizers:\n")) ||
+		bytes.Contains(legacyContent, []byte("    finalizers: []\n")) {
+		t.Fatal("legacy Application fixture retained a finalizer field")
+	}
+	legacyDigest := digestBytes(legacyContent)
+	if _, changed, adoptErr := adoptProtectedArgoResourcesFinalizer(legacyContent); adoptErr != nil || !changed {
+		t.Fatalf("legacy Application did not require exact finalizer adoption: changed=%v err=%v",
+			changed, adoptErr)
+	}
+	legacyTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = legacyTx.Exec(ctx, `ALTER TABLE public.helm_protected_application_intents DISABLE TRIGGER USER`); err == nil {
+		_, err = legacyTx.Exec(ctx, `UPDATE public.helm_protected_application_intents
+			SET content=$2,content_digest=$3,verified_path_digest=$3 WHERE id=$1`,
+			application.ID, legacyContent, legacyDigest)
+	}
+	if err == nil && application.ContinuationRequired {
+		_, err = legacyTx.Exec(ctx, `ALTER TABLE public.helm_application_continuation_receipts DISABLE TRIGGER USER`)
+	}
+	if err == nil && application.ContinuationRequired {
+		_, err = legacyTx.Exec(ctx, `UPDATE public.helm_application_continuation_receipts
+			SET application_content_digest=$2 WHERE application_intent_id=$1`,
+			application.ID, legacyDigest)
+	}
+	if err == nil && application.ContinuationRequired {
+		_, err = legacyTx.Exec(ctx, `ALTER TABLE public.helm_application_continuation_receipts ENABLE TRIGGER USER`)
+	}
+	if err == nil {
+		_, err = legacyTx.Exec(ctx, `ALTER TABLE public.helm_protected_application_intents ENABLE TRIGGER USER`)
+	}
+	if err != nil {
+		_ = legacyTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if err = legacyTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
 	advanceTx, err = pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1417,7 +1471,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	preflight, replay, err := store.CreateCascadePreflightForPayload(ctx, preflightID, deleteID,
 		disablePayload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
 		f.now.Add(24*time.Second))
-	if err != nil || replay || preflight.DeleteIntentID != deleteID || preflight.Operation != "observe" {
+	if err != nil || replay || preflight.DeleteIntentID != deleteID || preflight.Operation != "update" {
 		t.Fatalf("cascade preflight=%+v replay=%v err=%v", preflight, replay, err)
 	}
 	preflightWorker := publisherWorker
@@ -1426,19 +1480,373 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || preflight.ID != preflightID {
 		t.Fatalf("claimed cascade preflight=%+v lease=%+v err=%v", preflight, preflightLease, err)
 	}
-	preflight, err = store.BindCascadePreflightWriteBase(ctx, preflightLease, disablePayloadCommit,
-		f.now.Add(26*time.Second), f.now.Add(26*time.Second))
+	// Prove the additive path-absence authority against a real PG18 state. The
+	// transaction is rolled back after forcing deferred checks so the same
+	// fixture can continue through successful finalizer adoption and pruning.
+	absenceTx, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	preflight, err = store.VerifyCascadePreflight(ctx, preflightLease, disablePayloadCommit,
-		preflight.AdoptedContentDigest, "cascade-finalizer-observed", f.now.Add(27*time.Second))
-	if err != nil || preflight.State != ProtectedVerified {
-		t.Fatalf("verified cascade preflight=%+v err=%v", preflight, err)
+	providerObservedAt := f.now.Add(25 * time.Second)
+	assertAbsenceRejected := func(name string, mutate func(pgx.Tx) error) {
+		t.Helper()
+		nested, beginErr := absenceTx.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		if mutateErr := mutate(nested); mutateErr == nil {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s path-absence proof was accepted", name)
+		}
+		_ = nested.Rollback(ctx)
+	}
+	assertAbsenceRejected("stale provider head", func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `INSERT INTO public.helm_application_cascade_absence_receipts(
+			cascade_preflight_id,provider_head,provider_request,provider_observed_at,
+			operation_commit_absent) VALUES($1,$2,'absence-stale-head',$3,true)`,
+			preflightID, strings.Repeat("8", 40), providerObservedAt)
+		return nestedErr
+	})
+	assertAbsenceRejected("unproven operation", func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `INSERT INTO public.helm_application_cascade_absence_receipts(
+			cascade_preflight_id,provider_head,provider_request,provider_observed_at,
+			operation_commit_absent) VALUES($1,$2,'absence-operation-present',$3,false)`,
+			preflightID, disablePayloadCommit, providerObservedAt)
+		return nestedErr
+	})
+	assertAbsencePostimageRejected := func(name string, mutate func(pgx.Tx, time.Time) error) {
+		t.Helper()
+		nested, beginErr := absenceTx.Begin(ctx)
+		if beginErr != nil {
+			t.Fatal(beginErr)
+		}
+		var recordedAt time.Time
+		if pairErr := nested.QueryRow(ctx, `INSERT INTO public.helm_application_cascade_absence_receipts(
+			cascade_preflight_id,provider_head,provider_request,provider_observed_at,
+			operation_commit_absent) VALUES($1,$2,$3,$4,true) RETURNING recorded_at`,
+			preflightID, disablePayloadCommit, "absence-"+name, providerObservedAt).
+			Scan(&recordedAt); pairErr != nil {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s receipt setup failed: %v", name, pairErr)
+		}
+		if pairErr := mutate(nested, recordedAt); pairErr != nil {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s authority mutation setup failed: %v", name, pairErr)
+		}
+		if _, pairErr := nested.Exec(ctx, `UPDATE public.helm_application_cascade_preflights SET
+				state='failed',consecutive_failures=consecutive_failures+1,
+				last_failure_code='cascade-path-absent-recovery-required',
+				lease_owner=NULL,lease_until=NULL,completed_at=$2,updated_at=$2,
+				prerequisite_epoch=prerequisite_epoch+1
+				WHERE id=$1 AND state='claimed' AND lease_owner=$3 AND lease_epoch=$4
+				  AND committed_revision='' AND committed_at IS NULL`, preflightID,
+			recordedAt, preflightLease.Owner, preflightLease.Epoch); pairErr != nil {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s terminal transition setup failed: %v", name, pairErr)
+		}
+		var exactAfterMutation bool
+		if pairErr := nested.QueryRow(ctx,
+			`SELECT public.helm_application_cascade_absence_receipt_is_exact($1)`, preflightID).
+			Scan(&exactAfterMutation); pairErr != nil {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s exactness probe failed: %v", name, pairErr)
+		} else if exactAfterMutation {
+			_ = nested.Rollback(ctx)
+			t.Fatalf("%s authority mutation retained exactness", name)
+		}
+		_, pairErr := nested.Exec(ctx, `SET CONSTRAINTS
+				helm_application_cascade_absence_receipt_postimage,
+				helm_application_cascade_absence_failure_postimage IMMEDIATE`)
+		_ = nested.Rollback(ctx)
+		if pairErr == nil {
+			t.Fatalf("%s post-receipt authority change was accepted", name)
+		}
+	}
+	assertAbsencePostimageRejected("git-head-advance", func(nested pgx.Tx, changedAt time.Time) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE public.git_repository_bindings SET
+			target_head_revision=$2,state='indexing',target_head_observed_at=$3,updated_at=$3
+			WHERE id=$1`, f.platformBindingID, strings.Repeat("8", 40), changedAt)
+		return nestedErr
+	})
+	assertAbsencePostimageRejected("release-head-advance", func(nested pgx.Tx, changedAt time.Time) error {
+		competingReleaseID, competingCommandID := id.New(), id.New()
+		competingFixture := f
+		competingFixture.namespace = "new-disable-route"
+		insertHelmRenderCommand(t, ctx, nested, competingFixture, competingCommandID,
+			f.values, f.valuesDigest, changedAt)
+		insertHelmRelease(t, ctx, nested, competingFixture, helmReleaseInsert{id: competingReleaseID,
+			generation: disable.Generation + 1, action: "rollback", parentID: disable.ID,
+			rollbackID: release.ID, baseID: application.ID, commandID: competingCommandID,
+			values: f.values, valuesDigest: f.valuesDigest}, changedAt)
+		_, nestedErr := nested.Exec(ctx, `UPDATE public.helm_release_heads SET
+			revision_id=$3,generation=$4,updated_at=$5
+			WHERE environment_id=$1 AND application_id=$2`, f.environmentID,
+			f.applicationID, competingReleaseID, disable.Generation+1, changedAt)
+		return nestedErr
+	})
+	var absenceRecordedAt time.Time
+	if err = absenceTx.QueryRow(ctx, `INSERT INTO public.helm_application_cascade_absence_receipts(
+		cascade_preflight_id,provider_head,provider_request,provider_observed_at,
+		operation_commit_absent) VALUES($1,$2,'absence-provider-proof',$3,true)
+		RETURNING recorded_at`, preflightID, disablePayloadCommit, providerObservedAt).
+		Scan(&absenceRecordedAt); err != nil {
+		_ = absenceTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = absenceTx.Exec(ctx, `UPDATE public.helm_application_cascade_preflights SET
+		state='failed',consecutive_failures=consecutive_failures+1,
+		last_failure_code='cascade-path-absent-recovery-required',
+		lease_owner=NULL,lease_until=NULL,completed_at=$2,updated_at=$2,
+		prerequisite_epoch=prerequisite_epoch+1
+		WHERE id=$1 AND state='claimed' AND lease_owner=$3 AND lease_epoch=$4
+		  AND committed_revision='' AND committed_at IS NULL`, preflightID,
+		absenceRecordedAt, preflightLease.Owner, preflightLease.Epoch); err != nil {
+		_ = absenceTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	if _, err = absenceTx.Exec(ctx, `SET CONSTRAINTS
+		helm_application_cascade_absence_receipt_postimage,
+		helm_application_cascade_absence_failure_postimage IMMEDIATE`); err != nil {
+		_ = absenceTx.Rollback(ctx)
+		t.Fatal(err)
+	}
+	var absenceExact bool
+	var terminalCandidates int
+	if err = absenceTx.QueryRow(ctx, `SELECT
+		public.helm_application_cascade_absence_receipt_is_exact($1),
+		(SELECT count(*) FROM public.helm_application_cascade_preflights
+		 WHERE id=$1 AND state IN ('pending','claimed','git-committed'))`, preflightID).
+		Scan(&absenceExact, &terminalCandidates); err != nil || !absenceExact || terminalCandidates != 0 {
+		_ = absenceTx.Rollback(ctx)
+		t.Fatalf("absence exact=%v reclaimable=%d err=%v", absenceExact, terminalCandidates, err)
+	}
+	assertAbsenceRejected("receipt mutation", func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE public.helm_application_cascade_absence_receipts
+			SET provider_request='forged' WHERE cascade_preflight_id=$1`, preflightID)
+		return nestedErr
+	})
+	assertAbsenceRejected("replacement", func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `INSERT INTO public.helm_application_cascade_preflights
+			SELECT (pg_catalog.jsonb_populate_record(NULL::public.helm_application_cascade_preflights,
+				pg_catalog.to_jsonb(candidate)||pg_catalog.jsonb_build_object(
+				'id',$2::text,'delete_intent_id',$3::text,'state','pending','attempts',0,
+				'consecutive_failures',0,'last_failure_code','','lease_owner',NULL,
+				'lease_epoch',0,'lease_until',NULL,'completed_at',NULL,
+				'created_at',$4::timestamptz,'updated_at',$4::timestamptz,
+				'next_attempt_at',$4::timestamptz))).*
+			FROM public.helm_application_cascade_preflights AS candidate WHERE candidate.id=$1`,
+			preflightID, id.New(), id.New(), absenceRecordedAt)
+		return nestedErr
+	})
+	if err = absenceTx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	nextAt := func(after time.Time) time.Time {
+		t.Helper()
+		return helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), after).Add(time.Microsecond)
+	}
+	failureAt := nextAt(preflight.UpdatedAt)
+	preflight, err = store.FailCascadePreflightPathAbsent(ctx, preflightLease,
+		ProtectedCascadePathAbsenceProof{ProviderHead: disablePayloadCommit,
+			ProviderRequest: "absence-provider-proof", ProviderObservedAt: providerObservedAt,
+			OperationCommitAbsent: true}, failureAt)
+	if err != nil || preflight.State != ProtectedFailed ||
+		preflight.LastFailureCode != "cascade-path-absent-recovery-required" {
+		t.Fatalf("terminal absent cascade preflight=%+v err=%v", preflight, err)
+	}
+	failedStatus, err := releases.Head(ctx, target)
+	if err != nil || failedStatus.Phase != ReleasePhaseFailed ||
+		failedStatus.FailureCode != "cascade-path-absent-recovery-required" {
+		t.Fatalf("absent cascade release status=%+v err=%v", failedStatus, err)
+	}
+	if _, _, err = store.ClaimCascadePreflight(ctx, preflightWorker, publisher,
+		nextAt(preflight.UpdatedAt), time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("terminal absent cascade preflight was reclaimable: %v", err)
+	}
+
+	// Recovery is explicit: create a new enabled rollback release, publish its
+	// Application with create-if-absent, then create a second disable release.
+	// The failed preflight and receipt remain immutable history throughout.
+	if _, err = pool.Exec(ctx, `UPDATE public.environments SET namespace=$2,argo_project=$3
+		WHERE id=$1`, f.environmentID, f.namespace, f.argoProject); err != nil {
+		t.Fatal(err)
+	}
+	rollbackAt := nextAt(preflight.UpdatedAt)
+	rollback, replay, err := releases.Rollback(ctx, RollbackReleaseRequest{Target: target,
+		SourceRevisionID: release.ID, Actor: ReleaseActor{ID: f.userID,
+			IdempotencyKey: "absence-recovery-rollback-" + id.New(),
+			RequestID:      "absence-recovery-rollback"}}, rollbackAt)
+	if err != nil || replay || !rollback.DesiredEnabled || rollback.Action != ReleaseRollback {
+		t.Fatalf("absence recovery rollback=%+v replay=%v err=%v", rollback, replay, err)
+	}
+	var recoveryAuthorized, wrongBaseAuthorized, wrongPathAuthorized, unrelatedEnabledAuthorized bool
+	if err = pool.QueryRow(ctx, `SELECT
+		public.helm_application_cascade_recovery_create_is_authorized($1,$2,$3),
+		public.helm_application_cascade_recovery_create_is_authorized($1,$4,$3),
+		public.helm_application_cascade_recovery_create_is_authorized($1,$2,$5),
+		public.helm_application_cascade_recovery_create_is_authorized($6,$2,$3)`,
+		rollback.ID, application.ID, application.ApplicationPath, id.New(),
+		application.ApplicationPath+".wrong", release.ID).Scan(&recoveryAuthorized,
+		&wrongBaseAuthorized, &wrongPathAuthorized, &unrelatedEnabledAuthorized); err != nil {
+		t.Fatal(err)
+	}
+	if !recoveryAuthorized || wrongBaseAuthorized || wrongPathAuthorized || unrelatedEnabledAuthorized {
+		t.Fatalf("absence recovery authority exact=%t wrong-base=%t wrong-path=%t unrelated-enabled=%t",
+			recoveryAuthorized, wrongBaseAuthorized, wrongPathAuthorized, unrelatedEnabledAuthorized)
+	}
+	renderTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeHelmRender(t, ctx, renderTx, f, rollback.RenderCommandID, nextAt(rollbackAt))
+	if err = renderTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	binding.PlannedBaseRevision = disablePayloadCommit
+	rollbackPayload, replay, err := store.CreatePayloadForHead(ctx, id.New(), target, binding,
+		publisher, nextAt(rollbackAt))
+	if err != nil || replay || rollbackPayload.Action != ProtectedPayloadPublish {
+		t.Fatalf("rollback payload=%+v replay=%v err=%v", rollbackPayload, replay, err)
+	}
+	rollbackPayload, rollbackPayloadLease, err := store.ClaimPayload(ctx, publisherWorker,
+		publisher, nextAt(rollbackPayload.UpdatedAt), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackPayload, err = store.BindPayloadWriteBase(ctx, rollbackPayloadLease,
+		disablePayloadCommit, nextAt(rollbackPayload.UpdatedAt), nextAt(rollbackPayload.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackPayloadCommit := strings.Repeat("1", 40)
+	rollbackPayload, err = store.MarkPayloadCommitted(ctx, rollbackPayloadLease,
+		rollbackPayloadCommit, disablePayloadCommit, nextAt(rollbackPayload.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackPayload, err = store.VerifyPayload(ctx, rollbackPayloadLease, rollbackPayloadCommit,
+		rollbackPayload.ContentDigest, "absence-rollback-payload", nextAt(rollbackPayload.UpdatedAt))
+	if err != nil || rollbackPayload.State != ProtectedVerified {
+		t.Fatalf("verified rollback payload=%+v err=%v", rollbackPayload, err)
+	}
+	advanceTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, rollbackPayloadCommit, nextAt(rollbackPayload.UpdatedAt))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rollbackApplication, replay, err := store.CreateApplicationForPayload(ctx, id.New(),
+		rollbackPayload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		nextAt(rollbackPayload.UpdatedAt))
+	if err != nil || replay || rollbackApplication.Operation != "create" ||
+		rollbackApplication.Precondition != "create-if-absent" {
+		t.Fatalf("rollback recovery Application=%+v replay=%v err=%v",
+			rollbackApplication, replay, err)
+	}
+	requireProtectedForegroundResourcesFinalizer(t, rollbackApplication.Content)
+	rollbackApplication, rollbackApplicationLease, err := store.ClaimApplication(ctx,
+		publisherWorker, publisher, nextAt(rollbackApplication.UpdatedAt), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackApplication, err = store.BindApplicationWriteBase(ctx, rollbackApplicationLease,
+		rollbackPayloadCommit, nextAt(rollbackApplication.UpdatedAt), nextAt(rollbackApplication.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackApplicationCommit := strings.Repeat("2", 40)
+	rollbackApplication, err = store.MarkApplicationCommitted(ctx, rollbackApplicationLease,
+		rollbackApplicationCommit, rollbackPayloadCommit, nextAt(rollbackApplication.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackApplication, err = store.VerifyApplication(ctx, rollbackApplicationLease,
+		rollbackApplicationCommit, rollbackApplication.ContentDigest, "absence-rollback-application",
+		nextAt(rollbackApplication.UpdatedAt))
+	if err != nil || rollbackApplication.State != ProtectedVerified {
+		t.Fatalf("verified rollback Application=%+v err=%v", rollbackApplication, err)
+	}
+	advanceTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, rollbackApplicationCommit,
+		nextAt(rollbackApplication.UpdatedAt))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	secondDisable, replay, err := releases.Disable(ctx, DisableReleaseRequest{Target: target,
+		Actor: ReleaseActor{ID: f.userID, IdempotencyKey: "absence-second-disable-" + id.New(),
+			RequestID: "absence-second-disable"}}, nextAt(rollbackApplication.UpdatedAt))
+	if err != nil || replay || secondDisable.DesiredEnabled || secondDisable.Action != ReleaseDisable ||
+		secondDisable.BaseApplicationIntentID != rollbackApplication.ID {
+		t.Fatalf("second disable=%+v replay=%v err=%v", secondDisable, replay, err)
+	}
+	binding.PlannedBaseRevision = rollbackApplicationCommit
+	disablePayload, replay, err = store.CreatePayloadForHead(ctx, id.New(), target, binding,
+		publisher, nextAt(secondDisable.CreatedAt))
+	if err != nil || replay || disablePayload.Action != ProtectedPayloadDisable {
+		t.Fatalf("second disable payload=%+v replay=%v err=%v", disablePayload, replay, err)
+	}
+	disablePayload, disablePayloadLease, err = store.ClaimPayload(ctx, publisherWorker,
+		publisher, nextAt(disablePayload.UpdatedAt), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayload, err = store.BindPayloadWriteBase(ctx, disablePayloadLease,
+		rollbackApplicationCommit, nextAt(disablePayload.UpdatedAt), nextAt(disablePayload.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayloadCommit = strings.Repeat("3", 40)
+	disablePayload, err = store.MarkPayloadCommitted(ctx, disablePayloadLease,
+		disablePayloadCommit, rollbackApplicationCommit, nextAt(disablePayload.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	disablePayload, err = store.VerifyPayload(ctx, disablePayloadLease, disablePayloadCommit,
+		disablePayload.ContentDigest, "absence-second-disable-payload", nextAt(disablePayload.UpdatedAt))
+	if err != nil || disablePayload.State != ProtectedVerified {
+		t.Fatalf("verified second disable payload=%+v err=%v", disablePayload, err)
+	}
+	advanceTx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	advancePlatformHead(t, ctx, advanceTx, f, disablePayloadCommit, nextAt(disablePayload.UpdatedAt))
+	if err = advanceTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	preflightID, deleteID = id.New(), id.New()
+	preflight, replay, err = store.CreateCascadePreflightForPayload(ctx, preflightID, deleteID,
+		disablePayload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		nextAt(disablePayload.UpdatedAt))
+	if err != nil || replay || preflight.Operation != "observe" ||
+		preflight.SourceContentDigest != rollbackApplication.ContentDigest {
+		t.Fatalf("second cascade preflight=%+v replay=%v err=%v", preflight, replay, err)
+	}
+	preflight, preflightLease, err = store.ClaimCascadePreflight(ctx, preflightWorker, publisher,
+		nextAt(preflight.UpdatedAt), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight, err = store.BindCascadePreflightWriteBase(ctx, preflightLease, disablePayloadCommit,
+		nextAt(preflight.UpdatedAt), nextAt(preflight.UpdatedAt))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cascadeCommit := disablePayloadCommit
+	preflight, err = store.VerifyCascadePreflight(ctx, preflightLease, cascadeCommit,
+		preflight.AdoptedContentDigest, "cascade-finalizer-observed", nextAt(preflight.UpdatedAt))
+	if err != nil || preflight.State != ProtectedVerified || preflight.CommittedRevision != "" {
+		t.Fatalf("verified second cascade observation=%+v err=%v", preflight, err)
 	}
 
 	observerWorker := publisherWorker
-	observationAt := f.now.Add(28 * time.Second)
+	observationAt := nextAt(preflight.UpdatedAt)
 	observedPreflight, observationLease, err := store.ClaimCascadeObservation(ctx, observerWorker, 1,
 		publisher, observationAt, time.Minute)
 	if err != nil || observedPreflight.ID != preflightID {
@@ -1455,7 +1863,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	head := gitprojection.VerifiedHead{BindingID: platformBinding.ID, Repository: platformBinding.Repository,
-		TargetRef: platformBinding.TargetRef, Commit: disablePayloadCommit,
+		TargetRef: platformBinding.TargetRef, Commit: cascadeCommit,
 		Source: gitprojection.ObservationWrite, ProviderRequest: "cascade-test-head", ObservedAt: observationAt}
 	rootExpectation, err := argo.NewPlatformRootApplicationExpectation(argoIdentity, platformBinding, head)
 	if err != nil {
@@ -1464,6 +1872,10 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	childExpectation, err := preflight.ApplicationExpectation()
 	if err != nil {
 		t.Fatal(err)
+	}
+	adoptionRevision, adoptionParentRevision := preflight.CommittedRevision, preflight.CommittedParentRevision
+	if preflight.Operation == "observe" {
+		adoptionRevision, adoptionParentRevision = preflight.WriteBaseRevision, preflight.WriteBaseRevision
 	}
 	receipt := ProtectedApplicationCascadeReceipt{ID: id.New(), DeleteIntentID: deleteID,
 		CascadePreflightID: preflightID, ObservationEpoch: 1,
@@ -1474,8 +1886,8 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		ProjectID: f.projectID, EnvironmentID: f.environmentID, ApplicationID: f.applicationID,
 		ClusterID: f.clusterID, ApplicationPath: preflight.ApplicationPath,
 		SourceContentDigest: preflight.SourceContentDigest, AdoptedContentDigest: preflight.AdoptedContentDigest,
-		AdoptionRevision: preflight.WriteBaseRevision, AdoptionParentRevision: preflight.WriteBaseRevision,
-		ProviderHead: disablePayloadCommit, RootObservedRevision: disablePayloadCommit,
+		AdoptionRevision: adoptionRevision, AdoptionParentRevision: adoptionParentRevision,
+		ProviderHead: cascadeCommit, RootObservedRevision: cascadeCommit,
 		RootUID: id.New(), RootResourceVersion: "root-rv-1", RootSpecDigest: rootExpectation.SpecDigest,
 		RootSyncStatus: "Synced", ChildUID: id.New(), ChildResourceVersion: "child-rv-1",
 		ChildSpecDigest: childExpectation.SpecDigest, FinalizerDigest: childExpectation.FinalizerDigest,
@@ -1485,6 +1897,17 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		WorkerID: observerWorker, WorkerEpoch: 1,
 		ArgoContract: argoIdentity.ContractVersion, ArgoConfigDigest: argoIdentity.ConfigDigest,
 		ObservedAt: observationAt}
+	var expectedRootDigest, expectedChildDigest string
+	if err = pool.QueryRow(ctx, `SELECT
+		public.helm_application_cascade_expected_root_spec_digest($1),
+		public.helm_application_cascade_expected_child_spec_digest($1)`, preflightID).
+		Scan(&expectedRootDigest, &expectedChildDigest); err != nil {
+		t.Fatal(err)
+	}
+	if receipt.RootSpecDigest != expectedRootDigest || receipt.ChildSpecDigest != expectedChildDigest {
+		t.Fatalf("cascade expectations drifted: root=%s/%s child=%s/%s",
+			receipt.RootSpecDigest, expectedRootDigest, receipt.ChildSpecDigest, expectedChildDigest)
+	}
 	receipt, err = store.RecordCascadeObservation(ctx, observationLease, receipt, observationAt)
 	if err != nil || receipt.ObservationEpoch != 1 {
 		t.Fatalf("cascade observation receipt=%+v err=%v", receipt, err)
@@ -1594,14 +2017,14 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || deleted.ID != deleteID {
 		t.Fatalf("claimed delete=%+v lease=%+v err=%v", deleted, deleteLease, err)
 	}
-	deleted, err = store.BindApplicationWriteBase(ctx, deleteLease, disablePayloadCommit,
+	deleted, err = store.BindApplicationWriteBase(ctx, deleteLease, cascadeCommit,
 		deleteAt.Add(3*time.Second), deleteAt.Add(3*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	deleteCommit := strings.Repeat("e", 40)
 	deleted, err = store.MarkApplicationCommitted(ctx, deleteLease, deleteCommit,
-		disablePayloadCommit, deleteAt.Add(4*time.Second))
+		cascadeCommit, deleteAt.Add(4*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}

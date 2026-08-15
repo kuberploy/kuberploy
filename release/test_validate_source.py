@@ -38,12 +38,12 @@ def main() -> None:
             (root / "scripts/helm/prepare-dependencies.sh").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
-        validate_installer_dependency_source(fixture, "0.1.0-rc.173")
+        validate_installer_dependency_source(fixture, "0.1.0-rc.174")
         lock = installer / "dependencies.lock"
         body = lock.read_text(encoding="utf-8")
         lock.write_text(body.replace("kuberploy-argocd", "other-argocd", 1), encoding="utf-8")
         try:
-            validate_installer_dependency_source(fixture, "0.1.0-rc.173")
+            validate_installer_dependency_source(fixture, "0.1.0-rc.174")
         except SystemExit as error:
             if "non-canonical" not in str(error):
                 raise
@@ -52,7 +52,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, "0.1.0-rc.173")
+        validate_stable_qualification(qualification_root, "0.1.0-rc.174")
         try:
             validate_stable_qualification(qualification_root, "0.1.0")
         except SystemExit as error:
@@ -64,8 +64,8 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": "0.1.0-rc.173",
-            "candidateTag": "v0.1.0-rc.173",
+            "candidateVersion": "0.1.0-rc.174",
+            "candidateTag": "v0.1.0-rc.174",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
@@ -94,6 +94,8 @@ def main() -> None:
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
         (fixture / ".github/dependabot.yml").write_text(dependabot, encoding="utf-8")
         (fixture / "release").mkdir()
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        (fixture / "README.md").write_text(readme, encoding="utf-8")
         for name in ("build", "charts", "scripts", "web"):
             os.symlink(root / name, fixture / name, target_is_directory=True)
         (fixture / "migrations").mkdir()
@@ -112,6 +114,23 @@ def main() -> None:
         baseline = run_validator(root, fixture, workflow)
         if baseline.returncode != 0:
             raise SystemExit(f"baseline release source was rejected: {baseline.stderr}")
+
+        (fixture / "README.md").write_text(
+            readme.replace(
+                "The dedicated Prisma migration Job automatically upgrades supported\n"
+                "> Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma\n"
+                "> schema histories require a fresh database.",
+                "Every release candidate requires a fresh database.",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        false_upgrade_claim = run_validator(root, fixture, workflow)
+        if false_upgrade_claim.returncode == 0 or "supported Prisma-backed upgrade" not in (
+            false_upgrade_claim.stdout + false_upgrade_claim.stderr
+        ):
+            raise SystemExit("validator accepted a false blanket fresh-database claim")
+        (fixture / "README.md").write_text(readme, encoding="utf-8")
 
         (fixture / ".github/workflows/ci.yml").write_text(
             ci_workflow.replace("actions/checkout@v7", "actions/checkout@main", 1),

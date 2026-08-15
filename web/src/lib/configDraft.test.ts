@@ -99,7 +99,7 @@ describe("shared AppConfig draft", () => {
     const updated = applyGuidedConfig(source, {
       ...guided,
       replicas: 3,
-      host: "hello.e2e.k8s.orb.local",
+      host: "hello.example.com",
       tlsMode: "letsencrypt",
       issuerRef: "local-acme",
       dnsMode: "externalDns",
@@ -121,7 +121,7 @@ describe("shared AppConfig draft", () => {
     expect(updated).toContain("secretBindingRef");
     expect(updated).not.toContain("value: super-secret");
     expect(updated).toContain("replicas: 3");
-    expect(updated).toContain("hello.e2e.k8s.orb.local");
+    expect(updated).toContain("hello.example.com");
     expect(updated).toContain("secure-headers");
     expect(validateYaml(updated)).toBeNull();
   });

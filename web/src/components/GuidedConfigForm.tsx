@@ -965,7 +965,7 @@ export function GuidedConfigForm({
           >
             <input
               aria-label="Hostname"
-              placeholder="hello.e2e.k8s.orb.local"
+              placeholder="hello.example.com"
               readOnly={dnsMode === "sslip"}
               aria-readonly={dnsMode === "sslip"}
               {...form.register("host", { onChange: commit })}

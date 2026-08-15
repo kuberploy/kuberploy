@@ -47,7 +47,7 @@ spec:
         compress: {}
   routes:
     - id: route-5555555555
-      host: hello.e2e.k8s.orb.local
+      host: hello.e2e.example.com
       path: /
       port: http
       ingressClassName: traefik
