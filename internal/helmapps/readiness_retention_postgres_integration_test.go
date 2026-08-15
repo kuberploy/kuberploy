@@ -68,10 +68,11 @@ func TestPostgresHelmReadinessPrunesOnlyExpiredSamePodProcesses(t *testing.T) {
 
 	oldLeaseUntil := now.Add(time.Minute)
 	peerLeaseUntil := now.Add(10 * time.Minute)
+	peerPublisherLeaseUntil := now.Add(4 * time.Minute)
 	putRenderer(oldWorker, now, now, oldLeaseUntil)
 	putPublisher(oldWorker, now, now, oldLeaseUntil)
 	putRenderer(freshPeer, now, now, peerLeaseUntil)
-	putPublisher(freshPeer, now, now, peerLeaseUntil)
+	putPublisher(freshPeer, now, now, peerPublisherLeaseUntil)
 	restartedAt := now
 	putRenderer(newWorker, restartedAt, restartedAt, restartedAt.Add(time.Minute))
 	putPublisher(newWorker, restartedAt, restartedAt, restartedAt.Add(time.Minute))

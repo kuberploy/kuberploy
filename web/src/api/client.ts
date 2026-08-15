@@ -1723,6 +1723,8 @@ function safeHelmReleaseStatus(value: HelmReleaseStatus): HelmReleaseStatus {
     payloadIntentId: value.payloadIntentId,
     payloadState: value.payloadState,
     payloadRevision: value.payloadRevision,
+    cascadeState: value.cascadeState,
+    cascadeObservationState: value.cascadeObservationState,
     applicationIntentId: value.applicationIntentId,
     applicationState: value.applicationState,
     applicationRevision: value.applicationRevision,

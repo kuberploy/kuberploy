@@ -36,7 +36,9 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.ConnConfig.RuntimeParams["search_path"] = schema
+	// The immutable migrations deliberately harden cross-function authority in
+	// public, so the integration connection must use that production schema.
+	config.ConnConfig.RuntimeParams["search_path"] = "public"
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal(err)

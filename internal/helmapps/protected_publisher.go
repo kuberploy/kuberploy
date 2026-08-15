@@ -26,6 +26,8 @@ type ProtectedGitBindingStore interface {
 // must do that only after this worker and protected Argo are observed ready.
 type ProtectedGitPublisher struct {
 	Store             ProtectedPublicationStore
+	Cascade           ProtectedCascadeStore
+	Activations       ProtectedObserverActivationStore
 	Bindings          ProtectedGitBindingStore
 	Provider          gitprojection.HeadVerifier
 	Manager           *gitprojection.MirrorManager
@@ -38,7 +40,8 @@ type ProtectedGitPublisher struct {
 }
 
 func (p *ProtectedGitPublisher) Validate() error {
-	if p == nil || p.Store == nil || p.Bindings == nil || p.Provider == nil || p.Manager == nil ||
+	if p == nil || p.Store == nil || p.Cascade == nil || p.Activations == nil ||
+		p.Bindings == nil || p.Provider == nil || p.Manager == nil ||
 		p.Manager.Validate() != nil || p.Publisher.Validate() != nil ||
 		!workerIDRE.MatchString(p.WorkerID) || p.WorkerEpoch < 1 || p.Now == nil {
 		return ErrInvalid
@@ -64,11 +67,26 @@ func (p *ProtectedGitPublisher) settings() (time.Duration, time.Duration) {
 
 func (p *ProtectedGitPublisher) now() time.Time { return p.Now().UTC() }
 
+func (p *ProtectedGitPublisher) activate(ctx context.Context, now time.Time) error {
+	epoch, err := p.Activations.ActivateCascadeObserver(ctx, p.WorkerID, p.WorkerEpoch,
+		p.Publisher, now)
+	if err != nil {
+		return err
+	}
+	if epoch < 1 {
+		return ErrConflict
+	}
+	return nil
+}
+
 func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (ProtectedPayloadIntent, error) {
 	if p.Validate() != nil || ctx == nil {
 		return ProtectedPayloadIntent{}, ErrInvalid
 	}
 	leaseDuration, heartbeat := p.settings()
+	if err := p.activate(ctx, p.now()); err != nil {
+		return ProtectedPayloadIntent{}, err
+	}
 	intent, lease, err := p.Store.ClaimPayload(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
 	if errors.Is(err, ErrNotFound) {
 		intent, lease, err = p.Store.AdoptPayload(ctx, p.WorkerID, p.WorkerEpoch,
@@ -77,8 +95,11 @@ func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (Protecte
 	if err != nil {
 		return ProtectedPayloadIntent{}, err
 	}
-	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, true, leaseDuration, heartbeat,
-		p.Now, intent.UpdatedAt)
+	guard := newProtectedPublicationLeaseGuard(ctx, lease, leaseDuration, heartbeat, p.Now, intent.UpdatedAt,
+		func(heartbeatContext context.Context, current ProtectedIntentLease, heartbeatAt time.Time,
+			duration time.Duration) (ProtectedIntentLease, error) {
+			return p.Store.HeartbeatPayload(heartbeatContext, current, heartbeatAt, duration)
+		})
 	defer guard.Close()
 	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
 	if err != nil {
@@ -123,6 +144,9 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 		return ProtectedApplicationIntent{}, ErrInvalid
 	}
 	leaseDuration, heartbeat := p.settings()
+	if err := p.activate(ctx, p.now()); err != nil {
+		return ProtectedApplicationIntent{}, err
+	}
 	intent, lease, err := p.Store.ClaimApplication(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
 	if errors.Is(err, ErrNotFound) {
 		intent, lease, err = p.Store.AdoptApplication(ctx, p.WorkerID, p.WorkerEpoch,
@@ -131,8 +155,11 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	if err != nil {
 		return ProtectedApplicationIntent{}, err
 	}
-	guard := newProtectedPublicationLeaseGuard(ctx, p.Store, lease, false, leaseDuration, heartbeat,
-		p.Now, intent.UpdatedAt)
+	guard := newProtectedPublicationLeaseGuard(ctx, lease, leaseDuration, heartbeat, p.Now, intent.UpdatedAt,
+		func(heartbeatContext context.Context, current ProtectedIntentLease, heartbeatAt time.Time,
+			duration time.Duration) (ProtectedIntentLease, error) {
+			return p.Store.HeartbeatApplication(heartbeatContext, current, heartbeatAt, duration)
+		})
 	defer guard.Close()
 	prerequisite, err := p.Store.PublicationPrerequisite(guard.Context(), intent.ReleaseRevisionID)
 	if err != nil {
@@ -188,6 +215,150 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	}
 	err = p.processClaim(guard, work)
 	return intent, guard.Result(err)
+}
+
+func (p *ProtectedGitPublisher) ProcessCascadePreflightOne(ctx context.Context) (ProtectedApplicationCascadePreflight, error) {
+	if p.Validate() != nil || p.Cascade == nil || ctx == nil {
+		return ProtectedApplicationCascadePreflight{}, ErrInvalid
+	}
+	leaseDuration, heartbeat := p.settings()
+	if err := p.activate(ctx, p.now()); err != nil {
+		return ProtectedApplicationCascadePreflight{}, err
+	}
+	intent, lease, err := p.Cascade.ClaimCascadePreflight(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
+	if errors.Is(err, ErrNotFound) {
+		intent, lease, err = p.Cascade.AdoptCascadePreflight(ctx, p.WorkerID, p.WorkerEpoch,
+			p.Publisher, leaseDuration)
+	}
+	if err != nil {
+		return ProtectedApplicationCascadePreflight{}, err
+	}
+	guard := newProtectedPublicationLeaseGuard(ctx, lease, leaseDuration, heartbeat, p.Now,
+		intent.UpdatedAt, func(heartbeatContext context.Context, current ProtectedIntentLease,
+			heartbeatAt time.Time, duration time.Duration) (ProtectedIntentLease, error) {
+			return p.Cascade.HeartbeatCascadePreflight(heartbeatContext, current, heartbeatAt, duration)
+		})
+	defer guard.Close()
+	work := protectedPublicationWork{
+		state:         func() ProtectedIntentState { return intent.State },
+		mutation:      func() (ProtectedMutation, error) { return intent.Mutation() },
+		writeBase:     func() string { return intent.WriteBaseRevision },
+		committed:     func() string { return intent.CommittedRevision },
+		prerequisites: []string{intent.PayloadRevision},
+		bind: func(current ProtectedIntentLease, revision string, observedAt, now time.Time) error {
+			var bindErr error
+			intent, bindErr = p.Cascade.BindCascadePreflightWriteBase(ctx, current, revision, observedAt, now)
+			return bindErr
+		},
+		rebind: func(current ProtectedIntentLease, previous, revision string, observedAt, now time.Time) error {
+			var rebindErr error
+			intent, rebindErr = p.Cascade.RebindCascadePreflightWriteBase(ctx, current, previous, revision, observedAt, now)
+			return rebindErr
+		},
+		mark: func(current ProtectedIntentLease, revision, parent string, now time.Time) error {
+			var markErr error
+			intent, markErr = p.Cascade.MarkCascadePreflightCommitted(ctx, current, revision, parent, now)
+			return markErr
+		},
+		verify: func(current ProtectedIntentLease, revision, digest, request string, now time.Time) error {
+			var verifyErr error
+			intent, verifyErr = p.Cascade.VerifyCascadePreflight(ctx, current, revision, digest, request, now)
+			return verifyErr
+		},
+	}
+	if intent.Operation == "observe" {
+		err = p.processCascadeObservation(guard, work)
+	} else {
+		err = p.processClaim(guard, work)
+	}
+	return intent, guard.Result(err)
+}
+
+func (p *ProtectedGitPublisher) processCascadeObservation(guard *protectedPublicationLeaseGuard, work protectedPublicationWork) error {
+	ctx := guard.Context()
+	protectedMutation, err := work.mutation()
+	if err != nil {
+		return err
+	}
+	mutation, err := protectedMutation.gitMutation()
+	if err != nil {
+		return err
+	}
+	binding, err := p.Bindings.Binding(ctx, protectedMutation.BindingID)
+	if err != nil {
+		return err
+	}
+	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
+		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.TargetRef != protectedMutation.TargetRef ||
+		!validProtectedBindingPrefix(binding.Prefix, binding.ClusterID, protectedMutation.Path) {
+		return ErrInvalid
+	}
+	head, err := p.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
+	if err != nil {
+		return err
+	}
+	if head.ValidateFor(binding) != nil || head.ObservedAt.After(guard.NotBefore(p.now())) {
+		return ErrInvalid
+	}
+	if err = p.Manager.CleanupOperation(ctx, binding.ID, protectedMutation.IntentID); err != nil {
+		return err
+	}
+	prepared, err := p.Manager.Prepare(ctx, binding, head, protectedMutation.IntentID)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), protectedPublishCleanupTimeout)
+		defer cancel()
+		_ = prepared.Close(cleanup)
+	}()
+	for _, revision := range append(append([]string(nil), work.prerequisites...), protectedMutation.RequiredAncestor) {
+		if !gitCommitRE.MatchString(revision) || prepared.VerifyAncestor(ctx, revision) != nil {
+			return ErrConflict
+		}
+	}
+	if work.writeBase() == "" {
+		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+			return err
+		}
+		bindAt := guard.NotBefore(p.now(), head.ObservedAt)
+		if err = guard.Do(func(current ProtectedIntentLease) error {
+			return work.bind(current, head.Commit, bindAt, bindAt)
+		}); err != nil {
+			return err
+		}
+		guard.AdvanceTimeFloor(bindAt)
+	} else if work.writeBase() != head.Commit {
+		if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+			return errors.Join(ErrConflict, err)
+		}
+		previous := work.writeBase()
+		rebindAt := guard.NotBefore(p.now(), head.ObservedAt)
+		if err = guard.Do(func(current ProtectedIntentLease) error {
+			return work.rebind(current, previous, head.Commit, rebindAt, rebindAt)
+		}); err != nil {
+			return err
+		}
+		guard.AdvanceTimeFloor(rebindAt)
+	}
+	protectedMutation, err = work.mutation()
+	if err != nil {
+		return err
+	}
+	mutation, err = protectedMutation.gitMutation()
+	if err != nil {
+		return err
+	}
+	if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+		return err
+	}
+	if err = prepared.VerifyProtectedMutationPostimage(ctx, mutation); err != nil {
+		return err
+	}
+	verifyAt := guard.NotBefore(p.now(), head.ObservedAt)
+	return guard.Finish(func(current ProtectedIntentLease) error {
+		return work.verify(current, head.Commit, mutation.ContentSHA256, head.ProviderRequest, verifyAt)
+	})
 }
 
 type protectedPublicationWork struct {
@@ -416,10 +587,9 @@ func validProtectedBindingPrefix(prefix, clusterID, protectedPath string) bool {
 
 type protectedPublicationLeaseGuard struct {
 	mu        sync.Mutex
-	store     ProtectedPublicationStore
 	lease     ProtectedIntentLease
-	payload   bool
 	duration  time.Duration
+	heartbeat func(context.Context, ProtectedIntentLease, time.Time, time.Duration) (ProtectedIntentLease, error)
 	now       func() time.Time
 	timeFloor time.Time
 	ctx       context.Context
@@ -429,12 +599,12 @@ type protectedPublicationLeaseGuard struct {
 	done      chan struct{}
 }
 
-func newProtectedPublicationLeaseGuard(parent context.Context, store ProtectedPublicationStore,
-	lease ProtectedIntentLease, payload bool, duration, interval time.Duration,
-	now func() time.Time, timeFloor time.Time) *protectedPublicationLeaseGuard {
+func newProtectedPublicationLeaseGuard(parent context.Context, lease ProtectedIntentLease,
+	duration, interval time.Duration, now func() time.Time, timeFloor time.Time,
+	heartbeat func(context.Context, ProtectedIntentLease, time.Time, time.Duration) (ProtectedIntentLease, error)) *protectedPublicationLeaseGuard {
 	ctx, cancel := context.WithCancel(parent)
-	guard := &protectedPublicationLeaseGuard{store: store, lease: lease, payload: payload,
-		duration: duration, now: now, timeFloor: timeFloor.UTC(), ctx: ctx, cancel: cancel,
+	guard := &protectedPublicationLeaseGuard{lease: lease, duration: duration, heartbeat: heartbeat,
+		now: now, timeFloor: timeFloor.UTC(), ctx: ctx, cancel: cancel,
 		done: make(chan struct{})}
 	go guard.run(interval)
 	return guard
@@ -458,13 +628,7 @@ func (g *protectedPublicationLeaseGuard) run(interval time.Duration) {
 			if heartbeatAt.Before(g.timeFloor) {
 				heartbeatAt = g.timeFloor
 			}
-			var updated ProtectedIntentLease
-			var err error
-			if g.payload {
-				updated, err = g.store.HeartbeatPayload(g.ctx, g.lease, heartbeatAt, g.duration)
-			} else {
-				updated, err = g.store.HeartbeatApplication(g.ctx, g.lease, heartbeatAt, g.duration)
-			}
+			updated, err := g.heartbeat(g.ctx, g.lease, heartbeatAt, g.duration)
 			if err != nil {
 				g.lost = errors.Join(ErrLeaseLost, err)
 				g.cancel()

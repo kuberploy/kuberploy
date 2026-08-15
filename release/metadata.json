@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm disable publication now stores the protected Application delete intent as exact zero-length non-null content, allowing the existing schema 010 delete contract to complete safely and idempotently.",
+  "summary": "Helm disable now adopts the exact Argo foreground-deletion finalizer through Git, verifies the current root and child Application under monotonic publisher authority, and only then publishes the protected delete; schema 011 preserves legacy release history while preventing orphaned workloads.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.170"
+  "version": "0.1.0-rc.171"
 }

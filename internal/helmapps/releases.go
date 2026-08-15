@@ -275,16 +275,18 @@ const (
 )
 
 type ReleaseStatus struct {
-	Revision            ReleaseRevision `json:"revision"`
-	Phase               ReleasePhase    `json:"phase"`
-	RenderState         string          `json:"renderState,omitempty"`
-	PayloadIntentID     string          `json:"payloadIntentId,omitempty"`
-	PayloadState        string          `json:"payloadState,omitempty"`
-	PayloadRevision     string          `json:"payloadRevision,omitempty"`
-	ApplicationIntentID string          `json:"applicationIntentId,omitempty"`
-	ApplicationState    string          `json:"applicationState,omitempty"`
-	ApplicationRevision string          `json:"applicationRevision,omitempty"`
-	FailureCode         string          `json:"failureCode,omitempty"`
+	Revision                ReleaseRevision `json:"revision"`
+	Phase                   ReleasePhase    `json:"phase"`
+	RenderState             string          `json:"renderState,omitempty"`
+	PayloadIntentID         string          `json:"payloadIntentId,omitempty"`
+	PayloadState            string          `json:"payloadState,omitempty"`
+	PayloadRevision         string          `json:"payloadRevision,omitempty"`
+	CascadeState            string          `json:"cascadeState,omitempty"`
+	CascadeObservationState string          `json:"cascadeObservationState,omitempty"`
+	ApplicationIntentID     string          `json:"applicationIntentId,omitempty"`
+	ApplicationState        string          `json:"applicationState,omitempty"`
+	ApplicationRevision     string          `json:"applicationRevision,omitempty"`
+	FailureCode             string          `json:"failureCode,omitempty"`
 }
 
 type ReleaseService interface {

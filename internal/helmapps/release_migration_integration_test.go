@@ -30,6 +30,29 @@ func helmPGArgoAuthority() ArgoMaterializationAuthority {
 		DigestEnforcement: argo.ChartDigestNativeOCI}
 }
 
+func helmPGArgoObservation(t *testing.T, f helmReleasePGFixture, workerID string,
+	startedAt time.Time,
+) (argo.DesiredStateRuntimeIdentity, argo.DesiredStateRuntimeWorkerObservation) {
+	t.Helper()
+	startedAt = startedAt.UTC().Truncate(time.Microsecond)
+	repositorySecretName, err := argo.RepositoryCredentialName(f.platformBindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := argo.DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1,
+		PlatformBindingID: f.platformBindingID, ClusterID: f.clusterID, ArgoNamespace: "argocd",
+		RootApplicationName: "kuberploy-platform-root", RepositorySecretName: repositorySecretName,
+		Runtime: helmPGArgoAuthority().Runtime, DigestEnforcement: argo.ChartDigestNativeOCI}
+	identity, err := argo.DesiredStateRuntimeIdentityForConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return identity, argo.DesiredStateRuntimeWorkerObservation{
+		WorkerID: workerID, DesiredStateRuntimeIdentity: identity,
+		StartedAt: startedAt, ObservedAt: startedAt,
+	}
+}
+
 type helmReleasePGFixture struct {
 	userID, projectID, environmentID, applicationID                string
 	approvalID, platformBindingID, environmentBindingID, clusterID string
@@ -55,7 +78,10 @@ func TestPostgresHelmReleaseTwoPhasePublicationContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+	// This low-level legacy CRUD/CAS contract manually drives phase two. Keep
+	// it on schema 010; schema 011's required live cascade observation is
+	// exercised by TestPostgresProtectedPublicationStoreDisableLifecycle.
+	if err = applyHelmMigrationsThrough(ctx, pool, "010_helm_application_materialization_bridge"); err != nil {
 		t.Fatal(err)
 	}
 	tx, err := pool.Begin(ctx)
@@ -318,7 +344,10 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = renderTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
+	readinessAt := helmPGDatabaseNow(t, ctx, pool)
+	_, argoObservation := helmPGArgoObservation(t, f, "argo-desired-state-lifecycle-0001",
+		readinessAt.Add(-time.Second))
+	store, err := NewPostgresProtectedPublicationStoreWithCascade(pool, helmPGArgoAuthority(), argoObservation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,6 +357,24 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	publisher := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
 		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
+	publisherWorker := "helm-lifecycle-worker-0001"
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{WorkerID: publisherWorker,
+		WorkerEpoch: 1, Publisher: publisher, StartedAt: readinessAt.Add(-time.Second),
+		ObservedAt: readinessAt, LeaseUntil: readinessAt.Add(4 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	argoStore, err := argo.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoObservation.ObservedAt = readinessAt
+	argoLease, err := argoStore.AcquireDesiredStateReadiness(ctx, argoObservation, 4*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, publisherWorker, 1, publisher, readinessAt); err != nil {
+		t.Fatal(err)
+	}
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
 		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main",
@@ -355,11 +402,11 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	wrongPublisher := publisher
 	wrongPublisher.ConfigDigest = helmPGDigest([]byte("wrong-publisher"))
-	if _, _, err = store.ClaimPayload(ctx, "helm-publisher-worker-0001", wrongPublisher,
+	if _, _, err = store.ClaimPayload(ctx, publisherWorker, wrongPublisher,
 		f.now.Add(5*time.Second), time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("wrong publisher claimed work: %v", err)
 	}
-	payload, firstLease, err := store.ClaimPayload(ctx, "helm-publisher-worker-0001", publisher,
+	payload, firstLease, err := store.ClaimPayload(ctx, publisherWorker, publisher,
 		f.now.Add(5*time.Second), time.Minute)
 	if err != nil || payload.State != ProtectedClaimed || firstLease.Epoch != 1 {
 		t.Fatalf("claimed payload=%+v lease=%+v err=%v", payload, firstLease, err)
@@ -378,7 +425,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		retryAt.Add(-time.Microsecond), time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("payload ignored retry deadline: %v", err)
 	}
-	payload, lease, err := store.ClaimPayload(ctx, "helm-publisher-worker-0002", publisher,
+	payload, lease, err := store.ClaimPayload(ctx, publisherWorker, publisher,
 		retryAt, time.Minute)
 	if err != nil || lease.Epoch != 2 || payload.Attempts != 2 {
 		t.Fatalf("reclaimed payload=%+v lease=%+v err=%v", payload, lease, err)
@@ -430,7 +477,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err != nil || payload.State != ProtectedVerified {
 		t.Fatalf("verified payload=%+v err=%v", payload, err)
 	}
-	candidate, err = store.NextApplicationCandidate(ctx)
+	candidate, err = store.NextApplicationCandidate(ctx, publisher)
 	if err != nil || candidate.Kind != PublicationApplication || candidate.ReleaseRevisionID != release.ID ||
 		candidate.PayloadIntentID != payload.ID || candidate.Target != target {
 		t.Fatalf("application candidate=%+v err=%v", candidate, err)
@@ -590,10 +637,6 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	// but deliberately points at the older verified command whose exact bytes it
 	// reused. Continuation authority must follow the current receipt tuple, not
 	// require the referenced command's immutable origin tuple to match it.
-	argoStore, err := argo.NewPostgreSQLStore(pool)
-	if err != nil {
-		t.Fatal(err)
-	}
 	verifiedCurrentCommand, err := argoStore.DesiredStateCommand(ctx, currentCommandID)
 	if err != nil {
 		t.Fatal(err)
@@ -679,7 +722,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err = legacyApplicationTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = store.ClaimApplication(ctx, "helm-publisher-worker-0003", publisher,
+	if _, _, err = store.ClaimApplication(ctx, publisherWorker, publisher,
 		observedAt.Add(4*time.Second), time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale pristine Application was not retired before replacement: %v", err)
 	}
@@ -689,12 +732,13 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		legacyApplication.LeaseEpoch != 0 || legacyApplication.Attempts != 0 {
 		t.Fatalf("legacy replacement predecessor=%+v err=%v", legacyApplication, err)
 	}
-	if candidate, candidateErr := store.NextApplicationCandidate(ctx); candidateErr != nil ||
+	if candidate, candidateErr := store.NextApplicationCandidate(ctx, publisher); candidateErr != nil ||
 		candidate.PayloadIntentID != payload.ID {
 		t.Fatalf("pristine superseded predecessor did not reopen phase two: %+v err=%v",
 			candidate, candidateErr)
 	}
-	currentStore, err := NewPostgresProtectedPublicationStore(pool, currentAuthority)
+	currentStore, err := NewPostgresProtectedPublicationStoreWithCascade(pool, currentAuthority,
+		argoObservation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +877,29 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	rotatedPublisher := publisher
 	rotatedPublisher.ConfigDigest = helmPGDigest([]byte("rotated-continuation-publisher"))
-	if _, _, err = currentStore.ClaimApplication(ctx, "helm-publisher-worker-0003", rotatedPublisher,
+	rotatedWorker := "helm-lifecycle-worker-0002"
+	rotationAuthorityAt := helmPGDatabaseNow(t, ctx, pool)
+	rotatedStartedAt := rotationAuthorityAt.Add(-time.Millisecond)
+	if !rotatedStartedAt.After(readinessAt.Add(-time.Second)) {
+		rotatedStartedAt = readinessAt.Add(-500 * time.Millisecond)
+	}
+	if err = currentStore.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: rotatedWorker, WorkerEpoch: 2, Publisher: rotatedPublisher,
+		StartedAt: rotatedStartedAt, ObservedAt: rotationAuthorityAt,
+		LeaseUntil: rotationAuthorityAt.Add(4 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	argoLease, err = argoStore.HeartbeatDesiredStateReadiness(ctx, argoLease,
+		rotationAuthorityAt, 4*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = currentStore.ActivateCascadeObserver(ctx, rotatedWorker, 2,
+		rotatedPublisher, rotationAuthorityAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = currentStore.ClaimApplication(ctx, rotatedWorker, rotatedPublisher,
 		changedProjectionAt, time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale current continuation was not retired before claim: %v", err)
 	}
@@ -844,7 +910,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		!staleContinuationApplication.ContinuationRequired {
 		t.Fatalf("stale continuation predecessor=%+v err=%v", staleContinuationApplication, err)
 	}
-	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx); candidateErr != nil ||
+	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx, rotatedPublisher); candidateErr != nil ||
 		candidate.PayloadIntentID != payload.ID {
 		t.Fatalf("stale continuation did not reopen phase two: %+v err=%v", candidate, candidateErr)
 	}
@@ -960,11 +1026,11 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		t.Fatal("newer materialization retained stale policy/runtime/AppProject authority")
 	}
 	latestRetirementAt := changedProjectionAt.Add(4 * time.Second)
-	if _, _, err = currentStore.ClaimApplication(ctx, "helm-publisher-worker-0003", publisher,
+	if _, _, err = currentStore.ClaimApplication(ctx, rotatedWorker, publisher,
 		latestRetirementAt, time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stale materialization continuation was not retired: %v", err)
 	}
-	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx); candidateErr != nil ||
+	if candidate, candidateErr := currentStore.NextApplicationCandidate(ctx, publisher); candidateErr != nil ||
 		candidate.PayloadIntentID != payload.ID {
 		t.Fatalf("newer materialization did not reopen phase two: %+v err=%v", candidate, candidateErr)
 	}
@@ -981,7 +1047,8 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if blockedReceipts != 0 {
 		t.Fatalf("stale materialization attempt persisted continuation receipts=%d", blockedReceipts)
 	}
-	currentStore, err = NewPostgresProtectedPublicationStore(pool, latestAuthority)
+	currentStore, err = NewPostgresProtectedPublicationStoreWithCascade(pool, latestAuthority,
+		argoObservation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1002,7 +1069,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	firstApplicationClaimAt := latestRetirementAt.Add(time.Second)
 	var firstApplicationLease ProtectedIntentLease
 	application, firstApplicationLease, err = currentStore.ClaimApplication(ctx,
-		"helm-publisher-worker-0003", publisher, firstApplicationClaimAt, time.Minute)
+		rotatedWorker, publisher, firstApplicationClaimAt, time.Minute)
 	if err != nil || application.ID != applicationID || firstApplicationLease.Epoch != 1 {
 		t.Fatalf("initial exact continuation claim=%+v lease=%+v err=%v",
 			application, firstApplicationLease, err)
@@ -1048,7 +1115,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	var applicationLease ProtectedIntentLease
 	application, applicationLease, err = currentStore.ClaimApplication(ctx,
-		"helm-publisher-worker-0003", publisher, recoveryAt, time.Minute)
+		rotatedWorker, publisher, recoveryAt, time.Minute)
 	if err != nil || application.ID != applicationID || applicationLease.Epoch != 2 {
 		t.Fatalf("attempted continuation was not recoverable after authority advance: application=%+v lease=%+v err=%v",
 			application, applicationLease, err)
@@ -1069,7 +1136,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 		receipt.PlannedBaseRevision != payloadCommit {
 		t.Fatalf("phase-two legacy receipt=%+v err=%v", receipt, receiptErr)
 	}
-	if candidate, candidateErr := store.NextApplicationCandidate(ctx); !errors.Is(candidateErr, ErrNotFound) {
+	if candidate, candidateErr := store.NextApplicationCandidate(ctx, publisher); !errors.Is(candidateErr, ErrNotFound) {
 		t.Fatalf("planned application remained a candidate: %+v err=%v", candidate, candidateErr)
 	}
 	if bytes := string(application.Content); strings.Contains(bytes, "targetRevision: refs/") ||
@@ -1155,6 +1222,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := newHelmReleasePGFixture()
+	f.now = time.Now().UTC().Add(-30 * time.Second).Truncate(time.Microsecond)
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1167,7 +1235,9 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
+	argoIdentity, argoObservation := helmPGArgoObservation(t, f,
+		"argo-desired-state-cascade-0001", f.now)
+	store, err := NewPostgresProtectedPublicationStoreWithCascade(pool, helmPGArgoAuthority(), argoObservation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1175,6 +1245,25 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		ApplicationID: f.applicationID}
 	publisher := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
 		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
+	publisherWorker := "helm-disable-worker-0001"
+	readinessAt := f.now.Add(3 * time.Second)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{WorkerID: publisherWorker,
+		WorkerEpoch: 1, Publisher: publisher, StartedAt: f.now,
+		ObservedAt: readinessAt, LeaseUntil: readinessAt.Add(4 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	argoStore, err := argo.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoObservation.ObservedAt = readinessAt
+	argoLease, err := argoStore.AcquireDesiredStateReadiness(ctx, argoObservation, 4*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, publisherWorker, 1, publisher, readinessAt); err != nil {
+		t.Fatal(err)
+	}
 	binding := ProtectedBindingSnapshot{PlatformBindingID: f.platformBindingID,
 		EnvironmentBindingID: f.environmentBindingID, ClusterID: f.clusterID,
 		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
@@ -1203,7 +1292,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || replay || payload.Action != ProtectedPayloadPublish {
 		t.Fatalf("predecessor payload=%+v replay=%v err=%v", payload, replay, err)
 	}
-	payload, payloadLease, err := store.ClaimPayload(ctx, "helm-disable-worker-0001", publisher,
+	payload, payloadLease, err := store.ClaimPayload(ctx, publisherWorker, publisher,
 		f.now.Add(5*time.Second), time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -1238,7 +1327,8 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || replay || application.Action != ProtectedApplicationPublish {
 		t.Fatalf("predecessor application=%+v replay=%v err=%v", application, replay, err)
 	}
-	application, applicationLease, err := store.ClaimApplication(ctx, "helm-disable-worker-0001",
+	requireProtectedForegroundResourcesFinalizer(t, application.Content)
+	application, applicationLease, err := store.ClaimApplication(ctx, publisherWorker,
 		publisher, f.now.Add(11*time.Second), time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -1287,7 +1377,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || replay || disablePayload.Action != ProtectedPayloadDisable {
 		t.Fatalf("disable payload=%+v replay=%v err=%v", disablePayload, replay, err)
 	}
-	disablePayload, disablePayloadLease, err := store.ClaimPayload(ctx, "helm-disable-worker-0001",
+	disablePayload, disablePayloadLease, err := store.ClaimPayload(ctx, publisherWorker,
 		publisher, f.now.Add(19*time.Second), time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -1317,9 +1407,167 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deleteID := id.New()
+	// Current routing can change after the verified base was published. Cascade
+	// observation must still bind the old live child's immutable foundation route.
+	if _, err = pool.Exec(ctx, `UPDATE environments SET namespace='new-disable-route',
+		argo_project='new-disable-route' WHERE id=$1`, f.environmentID); err != nil {
+		t.Fatal(err)
+	}
+	preflightID, deleteID := id.New(), id.New()
+	preflight, replay, err := store.CreateCascadePreflightForPayload(ctx, preflightID, deleteID,
+		disablePayload.ID, ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
+		f.now.Add(24*time.Second))
+	if err != nil || replay || preflight.DeleteIntentID != deleteID || preflight.Operation != "observe" {
+		t.Fatalf("cascade preflight=%+v replay=%v err=%v", preflight, replay, err)
+	}
+	preflightWorker := publisherWorker
+	preflight, preflightLease, err := store.ClaimCascadePreflight(ctx, preflightWorker, publisher,
+		f.now.Add(25*time.Second), time.Minute)
+	if err != nil || preflight.ID != preflightID {
+		t.Fatalf("claimed cascade preflight=%+v lease=%+v err=%v", preflight, preflightLease, err)
+	}
+	preflight, err = store.BindCascadePreflightWriteBase(ctx, preflightLease, disablePayloadCommit,
+		f.now.Add(26*time.Second), f.now.Add(26*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	preflight, err = store.VerifyCascadePreflight(ctx, preflightLease, disablePayloadCommit,
+		preflight.AdoptedContentDigest, "cascade-finalizer-observed", f.now.Add(27*time.Second))
+	if err != nil || preflight.State != ProtectedVerified {
+		t.Fatalf("verified cascade preflight=%+v err=%v", preflight, err)
+	}
+
+	observerWorker := publisherWorker
+	observationAt := f.now.Add(28 * time.Second)
+	observedPreflight, observationLease, err := store.ClaimCascadeObservation(ctx, observerWorker, 1,
+		publisher, observationAt, time.Minute)
+	if err != nil || observedPreflight.ID != preflightID {
+		t.Fatalf("cascade observation claim=%+v lease=%+v err=%v",
+			observedPreflight, observationLease, err)
+	}
+	platformBinding, err := scanCascadePlatformBinding(pool.QueryRow(ctx, `SELECT id,kind,scope_id::text,
+		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),COALESCE(cluster_id::text,''),
+		provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
+		credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,
+		projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at
+		FROM public.git_repository_bindings WHERE id=$1`, f.platformBindingID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := gitprojection.VerifiedHead{BindingID: platformBinding.ID, Repository: platformBinding.Repository,
+		TargetRef: platformBinding.TargetRef, Commit: disablePayloadCommit,
+		Source: gitprojection.ObservationWrite, ProviderRequest: "cascade-test-head", ObservedAt: observationAt}
+	rootExpectation, err := argo.NewPlatformRootApplicationExpectation(argoIdentity, platformBinding, head)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childExpectation, err := preflight.ApplicationExpectation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := ProtectedApplicationCascadeReceipt{ID: id.New(), DeleteIntentID: deleteID,
+		CascadePreflightID: preflightID, ObservationEpoch: 1,
+		ObservationLeaseEpoch:   observationLease.Epoch,
+		ObserverActivationEpoch: observationLease.ObserverActivationEpoch,
+		ReleaseRevisionID:       preflight.ReleaseRevisionID,
+		PayloadIntentID:         preflight.PayloadIntentID, BaseApplicationIntentID: preflight.BaseApplicationIntentID,
+		ProjectID: f.projectID, EnvironmentID: f.environmentID, ApplicationID: f.applicationID,
+		ClusterID: f.clusterID, ApplicationPath: preflight.ApplicationPath,
+		SourceContentDigest: preflight.SourceContentDigest, AdoptedContentDigest: preflight.AdoptedContentDigest,
+		AdoptionRevision: preflight.WriteBaseRevision, AdoptionParentRevision: preflight.WriteBaseRevision,
+		ProviderHead: disablePayloadCommit, RootObservedRevision: disablePayloadCommit,
+		RootUID: id.New(), RootResourceVersion: "root-rv-1", RootSpecDigest: rootExpectation.SpecDigest,
+		RootSyncStatus: "Synced", ChildUID: id.New(), ChildResourceVersion: "child-rv-1",
+		ChildSpecDigest: childExpectation.SpecDigest, FinalizerDigest: childExpectation.FinalizerDigest,
+		ChildReleaseRevisionID: childExpectation.ReleaseRevisionID,
+		ChildPayloadRevision:   childExpectation.TargetRevision, ChildPayloadPath: childExpectation.PayloadPath,
+		ChildPayloadDigest: childExpectation.PayloadDigest, Publisher: publisher,
+		WorkerID: observerWorker, WorkerEpoch: 1,
+		ArgoContract: argoIdentity.ContractVersion, ArgoConfigDigest: argoIdentity.ConfigDigest,
+		ObservedAt: observationAt}
+	receipt, err = store.RecordCascadeObservation(ctx, observationLease, receipt, observationAt)
+	if err != nil || receipt.ObservationEpoch != 1 {
+		t.Fatalf("cascade observation receipt=%+v err=%v", receipt, err)
+	}
+	if receipt.ObserverActivationEpoch != observationLease.ObserverActivationEpoch ||
+		receipt.ArgoContract != argoLease.ContractVersion ||
+		receipt.ArgoConfigDigest != argoLease.ConfigDigest ||
+		receipt.ArgoWorkerID != argoLease.WorkerID ||
+		receipt.ArgoWorkerEpoch != argoLease.Epoch ||
+		!receipt.ArgoStartedAt.Equal(argoLease.StartedAt) ||
+		!receipt.ArgoReadinessObservedAt.Equal(argoLease.ObservedAt) ||
+		!receipt.ArgoReadinessLeaseUntil.Equal(argoLease.Until) {
+		t.Fatalf("cascade receipt did not preserve DB-owned Argo activation tuple: receipt=%+v lease=%+v",
+			receipt, argoLease)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE public.helm_application_cascade_receipts
+		SET argo_config_digest=$2,argo_worker_id=$3 WHERE id=$1`, receipt.ID,
+		helmPGDigest([]byte("forged-argo-config")), "argo-desired-state-forged-0001"); err == nil {
+		t.Fatal("cascade receipt accepted forged Argo worker/config tuple")
+	}
+	// A verified preflight survives a platform release. The current publisher
+	// must append its own observation epoch; the older publisher receipt cannot
+	// authorize a newly planned delete after that refresh.
+	rotatedPublisher := publisher
+	rotatedPublisher.ConfigDigest = helmPGDigest([]byte("rotated-cascade-publisher"))
+	rotatedObserver := "helm-cascade-observer-0002"
+	var rotationAt time.Time
+	if err = pool.QueryRow(ctx, `SELECT pg_catalog.clock_timestamp()`).Scan(&rotationAt); err != nil {
+		t.Fatal(err)
+	}
+	argoLease, err = argoStore.HeartbeatDesiredStateReadiness(ctx, argoLease, rotationAt,
+		4*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var receiptExact bool
+	if err = pool.QueryRow(ctx, `SELECT public.helm_application_cascade_observation_is_exact(
+		$1,$2,$3)`, preflightID, publisher.ConfigDigest, rotationAt).Scan(&receiptExact); err != nil || !receiptExact {
+		t.Fatalf("Argo readiness heartbeat invalidated exact cascade receipt: exact=%v err=%v",
+			receiptExact, err)
+	}
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{WorkerID: rotatedObserver,
+		WorkerEpoch: 2, Publisher: rotatedPublisher, StartedAt: rotationAt.Add(-time.Second),
+		ObservedAt: rotationAt, LeaseUntil: rotationAt.Add(4 * time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, rotatedObserver, 2, rotatedPublisher, rotationAt); err != nil {
+		t.Fatal(err)
+	}
+	rotatedPreflight, rotatedLease, err := store.ClaimCascadeObservation(ctx, rotatedObserver, 2,
+		rotatedPublisher, rotationAt, time.Minute)
+	if err != nil || rotatedPreflight.ID != preflightID {
+		t.Fatalf("rotated cascade observation claim=%+v lease=%+v err=%v",
+			rotatedPreflight, rotatedLease, err)
+	}
+	rotatedReceipt := receipt
+	rotatedReceipt.ID = id.New()
+	rotatedReceipt.ObservationEpoch = 1 // PostgreSQL assigns the next immutable epoch.
+	rotatedReceipt.ObservationLeaseEpoch = rotatedLease.Epoch
+	rotatedReceipt.ObserverActivationEpoch = rotatedLease.ObserverActivationEpoch
+	rotatedReceipt.Publisher = rotatedPublisher
+	rotatedReceipt.WorkerID = rotatedObserver
+	rotatedReceipt.WorkerEpoch = 2
+	rotatedReceipt.ObservedAt = rotationAt
+	rotatedReceipt, err = store.RecordCascadeObservation(ctx, rotatedLease, rotatedReceipt, rotationAt)
+	if err != nil || rotatedReceipt.ObservationEpoch != 2 {
+		t.Fatalf("rotated cascade observation receipt=%+v err=%v", rotatedReceipt, err)
+	}
+	if staleCandidate, staleErr := store.NextApplicationCandidate(ctx, publisher); !errors.Is(staleErr, ErrNotFound) {
+		t.Fatalf("old publisher retained delete authority: candidate=%+v err=%v", staleCandidate, staleErr)
+	}
+	if currentCandidate, currentErr := store.NextApplicationCandidate(ctx, rotatedPublisher); currentErr != nil ||
+		currentCandidate.ReservedIntentID != deleteID || currentCandidate.PayloadIntentID != disablePayload.ID {
+		t.Fatalf("current publisher delete candidate=%+v err=%v", currentCandidate, currentErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE environments SET namespace=$2,argo_project=$3 WHERE id=$1`,
+		f.environmentID, f.namespace, f.argoProject); err != nil {
+		t.Fatal(err)
+	}
+	deleteAt := rotatedReceipt.ObservedAt.Add(time.Millisecond)
+
 	deleted, replay, err := store.CreateApplicationForPayload(ctx, deleteID, disablePayload.ID,
-		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, f.now.Add(24*time.Second))
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, rotatedPublisher, deleteAt)
 	if err != nil || replay || deleted.Action != ProtectedApplicationDelete ||
 		deleted.Operation != "delete" || len(deleted.Content) != 0 || deleted.ContentDigest != "" {
 		t.Fatalf("delete application=%+v replay=%v err=%v", deleted, replay, err)
@@ -1332,35 +1580,214 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatalf("delete content null=%v length=%d err=%v", contentNull, contentLength, err)
 	}
 	replayedDelete, replay, err := store.CreateApplicationForPayload(ctx, deleteID, disablePayload.ID,
-		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher, f.now.Add(25*time.Second))
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, rotatedPublisher, deleteAt.Add(time.Second))
 	if err != nil || !replay || replayedDelete.ID != deleted.ID {
 		t.Fatalf("delete replay=%+v replay=%v err=%v", replayedDelete, replay, err)
 	}
 	if _, _, err = store.CreateApplicationForPayload(ctx, id.New(), disablePayload.ID,
-		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, publisher,
-		f.now.Add(25*time.Second)); !errors.Is(err, ErrConflict) {
+		ProtectedApplicationRuntime{ArgoNamespace: "argocd"}, rotatedPublisher,
+		deleteAt.Add(time.Second)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate delete application was accepted: %v", err)
 	}
-	deleted, deleteLease, err := store.ClaimApplication(ctx, "helm-disable-worker-0001", publisher,
-		f.now.Add(26*time.Second), time.Minute)
+	deleted, deleteLease, err := store.ClaimApplication(ctx, rotatedObserver, rotatedPublisher,
+		deleteAt.Add(2*time.Second), time.Minute)
 	if err != nil || deleted.ID != deleteID {
 		t.Fatalf("claimed delete=%+v lease=%+v err=%v", deleted, deleteLease, err)
 	}
 	deleted, err = store.BindApplicationWriteBase(ctx, deleteLease, disablePayloadCommit,
-		f.now.Add(27*time.Second), f.now.Add(27*time.Second))
+		deleteAt.Add(3*time.Second), deleteAt.Add(3*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	deleteCommit := strings.Repeat("e", 40)
 	deleted, err = store.MarkApplicationCommitted(ctx, deleteLease, deleteCommit,
-		disablePayloadCommit, f.now.Add(28*time.Second))
+		disablePayloadCommit, deleteAt.Add(4*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
 	deleted, err = store.VerifyApplication(ctx, deleteLease, deleteCommit, "",
-		"disable-application", f.now.Add(29*time.Second))
+		"disable-application", deleteAt.Add(5*time.Second))
 	if err != nil || deleted.State != ProtectedVerified || deleted.VerifiedPathDigest != "" {
 		t.Fatalf("verified delete=%+v err=%v", deleted, err)
+	}
+}
+
+func TestPostgresProtectedPublisherActivationSerializesWithClaim(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	f := newHelmReleasePGFixture()
+	f.now = helmPGDatabaseNow(t, ctx, pool).Add(-30 * time.Second)
+	setup, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupHelmReleasePGFixture(t, ctx, setup, f)
+	if err = setup.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	releases, err := NewPostgresReleaseService(pool, helmPGOperatorDigest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := ReleaseTarget{ProjectID: f.projectID, EnvironmentID: f.environmentID,
+		ApplicationID: f.applicationID}
+	release, _, err := releases.Upsert(ctx, UpsertReleaseRequest{
+		Target: target, Approval: ApprovalKey{ID: f.approvalID, Revision: 1}, ValuesYAML: f.values,
+		Actor: ReleaseActor{ID: f.userID, IdempotencyKey: "publisher-race-" + id.New(),
+			RequestID: "publisher-race"},
+	}, f.now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeHelmRender(t, ctx, renderTx, f, release.RenderCommandID, f.now.Add(2*time.Second))
+	if err = renderTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	authorityAt := helmPGDatabaseNow(t, ctx, pool)
+	_, argoObservation := helmPGArgoObservation(t, f,
+		"argo-desired-state-race-0001", authorityAt.Add(-5*time.Minute))
+	store, err := NewPostgresProtectedPublicationStoreWithCascade(pool, helmPGArgoAuthority(),
+		argoObservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoStore, err := argo.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	argoObservation.ObservedAt = authorityAt
+	if _, err = argoStore.AcquireDesiredStateReadiness(ctx, argoObservation, 5*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	oldPublisher := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract,
+		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
+	oldWorker := "helm-publisher-race-old-0001"
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: oldWorker, WorkerEpoch: 1, Publisher: oldPublisher,
+		StartedAt: authorityAt.Add(-4 * time.Minute), ObservedAt: authorityAt,
+		LeaseUntil: authorityAt.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, oldWorker, 1, oldPublisher, authorityAt); err != nil {
+		t.Fatal(err)
+	}
+	binding := ProtectedBindingSnapshot{PlatformBindingID: f.platformBindingID,
+		EnvironmentBindingID: f.environmentBindingID, ClusterID: f.clusterID,
+		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
+		CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead}
+	payload, _, err := store.CreatePayloadForHead(ctx, id.New(), target, binding, oldPublisher,
+		authorityAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPublisher := oldPublisher
+	newPublisher.ConfigDigest = helmPGDigest([]byte("publisher-race-new"))
+	newWorker := "helm-publisher-race-new-0002"
+	newAuthorityAt := helmPGDatabaseNow(t, ctx, pool)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: newWorker, WorkerEpoch: 2, Publisher: newPublisher,
+		StartedAt: newAuthorityAt.Add(-time.Second), ObservedAt: newAuthorityAt,
+		LeaseUntil: newAuthorityAt.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = blocker.Exec(ctx, `SELECT pg_catalog.pg_advisory_xact_lock(
+		pg_catalog.hashtextextended($1,704215997))`, f.platformBindingID); err != nil {
+		_ = blocker.Rollback(ctx)
+		t.Fatal(err)
+	}
+	type claimResult struct {
+		intent ProtectedPayloadIntent
+		lease  ProtectedIntentLease
+		err    error
+	}
+	claimDone := make(chan claimResult, 1)
+	activateDone := make(chan error, 1)
+	tracingAt := helmPGDatabaseNow(t, ctx, pool)
+	go func() {
+		intent, lease, claimErr := store.ClaimPayload(ctx, oldWorker, oldPublisher,
+			tracingAt, minimumProtectedLease)
+		claimDone <- claimResult{intent: intent, lease: lease, err: claimErr}
+	}()
+	waitForAdvisory := func(want int) {
+		t.Helper()
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			var waiting int
+			queryErr := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_stat_activity
+				WHERE wait_event='advisory' AND pid<>pg_catalog.pg_backend_pid()`).Scan(&waiting)
+			if queryErr != nil {
+				t.Fatal(queryErr)
+			}
+			if waiting >= want {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("timed out waiting for %d advisory-lock waiter(s)", want)
+	}
+	waitForAdvisory(1)
+	go func() {
+		_, activateErr := store.ActivateCascadeObserver(ctx, newWorker, 2, newPublisher,
+			tracingAt)
+		activateDone <- activateErr
+	}()
+	waitForAdvisory(2)
+	if err = blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	claimed := <-claimDone
+	activatedErr := <-activateDone
+	claimSucceeded := claimed.err == nil
+	activationSucceeded := activatedErr == nil
+	if claimSucceeded == activationSucceeded {
+		t.Fatalf("claim/activation serialization allowed ambiguous outcome: claim=%+v activationErr=%v",
+			claimed, activatedErr)
+	}
+	if claimSucceeded {
+		if !errors.Is(activatedErr, ErrConflict) {
+			t.Fatalf("activation did not reject admitted old lease: %v", activatedErr)
+		}
+		retryAt := helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), claimed.intent.UpdatedAt)
+		if _, err = store.RetryPayload(ctx, claimed.lease, "provider-unavailable", retryAt,
+			retryAt); err != nil {
+			t.Fatal(err)
+		}
+		newAuthorityAt = helmPGDatabaseNow(t, ctx, pool)
+		if _, err = store.ActivateCascadeObserver(ctx, newWorker, 2, newPublisher,
+			newAuthorityAt); err != nil {
+			t.Fatal(err)
+		}
+	} else if !errors.Is(claimed.err, ErrConflict) && !errors.Is(claimed.err, ErrNotFound) {
+		t.Fatalf("old claim failed unexpectedly after newer activation: %v", claimed.err)
+	}
+	if _, _, err = store.ClaimPayload(ctx, oldWorker, oldPublisher,
+		helmPGDatabaseNow(t, ctx, pool), minimumProtectedLease); !errors.Is(err, ErrNotFound) &&
+		!errors.Is(err, ErrConflict) {
+		t.Fatalf("old publisher claimed after newer activation: payload=%s err=%v", payload.ID, err)
 	}
 }
 
@@ -1409,7 +1836,10 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	if err = renderTx.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	store, err := NewPostgresProtectedPublicationStore(pool, helmPGArgoAuthority())
+	activationNow := helmPGDatabaseNow(t, ctx, pool)
+	_, argoObservation := helmPGArgoObservation(t, f,
+		"argo-desired-state-adoption-0001", activationNow.Add(-5*time.Minute))
+	store, err := NewPostgresProtectedPublicationStoreWithCascade(pool, helmPGArgoAuthority(), argoObservation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1417,6 +1847,27 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		PolicyVersion: ProtectedGitPolicy, ConfigDigest: f.publisherDigest}
 	current := original
 	current.ConfigDigest = helmPGDigest([]byte("publisher-next-release"))
+	argoStore, err := argo.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialReadinessAt := activationNow.Add(-30 * time.Second)
+	argoObservation.ObservedAt = initialReadinessAt
+	argoLease, err := argoStore.AcquireDesiredStateReadiness(ctx, argoObservation, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalWorker := "helm-publisher-old-0001"
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: originalWorker, WorkerEpoch: 1, Publisher: original,
+		StartedAt: activationNow.Add(-4 * time.Minute), ObservedAt: initialReadinessAt,
+		LeaseUntil: initialReadinessAt.Add(5 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, originalWorker, 1, original, activationNow); err != nil {
+		t.Fatal(err)
+	}
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
 		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main",
@@ -1427,13 +1878,13 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload, oldLease, err := store.ClaimPayload(ctx, "helm-publisher-old-0001", original,
-		f.now.Add(5*time.Second), minimumProtectedLease)
+	payload, oldLease, err := store.ClaimPayload(ctx, originalWorker, original,
+		activationNow.Add(-minimumProtectedLease), minimumProtectedLease)
 	if err != nil {
 		t.Fatal(err)
 	}
 	payload, err = store.BindPayloadWriteBase(ctx, oldLease, f.platformHead,
-		f.now.Add(6*time.Second), f.now.Add(6*time.Second))
+		activationNow.Add(-14*time.Second), activationNow.Add(-14*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1452,9 +1903,20 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	}
 	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
 		WorkerID: currentWorker, WorkerEpoch: 7, Publisher: current,
-		StartedAt: now.Add(-time.Second), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
+		StartedAt: now.Add(-2 * time.Minute), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
 	}); err != nil {
 		t.Fatal(err)
+	}
+	argoLease, err = argoStore.HeartbeatDesiredStateReadiness(ctx, argoLease, now, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, currentWorker, 7, current, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, originalWorker, 1, original,
+		helmPGDatabaseNow(t, ctx, pool)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("older publisher process reactivated after monotonic advance: %v", err)
 	}
 	if _, err = pool.Exec(ctx, `UPDATE public.runtime_readiness
 		SET updated_at=observed_at+interval '1 second'
@@ -1599,7 +2061,7 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		CatalogDigest: competing.catalogDigest, PlannedBaseRevision: payloadCommit,
 	}
 	competingPayload, _, err := store.CreatePayloadForHead(ctx, id.New(), competingTarget,
-		competingBinding, original, competing.now.Add(4*time.Second))
+		competingBinding, current, competing.now.Add(4*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1674,12 +2136,12 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		_ = laneBypass.Rollback(ctx)
 		t.Fatalf("receipt-first lane setup: %v", err)
 	}
-	claimAt := competingPayload.UpdatedAt.Add(time.Second)
+	claimAt := helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), competingPayload.UpdatedAt)
 	if _, err = laneBypass.Exec(ctx, `UPDATE public.helm_protected_payload_intents SET
-		state='claimed',lease_owner='helm-publisher-competing-0001',lease_epoch=lease_epoch+1,
+		state='claimed',lease_owner=$3,lease_epoch=lease_epoch+1,
 		lease_until=$2::timestamptz+interval '1 minute',attempts=LEAST(attempts+1,30),
 		updated_at=$2,prerequisite_epoch=prerequisite_epoch+1 WHERE id=$1`,
-		competingPayload.ID, claimAt); err != nil {
+		competingPayload.ID, claimAt, currentWorker); err != nil {
 		_ = laneBypass.Rollback(ctx)
 		t.Fatalf("competing lane setup: %v", err)
 	}
@@ -1740,19 +2202,28 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 		t.Fatalf("adopted application replay=%+v replay=%v err=%v", replayedApplication, replay, err)
 	}
 	third := current
-	third.ConfigDigest = helmPGDigest([]byte("publisher-third-release"))
+	// A genuinely newer process may deliberately roll back to the original
+	// release config. The old original process remains fenced by its start time.
+	third.ConfigDigest = original.ConfigDigest
 	thirdWorker := "helm-publisher-current-0002"
 	now = helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), application.UpdatedAt)
+	application, err = store.RetryApplication(ctx, appLease, "provider-unavailable",
+		now, now)
+	if err != nil || application.State != ProtectedPending {
+		t.Fatalf("application retry=%+v err=%v", application, err)
+	}
 	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
 		WorkerID: thirdWorker, WorkerEpoch: 11, Publisher: third,
 		StartedAt: now.Add(-time.Second), ObservedAt: now, LeaseUntil: now.Add(time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	application, err = store.RetryApplication(ctx, appLease, "provider-unavailable",
-		now, now)
-	if err != nil || application.State != ProtectedPending {
-		t.Fatalf("application retry=%+v err=%v", application, err)
+	argoLease, err = argoStore.HeartbeatDesiredStateReadiness(ctx, argoLease, now, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, thirdWorker, 11, third, now); err != nil {
+		t.Fatal(err)
 	}
 	application, chainedLease, err := store.AdoptApplication(ctx, thirdWorker, 11, third, minimumProtectedLease)
 	if err != nil || application.Publisher != third ||
@@ -2619,6 +3090,13 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 	if _, err = tx.Exec(ctx, string(body)); err != nil {
 		t.Fatal(err)
 	}
+	body, err = migrations.FS.ReadFile("prisma/migrations/011_helm_application_cascade_preflight/migration.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, string(body)); err != nil {
+		t.Fatal(err)
+	}
 	for _, function := range []string{
 		"public.validate_helm_application_continuation_receipt()",
 		"public.helm_application_continuation_is_exact(uuid)",
@@ -2641,6 +3119,117 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 			!strings.Contains(definition, "current_command.app_project_content=") {
 			t.Fatalf("migration 010 weakened current materialization authority in %s", function)
 		}
+	}
+	// Cascade observation matches the immutable route that produced the base
+	// Application. A later environment namespace/AppProject edit must not make
+	// the old live child impossible to observe and delete safely. Pre-009 bases
+	// resolve that route through their publication prerequisite receipt.
+	cascadePreflightID, originalDeleteID := id.New(), id.New()
+	if _, err = tx.Exec(ctx, `ALTER TABLE helm_application_cascade_preflights DISABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO helm_application_cascade_preflights(
+		id,delete_intent_id,release_revision_id,payload_intent_id,base_application_intent_id,
+		release_generation,payload_revision,project_id,environment_id,application_id,
+		platform_binding_id,environment_binding_id,cluster_id,platform_target_ref,
+		environment_target_ref,environment_revision,environment_generation,catalog_digest,
+		planned_base_revision,argo_namespace,application_path,source_content,
+		source_content_digest,adopted_content,adopted_content_digest,content_digest,
+		operation,precondition,expected_etag,intent_digest,commit_trailer,contract,
+		publisher_contract,publisher_policy_version,publisher_config_digest,
+		original_publisher_config_digest,state,next_attempt_at,created_at,updated_at
+	) VALUES($1,$2,$3,$4,$5,2,$6,$7,$8,$9,$10,$11,$12,'refs/heads/main',
+		'refs/heads/main',$13,1,$14,$15,'argocd',$16,$17,$18,$17,$18,$18,
+		'observe','match-etag',$19,$20,$21,'helm-application-cascade-preflight.v1',
+		'helm-protected-publisher.v1','helm-protected-git.v1',$22,$22,'pending',$23,$23,$23)`,
+		cascadePreflightID, originalDeleteID, committedRelease.ID, committedPayload.id,
+		committedApplication.id, committedPayloadRevision, committed.projectID,
+		committed.environmentID, committed.applicationID, committed.platformBindingID,
+		committed.environmentBindingID, committed.clusterID, committed.environmentHead,
+		committed.catalogDigest, committedApplicationRevision, committedApplication.applicationPath,
+		committedApplication.content, committedApplication.contentDigest,
+		`"`+committedApplication.contentDigest+`"`, helmPGDigest([]byte("cascade-route-regression")),
+		"Kuberploy-Helm-Application-Cascade-Preflight: "+cascadePreflightID,
+		committed.publisherDigest, committed.now.Add(20*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = tx.Exec(ctx, `ALTER TABLE helm_application_cascade_preflights ENABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	expectedChild, err := argo.NewProtectedApplicationExpectation("argocd", committed.argoProject,
+		"https://github.com/kuberploy/platform.git", committedPayloadRevision, committed.namespace,
+		committed.clusterID, committed.projectID, committed.environmentID, committed.applicationID,
+		committedRelease.ID, committedPayload.path, committed.manifestDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var childDigestBefore, childDigestAfter string
+	if err = tx.QueryRow(ctx, `SELECT public.helm_application_cascade_expected_child_spec_digest($1)`,
+		cascadePreflightID).Scan(&childDigestBefore); err != nil {
+		t.Fatal(err)
+	}
+	if childDigestBefore != expectedChild.SpecDigest {
+		t.Fatalf("cascade old-route child digest=%s want=%s", childDigestBefore, expectedChild.SpecDigest)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE environments SET namespace='new-current-route',
+		argo_project='new-current-route' WHERE id=$1`, committed.environmentID); err != nil {
+		t.Fatal(err)
+	}
+	if err = tx.QueryRow(ctx, `SELECT public.helm_application_cascade_expected_child_spec_digest($1)`,
+		cascadePreflightID).Scan(&childDigestAfter); err != nil {
+		t.Fatal(err)
+	}
+	if childDigestAfter != childDigestBefore {
+		t.Fatalf("current route changed immutable cascade child digest: before=%s after=%s",
+			childDigestBefore, childDigestAfter)
+	}
+	expectPGCheck(t, ctx, tx, func(nested pgx.Tx) error {
+		_, nestedErr := nested.Exec(ctx, `UPDATE helm_application_cascade_preflights
+			SET operation='caller-defined' WHERE id=$1`, cascadePreflightID)
+		return nestedErr
+	})
+	for _, function := range []string{
+		"public.validate_helm_application_cascade_gate()",
+		"public.helm_application_cascade_is_exact(uuid,text,timestamp with time zone)",
+	} {
+		var definition string
+		if err = tx.QueryRow(ctx, `SELECT pg_catalog.pg_get_functiondef($1::pg_catalog.regprocedure)`,
+			function).Scan(&definition); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(definition, "preflight.delete_intent_id=NEW.id") ||
+			strings.Contains(definition, "preflight.delete_intent_id=intent.id") {
+			t.Fatalf("replacement delete identity remained coupled in %s", function)
+		}
+	}
+	if _, err = tx.Exec(ctx, `CREATE TEMP TABLE old_cascade_writer_probe(
+		action text NOT NULL,cascade_required boolean NOT NULL DEFAULT false,
+		cascade_receipt_id uuid,cascade_contract text NOT NULL DEFAULT '',
+		release_revision_id uuid,payload_intent_id uuid,release_generation bigint,
+		project_id uuid,environment_id uuid,application_id uuid,platform_binding_id uuid,
+		environment_binding_id uuid,cluster_id uuid,platform_target_ref text,
+		application_path text,expected_etag text
+	);
+	CREATE TRIGGER old_cascade_writer_probe_guard BEFORE INSERT ON old_cascade_writer_probe
+	FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_gate();
+	INSERT INTO old_cascade_writer_probe(action) VALUES('publish');
+	DO $probe$
+	BEGIN
+		BEGIN
+			INSERT INTO old_cascade_writer_probe(action) VALUES('delete');
+			RAISE EXCEPTION 'old delete writer bypassed cascade authority';
+		EXCEPTION WHEN check_violation THEN NULL;
+		END;
+	END;
+	$probe$;`); err != nil {
+		t.Fatal(err)
+	}
+	var oldPublishRows int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM old_cascade_writer_probe`).Scan(&oldPublishRows); err != nil {
+		t.Fatal(err)
+	}
+	if oldPublishRows != 1 {
+		t.Fatalf("old publish/delete cascade compatibility rows=%d", oldPublishRows)
 	}
 	var malformedBackfill []byte
 	if err = tx.QueryRow(ctx, `SELECT COALESCE(app_project_content,''::bytea)
@@ -2740,12 +3329,16 @@ func testPostgresReleaseServiceTransaction(t *testing.T, ctx context.Context, tx
 		retried.ParentRevisionID != created.ID || retried.ValuesDigest != created.ValuesDigest {
 		t.Fatalf("transactional release retry: %+v replay=%v err=%v", retried, replay, err)
 	}
-	status, err := scanReleaseStatus(tx.QueryRow(ctx, releaseStatusSelect+`
-		JOIN helm_release_heads head ON head.revision_id=release.id
+	var statusRevisionID, renderState string
+	err = tx.QueryRow(ctx, `SELECT release.id::text,command.state
+		FROM helm_release_heads head
+		JOIN helm_release_revisions release ON release.id=head.revision_id
+		JOIN helm_render_commands command ON command.id=release.render_command_id
 		WHERE head.environment_id=$1 AND head.application_id=$2 AND release.project_id=$3`,
-		target.EnvironmentID, target.ApplicationID, target.ProjectID))
-	if err != nil || status.Revision.ID != retried.ID || status.Phase != ReleasePhaseRendering {
-		t.Fatalf("transactional release status: %+v err=%v", status, err)
+		target.EnvironmentID, target.ApplicationID, target.ProjectID).Scan(&statusRevisionID, &renderState)
+	if err != nil || statusRevisionID != retried.ID || renderState != "queued" {
+		t.Fatalf("transactional release status revision=%s render=%s err=%v",
+			statusRevisionID, renderState, err)
 	}
 }
 
@@ -3286,6 +3879,15 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 		ContinuationContract: protectedContinuationContract,
 		Message:              "publish protected Helm Application " + application.id,
 		State:                ProtectedPending, NextAttemptAt: at, CreatedAt: at, UpdatedAt: at,
+	}
+	// Schema 010 predates the durable cascade columns, while the current Go
+	// model correctly requires them for an actionable delete. Supply a
+	// validation-only tuple when this legacy fixture builds its continuation;
+	// schema 011 delete behavior is exercised through the real cascade store.
+	if value.Action == ProtectedApplicationDelete {
+		value.CascadeRequired = true
+		value.CascadeReceiptID = id.New()
+		value.CascadeContract = protectedCascadeContract
 	}
 	// Invalid rows intentionally continue to the database below so this
 	// migration integration fixture proves the trigger rejects them. Valid

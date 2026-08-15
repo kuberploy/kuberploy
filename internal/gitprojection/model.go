@@ -863,6 +863,7 @@ type MutationAuthority string
 const (
 	MutationAuthorityHelmPayload       MutationAuthority = "helm-protected-payload.v1"
 	MutationAuthorityHelmApplication   MutationAuthority = "helm-protected-application.v1"
+	MutationAuthorityHelmCascade       MutationAuthority = "helm-application-cascade-preflight.v1"
 	MutationAuthorityFoundation        MutationAuthority = "environment-foundation-protected-git.v1"
 	MutationAuthorityCertificateIssuer MutationAuthority = "certificate-issuer-protected-git.v1"
 	MutationAuthorityExternalDNS       MutationAuthority = "external-dns-protected-git.v1"
@@ -932,6 +933,14 @@ func (m Mutation) Validate(binding Binding) error {
 				return ErrInvalid
 			}
 		default:
+			return ErrInvalid
+		}
+	case MutationAuthorityHelmCascade:
+		if binding.Kind != BindingPlatform || action != MutationUpsert || precondition != MutationMatchETag ||
+			!commitRE.MatchString(m.RequiredAncestor) ||
+			m.CommitTrailer != "Kuberploy-Helm-Cascade-Preflight: "+m.OperationID ||
+			!validHelmApplicationPath(binding, m.Path) || len(m.Content) == 0 ||
+			len(m.Content) > MaxProtectedHelmApplicationBytes || !contentDigestMatches(m.Content, m.ContentSHA256) {
 			return ErrInvalid
 		}
 	case MutationAuthorityFoundation:

@@ -476,6 +476,63 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	}
 }
 
+func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	expectation, err := NewProtectedApplicationExpectation("argocd", "kp-project",
+		"https://github.com/kuberploy/gitops.git", strings.Repeat("a", 40), "app-ns",
+		"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+		"33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444",
+		"55555555-5555-4555-8555-555555555555",
+		"clusters/11111111-1111-4111-8111-111111111111/helm-manifests/environments/33333333-3333-4333-8333-333333333333/applications/44444444-4444-4444-8444-444444444444/revisions/55555555-5555-4555-8555-555555555555/release.yaml",
+		"sha256:"+strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenFile := t.TempDir() + "/token"
+	if err = os.WriteFile(tokenFile, []byte("service-account-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.Method != http.MethodGet || request.URL.RawQuery != "" ||
+			request.URL.Path != "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/"+protectedApplicationName(expectation) {
+			t.Errorf("unsafe protected Application request: %s %s", request.Method, request.URL.String())
+		}
+		labels := protectedApplicationLabels(expectation)
+		if requests == 3 {
+			labels["unexpected.example/label"] = "not-authorized"
+		}
+		finalizers := []string{ProtectedApplicationResourcesFinalizer}
+		if requests == 2 {
+			finalizers = nil
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"apiVersion": "argoproj.io/v1alpha1", "kind": "Application",
+			"metadata": map[string]any{"name": protectedApplicationName(expectation), "namespace": expectation.Namespace,
+				"uid": "66666666-6666-4666-8666-666666666666", "resourceVersion": "101",
+				"generation": 9, "managedFields": []any{}, "finalizers": finalizers,
+				"labels": labels, "annotations": protectedApplicationAnnotations(expectation)},
+			"spec": expectedProtectedApplicationSpec(expectation),
+		})
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	client := &InClusterProductionClient{baseURL: parsed.String(), http: server.Client(), tokenPath: tokenFile}
+	observation, err := client.ObserveProtectedApplication(t.Context(), expectation, now)
+	if err != nil || observation.SpecDigest != expectation.SpecDigest ||
+		observation.FinalizerDigest != expectation.FinalizerDigest {
+		t.Fatalf("exact observation=%#v err=%v", observation, err)
+	}
+	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
+		t.Fatalf("missing finalizer was accepted: %v", err)
+	}
+	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
+		t.Fatalf("extra authority label was accepted: %v", err)
+	}
+}
+
 func TestRootApplicationStrictDecoderRejectsUnknownOrMutableSourceFields(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	platform, _ := productionBindings(t, now)

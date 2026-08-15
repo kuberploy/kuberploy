@@ -140,6 +140,7 @@ func TestRuntimeConfigIdentityDigestIsDeterministicAndExcludesReplicaIdentity(t 
 func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *testing.T) {
 	config := validRuntimeConfig(t)
 	fixture := newProtectedPublisherFixture(t)
+	_, _, _, argoObservation := protectedArgoReadinessFixture(t, testTime)
 	dependencies := RuntimeDependencies{Pool: &pgxpool.Pool{}, OCIClient: &http.Client{},
 		RendererAPI: newFakeRendererKubernetesAPI(nil), Bindings: &bindingResolverStub{},
 		ArgoMaterialization: ArgoMaterializationAuthority{PolicyDigest: digestBytes([]byte("argo-policy")),
@@ -149,6 +150,8 @@ func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *te
 				RendererImage: "ghcr.io/kuberploy/renderer@" + digestBytes([]byte("renderer"))},
 			DigestEnforcement: argo.ChartDigestNativeOCI},
 		GitBindings: fixture.bindings, GitProvider: fixture.headVerifier(t), GitManager: fixture.manager,
+		ArgoObservation: argoObservation,
+		CascadeRoots:    cascadeRootSourceStub{}, CascadeApplications: cascadeApplicationSourceStub{},
 		WorkerID: "helm-runtime-worker-0001", WorkerEpoch: 1, StartedAt: testTime,
 		Now: func() time.Time { return testTime }, ReportError: func(string, error) {}}
 	runtime, err := NewRuntime(config, dependencies)
@@ -159,6 +162,13 @@ func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *te
 		func() RuntimeDependencies { value := dependencies; value.GitBindings = nil; return value }(),
 		func() RuntimeDependencies { value := dependencies; value.GitProvider = nil; return value }(),
 		func() RuntimeDependencies { value := dependencies; value.GitManager = nil; return value }(),
+		func() RuntimeDependencies {
+			value := dependencies
+			value.ArgoObservation = argo.DesiredStateRuntimeWorkerObservation{}
+			return value
+		}(),
+		func() RuntimeDependencies { value := dependencies; value.CascadeRoots = nil; return value }(),
+		func() RuntimeDependencies { value := dependencies; value.CascadeApplications = nil; return value }(),
 	}
 	invalidManager := *fixture.manager
 	invalidManager.Root = "/"
@@ -202,6 +212,27 @@ type protectedPublisherProcessorStub struct {
 	payloadCalls, applicationCalls atomic.Int64
 }
 
+type protectedCascadeObserverProcessorStub struct{}
+
+func (*protectedCascadeObserverProcessorStub) Validate() error { return nil }
+func (*protectedCascadeObserverProcessorStub) ProcessOne(context.Context) (ProtectedApplicationCascadeReceipt, error) {
+	return ProtectedApplicationCascadeReceipt{}, ErrNotFound
+}
+
+type cascadeRootSourceStub struct{}
+
+func (cascadeRootSourceStub) ObservePlatformRootApplicationForCascade(context.Context,
+	argo.PlatformRootApplicationExpectation, time.Time) (argo.PlatformRootApplicationObservation, error) {
+	return argo.PlatformRootApplicationObservation{}, argo.ErrPlatformRootNotReady
+}
+
+type cascadeApplicationSourceStub struct{}
+
+func (cascadeApplicationSourceStub) ObserveProtectedApplication(context.Context,
+	argo.ProtectedApplicationExpectation, time.Time) (argo.ProtectedApplicationObservation, error) {
+	return argo.ProtectedApplicationObservation{}, argo.ErrProtectedApplicationNotReady
+}
+
 type ociCredentialReadinessStub struct {
 	err   error
 	calls atomic.Int64
@@ -220,6 +251,10 @@ func (s *protectedPublisherProcessorStub) ProcessPayloadOne(context.Context) (Pr
 func (s *protectedPublisherProcessorStub) ProcessApplicationOne(context.Context) (ProtectedApplicationIntent, error) {
 	s.applicationCalls.Add(1)
 	return ProtectedApplicationIntent{}, s.applicationErr
+}
+
+func (s *protectedPublisherProcessorStub) ProcessCascadePreflightOne(context.Context) (ProtectedApplicationCascadePreflight, error) {
+	return ProtectedApplicationCascadePreflight{}, ErrNotFound
 }
 
 func TestRendererReadinessRequiresEveryConfiguredOCICredentialProfile(t *testing.T) {
@@ -399,6 +434,7 @@ func TestRuntimeRunKeepsReadinessIndependentAndTreatsEmptyQueuesAsIdle(t *testin
 		Planner: PublicationPlanner{Store: planningStore, Bindings: resolver,
 			Publisher: config.Publisher, Application: config.Application,
 			NewID: func() string { return testCommandID }, Now: func() time.Time { return testTime }}, Publisher: publisher,
+		Cascade:  &protectedCascadeObserverProcessorStub{},
 		workerID: "helm-renderer-worker-0001", workerEpoch: 1, startedAt: testTime,
 		reportError: func(string, error) { reported.Add(1) }}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)

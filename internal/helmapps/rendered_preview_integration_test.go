@@ -38,7 +38,8 @@ func TestPostgresRenderedPreviewResolvesExactSuccessfulHeadAndRedacts(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.ConnConfig.RuntimeParams["search_path"] = schema
+	// Production migrations deliberately schema-qualify their authority graph.
+	config.ConnConfig.RuntimeParams["search_path"] = "public"
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal(err)

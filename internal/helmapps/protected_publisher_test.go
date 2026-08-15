@@ -17,6 +17,7 @@ import (
 
 type protectedPublisherStoreStub struct {
 	ProtectedPublicationStore
+	ProtectedCascadeStore
 	payload          ProtectedPayloadIntent
 	application      ProtectedApplicationIntent
 	prerequisite     ProtectedPublicationPrerequisiteReceipt
@@ -26,6 +27,11 @@ type protectedPublisherStoreStub struct {
 	payloadAdoptions int
 	appAdoptions     int
 	payloadHeartbeat chan time.Time
+}
+
+func (s *protectedPublisherStoreStub) ActivateCascadeObserver(context.Context, string, int64,
+	ProtectedPublisherIdentity, time.Time) (int64, error) {
+	return 1, nil
 }
 
 func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
@@ -367,6 +373,10 @@ func (f *protectedPublisherFixture) pendingApplication(payload ProtectedPayloadI
 		IntentDigest: digestBytes([]byte("application-intent-" + payload.ReleaseRevisionID)), Publisher: f.publisher,
 		OriginalPublisherConfigDigest: f.publisher.ConfigDigest,
 		Message:                       "publish protected application", State: ProtectedPending, NextAttemptAt: f.now, CreatedAt: f.now, UpdatedAt: f.now}
+	if action == ProtectedApplicationDelete {
+		value.CascadeRequired, value.CascadeReceiptID = true, value.ID
+		value.CascadeContract = protectedCascadeContract
+	}
 	if action == ProtectedApplicationPublish {
 		value.SourceDirectory = protectedSourceDirectory(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID, payload.ReleaseRevisionID)
 		value.ContentDigest = digestBytes(content)
@@ -395,7 +405,8 @@ func (f protectedHeadVerifierFunc) VerifyTargetHead(ctx context.Context, binding
 }
 
 func (f *protectedPublisherFixture) worker(t *testing.T) *ProtectedGitPublisher {
-	return &ProtectedGitPublisher{Store: f.store, Bindings: f.bindings, Provider: f.headVerifier(t), Manager: f.manager,
+	return &ProtectedGitPublisher{Store: f.store, Cascade: f.store, Activations: f.store,
+		Bindings: f.bindings, Provider: f.headVerifier(t), Manager: f.manager,
 		Publisher: f.publisher, WorkerID: "helm-protected-worker-0001", WorkerEpoch: 1,
 		Now: func() time.Time { return f.now }}
 }
@@ -406,7 +417,7 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	if err != nil || payload.State != ProtectedVerified || payload.CommittedParentRevision != fixture.base {
 		t.Fatalf("payload=%#v err=%v", payload, err)
 	}
-	manifest := []byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n")
+	manifest := []byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n  finalizers:\n    - resources-finalizer.argocd.argoproj.io\n")
 	fixture.store.application = fixture.pendingApplication(payload, manifest, ProtectedApplicationPublish, "create-if-absent", "")
 	application, err := fixture.worker(t).ProcessApplicationOne(t.Context())
 	if err != nil || application.State != ProtectedVerified || application.CommittedParentRevision != payload.CommittedRevision {
@@ -417,6 +428,12 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 		!strings.Contains(commitObject, "Kuberploy-Operation: "+application.ID) {
 		t.Fatalf("missing exact recovery trailers: %v\n%s", err, commitObject)
 	}
+	publishedManifest, err := runProtectedPublisherGit(t, fixture.remote, "show",
+		application.CommittedRevision+":"+application.ApplicationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireProtectedForegroundResourcesFinalizer(t, []byte(publishedManifest))
 	disableReceipt := []byte(`{"apiVersion":"kuberploy.io/v1alpha1","kind":"HelmReleaseDisabledReceipt"}`)
 	disable := fixture.pendingPayload(id.New(), disableReceipt, true, fixture.base)
 	disable.Binding.PlannedBaseRevision = fixture.base
@@ -550,8 +567,12 @@ func TestProtectedPublicationLeaseGuardRetainsForwardHeartbeatFloorAcrossClockRe
 		defer clockMu.Unlock()
 		return clockNow
 	}
-	guard := newProtectedPublicationLeaseGuard(t.Context(), fixture.store, lease, true,
-		time.Minute, 5*time.Millisecond, now, payload.UpdatedAt)
+	guard := newProtectedPublicationLeaseGuard(t.Context(), lease, time.Minute,
+		5*time.Millisecond, now, payload.UpdatedAt,
+		func(ctx context.Context, current ProtectedIntentLease, heartbeatAt time.Time,
+			duration time.Duration) (ProtectedIntentLease, error) {
+			return fixture.store.HeartbeatPayload(ctx, current, heartbeatAt, duration)
+		})
 	defer guard.Close()
 	select {
 	case heartbeatAt := <-fixture.store.payloadHeartbeat:

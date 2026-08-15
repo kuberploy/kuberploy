@@ -9,12 +9,14 @@ import (
 
 type planningStoreStub struct {
 	ProtectedPublicationStore
-	nextPayload, nextApplication PublicationCandidate
-	payloadErr, applicationErr   error
-	createdPayload               ProtectedPayloadIntent
-	createdApplication           ProtectedApplicationIntent
-	payloadCreates, appCreates   int
-	publisherReadiness           []ProtectedPublisherReadiness
+	ProtectedCascadeStore
+	nextPayload, nextCascade, nextApplication PublicationCandidate
+	payloadErr, cascadeErr, applicationErr    error
+	createdPayload                            ProtectedPayloadIntent
+	createdCascade                            ProtectedApplicationCascadePreflight
+	createdApplication                        ProtectedApplicationIntent
+	payloadCreates, appCreates                int
+	publisherReadiness                        []ProtectedPublisherReadiness
 }
 
 func (s *planningStoreStub) PutPublisherReadiness(_ context.Context, value ProtectedPublisherReadiness) error {
@@ -29,8 +31,23 @@ func (s *planningStoreStub) NextPayloadCandidate(context.Context) (PublicationCa
 	return s.nextPayload, s.payloadErr
 }
 
-func (s *planningStoreStub) NextApplicationCandidate(context.Context) (PublicationCandidate, error) {
+func (s *planningStoreStub) NextApplicationCandidate(context.Context, ProtectedPublisherIdentity) (PublicationCandidate, error) {
 	return s.nextApplication, s.applicationErr
+}
+
+func (s *planningStoreStub) NextCascadeCandidate(context.Context) (PublicationCandidate, error) {
+	if s.cascadeErr == nil && s.nextCascade.Kind == "" {
+		return PublicationCandidate{}, ErrNotFound
+	}
+	return s.nextCascade, s.cascadeErr
+}
+
+func (s *planningStoreStub) CreateCascadePreflightForPayload(_ context.Context,
+	preflightID, deleteIntentID, _ string, _ ProtectedApplicationRuntime,
+	_ ProtectedPublisherIdentity, _ time.Time) (ProtectedApplicationCascadePreflight, bool, error) {
+	value := s.createdCascade
+	value.ID, value.DeleteIntentID = preflightID, deleteIntentID
+	return value, false, nil
 }
 
 func (s *planningStoreStub) CreatePayloadForHead(_ context.Context, intentID string, target ReleaseTarget,

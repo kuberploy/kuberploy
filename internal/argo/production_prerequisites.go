@@ -419,8 +419,26 @@ func (o PlatformRootApplicationObservation) validateFor(expectation PlatformRoot
 	return nil
 }
 
+// validateForCascade proves that the platform root has applied the exact
+// provider revision without requiring child workload health. Disable must
+// remain possible while a protected child is Progressing or Degraded.
+func (o PlatformRootApplicationObservation) validateForCascade(expectation PlatformRootApplicationExpectation, now time.Time) error {
+	expectedDigest, err := expectation.expectedSpecDigest()
+	if err != nil || expectedDigest != expectation.SpecDigest || o.Namespace != expectation.Namespace || o.Name != expectation.Name ||
+		!uuidRE.MatchString(o.UID) || o.ResourceVersion == "" || len(o.ResourceVersion) > 128 || stringsContainsControl(o.ResourceVersion) ||
+		o.SpecDigest != expectation.SpecDigest || o.ObservedRevision != expectation.ExpectedGitRevision || o.SyncStatus != "Synced" ||
+		o.ObservedAt.IsZero() || o.ObservedAt.After(now) {
+		return ErrPlatformRootNotReady
+	}
+	return nil
+}
+
 type PlatformRootApplicationSource interface {
 	ObservePlatformRootApplication(context.Context, PlatformRootApplicationExpectation, time.Time) (PlatformRootApplicationObservation, error)
+}
+
+type PlatformRootCascadeSource interface {
+	ObservePlatformRootApplicationForCascade(context.Context, PlatformRootApplicationExpectation, time.Time) (PlatformRootApplicationObservation, error)
 }
 
 type ProductionPrerequisiteProof struct {

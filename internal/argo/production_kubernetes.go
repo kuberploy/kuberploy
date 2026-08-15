@@ -236,6 +236,20 @@ type rootApplicationEnvelopeWire struct {
 	} `json:"status"`
 }
 
+type protectedApplicationEnvelopeWire struct {
+	Metadata struct {
+		Name              string            `json:"name"`
+		Namespace         string            `json:"namespace"`
+		UID               string            `json:"uid"`
+		ResourceVersion   string            `json:"resourceVersion"`
+		DeletionTimestamp *time.Time        `json:"deletionTimestamp"`
+		Finalizers        []string          `json:"finalizers"`
+		Labels            map[string]string `json:"labels"`
+		Annotations       map[string]string `json:"annotations"`
+	} `json:"metadata"`
+	Spec json.RawMessage `json:"spec"`
+}
+
 // RefreshPlatformRootApplication performs one closed metadata-only patch and
 // then reads the exact root back. Acceptance requires the immutable root spec,
 // the verified provider revision, and Synced/Healthy status. It cannot select
@@ -272,6 +286,31 @@ func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.C
 }
 
 func (c *InClusterProductionClient) ObservePlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	observation, err := c.observePlatformRootApplication(ctx, expectation, now)
+	if err != nil {
+		return PlatformRootApplicationObservation{}, err
+	}
+	if observation.validateFor(expectation, now.UTC()) != nil {
+		return PlatformRootApplicationObservation{}, ErrPlatformRootNotReady
+	}
+	return observation, nil
+}
+
+// ObservePlatformRootApplicationForCascade is an exact read-only root
+// materialization receipt. Unlike normal production readiness it accepts a
+// known non-Healthy root status, because cleanup must work for degraded apps.
+func (c *InClusterProductionClient) ObservePlatformRootApplicationForCascade(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
+	observation, err := c.observePlatformRootApplication(ctx, expectation, now)
+	if err != nil {
+		return PlatformRootApplicationObservation{}, err
+	}
+	if observation.validateForCascade(expectation, now.UTC()) != nil {
+		return PlatformRootApplicationObservation{}, ErrPlatformRootNotReady
+	}
+	return observation, nil
+}
+
+func (c *InClusterProductionClient) observePlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {
 	expectedDigest, digestErr := expectation.expectedSpecDigest()
 	if c == nil || c.http == nil || digestErr != nil || expectedDigest != expectation.SpecDigest || now.IsZero() {
 		return PlatformRootApplicationObservation{}, ErrInvalid
@@ -312,8 +351,49 @@ func (c *InClusterProductionClient) ObservePlatformRootApplication(ctx context.C
 		UID: envelope.Metadata.UID, ResourceVersion: envelope.Metadata.ResourceVersion, SpecDigest: digest,
 		ObservedRevision: strings.ToLower(strings.TrimSpace(envelope.Status.Sync.Revision)), SyncStatus: envelope.Status.Sync.Status,
 		HealthStatus: envelope.Status.Health.Status, ObservedAt: now.UTC()}
-	if observation.validateFor(expectation, now.UTC()) != nil {
-		return PlatformRootApplicationObservation{}, ErrPlatformRootNotReady
+	return observation, nil
+}
+
+// ObserveProtectedApplication performs one exact-name GET and admits only the
+// complete protected child spec and exact foreground finalizer. It exposes no
+// child mutation, delete, patch, sync, proxy, exec, or generic request surface.
+func (c *InClusterProductionClient) ObserveProtectedApplication(ctx context.Context,
+	expectation ProtectedApplicationExpectation, now time.Time) (ProtectedApplicationObservation, error) {
+	if c == nil || c.http == nil || expectation.Validate() != nil || now.IsZero() {
+		return ProtectedApplicationObservation{}, ErrInvalid
+	}
+	requestPath := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(expectation.Namespace) +
+		"/applications/" + url.PathEscape(protectedApplicationName(expectation))
+	response, err := c.request(ctx, http.MethodGet, requestPath, nil, "", "application/json")
+	if err != nil {
+		return ProtectedApplicationObservation{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return ProtectedApplicationObservation{}, ErrProtectedApplicationNotReady
+	}
+	if response.StatusCode != http.StatusOK {
+		return ProtectedApplicationObservation{}, fmt.Errorf("Kubernetes protected Application returned HTTP %d", response.StatusCode)
+	}
+	var envelope protectedApplicationEnvelopeWire
+	if err = decodeBoundedJSON(response.Body, maximumArgoRuntimeResponseBytes, &envelope, false); err != nil ||
+		!protectedApplicationWireMatches(envelope, expectation) {
+		return ProtectedApplicationObservation{}, ErrProtectedApplicationNotReady
+	}
+	var spec protectedApplicationSpec
+	if err = decodeStrictJSON(envelope.Spec, &spec); err != nil ||
+		!reflect.DeepEqual(spec, expectedProtectedApplicationSpec(expectation)) {
+		return ProtectedApplicationObservation{}, ErrProtectedApplicationNotReady
+	}
+	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return ProtectedApplicationObservation{}, ErrInvalid
+	}
+	observation := ProtectedApplicationObservation{UID: envelope.Metadata.UID,
+		ResourceVersion: envelope.Metadata.ResourceVersion, SpecDigest: contentDigest(encoded),
+		FinalizerDigest: contentDigest([]byte(ProtectedApplicationResourcesFinalizer)), ObservedAt: now.UTC()}
+	if observation.ValidateFor(expectation, now.UTC()) != nil {
+		return ProtectedApplicationObservation{}, ErrProtectedApplicationNotReady
 	}
 	return observation, nil
 }
@@ -382,4 +462,6 @@ func decodeStrictJSON(body []byte, destination any) error {
 
 var _ RepositoryCredentialKubernetes = (*InClusterProductionClient)(nil)
 var _ PlatformRootApplicationSource = (*InClusterProductionClient)(nil)
+var _ PlatformRootCascadeSource = (*InClusterProductionClient)(nil)
 var _ PlatformRootRefresher = (*InClusterProductionClient)(nil)
+var _ ProtectedApplicationSource = (*InClusterProductionClient)(nil)

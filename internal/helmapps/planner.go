@@ -9,6 +9,7 @@ type PublicationCandidateKind string
 
 const (
 	PublicationPayload     PublicationCandidateKind = "payload"
+	PublicationCascade     PublicationCandidateKind = "cascade"
 	PublicationApplication PublicationCandidateKind = "application"
 )
 
@@ -18,6 +19,7 @@ type PublicationCandidate struct {
 	Kind              PublicationCandidateKind
 	ReleaseRevisionID string
 	PayloadIntentID   string
+	ReservedIntentID  string
 	Target            ReleaseTarget
 }
 
@@ -27,11 +29,18 @@ func (c PublicationCandidate) Validate() error {
 	}
 	switch c.Kind {
 	case PublicationPayload:
-		if c.PayloadIntentID != "" {
+		if c.PayloadIntentID != "" || c.ReservedIntentID != "" {
+			return ErrInvalid
+		}
+	case PublicationCascade:
+		if !uuidRE.MatchString(c.PayloadIntentID) || c.ReservedIntentID != "" {
 			return ErrInvalid
 		}
 	case PublicationApplication:
 		if !uuidRE.MatchString(c.PayloadIntentID) {
+			return ErrInvalid
+		}
+		if c.ReservedIntentID != "" && !uuidRE.MatchString(c.ReservedIntentID) {
 			return ErrInvalid
 		}
 	default:
@@ -42,8 +51,10 @@ func (c PublicationCandidate) Validate() error {
 
 type ProtectedPublicationPlanningStore interface {
 	ProtectedPublicationStore
+	ProtectedCascadeStore
 	NextPayloadCandidate(context.Context) (PublicationCandidate, error)
-	NextApplicationCandidate(context.Context) (PublicationCandidate, error)
+	NextCascadeCandidate(context.Context) (PublicationCandidate, error)
+	NextApplicationCandidate(context.Context, ProtectedPublisherIdentity) (PublicationCandidate, error)
 }
 
 // ProtectedBindingResolver is a trusted production projection boundary. Its
@@ -88,12 +99,15 @@ func (p PublicationPlanner) ProcessOne(ctx context.Context) (PublicationPlanResu
 	if now.IsZero() {
 		return PublicationPlanResult{}, ErrInvalid
 	}
-	candidate, err := p.Store.NextApplicationCandidate(ctx)
+	candidate, err := p.Store.NextApplicationCandidate(ctx, p.Publisher)
 	if err == nil {
 		if candidate.Validate() != nil || candidate.Kind != PublicationApplication {
 			return PublicationPlanResult{}, ErrConflict
 		}
-		intentID := p.NewID()
+		intentID := candidate.ReservedIntentID
+		if intentID == "" {
+			intentID = p.NewID()
+		}
 		intent, replay, createErr := p.Store.CreateApplicationForPayload(ctx, intentID,
 			candidate.PayloadIntentID, p.Application, p.Publisher, now)
 		if createErr != nil {
@@ -103,6 +117,26 @@ func (p PublicationPlanner) ProcessOne(ctx context.Context) (PublicationPlanResu
 			return PublicationPlanResult{}, ErrConflict
 		}
 		return PublicationPlanResult{Kind: PublicationApplication, IntentID: intent.ID, Replay: replay}, nil
+	}
+	if err != nil && err != ErrNotFound {
+		return PublicationPlanResult{}, err
+	}
+	candidate, err = p.Store.NextCascadeCandidate(ctx)
+	if err == nil {
+		if candidate.Validate() != nil || candidate.Kind != PublicationCascade {
+			return PublicationPlanResult{}, ErrConflict
+		}
+		preflightID, deleteIntentID := p.NewID(), p.NewID()
+		preflight, replay, createErr := p.Store.CreateCascadePreflightForPayload(ctx,
+			preflightID, deleteIntentID, candidate.PayloadIntentID, p.Application, p.Publisher, now)
+		if createErr != nil {
+			return PublicationPlanResult{}, createErr
+		}
+		if preflight.ID == "" || preflight.ReleaseRevisionID != candidate.ReleaseRevisionID ||
+			preflight.Target != candidate.Target {
+			return PublicationPlanResult{}, ErrConflict
+		}
+		return PublicationPlanResult{Kind: PublicationCascade, IntentID: preflight.ID, Replay: replay}, nil
 	}
 	if err != nil && err != ErrNotFound {
 		return PublicationPlanResult{}, err

@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/argo"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
 )
 
@@ -20,8 +22,58 @@ const (
 )
 
 type PostgresProtectedPublicationStore struct {
-	pool      *pgxpool.Pool
-	authority ArgoMaterializationAuthority
+	pool                   *pgxpool.Pool
+	authority              ArgoMaterializationAuthority
+	cascadeIdentity        *argo.DesiredStateRuntimeIdentity
+	cascadeArgoObservation *argo.DesiredStateRuntimeWorkerObservation
+}
+
+func NewPostgresProtectedPublicationStoreWithCascade(pool *pgxpool.Pool,
+	authority ArgoMaterializationAuthority,
+	observation argo.DesiredStateRuntimeWorkerObservation) (*PostgresProtectedPublicationStore, error) {
+	if authority.Validate() != nil || observation.Validate() != nil {
+		return nil, ErrInvalid
+	}
+	result, err := NewPostgresProtectedPublicationStore(pool, authority)
+	if err != nil {
+		return nil, err
+	}
+	copyObservation := observation
+	copyIdentity := observation.DesiredStateRuntimeIdentity
+	result.cascadeIdentity = &copyIdentity
+	result.cascadeArgoObservation = &copyObservation
+	return result, nil
+}
+
+func scanCascadePlatformBinding(row rowScanner) (gitprojection.Binding, error) {
+	var value gitprojection.Binding
+	var target, indexed *string
+	var targetAt, indexedAt *time.Time
+	err := row.Scan(&value.ID, &value.Kind, &value.ScopeID, &value.ProjectID, &value.EnvironmentID,
+		&value.ClusterID, &value.Repository.Provider, &value.Repository.InstallationID,
+		&value.Repository.RepositoryID, &value.Repository.Owner, &value.Repository.Name,
+		&value.TargetRef, &value.Prefix, &value.CredentialMode, &value.CredentialSecretName,
+		&value.State, &target, &indexed, &value.ProjectionGeneration, &value.ParserVersion,
+		&targetAt, &indexedAt, &value.CreatedAt, &value.UpdatedAt)
+	if err != nil {
+		return gitprojection.Binding{}, classifyPostgres(err)
+	}
+	if target != nil {
+		value.TargetHeadRevision = *target
+	}
+	if indexed != nil {
+		value.IndexedRevision = *indexed
+	}
+	if targetAt != nil {
+		value.TargetHeadObservedAt = *targetAt
+	}
+	if indexedAt != nil {
+		value.IndexedAt = *indexedAt
+	}
+	if value.Validate() != nil {
+		return gitprojection.Binding{}, ErrConflict
+	}
+	return value, nil
 }
 
 func NewPostgresProtectedPublicationStore(pool *pgxpool.Pool,
@@ -90,7 +142,8 @@ const protectedApplicationColumns = `id::text,release_revision_id::text,payload_
 	application_path,operation,precondition,expected_etag,content,content_digest,
 	intent_digest,commit_trailer,publisher_contract,publisher_config_digest,
 	original_publisher_config_digest,publisher_adoption_epoch,continuation_required,
-	COALESCE(continuation_receipt_id::text,''),continuation_contract,message,state,
+	COALESCE(continuation_receipt_id::text,''),continuation_contract,cascade_required,
+	COALESCE(cascade_receipt_id::text,''),cascade_contract,message,state,
 	next_attempt_at,attempts,consecutive_failures,last_failure_code,COALESCE(lease_owner,''),
 	lease_epoch,lease_until,write_base_revision,write_base_observed_at,committed_revision,
 	committed_parent_revision,committed_at,verified_at,verified_path_digest,provider_request,
@@ -111,7 +164,8 @@ func scanProtectedApplication(row rowScanner) (ProtectedApplicationIntent, error
 		&value.CommitTrailer, &value.Publisher.Contract, &value.Publisher.ConfigDigest,
 		&value.OriginalPublisherConfigDigest, &value.PublisherAdoptionEpoch,
 		&value.ContinuationRequired, &value.ContinuationReceiptID,
-		&value.ContinuationContract, &value.Message, &value.State, &value.NextAttemptAt, &value.Attempts,
+		&value.ContinuationContract, &value.CascadeRequired, &value.CascadeReceiptID,
+		&value.CascadeContract, &value.Message, &value.State, &value.NextAttemptAt, &value.Attempts,
 		&value.ConsecutiveFailures, &value.LastFailureCode, &value.LeaseOwner,
 		&value.LeaseEpoch, &value.LeaseUntil, &value.WriteBaseRevision,
 		&value.WriteBaseObservedAt, &value.CommittedRevision,
@@ -345,15 +399,27 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.ContentDigest = digestBytes(value.Content)
 	} else {
 		value.Action, value.Operation, value.Precondition = ProtectedApplicationDelete, "delete", "match-etag"
+		var adoptedDigest string
+		err = tx.QueryRow(ctx, `SELECT cascade.id::text,cascade.adopted_content_digest
+			FROM public.helm_application_cascade_preflights cascade
+			WHERE cascade.payload_intent_id=$1
+			  AND cascade.state='verified' AND public.helm_application_cascade_observation_is_exact(
+			    cascade.id,$2,pg_catalog.clock_timestamp())
+			LIMIT 1 FOR KEY SHARE OF cascade`,
+			payload.ID, publisher.ConfigDigest).Scan(&value.CascadeReceiptID, &adoptedDigest)
+		if err != nil || !validDigest(adoptedDigest) {
+			if err != nil {
+				return ProtectedApplicationIntent{}, false, classifyPostgres(err)
+			}
+			return ProtectedApplicationIntent{}, false, ErrConflict
+		}
+		value.CascadeRequired = true
+		value.CascadeContract = protectedCascadeContract
 		// pgx encodes a nil []byte as SQL NULL. Delete intents deliberately carry
 		// zero bytes, but the protected intent contract stores content as NOT NULL.
 		value.Content = []byte{}
 		value.Message = "Delete protected Helm Application " + release.ID
-		value.ExpectedETag, err = baseApplicationETag(ctx, tx,
-			release.BaseApplicationIntentID, value.ApplicationPath)
-		if err != nil {
-			return ProtectedApplicationIntent{}, false, err
-		}
+		value.ExpectedETag = `"` + adoptedDigest + `"`
 	}
 	value.IntentDigest, err = applicationIntentDigest(value)
 	if err != nil || value.Validate() != nil {
@@ -374,12 +440,12 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		application_path,operation,precondition,expected_etag,content,content_digest,intent_digest,
 		commit_trailer,publisher_contract,publisher_config_digest,original_publisher_config_digest,
 		publisher_adoption_epoch,continuation_required,continuation_receipt_id,
-		continuation_contract,message,state,next_attempt_at,
+		continuation_contract,cascade_required,cascade_receipt_id,cascade_contract,message,state,next_attempt_at,
 		attempts,consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
 		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-			$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,TRUE,$1,$31,$32,'pending',$33,0,0,'',0,
-			$2,$34,0,$33,$33)
+			$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,TRUE,$1,$31,$32,$33,$34,$35,'pending',$36,0,0,'',0,
+			$2,$37,0,$36,$36)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.PayloadIntentID,
 		value.ReleaseGeneration, value.Target.ProjectID, value.Target.EnvironmentID,
 		value.Target.ApplicationID, value.Action, value.Binding.PlatformBindingID,
@@ -390,7 +456,8 @@ func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx cont
 		value.PayloadPath, value.SourceDirectory, value.ApplicationPath, value.Operation,
 		value.Precondition, value.ExpectedETag, value.Content, value.ContentDigest,
 		value.IntentDigest, value.CommitTrailer, value.Publisher.Contract,
-		value.Publisher.ConfigDigest, value.ContinuationContract, value.Message, value.CreatedAt,
+		value.Publisher.ConfigDigest, value.ContinuationContract, value.CascadeRequired,
+		nullableCascadeReceipt(value.CascadeReceiptID), value.CascadeContract, value.Message, value.CreatedAt,
 		protectedPrerequisiteContract)
 	if err != nil {
 		return ProtectedApplicationIntent{}, false, classifyPostgres(err)
@@ -513,6 +580,8 @@ func (s *PostgresProtectedPublicationStore) adoptProtected(ctx context.Context, 
 	function := "public.adopt_helm_protected_payload_intent"
 	if table == protectedApplicationTable {
 		function = "public.adopt_helm_protected_application_intent"
+	} else if table == protectedCascadeTable {
+		function = "public.adopt_helm_application_cascade_preflight"
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -554,15 +623,22 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 	// and remains recoverable by its own trailer and path digest.
 	staleEligibility := `NOT (` + freshProtectedProjectionSQL("candidate") + `)`
 	stalePublisherEligibility := `candidate.publisher_config_digest=$3`
+	staleFailureCode := "projection-superseded"
 	if table == protectedApplicationTable {
-		staleEligibility = `((candidate.continuation_required AND NOT (` +
-			applicationContinuationIsExactSQL("candidate") + `)) OR
-			(NOT candidate.continuation_required AND NOT (` + freshProtectedProjectionSQL("candidate") + `)))`
-		stalePublisherEligibility = `(candidate.continuation_required OR candidate.publisher_config_digest=$3)`
+		staleEligibility = `(NOT (CASE WHEN candidate.continuation_required THEN ` +
+			applicationContinuationIsExactSQL("candidate") + ` ELSE ` + freshProtectedProjectionSQL("candidate") + ` END)
+			OR (candidate.cascade_required AND NOT public.helm_application_cascade_is_exact(candidate.id,$3,$1)))`
+		stalePublisherEligibility = `(candidate.continuation_required OR candidate.cascade_required OR candidate.publisher_config_digest=$3)`
+	} else if table == protectedCascadeTable {
+		staleEligibility = `NOT (` + cascadePreflightIsFreshSQL("candidate") + `)`
+		// Keep the shared statement's third parameter typed without coupling
+		// cascade retirement to the immutable preflight publisher identity.
+		stalePublisherEligibility = `($3::text <> '')`
+		staleFailureCode = "cascade-projection-superseded"
 	}
 	_, err = tx.Exec(ctx, `UPDATE `+table+` candidate SET state='superseded',
 		completed_at=$1,updated_at=$1,consecutive_failures=1,
-		last_failure_code='projection-superseded',prerequisite_epoch=prerequisite_epoch+1
+		last_failure_code='`+staleFailureCode+`',prerequisite_epoch=prerequisite_epoch+1
 		WHERE candidate.state='pending' AND candidate.lease_epoch=0 AND candidate.attempts=0
 		AND candidate.lease_owner IS NULL AND candidate.lease_until IS NULL
 		AND candidate.write_base_revision='' AND candidate.write_base_observed_at IS NULL
@@ -579,6 +655,10 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
 			WHERE held.platform_binding_id=candidate.platform_binding_id
 			AND (`+protectedLaneExclusion(table, protectedApplicationTable)+`)
+			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
+		AND NOT EXISTS(SELECT 1 FROM public.helm_application_cascade_preflights held
+			WHERE held.platform_binding_id=candidate.platform_binding_id
+			AND (`+protectedLaneExclusion(table, protectedCascadeTable)+`)
 			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)`, now.UTC(),
 		publisher.Contract, publisher.ConfigDigest)
 	if err != nil {
@@ -587,9 +667,11 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 	var intentID string
 	initialAuthority := freshProtectedProjectionSQL("candidate")
 	if table == protectedApplicationTable {
-		initialAuthority = `((candidate.continuation_required AND (` +
-			applicationContinuationIsExactSQL("candidate") + `)) OR
-			(NOT candidate.continuation_required AND (` + freshProtectedProjectionSQL("candidate") + `)))`
+		initialAuthority = `(CASE WHEN candidate.continuation_required THEN ` +
+			applicationContinuationIsExactSQL("candidate") + ` ELSE ` + freshProtectedProjectionSQL("candidate") + ` END)
+			AND (NOT candidate.cascade_required OR public.helm_application_cascade_is_exact(candidate.id,$3,$1))`
+	} else if table == protectedCascadeTable {
+		initialAuthority = cascadePreflightIsFreshSQL("candidate")
 	}
 	err = tx.QueryRow(ctx, `SELECT candidate.id::text FROM `+table+` candidate
 		WHERE candidate.state IN ('pending','claimed','git-committed')
@@ -604,6 +686,10 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 		AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
 			WHERE held.platform_binding_id=candidate.platform_binding_id
 			AND (`+protectedLaneExclusion(table, protectedApplicationTable)+`)
+			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
+		AND NOT EXISTS(SELECT 1 FROM public.helm_application_cascade_preflights held
+			WHERE held.platform_binding_id=candidate.platform_binding_id
+			AND (`+protectedLaneExclusion(table, protectedCascadeTable)+`)
 			AND held.lease_owner IS NOT NULL AND held.lease_until>$1)
 		ORDER BY candidate.next_attempt_at,candidate.created_at,candidate.id
 		FOR UPDATE OF candidate SKIP LOCKED LIMIT 1`, now.UTC(), publisher.Contract,
@@ -635,6 +721,36 @@ func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, 
 		return "", classifyPostgres(err)
 	}
 	return intentID, nil
+}
+
+func cascadePreflightIsFreshSQL(alias string) string {
+	if alias != "candidate" && alias != "intent" && alias != "preflight" {
+		return "FALSE"
+	}
+	return `EXISTS(SELECT 1
+		FROM public.helm_release_heads head
+		JOIN public.helm_release_revisions release ON release.id=head.revision_id
+		JOIN public.helm_protected_payload_intents payload ON payload.id=` + alias + `.payload_intent_id
+		JOIN public.helm_protected_application_intents base ON base.id=` + alias + `.base_application_intent_id
+		JOIN public.git_repository_bindings platform ON platform.id=` + alias + `.platform_binding_id
+		WHERE head.environment_id=` + alias + `.environment_id
+		  AND head.application_id=` + alias + `.application_id
+		  AND head.revision_id=` + alias + `.release_revision_id
+		  AND head.generation=` + alias + `.release_generation
+		  AND release.project_id=` + alias + `.project_id
+		  AND release.action='disable' AND NOT release.desired_enabled
+		  AND release.base_intent_id=` + alias + `.base_application_intent_id
+		  AND payload.release_revision_id=` + alias + `.release_revision_id
+		  AND payload.state='verified' AND payload.action='disable-receipt'
+		  AND payload.committed_revision=` + alias + `.payload_revision
+		  AND base.state='verified' AND base.action='publish'
+		  AND base.application_path=` + alias + `.application_path
+		  AND base.content=` + alias + `.source_content
+		  AND base.content_digest=` + alias + `.source_content_digest
+		  AND platform.kind='platform' AND platform.credential_mode='github-app'
+		  AND platform.cluster_id=` + alias + `.cluster_id
+		  AND platform.target_ref=` + alias + `.platform_target_ref
+		  AND platform.target_head_revision IS NOT NULL)`
 }
 
 func freshProtectedProjectionSQL(alias string) string {
@@ -1131,7 +1247,16 @@ func equalProtectedApplicationIdentity(left, right ProtectedApplicationIntent) b
 		left.ContinuationRequired == right.ContinuationRequired &&
 		left.ContinuationReceiptID == right.ContinuationReceiptID &&
 		left.ContinuationContract == right.ContinuationContract &&
+		left.CascadeRequired == right.CascadeRequired && left.CascadeReceiptID == right.CascadeReceiptID &&
+		left.CascadeContract == right.CascadeContract &&
 		left.Message == right.Message
+}
+
+func nullableCascadeReceipt(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 func payloadLease(value ProtectedPayloadIntent) ProtectedIntentLease {
@@ -1187,7 +1312,7 @@ func protectedApplicationWriteMiss(value ProtectedApplicationIntent, getErr erro
 }
 
 func validProtectedTable(table string) bool {
-	return table == protectedPayloadTable || table == protectedApplicationTable
+	return table == protectedPayloadTable || table == protectedApplicationTable || table == protectedCascadeTable
 }
 
 func validProtectedLeaseDuration(duration time.Duration) bool {
@@ -1209,3 +1334,5 @@ func nullableProtectedCount(value int) any {
 }
 
 var _ ProtectedPublicationStore = (*PostgresProtectedPublicationStore)(nil)
+var _ ProtectedCascadeStore = (*PostgresProtectedPublicationStore)(nil)
+var _ ProtectedCascadeObservationStore = (*PostgresProtectedPublicationStore)(nil)

@@ -1,7 +1,10 @@
 package helmapps
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"regexp"
 	"strings"
 	"time"
@@ -12,21 +15,24 @@ import (
 )
 
 const (
-	ProtectedPublisherContract     = "helm-protected-publisher.v1"
-	ProtectedGitPolicy             = "helm-protected-git.v1"
-	protectedPrerequisiteContract  = "helm-publication-prerequisite.v1"
-	protectedContinuationContract  = "helm-application-continuation.v1"
-	ArgoApplicationAPIVersion      = "argoproj.io/v1alpha1"
-	ArgoApplicationKind            = "Application"
-	ArgoInClusterServer            = "https://kubernetes.default.svc"
-	MaximumProtectedAttempts       = 30
-	maximumPublisherReadinessAge   = 5 * time.Minute
-	maximumPublisherReadinessLease = 5 * time.Minute
+	ProtectedPublisherContract      = "helm-protected-publisher.v1"
+	ProtectedGitPolicy              = "helm-protected-git.v1"
+	protectedPrerequisiteContract   = "helm-publication-prerequisite.v1"
+	protectedContinuationContract   = "helm-application-continuation.v1"
+	protectedCascadeContract        = "helm-application-cascade-preflight.v1"
+	ArgoApplicationAPIVersion       = "argoproj.io/v1alpha1"
+	ArgoApplicationKind             = "Application"
+	ArgoInClusterServer             = "https://kubernetes.default.svc"
+	protectedArgoResourcesFinalizer = "resources-finalizer.argocd.argoproj.io"
+	MaximumProtectedAttempts        = 30
+	maximumPublisherReadinessAge    = 5 * time.Minute
+	maximumPublisherReadinessLease  = 5 * time.Minute
 )
 
 var (
 	gitCommitRE        = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 	gitRefRE           = regexp.MustCompile(`^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
+	argoWorkerIDRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$`)
 	githubOwnerRE      = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?$`)
 	githubRepositoryRE = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
 )
@@ -294,6 +300,8 @@ type ProtectedApplicationIntent struct {
 	PublisherAdoptionEpoch                                 int64
 	ContinuationRequired                                   bool
 	ContinuationReceiptID, ContinuationContract            string
+	CascadeRequired                                        bool
+	CascadeReceiptID, CascadeContract                      string
 	Message                                                string
 	State                                                  ProtectedIntentState
 	NextAttemptAt                                          time.Time
@@ -308,6 +316,297 @@ type ProtectedApplicationIntent struct {
 	VerifiedPathDigest, ProviderRequest                    string
 	CreatedAt, UpdatedAt                                   time.Time
 	CompletedAt                                            *time.Time
+}
+
+// ProtectedApplicationCascadePreflight is an independent, immutable-history
+// sub-operation for one disable. It either verifies an already-finalized Git
+// Application or publishes the only allowed legacy postimage: the exact same
+// Application with the foreground resources finalizer added. A delete intent
+// is not created until a bounded live child receipt completes this preflight.
+type ProtectedApplicationCascadePreflight struct {
+	ID, DeleteIntentID, ReleaseRevisionID, PayloadIntentID string
+	BaseApplicationIntentID                                string
+	PayloadRevision, ArgoNamespace                         string
+	ReleaseGeneration                                      int64
+	Target                                                 ReleaseTarget
+	Binding                                                ProtectedBindingSnapshot
+	ApplicationPath                                        string
+	SourceContent, AdoptedContent                          []byte
+	SourceContentDigest, AdoptedContentDigest              string
+	Operation, Precondition, ExpectedETag                  string
+	IntentDigest, CommitTrailer, Contract                  string
+	Publisher                                              ProtectedPublisherIdentity
+	OriginalPublisherConfigDigest                          string
+	PublisherAdoptionEpoch                                 int64
+	State                                                  ProtectedIntentState
+	NextAttemptAt                                          time.Time
+	Attempts, ConsecutiveFailures                          int
+	LastFailureCode, LeaseOwner                            string
+	LeaseEpoch                                             int64
+	LeaseUntil                                             *time.Time
+	WriteBaseRevision                                      string
+	WriteBaseObservedAt                                    *time.Time
+	CommittedRevision, CommittedParentRevision             string
+	CommittedAt, VerifiedAt                                *time.Time
+	VerifiedPathDigest, ProviderRequest                    string
+	CreatedAt, UpdatedAt                                   time.Time
+	CompletedAt                                            *time.Time
+}
+
+func (p ProtectedApplicationCascadePreflight) Validate() error {
+	expectedIntentDigest, digestErr := cascadePreflightIntentDigest(p)
+	if !uuidRE.MatchString(p.ID) || !uuidRE.MatchString(p.DeleteIntentID) ||
+		!uuidRE.MatchString(p.ReleaseRevisionID) || !uuidRE.MatchString(p.PayloadIntentID) ||
+		!uuidRE.MatchString(p.BaseApplicationIntentID) || p.ReleaseGeneration < 2 ||
+		!gitCommitRE.MatchString(p.PayloadRevision) || !dnsLabelRE.MatchString(p.ArgoNamespace) ||
+		p.Target.Validate() != nil || p.Binding.Validate() != nil ||
+		p.ApplicationPath != protectedApplicationPath(p.Binding.ClusterID, p.Target.EnvironmentID, p.Target.ApplicationID) ||
+		len(p.SourceContent) < 1 || len(p.SourceContent) > MaximumDescriptorSize ||
+		len(p.AdoptedContent) < 1 || len(p.AdoptedContent) > MaximumDescriptorSize ||
+		!validDigest(p.SourceContentDigest) || digestBytes(p.SourceContent) != p.SourceContentDigest ||
+		!validDigest(p.AdoptedContentDigest) || digestBytes(p.AdoptedContent) != p.AdoptedContentDigest ||
+		p.Precondition != "match-etag" || p.ExpectedETag != `"`+p.SourceContentDigest+`"` ||
+		p.Contract != protectedCascadeContract || digestErr != nil || p.IntentDigest != expectedIntentDigest ||
+		p.CommitTrailer != "Kuberploy-Helm-Cascade-Preflight: "+p.ID ||
+		p.Publisher.Validate() != nil || !validDigest(p.OriginalPublisherConfigDigest) ||
+		p.PublisherAdoptionEpoch < 0 ||
+		(p.PublisherAdoptionEpoch == 0 && p.OriginalPublisherConfigDigest != p.Publisher.ConfigDigest) ||
+		p.CreatedAt.IsZero() || p.UpdatedAt.Before(p.CreatedAt) || p.NextAttemptAt.Before(p.CreatedAt) ||
+		p.Attempts < 0 || p.Attempts > MaximumProtectedAttempts || p.ConsecutiveFailures < 0 ||
+		p.ConsecutiveFailures > MaximumProtectedAttempts ||
+		(p.LastFailureCode == "") != (p.ConsecutiveFailures == 0) ||
+		(p.LastFailureCode != "" && !failureCodeRE.MatchString(p.LastFailureCode)) ||
+		(p.LeaseUntil != nil && !p.LeaseUntil.After(p.UpdatedAt)) ||
+		(p.WriteBaseObservedAt != nil && (p.WriteBaseObservedAt.Before(p.CreatedAt) || p.WriteBaseObservedAt.After(p.UpdatedAt))) ||
+		(p.CommittedAt != nil && (p.CommittedAt.Before(p.CreatedAt) || p.CommittedAt.After(p.UpdatedAt))) ||
+		(p.VerifiedAt != nil && (p.VerifiedAt.Before(p.CreatedAt) || p.VerifiedAt.After(p.UpdatedAt))) ||
+		(p.CompletedAt != nil && (p.CompletedAt.Before(p.CreatedAt) || p.CompletedAt.After(p.UpdatedAt))) ||
+		len(p.ProviderRequest) > 256 || containsControl(p.ProviderRequest) {
+		return ErrInvalid
+	}
+	adopted, changed, err := adoptProtectedArgoResourcesFinalizer(p.SourceContent)
+	if err != nil || !bytes.Equal(adopted, p.AdoptedContent) {
+		return ErrInvalid
+	}
+	switch p.Operation {
+	case "observe":
+		if changed {
+			return ErrInvalid
+		}
+	case "update":
+		if !changed {
+			return ErrInvalid
+		}
+	default:
+		return ErrInvalid
+	}
+	if !protectedApplicationHasExactForegroundFinalizer(p.AdoptedContent) {
+		return ErrInvalid
+	}
+	return validateProtectedCascadeRuntimeShape(p)
+}
+
+func (p ProtectedApplicationCascadePreflight) ApplicationExpectation() (argo.ProtectedApplicationExpectation, error) {
+	if p.Validate() != nil {
+		return argo.ProtectedApplicationExpectation{}, ErrInvalid
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(p.AdoptedContent))
+	decoder.KnownFields(true)
+	var manifest protectedArgoApplication
+	if err := decoder.Decode(&manifest); err != nil {
+		return argo.ProtectedApplicationExpectation{}, ErrInvalid
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return argo.ProtectedApplicationExpectation{}, ErrInvalid
+	}
+	labels, annotations := manifest.Metadata.Labels, manifest.Metadata.Annotations
+	if manifest.APIVersion != ArgoApplicationAPIVersion || manifest.Kind != ArgoApplicationKind ||
+		manifest.Metadata.Name != "kp-h-"+strings.ReplaceAll(p.Target.ApplicationID, "-", "") ||
+		manifest.Metadata.Namespace != p.ArgoNamespace ||
+		labels["app.kubernetes.io/managed-by"] != "kuberploy" ||
+		labels["app.kubernetes.io/component"] != "approved-helm-application" ||
+		labels["kuberploy.io/project-id"] != p.Target.ProjectID ||
+		labels["kuberploy.io/environment-id"] != p.Target.EnvironmentID ||
+		labels["kuberploy.io/application-id"] != p.Target.ApplicationID ||
+		annotations["kuberploy.io/helm-payload-revision"] != manifest.Spec.Source.TargetRevision ||
+		annotations["argocd.argoproj.io/manifest-generate-paths"] == "" {
+		return argo.ProtectedApplicationExpectation{}, ErrInvalid
+	}
+	return argo.NewProtectedApplicationExpectation(p.ArgoNamespace, manifest.Spec.Project,
+		manifest.Spec.Source.RepoURL, manifest.Spec.Source.TargetRevision,
+		manifest.Spec.Destination.Namespace, p.Binding.ClusterID, p.Target.ProjectID,
+		p.Target.EnvironmentID, p.Target.ApplicationID,
+		annotations["kuberploy.io/helm-release-revision"],
+		annotations["argocd.argoproj.io/manifest-generate-paths"],
+		annotations["kuberploy.io/helm-payload-digest"])
+}
+
+func cascadePreflightIntentDigest(p ProtectedApplicationCascadePreflight) (string, error) {
+	originalPublisher := p.Publisher
+	originalPublisher.ConfigDigest = p.OriginalPublisherConfigDigest
+	return digestJSON(struct {
+		Contract                string                     `json:"contract"`
+		ID                      string                     `json:"id"`
+		DeleteIntentID          string                     `json:"deleteIntentId"`
+		ReleaseRevisionID       string                     `json:"releaseRevisionId"`
+		PayloadIntentID         string                     `json:"payloadIntentId"`
+		BaseApplicationIntentID string                     `json:"baseApplicationIntentId"`
+		PayloadRevision         string                     `json:"payloadRevision"`
+		ReleaseGeneration       int64                      `json:"releaseGeneration"`
+		Target                  ReleaseTarget              `json:"target"`
+		Binding                 ProtectedBindingSnapshot   `json:"binding"`
+		ApplicationPath         string                     `json:"applicationPath"`
+		ArgoNamespace           string                     `json:"argoNamespace"`
+		SourceContentDigest     string                     `json:"sourceContentDigest"`
+		AdoptedContentDigest    string                     `json:"adoptedContentDigest"`
+		Operation               string                     `json:"operation"`
+		Precondition            string                     `json:"precondition"`
+		ExpectedETag            string                     `json:"expectedEtag"`
+		CommitTrailer           string                     `json:"commitTrailer"`
+		Publisher               ProtectedPublisherIdentity `json:"publisher"`
+	}{p.Contract, p.ID, p.DeleteIntentID, p.ReleaseRevisionID, p.PayloadIntentID,
+		p.BaseApplicationIntentID, p.PayloadRevision, p.ReleaseGeneration, p.Target, p.Binding, p.ApplicationPath, p.ArgoNamespace,
+		p.SourceContentDigest, p.AdoptedContentDigest, p.Operation, p.Precondition,
+		p.ExpectedETag, p.CommitTrailer, originalPublisher})
+}
+
+func validateProtectedCascadeRuntimeShape(p ProtectedApplicationCascadePreflight) error {
+	pristineProjectionSuperseded := p.State == ProtectedSuperseded && p.Attempts == 0 &&
+		p.ConsecutiveFailures == 1 && p.LastFailureCode == "cascade-projection-superseded"
+	leasePieces := p.LeaseOwner != "" || p.LeaseUntil != nil
+	lease := workerIDRE.MatchString(p.LeaseOwner) && p.LeaseEpoch > 0 && p.LeaseUntil != nil
+	writePieces := p.WriteBaseRevision != "" || p.WriteBaseObservedAt != nil
+	write := gitCommitRE.MatchString(p.WriteBaseRevision) && p.WriteBaseObservedAt != nil
+	commitPieces := p.CommittedRevision != "" || p.CommittedParentRevision != "" || p.CommittedAt != nil
+	commit := gitCommitRE.MatchString(p.CommittedRevision) && p.CommittedParentRevision == p.WriteBaseRevision && p.CommittedAt != nil
+	verifyPieces := p.VerifiedAt != nil || p.VerifiedPathDigest != "" || p.ProviderRequest != ""
+	verified := p.VerifiedAt != nil && p.VerifiedPathDigest == p.AdoptedContentDigest && p.ProviderRequest != ""
+	if leasePieces != lease || writePieces != write || commitPieces != commit || verifyPieces != verified {
+		return ErrInvalid
+	}
+	if p.Attempts == 0 && (p.LeaseEpoch != 0 || lease || write || commit || verified) ||
+		p.LeaseEpoch < int64(p.Attempts) || (p.ConsecutiveFailures > p.Attempts && !pristineProjectionSuperseded) ||
+		(p.ConsecutiveFailures == MaximumProtectedAttempts && p.State != ProtectedFailed) ||
+		(p.WriteBaseObservedAt != nil && p.CommittedAt != nil && p.CommittedAt.Before(*p.WriteBaseObservedAt)) ||
+		(p.CommittedAt != nil && p.VerifiedAt != nil && p.VerifiedAt.Before(*p.CommittedAt)) {
+		return ErrInvalid
+	}
+	switch p.State {
+	case ProtectedPending:
+		if lease || commit || verified || p.CompletedAt != nil {
+			return ErrInvalid
+		}
+	case ProtectedClaimed:
+		if !lease || p.Attempts < 1 || commit || verified || p.CompletedAt != nil {
+			return ErrInvalid
+		}
+	case ProtectedGitCommitted:
+		if p.Operation != "update" || !lease || p.Attempts < 1 || !write || !commit || verified || p.CompletedAt != nil {
+			return ErrInvalid
+		}
+	case ProtectedVerified:
+		if lease || p.Attempts < 1 || !write || !verified || p.CompletedAt == nil || !p.CompletedAt.Equal(*p.VerifiedAt) ||
+			(p.Operation == "update" && !commit) || (p.Operation == "observe" && commit) {
+			return ErrInvalid
+		}
+	case ProtectedFailed, ProtectedSuperseded:
+		if lease || commit || verified || p.CompletedAt == nil {
+			return ErrInvalid
+		}
+	default:
+		return ErrInvalid
+	}
+	return nil
+}
+
+type ProtectedApplicationCascadeReceipt struct {
+	ID, DeleteIntentID, CascadePreflightID             string
+	ObservationEpoch                                   int64
+	ObservationLeaseEpoch                              int64
+	ObserverActivationEpoch                            int64
+	ReleaseRevisionID, PayloadIntentID                 string
+	BaseApplicationIntentID                            string
+	ProjectID, EnvironmentID, ApplicationID, ClusterID string
+	ApplicationPath                                    string
+	SourceContentDigest, AdoptedContentDigest          string
+	AdoptionRevision, AdoptionParentRevision           string
+	ProviderHead, RootObservedRevision                 string
+	RootSyncStatus                                     string
+	RootUID, RootResourceVersion                       string
+	RootSpecDigest, ChildUID, ChildResourceVersion     string
+	ChildSpecDigest, FinalizerDigest                   string
+	ChildReleaseRevisionID, ChildPayloadRevision       string
+	ChildPayloadPath, ChildPayloadDigest               string
+	Publisher                                          ProtectedPublisherIdentity
+	WorkerID                                           string
+	WorkerEpoch                                        int64
+	ArgoContract, ArgoConfigDigest, ArgoWorkerID       string
+	ArgoWorkerEpoch                                    int64
+	ArgoStartedAt, ArgoReadinessObservedAt             time.Time
+	ArgoReadinessLeaseUntil                            time.Time
+	ObservedAt                                         time.Time
+}
+
+func (r ProtectedApplicationCascadeReceipt) validateProposal(now time.Time) error {
+	if !uuidRE.MatchString(r.ID) || !uuidRE.MatchString(r.DeleteIntentID) ||
+		!uuidRE.MatchString(r.CascadePreflightID) || r.ObservationEpoch < 1 || r.ObservationLeaseEpoch < 1 ||
+		!uuidRE.MatchString(r.ReleaseRevisionID) || !uuidRE.MatchString(r.PayloadIntentID) ||
+		!uuidRE.MatchString(r.BaseApplicationIntentID) || !uuidRE.MatchString(r.ProjectID) ||
+		!uuidRE.MatchString(r.EnvironmentID) || !uuidRE.MatchString(r.ApplicationID) ||
+		!uuidRE.MatchString(r.ClusterID) || !validProtectedApplicationPath(r.ApplicationPath) ||
+		!validDigest(r.SourceContentDigest) || !validDigest(r.AdoptedContentDigest) ||
+		!gitCommitRE.MatchString(r.AdoptionRevision) || !gitCommitRE.MatchString(r.AdoptionParentRevision) ||
+		!gitCommitRE.MatchString(r.ProviderHead) || r.RootObservedRevision != r.ProviderHead ||
+		r.RootSyncStatus != "Synced" ||
+		!uuidRE.MatchString(r.RootUID) || r.RootResourceVersion == "" ||
+		len(r.RootResourceVersion) > 128 || containsControl(r.RootResourceVersion) || !validDigest(r.RootSpecDigest) ||
+		!uuidRE.MatchString(r.ChildUID) || r.ChildResourceVersion == "" ||
+		len(r.ChildResourceVersion) > 128 || containsControl(r.ChildResourceVersion) || !validDigest(r.ChildSpecDigest) ||
+		!uuidRE.MatchString(r.ChildReleaseRevisionID) || !gitCommitRE.MatchString(r.ChildPayloadRevision) ||
+		!validProtectedPayloadPath(r.ChildPayloadPath) || !strings.HasSuffix(r.ChildPayloadPath, "/release.yaml") ||
+		!validDigest(r.ChildPayloadDigest) ||
+		r.FinalizerDigest != digestBytes([]byte(protectedArgoResourcesFinalizer)) ||
+		r.Publisher.Validate() != nil || !workerIDRE.MatchString(r.WorkerID) || r.WorkerEpoch < 1 ||
+		r.ObservedAt.IsZero() || r.ObservedAt.After(now) || now.Sub(r.ObservedAt) > maximumPublisherReadinessAge {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (r ProtectedApplicationCascadeReceipt) Validate(now time.Time) error {
+	if r.validateProposal(now) != nil || r.ObserverActivationEpoch < 1 ||
+		r.ArgoContract != argo.DesiredStateContract || !validDigest(r.ArgoConfigDigest) ||
+		!argoWorkerIDRE.MatchString(r.ArgoWorkerID) ||
+		r.ArgoWorkerEpoch < 1 || r.ArgoStartedAt.IsZero() ||
+		r.ArgoReadinessObservedAt.Before(r.ArgoStartedAt) ||
+		r.ArgoReadinessObservedAt.After(r.ObservedAt) ||
+		!r.ArgoReadinessLeaseUntil.After(r.ObservedAt) ||
+		r.ArgoReadinessLeaseUntil.Sub(r.ArgoReadinessObservedAt) > 5*time.Minute {
+		return ErrInvalid
+	}
+	return nil
+}
+
+type ProtectedCascadeObservationLease struct {
+	CascadePreflightID      string
+	Owner                   string
+	WorkerEpoch             int64
+	Epoch                   int64
+	ObserverActivationEpoch int64
+	Attempts                int
+	Until                   time.Time
+	Publisher               ProtectedPublisherIdentity
+}
+
+func (l ProtectedCascadeObservationLease) Validate() error {
+	if !uuidRE.MatchString(l.CascadePreflightID) || !workerIDRE.MatchString(l.Owner) ||
+		l.WorkerEpoch < 1 || l.Epoch < 1 || l.ObserverActivationEpoch < 1 ||
+		l.Attempts < 1 || l.Attempts > MaximumProtectedAttempts ||
+		l.Until.IsZero() || l.Publisher.Validate() != nil {
+		return ErrInvalid
+	}
+	return nil
 }
 
 func (i ProtectedApplicationIntent) Validate() error {
@@ -328,6 +627,9 @@ func (i ProtectedApplicationIntent) Validate() error {
 		(i.ContinuationRequired && (!uuidRE.MatchString(i.ContinuationReceiptID) ||
 			i.ContinuationReceiptID != i.ID || i.ContinuationContract != protectedContinuationContract)) ||
 		(!i.ContinuationRequired && (i.ContinuationReceiptID != "" || i.ContinuationContract != "")) ||
+		(i.CascadeRequired && (i.Action != ProtectedApplicationDelete ||
+			!uuidRE.MatchString(i.CascadeReceiptID) || i.CascadeContract != protectedCascadeContract)) ||
+		(!i.CascadeRequired && (i.CascadeReceiptID != "" || i.CascadeContract != "")) ||
 		len(i.Message) < 1 || len(i.Message) > 512 ||
 		containsControl(i.Message) || i.CreatedAt.IsZero() || i.UpdatedAt.Before(i.CreatedAt) ||
 		i.NextAttemptAt.Before(i.CreatedAt) || i.Attempts < 0 || i.Attempts > MaximumProtectedAttempts ||
@@ -353,6 +655,10 @@ func (i ProtectedApplicationIntent) Validate() error {
 		}
 	case ProtectedApplicationDelete:
 		if i.Operation != "delete" || i.SourceDirectory != "" || len(i.Content) != 0 || i.ContentDigest != "" {
+			return ErrInvalid
+		}
+		if (i.State == ProtectedPending || i.State == ProtectedClaimed || i.State == ProtectedGitCommitted) &&
+			!i.CascadeRequired {
 			return ErrInvalid
 		}
 	default:
@@ -469,9 +775,13 @@ func (m ProtectedMutation) Validate() error {
 		m.CommitTrailer != "Kuberploy-Helm-Payload-Intent: "+m.IntentID) {
 		return ErrInvalid
 	}
-	if applicationPath && (m.RequiredAncestor == "" ||
-		m.CommitTrailer != "Kuberploy-Helm-Application-Intent: "+m.IntentID) {
-		return ErrInvalid
+	if applicationPath {
+		applicationTrailer := m.CommitTrailer == "Kuberploy-Helm-Application-Intent: "+m.IntentID
+		cascadeTrailer := m.CommitTrailer == "Kuberploy-Helm-Cascade-Preflight: "+m.IntentID
+		if m.RequiredAncestor == "" || (!applicationTrailer && !cascadeTrailer) ||
+			(cascadeTrailer && (m.Action != ProtectedMutationUpsert || m.Precondition != "match-etag")) {
+			return ErrInvalid
+		}
 	}
 	switch m.Action {
 	case ProtectedMutationUpsert:
@@ -523,6 +833,24 @@ func (i ProtectedApplicationIntent) Mutation() (ProtectedMutation, error) {
 	return mutation, mutation.Validate()
 }
 
+func (p ProtectedApplicationCascadePreflight) Mutation() (ProtectedMutation, error) {
+	if p.Validate() != nil || (p.Operation != "update" && p.Operation != "observe") {
+		return ProtectedMutation{}, ErrInvalid
+	}
+	baseRevision := p.WriteBaseRevision
+	if baseRevision == "" {
+		baseRevision = p.Binding.PlannedBaseRevision
+	}
+	mutation := ProtectedMutation{IntentID: p.ID, BindingID: p.Binding.PlatformBindingID,
+		TargetRef: p.Binding.PlatformTargetRef, Path: p.ApplicationPath,
+		Action: ProtectedMutationUpsert, BaseRevision: baseRevision,
+		Precondition: p.Precondition, ExpectedETag: p.ExpectedETag,
+		Content: append([]byte(nil), p.AdoptedContent...), ContentDigest: p.AdoptedContentDigest,
+		Message:       "Adopt foreground cascade finalizer for protected Helm Application " + p.ReleaseRevisionID,
+		CommitTrailer: p.CommitTrailer, RequiredAncestor: p.PayloadRevision}
+	return mutation, mutation.Validate()
+}
+
 // gitMutation is the deliberately narrow adapter into gitprojection's one
 // hardened mutation transport. The transport independently validates the
 // authority, exact protected path family, digest, action, CAS precondition,
@@ -538,6 +866,8 @@ func (m ProtectedMutation) gitMutation() (gitprojection.Mutation, error) {
 	authority := gitprojection.MutationAuthorityHelmApplication
 	if validProtectedPayloadPath(m.Path) {
 		authority = gitprojection.MutationAuthorityHelmPayload
+	} else if m.CommitTrailer == "Kuberploy-Helm-Cascade-Preflight: "+m.IntentID {
+		authority = gitprojection.MutationAuthorityHelmCascade
 	}
 	mutation := gitprojection.Mutation{
 		BindingID: m.BindingID, OperationID: m.IntentID, Path: m.Path,
@@ -579,6 +909,30 @@ type ProtectedPublicationStore interface {
 	PublisherReady(context.Context, ProtectedPublisherIdentity, time.Time) (bool, error)
 }
 
+type ProtectedCascadeStore interface {
+	CreateCascadePreflightForPayload(context.Context, string, string, string, ProtectedApplicationRuntime, ProtectedPublisherIdentity, time.Time) (ProtectedApplicationCascadePreflight, bool, error)
+	CascadePreflight(context.Context, string) (ProtectedApplicationCascadePreflight, error)
+	ClaimCascadePreflight(context.Context, string, ProtectedPublisherIdentity, time.Time, time.Duration) (ProtectedApplicationCascadePreflight, ProtectedIntentLease, error)
+	AdoptCascadePreflight(context.Context, string, int64, ProtectedPublisherIdentity, time.Duration) (ProtectedApplicationCascadePreflight, ProtectedIntentLease, error)
+	HeartbeatCascadePreflight(context.Context, ProtectedIntentLease, time.Time, time.Duration) (ProtectedIntentLease, error)
+	BindCascadePreflightWriteBase(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedApplicationCascadePreflight, error)
+	RebindCascadePreflightWriteBase(context.Context, ProtectedIntentLease, string, string, time.Time, time.Time) (ProtectedApplicationCascadePreflight, error)
+	MarkCascadePreflightCommitted(context.Context, ProtectedIntentLease, string, string, time.Time) (ProtectedApplicationCascadePreflight, error)
+	VerifyCascadePreflight(context.Context, ProtectedIntentLease, string, string, string, time.Time) (ProtectedApplicationCascadePreflight, error)
+	RetryCascadePreflight(context.Context, ProtectedIntentLease, string, time.Time, time.Time) (ProtectedApplicationCascadePreflight, error)
+	FailCascadePreflight(context.Context, ProtectedIntentLease, string, time.Time) (ProtectedApplicationCascadePreflight, error)
+}
+
+type ProtectedCascadeObservationStore interface {
+	ClaimCascadeObservation(context.Context, string, int64, ProtectedPublisherIdentity, time.Time, time.Duration) (ProtectedApplicationCascadePreflight, ProtectedCascadeObservationLease, error)
+	RecordCascadeObservation(context.Context, ProtectedCascadeObservationLease, ProtectedApplicationCascadeReceipt, time.Time) (ProtectedApplicationCascadeReceipt, error)
+	RetryCascadeObservation(context.Context, ProtectedCascadeObservationLease, string, time.Time, time.Time) error
+}
+
+type ProtectedObserverActivationStore interface {
+	ActivateCascadeObserver(context.Context, string, int64, ProtectedPublisherIdentity, time.Time) (int64, error)
+}
+
 type ProtectedApplicationRuntime struct {
 	ArgoNamespace string
 }
@@ -610,6 +964,7 @@ func (r ProtectedPublisherReadiness) Validate() error {
 type protectedArgoMetadata struct {
 	Name        string            `yaml:"name"`
 	Namespace   string            `yaml:"namespace"`
+	Finalizers  []string          `yaml:"finalizers"`
 	Labels      map[string]string `yaml:"labels"`
 	Annotations map[string]string `yaml:"annotations"`
 }
@@ -665,6 +1020,10 @@ func renderProtectedArgoApplication(intentID string, release ReleaseRevision,
 	manifest.APIVersion, manifest.Kind = ArgoApplicationAPIVersion, ArgoApplicationKind
 	manifest.Metadata.Name = "kp-h-" + strings.ReplaceAll(release.Target.ApplicationID, "-", "")
 	manifest.Metadata.Namespace = runtime.ArgoNamespace
+	// The protected Application is removed declaratively from Git on disable.
+	// Argo's foreground resources finalizer makes that Git prune cascade to the
+	// workloads owned by the child Application instead of orphaning them.
+	manifest.Metadata.Finalizers = []string{protectedArgoResourcesFinalizer}
 	manifest.Metadata.Labels = map[string]string{
 		"app.kubernetes.io/managed-by": "kuberploy",
 		"app.kubernetes.io/component":  "approved-helm-application",
@@ -696,6 +1055,43 @@ func renderProtectedArgoApplication(intentID string, release ReleaseRevision,
 		return nil, ErrInvalid
 	}
 	return content, nil
+}
+
+func adoptProtectedArgoResourcesFinalizer(content []byte) ([]byte, bool, error) {
+	if len(content) < 1 || len(content) > MaximumDescriptorSize {
+		return nil, false, ErrInvalid
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(content))
+	decoder.KnownFields(true)
+	var manifest protectedArgoApplication
+	if err := decoder.Decode(&manifest); err != nil {
+		return nil, false, ErrInvalid
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return nil, false, ErrInvalid
+	}
+	if manifest.APIVersion != ArgoApplicationAPIVersion || manifest.Kind != ArgoApplicationKind {
+		return nil, false, ErrInvalid
+	}
+	switch {
+	case len(manifest.Metadata.Finalizers) == 0:
+		manifest.Metadata.Finalizers = []string{protectedArgoResourcesFinalizer}
+		result, err := yaml.Marshal(manifest)
+		if err != nil || len(result) < 1 || len(result) > MaximumDescriptorSize {
+			return nil, false, ErrInvalid
+		}
+		return result, true, nil
+	case len(manifest.Metadata.Finalizers) == 1 && manifest.Metadata.Finalizers[0] == protectedArgoResourcesFinalizer:
+		return append([]byte(nil), content...), false, nil
+	default:
+		return nil, false, ErrInvalid
+	}
+}
+
+func protectedApplicationHasExactForegroundFinalizer(content []byte) bool {
+	adopted, changed, err := adoptProtectedArgoResourcesFinalizer(content)
+	return err == nil && !changed && bytes.Equal(adopted, content)
 }
 
 func protectedPayloadPath(clusterID, environmentID, applicationID, releaseID string, disabled bool) string {

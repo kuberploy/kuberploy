@@ -1077,10 +1077,209 @@ model helm_protected_application_intents {
   continuation_required            Boolean   @default(true)
   continuation_receipt_id          String?   @db.Uuid
   continuation_contract            String    @default("")
+  cascade_required                 Boolean   @default(false)
+  cascade_receipt_id               String?   @db.Uuid
+  cascade_contract                 String    @default("")
 
   @@unique([environment_id, application_id, release_generation], map: "helm_protected_application_generation_live_key", where: raw("(state <> 'superseded'::text)"))
   @@index([platform_binding_id, state, created_at], map: "helm_protected_application_intents_binding_idx")
   @@index([next_attempt_at, created_at, id], map: "helm_protected_application_intents_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+}
+
+/// Durable Git-only foreground-finalizer adoption/observation before a protected Helm Application delete.
+/// Native migration SQL owns its immutable state machine, exact transform, adoption, and lane authority.
+model helm_application_cascade_preflights {
+  id                               String    @id @db.Uuid
+  delete_intent_id                 String    @unique(map: "helm_application_cascade_preflight_delete_live_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
+  release_revision_id              String    @unique(map: "helm_application_cascade_preflight_release_live_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
+  payload_intent_id                String    @unique(map: "helm_application_cascade_preflight_payload_live_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
+  base_application_intent_id       String    @db.Uuid
+  release_generation               BigInt
+  payload_revision                 String
+  project_id                       String    @db.Uuid
+  environment_id                   String    @db.Uuid
+  application_id                   String    @db.Uuid
+  platform_binding_id              String    @db.Uuid
+  environment_binding_id           String    @db.Uuid
+  cluster_id                       String    @db.Uuid
+  platform_target_ref              String
+  environment_target_ref           String
+  environment_revision             String
+  environment_generation           BigInt
+  catalog_digest                   String
+  planned_base_revision            String
+  argo_namespace                   String
+  application_path                 String
+  source_content                   Bytes
+  source_content_digest            String
+  adopted_content                  Bytes
+  adopted_content_digest           String
+  content_digest                   String
+  operation                        String
+  precondition                     String
+  expected_etag                    String
+  intent_digest                    String
+  commit_trailer                   String
+  contract                         String
+  publisher_contract               String
+  publisher_policy_version         String
+  publisher_config_digest          String
+  original_publisher_config_digest String
+  publisher_adoption_epoch         BigInt    @default(0)
+  prerequisite_epoch               BigInt    @default(0)
+  state                            String
+  next_attempt_at                  DateTime  @db.Timestamptz(6)
+  attempts                         Int       @default(0)
+  consecutive_failures             Int       @default(0)
+  last_failure_code                String    @default("")
+  lease_owner                      String?
+  lease_epoch                      BigInt    @default(0)
+  lease_until                      DateTime? @db.Timestamptz(6)
+  write_base_revision              String    @default("")
+  write_base_observed_at           DateTime? @db.Timestamptz(6)
+  committed_revision               String    @default("")
+  committed_parent_revision        String    @default("")
+  committed_at                     DateTime? @db.Timestamptz(6)
+  verified_at                      DateTime? @db.Timestamptz(6)
+  verified_path_digest             String    @default("")
+  provider_request                 String    @default("")
+  created_at                       DateTime  @db.Timestamptz(6)
+  updated_at                       DateTime  @db.Timestamptz(6)
+  completed_at                     DateTime? @db.Timestamptz(6)
+
+  @@unique([environment_id, application_id, release_generation], map: "helm_application_cascade_preflight_generation_live_key", where: raw("(state <> 'superseded'::text)"))
+  @@index([next_attempt_at, created_at, id], map: "helm_application_cascade_preflights_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))"))
+  @@index([verified_at, id], map: "helm_application_cascade_preflights_verified_idx", where: raw("(state = 'verified'::text)"))
+}
+
+model helm_application_cascade_adoption_receipts {
+  id                        String   @id @db.Uuid
+  cascade_preflight_id      String   @db.Uuid
+  adoption_epoch            BigInt
+  publisher_contract        String
+  policy_version            String
+  original_config_digest    String
+  previous_config_digest    String
+  adopted_config_digest     String
+  intent_digest             String
+  source_content_digest     String
+  adopted_content_digest    String
+  application_path          String
+  precondition              String
+  expected_etag             String
+  commit_trailer            String
+  recovery_state            String
+  write_base_revision       String
+  committed_revision        String
+  committed_parent_revision String
+  previous_lease_epoch      BigInt
+  adopted_lease_epoch       BigInt
+  adopted_by_worker         String
+  adopted_worker_epoch      BigInt
+  created_at                DateTime @db.Timestamptz(6)
+
+  @@unique([cascade_preflight_id, adoption_epoch], map: "helm_application_cascade_adop_cascade_preflight_id_adoption_key")
+}
+
+model helm_application_cascade_observer_activations {
+  platform_binding_id             String   @db.Uuid
+  activation_epoch                BigInt
+  publisher_contract              String
+  publisher_policy_version        String
+  publisher_config_digest         String
+  publisher_worker_id             String
+  publisher_worker_epoch          BigInt
+  publisher_started_at            DateTime @db.Timestamptz(6)
+  publisher_readiness_observed_at DateTime @db.Timestamptz(6)
+  publisher_readiness_lease_until DateTime @db.Timestamptz(6)
+  argo_contract                   String
+  argo_config_digest              String
+  argo_worker_id                  String
+  argo_worker_epoch               BigInt
+  argo_identity                   Json
+  argo_started_at                 DateTime @db.Timestamptz(6)
+  argo_readiness_observed_at      DateTime @db.Timestamptz(6)
+  argo_readiness_lease_until      DateTime @db.Timestamptz(6)
+  activated_at                    DateTime @db.Timestamptz(6)
+
+  @@id([platform_binding_id, activation_epoch])
+  @@unique([platform_binding_id, publisher_worker_id, publisher_worker_epoch, argo_worker_id, argo_worker_epoch], map: "helm_application_cascade_observer_process_key")
+}
+
+model helm_application_cascade_observation_jobs {
+  cascade_preflight_id     String    @unique(map: "helm_application_cascade_observer_active_key", where: raw("(state <> 'superseded'::text)")) @db.Uuid
+  platform_binding_id      String    @db.Uuid
+  activation_epoch         BigInt
+  publisher_config_digest  String
+  publisher_contract       String
+  publisher_policy_version String
+  state                    String
+  next_attempt_at          DateTime  @db.Timestamptz(6)
+  attempts                 Int       @default(0)
+  consecutive_failures     Int       @default(0)
+  last_failure_code        String    @default("")
+  lease_owner              String?
+  worker_epoch             BigInt?
+  lease_epoch              BigInt    @default(0)
+  lease_until              DateTime? @db.Timestamptz(6)
+  superseded_at            DateTime? @db.Timestamptz(6)
+  created_at               DateTime  @db.Timestamptz(6)
+  updated_at               DateTime  @db.Timestamptz(6)
+  completed_at             DateTime? @db.Timestamptz(6)
+
+  @@id([cascade_preflight_id, activation_epoch])
+  @@index([next_attempt_at, created_at, cascade_preflight_id], map: "helm_application_cascade_observation_jobs_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text]))"))
+}
+
+model helm_application_cascade_receipts {
+  id                         String   @id @db.Uuid
+  delete_intent_id           String   @db.Uuid
+  cascade_preflight_id       String   @db.Uuid
+  observation_epoch          BigInt
+  observation_lease_epoch    BigInt
+  observer_activation_epoch  BigInt
+  release_revision_id        String   @db.Uuid
+  payload_intent_id          String   @db.Uuid
+  base_application_intent_id String   @db.Uuid
+  project_id                 String   @db.Uuid
+  environment_id             String   @db.Uuid
+  application_id             String   @db.Uuid
+  cluster_id                 String   @db.Uuid
+  application_path           String
+  source_content_digest      String
+  adopted_content_digest     String
+  adoption_revision          String
+  adoption_parent_revision   String
+  provider_head              String
+  root_observed_revision     String
+  root_sync_status           String
+  root_uid                   String   @db.Uuid
+  root_resource_version      String
+  root_spec_digest           String
+  child_uid                  String   @db.Uuid
+  child_resource_version     String
+  child_spec_digest          String
+  finalizer_digest           String
+  child_release_revision_id  String   @db.Uuid
+  child_payload_revision     String
+  child_payload_path         String
+  child_payload_digest       String
+  publisher_contract         String
+  publisher_policy_version   String
+  publisher_config_digest    String
+  worker_id                  String
+  worker_epoch               BigInt
+  argo_contract              String
+  argo_config_digest         String
+  argo_worker_id             String
+  argo_worker_epoch          BigInt
+  argo_started_at            DateTime @db.Timestamptz(6)
+  argo_readiness_observed_at DateTime @db.Timestamptz(6)
+  argo_readiness_lease_until DateTime @db.Timestamptz(6)
+  observed_at                DateTime @db.Timestamptz(6)
+
+  @@unique([cascade_preflight_id, observation_epoch], map: "helm_application_cascade_rece_cascade_preflight_id_observat_key")
+  @@index([cascade_preflight_id, observation_epoch(sort: Desc)], map: "helm_application_cascade_receipts_latest_idx")
 }
 
 /// Immutable proof that phase two has canonical current AppProject, materialization, and foundation authority.

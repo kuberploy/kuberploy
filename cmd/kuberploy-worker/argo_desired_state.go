@@ -14,8 +14,10 @@ import (
 )
 
 type argoDesiredStateRuntime struct {
-	store   *argo.PostgreSQLStore
-	runtime *argo.ProductionDesiredStateRuntime
+	store       *argo.PostgreSQLStore
+	runtime     *argo.ProductionDesiredStateRuntime
+	kubernetes  *argo.InClusterProductionClient
+	observation argo.DesiredStateRuntimeWorkerObservation
 }
 
 func newArgoDesiredStateRuntime(
@@ -111,7 +113,8 @@ func newArgoDesiredStateRuntime(
 		Worker: worker, Prerequisites: prerequisites, Materializer: components.Materializer,
 		PollInterval: config.PollInterval,
 	}
-	return &argoDesiredStateRuntime{store: store, runtime: runtime}, nil
+	return &argoDesiredStateRuntime{store: store, runtime: runtime, kubernetes: kubernetes,
+		observation: worker.Observation}, nil
 }
 
 func (r *argoDesiredStateRuntime) Run(ctx context.Context) error {

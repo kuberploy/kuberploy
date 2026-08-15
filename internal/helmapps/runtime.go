@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
 )
@@ -202,6 +203,9 @@ type RuntimeDependencies struct {
 	GitBindings         ProtectedGitBindingStore
 	GitProvider         gitprojection.HeadVerifier
 	GitManager          *gitprojection.MirrorManager
+	ArgoObservation     argo.DesiredStateRuntimeWorkerObservation
+	CascadeRoots        argo.PlatformRootCascadeSource
+	CascadeApplications argo.ProtectedApplicationSource
 	WorkerID            string
 	WorkerEpoch         int64
 	StartedAt           time.Time
@@ -224,6 +228,7 @@ type Runtime struct {
 	Worker       Worker
 	Planner      PublicationPlanner
 	Publisher    protectedPublisherProcessor
+	Cascade      protectedCascadeObserverProcessor
 	workerID     string
 	workerEpoch  int64
 	startedAt    time.Time
@@ -242,6 +247,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 		dependencies.Bindings == nil || dependencies.ArgoMaterialization.Validate() != nil ||
 		dependencies.GitBindings == nil || dependencies.GitProvider == nil ||
 		dependencies.GitManager == nil || dependencies.GitManager.Validate() != nil ||
+		dependencies.ArgoObservation.Validate() != nil || dependencies.CascadeRoots == nil ||
+		dependencies.CascadeApplications == nil ||
 		dependencies.Now == nil || dependencies.StartedAt.IsZero() ||
 		!workerIDRE.MatchString(dependencies.WorkerID) || dependencies.WorkerEpoch < 1 ||
 		dependencies.ReportError == nil {
@@ -266,8 +273,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	if err != nil {
 		return nil, err
 	}
-	publications, err := NewPostgresProtectedPublicationStore(dependencies.Pool,
-		dependencies.ArgoMaterialization)
+	publications, err := NewPostgresProtectedPublicationStoreWithCascade(dependencies.Pool,
+		dependencies.ArgoMaterialization, dependencies.ArgoObservation)
 	if err != nil {
 		return nil, err
 	}
@@ -291,15 +298,27 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	if planner.Validate() != nil {
 		return nil, ErrInvalid
 	}
-	publisher := &ProtectedGitPublisher{Store: publications, Bindings: dependencies.GitBindings,
+	publisher := &ProtectedGitPublisher{Store: publications, Cascade: publications, Activations: publications,
+		Bindings: dependencies.GitBindings,
 		Provider: dependencies.GitProvider, Manager: dependencies.GitManager,
 		Publisher: config.Publisher, WorkerID: dependencies.WorkerID, WorkerEpoch: dependencies.WorkerEpoch,
 		LeaseDuration: config.PublishLeaseDuration, Now: dependencies.Now}
 	if publisher.Validate() != nil {
 		return nil, ErrInvalid
 	}
+	cascade := &ProtectedCascadeObserver{Store: publications, Activations: publications,
+		Bindings: dependencies.GitBindings,
+		Provider: dependencies.GitProvider, Manager: dependencies.GitManager,
+		Argo:            dependencies.ArgoObservation.DesiredStateRuntimeIdentity,
+		ArgoObservation: dependencies.ArgoObservation, Roots: dependencies.CascadeRoots,
+		Applications: dependencies.CascadeApplications, Publisher: config.Publisher,
+		WorkerID: dependencies.WorkerID, WorkerEpoch: dependencies.WorkerEpoch,
+		LeaseDuration: config.PublishLeaseDuration, NewID: dependencies.NewID, Now: dependencies.Now}
+	if cascade.Validate() != nil {
+		return nil, ErrInvalid
+	}
 	return &Runtime{Enabled: true, Config: config, Store: store, Releases: releases,
-		Values: releases, Publications: publications, Worker: worker, Planner: planner, Publisher: publisher,
+		Values: releases, Publications: publications, Worker: worker, Planner: planner, Publisher: publisher, Cascade: cascade,
 		workerID: dependencies.WorkerID, workerEpoch: dependencies.WorkerEpoch,
 		startedAt: dependencies.StartedAt.UTC(), reportError: dependencies.ReportError,
 		credentials: credentialReadiness}, nil
@@ -308,7 +327,13 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 type protectedPublisherProcessor interface {
 	Validate() error
 	ProcessPayloadOne(context.Context) (ProtectedPayloadIntent, error)
+	ProcessCascadePreflightOne(context.Context) (ProtectedApplicationCascadePreflight, error)
 	ProcessApplicationOne(context.Context) (ProtectedApplicationIntent, error)
+}
+
+type protectedCascadeObserverProcessor interface {
+	Validate() error
+	ProcessOne(context.Context) (ProtectedApplicationCascadeReceipt, error)
 }
 
 func (r *Runtime) ObserveRendererReadiness(ctx context.Context) error {
@@ -372,14 +397,28 @@ func (r *Runtime) ProcessProtectedApplicationOne(ctx context.Context) (Protected
 	return r.Publisher.ProcessApplicationOne(ctx)
 }
 
+func (r *Runtime) ProcessCascadePreflightOne(ctx context.Context) (ProtectedApplicationCascadePreflight, error) {
+	if r == nil || !r.Enabled || r.Publisher == nil {
+		return ProtectedApplicationCascadePreflight{}, ErrInvalid
+	}
+	return r.Publisher.ProcessCascadePreflightOne(ctx)
+}
+
+func (r *Runtime) ObserveCascadeOne(ctx context.Context) (ProtectedApplicationCascadeReceipt, error) {
+	if r == nil || !r.Enabled || r.Cascade == nil || r.Cascade.Validate() != nil {
+		return ProtectedApplicationCascadeReceipt{}, ErrInvalid
+	}
+	return r.Cascade.ProcessOne(ctx)
+}
+
 // Run keeps both exact readiness leases, rendering, planning, and the two
 // protected publication phases in independent loops. Long bounded Git/Helm
 // work therefore cannot let readiness expire. Iteration failures are reported
 // and retried after the fixed poll interval; durable stores retain their own
 // retry, recovery, and fencing semantics.
 func (r *Runtime) Run(ctx context.Context) error {
-	if r == nil || !r.Enabled || r.Config.Validate() != nil || r.Publisher == nil ||
-		r.Publisher.Validate() != nil || r.reportError == nil || ctx == nil {
+	if r == nil || !r.Enabled || r.Config.Validate() != nil || r.Publisher == nil || r.Cascade == nil ||
+		r.Publisher.Validate() != nil || r.Cascade.Validate() != nil || r.reportError == nil || ctx == nil {
 		return ErrInvalid
 	}
 	var wait sync.WaitGroup
@@ -399,7 +438,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			}
 		}
 	}
-	wait.Add(6)
+	wait.Add(8)
 	go run("renderer-readiness", r.Config.ReadinessLeaseDuration/3, r.ObserveRendererReadiness)
 	go run("publisher-readiness", r.Config.ReadinessLeaseDuration/3, r.ObservePublisherReadiness)
 	go run("render", r.Config.WorkPollInterval, func(loopContext context.Context) error {
@@ -412,6 +451,14 @@ func (r *Runtime) Run(ctx context.Context) error {
 	})
 	go run("protected-application-publisher", r.Config.WorkPollInterval, func(loopContext context.Context) error {
 		_, err := r.ProcessProtectedApplicationOne(loopContext)
+		return err
+	})
+	go run("protected-application-cascade-preflight", r.Config.WorkPollInterval, func(loopContext context.Context) error {
+		_, err := r.ProcessCascadePreflightOne(loopContext)
+		return err
+	})
+	go run("protected-application-cascade-observer", r.Config.WorkPollInterval, func(loopContext context.Context) error {
+		_, err := r.ObserveCascadeOne(loopContext)
 		return err
 	})
 	go run("protected-payload-publisher", r.Config.WorkPollInterval, func(loopContext context.Context) error {

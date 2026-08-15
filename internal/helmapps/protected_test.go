@@ -56,6 +56,35 @@ func TestRenderProtectedArgoApplicationPinsOnlyTheVerifiedPayloadCommit(t *testi
 	if metadata["namespace"] != runtime.ArgoNamespace || !strings.HasPrefix(metadata["name"].(string), "kp-h-") {
 		t.Fatalf("Application metadata was not platform-derived: %#v", metadata)
 	}
+	requireProtectedForegroundResourcesFinalizer(t, first)
+}
+
+func TestRenderProtectedArgoApplicationRollbackCarriesForegroundResourcesFinalizer(t *testing.T) {
+	release, payload, runtime := protectedApplicationFixture(t)
+	release.ID, release.Generation, release.Action = id.New(), 2, ReleaseRollback
+	release.ParentRevisionID, release.RollbackSourceRevisionID = id.New(), id.New()
+	release.RenderCommandID = id.New()
+	release.IntentDigest = digestBytes([]byte("rollback-release-intent"))
+	release.IdempotencyKey, release.RequestID = "helm-release-rollback-0001", "rollback-test"
+	release.CreatedAt = release.CreatedAt.Add(time.Second)
+	if err := release.Validate(); err != nil {
+		t.Fatalf("invalid rollback release fixture: %v", err)
+	}
+	payload.ID, payload.ReleaseRevisionID, payload.ReleaseGeneration = id.New(), release.ID, release.Generation
+	payload.Path = protectedPayloadPath(payload.Binding.ClusterID, release.Target.EnvironmentID,
+		release.Target.ApplicationID, release.ID, false)
+	payload.IntentDigest = digestBytes([]byte("rollback-payload-intent"))
+	payload.CommitTrailer = "Kuberploy-Helm-Payload-Intent: " + payload.ID
+	if err := payload.Validate(); err != nil {
+		t.Fatalf("invalid rollback payload fixture: %v", err)
+	}
+
+	content, err := renderProtectedArgoApplication(id.New(), release, payload, runtime,
+		"kuberploy", "platform", "helm-release", "helm-release")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireProtectedForegroundResourcesFinalizer(t, content)
 }
 
 func TestProtectedMutationRejectsEveryUnownedPathAndMutableTarget(t *testing.T) {
@@ -192,4 +221,87 @@ func requireProtectedMap(t *testing.T, value map[string]any, key string) map[str
 		t.Fatalf("%s is not a mapping: %#v", key, value[key])
 	}
 	return nested
+}
+
+func requireProtectedForegroundResourcesFinalizer(t *testing.T, content []byte) {
+	t.Helper()
+	var document struct {
+		Metadata struct {
+			Finalizers []string `yaml:"finalizers"`
+		} `yaml:"metadata"`
+	}
+	if err := yaml.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"resources-finalizer.argocd.argoproj.io"}
+	if len(document.Metadata.Finalizers) != len(want) || document.Metadata.Finalizers[0] != want[0] {
+		t.Fatalf("Application must use the exact foreground cascading-delete finalizer: %#v",
+			document.Metadata.Finalizers)
+	}
+}
+
+func TestCascadePreflightAllowsOnlyExactLegacyFinalizerAdoption(t *testing.T) {
+	release, payload, runtime := protectedApplicationFixture(t)
+	applicationID := id.New()
+	adopted, err := renderProtectedArgoApplication(applicationID, release, payload, runtime,
+		"kuberploy", "platform", "application-ns", "project-runtime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy protectedArgoApplication
+	if err = yaml.Unmarshal(adopted, &legacy); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Metadata.Finalizers = nil
+	source, err := yaml.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := release.CreatedAt.Add(5 * time.Second)
+	preflight := ProtectedApplicationCascadePreflight{
+		ID: id.New(), DeleteIntentID: id.New(), ReleaseRevisionID: id.New(),
+		PayloadIntentID: id.New(), BaseApplicationIntentID: id.New(),
+		PayloadRevision: payload.CommittedRevision, ArgoNamespace: runtime.ArgoNamespace,
+		ReleaseGeneration: 2, Target: release.Target, Binding: payload.Binding,
+		ApplicationPath: protectedApplicationPath(payload.Binding.ClusterID,
+			release.Target.EnvironmentID, release.Target.ApplicationID),
+		SourceContent: source, SourceContentDigest: digestBytes(source),
+		AdoptedContent: adopted, AdoptedContentDigest: digestBytes(adopted),
+		Operation: "update", Precondition: "match-etag",
+		Contract: protectedCascadeContract, Publisher: payload.Publisher,
+		OriginalPublisherConfigDigest: payload.Publisher.ConfigDigest,
+		State:                         ProtectedPending, NextAttemptAt: now, CreatedAt: now, UpdatedAt: now,
+	}
+	preflight.ExpectedETag = `"` + preflight.SourceContentDigest + `"`
+	preflight.CommitTrailer = "Kuberploy-Helm-Cascade-Preflight: " + preflight.ID
+	preflight.IntentDigest, err = cascadePreflightIntentDigest(preflight)
+	if err != nil || preflight.Validate() != nil {
+		t.Fatalf("valid exact adoption rejected: %+v err=%v", preflight, err)
+	}
+	expectation, err := preflight.ApplicationExpectation()
+	if err != nil || expectation.ReleaseRevisionID != release.ID ||
+		expectation.TargetRevision != payload.CommittedRevision || expectation.PayloadDigest != payload.ContentDigest {
+		t.Fatalf("child identity drifted: %+v err=%v", expectation, err)
+	}
+	mutated := preflight
+	mutated.AdoptedContent = append([]byte(nil), adopted...)
+	mutated.AdoptedContent = append(mutated.AdoptedContent, []byte("# extra\n")...)
+	mutated.AdoptedContentDigest = digestBytes(mutated.AdoptedContent)
+	mutated.IntentDigest, _ = cascadePreflightIntentDigest(mutated)
+	if !errors.Is(mutated.Validate(), ErrInvalid) {
+		t.Fatal("cascade preflight accepted a postimage that changed more than the finalizer")
+	}
+	superseded := preflight
+	completed := now.Add(time.Second)
+	superseded.State, superseded.ConsecutiveFailures = ProtectedSuperseded, 1
+	superseded.LastFailureCode, superseded.CompletedAt = "cascade-projection-superseded", &completed
+	superseded.UpdatedAt = completed
+	if superseded.Validate() != nil || superseded.Attempts != 0 || superseded.LeaseEpoch != 0 {
+		t.Fatalf("pristine superseded replacement predecessor rejected: %+v", superseded)
+	}
+	legacy.Metadata.Finalizers = []string{"resources-finalizer.argocd.argoproj.io/background"}
+	alternate, _ := yaml.Marshal(legacy)
+	if _, _, err = adoptProtectedArgoResourcesFinalizer(alternate); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("alternate finalizer was accepted: %v", err)
+	}
 }

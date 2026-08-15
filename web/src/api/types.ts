@@ -528,6 +528,8 @@ export type HelmReleaseStatus = {
   payloadIntentId?: string;
   payloadState?: string;
   payloadRevision?: string;
+  cascadeState?: string;
+  cascadeObservationState?: string;
   applicationIntentId?: string;
   applicationState?: string;
   applicationRevision?: string;

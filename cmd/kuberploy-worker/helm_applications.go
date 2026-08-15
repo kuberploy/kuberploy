@@ -67,7 +67,9 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 		ArgoMaterialization: helmapps.ArgoMaterializationAuthority{PolicyDigest: projection.policyDigest,
 			Runtime: identity.Runtime, DigestEnforcement: identity.DigestEnforcement},
 		GitBindings: projection.store, GitProvider: projection.headVerifier, GitManager: projection.writeManager,
-		WorkerID: workerLeaseOwner(processIdentity, "helm-applications"), WorkerEpoch: 1,
+		ArgoObservation: argoRuntime.observation, CascadeRoots: argoRuntime.kubernetes,
+		CascadeApplications: argoRuntime.kubernetes,
+		WorkerID:            workerLeaseOwner(processIdentity, "helm-applications"), WorkerEpoch: 1,
 		StartedAt: startedAt, Now: func() time.Time { return time.Now().UTC() },
 		ReportError: func(loop string, runtimeErr error) {
 			slog.Warn("protected Helm application runtime iteration failed", "loop", loop, "error", runtimeErr)

@@ -41,6 +41,8 @@ const status = {
   phase: "application-pending" as const,
   renderState: "succeeded" as const,
   payloadState: "ready",
+  cascadeState: "verified",
+  cascadeObservationState: "pending",
   applicationState: "pending",
   credential: "must-not-cross-client-boundary",
 };
@@ -155,6 +157,10 @@ describe("approved Helm application API client", () => {
     expect(bodies[6]).toEqual({});
     expect(bodies[7]).toEqual({ sourceRevisionId: revision.id });
     expect(upsert.replayed).toBe(true);
+    expect(head.cascadeState).toBe("verified");
+    expect(head.cascadeObservationState).toBe("pending");
+    expect(history.items[0]?.cascadeState).toBe("verified");
+    expect(history.items[0]?.cascadeObservationState).toBe("pending");
     expect(
       JSON.stringify({ catalog, validated, head, history, upsert }),
     ).not.toMatch(

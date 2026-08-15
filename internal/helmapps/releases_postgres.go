@@ -429,11 +429,32 @@ const releaseStatusSelect = `SELECT release.id::text,release.generation,release.
 	COALESCE(render.state,''),COALESCE(render.last_failure_code,''),
 	COALESCE(payload.id::text,''),COALESCE(payload.state,''),
 	COALESCE(payload.committed_revision,''),COALESCE(payload.last_failure_code,''),
+	COALESCE(cascade.state,''),COALESCE(cascade.last_failure_code,''),
+	COALESCE(cascade_observation.state,''),COALESCE(cascade_observation.last_failure_code,''),
 	COALESCE(application.id::text,''),COALESCE(application.state,''),
 	COALESCE(application.committed_revision,''),COALESCE(application.last_failure_code,'')
 	FROM helm_release_revisions release
 	LEFT JOIN helm_render_commands render ON render.id=release.render_command_id
 	LEFT JOIN helm_protected_payload_intents payload ON payload.release_revision_id=release.id
+	LEFT JOIN LATERAL (
+		SELECT candidate.* FROM helm_application_cascade_preflights candidate
+		WHERE candidate.release_revision_id=release.id
+		ORDER BY (candidate.state<>'superseded') DESC,candidate.created_at DESC,candidate.id DESC
+		LIMIT 1
+	) cascade ON true
+	LEFT JOIN LATERAL (
+		SELECT job.* FROM helm_application_cascade_observation_jobs job
+		JOIN helm_application_cascade_observer_activations activation
+		  ON activation.platform_binding_id=job.platform_binding_id
+		 AND activation.activation_epoch=job.activation_epoch
+		WHERE job.cascade_preflight_id=cascade.id
+		  AND activation.activation_epoch=(
+		    SELECT MAX(current.activation_epoch)
+		    FROM helm_application_cascade_observer_activations current
+		    WHERE current.platform_binding_id=cascade.platform_binding_id)
+		ORDER BY job.activation_epoch DESC
+		LIMIT 1
+	) cascade_observation ON true
 	LEFT JOIN LATERAL (
 		SELECT candidate.* FROM helm_protected_application_intents candidate
 		WHERE candidate.release_revision_id=release.id
@@ -443,7 +464,8 @@ const releaseStatusSelect = `SELECT release.id::text,release.generation,release.
 
 func scanReleaseStatus(row rowScanner) (ReleaseStatus, error) {
 	var status ReleaseStatus
-	var renderFailure, payloadFailure, applicationFailure string
+	var renderFailure, payloadFailure, cascadeFailure string
+	var cascadeObservationFailure, applicationFailure string
 	err := row.Scan(&status.Revision.ID, &status.Revision.Generation,
 		&status.Revision.Target.ProjectID, &status.Revision.Target.EnvironmentID,
 		&status.Revision.Target.ApplicationID, &status.Revision.ReleaseName,
@@ -456,7 +478,8 @@ func scanReleaseStatus(row rowScanner) (ReleaseStatus, error) {
 		&status.Revision.IdempotencyKey, &status.Revision.RequestID,
 		&status.Revision.CreatedAt, &status.RenderState, &renderFailure,
 		&status.PayloadIntentID, &status.PayloadState, &status.PayloadRevision,
-		&payloadFailure, &status.ApplicationIntentID, &status.ApplicationState,
+		&payloadFailure, &status.CascadeState, &cascadeFailure, &status.CascadeObservationState,
+		&cascadeObservationFailure, &status.ApplicationIntentID, &status.ApplicationState,
 		&status.ApplicationRevision, &applicationFailure)
 	if err != nil {
 		return ReleaseStatus{}, err
@@ -465,11 +488,14 @@ func scanReleaseStatus(row rowScanner) (ReleaseStatus, error) {
 		return ReleaseStatus{}, ErrConflict
 	}
 	status.Phase, status.FailureCode = deriveReleasePhase(status, renderFailure,
-		payloadFailure, applicationFailure)
+		payloadFailure, status.CascadeState, cascadeFailure, status.CascadeObservationState,
+		cascadeObservationFailure, applicationFailure)
 	return status, nil
 }
 
-func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, applicationFailure string) (ReleasePhase, string) {
+func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, cascadeState,
+	cascadeFailure, cascadeObservationState, cascadeObservationFailure,
+	applicationFailure string) (ReleasePhase, string) {
 	if status.RenderState == "failed" {
 		return ReleasePhaseRenderFailed, renderFailure
 	}
@@ -486,6 +512,35 @@ func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, app
 	case "failed", "superseded":
 		return ReleasePhaseFailed, payloadFailure
 	case "verified":
+		switch cascadeState {
+		case "pending", "claimed":
+			return ReleasePhaseApplicationPending, ""
+		case "git-committed":
+			return ReleasePhaseApplicationCommitted, ""
+		case "failed", "superseded":
+			return ReleasePhaseFailed, cascadeFailure
+		case "verified":
+			switch cascadeObservationState {
+			case "", "pending", "claimed":
+				return ReleasePhaseApplicationPending, ""
+			case "failed", "superseded":
+				return ReleasePhaseFailed, cascadeObservationFailure
+			case "verified":
+				// The planner may not have materialized the final delete intent yet.
+				if status.ApplicationState == "" {
+					return ReleasePhaseApplicationPending, ""
+				}
+			default:
+				return ReleasePhaseFailed, "invalid-durable-state"
+			}
+		case "":
+			if !status.Revision.DesiredEnabled {
+				return ReleasePhaseApplicationPending, ""
+			}
+			// Publish releases have no cascade preflight.
+		default:
+			return ReleasePhaseFailed, "invalid-durable-state"
+		}
 		if status.ApplicationState == "" {
 			return ReleasePhasePayloadVerified, ""
 		}

@@ -50,7 +50,7 @@ func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7)`, environmentID, projectID, "Helm Test", "helm", namespace, "helm", now)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`, environmentID, projectID, "Helm Test", "helm", namespace, namespace, now)
 	if err != nil {
 		t.Fatal(err)
 	}
