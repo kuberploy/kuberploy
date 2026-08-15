@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm disable now adopts the exact Argo foreground-deletion finalizer through Git, verifies the current root and child Application under monotonic publisher authority, and only then publishes the protected delete; schema 011 preserves legacy release history while preventing orphaned workloads.",
+  "summary": "Schema 012 automatically recovers the exact RC171 migration-011 terminal-intent failure by preserving the published SQL and Prisma history, replaying it through a bounded no-op shim, and removing that shim after exact cascade-authority verification.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.171"
+  "version": "0.1.0-rc.172"
 }

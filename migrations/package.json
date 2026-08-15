@@ -17,6 +17,7 @@
     "validate": "prisma validate --config prisma.config.ts"
   },
   "dependencies": {
+    "postgres": "3.4.7",
     "prisma": "7.9.1"
   },
   "allowScripts": {

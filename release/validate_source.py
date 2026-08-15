@@ -199,8 +199,13 @@ def main() -> None:
     if not migrations or len({path.name[:3] for path in migrations}) != len(migrations):
         raise SystemExit("database migrations must have unique ordered three-digit prefixes")
     migration_package = json.loads((args.root / "migrations/package.json").read_text(encoding="utf-8"))
-    if migration_package.get("dependencies") != {"prisma": "7.9.1"}:
-        raise SystemExit("migration package must contain only exact Prisma CLI 7.9.1")
+    if migration_package.get("dependencies") != {
+        "postgres": "3.4.7",
+        "prisma": "7.9.1",
+    }:
+        raise SystemExit(
+            "migration package must contain only exact Prisma CLI 7.9.1 and postgres.js 3.4.7"
+        )
     if migration_package.get("allowScripts") != {
         "@prisma/engines@7.9.1": True,
         "prisma@7.9.1": True,
