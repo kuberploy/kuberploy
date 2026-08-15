@@ -212,6 +212,18 @@ type protectedPublisherProcessorStub struct {
 	payloadCalls, applicationCalls atomic.Int64
 }
 
+type protectedLaneProcessorStub struct {
+	validateErr error
+	err         error
+	calls       atomic.Int64
+}
+
+func (s *protectedLaneProcessorStub) Validate() error { return s.validateErr }
+func (s *protectedLaneProcessorStub) ProcessOne(context.Context) error {
+	s.calls.Add(1)
+	return s.err
+}
+
 type protectedCascadeObserverProcessorStub struct{}
 
 func (*protectedCascadeObserverProcessorStub) Validate() error { return nil }
@@ -425,6 +437,7 @@ func TestRuntimeRunKeepsReadinessIndependentAndTreatsEmptyQueuesAsIdle(t *testin
 	store := NewMemoryStore(config.Publisher.ConfigDigest)
 	planningStore := &planningStoreStub{applicationErr: ErrNotFound, payloadErr: ErrNotFound}
 	publisher := &protectedPublisherProcessorStub{payloadErr: ErrNotFound, applicationErr: ErrNotFound}
+	lane := &protectedLaneProcessorStub{err: ErrNotFound}
 	resolver := &bindingResolverStub{}
 	var reported atomic.Int64
 	runtime := &Runtime{Enabled: true, Config: config, Store: store, Publications: planningStore,
@@ -434,7 +447,7 @@ func TestRuntimeRunKeepsReadinessIndependentAndTreatsEmptyQueuesAsIdle(t *testin
 		Planner: PublicationPlanner{Store: planningStore, Bindings: resolver,
 			Publisher: config.Publisher, Application: config.Application,
 			NewID: func() string { return testCommandID }, Now: func() time.Time { return testTime }}, Publisher: publisher,
-		Cascade:  &protectedCascadeObserverProcessorStub{},
+		Cascade: &protectedCascadeObserverProcessorStub{}, ProtectedLane: lane,
 		workerID: "helm-renderer-worker-0001", workerEpoch: 1, startedAt: testTime,
 		reportError: func(string, error) { reported.Add(1) }}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
@@ -449,8 +462,8 @@ func TestRuntimeRunKeepsReadinessIndependentAndTreatsEmptyQueuesAsIdle(t *testin
 	if reported.Load() != 0 {
 		t.Fatalf("empty durable queues were reported as failures %d times", reported.Load())
 	}
-	if len(planningStore.publisherReadiness) == 0 || publisher.payloadCalls.Load() == 0 || publisher.applicationCalls.Load() == 0 {
-		t.Fatalf("publisher runtime loops did not start: readiness=%d payload=%d application=%d",
-			len(planningStore.publisherReadiness), publisher.payloadCalls.Load(), publisher.applicationCalls.Load())
+	if len(planningStore.publisherReadiness) == 0 || lane.calls.Load() == 0 {
+		t.Fatalf("publisher runtime lane did not start: readiness=%d lane=%d",
+			len(planningStore.publisherReadiness), lane.calls.Load())
 	}
 }

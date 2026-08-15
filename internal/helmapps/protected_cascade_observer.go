@@ -63,6 +63,14 @@ func (o *ProtectedCascadeObserver) ProcessOne(ctx context.Context) (result Prote
 	if activationEpoch < 1 {
 		return ProtectedApplicationCascadeReceipt{}, ErrConflict
 	}
+	return o.processOneActivated(ctx)
+}
+
+func (o *ProtectedCascadeObserver) processOneActivated(ctx context.Context) (result ProtectedApplicationCascadeReceipt, resultErr error) {
+	if o.Validate() != nil || ctx == nil {
+		return ProtectedApplicationCascadeReceipt{}, ErrInvalid
+	}
+	now := o.Now().UTC()
 	preflight, lease, err := o.Store.ClaimCascadeObservation(ctx, o.WorkerID, o.WorkerEpoch,
 		o.Publisher, now, o.leaseDuration())
 	if err != nil {

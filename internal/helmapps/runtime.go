@@ -219,21 +219,22 @@ type ociCredentialReadiness interface {
 }
 
 type Runtime struct {
-	Enabled      bool
-	Config       RuntimeConfig
-	Store        Store
-	Releases     ReleaseService
-	Values       ReleaseValuesService
-	Publications ProtectedPublicationPlanningStore
-	Worker       Worker
-	Planner      PublicationPlanner
-	Publisher    protectedPublisherProcessor
-	Cascade      protectedCascadeObserverProcessor
-	workerID     string
-	workerEpoch  int64
-	startedAt    time.Time
-	reportError  func(string, error)
-	credentials  ociCredentialReadiness
+	Enabled       bool
+	Config        RuntimeConfig
+	Store         Store
+	Releases      ReleaseService
+	Values        ReleaseValuesService
+	Publications  ProtectedPublicationPlanningStore
+	Worker        Worker
+	Planner       PublicationPlanner
+	Publisher     protectedPublisherProcessor
+	Cascade       protectedCascadeObserverProcessor
+	ProtectedLane protectedLaneProcessor
+	workerID      string
+	workerEpoch   int64
+	startedAt     time.Time
+	reportError   func(string, error)
+	credentials   ociCredentialReadiness
 }
 
 func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtime, error) {
@@ -317,9 +318,14 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	if cascade.Validate() != nil {
 		return nil, ErrInvalid
 	}
+	protectedLane := &ProtectedLaneScheduler{Publisher: publisher, Cascade: cascade}
+	if protectedLane.Validate() != nil {
+		return nil, ErrInvalid
+	}
 	return &Runtime{Enabled: true, Config: config, Store: store, Releases: releases,
 		Values: releases, Publications: publications, Worker: worker, Planner: planner, Publisher: publisher, Cascade: cascade,
-		workerID: dependencies.WorkerID, workerEpoch: dependencies.WorkerEpoch,
+		ProtectedLane: protectedLane,
+		workerID:      dependencies.WorkerID, workerEpoch: dependencies.WorkerEpoch,
 		startedAt: dependencies.StartedAt.UTC(), reportError: dependencies.ReportError,
 		credentials: credentialReadiness}, nil
 }
@@ -334,6 +340,11 @@ type protectedPublisherProcessor interface {
 type protectedCascadeObserverProcessor interface {
 	Validate() error
 	ProcessOne(context.Context) (ProtectedApplicationCascadeReceipt, error)
+}
+
+type protectedLaneProcessor interface {
+	Validate() error
+	ProcessOne(context.Context) error
 }
 
 func (r *Runtime) ObserveRendererReadiness(ctx context.Context) error {
@@ -417,8 +428,8 @@ func (r *Runtime) ObserveCascadeOne(ctx context.Context) (ProtectedApplicationCa
 // and retried after the fixed poll interval; durable stores retain their own
 // retry, recovery, and fencing semantics.
 func (r *Runtime) Run(ctx context.Context) error {
-	if r == nil || !r.Enabled || r.Config.Validate() != nil || r.Publisher == nil || r.Cascade == nil ||
-		r.Publisher.Validate() != nil || r.Cascade.Validate() != nil || r.reportError == nil || ctx == nil {
+	if r == nil || !r.Enabled || r.Config.Validate() != nil || r.ProtectedLane == nil ||
+		r.ProtectedLane.Validate() != nil || r.reportError == nil || ctx == nil {
 		return ErrInvalid
 	}
 	var wait sync.WaitGroup
@@ -438,7 +449,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			}
 		}
 	}
-	wait.Add(8)
+	wait.Add(5)
 	go run("renderer-readiness", r.Config.ReadinessLeaseDuration/3, r.ObserveRendererReadiness)
 	go run("publisher-readiness", r.Config.ReadinessLeaseDuration/3, r.ObservePublisherReadiness)
 	go run("render", r.Config.WorkPollInterval, func(loopContext context.Context) error {
@@ -449,22 +460,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		_, err := r.ProcessPublicationOne(loopContext)
 		return err
 	})
-	go run("protected-application-publisher", r.Config.WorkPollInterval, func(loopContext context.Context) error {
-		_, err := r.ProcessProtectedApplicationOne(loopContext)
-		return err
-	})
-	go run("protected-application-cascade-preflight", r.Config.WorkPollInterval, func(loopContext context.Context) error {
-		_, err := r.ProcessCascadePreflightOne(loopContext)
-		return err
-	})
-	go run("protected-application-cascade-observer", r.Config.WorkPollInterval, func(loopContext context.Context) error {
-		_, err := r.ObserveCascadeOne(loopContext)
-		return err
-	})
-	go run("protected-payload-publisher", r.Config.WorkPollInterval, func(loopContext context.Context) error {
-		_, err := r.ProcessProtectedPayloadOne(loopContext)
-		return err
-	})
+	go run("protected-helm-lane", r.Config.WorkPollInterval, r.ProtectedLane.ProcessOne)
 	<-ctx.Done()
 	wait.Wait()
 	return nil

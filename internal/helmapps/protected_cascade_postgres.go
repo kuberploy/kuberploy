@@ -14,6 +14,13 @@ const protectedCascadeTable = "public.helm_application_cascade_preflights"
 
 func (s *PostgresProtectedPublicationStore) ActivateCascadeObserver(ctx context.Context,
 	owner string, workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time) (int64, error) {
+	return retryProtectedTransaction(ctx, func() (int64, error) {
+		return s.activateCascadeObserverOnce(ctx, owner, workerEpoch, publisher, now)
+	})
+}
+
+func (s *PostgresProtectedPublicationStore) activateCascadeObserverOnce(ctx context.Context,
+	owner string, workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time) (int64, error) {
 	if s == nil || s.pool == nil || s.cascadeIdentity == nil || s.cascadeArgoObservation == nil ||
 		ctx == nil || !workerIDRE.MatchString(owner) || workerEpoch < 1 ||
 		publisher.Validate() != nil || now.IsZero() || s.cascadeArgoObservation.Validate() != nil {
@@ -122,6 +129,21 @@ func scanProtectedCascade(row rowScanner) (ProtectedApplicationCascadePreflight,
 }
 
 func (s *PostgresProtectedPublicationStore) CreateCascadePreflightForPayload(ctx context.Context,
+	preflightID, deleteIntentID, payloadID string, runtime ProtectedApplicationRuntime,
+	publisher ProtectedPublisherIdentity, now time.Time) (ProtectedApplicationCascadePreflight, bool, error) {
+	type result struct {
+		preflight ProtectedApplicationCascadePreflight
+		replay    bool
+	}
+	value, err := retryProtectedTransaction(ctx, func() (result, error) {
+		preflight, replay, createErr := s.createCascadePreflightForPayloadOnce(ctx,
+			preflightID, deleteIntentID, payloadID, runtime, publisher, now)
+		return result{preflight: preflight, replay: replay}, createErr
+	})
+	return value.preflight, value.replay, err
+}
+
+func (s *PostgresProtectedPublicationStore) createCascadePreflightForPayloadOnce(ctx context.Context,
 	preflightID, deleteIntentID, payloadID string, runtime ProtectedApplicationRuntime,
 	publisher ProtectedPublisherIdentity, now time.Time) (ProtectedApplicationCascadePreflight, bool, error) {
 	if !uuidRE.MatchString(preflightID) || !uuidRE.MatchString(deleteIntentID) ||
@@ -399,6 +421,14 @@ func (s *PostgresProtectedPublicationStore) FailCascadePreflight(ctx context.Con
 func (s *PostgresProtectedPublicationStore) FailCascadePreflightPathAbsent(ctx context.Context,
 	lease ProtectedIntentLease, proof ProtectedCascadePathAbsenceProof,
 	now time.Time) (ProtectedApplicationCascadePreflight, error) {
+	return retryProtectedTransaction(ctx, func() (ProtectedApplicationCascadePreflight, error) {
+		return s.failCascadePreflightPathAbsentOnce(ctx, lease, proof, now)
+	})
+}
+
+func (s *PostgresProtectedPublicationStore) failCascadePreflightPathAbsentOnce(ctx context.Context,
+	lease ProtectedIntentLease, proof ProtectedCascadePathAbsenceProof,
+	now time.Time) (ProtectedApplicationCascadePreflight, error) {
 	if s == nil || s.pool == nil || ctx == nil || lease.Validate() != nil ||
 		proof.Validate() != nil || now.IsZero() {
 		return ProtectedApplicationCascadePreflight{}, ErrInvalid
@@ -457,6 +487,21 @@ func (s *PostgresProtectedPublicationStore) FailCascadePreflightPathAbsent(ctx c
 }
 
 func (s *PostgresProtectedPublicationStore) ClaimCascadeObservation(ctx context.Context, owner string,
+	workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time,
+	duration time.Duration) (ProtectedApplicationCascadePreflight, ProtectedCascadeObservationLease, error) {
+	type result struct {
+		preflight ProtectedApplicationCascadePreflight
+		lease     ProtectedCascadeObservationLease
+	}
+	value, err := retryProtectedTransaction(ctx, func() (result, error) {
+		preflight, lease, claimErr := s.claimCascadeObservationOnce(ctx, owner, workerEpoch,
+			publisher, now, duration)
+		return result{preflight: preflight, lease: lease}, claimErr
+	})
+	return value.preflight, value.lease, err
+}
+
+func (s *PostgresProtectedPublicationStore) claimCascadeObservationOnce(ctx context.Context, owner string,
 	workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time,
 	duration time.Duration) (ProtectedApplicationCascadePreflight, ProtectedCascadeObservationLease, error) {
 	if s == nil || s.pool == nil || s.cascadeIdentity == nil || ctx == nil ||
@@ -578,6 +623,14 @@ func (s *PostgresProtectedPublicationStore) ClaimCascadeObservation(ctx context.
 }
 
 func (s *PostgresProtectedPublicationStore) RecordCascadeObservation(ctx context.Context,
+	lease ProtectedCascadeObservationLease, receipt ProtectedApplicationCascadeReceipt,
+	now time.Time) (ProtectedApplicationCascadeReceipt, error) {
+	return retryProtectedTransaction(ctx, func() (ProtectedApplicationCascadeReceipt, error) {
+		return s.recordCascadeObservationOnce(ctx, lease, receipt, now)
+	})
+}
+
+func (s *PostgresProtectedPublicationStore) recordCascadeObservationOnce(ctx context.Context,
 	lease ProtectedCascadeObservationLease, receipt ProtectedApplicationCascadeReceipt,
 	now time.Time) (ProtectedApplicationCascadeReceipt, error) {
 	if s == nil || s.pool == nil || s.cascadeIdentity == nil || ctx == nil || lease.Validate() != nil ||

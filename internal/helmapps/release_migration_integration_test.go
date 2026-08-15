@@ -1480,6 +1480,78 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || preflight.ID != preflightID {
 		t.Fatalf("claimed cascade preflight=%+v lease=%+v err=%v", preflight, preflightLease, err)
 	}
+	// Reproduce the prior-release live recovery shape exactly: a prior release worker
+	// exhausted the diagnostic counter after many unknown-side-effect retries,
+	// while the durable lease epoch proves that Git work had already been
+	// admitted. A live lease must still block authority rotation.
+	capPublisher := publisher
+	capPublisher.ConfigDigest = "sha256:" + strings.Repeat("7", 64)
+	capWorker := "helm-disable-worker-0002"
+	capRotationAt := helmPGDatabaseNow(t, ctx, pool)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: capWorker, WorkerEpoch: 2, Publisher: capPublisher,
+		StartedAt: capRotationAt.Add(-time.Second), ObservedAt: capRotationAt,
+		LeaseUntil: capRotationAt.Add(4 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	argoLease, err = argoStore.HeartbeatDesiredStateReadiness(ctx, argoLease,
+		capRotationAt, 4*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, capWorker, 2,
+		capPublisher, capRotationAt); !errors.Is(err, ErrConflict) {
+		t.Fatalf("live cascade lease did not fence authority rotation: %v", err)
+	}
+	// The test-only transition seeds only the already-observed live runtime
+	// counters. Migration 015 must recover this row through its normal adopter;
+	// no receipt or publisher identity is preplanted.
+	seedCap, seedErr := pool.Begin(ctx)
+	if seedErr != nil {
+		t.Fatal(seedErr)
+	}
+	if _, seedErr = seedCap.Exec(ctx,
+		`ALTER TABLE public.helm_application_cascade_preflights DISABLE TRIGGER USER`); seedErr == nil {
+		_, seedErr = seedCap.Exec(ctx, `UPDATE public.helm_application_cascade_preflights SET
+			attempts=30,lease_epoch=91,updated_at=clock_timestamp()-interval '2 seconds',
+			lease_until=clock_timestamp()-interval '1 second'
+			WHERE id=$1 AND state='claimed' AND lease_owner=$2`, preflightID, preflightWorker)
+	}
+	if seedErr == nil {
+		_, seedErr = seedCap.Exec(ctx,
+			`ALTER TABLE public.helm_application_cascade_preflights ENABLE TRIGGER USER`)
+	}
+	if seedErr != nil {
+		_ = seedCap.Rollback(ctx)
+		t.Fatal(seedErr)
+	}
+	if seedErr = seedCap.Commit(ctx); seedErr != nil {
+		t.Fatal(seedErr)
+	}
+	capRotationAt = helmPGDatabaseNow(t, ctx, pool)
+	if _, err = store.ActivateCascadeObserver(ctx, capWorker, 2,
+		capPublisher, capRotationAt); err != nil {
+		t.Fatal(err)
+	}
+	preflight, preflightLease, err = store.AdoptCascadePreflight(ctx, capWorker, 2,
+		capPublisher, minimumProtectedLease)
+	if err != nil || preflight.ID != preflightID || preflight.Attempts != 30 ||
+		preflight.LeaseEpoch != 92 || preflight.PublisherAdoptionEpoch != 1 {
+		t.Fatalf("adopted saturated cascade preflight=%+v lease=%+v err=%v",
+			preflight, preflightLease, err)
+	}
+	var saturatedReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*)
+		FROM public.helm_application_cascade_adoption_receipts
+		WHERE cascade_preflight_id=$1 AND previous_lease_epoch=91
+		  AND adopted_lease_epoch=92 AND adopted_config_digest=$2`,
+		preflightID, capPublisher.ConfigDigest).Scan(&saturatedReceipts); err != nil || saturatedReceipts != 1 {
+		t.Fatalf("saturated cascade adoption receipts=%d err=%v", saturatedReceipts, err)
+	}
+	publisher = capPublisher
+	publisherWorker = capWorker
+	preflightWorker = capWorker
 	// Prove the additive path-absence authority against a real PG18 state. The
 	// transaction is rolled back after forcing deferred checks so the same
 	// fixture can continue through successful finalizer adoption and pruning.
@@ -1646,10 +1718,34 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		return helmPGNotBefore(helmPGDatabaseNow(t, ctx, pool), after).Add(time.Microsecond)
 	}
 	failureAt := nextAt(preflight.UpdatedAt)
-	preflight, err = store.FailCascadePreflightPathAbsent(ctx, preflightLease,
-		ProtectedCascadePathAbsenceProof{ProviderHead: disablePayloadCommit,
-			ProviderRequest: "absence-provider-proof", ProviderObservedAt: providerObservedAt,
-			OperationCommitAbsent: true}, failureAt)
+	type absenceRaceResult struct {
+		preflight ProtectedApplicationCascadePreflight
+		err       error
+	}
+	activationResult := make(chan error, 1)
+	absenceResult := make(chan absenceRaceResult, 1)
+	startRace := make(chan struct{})
+	concurrentActivationAt := helmPGDatabaseNow(t, ctx, pool)
+	go func() {
+		<-startRace
+		_, activateErr := store.ActivateCascadeObserver(ctx, capWorker, 2,
+			capPublisher, concurrentActivationAt)
+		activationResult <- activateErr
+	}()
+	go func() {
+		<-startRace
+		failed, failErr := store.FailCascadePreflightPathAbsent(ctx, preflightLease,
+			ProtectedCascadePathAbsenceProof{ProviderHead: disablePayloadCommit,
+				ProviderRequest: "absence-provider-proof", ProviderObservedAt: providerObservedAt,
+				OperationCommitAbsent: true}, failureAt)
+		absenceResult <- absenceRaceResult{preflight: failed, err: failErr}
+	}()
+	close(startRace)
+	if activationErr := <-activationResult; activationErr != nil {
+		t.Fatalf("activation/absence lock-order race did not converge: %v", activationErr)
+	}
+	result := <-absenceResult
+	preflight, err = result.preflight, result.err
 	if err != nil || preflight.State != ProtectedFailed ||
 		preflight.LastFailureCode != "cascade-path-absent-recovery-required" {
 		t.Fatalf("terminal absent cascade preflight=%+v err=%v", preflight, err)
@@ -1847,7 +1943,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 
 	observerWorker := publisherWorker
 	observationAt := nextAt(preflight.UpdatedAt)
-	observedPreflight, observationLease, err := store.ClaimCascadeObservation(ctx, observerWorker, 1,
+	observedPreflight, observationLease, err := store.ClaimCascadeObservation(ctx, observerWorker, 2,
 		publisher, observationAt, time.Minute)
 	if err != nil || observedPreflight.ID != preflightID {
 		t.Fatalf("cascade observation claim=%+v lease=%+v err=%v",
@@ -1894,7 +1990,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		ChildReleaseRevisionID: childExpectation.ReleaseRevisionID,
 		ChildPayloadRevision:   childExpectation.TargetRevision, ChildPayloadPath: childExpectation.PayloadPath,
 		ChildPayloadDigest: childExpectation.PayloadDigest, Publisher: publisher,
-		WorkerID: observerWorker, WorkerEpoch: 1,
+		WorkerID: observerWorker, WorkerEpoch: 2,
 		ArgoContract: argoIdentity.ContractVersion, ArgoConfigDigest: argoIdentity.ConfigDigest,
 		ObservedAt: observationAt}
 	var expectedRootDigest, expectedChildDigest string

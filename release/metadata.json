@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 014 records immutable provider-pinned proof when a legacy protected Application path is already absent, fails the disable release with recovery-required guidance, and narrowly authorizes an explicit direct rollback to recreate the finalizer-protected Application before a new disable.",
+  "summary": "Schema 015 recovers previously leased cross-release cascade work after its bounded attempt counter saturates, serializes the four protected Helm phases through one fair scheduler, retries transient PostgreSQL serialization and deadlock failures within a bounded budget, and aligns cascade absence authority with the platform binding lock order.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.174"
+  "version": "0.1.0-rc.175"
 }

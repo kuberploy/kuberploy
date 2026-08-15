@@ -186,6 +186,21 @@ func scanProtectedApplication(row rowScanner) (ProtectedApplicationIntent, error
 func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Context, intentID string,
 	target ReleaseTarget, binding ProtectedBindingSnapshot, publisher ProtectedPublisherIdentity,
 	now time.Time) (ProtectedPayloadIntent, bool, error) {
+	type result struct {
+		intent ProtectedPayloadIntent
+		replay bool
+	}
+	value, err := retryProtectedTransaction(ctx, func() (result, error) {
+		intent, replay, createErr := s.createPayloadForHeadOnce(ctx, intentID, target, binding,
+			publisher, now)
+		return result{intent: intent, replay: replay}, createErr
+	})
+	return value.intent, value.replay, err
+}
+
+func (s *PostgresProtectedPublicationStore) createPayloadForHeadOnce(ctx context.Context, intentID string,
+	target ReleaseTarget, binding ProtectedBindingSnapshot, publisher ProtectedPublisherIdentity,
+	now time.Time) (ProtectedPayloadIntent, bool, error) {
 	if !uuidRE.MatchString(intentID) || target.Validate() != nil || binding.Validate() != nil ||
 		publisher.Validate() != nil || now.IsZero() {
 		return ProtectedPayloadIntent{}, false, ErrInvalid
@@ -304,6 +319,21 @@ func (s *PostgresProtectedPublicationStore) CreatePayloadForHead(ctx context.Con
 }
 
 func (s *PostgresProtectedPublicationStore) CreateApplicationForPayload(ctx context.Context,
+	intentID, payloadID string, runtime ProtectedApplicationRuntime,
+	publisher ProtectedPublisherIdentity, now time.Time) (ProtectedApplicationIntent, bool, error) {
+	type result struct {
+		intent ProtectedApplicationIntent
+		replay bool
+	}
+	value, err := retryProtectedTransaction(ctx, func() (result, error) {
+		intent, replay, createErr := s.createApplicationForPayloadOnce(ctx, intentID, payloadID,
+			runtime, publisher, now)
+		return result{intent: intent, replay: replay}, createErr
+	})
+	return value.intent, value.replay, err
+}
+
+func (s *PostgresProtectedPublicationStore) createApplicationForPayloadOnce(ctx context.Context,
 	intentID, payloadID string, runtime ProtectedApplicationRuntime,
 	publisher ProtectedPublisherIdentity, now time.Time) (ProtectedApplicationIntent, bool, error) {
 	if !uuidRE.MatchString(intentID) || !uuidRE.MatchString(payloadID) || runtime.Validate() != nil ||
@@ -582,6 +612,13 @@ func (s *PostgresProtectedPublicationStore) AdoptApplication(ctx context.Context
 
 func (s *PostgresProtectedPublicationStore) adoptProtected(ctx context.Context, table, owner string,
 	workerEpoch int64, publisher ProtectedPublisherIdentity, duration time.Duration) (string, error) {
+	return retryProtectedTransaction(ctx, func() (string, error) {
+		return s.adoptProtectedOnce(ctx, table, owner, workerEpoch, publisher, duration)
+	})
+}
+
+func (s *PostgresProtectedPublicationStore) adoptProtectedOnce(ctx context.Context, table, owner string,
+	workerEpoch int64, publisher ProtectedPublisherIdentity, duration time.Duration) (string, error) {
 	if !validProtectedTable(table) || !workerIDRE.MatchString(owner) || publisher.Validate() != nil ||
 		workerEpoch < 1 || !validProtectedLeaseDuration(duration) {
 		return "", ErrInvalid
@@ -617,6 +654,13 @@ func (s *PostgresProtectedPublicationStore) adoptProtected(ctx context.Context, 
 }
 
 func (s *PostgresProtectedPublicationStore) claimProtected(ctx context.Context, table, owner string,
+	publisher ProtectedPublisherIdentity, now time.Time, duration time.Duration) (string, error) {
+	return retryProtectedTransaction(ctx, func() (string, error) {
+		return s.claimProtectedOnce(ctx, table, owner, publisher, now, duration)
+	})
+}
+
+func (s *PostgresProtectedPublicationStore) claimProtectedOnce(ctx context.Context, table, owner string,
 	publisher ProtectedPublisherIdentity, now time.Time, duration time.Duration) (string, error) {
 	if !validProtectedTable(table) || !workerIDRE.MatchString(owner) || publisher.Validate() != nil ||
 		now.IsZero() || !validProtectedLeaseDuration(duration) {

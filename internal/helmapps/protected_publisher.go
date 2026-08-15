@@ -83,10 +83,17 @@ func (p *ProtectedGitPublisher) ProcessPayloadOne(ctx context.Context) (Protecte
 	if p.Validate() != nil || ctx == nil {
 		return ProtectedPayloadIntent{}, ErrInvalid
 	}
-	leaseDuration, heartbeat := p.settings()
 	if err := p.activate(ctx, p.now()); err != nil {
 		return ProtectedPayloadIntent{}, err
 	}
+	return p.processPayloadOneActivated(ctx)
+}
+
+func (p *ProtectedGitPublisher) processPayloadOneActivated(ctx context.Context) (ProtectedPayloadIntent, error) {
+	if p.Validate() != nil || ctx == nil {
+		return ProtectedPayloadIntent{}, ErrInvalid
+	}
+	leaseDuration, heartbeat := p.settings()
 	intent, lease, err := p.Store.ClaimPayload(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
 	if errors.Is(err, ErrNotFound) {
 		intent, lease, err = p.Store.AdoptPayload(ctx, p.WorkerID, p.WorkerEpoch,
@@ -143,10 +150,17 @@ func (p *ProtectedGitPublisher) ProcessApplicationOne(ctx context.Context) (Prot
 	if p.Validate() != nil || ctx == nil {
 		return ProtectedApplicationIntent{}, ErrInvalid
 	}
-	leaseDuration, heartbeat := p.settings()
 	if err := p.activate(ctx, p.now()); err != nil {
 		return ProtectedApplicationIntent{}, err
 	}
+	return p.processApplicationOneActivated(ctx)
+}
+
+func (p *ProtectedGitPublisher) processApplicationOneActivated(ctx context.Context) (ProtectedApplicationIntent, error) {
+	if p.Validate() != nil || ctx == nil {
+		return ProtectedApplicationIntent{}, ErrInvalid
+	}
+	leaseDuration, heartbeat := p.settings()
 	intent, lease, err := p.Store.ClaimApplication(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
 	if errors.Is(err, ErrNotFound) {
 		intent, lease, err = p.Store.AdoptApplication(ctx, p.WorkerID, p.WorkerEpoch,
@@ -221,10 +235,17 @@ func (p *ProtectedGitPublisher) ProcessCascadePreflightOne(ctx context.Context) 
 	if p.Validate() != nil || p.Cascade == nil || ctx == nil {
 		return ProtectedApplicationCascadePreflight{}, ErrInvalid
 	}
-	leaseDuration, heartbeat := p.settings()
 	if err := p.activate(ctx, p.now()); err != nil {
 		return ProtectedApplicationCascadePreflight{}, err
 	}
+	return p.processCascadePreflightOneActivated(ctx)
+}
+
+func (p *ProtectedGitPublisher) processCascadePreflightOneActivated(ctx context.Context) (ProtectedApplicationCascadePreflight, error) {
+	if p.Validate() != nil || p.Cascade == nil || ctx == nil {
+		return ProtectedApplicationCascadePreflight{}, ErrInvalid
+	}
+	leaseDuration, heartbeat := p.settings()
 	intent, lease, err := p.Cascade.ClaimCascadePreflight(ctx, p.WorkerID, p.Publisher, p.now(), leaseDuration)
 	if errors.Is(err, ErrNotFound) {
 		intent, lease, err = p.Cascade.AdoptCascadePreflight(ctx, p.WorkerID, p.WorkerEpoch,

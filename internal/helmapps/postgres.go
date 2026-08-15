@@ -3,7 +3,6 @@ package helmapps
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -502,7 +501,7 @@ func classifyPostgres(err error) error {
 		return ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23505" || pgErr.Code == "23514" || pgErr.Code == "40001") {
+	if errors.As(err, &pgErr) && (pgErr.Code == "23503" || pgErr.Code == "23505" || pgErr.Code == "23514" || pgErr.Code == "40001" || pgErr.Code == "40P01") {
 		detail := pgErr.ConstraintName
 		if detail == "" {
 			// Trigger-raised check violations do not carry a constraint name. Keep
@@ -510,7 +509,16 @@ func classifyPostgres(err error) error {
 			// a useful, bounded SQLSTATE for operators.
 			detail = "database rejected operation (SQLSTATE " + pgErr.Code + ")"
 		}
-		return fmt.Errorf("%w: %s", ErrConflict, detail)
+		return postgresConflictError{code: pgErr.Code, detail: detail}
 	}
 	return err
 }
+
+type postgresConflictError struct {
+	code   string
+	detail string
+}
+
+func (e postgresConflictError) Error() string    { return ErrConflict.Error() + ": " + e.detail }
+func (e postgresConflictError) Unwrap() error    { return ErrConflict }
+func (e postgresConflictError) SQLState() string { return e.code }
