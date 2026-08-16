@@ -97,6 +97,7 @@ grep -F 'certificate: /tls/tls.crt' <<<"${kp_config}" >/dev/null
 grep -F 'key: /tls/tls.key' <<<"${kp_config}" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_auth_render}" | tail -1)" == "2" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | .spec.podSelector.matchLabels' "${kp_auth_render}" | jq -cS .)" == '{"app.kubernetes.io/component":"registry","app.kubernetes.io/instance":"authenticated","app.kubernetes.io/name":"kuberploy-registry"}' ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.ingress[].from[].namespaceSelector.matchLabels."kubernetes.io/metadata.name"] | sort | join(",")' "${kp_auth_render}" | tail -1)" == "kuberploy,kuberploy-build" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.egress | length' "${kp_auth_render}")" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$") | not)) | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_auth_render}")" == "registry" ]]

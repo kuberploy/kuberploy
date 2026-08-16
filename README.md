@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.181` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.182` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 > The dedicated Prisma migration Job automatically upgrades supported
 > Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma
@@ -84,7 +84,7 @@ cp examples/installer/managed-platform-values.yaml installer-values.yaml
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.181 \
+  --version 0.1.0-rc.182 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \

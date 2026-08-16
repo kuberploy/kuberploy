@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 016 is current. RC181 carries dependency-scoped private egress, optional NetworkPolicy/provider narrowing, fail-closed builder and credential mutation admission, default public provider egress, normalized operator lists, disabled-feature compatibility, tunable infrastructure, read-only Argo observation, k3s-compatible admission CEL, and GitHub Retry-At handling.",
+  "summary": "Schema 016 is current. RC182 carries dependency-scoped private egress, optional NetworkPolicy/provider narrowing, fail-closed builder and credential mutation admission, default public provider egress, normalized operator lists, disabled-feature compatibility, tunable infrastructure, read-only Argo observation, k3s-compatible admission CEL, and GitHub Retry-At handling.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.181"
+  "version": "0.1.0-rc.182"
 }

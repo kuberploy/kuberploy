@@ -31,7 +31,9 @@ metadata:
   labels:
     {{- include "kuberploy-registry.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      {{- include "kuberploy-registry.selectorLabels" . | nindent 6 }}
   policyTypes: [Egress]
   egress:
     - to:
