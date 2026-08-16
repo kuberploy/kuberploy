@@ -193,11 +193,17 @@ requires:
   declarative scenario. These are live-only inputs; the repository cannot know
   an operator's project/application/deployment IDs or credentials in advance.
 
-Public provider testing is not part of this harness. The reserved optional
-stage fails closed until a repository-owned provider mutation, observation,
-and exact cleanup workflow exists; a live operator-written driver is not an
-acceptable substitute. Setting `KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS=true`
-therefore fails before artifact creation or cluster mutation.
+When `KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS=true`, the harness runs the
+repository-owned Cloudflare workflow in `public-provider-workflow.sh`. It
+creates only the exact run-scoped
+`kuberploy-<run-id>.<configured-provider-zone>` A record, proves the provider
+object and public DNS target, verifies the public TLS certificate and HTTP route, then
+deletes the record by its observed provider ID and verifies absence. A
+pre-existing record, changed provider identity, non-run-scoped hostname, or
+missing credential fails closed. The credential is supplied by the mode-0600
+`KUBERPLOY_E2E_DNS_PROVIDER_CREDENTIAL_FILE`; its contents never enter
+evidence or the report. Public-provider runs still require the explicitly
+acknowledged disposable cluster because the HTTPS route is product state.
 Missing inputs fail before the first mutating stage. Secret file contents and
 paths are never copied into the report.
 

@@ -1670,9 +1670,6 @@ kp_write_workflow_proof() {
 }
 
 kp_run() {
-  if [[ "${KUBERPLOY_E2E_STAGE_ID}" == "110-public-provider" ]]; then
-    kp_die "public-provider qualification is not implemented by a repository-owned provider mutation/cleanup workflow"
-  fi
   if [[ "${KUBERPLOY_E2E_STAGE_ID}" == "10-one-chart-install" ]]; then
     kp_create_owned_namespace "${kp_namespace}"
     # The installer and Argo have fixed namespace boundaries. `create` is

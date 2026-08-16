@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/security-driver.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/public-provider-workflow.sh"
 
 kp_root="$(kp_repo_root)"
 kp_events_file=""
@@ -11,6 +12,8 @@ kp_active_stage=""
 kp_final_status="failed"
 kp_cleanup_failed="false"
 kp_secret_state_dir=""
+kp_public_provider_active="false"
+kp_public_provider_stage_dir=""
 kp_stage_ids=()
 kp_stage_drivers=()
 kp_stage_assertions=()
@@ -129,6 +132,17 @@ kp_on_exit() {
   local kp_status=$?
   trap - EXIT INT TERM
   if [[ "${kp_artifacts_ready}" == "true" ]]; then
+    if [[ "${kp_public_provider_active}" == "true" ]]; then
+      if kp_public_provider_cleanup \
+          >"${kp_public_provider_stage_dir}/evidence/cleanup.stdout" \
+          2>"${kp_public_provider_stage_dir}/evidence/cleanup.stderr"; then
+        kp_append_event 110-public-provider cleanup passed
+        kp_public_provider_active="false"
+      else
+        kp_append_event 110-public-provider cleanup failed
+        kp_cleanup_failed="true"
+      fi
+    fi
     kp_cleanup_completed_stages
     if [[ "${kp_status}" -eq 0 && "${kp_cleanup_failed}" == "false" ]]; then
       kp_final_status="qualified-teardown-required"
@@ -155,10 +169,8 @@ kp_on_exit() {
 trap kp_on_exit EXIT INT TERM
 
 kp_initialize
-if [[ "${KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS:-false}" == "true" ]]; then
-  kp_die "public-provider qualification is unavailable until repository-owned mutation and exact cleanup are implemented"
-fi
 kp_require_tools find helm curl openssl node
+[[ "${KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS:-false}" != "true" ]] || kp_require_tools dig
 kp_qualification_validate_common_inputs
 
 kp_catalog="$(kp_qualification_stage_catalog)"
@@ -213,6 +225,24 @@ kp_qualification_validate_result 00-preflight \
   "${kp_preflight_dir}"
 kp_append_event 00-preflight run passed
 
+if [[ "${KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS:-false}" == "true" ]]; then
+  kp_public_provider_stage_dir="${KUBERPLOY_E2E_ARTIFACT_DIR}/110-public-provider"
+  mkdir -p "${kp_public_provider_stage_dir}/evidence"
+  chmod 700 "${kp_public_provider_stage_dir}" "${kp_public_provider_stage_dir}/evidence"
+  export KUBERPLOY_E2E_PUBLIC_PROVIDER_INVENTORY_FILE="${kp_public_provider_stage_dir}/inventory.ndjson"
+  export KUBERPLOY_E2E_PUBLIC_PROVIDER_EVIDENCE_FILE="${kp_public_provider_stage_dir}/evidence/public-provider.json"
+  export KUBERPLOY_E2E_PUBLIC_PROVIDER_CLEANUP_RESULT_FILE="${kp_public_provider_stage_dir}/cleanup-result.json"
+  : >"${KUBERPLOY_E2E_PUBLIC_PROVIDER_INVENTORY_FILE}"
+  chmod 600 "${KUBERPLOY_E2E_PUBLIC_PROVIDER_INVENTORY_FILE}"
+  kp_public_provider_active="true"
+  kp_append_event 110-public-provider run started
+  if ! kp_public_provider_run; then
+    kp_append_event 110-public-provider run failed
+    kp_die "public-provider workflow failed"
+  fi
+  kp_append_event 110-public-provider run passed
+fi
+
 while IFS='|' read -r kp_stage kp_mutating kp_assertions; do
   [[ -n "${kp_stage}" ]] || continue
   kp_stage_dir="${KUBERPLOY_E2E_ARTIFACT_DIR}/${kp_stage}"
@@ -243,6 +273,16 @@ while IFS='|' read -r kp_stage kp_mutating kp_assertions; do
   kp_append_event "${kp_stage}" run passed
   kp_active_stage=""
 done <<<"${kp_catalog}"
+
+if [[ "${KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS:-false}" == "true" ]]; then
+  export KUBERPLOY_E2E_PUBLIC_PROVIDER_HTTPS_EVIDENCE_FILE="${kp_public_provider_stage_dir}/evidence/public-https.json"
+  kp_append_event 110-public-provider observe started
+  if ! kp_public_provider_verify_https; then
+    kp_append_event 110-public-provider observe failed
+    kp_die "public HTTPS workflow failed"
+  fi
+  kp_append_event 110-public-provider observe passed
+fi
 
 # The EXIT trap performs reverse-order, inventory-bound cleanup and writes the
 # final report. Reaching this line means every requested assertion passed.

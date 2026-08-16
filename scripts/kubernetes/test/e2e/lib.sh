@@ -25,13 +25,6 @@ kp_qualification_stage_catalog() {
 EOF
 }
 
-kp_qualification_public_stage_catalog() {
-  # Public provider mutation and cleanup are not yet implemented by the
-  # repository driver. Do not advertise assertions that only probe unrelated
-  # pre-existing DNS or TLS state.
-  return 0
-}
-
 kp_qualification_validate_safe_file() {
   local kp_name="${1:?input name required}"
   local kp_path="${2:-}"
@@ -196,10 +189,19 @@ JS
         kp_die "KUBERPLOY_E2E_PUBLIC_HOSTNAME is required when public provider tests are enabled"
       [[ -n "${KUBERPLOY_E2E_ACME_EMAIL:-}" ]] || \
         kp_die "KUBERPLOY_E2E_ACME_EMAIL is required when public provider tests are enabled"
+      [[ -n "${KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE:-}" ]] || \
+        kp_die "KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE is required when public provider tests are enabled"
+      [[ -n "${KUBERPLOY_E2E_PUBLIC_DNS_TARGET:-}" ]] || \
+        kp_die "KUBERPLOY_E2E_PUBLIC_DNS_TARGET is required when public provider tests are enabled"
       [[ -n "${KUBERPLOY_E2E_PUBLIC_EFFECTS_ACK:-}" ]] || \
         kp_die "KUBERPLOY_E2E_PUBLIC_EFFECTS_ACK is required when public provider tests are enabled"
       kp_qualification_validate_hostname KUBERPLOY_E2E_PUBLIC_HOSTNAME \
         "${KUBERPLOY_E2E_PUBLIC_HOSTNAME}"
+      kp_qualification_validate_hostname KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE \
+        "${KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE}"
+      [[ "${KUBERPLOY_E2E_PUBLIC_HOSTNAME}" == \
+         "kuberploy-${KUBERPLOY_E2E_RUN_ID}.${KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE}" ]] || \
+        kp_die "KUBERPLOY_E2E_PUBLIC_HOSTNAME must be the run-scoped provider-zone name"
       [[ "${KUBERPLOY_E2E_ACME_EMAIL}" =~ ^[^[:space:]@]+@[^[:space:]@]+$ ]] || \
         kp_die "KUBERPLOY_E2E_ACME_EMAIL must be one email address"
       [[ "${KUBERPLOY_E2E_PUBLIC_EFFECTS_ACK}" == \
