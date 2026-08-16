@@ -54,6 +54,12 @@ const production: Environment = {
   name: "Production",
   namespace: "payments-production",
 };
+const staging: Environment = {
+  id: "environment-staging",
+  projectId: project.id,
+  name: "Staging",
+  namespace: "payments-staging",
+};
 const detail: CertificateBindingDetail = {
   id: "certificate-public-edge",
   applicationId: application.id,
@@ -78,12 +84,22 @@ const detail: CertificateBindingDetail = {
     },
   ],
 };
+const stagingDetail: CertificateBindingDetail = {
+  ...detail,
+  id: "certificate-staging-edge",
+  environmentId: staging.id,
+  name: "staging-edge",
+};
 
-function capability(action: string): Capability {
+function capability(
+  action: string,
+  scopeId = production.id,
+  scopeType: Capability["scopeType"] = "environment",
+): Capability {
   return {
     role: "project-admin",
-    scopeType: "environment",
-    scopeId: production.id,
+    scopeType,
+    scopeId,
     actions: [action],
   };
 }
@@ -91,6 +107,7 @@ function capability(action: string): Capability {
 function renderPanel({
   featureEnabled = true,
   humanSession = true,
+  environments = [production],
   capabilities = [
     capability("certificate-bindings:read"),
     capability("certificate-bindings:create"),
@@ -100,6 +117,7 @@ function renderPanel({
 }: {
   featureEnabled?: boolean;
   humanSession?: boolean;
+  environments?: Environment[];
   capabilities?: Capability[];
 } = {}) {
   const queryClient = new QueryClient({
@@ -108,10 +126,10 @@ function renderPanel({
   const Wrapper = ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  render(
+  const rendered = render(
     <CertificateBindingsPanel
       application={application}
-      environments={[production]}
+      environments={environments}
       project={project}
       capabilities={capabilities}
       featureEnabled={featureEnabled}
@@ -119,7 +137,7 @@ function renderPanel({
     />,
     { wrapper: Wrapper },
   );
-  return queryClient;
+  return { queryClient, rerender: rendered.rerender };
 }
 
 describe("certificate management panel", () => {
@@ -160,7 +178,7 @@ describe("certificate management panel", () => {
           input.privateKeyPem === privateKeyPem;
         return detail;
       });
-    const queryClient = renderPanel();
+    const { queryClient } = renderPanel();
 
     await user.click(
       await screen.findByRole("button", { name: "New certificate" }),
@@ -212,7 +230,7 @@ describe("certificate management panel", () => {
         keys.push(key);
         throw new Error(`hostile transport echoed ${privateKeyPem}`);
       });
-    const queryClient = renderPanel();
+    const { queryClient } = renderPanel();
     await user.click(
       await screen.findByRole("button", { name: "New certificate" }),
     );
@@ -307,5 +325,187 @@ describe("certificate management panel", () => {
     await waitFor(() => expect(remove).toHaveBeenCalledOnce());
     expect(remove.mock.calls[0]?.[0]).toBe(detail.id);
     expect(remove.mock.calls[0]?.[1]).toMatch(/^[A-Za-z0-9._:-]{16,128}$/);
+  });
+
+  it("does not retry a failed rotation after the observed active version changes", async () => {
+    const user = userEvent.setup();
+    const updatedDetail = {
+      ...detail,
+      activeVersion: 3,
+      versions: [
+        ...detail.versions,
+        { ...detail.versions[0]!, number: 3 },
+      ],
+    };
+    vi.spyOn(api, "certificateBindings").mockResolvedValue({
+      items: [detail],
+    });
+    vi.spyOn(api, "certificateBinding")
+      .mockResolvedValueOnce(detail)
+      .mockResolvedValue(updatedDetail);
+    const rotate = vi
+      .spyOn(api, "rotateCertificateBinding")
+      .mockRejectedValueOnce(new Error("conflict"))
+      .mockResolvedValue(updatedDetail);
+    const { queryClient } = renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /public-edge/i }),
+    );
+    await screen.findByText("Immutable public attestations");
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Rotate certificate certificate chain PEM",
+      }),
+      "first-certificate",
+    );
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Rotate certificate private key PEM",
+      }),
+      "first-private-key",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Validate and rotate" }),
+    );
+    await screen.findByText(/write-only certificate rotation failed/i);
+    const firstKey = rotate.mock.calls[0]?.[2];
+
+    queryClient.setQueryData(
+      ["certificate-bindings", application.id, production.id],
+      { items: [{ ...detail, activeVersion: 3 }] },
+    );
+    await waitFor(() => expect(screen.getByText("Version 3")).toBeInTheDocument());
+
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Rotate certificate certificate chain PEM",
+      }),
+      "second-certificate",
+    );
+    await user.type(
+      screen.getByRole("textbox", {
+        name: "Rotate certificate private key PEM",
+      }),
+      "second-private-key",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Validate and rotate" }),
+    );
+    await waitFor(() => expect(rotate).toHaveBeenCalledTimes(2));
+    expect(rotate.mock.calls[1]?.[1].expectedActiveVersion).toBe(3);
+    expect(rotate.mock.calls[1]?.[2]).not.toBe(firstKey);
+  });
+
+  it("ignores a pending delete completion after the environment changes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "certificateBindings").mockImplementation(
+      async (_applicationId, environmentId) => ({
+        items: environmentId === production.id ? [detail] : [stagingDetail],
+      }),
+    );
+    vi.spyOn(api, "certificateBinding").mockImplementation(async (bindingId) =>
+      bindingId === detail.id ? detail : stagingDetail,
+    );
+    let resolveDelete: (() => void) | undefined;
+    const remove = vi.spyOn(api, "deleteCertificateBinding").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDelete = resolve;
+        }),
+    );
+    renderPanel({
+      environments: [production, staging],
+      capabilities: [
+        capability("certificate-bindings:read", project.id, "project"),
+        capability("certificate-bindings:create", project.id, "project"),
+        capability("certificate-bindings:rotate", project.id, "project"),
+        capability("certificate-bindings:delete", project.id, "project"),
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: /public-edge/i }),
+    );
+    await screen.findByText("Immutable public attestations");
+    const confirmation = screen.getByRole("textbox", {
+      name: "Exact certificate binding name confirmation",
+    });
+    await user.type(confirmation, detail.name);
+    await user.click(
+      screen.getByRole("button", { name: "Delete certificate" }),
+    );
+    await waitFor(() => expect(remove).toHaveBeenCalledOnce());
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Certificate environment" }),
+      staging.id,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /staging-edge/i }),
+    );
+    await screen.findByText("Immutable public attestations");
+
+    resolveDelete?.();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Immutable public attestations"),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByRole("button", { name: /staging-edge/i })).toHaveClass(
+      "runtime-secret-binding--active",
+    );
+  });
+
+  it("clears stale environment and binding selection after access changes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "certificateBindings").mockImplementation(
+      async (_applicationId, environmentId) => ({
+        items: environmentId === staging.id ? [stagingDetail] : [],
+      }),
+    );
+    vi.spyOn(api, "certificateBinding").mockResolvedValue(stagingDetail);
+    const { rerender } = renderPanel({
+      environments: [production, staging],
+      capabilities: [
+        capability("certificate-bindings:read", project.id, "project"),
+        capability("certificate-bindings:delete", project.id, "project"),
+      ],
+    });
+
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Certificate environment" }),
+      staging.id,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /staging-edge/i }),
+    );
+    await screen.findByText("Immutable public attestations");
+
+    rerender(
+      <CertificateBindingsPanel
+        application={application}
+        environments={[production]}
+        project={project}
+        capabilities={[
+          capability("certificate-bindings:read", project.id, "project"),
+          capability("certificate-bindings:delete", project.id, "project"),
+        ]}
+        featureEnabled
+        humanSession
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("combobox", { name: "Certificate environment" }),
+      ).toHaveValue(production.id),
+    );
+    expect(
+      screen.queryByRole("button", { name: /staging-edge/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Immutable public attestations"),
+    ).not.toBeInTheDocument();
   });
 });

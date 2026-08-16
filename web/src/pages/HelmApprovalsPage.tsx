@@ -45,9 +45,23 @@ export function HelmApprovalsPage() {
   const create = useMutation({
     mutationFn: ({ input, key }: { input: CreateHelmApproval; key: string }) =>
       api.createPlatformHelmApproval(input, key),
-    onSuccess: async () => {
-      form.current?.reset();
-      replayKey.current = crypto.randomUUID();
+    onSuccess: async (_value, input) => {
+      const current = form.current
+        ? new FormData(form.current)
+        : new FormData();
+      const sameDraft = (
+        [
+          "repository",
+          "version",
+          "manifestDigest",
+          "packageDigest",
+          "valuesSchemaDigest",
+        ] as const
+      ).every((field) => current.get(field) === input.input[field]);
+      if (sameDraft) {
+        form.current?.reset();
+        replayKey.current = crypto.randomUUID();
+      }
       await client.invalidateQueries({ queryKey: ["platform-helm-approvals"] });
     },
   });

@@ -47,7 +47,7 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Foundation test','foundation-test',$2)`, testProjectID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Development','dev','kp-demo-dev','kp-demo',$3)`, testEnvironmentID, testProjectID, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Development','dev','kp-demo-dev','kp-demo-dev',$3)`, testEnvironmentID, testProjectID, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO git_repository_bindings(

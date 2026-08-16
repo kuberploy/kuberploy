@@ -265,6 +265,113 @@ spec:
     expect(save).toBeDisabled();
   });
 
+  it("does not replace a newer YAML draft when an earlier save completes", async () => {
+    const etag = `"cfg-sha256-${"a".repeat(64)}"`;
+    const rawYaml = defaultConfigYaml({
+      name: "API",
+      image: `registry.example/api@sha256:${"b".repeat(64)}`,
+      port: 8080,
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: {},
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["deployment-config:write"],
+        },
+      ],
+    });
+    vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+      kind: "ConfigBundle",
+      etag,
+      targetHeadRevision: "",
+      indexedRevision: "",
+      configRevision: etag,
+      freshness: "projection-only",
+      documents: [{ id: "app.yaml", documentId: "app.yaml", rawYaml }],
+    });
+    vi.spyOn(api, "previewDeploymentConfig").mockResolvedValue({
+      previewToken: "p".repeat(43),
+      gitDiff: "+replicas: 2",
+      renderedDiff: "+replicas: 2",
+      semanticChanges: [],
+      warnings: [],
+      expiresAt: "2026-08-09T00:10:00Z",
+      renderIdentity: {
+        contract: "appconfig-rendered-preview.v1",
+        chartName: "kuberploy-runtime",
+        chartVersion: "1.2.3",
+        chartDigest: `sha256:${"a".repeat(64)}`,
+        rendererImage: `docker.io/alpine/helm:4.2.3@sha256:${"b".repeat(64)}`,
+        rendererVersion: "4.2.3",
+        policyVersion: "external-helm-p0.v1",
+      },
+      renderIdentityDigest: `sha256:${"c".repeat(64)}`,
+    });
+    let resolveSave!: (
+      value: Awaited<ReturnType<typeof api.saveDeploymentConfig>>,
+    ) => void;
+    const saveRequest = vi
+      .spyOn(api, "saveDeploymentConfig")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveSave = resolve;
+          }),
+      );
+    const deployment: Deployment = {
+      id: "deployment-save-race",
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      image: `registry.example/api@sha256:${"b".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+    };
+    const application: Application = {
+      id: "application-1",
+      projectId: "project-1",
+      name: "API",
+    };
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigEditor deployment={deployment} application={application} />
+      </QueryClientProvider>,
+    );
+
+    const previewButton = await screen.findByRole("button", {
+      name: /Preview configuration/i,
+    });
+    await waitFor(() => expect(previewButton).toBeEnabled());
+    await user.click(previewButton);
+    const save = await screen.findByRole("button", {
+      name: /Commit configuration/i,
+    });
+    await waitFor(() => expect(save).toBeEnabled());
+    await user.click(save);
+    await waitFor(() => expect(saveRequest).toHaveBeenCalledOnce());
+
+    await user.click(screen.getByRole("tab", { name: /Advanced YAML/i }));
+    const editor = screen.getByRole("textbox", { name: "AppConfig YAML" });
+    const newerDraft = `${rawYaml}\n# newer draft\n`;
+    fireEvent.change(editor, { target: { value: newerDraft } });
+
+    await act(async () => {
+      resolveSave({} as Awaited<ReturnType<typeof api.saveDeploymentConfig>>);
+    });
+    await waitFor(() => expect(editor).toHaveValue(newerDraft));
+  });
+
   it("loads the exact application/environment External DNS catalog for guided selection", async () => {
     const user = userEvent.setup();
     const deployment: Deployment = {

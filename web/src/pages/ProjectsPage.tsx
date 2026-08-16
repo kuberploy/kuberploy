@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
 import type { Project, Team } from "../api/types";
@@ -65,23 +65,96 @@ export function ProjectsPage() {
       protectionPolicy: "protected",
     },
   });
+  const projectAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
+  const environmentAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
 
   const createProject = useMutation({
-    mutationFn: api.createProject,
-    onSuccess: async () => {
-      projectForm.reset();
-      setPanel(null);
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: { name: string; slug?: string; teamId?: string };
+      idempotencyKey: string;
+    }) => api.createProject(input, idempotencyKey),
+    onSuccess: async (_value, input) => {
+      if (projectAttempt.current?.key === input.idempotencyKey) {
+        const current = projectForm.getValues();
+        const submitted = {
+          name: input.input.name,
+          slug: input.input.slug ?? "",
+          teamId: input.input.teamId ?? "",
+        };
+        if (JSON.stringify(current) === JSON.stringify(submitted)) {
+          projectAttempt.current = null;
+          projectForm.reset();
+          if (panel === "project") setPanel(null);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
   });
   const createEnvironment = useMutation({
-    mutationFn: api.createEnvironment,
-    onSuccess: async () => {
-      environmentForm.reset();
-      setPanel(null);
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: {
+        projectId: string;
+        name: string;
+        slug?: string;
+        protectionPolicy: EnvironmentForm["protectionPolicy"];
+      };
+      idempotencyKey: string;
+    }) => api.createEnvironment(input, idempotencyKey),
+    onSuccess: async (_value, input) => {
+      if (environmentAttempt.current?.key === input.idempotencyKey) {
+        const current = environmentForm.getValues();
+        const submitted = {
+          projectId: input.input.projectId,
+          name: input.input.name,
+          slug: input.input.slug ?? "",
+          protectionPolicy: input.input.protectionPolicy,
+        };
+        if (JSON.stringify(current) === JSON.stringify(submitted)) {
+          environmentAttempt.current = null;
+          environmentForm.reset();
+          if (panel === "environment") setPanel(null);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["environments"] });
     },
   });
+
+  const submitProject = (value: ProjectForm) => {
+    const input = {
+      name: value.name,
+      slug: value.slug || undefined,
+      teamId: value.teamId || undefined,
+    };
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      projectAttempt.current?.signature === signature
+        ? projectAttempt.current.key
+        : crypto.randomUUID();
+    projectAttempt.current = { signature, key: idempotencyKey };
+    createProject.mutate({ input, idempotencyKey });
+  };
+
+  const submitEnvironment = (value: EnvironmentForm) => {
+    const input = { ...value, slug: value.slug || undefined };
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      environmentAttempt.current?.signature === signature
+        ? environmentAttempt.current.key
+        : crypto.randomUUID();
+    environmentAttempt.current = { signature, key: idempotencyKey };
+    createEnvironment.mutate({ input, idempotencyKey });
+  };
 
   const grouped = useMemo(
     () =>
@@ -119,7 +192,8 @@ export function ProjectsPage() {
     effectiveCapabilities.some(
       (capability) =>
         capability.actions?.includes(action) &&
-        (capability.scopeType === "platform" ||
+        ((capability.scopeType === "platform" &&
+          capability.scopeId === "platform") ||
           (capability.scopeType === "team" &&
             capability.scopeId === project.teamId) ||
           (capability.scopeType === "project" &&
@@ -128,6 +202,7 @@ export function ProjectsPage() {
   const canCreatePlatformProject = effectiveCapabilities.some(
     (capability) =>
       capability.scopeType === "platform" &&
+      capability.scopeId === "platform" &&
       capability.actions?.includes("projects:create"),
   );
   const projectCreationTeams =
@@ -135,7 +210,8 @@ export function ProjectsPage() {
       effectiveCapabilities.some(
         (capability) =>
           capability.actions?.includes("projects:create") &&
-          (capability.scopeType === "platform" ||
+          ((capability.scopeType === "platform" &&
+            capability.scopeId === "platform") ||
             (capability.scopeType === "team" &&
               capability.scopeId === team.id)),
       ),
@@ -221,13 +297,7 @@ export function ProjectsPage() {
           </div>
           {panel === "project" ? (
             <form
-              onSubmit={projectForm.handleSubmit((value) =>
-                createProject.mutate({
-                  name: value.name,
-                  slug: value.slug || undefined,
-                  teamId: value.teamId || undefined,
-                }),
-              )}
+              onSubmit={projectForm.handleSubmit(submitProject)}
               className="inline-form inline-form--project-team"
             >
               <Field
@@ -290,12 +360,7 @@ export function ProjectsPage() {
           ) : (
             <form
               className="inline-form inline-form--wide"
-              onSubmit={environmentForm.handleSubmit((value) =>
-                createEnvironment.mutate({
-                  ...value,
-                  slug: value.slug || undefined,
-                }),
-              )}
+              onSubmit={environmentForm.handleSubmit(submitEnvironment)}
             >
               <Field
                 label="Project"

@@ -21,6 +21,18 @@ function wrapper() {
   );
 }
 
+function wrapperWithClient() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return {
+    queryClient,
+    Wrapper: ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    ),
+  };
+}
+
 function resources() {
   vi.spyOn(api, "projects").mockResolvedValue({
     items: [
@@ -190,6 +202,54 @@ describe("monitoring dashboards", () => {
         ),
       ).toHaveLength(7),
     );
+  });
+
+  it("reconciles a selected scope when access refresh removes it", async () => {
+    const user = userEvent.setup();
+    resources();
+    availableMonitoring();
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          role: "platform-admin",
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["metrics:read"],
+        },
+      ],
+    });
+    vi.spyOn(api, "metricRange").mockImplementation(async (input) =>
+      metricResult(input.metric),
+    );
+    const { queryClient, Wrapper } = wrapperWithClient();
+
+    render(<MonitoringPage />, { wrapper: Wrapper });
+    const selector = await screen.findByRole("combobox", {
+      name: "Monitoring scope",
+    });
+    await user.selectOptions(
+      selector,
+      "namespace:environment-opaque-restricted",
+    );
+    expect(selector).toHaveValue("namespace:environment-opaque-restricted");
+
+    queryClient.setQueryData(["environments"], {
+      items: [
+        {
+          id: "environment-opaque-production",
+          projectId: "project-payments",
+          name: "Production",
+          namespace: "payments-production",
+        },
+      ],
+    });
+
+    await waitFor(() =>
+      expect(selector).toHaveValue("namespace:environment-opaque-production"),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Payments / Production" }),
+    ).toBeInTheDocument();
   });
 
   it("does not query metrics while monitoring is explicitly unavailable", async () => {

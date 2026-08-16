@@ -23,7 +23,7 @@
           "additionalProperties": false,
           "required": ["enabled", "controlPlaneNamespace", "argoCDNamespace"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "controlPlaneNamespace": {"const": "kuberploy-system"},
             "argoCDNamespace": {"const": "argocd"}
           }

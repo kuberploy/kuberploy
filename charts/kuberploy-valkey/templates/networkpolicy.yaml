@@ -1,4 +1,4 @@
-{{- if .Values.valkeyFoundation.managed }}
+{{- if and .Values.valkeyFoundation.managed .Values.valkeyFoundation.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

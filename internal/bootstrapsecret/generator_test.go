@@ -71,6 +71,42 @@ func TestGenerateCreatesOnceAndNeverSendsTokenOutsideSecretData(t *testing.T) {
 	}
 }
 
+func TestGenerateDoesNotFollowCredentialBearingRedirect(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	tokenFile := filepath.Join(dir, "service-account-token")
+	caFile := filepath.Join(dir, "ca.crt")
+	if err := os.WriteFile(tokenFile, []byte("service-account-bearer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	redirected := make(chan struct{}, 1)
+	target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirected <- struct{}{}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer target.Close()
+	redirect := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	certificate := redirect.Certificate()
+	if certificate == nil {
+		t.Fatal("redirect server certificate unavailable")
+	}
+	if err := os.WriteFile(caFile, pemCertificate(t, certificate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{APIServer: redirect.URL, Namespace: "kuberploy", SecretName: "kuberploy-bootstrap", SecretKey: "token", TokenFile: tokenFile, CAFile: caFile}
+	if _, err := Generate(context.Background(), cfg); err == nil {
+		t.Fatal("redirect response unexpectedly succeeded")
+	}
+	select {
+	case <-redirected:
+		t.Fatal("bootstrap request followed redirect to a second authority")
+	default:
+	}
+}
+
 func TestConfigRejectsNonExactAuthorityAndObjectCoordinates(t *testing.T) {
 	t.Parallel()
 	base := Config{APIServer: "https://10.0.0.1:443", Namespace: "kuberploy", SecretName: "kuberploy-bootstrap", SecretKey: "token", TokenFile: "/token", CAFile: "/ca"}

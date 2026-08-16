@@ -86,6 +86,7 @@ describe("platform Argo Git authority page", () => {
     });
     const create = vi
       .spyOn(api, "createPlatformArgoGitBinding")
+      .mockRejectedValueOnce(new Error("response lost"))
       .mockResolvedValue(created);
     renderPage();
 
@@ -102,6 +103,9 @@ describe("platform Argo Git authority page", () => {
     await userEvent.click(submit);
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    await userEvent.click(submit);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1]?.[1]).toBe(create.mock.calls[0]?.[1]);
     expect(create).toHaveBeenCalledWith(
       {
         installationId: "installation-opaque",

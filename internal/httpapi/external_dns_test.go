@@ -297,6 +297,10 @@ func TestExternalDNSDeactivateIsIdempotentAndRemovesTenantCatalog(t *testing.T) 
 	if removed.Lifecycle != "deactivated" || removed.DeactivatedAt == nil {
 		t.Fatalf("unexpected deactivation %#v", removed)
 	}
+	resurrection := externalDNSPayload(fixture.environment.ID)
+	resurrection["name"] = "Resurrection attempt"
+	response = fixture.request(http.MethodPut, "/v1/external-dns/integrations/"+created.ID, "external-dns-resurrection-0001", resurrection)
+	readExternalDNSBody(t, response, http.StatusConflict)
 	response = fixture.request(http.MethodDelete, "/v1/external-dns/integrations/"+created.ID, "external-dns-deactivate-0001", nil)
 	if response.StatusCode != http.StatusOK || response.Header.Get("Idempotent-Replay") != "true" {
 		t.Fatalf("replay: %d %#v", response.StatusCode, response.Header)

@@ -44,7 +44,7 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 		ON CONFLICT(id) DO NOTHING`, projectID)
 	if err == nil {
 		_, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project)
-			VALUES($1,$2,'pull integration','pull-integration',$3,'pull-integration') ON CONFLICT(id) DO NOTHING`, environmentID, projectID, namespace)
+			VALUES($1,$2,'pull integration','pull-integration',$3,$3) ON CONFLICT(id) DO NOTHING`, environmentID, projectID, namespace)
 	}
 	if err == nil {
 		_, err = pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,pull_credential_ref)

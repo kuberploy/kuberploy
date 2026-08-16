@@ -111,6 +111,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 
 	expectedBuildScopes := map[string]string{
 		"listApplicationBuildDefinitions":  "app.read",
+		"listApplicationBuildProfiles":     "app.read",
 		"createApplicationBuildDefinition": "build.create",
 		"listApplicationBuilds":            "app.read",
 		"getBuildDefinition":               "app.read",
@@ -148,6 +149,18 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 			if _, leaked := properties[name]; leaked {
 				t.Fatalf("safe schema %s leaks %q", schemaName, name)
 			}
+		}
+	}
+	profileProperties := decodeSchemaProperties(t, document.Components.Schemas["BuildSecretProfile"])
+	for _, forbidden := range []string{"path", "secretName", "secretKey", "credential"} {
+		if _, leaked := profileProperties[forbidden]; leaked {
+			t.Fatalf("build profile schema leaks %q", forbidden)
+		}
+	}
+	createProperties := decodeSchemaProperties(t, document.Components.Schemas["CreateBuildDefinition"])
+	for _, forbidden := range []string{"secretFiles", "sshFiles"} {
+		if _, leaked := createProperties[forbidden]; leaked {
+			t.Fatalf("create build schema accepts arbitrary %q", forbidden)
 		}
 	}
 

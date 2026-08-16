@@ -1,4 +1,6 @@
 {{- if and .Values.edge.networkPolicy.enabled .Values.edge.traefik.managed }}
+{{- $apiCIDRs := .Values.edge.networkPolicy.kubeAPIServerCIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -12,11 +14,13 @@ spec:
       app.kubernetes.io/name: traefik
   policyTypes: [Ingress, Egress]
   ingress:
-    - from:
-        {{- range .Values.edge.networkPolicy.publicIngressCIDRs }}
+    - {{- with .Values.edge.networkPolicy.publicIngressCIDRs }}
+      from:
+        {{- range uniq (sortAlpha .) }}
         - ipBlock:
             cidr: {{ . | quote }}
         {{- end }}
+      {{- end }}
       ports:
         - {port: 8000, protocol: TCP}
         - {port: 8443, protocol: TCP}
@@ -70,7 +74,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.edge.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock:
             cidr: {{ . | quote }}
         {{- end }}

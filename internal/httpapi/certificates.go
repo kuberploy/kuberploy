@@ -34,6 +34,7 @@ type CertificateManagementBackend interface {
 	Create(context.Context, certificates.CreateRequest) (certificates.MutationResult, error)
 	Rotate(context.Context, certificates.RotateRequest) (certificates.MutationResult, error)
 	Delete(context.Context, string, string, string) (secrets.Binding, error)
+	DeleteWithIdempotency(context.Context, string, string, string, string) (secrets.Binding, error)
 	Binding(context.Context, string) (secrets.Binding, []certificates.Version, error)
 	ListBindings(context.Context, string, string) ([]secrets.Binding, error)
 }
@@ -63,6 +64,9 @@ func (b *certificateManagementBackend) Rotate(ctx context.Context, request certi
 
 func (b *certificateManagementBackend) Delete(ctx context.Context, actorID, bindingID, requestID string) (secrets.Binding, error) {
 	return b.service.Delete(ctx, actorID, bindingID, requestID)
+}
+func (b *certificateManagementBackend) DeleteWithIdempotency(ctx context.Context, actorID, bindingID, idempotencyKey, requestID string) (secrets.Binding, error) {
+	return b.service.DeleteWithIdempotency(ctx, actorID, bindingID, idempotencyKey, requestID)
 }
 
 func (b *certificateManagementBackend) Binding(ctx context.Context, bindingID string) (secrets.Binding, []certificates.Version, error) {
@@ -360,7 +364,8 @@ func (s *Server) deleteCertificateBinding(w http.ResponseWriter, r *http.Request
 	if !certificateQueryEmpty(w, r) || !certificateBodyEmpty(w, r) {
 		return
 	}
-	if _, ok := secretIdempotencyKey(w, r); !ok {
+	key, ok := secretIdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	binding, _, ok := s.authorizedCertificateBinding(w, r, domain.PermissionCertificatesDelete)
@@ -368,7 +373,7 @@ func (s *Server) deleteCertificateBinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	wasDeleted := binding.State == secrets.BindingDeleted
-	if _, err := s.certificates.Delete(r.Context(), currentUser(r.Context()).ID, binding.ID, safeSecretRequestID(r.Context())); err != nil {
+	if _, err := s.certificates.DeleteWithIdempotency(r.Context(), currentUser(r.Context()).ID, binding.ID, key, safeSecretRequestID(r.Context())); err != nil {
 		mappedCertificateError(w, r, err)
 		return
 	}

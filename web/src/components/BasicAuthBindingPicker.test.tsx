@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
@@ -103,5 +103,100 @@ describe("BasicAuth binding picker", () => {
       key: "users",
       version: 3,
     });
+  });
+
+  it("refreshes detail metadata when the active version changes", async () => {
+    let listCall = 0;
+    const list = vi
+      .spyOn(api, "runtimeSecretBindings")
+      .mockImplementation(async () => {
+        listCall += 1;
+        const activeVersion = listCall === 1 ? 3 : 4;
+        return {
+          items: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              applicationId: "app-a",
+              environmentId: "env-a",
+              name: "auth-users",
+              provider: "sealed-secrets",
+              state: "ready",
+              activeVersion,
+              createdBy: "user-a",
+              createdAt: "2026-08-09T00:00:00Z",
+              updatedAt: "2026-08-09T00:00:00Z",
+            },
+          ],
+        };
+      });
+    const detail = vi
+      .spyOn(api, "runtimeSecretBinding")
+      .mockImplementation(async () => {
+        const activeVersion = listCall === 1 ? 3 : 4;
+        return {
+          id: "11111111-1111-4111-8111-111111111111",
+          applicationId: "app-a",
+          environmentId: "env-a",
+          name: "auth-users",
+          provider: "sealed-secrets",
+          state: "ready",
+          activeVersion,
+          createdBy: "user-a",
+          createdAt: "2026-08-09T00:00:00Z",
+          updatedAt: "2026-08-09T00:00:00Z",
+          versions: [
+            {
+              id: `version-${activeVersion}`,
+              number: activeVersion,
+              state: "active",
+              deliveries: [
+                {
+                  sourceKey: "users",
+                  kind: "file",
+                  filePath:
+                    "/var/run/secrets/kuberploy/traefik-basic-auth/users",
+                  fileMode: 256,
+                },
+              ],
+              createdAt: "2026-08-09T00:00:00Z",
+              updatedAt: "2026-08-09T00:00:00Z",
+            },
+          ],
+        };
+      });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BasicAuthBindingPicker
+          applicationId="app-a"
+          environmentId="env-a"
+          value={{
+            bindingId: "11111111-1111-4111-8111-111111111111",
+            name: "auth-users",
+            key: "users",
+            version: 3,
+          }}
+          onChange={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("option", { name: "auth-users · v3" }),
+    ).toBeInTheDocument();
+    await queryClient.invalidateQueries({
+      queryKey: ["basic-auth-bindings", "app-a", "env-a"],
+    });
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("option", { name: "auth-users · v4" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "auth-users · v3" }),
+    ).not.toBeInTheDocument();
   });
 });

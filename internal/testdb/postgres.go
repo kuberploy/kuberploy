@@ -12,9 +12,24 @@ import (
 )
 
 // ApplyMigrations mirrors the immutable Prisma SQL history for disposable Go
-// integration databases. Production packages do not import this package.
+// integration databases. Production packages do not import this package. The
+// session lock prevents parallel integration packages from racing on shared
+// migration history or DDL while retaining each test's normal database state.
 func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS _prisma_migrations (
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire test migration connection: %w", err)
+	}
+	defer conn.Release()
+	const lockName = "kuberploy-testdb-apply-migrations-v1"
+	if _, err = conn.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, lockName); err != nil {
+		return fmt.Errorf("lock test migrations: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, lockName)
+	}()
+
+	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS _prisma_migrations (
 		id varchar(36) PRIMARY KEY,
 		checksum varchar(64) NOT NULL,
 		finished_at timestamptz,
@@ -32,7 +47,7 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	for index, migration := range history {
 		var appliedChecksum string
-		err = pool.QueryRow(ctx, `SELECT checksum FROM _prisma_migrations
+		err = conn.QueryRow(ctx, `SELECT checksum FROM _prisma_migrations
 			WHERE migration_name=$1 AND finished_at IS NOT NULL AND rolled_back_at IS NULL`, migration.Name).Scan(&appliedChecksum)
 		if err == nil {
 			if appliedChecksum != migration.Checksum {
@@ -43,7 +58,7 @@ func ApplyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("inspect test migration %s: %w", migration.Name, err)
 		}
-		tx, beginErr := pool.Begin(ctx)
+		tx, beginErr := conn.Begin(ctx)
 		if beginErr != nil {
 			return fmt.Errorf("begin test migration %s: %w", migration.Name, beginErr)
 		}

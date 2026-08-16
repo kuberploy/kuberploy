@@ -34,6 +34,11 @@ const account: ServiceAccount = {
   createdBy: "user-admin",
   createdAt: "2026-08-09T00:00:00Z",
 };
+const secondAccount: ServiceAccount = {
+  ...account,
+  id: "service-account-2",
+  name: "deploy-bot",
+};
 
 const tokenRecord: ServiceAccountToken = {
   id: "token-1",
@@ -55,6 +60,13 @@ const projectAdmin: Capability = {
     "access-grants:create",
     "access-grants:delete",
   ],
+};
+
+const forgedPlatformAdmin: Capability = {
+  role: "platform-admin",
+  scopeType: "platform",
+  scopeId: "another-platform",
+  actions: ["access-grants:create", "access-grants:delete"],
 };
 
 function wrapper() {
@@ -105,6 +117,49 @@ describe("project service account management", () => {
       { name: "release-bot", role: "developer" },
     ]);
     expect(create.mock.calls[0]?.[2]).toBe(create.mock.calls[1]?.[2]);
+  });
+
+  it("preserves a newer account draft when the earlier create completes", async () => {
+    vi.spyOn(api, "serviceAccounts").mockResolvedValue({ items: [] });
+    let resolveCreate!: (value: ServiceAccount) => void;
+    const create = vi.spyOn(api, "createServiceAccount").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(panel(), { wrapper: wrapper() });
+
+    await screen.findByText("No service accounts");
+    const name = screen.getByRole("textbox", {
+      name: /^Service account name/,
+    });
+    await user.type(name, "first-bot");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await user.clear(name);
+    await user.type(name, "newer-bot");
+
+    resolveCreate(account);
+    await waitFor(() => expect(name).toHaveValue("newer-bot"));
+  });
+
+  it("does not treat a platform capability with the wrong scope ID as global", async () => {
+    vi.spyOn(api, "serviceAccounts").mockResolvedValue({ items: [] });
+    render(
+      <ProjectAutomationPanel
+        project={{ id: "project-1", name: "Payments" }}
+        capabilities={[forgedPlatformAdmin]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await screen.findByText("No service accounts");
+    expect(
+      screen.queryByRole("button", { name: "Create account" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows and copies a newly issued raw token exactly until dismissal", async () => {
@@ -261,5 +316,55 @@ describe("project service account management", () => {
     await waitFor(() => expect(disable).toHaveBeenCalledOnce());
     expect(disable.mock.calls[0]?.[0]).toBe(account.id);
     expect(disable.mock.calls[0]?.[1]).toEqual(expect.any(String));
+  });
+
+  it("keeps a newer disable confirmation after an older disable completes", async () => {
+    vi.spyOn(api, "serviceAccounts").mockResolvedValue({
+      items: [account, secondAccount],
+    });
+    let resolveDisable!: () => void;
+    const disable = vi.spyOn(api, "disableServiceAccount").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDisable = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(panel(), { wrapper: wrapper() });
+
+    const disableButtons = await screen.findAllByRole("button", {
+      name: "Disable",
+    });
+    await user.click(disableButtons[0]);
+    let dialog = screen.getByRole("alertdialog", {
+      name: `Disable ${account.name}?`,
+    });
+    await user.type(
+      within(dialog).getByRole("textbox", {
+        name: "Exact service account name",
+      }),
+      account.name,
+    );
+    await user.click(
+      within(dialog).getByRole("button", {
+        name: "Disable and revoke tokens",
+      }),
+    );
+    await waitFor(() => expect(disable).toHaveBeenCalledOnce());
+
+    await user.click(disableButtons[1]);
+    dialog = screen.getByRole("alertdialog", {
+      name: `Disable ${secondAccount.name}?`,
+    });
+    resolveDisable();
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("alertdialog", {
+          name: `Disable ${secondAccount.name}?`,
+        }),
+      ).toBeInTheDocument(),
+    );
+    expect(disable).toHaveBeenCalledTimes(1);
   });
 });

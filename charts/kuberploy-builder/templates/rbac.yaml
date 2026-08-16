@@ -1,4 +1,7 @@
 {{- if .Values.enabled }}
+{{- if not .Values.admissionPolicy.enabled }}
+{{- fail "builder.admissionPolicy.enabled must remain true when the privileged builder is enabled" }}
+{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

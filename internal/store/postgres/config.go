@@ -308,7 +308,10 @@ func (s *Store) SaveDeploymentConfig(ctx context.Context, actor, key, fingerprin
 	if _, err = tx.Exec(ctx, `INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES($1,$2,$3,$4,$5)`, op.ID, op.Kind, d.EnvironmentID, op.Generation, requestID); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='deployment-config' AND consumed_at IS NULL`, in.TokenHash, now); err != nil {
+	// Let PostgreSQL stamp consumption. The preview-authority trigger compares
+	// this timestamp against the database clock; using the application clock
+	// makes otherwise valid saves fail when clocks differ by more than a minute.
+	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=now() WHERE token_hash=$1 AND preview_kind='deployment-config' AND consumed_at IS NULL`, in.TokenHash); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	if err = audit(ctx, tx, actor, "deployment.config.accepted", "deployment", d.ID, requestID, map[string]any{"operationId": op.ID, "baseETag": in.BaseETag, "configVersion": newVersion}); err != nil {

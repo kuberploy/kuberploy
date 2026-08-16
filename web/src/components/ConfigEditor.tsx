@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Application, ConfigChange, Deployment } from "../api/types";
 import { api, errorMessage } from "../api/client";
 import {
@@ -113,6 +113,8 @@ export function ConfigEditor({
     idempotencyKey: string;
   } | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const rawYamlRef = useRef(rawYaml);
+  rawYamlRef.current = rawYaml;
 
   const serverDocument = bundle.data?.documents[0];
   const fallback = useMemo(
@@ -162,33 +164,48 @@ export function ConfigEditor({
 
   const previewMutation = useMutation({
     mutationFn: (input: {
+      deploymentId: string;
       change: ConfigChange;
       etag: string;
       rawYaml: string;
-    }) => api.previewDeploymentConfig(deployment.id, input.change, input.etag),
-    onSuccess: (value, input) =>
+    }) =>
+      api.previewDeploymentConfig(input.deploymentId, input.change, input.etag),
+    onSuccess: (value, input) => {
+      if (
+        input.deploymentId !== deployment.id ||
+        rawYamlRef.current !== input.rawYaml
+      )
+        return;
       setPreview({
         value,
         etag: input.etag,
         rawYaml: input.rawYaml,
         idempotencyKey: crypto.randomUUID(),
-      }),
+      });
+    },
   });
   const matchingPreview =
     preview && preview.etag === bundle.data?.etag && preview.rawYaml === rawYaml
       ? preview.value
       : null;
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (input: {
+      deploymentId: string;
+      change: ConfigChange;
+      etag: string;
+      previewToken: string;
+      idempotencyKey: string;
+      rawYaml: string;
+    }) =>
       api.saveDeploymentConfig(
-        deployment.id,
-        change,
-        bundle.data?.etag ?? "",
-        matchingPreview?.previewToken ?? "",
-        preview?.idempotencyKey,
+        input.deploymentId,
+        input.change,
+        input.etag,
+        input.previewToken,
+        input.idempotencyKey,
       ),
-    onSuccess: async () => {
-      setPreview(null);
+    onSuccess: async (_value, input) => {
+      if (input.deploymentId !== deployment.id) return;
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["deployment-config", deployment.id],
@@ -198,6 +215,8 @@ export function ConfigEditor({
           queryKey: ["deployment-status", deployment.id],
         }),
       ]);
+      if (rawYamlRef.current !== input.rawYaml) return;
+      setPreview(null);
       const refreshed = queryClient.getQueryData<
         Awaited<ReturnType<typeof api.deploymentConfig>>
       >(["deployment-config", deployment.id]);
@@ -459,23 +478,37 @@ export function ConfigEditor({
           onClick={() =>
             previewMutation.mutate({
               change,
+              deploymentId: deployment.id,
               etag: bundle.data?.etag ?? "",
               rawYaml,
             })
           }
           busy={previewMutation.isPending}
           disabled={
-            !canWriteConfig || !bundle.data || Boolean(yamlError || draftError)
+            !canWriteConfig ||
+            !bundle.data ||
+            saveMutation.isPending ||
+            Boolean(yamlError || draftError)
           }
         >
           <Icon name="git" /> Preview configuration
         </Button>
         <Button
-          onClick={() => saveMutation.mutate()}
+          onClick={() =>
+            saveMutation.mutate({
+              change,
+              deploymentId: deployment.id,
+              etag: bundle.data?.etag ?? "",
+              previewToken: matchingPreview?.previewToken ?? "",
+              idempotencyKey: preview?.idempotencyKey ?? "",
+              rawYaml,
+            })
+          }
           busy={saveMutation.isPending}
           disabled={
             !canWriteConfig ||
             !matchingPreview ||
+            previewMutation.isPending ||
             Boolean(yamlError || draftError)
           }
         >

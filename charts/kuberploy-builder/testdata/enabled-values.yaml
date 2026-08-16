@@ -1,5 +1,5 @@
 enabled: true
-builderAgentImage: registry.example.test/kuberploy/builder-agent:0.1.0-rc.175
+builderAgentImage: registry.example.test/kuberploy/builder-agent:0.1.0-rc.176
 
 namespace:
   create: true
@@ -11,3 +11,6 @@ controllerServiceAccount:
 
 podServiceAccount:
   name: kuberploy-build-pod
+
+networkPolicy:
+  enabled: true

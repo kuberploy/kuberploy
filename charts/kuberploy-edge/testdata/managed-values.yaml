@@ -3,5 +3,11 @@ edge:
     sslip:
       mode: auto-first-ip
   networkPolicy:
+    enabled: true
     kubeAPIServerCIDRs:
       - 10.43.0.1/32
+traefik:
+  metrics:
+    prometheus:
+      serviceMonitor:
+        enabled: true

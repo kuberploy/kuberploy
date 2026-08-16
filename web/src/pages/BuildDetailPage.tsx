@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { BuildAttempt } from "../api/types";
 import { BuildAttemptActions } from "../components/BuildAttemptActions";
@@ -27,6 +27,9 @@ export function BuildDetailPage() {
   const { buildId } = useParams({ from: "/builds/$buildId" });
   const queryClient = useQueryClient();
   const [retriedAttempt, setRetriedAttempt] = useState<BuildAttempt>();
+  useEffect(() => {
+    setRetriedAttempt(undefined);
+  }, [buildId]);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -327,6 +330,7 @@ export function BuildDetailPage() {
           </p>
         </div>
         <BuildPromotionPanel
+          key={currentAttempt.id}
           attempt={currentAttempt}
           humanSession={me.data?.authentication.kind === "session"}
           gitOpsReady={
@@ -368,6 +372,7 @@ export function BuildDetailPage() {
             </p>
           </div>
           <BuildAttemptActions
+            key={currentAttempt.id}
             attempt={currentAttempt}
             application={application.data}
             project={project}

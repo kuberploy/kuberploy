@@ -105,6 +105,7 @@ type ExecutionSettings struct {
 	PodServiceAccount       string                     `json:"podServiceAccount"`
 	BuilderAgentImage       string                     `json:"builderAgentImage"`
 	BuildKitImage           string                     `json:"buildKitImage"`
+	DinDImage               string                     `json:"dindImage,omitempty"`
 	BuildSecret             string                     `json:"buildSecret,omitempty"`
 	SSHSecret               string                     `json:"sshSecret,omitempty"`
 	NodeSelector            map[string]string          `json:"nodeSelector"`

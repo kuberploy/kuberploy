@@ -49,6 +49,16 @@ type BuildDefinitionResolver interface {
 	ResolveBuildDefinition(context.Context, string, string, string, string) (BuildDefinitionResolution, error)
 }
 
+type BuildSecretProfileResolver interface {
+	SecretProfileCatalog(string) (builds.BuildSecretProfileCatalog, error)
+	ResolveSecretProfiles(string, []string, []string) (builds.BuildSecretSelection, error)
+	ResolveSecretFiles(string, []builder.FileReference, []builder.FileReference) (builds.BuildSecretSelection, error)
+}
+
+type BuildSecretProfileCatalog interface {
+	SecretProfileCatalog(context.Context, string) (builds.BuildSecretProfileCatalog, error)
+}
+
 type BuildDefinitionMutation struct {
 	ApplicationID    string
 	ProjectID        string
@@ -62,6 +72,8 @@ type BuildDefinitionMutation struct {
 	BuildArgs        []builder.BuildArg
 	SecretFiles      []builder.FileReference
 	SSHFiles         []builder.FileReference
+	SecretProfileIDs []string
+	SSHProfileIDs    []string
 	CacheTrustLane   string
 	CacheImports     int
 	Profile          builder.BuildProfile
@@ -167,6 +179,18 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	if resolution.Registry.TargetID != input.RegistryTargetID {
 		return builds.BuildDefinition{}, false, builds.ErrUnauthorized
 	}
+	if len(input.SecretProfileIDs) > 0 || len(input.SSHProfileIDs) > 0 {
+		profileResolver, ok := b.resolver.(BuildSecretProfileResolver)
+		if !ok {
+			return builds.BuildDefinition{}, false, builds.ErrInfrastructure
+		}
+		selection, selectionErr := profileResolver.ResolveSecretProfiles(input.ApplicationID, input.SecretProfileIDs, input.SSHProfileIDs)
+		if selectionErr != nil {
+			return builds.BuildDefinition{}, false, builds.ErrInvalid
+		}
+		input.SecretFiles, input.SSHFiles = selection.SecretFiles, selection.SSHFiles
+		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
+	}
 	repository, err := b.store.Repository(ctx, input.RepositoryID)
 	if err != nil {
 		return builds.BuildDefinition{}, false, err
@@ -263,6 +287,17 @@ func (b *buildBackend) Retry(ctx context.Context, actorID, sourceAttemptID, key,
 	}
 	if resolution.Registry.TargetID != definition.Spec.Registry.TargetID {
 		return builds.BuildAttempt{}, false, builds.ErrUnauthorized
+	}
+	if len(definition.Spec.SecretFiles) > 0 || len(definition.Spec.SSHFiles) > 0 {
+		profileResolver, ok := b.resolver.(BuildSecretProfileResolver)
+		if !ok {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		selection, selectionErr := profileResolver.ResolveSecretFiles(definition.ServiceID, definition.Spec.SecretFiles, definition.Spec.SSHFiles)
+		if selectionErr != nil {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
 	}
 	attempt, retryReplay, err := b.store.RetryAttempt(ctx, sourceAttemptID, retryID, claimKey, resolution.Execution, now)
 	return attempt, commandReplay || retryReplay, err
@@ -570,20 +605,20 @@ func (s *Server) receiveGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 type buildDefinitionRequest struct {
-	InstallationID   string                  `json:"installationId"`
-	RepositoryID     string                  `json:"repositoryId"`
-	RegistryTargetID string                  `json:"registryTargetId"`
-	TriggerRef       string                  `json:"triggerRef"`
-	ContextPath      string                  `json:"contextPath"`
-	DockerfilePath   string                  `json:"dockerfilePath"`
-	Platforms        []string                `json:"platforms"`
-	BuildArgs        []builder.BuildArg      `json:"buildArgs,omitempty"`
-	SecretFiles      []builder.FileReference `json:"secretFiles,omitempty"`
-	SSHFiles         []builder.FileReference `json:"sshFiles,omitempty"`
-	CacheTrustLane   string                  `json:"cacheTrustLane"`
-	CacheImports     int                     `json:"cacheImports"`
-	Profile          builder.BuildProfile    `json:"profile"`
-	MaxAttempts      int                     `json:"maxAttempts"`
+	InstallationID   string               `json:"installationId"`
+	RepositoryID     string               `json:"repositoryId"`
+	RegistryTargetID string               `json:"registryTargetId"`
+	TriggerRef       string               `json:"triggerRef"`
+	ContextPath      string               `json:"contextPath"`
+	DockerfilePath   string               `json:"dockerfilePath"`
+	Platforms        []string             `json:"platforms"`
+	BuildArgs        []builder.BuildArg   `json:"buildArgs,omitempty"`
+	SecretProfileIDs []string             `json:"secretProfileIds,omitempty"`
+	SSHProfileIDs    []string             `json:"sshProfileIds,omitempty"`
+	CacheTrustLane   string               `json:"cacheTrustLane"`
+	CacheImports     int                  `json:"cacheImports"`
+	Profile          builder.BuildProfile `json:"profile"`
+	MaxAttempts      int                  `json:"maxAttempts"`
 }
 
 type safeRegistryBindingView struct {
@@ -616,6 +651,16 @@ type buildDefinitionView struct {
 	Enabled              bool                    `json:"enabled"`
 	CreatedAt            time.Time               `json:"createdAt"`
 	UpdatedAt            time.Time               `json:"updatedAt"`
+}
+
+type buildSecretProfileView struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type buildSecretProfileCatalogView struct {
+	Build []buildSecretProfileView `json:"build"`
+	SSH   []buildSecretProfileView `json:"ssh"`
 }
 
 type buildAttemptView struct {
@@ -686,8 +731,9 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	mutation := BuildDefinitionMutation{ApplicationID: application.ID, ProjectID: application.ProjectID, InstallationID: strings.TrimSpace(input.InstallationID),
 		RepositoryID: strings.TrimSpace(input.RepositoryID), RegistryTargetID: strings.TrimSpace(input.RegistryTargetID), TriggerRef: strings.TrimSpace(input.TriggerRef),
 		ContextPath: input.ContextPath, DockerfilePath: input.DockerfilePath, Platforms: input.Platforms, BuildArgs: input.BuildArgs,
-		SecretFiles: input.SecretFiles, SSHFiles: input.SSHFiles, CacheTrustLane: strings.TrimSpace(input.CacheTrustLane), CacheImports: input.CacheImports,
+		CacheTrustLane: strings.TrimSpace(input.CacheTrustLane), CacheImports: input.CacheImports,
 		Profile: input.Profile, MaxAttempts: input.MaxAttempts, ActorID: currentUser(r.Context()).ID, IdempotencyKey: key,
+		SecretProfileIDs: input.SecretProfileIDs, SSHProfileIDs: input.SSHProfileIDs,
 		Fingerprint: "sha256:" + fingerprint(input)}
 	definition, replay, err := s.builds.CreateDefinition(r.Context(), mutation)
 	if err != nil {
@@ -699,6 +745,42 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Location", "/v1/applications/"+application.ID+"/build-definitions/"+definition.ID)
 	writeJSON(w, http.StatusCreated, safeBuildDefinition(definition))
+}
+
+func (s *Server) applicationBuildSecretProfiles(w http.ResponseWriter, r *http.Request) {
+	application, ok := s.authorizedBuildApplication(w, r, domain.PermissionBuildsRead)
+	if !ok {
+		return
+	}
+	cataloger, ok := s.builds.(BuildSecretProfileCatalog)
+	if !ok {
+		githubBuildUnavailable(w, r, "Build-secret profiles are not configured.")
+		return
+	}
+	catalog, err := cataloger.SecretProfileCatalog(r.Context(), application.ID)
+	if err != nil {
+		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	view := buildSecretProfileCatalogView{Build: make([]buildSecretProfileView, 0, len(catalog.Build)), SSH: make([]buildSecretProfileView, 0, len(catalog.SSH))}
+	for _, profile := range catalog.Build {
+		view.Build = append(view.Build, buildSecretProfileView{ID: profile.ID, Label: profile.Label})
+	}
+	for _, profile := range catalog.SSH {
+		view.SSH = append(view.SSH, buildSecretProfileView{ID: profile.ID, Label: profile.Label})
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (b *buildBackend) SecretProfileCatalog(_ context.Context, applicationID string) (builds.BuildSecretProfileCatalog, error) {
+	if applicationID == "" {
+		return builds.BuildSecretProfileCatalog{}, builds.ErrInvalid
+	}
+	resolver, ok := b.resolver.(BuildSecretProfileResolver)
+	if !ok {
+		return builds.BuildSecretProfileCatalog{}, builds.ErrInfrastructure
+	}
+	return resolver.SecretProfileCatalog(applicationID)
 }
 
 func (s *Server) githubInstallationRepositories(w http.ResponseWriter, r *http.Request) {
@@ -890,11 +972,27 @@ func safeBuildDefinition(definition builds.BuildDefinition) buildDefinitionView 
 		ContextPath: definition.Spec.ContextPath, DockerfilePath: definition.Spec.DockerfilePath,
 		Platforms: append([]string{}, definition.Spec.Platforms...), Registry: safeRegistryBindingView{TargetID: definition.Spec.Registry.TargetID,
 			Mode: definition.Spec.Registry.Mode, Server: definition.Spec.Registry.Server, RepositoryPrefix: definition.Spec.Registry.RepositoryPrefix},
-		BuildArgs: append([]builder.BuildArg{}, definition.Spec.BuildArgs...), SecretFiles: append([]builder.FileReference{}, definition.Spec.SecretFiles...),
+		BuildArgs: safeBuildArguments(definition.Spec.BuildArgs), SecretFiles: append([]builder.FileReference{}, definition.Spec.SecretFiles...),
 		SSHFiles: append([]builder.FileReference{}, definition.Spec.SSHFiles...), CacheTrustLane: definition.Spec.CacheTrustLane,
 		CacheImports: definition.Spec.CacheImports, Profile: definition.Spec.Profile, MaxAttempts: definition.Spec.MaxAttempts,
 		DefinitionDigest: definition.DefinitionDigest, DefinitionGeneration: definition.DefinitionGeneration, Enabled: definition.Enabled,
 		CreatedAt: definition.CreatedAt, UpdatedAt: definition.UpdatedAt}
+}
+
+// Build argument values are caller-provided configuration, not safe metadata.
+// Keep the names so operators can identify the arguments, but never echo their
+// plaintext values to a reader of the definition or its create response.
+func safeBuildArguments(arguments []builder.BuildArg) []builder.BuildArg {
+	if arguments == nil {
+		return []builder.BuildArg{}
+	}
+	redacted := make([]builder.BuildArg, len(arguments))
+	for i, argument := range arguments {
+		// Keep the response valid against the public BuildArgument schema while
+		// making it explicit that the write-only value was redacted.
+		redacted[i] = builder.BuildArg{Name: argument.Name, Value: ""}
+	}
+	return redacted
 }
 
 func safeBuildAttempt(attempt builds.BuildAttempt) buildAttemptView {

@@ -2,8 +2,9 @@
 
 ## First-administrator bootstrap token
 
-For a first install, set `config.bootstrapSecret.generate=true` and provide the
-exact Kubernetes API endpoint CIDR in `networkPolicy.kubeAPIServerCIDRs`. A
+For a first install, set `config.bootstrapSecret.generate=true`. If optional
+NetworkPolicy enforcement is enabled, also provide the Kubernetes API endpoint
+CIDR in `networkPolicy.kubeAPIServerCIDRs`. A
 pre-install hook runs the API image's fixed `/kuberploy-bootstrap-token`
 command. It creates only the configured Opaque Secret and prints one strict
 `KUBERPLOY_BOOTSTRAP_TOKEN=kp_bootstrap_...` assignment in the hook Job log;
@@ -28,16 +29,16 @@ kubectl -n <release-namespace> get secret <bootstrap-secret-name> \
 
 Set `generate=false` when an operator provisions the Secret by a different
 protected mechanism. The temporary hook ServiceAccount can only create
-Secrets, its Role and RoleBinding are removed after success, and its
-NetworkPolicy permits only the explicitly supplied API CIDR. Bootstrap remains
-single-use at the PostgreSQL authority even if the Kubernetes Secret is later
-replayed.
+Secrets, and its Role and RoleBinding are removed after success. When
+NetworkPolicy is enabled, it permits only the supplied API CIDRs. Bootstrap
+remains single-use at the PostgreSQL authority even if the Kubernetes Secret is
+later replayed.
 
 This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.175` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.176` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five deployed release images (API, worker, web, migration, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -82,19 +83,32 @@ returned to JavaScript.
 This switch activates the authenticated setup/callback API, the exact raw-body
 GitHub webhook ingress path, build-definition/history commands, durable worker
 receipt/build reconciliation, and post-build registry release/cache projection.
-`builder.networkPolicy.sourceEgressCIDRs` and `registryEgressCIDRs` must contain
-only exact `/32` or `/128` hosts (or stable egress-proxy hosts); they are copied
-into each immutable build definition and cannot overlap a configured Kubernetes
-API address. `builder` and `builds` remain false in `/v1/capabilities` until a
+Empty builder source and registry CIDR lists permit dual-stack public egress on
+only HTTPS and the verified registry port, with configured Kubernetes API CIDRs
+excluded. Optional `builder.networkPolicy.sourceEgressCIDRs` accepts canonical
+bounded provider ranges and `registryEgressCIDRs` accepts exact hosts for
+infrastructure-managed narrowing. The normalized lists remain part of every
+immutable build definition. `builder` and `builds` remain false in `/v1/capabilities` until a
 worker with the exact matching App ID, namespace, agent digest, explicit
 `builder.buildKitImage` reference, and runtime
 profile has proved its projected App key, configured all three required worker
-loops, and reported a fresh durable heartbeat.
+loops, and reported a fresh durable heartbeat. `builder.buildKitImage` accepts
+the pinned `v0.32.2` tag or a sha256 mirror; `builder.dindImage` accepts a
+semantic-version tag or sha256 mirror and is included in the immutable runtime
+identity.
+
+Optional `builder.buildSecret` and `builder.sshSecret` values reference
+pre-created Secrets in the builder namespace. Their bounded `profiles` entries
+publish only safe IDs, labels, Secret data keys, and an explicit application-ID
+allowlist; the UI/API accepts those opaque IDs and resolves fixed BuildKit
+secret/SSH mount paths server-side. Secret values and arbitrary file references
+never enter the API contract.
 
 `config.buildLogs.enabled` is a separate default-off, read-only API boundary
-for source-build logs. It requires GitHub builds, the builder subchart,
-NetworkPolicy enforcement, explicit Kubernetes API CIDRs, and a digest-pinned
-API image. The API receives a Role only in `builder.namespace.name`: exact Job
+for source-build logs. It requires GitHub builds and the builder subchart;
+NetworkPolicy remains optional infrastructure hardening, while the privileged
+builder's Job admission boundary is mandatory whenever the builder is enabled.
+The API receives a Role only in `builder.namespace.name`: exact Job
 `get`, Pod `get/list`, and `pods/log` `get`. It receives no watch, mutation,
 Secret, exec, attach, proxy, or port-forward permission. Requests name only an
 opaque build-attempt UUID; the API derives the immutable Job identity and
@@ -128,12 +142,11 @@ worker before candidate publication. The App needs `metadata:read`,
 never requests `administration:write`. Development direct publication does not
 depend on the protection-read path.
 
-`config.runtimeSecrets.enabled` opts into the strict Sealed Secrets runtime and
-requires Git projection, NetworkPolicy enforcement, explicit Kubernetes API
-CIDRs, a sorted nonempty destination-namespace allowlist, and digest-pinned API
-and worker images. External Secrets is not a production runtime option until a
-concrete audited `RemoteMaterialWriter` exists. Disabled configuration rejects
-dormant namespaces, Secret references, and timing overrides.
+`config.runtimeSecrets.enabled` opts into the Sealed Secrets runtime and
+requires Git projection plus at least one destination namespace. Namespace
+lists are normalized and deduplicated. External Secrets is not a production
+runtime option until a concrete audited `RemoteMaterialWriter` exists. Disabled
+configuration ignores dormant settings.
 
 The operator supplies two existing Secrets in the control-plane namespace. The
 API alone receives exactly the HMAC data key at
@@ -159,10 +172,9 @@ Other identities or malformed objects are denied before persistence.
 
 `config.certificateObservation.enabled` opts into continuous, read-only
 readiness for active custom TLS certificate versions. It is false by default
-and rejects dormant timing overrides. Enabling it requires runtime secrets and
-Git projection, NetworkPolicy enforcement with explicit Kubernetes API CIDRs,
-and digest-pinned API and worker images. It inherits the exact sorted
-`runtimeSecrets.namespaces` allowlist; there is no second namespace setting.
+and ignores dormant settings. Enabling it requires runtime secrets and Git
+projection. It inherits the normalized `runtimeSecrets.namespaces` allowlist;
+there is no second namespace setting.
 The API and worker share an exact metadata-only observation identity, including
 all bounded timings, while the enclosing Git policy digest also binds the
 runtime-secret public sealing-certificate projection. The observer reads only
@@ -173,11 +185,10 @@ eligible only while both the exact observation and the matching observer worker
 heartbeat are fresh.
 
 `config.certificateIssuerObserver.enabled` separately enables the admin-managed
-cert-manager `ClusterIssuer` catalog. It is false by default and disabled mode
-rejects dormant binding, cluster, or timing values. Enabling it requires Git
-projection, protected Argo desired state, environment foundation, the exact
-cert-manager edge profile, NetworkPolicy enforcement, and explicit Kubernetes
-API CIDRs. Its platform-binding and cluster UUIDs must exactly equal the Argo
+cert-manager `ClusterIssuer` catalog. It is false by default and ignores
+dormant binding, cluster, and timing values. Enabling it requires Git
+projection, protected Argo desired state, environment foundation, and the
+cert-manager edge profile. Its platform-binding and cluster UUIDs must equal the Argo
 and foundation identities. The chart derives the observer namespace from the
 Helm release namespace and the observer identity from this release's worker
 ServiceAccount; neither is operator-selectable.
@@ -201,11 +212,9 @@ same policy before a commit can become deployable.
 
 `config.runtimeRegistryPulls.enabled` separately enables revisioned private
 registry pull credentials for both managed and external registry targets. It is
-false by default. Enabling it requires Git projection, NetworkPolicy
-enforcement, explicit Kubernetes API CIDRs, sorted unique destination
-namespaces, canonically sorted and unique pull profiles, and digest-pinned API
-and worker images. Disabled configuration rejects dormant namespaces, profiles,
-and timing overrides.
+false by default and requires Git projection. Namespace and profile lists are
+normalized and exact duplicates are removed; conflicting identities still
+fail. Disabled configuration ignores dormant settings.
 
 Each profile binds one durable registry target ID and registry server to an
 opaque pull-credential reference, a positive revision, and one existing source
@@ -249,16 +258,14 @@ Kuberploy permission to delete external images.
 
 `config.edgeRuntime.enabled` opts into a separate, read-only observer for the
 operator-approved edge infrastructure. It is false by default, and disabled
-configuration rejects dormant profiles or timing overrides. An enabled runtime
-requires NetworkPolicy enforcement, explicit Kubernetes API CIDRs, digest-pinned
-API and worker images, and at least one Traefik, cert-manager, or external-dns
-profile. Every observed Deployment image must also be pinned by digest. Profiles
+configuration ignores dormant profiles and timing overrides. An enabled runtime
+requires at least one Traefik, cert-manager, or external-dns profile. Profiles
 carry an increasing revision, management mode, exact controller version,
 namespace, object names and spec digests, and the exact immutable profile
 ConfigMap name rendered by the corresponding standalone edge chart. Traefik and
 cert-manager profiles additionally carry the complete fixed CRD set;
 cert-manager names only explicitly approved ready ClusterIssuers. External-dns
-profiles bind one exact integration UUID, TXT owner, policy, filters, and sorted
+profiles bind one integration UUID, TXT owner, policy, filters, and a normalized
 domain allowlist.
 
 The optional Traefik `sslip` profile is absent by default. `auto-first-ip`
@@ -279,8 +286,9 @@ ClusterRole is rendered only when required and grants `get` on the exact named
 IngressClass, CRDs, and approved ClusterIssuers. Edge Roles grant no Secret,
 credential, list, watch, proxy, subresource, or mutation access, and the closed
 runtime client admits only those six read paths. The worker's NetworkPolicy
-permits only TCP 443/6443 to the explicit Kubernetes API CIDRs; enabling edge
-observation does not grant API Pods Kubernetes API egress. Because this runtime
+permits TCP 443/6443 to the optional Kubernetes API CIDRs; an empty list uses a
+port-scoped dual-stack public fallback. Enabling edge observation does not grant
+API Pods Kubernetes API egress. Because this runtime
 never creates or updates Kubernetes objects, a ValidatingAdmissionPolicy or
 server-side dry-run boundary is not applicable.
 
@@ -319,9 +327,8 @@ desired state, and `rbac.argoNamespace` must name the same namespace. The
 operator also supplies one canonical platform-binding UUID, one canonical
 cluster UUID, an OCI chart repository, semantic chart version, exact
 `sha256:` chart digest, and bounded poll/catalog ages. The desired-state chart
-digest must equal the Git projection renderer digest. API and worker images
-must both be digest pinned, and Kubernetes API egress must contain only exact
-`/32` or `/128` hosts. All values participate in the immutable ConfigMap name.
+digest must equal the Git projection renderer digest. All values participate in
+the immutable ConfigMap name; NetworkPolicy hardening is optional.
 
 The root Application name is fixed in the binary as
 `kuberploy-platform-root`; it is not a chart value or environment variable.
@@ -334,17 +341,18 @@ worker receives Kubernetes mutation authority.
 `config.helmApplications.enabled` is the final default-off approved external
 Helm/OCI runtime. It can be enabled only after Git projection, GitHub App,
 environment foundations, and protected Argo desired state are enabled. The
-operator supplies one dedicated renderer namespace, sorted exact OCI registry
-and token-service host allowlists, bounded render/publication/readiness
-timings, and a bounded package cache. API and worker images must be digest
-pinned; Kubernetes API and external OCI egress lists must contain only exact
-`/32` or `/128` hosts. Every value participates in the immutable ConfigMap
-name and therefore in the renderer/publisher operator digest.
+operator supplies one dedicated renderer namespace, OCI registry and
+token-service host allowlists, bounded render/publication/readiness timings,
+and a bounded package cache. Host lists are normalized. OCI registry, auth,
+redirect, and credential authorities
+remain exact host allowlists in the application layer. Every value participates
+in the immutable ConfigMap name and therefore in the renderer/publisher operator
+digest.
 
 Private OCI access is optional and remains operator-owned. Each
 `ociCredentialProfiles` entry maps one exact registry host to one unique
 profile, one exact auth host, and either a Basic username/password Secret pair
-or one Bearer identity-token key. Profiles must be sorted by registry host;
+or one Bearer identity-token key. Profiles and host lists are normalized;
 hosts must already belong to the registry/auth allowlists. The chart projects
 only those exact Secret keys, mode `0440`, beneath
 `/var/run/secrets/kuberploy/helm-oci/<profile>` in the API and worker. It adds
@@ -389,9 +397,8 @@ readable target name, and exact independent runtime-pull/build-push/build-cache
 credential references. API and worker idempotently materialize this identity as
 a `Managed` target before serving or reconciling; caller updates cannot relabel
 or substitute it. It also requires the
-registry namespace/Deployment/PVC/immutable ConfigMap identities, explicit
-Kubernetes API CIDRs, NetworkPolicy enforcement, and a digest-pinned worker
-image. Plain HTTP is separately acknowledged and is intended only for the
+registry namespace/Deployment/PVC/immutable ConfigMap identities. Plain HTTP
+is separately acknowledged and is intended only for the
 cluster-local managed Service; HTTPS is otherwise required.
 
 `config.managedRegistry.lifecycleCredentialRef` identifies only the
@@ -408,7 +415,8 @@ namespace-local Role with get-only Deployment/PVC/ConfigMap access, exact
 Deployment scale access, and the Job/Pod verbs required by the closed runtime
 client. Helper Jobs receive no credential volume or API token and match a
 deny-all ingress/egress policy. The worker may reach only labeled registry Pods
-on TCP 5000 plus explicitly configured Kubernetes API CIDRs. External registry
+on TCP 5000 plus the optional Kubernetes API CIDRs; an empty list uses the
+port-scoped public fallback. External registry
 targets remain observation-only; their retention and GC are always the external
 operator's responsibility. Public `registry` reports the credential-free
 target/policy/inventory management surface and remains available for external
@@ -447,24 +455,22 @@ before the next migration hook, avoiding Argo CD passive-hook deletion races. AP
 worker startup are read-only and fail closed unless the exact migration names
 and checksums compiled into the release have completed successfully.
 
-The default-deny control-plane NetworkPolicies separate explicit egress
+Optional default-deny control-plane NetworkPolicies separate explicit egress
 classes. Every selected control-plane Pod may reach RFC1918 private networks
 (`10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`) by default. This additive
 rule changes no ingress permission and grants no public Internet egress.
-Managed PostgreSQL is locked to labeled Pods in the `kuberploy-postgresql`
+When NetworkPolicy hardening is enabled, managed PostgreSQL is limited to labeled Pods in the `kuberploy-postgresql`
 namespace on TCP 5432, and managed Valkey is locked to labeled Pods in the
 `kuberploy-valkey` namespace on TCP 6379. Adopted external database or cache
 endpoints must be named through `externalPostgreSQLEgressCIDRs` or
 `externalValkeyEgressCIDRs`; all-address ranges are rejected for both. General
-`externalEgressCIDRs` permit only provider protocols: API HTTPS; and worker HTTPS,
-SSH Git, and `git://`. They never permit database, cache, or
-Kubernetes API-specific ports. General provider CIDRs are also default-empty
-and reject all-address ranges so an HTTPS allowance cannot silently include a
-Kubernetes API on port 443. Configure exact provider ranges or a controlled
-egress-proxy CIDR before enabling GitHub, external Git/OCI, release checks, or
-an adopted Prometheus endpoint. Provider ranges must be disjoint from every
-Kubernetes API range; exact duplicates are rejected at render time, while the
-installer must reject broader CIDR containment before supplying chart values.
+`externalEgressCIDRs` permit only provider protocols: API HTTPS; and worker
+HTTPS, SSH Git, and `git://`. Empty uses dual-stack public routes on only those
+ports with configured Kubernetes API CIDRs in `ipBlock.except`; it never opens
+database or cache ports. Nonempty canonical CIDRs optionally narrow public
+egress and remain normalized, unique, and disjoint from Kubernetes API ranges.
+Exact host, TLS, redirect, credential, and repository checks remain enforced by
+the application regardless of NetworkPolicy breadth.
 
 `config.valkey.mode=external` keeps the explicit compatibility contract: API
 and worker read the generic address, username, and password keys. Managed mode
@@ -476,9 +482,12 @@ into `kuberploy-system`; Kubernetes Secrets are never read across namespace
 boundaries. Managed Valkey and Argo CD use separate namespace-local Secret
 copies, and Argo's credential is not projected into the control plane.
 
-Set `networkPolicy.kubeAPIServerCIDRs` to the exact API Service/control-plane
-CIDRs seen by the cluster CNI. `0.0.0.0/0` and `::/0` are rejected. The worker
-and generated upgrade Job receive TCP 443/6443 access to those CIDRs; the API
+When NetworkPolicy hardening is enabled, `networkPolicy.kubeAPIServerCIDRs` may
+be left empty for the port-scoped dual-stack public fallback or set to
+infrastructure-owned API Service/control-plane CIDRs to narrow it. Explicit
+`0.0.0.0/0` and `::/0` values remain rejected; the empty list is the default.
+The worker
+and generated upgrade Job receive TCP 443/6443 access to the selected routes; the API
 receives it when `rbac.observedNamespaces` enables manually managed runtime
 views, when the protected environment foundation dynamically grants its exact
 service account access in each Kuberploy environment, when the strict
@@ -486,11 +495,9 @@ runtime-secret provider is enabled, or when source-build logs are enabled.
 Certificate-issuer live observation is worker-only; the API consumes its
 durable PostgreSQL readiness proof and receives no issuer-driven Kubernetes API
 egress.
-An empty list intentionally
-blocks those Kubernetes clients. Managed Prometheus
+Managed Prometheus
 query access remains namespace-, Pod-label-, and TCP-9090-scoped; adopted
-Prometheus uses HTTPS through the explicitly configured general egress CIDRs.
-When NetworkPolicy is enabled, rendering fails if runtime/build RBAC or the
-GitHub build controller is enabled without API CIDRs. It also fails if a GitHub
-App, Git remote, or adopted Prometheus endpoint is configured without provider
-CIDRs.
+Prometheus uses HTTPS through the optional general egress CIDRs, with the same
+public fallback when they are empty. Explicit provider CIDRs remain available
+for infrastructure hardening; they are not required for a functional GitHub,
+Git, or Prometheus integration.

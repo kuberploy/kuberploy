@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { MetricKey, MetricRangeResult, Project } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -276,24 +276,31 @@ export function MonitoringPage() {
     projects.data?.items ?? [],
     environments.data?.items ?? [],
   );
-  const scopes: DashboardScope[] = accessibleEnvironments.map(
-    (environment) => ({
-      key: `namespace:${environment.id}`,
-      type: "namespace",
-      id: environment.id,
-      title: `${projectLabel(projects.data?.items ?? [], environment.projectId)} / ${environment.name}`,
-      detail: `Kubernetes namespace ${environment.namespace}`,
-    }),
-  );
-  if (hasGlobalMetricsAccess(effectiveCapabilities)) {
-    scopes.push({
-      key: "global:platform",
-      type: "global",
-      id: "platform",
-      title: "Platform global",
-      detail: "Every authorized platform recording-rule series",
-    });
-  }
+  const scopes = useMemo(() => {
+    const next: DashboardScope[] = accessibleEnvironments.map(
+      (environment) => ({
+        key: `namespace:${environment.id}`,
+        type: "namespace",
+        id: environment.id,
+        title: `${projectLabel(projects.data?.items ?? [], environment.projectId)} / ${environment.name}`,
+        detail: `Kubernetes namespace ${environment.namespace}`,
+      }),
+    );
+    if (hasGlobalMetricsAccess(effectiveCapabilities)) {
+      next.push({
+        key: "global:platform",
+        type: "global",
+        id: "platform",
+        title: "Platform global",
+        detail: "Every authorized platform recording-rule series",
+      });
+    }
+    return next;
+  }, [accessibleEnvironments, effectiveCapabilities, projects.data?.items]);
+  useEffect(() => {
+    if (scopes.some((scope) => scope.key === selectedScopeKey)) return;
+    setSelectedScopeKey(scopes[0]?.key ?? "");
+  }, [scopes, selectedScopeKey]);
   const selectedScope =
     scopes.find((scope) => scope.key === selectedScopeKey) ?? scopes[0];
   const loading =

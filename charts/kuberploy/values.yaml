@@ -140,7 +140,7 @@ config:
     tokenAuthorities: []
     platform: linux/amd64
   # Read-only observation of operator-approved edge controllers. Every enabled
-  # profile must describe exact, digest-pinned Kubernetes objects and the
+  # profile describes the expected Kubernetes objects and the
   # immutable profile ConfigMap rendered by the corresponding standalone chart.
   # A Traefik profile may omit sslip (the default), use sslip.mode
   # auto-first-ip, or use verified-static-ip with one operator-owned
@@ -246,15 +246,15 @@ config:
   bootstrapSecret:
     name: kuberploy-bootstrap
     tokenKey: token
-    # Enable for first install after supplying the exact Kubernetes API CIDR.
-    # An existing operator-created Secret always wins without redisclosure.
+    # Enable for first install. An existing operator-created Secret always wins
+    # without redisclosure; empty API CIDRs use the basic public API fallback.
     generate: false
 
 components:
   api:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.175
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.176
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -263,7 +263,7 @@ components:
   worker:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.175
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.176
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 50m, memory: 64Mi}
@@ -271,7 +271,7 @@ components:
   web:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.175
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.176
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -279,7 +279,7 @@ components:
       limits: {cpu: 250m, memory: 128Mi}
   migration:
     image:
-      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.175
+      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.176
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 25m, memory: 64Mi}
@@ -318,6 +318,17 @@ builder:
   # Exact BuildKit release used by the isolated docker-container driver. An
   # operator may mirror this version into a fixed approved registry.
   buildKitImage: docker.io/moby/buildkit:v0.32.2
+  dindImage: docker.io/library/docker:29.7.1-dind
+  # Optional operator-managed BuildKit secret mounts. Secret names refer to
+  # pre-created Secrets in builder.namespace.name; profile metadata contains
+  # only selectable IDs/labels and Secret data keys, never Secret values.
+  # Every profile must list the application IDs allowed to use it.
+  buildSecret:
+    name: ""
+    profiles: []
+  sshSecret:
+    name: ""
+    profiles: []
   namespace:
     create: true
     name: kuberploy-build-dind
@@ -327,11 +338,14 @@ builder:
   podServiceAccount:
     name: kuberploy-build-pod
   admissionPolicy:
+    # The privileged builder requires its fail-closed Job admission boundary.
     enabled: true
   networkPolicy:
-    enabled: true
-    # Per-build policies accept resolved host routes only. Use stable egress
-    # proxy addresses when provider or registry addresses are not static.
+    enabled: false
+    # Empty lists allow dual-stack public egress on only the required source
+    # and verified registry ports, excluding configured Kubernetes API CIDRs.
+    # Nonempty lists optionally narrow those public routes.
+    kubeAPIServerCIDRs: []
     sourceEgressCIDRs: []
     registryEgressCIDRs: []
   resourceQuota:
@@ -345,20 +359,20 @@ builder:
       limitsEphemeralStorage: 200Gi
 
 networkPolicy:
-  enabled: true
+  enabled: false
   edgeNamespace: kuberploy-system
   # Managed dependencies have protected, fixed namespace identities. These
   # values are schema-locked so a release cannot silently widen the boundary.
   managedPostgreSQLNamespace: kuberploy-system
   managedValkeyNamespace: kuberploy-system
   # Kubernetes API endpoints are cluster-specific. Supply only the API
-  # Service/control-plane CIDRs observed by the CNI; all-address ranges are
-  # rejected. An empty list intentionally leaves Kubernetes API egress closed.
+  # Service/control-plane CIDRs observed by the CNI to narrow egress. An empty
+  # list uses dual-stack public access on ports 443/6443 for basic portability.
   kubeAPIServerCIDRs: []
   # Public/provider access (GitHub, HTTPS Git/OCI, SSH Git, and git://) remains
-  # separate from database and cache access. Ports are fixed in the template,
-  # and there is deliberately no all-address default that could also cover the
-  # Kubernetes API. Supply exact provider ranges or an egress-proxy CIDR.
+  # separate from database and cache access. Empty allows dual-stack public
+  # egress on only required ports and excludes the configured Kubernetes API.
+  # Supply CIDRs only when infrastructure policy wants a narrower route.
   externalEgressCIDRs: []
   # Adopted PostgreSQL and Valkey endpoints require their own explicit CIDRs.
   # All-address ranges are rejected for these credential-bearing protocols.

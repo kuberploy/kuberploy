@@ -1,9 +1,9 @@
 # Kuberploy managed platform installer values.
 #
-# Fill both CIDR lists before use. They must contain exact /32 or /128 hosts:
-# the Kubernetes Service/API endpoints and the HTTPS endpoints Argo needs.
-# repositoryEgressCIDRs must include both the current GitHub `git` ranges for
-# the values source and the current GitHub `packages` ranges for GHCR charts.
+# Kubernetes Service/API endpoints remain explicit cluster-owned CIDRs. Public
+# GitHub, Git, OCI, and registry CIDR lists are optional: empty uses dual-stack
+# public egress on required ports with Kubernetes API destinations excluded.
+# Supply lists only when cluster infrastructure wants narrower egress.
 bootstrap:
   valkey:
     enabled: true
@@ -21,7 +21,7 @@ cluster:
 source:
   chartRepository: ghcr.io/kuberploy/charts
   valuesRepository: https://github.com/kuberploy/kuberploy.git
-  valuesRevision: v0.1.0-rc.175
+  valuesRevision: v0.1.0-rc.176
 
 publicEndpoint:
   enabled: false
@@ -63,44 +63,44 @@ components:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
   postgresql:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles:
       - examples/installer/postgresql.yaml
   valkey:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
   edge:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
   certManager:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
   sealedSecrets:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
   monitoring:
     enabled: true
     mode: managed
     adoptionConfirmed: false
-    expectedPackageVersion: 0.1.0-rc.175
+    expectedPackageVersion: 0.1.0-rc.176
     valueFiles: []
 
 argoCD:

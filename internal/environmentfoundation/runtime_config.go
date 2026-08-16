@@ -47,11 +47,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	enabled, present := lookup(RuntimeEnabledEnv)
 	if !present || enabled == "" || enabled == "false" {
-		for _, name := range runtimeExclusiveEnvironment {
-			if value, found := lookup(name); found && value != "" {
-				return RuntimeConfig{}, errors.New(name + " cannot be configured while environment foundation is disabled")
-			}
-		}
 		return RuntimeConfig{}, nil
 	}
 	if enabled != "true" {

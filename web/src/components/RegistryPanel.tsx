@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type {
   Application,
@@ -127,25 +127,55 @@ function PolicyEditor({
   const [errors, setErrors] = useState<
     Partial<Record<keyof PolicyDraft, string>>
   >({});
+  const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const policyBaseline = useRef(JSON.stringify(policyDraft(policy)));
+  const editorScope = JSON.stringify({
+    applicationId,
+    targetId: target.id,
+    draft,
+  });
+  const editorScopeRef = useRef(editorScope);
+  editorScopeRef.current = editorScope;
   useEffect(() => {
-    setDraft(policyDraft(policy));
+    const nextDraft = policyDraft(policy);
+    const nextBaseline = JSON.stringify(nextDraft);
+    setDraft((current) => {
+      if (JSON.stringify(current) !== policyBaseline.current) return current;
+      policyBaseline.current = nextBaseline;
+      return nextDraft;
+    });
     setErrors({});
   }, [policy]);
   const mutation = useMutation({
     mutationFn: ({
       input,
       idempotencyKey,
+      applicationId: requestedApplicationId,
+      targetId,
+      editorScope: _editorScope,
     }: {
       input: RegistryPolicyInput;
       idempotencyKey: string;
+      applicationId: string;
+      targetId: string;
+      editorScope: string;
     }) =>
-      api.putRegistryPolicy(applicationId, target.id, input, idempotencyKey),
+      api.putRegistryPolicy(
+        requestedApplicationId,
+        targetId,
+        input,
+        idempotencyKey,
+      ),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
+    onSuccess: async (_value, input) => {
+      const sameDraft = input.editorScope === editorScopeRef.current;
+      if (sameDraft && saveAttempt.current?.key === input.idempotencyKey) {
+        saveAttempt.current = null;
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["application-registry", applicationId],
+        queryKey: ["application-registry", input.applicationId],
       });
-      onSaved?.();
+      if (sameDraft) onSaved?.();
     },
   });
   const submit = (event: FormEvent) => {
@@ -153,9 +183,23 @@ function PolicyEditor({
     const nextErrors = validatePolicy(draft);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+    const input = { ...draft, repository: draft.repository.trim() };
+    const signature = JSON.stringify({
+      applicationId,
+      targetId: target.id,
+      input,
+    });
+    const idempotencyKey =
+      saveAttempt.current?.signature === signature
+        ? saveAttempt.current.key
+        : crypto.randomUUID();
+    saveAttempt.current = { signature, key: idempotencyKey };
     mutation.mutate({
-      input: { ...draft, repository: draft.repository.trim() },
-      idempotencyKey: crypto.randomUUID(),
+      input,
+      applicationId,
+      targetId: target.id,
+      idempotencyKey,
+      editorScope,
     });
   };
   const numberField = (
@@ -260,6 +304,15 @@ function CleanupPanel({
   );
   const [planId, setPlanId] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const previewAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
+  const executeAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
+  const scopeKey = `${application.id}\u0000${target.target.id}`;
+  const activeScopeKey = useRef(scopeKey);
+  activeScopeKey.current = scopeKey;
   const status = useQuery({
     queryKey: ["registry-cleanup-plan", planId],
     queryFn: () => api.registryCleanupPlan(planId),
@@ -269,14 +322,22 @@ function CleanupPanel({
       query.state.data?.state === "executing" ? 5_000 : false,
   });
   const preview = useMutation({
-    mutationFn: (idempotencyKey: string) =>
-      api.previewRegistryCleanup(
-        application.id,
-        target.target.id,
-        idempotencyKey,
-      ),
+    mutationFn: ({
+      applicationId: requestedApplicationId,
+      targetId,
+      key,
+    }: {
+      scope: string;
+      applicationId: string;
+      targetId: string;
+      key: string;
+    }) => api.previewRegistryCleanup(requestedApplicationId, targetId, key),
     retry: retryNetworkOnce,
-    onSuccess: (plan) => {
+    onSuccess: (plan, input) => {
+      if (input.scope !== activeScopeKey.current) return;
+      if (previewAttempt.current?.key === input.key) {
+        previewAttempt.current = null;
+      }
       setPlanId(plan.id);
       setConfirmation("");
       queryClient.setQueryData(["registry-cleanup-plan", plan.id], plan);
@@ -285,19 +346,77 @@ function CleanupPanel({
   const execute = useMutation({
     mutationFn: ({
       plan,
+      confirmation: submittedConfirmation,
       idempotencyKey,
     }: {
       plan: RegistryCleanupPlan;
+      scope: string;
+      confirmation: string;
+      applicationId: string;
+      targetId: string;
       idempotencyKey: string;
-    }) => api.executeRegistryCleanup(plan.id, confirmation, idempotencyKey),
+    }) =>
+      api.executeRegistryCleanup(
+        plan.id,
+        submittedConfirmation,
+        idempotencyKey,
+      ),
     retry: retryNetworkOnce,
-    onSuccess: (plan) => {
+    onSuccess: (plan, input) => {
+      if (input.scope !== activeScopeKey.current) return;
+      if (executeAttempt.current?.key === input.idempotencyKey) {
+        executeAttempt.current = null;
+      }
       queryClient.setQueryData(["registry-cleanup-plan", plan.id], plan);
       void queryClient.invalidateQueries({
-        queryKey: ["application-registry", application.id],
+        queryKey: ["application-registry", input.applicationId],
       });
     },
   });
+  useEffect(() => {
+    setPlanId("");
+    setConfirmation("");
+    previewAttempt.current = null;
+    executeAttempt.current = null;
+    preview.reset();
+    execute.reset();
+  }, [application.id, target.target.id]);
+  const createPreview = () => {
+    const signature = JSON.stringify({
+      applicationId: application.id,
+      targetId: target.target.id,
+    });
+    const idempotencyKey =
+      previewAttempt.current?.signature === signature
+        ? previewAttempt.current.key
+        : crypto.randomUUID();
+    previewAttempt.current = { signature, key: idempotencyKey };
+    preview.mutate({
+      scope: scopeKey,
+      applicationId: application.id,
+      targetId: target.target.id,
+      key: idempotencyKey,
+    });
+  };
+  const executePlan = (nextPlan: RegistryCleanupPlan) => {
+    const signature = JSON.stringify({
+      planId: nextPlan.id,
+      confirmation,
+    });
+    const idempotencyKey =
+      executeAttempt.current?.signature === signature
+        ? executeAttempt.current.key
+        : crypto.randomUUID();
+    executeAttempt.current = { signature, key: idempotencyKey };
+    execute.mutate({
+      plan: nextPlan,
+      scope: scopeKey,
+      confirmation,
+      applicationId: application.id,
+      targetId: target.target.id,
+      idempotencyKey,
+    });
+  };
   const plan = status.data ?? preview.data;
   if (!canPreview || !humanSession) return null;
   return (
@@ -310,7 +429,8 @@ function CleanupPanel({
         <Button
           variant="secondary"
           busy={preview.isPending}
-          onClick={() => preview.mutate(crypto.randomUUID())}
+          disabled={execute.isPending}
+          onClick={createPreview}
         >
           <Icon name="refresh" /> Create preview
         </Button>
@@ -366,11 +486,7 @@ function CleanupPanel({
               className="registry-confirmation"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (confirmation === plan.id)
-                  execute.mutate({
-                    plan,
-                    idempotencyKey: crypto.randomUUID(),
-                  });
+                if (confirmation === plan.id) executePlan(plan);
               }}
             >
               <Field
@@ -394,7 +510,7 @@ function CleanupPanel({
                 type="submit"
                 variant="danger"
                 busy={execute.isPending}
-                disabled={confirmation !== plan.id}
+                disabled={confirmation !== plan.id || preview.isPending}
               >
                 Execute managed cleanup
               </Button>

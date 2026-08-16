@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
@@ -114,6 +114,27 @@ export function ApplicationOverviewPage() {
       ) ?? [],
     [application.data?.projectId, environments.data?.items],
   );
+  useEffect(() => {
+    setSource("build");
+    setTab("overview");
+    setEnvironmentId("");
+  }, [applicationId]);
+  useEffect(() => {
+    if (!application.data || !environments.data) return;
+    if (
+      environmentId &&
+      !applicationEnvironments.some(
+        (environment) => environment.id === environmentId,
+      )
+    ) {
+      setEnvironmentId("");
+    }
+  }, [
+    application.data,
+    applicationEnvironments,
+    environmentId,
+    environments.data,
+  ]);
   const selectedEnvironment = applicationEnvironments.find(
     (item) => item.id === environmentId,
   );
@@ -350,6 +371,7 @@ export function ApplicationOverviewPage() {
               />
             ) : (
               <BuildDefinitionForm
+                key={application.data.id}
                 application={application.data}
                 project={project}
                 capabilities={effectiveCapabilities}
@@ -427,6 +449,7 @@ export function ApplicationOverviewPage() {
 
       {tab === "runtime" ? (
         <RegistryPullCredentialsPanel
+          key={`${project.id}:${application.data.id}`}
           application={application.data}
           project={project}
           enabled={features?.registry === true}

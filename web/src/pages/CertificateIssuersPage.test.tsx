@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
+import type { CertificateIssuerAdminEntry } from "../api/types";
 import { CertificateIssuersPage } from "./CertificateIssuersPage";
 
 afterEach(() => {
@@ -17,21 +18,40 @@ const principal = {
   authentication: { kind: "session" as const },
 };
 
+const issuer: CertificateIssuerAdminEntry = {
+  id: "issuer-1",
+  name: "tenant-production",
+  lifecycle: "active",
+  currentRevision: 1,
+  revision: {
+    number: 1,
+    environment: "production",
+    email: "admin@example.com",
+    accountPrivateKeySecretName: "tenant-production-account",
+    solver: "http01",
+    specDigest: `sha256:${"a".repeat(64)}`,
+    createdAt: "2026-08-09T00:00:00Z",
+  },
+  observation: {
+    state: "ready",
+    updatedAt: "2026-08-09T00:00:00Z",
+  },
+  createdAt: "2026-08-09T00:00:00Z",
+};
+
 function renderPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   render(
-    <QueryClientProvider
-      client={
-        new QueryClient({
-          defaultOptions: {
-            queries: { retry: false },
-            mutations: { retry: false },
-          },
-        })
-      }
-    >
+    <QueryClientProvider client={queryClient}>
       <CertificateIssuersPage />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 describe("certificate issuer administration", () => {
@@ -109,5 +129,77 @@ describe("certificate issuer administration", () => {
       solver: { type: "http01" },
     });
     expect(create.mock.calls[0]?.[1]).not.toHaveProperty("server");
+  });
+
+  it("blocks publishing a revision after the catalog advances", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: { certificateIssuerManagement: true },
+    });
+    const catalog = vi
+      .spyOn(api, "platformCertificateIssuers")
+      .mockResolvedValueOnce({ items: [issuer] })
+      .mockResolvedValueOnce({
+        items: [
+          {
+            ...issuer,
+            currentRevision: 2,
+            revision: { ...issuer.revision, number: 2 },
+          },
+        ],
+      });
+    const queryClient = renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Revise" }));
+    await queryClient.invalidateQueries({
+      queryKey: ["platform-certificate-issuers"],
+    });
+
+    expect(
+      await screen.findByText(
+        "This issuer changed, was deactivated, or is no longer available. Reload the catalog before publishing a revision.",
+      ),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Publish revision" }),
+    ).toBeDisabled();
+    expect(catalog).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a reopened issuer editor open after its older revision completes", async () => {
+    const user = userEvent.setup();
+    let resolveRevision!: (value: CertificateIssuerAdminEntry) => void;
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: { certificateIssuerManagement: true },
+    });
+    vi.spyOn(api, "platformCertificateIssuers").mockResolvedValue({
+      items: [issuer],
+    });
+    vi.spyOn(api, "revisePlatformCertificateIssuer").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRevision = resolve;
+        }),
+    );
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "Revise" }));
+    await user.click(screen.getByRole("button", { name: "Publish revision" }));
+    await waitFor(() =>
+      expect(api.revisePlatformCertificateIssuer).toHaveBeenCalledOnce(),
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Revise" }));
+
+    resolveRevision(issuer);
+
+    await waitFor(() =>
+      expect(api.platformCertificateIssuers).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      screen.getByRole("button", { name: "Publish revision" }),
+    ).toBeVisible();
   });
 });

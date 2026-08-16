@@ -21,10 +21,11 @@ vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => router.navigate,
 }));
 
-function wrapper() {
-  const queryClient = new QueryClient({
+function wrapper(
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  }),
+) {
   return ({ children }: PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
@@ -94,6 +95,89 @@ describe("new deployment runtime controls", () => {
     expect(
       screen.getByRole("link", { name: "Source options" }),
     ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "New application" }));
+    await user.click(
+      screen.getByRole("button", { name: "Create application identity" }),
+    );
+    await waitFor(() => expect(createApplication).toHaveBeenCalledTimes(2));
+    expect(createApplication.mock.calls[1]?.[1]).not.toBe(
+      createApplication.mock.calls[0]?.[1],
+    );
+  });
+
+  it("ignores a stale application reservation after the draft changes", async () => {
+    const user = userEvent.setup();
+    let resolveApplication:
+      | ((value: { id: string; projectId: string; name: string }) => void)
+      | undefined;
+    const createApplication = vi
+      .spyOn(api, "createApplication")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveApplication = resolve;
+          }),
+      );
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    const name = screen.getByRole("textbox", { name: /^Application name/ });
+    await user.type(name, "New API");
+    await user.click(
+      screen.getByRole("button", { name: "Create application identity" }),
+    );
+    await waitFor(() => expect(createApplication).toHaveBeenCalledOnce());
+
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    resolveApplication?.({
+      id: "application-stale",
+      projectId: "project-1",
+      name: "New API",
+    });
+
+    await waitFor(() => expect(createApplication).toHaveReturned());
+    expect(
+      screen.getByRole("radio", { name: "Existing application" }),
+    ).toBeChecked();
+    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
+      "",
+    );
+    expect(
+      screen.queryByText("Application identity created"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears an environment removed by an authorization refresh", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    const environment = screen.getByRole("combobox", {
+      name: /^Environment/,
+    });
+    await user.selectOptions(environment, "environment-1");
+
+    vi.mocked(api.environments).mockResolvedValueOnce({ items: [] });
+    await queryClient.invalidateQueries({ queryKey: ["environments"] });
+
+    await waitFor(() => expect(environment).toHaveValue(""));
   });
 
   it("requires a current safe tag-to-digest preview and still submits only the caller tag", async () => {
@@ -229,6 +313,121 @@ describe("new deployment runtime controls", () => {
     expect(createDeployment).not.toHaveBeenCalled();
   });
 
+  it("does not reuse a tag preview after changing deployment environment", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        secretBindings: false,
+        git: true,
+        argo: true,
+        imageTagResolution: true,
+      },
+      capabilities: [],
+    });
+    vi.mocked(api.environments).mockResolvedValue({
+      items: [
+        {
+          id: "environment-1",
+          projectId: "project-1",
+          name: "Production",
+          namespace: "payments-production",
+        },
+        {
+          id: "environment-2",
+          projectId: "project-1",
+          name: "Staging",
+          namespace: "payments-staging",
+        },
+      ],
+    });
+    const previewImageResolution = vi
+      .spyOn(api, "previewImageResolution")
+      .mockResolvedValue({
+        requestedImage: "registry.example.test/payments/api:release",
+        immutableImage: `registry.example.test/payments/api@sha256:${"e".repeat(64)}`,
+        resolved: true,
+      });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    const environment = screen.getByRole("combobox", {
+      name: /^Environment/,
+    });
+    await user.selectOptions(environment, "environment-1");
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    const image = screen.getByRole("textbox", { name: /^Image digest/ });
+    await user.type(image, "registry.example.test/payments/api:release");
+    await user.click(
+      screen.getByRole("button", { name: "Resolve tag to digest" }),
+    );
+    await waitFor(() => expect(previewImageResolution).toHaveBeenCalledOnce());
+    expect(
+      screen.getByRole("button", { name: /commit & deploy/i }),
+    ).toBeEnabled();
+
+    await user.selectOptions(environment, "environment-2");
+    await user.selectOptions(environment, "environment-1");
+    expect(
+      screen.getByRole("button", { name: /commit & deploy/i }),
+    ).toBeDisabled();
+    expect(screen.queryByText(/Immutable image resolved/)).not.toBeInTheDocument();
+  });
+
+  it("hides a tag-resolution error after the image changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        secretBindings: false,
+        git: true,
+        argo: true,
+        imageTagResolution: true,
+      },
+      capabilities: [],
+    });
+    vi.spyOn(api, "previewImageResolution").mockRejectedValueOnce(
+      new Error("old image resolution failed"),
+    );
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    const image = screen.getByRole("textbox", { name: /^Image digest/ });
+    await user.type(image, "registry.example.test/payments/api:release");
+    await user.click(
+      screen.getByRole("button", { name: "Resolve tag to digest" }),
+    );
+    await screen.findByText("Tag could not be resolved");
+
+    await user.type(image, "-changed");
+    expect(
+      screen.queryByText("Tag could not be resolved"),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not promise or submit deployment while protected GitOps is unavailable", async () => {
     vi.mocked(api.capabilities).mockResolvedValue({
       features: { secretBindings: false, git: true, argo: false },
@@ -301,6 +500,7 @@ describe("new deployment runtime controls", () => {
     const user = userEvent.setup();
     const createDeployment = vi
       .spyOn(api, "createDeployment")
+      .mockRejectedValueOnce(new Error("response lost"))
       .mockResolvedValue({
         id: "operation-1",
         kind: "deployment.create",
@@ -372,9 +572,15 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("textbox", { name: /^Hostname/ }),
       "payments.example.test",
     );
-    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    await user.click(submit);
+    await screen.findByText("Deployment was not accepted");
+    await user.click(submit);
 
-    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledTimes(2));
+    expect(createDeployment.mock.calls[0]?.[1]).toBe(
+      createDeployment.mock.calls[1]?.[1],
+    );
     expect(createDeployment.mock.calls[0]?.[0].runtime).toMatchObject({
       command: ["/bin/server", "argument with spaces"],
       args: ["--literal", "semi; $(id)"],
@@ -396,6 +602,407 @@ describe("new deployment runtime controls", () => {
       pathPrefix: "/",
       tlsMode: "httpOnly",
     });
+  });
+
+  it("does not navigate from a late success after the deployment draft changes", async () => {
+    const user = userEvent.setup();
+    let resolveDeployment:
+      | ((value: Awaited<ReturnType<typeof api.createDeployment>>) => void)
+      | undefined;
+    const createDeployment = vi
+      .spyOn(api, "createDeployment")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveDeployment = resolve;
+          }),
+      );
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    const image = screen.getByRole("textbox", { name: /^Image digest/ });
+    const firstImage = `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`;
+    const secondImage = `ghcr.io/acme/payments@sha256:${"b".repeat(64)}`;
+    await user.type(image, firstImage);
+    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+
+    await user.clear(image);
+    await user.type(image, secondImage);
+    resolveDeployment?.({
+      id: "operation-stale-draft",
+      kind: "deployment.create",
+      status: "queued",
+      state: "queued",
+      targetType: "deployment",
+      targetId: "deployment-stale-draft",
+      requestId: "request-stale-draft",
+      generation: 1,
+      progress: [],
+      createdAt: "2026-08-16T00:00:00Z",
+      updatedAt: "2026-08-16T00:00:00Z",
+    });
+
+    await waitFor(() => expect(router.navigate).not.toHaveBeenCalled());
+    expect(image).toHaveValue(secondImage);
+  });
+
+  it("exposes scheduling in the first-deployment wizard and submits it", async () => {
+    const user = userEvent.setup();
+    const createDeployment = vi
+      .spyOn(api, "createDeployment")
+      .mockResolvedValue({
+        id: "operation-scheduling",
+        kind: "deployment.create",
+        status: "queued",
+        state: "queued",
+        targetType: "deployment",
+        targetId: "deployment-scheduling",
+        requestId: "request-scheduling",
+        generation: 1,
+        progress: [],
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    await user.click(screen.getByRole("button", { name: "Add label" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Node selector 1 key" }),
+      "workload",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Node selector 1 value" }),
+      "high",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /^Image digest/ }),
+      `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+    expect(createDeployment.mock.calls[0]?.[0].runtime.nodeSelector).toEqual({
+      workload: "high",
+    });
+  });
+
+  it("submits workload-specific StatefulSet controls from the first-deployment wizard", async () => {
+    const user = userEvent.setup();
+    const createDeployment = vi
+      .spyOn(api, "createDeployment")
+      .mockResolvedValue({
+        id: "operation-stateful",
+        kind: "deployment.create",
+        status: "queued",
+        state: "queued",
+        targetType: "deployment",
+        targetId: "deployment-stateful",
+        requestId: "request-stateful",
+        generation: 1,
+        progress: [],
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Workload type" }),
+      "StatefulSet",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^StatefulSet strategy/ }),
+      "OnDelete",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Pod management policy" }),
+      "Parallel",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /^Image digest/ }),
+      `ghcr.io/acme/payments@sha256:${"e".repeat(64)}`,
+    );
+
+    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+    expect(createDeployment.mock.calls[0]?.[0].runtime).toMatchObject({
+      workloadType: "StatefulSet",
+      strategy: { type: "OnDelete" },
+      podManagementPolicy: "Parallel",
+    });
+  });
+
+  it("clears app-scoped placement when the selected application changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.applications).mockResolvedValue({
+      items: [
+        { id: "application-1", projectId: "project-1", name: "Payments API" },
+        { id: "application-2", projectId: "project-1", name: "Billing API" },
+      ],
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.selectOptions(application, "application-1");
+    await user.click(screen.getByRole("button", { name: "Add label" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Node selector 1 key" }),
+      "workload",
+    );
+    await user.click(screen.getByRole("button", { name: "Add constraint" }));
+    expect(
+      screen.queryByText("No topology constraints."),
+    ).not.toBeInTheDocument();
+
+    await user.selectOptions(application, "application-2");
+    expect(
+      screen.queryByRole("textbox", { name: "Node selector 1 key" }),
+    ).not.toBeInTheDocument();
+    expect(await screen.findByText("No topology constraints.")).toBeVisible();
+  });
+
+  it("clears app-scoped values and route when the selected application changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.applications).mockResolvedValue({
+      items: [
+        { id: "application-1", projectId: "project-1", name: "Payments API" },
+        { id: "application-2", projectId: "project-1", name: "Billing API" },
+      ],
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.selectOptions(application, "application-1");
+    await user.click(screen.getByRole("button", { name: "Add value" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Variable 1 name" }),
+      "OLD_VALUE",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Variable 1 value" }),
+      "old",
+    );
+    await user.click(screen.getByRole("radio", { name: "Manual hostname" }));
+    await user.type(
+      screen.getByRole("textbox", { name: /^Hostname/ }),
+      "old.example.com",
+    );
+
+    await user.selectOptions(application, "application-2");
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "Variable 1 name" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("textbox", { name: /^Hostname/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("radio", { name: "Internal only" }),
+      ).toBeChecked();
+    });
+  });
+
+  it("clears the previous application draft when switching to a new identity", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.applications).mockResolvedValue({
+      items: [
+        { id: "application-1", projectId: "project-1", name: "Payments API" },
+      ],
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    await user.click(screen.getByRole("button", { name: "Add label" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Node selector 1 key" }),
+      "workload",
+    );
+    await user.click(screen.getByRole("button", { name: "Add value" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Variable 1 name" }),
+      "OLD_VALUE",
+    );
+    await user.click(screen.getByRole("radio", { name: "Manual hostname" }));
+    await user.type(
+      screen.getByRole("textbox", { name: /^Hostname/ }),
+      "old.example.com",
+    );
+
+    await user.click(screen.getByRole("radio", { name: "New application" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "Node selector 1 key" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("textbox", { name: "Variable 1 name" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("textbox", { name: /^Hostname/ }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("radio", { name: "Internal only" }),
+      ).toBeChecked();
+    });
+
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
+      "",
+    );
+  });
+
+  it("clears stale environment and application scope when the project changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.projects).mockResolvedValue({
+      items: [
+        { id: "project-1", name: "Payments" },
+        { id: "project-2", name: "Billing" },
+      ],
+    });
+    vi.mocked(api.environments).mockResolvedValue({
+      items: [
+        {
+          id: "environment-1",
+          projectId: "project-1",
+          name: "Production",
+          namespace: "payments-production",
+        },
+        {
+          id: "environment-2",
+          projectId: "project-2",
+          name: "Production",
+          namespace: "billing-production",
+        },
+      ],
+    });
+    vi.mocked(api.applications).mockResolvedValue({
+      items: [
+        { id: "application-1", projectId: "project-1", name: "Payments API" },
+        { id: "application-2", projectId: "project-2", name: "Billing API" },
+      ],
+    });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    const environment = screen.getByRole("combobox", {
+      name: /^Environment/,
+    });
+    await user.selectOptions(environment, "environment-1");
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    const application = screen.getByRole("combobox", { name: "Application" });
+    await user.selectOptions(application, "application-1");
+    await user.click(screen.getByRole("button", { name: "Add label" }));
+    expect(
+      screen.getByRole("textbox", { name: "Node selector 1 key" }),
+    ).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-2",
+    );
+
+    await waitFor(() => {
+      expect(environment).toHaveValue("");
+      expect(application).toHaveValue("");
+    });
+    expect(
+      screen.queryByRole("textbox", { name: "Node selector 1 key" }),
+    ).not.toBeInTheDocument();
   });
 
   it("previews sslip server-side and submits only the closed route intent", async () => {

@@ -357,7 +357,8 @@ func TestManagedRegistryRuntimeReadinessSQLFencingAndExactMatch(t *testing.T) {
 	defer st.Close()
 	now := databaseTime(time.Now().UTC())
 	config := registry.RuntimeConfig{
-		Enabled: true, TargetID: id.New(), Endpoint: "https://registry-readiness.integration.test", RepositoryPrefix: "integration",
+		Enabled: true, TargetID: id.New(), TargetName: "Managed readiness registry", Endpoint: "https://registry-readiness.integration.test", RepositoryPrefix: "integration",
+		PullCredentialRef: "runtime-pull-managed", PushCredentialRef: "builder-push-secret", CacheCredentialRef: "registry-cache",
 		CredentialRef: "operator/managed-registry", Namespace: "kuberploy-registry", Deployment: "kuberploy-registry",
 		PersistentVolumeClaim: "kuberploy-registry", RegistryConfigMap: "kuberploy-registry-config-abc123",
 		HelperServiceAccount: "kuberploy-registry-maintenance",

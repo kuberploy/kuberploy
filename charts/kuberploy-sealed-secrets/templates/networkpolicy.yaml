@@ -1,4 +1,6 @@
-{{- if .Values.secretFoundation.controller.managed }}
+{{- if and .Values.secretFoundation.controller.managed .Values.secretFoundation.networkPolicy.enabled }}
+{{- $apiCIDRs := .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -34,7 +36,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:

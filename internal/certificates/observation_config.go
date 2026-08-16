@@ -41,12 +41,10 @@ func ObservationConfigFromLookup(lookup func(string) (string, bool), runtimeSecr
 		return ObservationConfig{}, ErrObservationUnavailable
 	}
 	enabled, present := lookup(CertificateObservationEnabledEnv)
-	if !present || enabled == "false" {
-		for _, name := range certificateObservationConfigEnvs() {
-			if _, configured := lookup(name); configured {
-				return ObservationConfig{}, ErrObservationUnavailable
-			}
-		}
+	// Disabled integrations do not consume their dormant timing settings.
+	// This mirrors the other optional runtimes and keeps a chart/config upgrade
+	// from failing merely because an unused feature left old values behind.
+	if !present || enabled == "" || enabled == "false" {
 		return ObservationConfig{}, nil
 	}
 	if enabled != "true" || runtimeSecrets.Validate() != nil {
@@ -111,16 +109,4 @@ func ObservationPolicyDigest(config ObservationConfig) (string, error) {
 		return "", ErrObservationUnavailable
 	}
 	return identity.ConfigDigest, nil
-}
-
-func certificateObservationConfigEnvs() []string {
-	return []string{
-		CertificateObservationPollSecondsEnv,
-		CertificateObservationWorkLeaseSecondsEnv,
-		CertificateObservationHeartbeatSecondsEnv,
-		CertificateObservationIdleSecondsEnv,
-		CertificateObservationMinimumBackoffSecondsEnv,
-		CertificateObservationMaximumBackoffSecondsEnv,
-		CertificateObservationMaximumAgeSecondsEnv,
-	}
 }

@@ -72,6 +72,38 @@ func TestAutoDeployPolicyStoreAuthorizesBeforeSideEffectsAndReplaysBeforeMutable
 		t.Fatalf("changed replay digest err=%v", err)
 	}
 
+	// A previously accepted command must not remain replayable after the
+	// actor's project grant is revoked.
+	replayActor, _ := invitedUser(t, store, admin, "Auto deploy operator", "auto-deploy-replay-actor")
+	grant, err := store.CreateProjectAccessGrant(ctx, admin.ID, "ad-replay-grant", "ad-replay-grant", "request", domain.CreateAccessGrant{
+		ProjectID: projectResult.Value.ID, SubjectUserID: replayActor.ID, Role: domain.RoleProjectAdmin,
+		ScopeType: domain.ScopeProject, ScopeID: projectResult.Value.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayPolicy := policy
+	replayPolicy.ID, replayPolicy.BuildDefinitionID, replayPolicy.CreatedBy = "44444444-4444-4444-8444-444444444444", "55555555-5555-4555-8555-555555555555", replayActor.ID
+	replayRevision := revision
+	replayAccount, err := store.CreateServiceAccount(ctx, admin.ID, "ad-replay-account", "ad-replay-account", "request",
+		domain.CreateServiceAccount{ProjectID: projectResult.Value.ID, Name: "Replay actor", Role: domain.RoleDeveloper})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayRevision.ServiceActorID = replayAccount.Value.ID
+	replayRevision.PolicyID, replayRevision.CreatedBy, replayRevision.CreatedAt = replayPolicy.ID, replayActor.ID, now.Add(3*time.Second)
+	replayKey := "revoked-replay-0001"
+	replayDigest := "sha256:" + strings.Repeat("1", 64)
+	if _, _, _, err = store.CreatePolicy(ctx, replayPolicy, replayRevision, replayKey, replayDigest, "request"); err != nil {
+		t.Fatalf("operator policy create err=%v", err)
+	}
+	if _, err = store.DeleteProjectAccessGrant(ctx, admin.ID, projectResult.Value.ID, grant.Value.ID, "ad-replay-grant-delete", "ad-replay-grant-delete", "request"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, replay, err = store.PolicyCommandReplay(ctx, replayActor.ID, replayKey, "create", replayDigest); !errors.Is(err, base.ErrNotFound) || replay {
+		t.Fatalf("revoked actor replayed accepted policy: replay=%v err=%v", replay, err)
+	}
+
 	unauthorized, _ := invitedUser(t, store, admin, "No policy authority", "no-policy-authority")
 	denied := policy
 	denied.ID, denied.CreatedBy = "33333333-3333-4333-8333-333333333333", unauthorized.ID

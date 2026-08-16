@@ -233,8 +233,28 @@ func (s *MemoryStore) ReplaceReferences(applicationID, environmentID, gitPath st
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	seen := map[string]struct{}{}
+	validated := make([]Reference, 0, len(refs))
+	for _, ref := range refs {
+		if !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 || ref.ApplicationID != applicationID || ref.EnvironmentID != environmentID || ref.GitPath != gitPath || !dnsLabelRE.MatchString(ref.LogicalName) {
+			return ErrInvalid
+		}
+		profile, ok := s.profiles[ref.ProfileID]
+		if !ok {
+			return ErrNotFound
+		}
+		if profile.Lifecycle != Active || profile.CurrentRevision != ref.Revision {
+			return ErrConflict
+		}
+		key := ref.ProfileID + "\x00" + ref.LogicalName
+		if _, ok := seen[key]; ok {
+			return ErrInvalid
+		}
+		seen[key] = struct{}{}
+		validated = append(validated, ref)
+	}
 	for profileID, items := range s.references {
-		out := items[:0]
+		out := make([]Reference, 0, len(items))
 		for _, item := range items {
 			if item.GitPath != gitPath {
 				out = append(out, item)
@@ -242,16 +262,7 @@ func (s *MemoryStore) ReplaceReferences(applicationID, environmentID, gitPath st
 		}
 		s.references[profileID] = out
 	}
-	seen := map[string]struct{}{}
-	for _, ref := range refs {
-		if !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 || ref.ApplicationID != applicationID || ref.EnvironmentID != environmentID || ref.GitPath != gitPath || !dnsLabelRE.MatchString(ref.LogicalName) {
-			return ErrInvalid
-		}
-		key := ref.ProfileID + "\x00" + ref.LogicalName
-		if _, ok := seen[key]; ok {
-			return ErrInvalid
-		}
-		seen[key] = struct{}{}
+	for _, ref := range validated {
 		s.references[ref.ProfileID] = append(s.references[ref.ProfileID], ref)
 	}
 	return nil

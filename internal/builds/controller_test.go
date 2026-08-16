@@ -204,6 +204,10 @@ func TestBuildResultRequiresClosedCacheReuseOutcome(t *testing.T) {
 	if err := validateBuildResult(result, "", ""); err != nil {
 		t.Fatalf("valid cache result rejected: %v", err)
 	}
+	result.Warnings = []builder.Warning{builder.WarningSensitiveBuildArg}
+	if err := validateBuildResult(result, "", ""); err != nil {
+		t.Fatalf("non-blocking build-argument warning rejected: %v", err)
+	}
 	for _, invalid := range []builder.CacheReuse{"", "raw-output", "Hit"} {
 		result.CacheReuse = invalid
 		if err := validateBuildResult(result, "", ""); !errors.Is(err, ErrInvalid) {

@@ -57,11 +57,13 @@ receives the handoff.
    credential. The final image phase receives only the release-push credential
    and has no registry-cache flags. Both phases share the same private BuildKit
    content store, so successful work is reused without sharing Docker auth.
-   The operator-owned `buildKitImage` is copied into the runtime digest,
-   immutable definition, and closed agent request. It must name the explicit
-   `v0.32.2` release. Operators with exact-host egress should mirror that
-   version into an approved fixed registry instead of relying on Docker Hub's
-   rotating endpoints.
+   The operator-owned `buildKitImage` and `dindImage` are copied into the
+   runtime digest, immutable definition, and closed Job/request plan. BuildKit
+   accepts the pinned `v0.32.2` tag or a sha256 mirror; DinD accepts a semantic
+   version or sha256 mirror. Empty source and registry CIDR lists permit dual-stack
+   public access on only HTTPS and the verified registry port while excluding
+   configured Kubernetes API CIDRs. Operators may supply normalized bounded
+   source ranges and exact registry hosts as optional infrastructure hardening.
    Cache export uses `mode=max`, OCI media types, and an image manifest. A
    confirmed cache promotion becomes `generation-N`; an unavailable candidate
    records `CacheDegraded` and is never advertised. Successful agents also
@@ -105,6 +107,19 @@ configuration digest and heartbeat timestamps. The digest covers the exact App
 ID, builder namespace, pod ServiceAccount, agent image, three required worker
 loops, resources and source/registry host egress profile; it contains no
 credential bytes or credential references.
+
+## Operator-managed build credentials
+
+Operators may configure `builder.buildSecret` and `builder.sshSecret` with
+pre-created Secret names in the builder namespace, plus bounded `profiles`
+entries containing only `id`, `label`, Secret data `key`, and a non-empty
+application-ID allowlist. The API publishes only profile IDs and labels. A
+create request selects those IDs; the resolver filters by application and
+expands them to the fixed `/var/run/secrets/kuberploy/build` or
+`/var/run/secrets/kuberploy/ssh` root and the operator-owned Secret name.
+Unknown IDs, arbitrary file paths, and Secret values are rejected. Retries
+re-resolve the stored approved file references, so a build never depends on
+caller-supplied Secret authority.
 
 The memory and PostgreSQL implementations share the same `Store` contract.
 The PostgreSQL integration test applies the stable baseline and exercises

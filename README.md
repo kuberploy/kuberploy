@@ -9,7 +9,7 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.175` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.176` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
 > The dedicated Prisma migration Job automatically upgrades supported
 > Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma
@@ -76,13 +76,15 @@ the public OCI chart at one explicit version:
 
 ```bash
 cp examples/installer/managed-platform-values.yaml installer-values.yaml
-# Edit the exact API/repository CIDRs, component choices and public endpoint.
+# Choose components and the public endpoint. Provider/API CIDRs are optional:
+# leave them empty for the default public HTTPS routes or add infrastructure-owned
+# ranges to narrow those routes.
 ```
 
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.175 \
+  --version 0.1.0-rc.176 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \
@@ -96,9 +98,11 @@ records server-side managed fields while reconciling those objects. Use Helm's
 client-side three-way update on every install and upgrade so Helm changes only
 the release delta without force-taking Argo's live field ownership.
 
-The values file explicitly selects every managed or adopted component, exact
-Kubernetes API and provider egress CIDRs, public endpoint, and pre-existing
-Secret references. Traefik, PostgreSQL, Valkey, cert-manager, monitoring and
+The values file explicitly selects every managed or adopted component, public
+endpoint, and pre-existing Secret references. Public-provider and Kubernetes
+API NetworkPolicy CIDRs are optional. Empty lists use port-scoped dual-stack
+public routes; explicit ranges can be supplied by the infrastructure team to
+narrow them. Traefik, PostgreSQL, Valkey, cert-manager, monitoring and
 the control plane can be selected in the same installer release; integrations
 that require third-party credentials remain off until their values and Secrets
 are supplied by an administrator.
@@ -106,7 +110,7 @@ are supplied by an administrator.
 For installer-managed HTTPS, enable `publicEndpoint.tls` and provide the exact
 TLS Secret name, production ClusterIssuer name, and a real Let's Encrypt account
 email. The installer then configures cert-manager and the control-plane Ingress;
-it rejects incomplete or dormant TLS settings before creating resources.
+it rejects incomplete active TLS settings and ignores dormant disabled values.
 
 `helm --wait` confirms bootstrap acceptance, not full platform readiness. The
 [installer guide](charts/kuberploy-installer/README.md) documents the values

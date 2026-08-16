@@ -30,6 +30,11 @@ func (s *Store) autoDeployPolicyReplayLocked(actorID, key, action, digest string
 	if !ok {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict
 	}
+	// Replays disclose the accepted policy, so current application visibility
+	// remains required even when the original mutation was authorized.
+	if err := s.authorizeLocked(actorID, domain.PermissionBuildsRead, domain.AccessTarget{Type: "application", ID: policy.ApplicationID}); err != nil {
+		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
+	}
 	revision, ok := s.autoDeployRevisions[policy.ID][command.revision]
 	if !ok {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict

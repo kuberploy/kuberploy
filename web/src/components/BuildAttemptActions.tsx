@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api/client";
 import type {
   Application,
@@ -13,6 +13,8 @@ import { Button, ErrorPanel, Field } from "./ui";
 
 type Command = {
   kind: "cancel" | "retry";
+  attemptId: string;
+  applicationId: string;
   idempotencyKey: string;
 };
 
@@ -38,6 +40,8 @@ export function BuildAttemptActions({
   const queryClient = useQueryClient();
   const [command, setCommand] = useState<Command | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const scopeRef = useRef(`${application.id}:${attempt.id}`);
+  scopeRef.current = `${application.id}:${attempt.id}`;
   const canCancel =
     humanSession &&
     ["queued", "preparing", "running"].includes(attempt.state) &&
@@ -59,24 +63,38 @@ export function BuildAttemptActions({
   const mutation = useMutation({
     mutationFn: (input: Command) =>
       input.kind === "cancel"
-        ? api.cancelBuildAttempt(attempt.id, input.idempotencyKey)
-        : api.retryBuildAttempt(attempt.id, input.idempotencyKey),
+        ? api.cancelBuildAttempt(input.attemptId, input.idempotencyKey)
+        : api.retryBuildAttempt(input.attemptId, input.idempotencyKey),
     retry: retryNetworkOnce,
-    onSuccess: (updated) => {
+    onSuccess: (updated, input) => {
       queryClient.setQueryData(["build-attempt", updated.id], updated);
       void queryClient.invalidateQueries({
-        queryKey: ["build-attempts", application.id],
+        queryKey: ["build-attempts", input.applicationId],
       });
+      if (scopeRef.current !== `${input.applicationId}:${input.attemptId}`) {
+        return;
+      }
       setCommand(null);
       setConfirmation("");
       onUpdated?.(updated);
     },
   });
 
+  useEffect(() => {
+    setCommand(null);
+    setConfirmation("");
+    mutation.reset();
+  }, [application.id, attempt.id]);
+
   const prepare = (kind: Command["kind"]) => {
     mutation.reset();
     setConfirmation("");
-    setCommand({ kind, idempotencyKey: crypto.randomUUID() });
+    setCommand({
+      kind,
+      attemptId: attempt.id,
+      applicationId: application.id,
+      idempotencyKey: crypto.randomUUID(),
+    });
   };
 
   if (!canCancel && !canRetry && !command) return null;
@@ -112,6 +130,7 @@ export function BuildAttemptActions({
           <Field label={`Type ${attempt.id}`} required>
             <input
               value={confirmation}
+              disabled={mutation.isPending}
               autoComplete="off"
               spellCheck={false}
               onChange={(event) => setConfirmation(event.target.value)}

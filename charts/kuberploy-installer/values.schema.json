@@ -24,7 +24,7 @@
           "properties": {
             "mode": { "enum": ["disabled", "generated", "precreated"] },
             "kubeAPIServerCIDRs": {
-              "type": "array", "maxItems": 16, "uniqueItems": true,
+              "type": "array", "maxItems": 16,
               "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32|[0-9A-Fa-f:]+/128)$" }
             }
           }
@@ -64,10 +64,11 @@
     "cluster": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kubeAPIServerCIDRs"],
+      "required": ["networkPolicyEnabled", "kubeAPIServerCIDRs"],
       "properties": {
+        "networkPolicyEnabled": {"type": "boolean"},
         "kubeAPIServerCIDRs": {
-          "type": "array", "maxItems": 16, "uniqueItems": true,
+          "type": "array", "maxItems": 16,
           "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32|[0-9A-Fa-f:]+/128)$" }
         }
       }
@@ -112,7 +113,7 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "platformBindingID", "argoNamespace", "psaVersion", "buildKitImage", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
+          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "platformBindingID", "argoNamespace", "psaVersion", "buildKitImage", "buildSecretName", "buildSecretProfiles", "sshSecretName", "sshSecretProfiles", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
             "enabled": { "type": "boolean" },
             "appID": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
@@ -123,19 +124,20 @@
             "platformBindingID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
             "argoNamespace": { "$ref": "#/$defs/optionalDNSLabel" },
             "psaVersion": { "type": "string", "pattern": "^(?:|v1\\.(?:2[5-9]|[3-9][0-9]))$" },
-            "buildKitImage": { "type": "string", "maxLength": 512, "pattern": "^(?:|[^\\s@]+:v0\\.32\\.2)$" },
-            "controlPlaneEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
-            "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
+            "buildKitImage": { "type": "string", "maxLength": 512, "pattern": "^(?:|[^\\s@]+:v0\\.32\\.2|[^\\s@]+@sha256:[0-9a-f]{64})$" },
+            "dindImage": { "type": "string", "maxLength": 512, "pattern": "^(?:|[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\\s@]+@sha256:[0-9a-f]{64})$" },
+            "buildSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "buildSecretProfiles": { "$ref": "#/$defs/buildSecretProfiles" },
+            "sshSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "sshSecretProfiles": { "$ref": "#/$defs/sshSecretProfiles" },
+            "controlPlaneEgressCIDRs": { "$ref": "#/$defs/providerCIDRs" },
+            "sourceEgressCIDRs": { "$ref": "#/$defs/providerCIDRs" },
             "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "const": 0 }, "clientID": { "const": "" }, "appSlug": { "const": "" }, "secretName": { "const": "" }, "clusterID": { "const": "" }, "platformBindingID": { "const": "" }, "argoNamespace": { "const": "" }, "psaVersion": { "const": "" }, "buildKitImage": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "sourceEgressCIDRs": { "maxItems": 0 }, "registryEgressCIDRs": { "maxItems": 0 } } }
-            },
-            {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "platformBindingID": { "minLength": 36 }, "argoNamespace": { "minLength": 1 }, "psaVersion": { "minLength": 5 }, "buildKitImage": { "minLength": 12 }, "controlPlaneEgressCIDRs": { "minItems": 1 }, "sourceEgressCIDRs": { "minItems": 1 }, "registryEgressCIDRs": { "minItems": 1 } } }
+              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "platformBindingID": { "minLength": 36 }, "argoNamespace": { "minLength": 1 }, "psaVersion": { "minLength": 5 }, "buildKitImage": { "minLength": 12 } } }
             }
           ]
         },
@@ -177,7 +179,7 @@
                 },
                 "class": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?:/[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?)?)$" },
                 "ip": { "type": "string", "pattern": "^(?:|(?:[0-9]{1,3}\\.){3}[0-9]{1,3})$" },
-                "sourceRanges": { "type": "array", "maxItems": 32, "uniqueItems": true, "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" } }
+                "sourceRanges": { "type": "array", "maxItems": 32, "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" } }
               }
             },
             "runtimePull": {
@@ -192,13 +194,9 @@
                 "revision": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
                 "sourceSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
                 "sourceSecretKey": { "type": "string", "maxLength": 253, "pattern": "^(?:|[A-Za-z0-9._-]{1,253})$" },
-                "namespaces": { "type": "array", "maxItems": 64, "uniqueItems": true, "items": { "$ref": "#/$defs/optionalDNSLabel" } }
+                "namespaces": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/optionalDNSLabel" } }
               },
               "allOf": [
-                {
-                  "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-                  "then": { "properties": { "targetID": { "const": "" }, "profileName": { "const": "" }, "credentialRef": { "const": "" }, "revision": { "const": 0 }, "sourceSecretName": { "const": "" }, "sourceSecretKey": { "const": "" }, "namespaces": { "maxItems": 0 } } }
-                },
                 {
                   "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
                   "then": { "properties": { "targetID": { "minLength": 36 }, "profileName": { "minLength": 1 }, "credentialRef": { "minLength": 1 }, "revision": { "minimum": 1 }, "sourceSecretName": { "minLength": 1 }, "sourceSecretKey": { "minLength": 1 }, "namespaces": { "minItems": 1 } } }
@@ -208,18 +206,10 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "targetID": { "const": "" }, "targetName": { "const": "" }, "repositoryPrefix": { "const": "" }, "lifecycleCredentialRef": { "const": "" }, "lifecycleCredentialSecretName": { "const": "" }, "pullCredentialRef": { "const": "" }, "pushCredentialRef": { "const": "" }, "cacheCredentialRef": { "const": "" }, "controlPlaneEgressCIDRs": { "maxItems": 0 }, "authSecretName": { "const": "" }, "secretRevision": { "const": "" }, "exposureMode": { "const": "internal" }, "cloudflareProxied": { "const": false }, "endpoint": { "const": "" }, "tlsSecretName": { "const": "" }, "clusterIssuerName": { "const": "" }, "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
-            },
-            {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "controlPlaneEgressCIDRs": { "minItems": 1 }, "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
+              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
             },
-            {
-              "if": { "properties": { "exposureMode": { "const": "loadBalancer" } }, "required": ["exposureMode"] },
-              "then": { "properties": { "loadBalancer": { "properties": { "sourceRanges": { "minItems": 1 } } } } },
-              "else": { "properties": { "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
-            }
+            {}
           ]
         }
       }
@@ -252,6 +242,42 @@
     }
   },
   "$defs": {
+    "buildSecretProfiles": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "key", "applicationIds"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 63, "pattern": "^[a-z][a-z0-9_.-]{0,62}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "key": { "type": "string", "maxLength": 253, "pattern": "^[A-Za-z0-9._-]{1,253}$" },
+          "applicationIds": {
+            "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+            "items": { "type": "string", "maxLength": 36, "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+          }
+        }
+      }
+    },
+    "sshSecretProfiles": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "label", "key", "applicationIds"],
+        "properties": {
+          "id": { "type": "string", "maxLength": 63, "pattern": "^[a-z][a-z0-9_.-]{0,62}$" },
+          "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "key": { "type": "string", "maxLength": 253, "pattern": "^[A-Za-z0-9._-]{1,253}$" },
+          "applicationIds": {
+            "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+            "items": { "type": "string", "maxLength": 36, "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+          }
+        }
+      }
+    },
     "optionalDNSLabel": {
       "type": "string",
       "maxLength": 63,
@@ -265,8 +291,12 @@
     "hostCIDRs": {
       "type": "array",
       "maxItems": 16,
-      "uniqueItems": true,
       "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32|[0-9A-Fa-f:]+/128)$" }
+    },
+    "providerCIDRs": {
+      "type": "array",
+      "maxItems": 128,
+      "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])|[0-9a-f:]+/(?:1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8]))$" }
     },
     "argoInstallationMode": {
       "type": "object",
@@ -278,21 +308,7 @@
         "managedPrerequisitesConfirmed": { "type": "boolean" }
       },
       "allOf": [
-        {
-          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-          "then": {
-            "properties": {
-              "mode": { "const": "disabled" },
-              "managedPrerequisitesConfirmed": { "const": false }
-            }
-          },
-          "else": { "properties": { "mode": { "enum": ["managed", "adopted"] } } }
-        },
-        {
-          "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
-          "then": { "properties": { "managedPrerequisitesConfirmed": { "const": true } } },
-          "else": { "properties": { "managedPrerequisitesConfirmed": { "const": false } } }
-        }
+        { "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }, "then": { "properties": { "mode": { "enum": ["managed", "adopted"] } } } }
       ]
     },
     "componentBase": {
@@ -307,7 +323,6 @@
         "valueFiles": {
           "type": "array",
           "maxItems": 8,
-          "uniqueItems": true,
           "items": {
             "type": "string",
             "pattern": "^examples/installer/[a-z0-9][a-z0-9._/-]{0,180}\\.ya?ml$"
@@ -319,16 +334,8 @@
       "allOf": [
         { "$ref": "#/$defs/componentBase" },
         {
-          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
           "then": {
-            "properties": {
-              "mode": { "const": "disabled" },
-              "adoptionConfirmed": { "const": false },
-              "expectedPackageVersion": { "const": "" },
-              "valueFiles": { "maxItems": 0 }
-            }
-          },
-          "else": {
             "properties": {
               "mode": { "const": "managed" },
               "adoptionConfirmed": { "const": false },
@@ -342,16 +349,8 @@
       "allOf": [
         { "$ref": "#/$defs/componentBase" },
         {
-          "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
           "then": {
-            "properties": {
-              "mode": { "const": "disabled" },
-              "adoptionConfirmed": { "const": false },
-              "expectedPackageVersion": { "const": "" },
-              "valueFiles": { "maxItems": 0 }
-            }
-          },
-          "else": {
             "properties": {
               "expectedPackageVersion": { "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?$" }
             },

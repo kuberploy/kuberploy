@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import type {
@@ -133,5 +134,101 @@ describe("auto-deploy policy read-only access", () => {
     expect(
       screen.queryByRole("button", { name: "Repin current config" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("confirms disable and reuses the idempotency key after an ambiguous failure", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "autoDeployPolicies").mockResolvedValue({ items: [policy] });
+    vi.spyOn(api, "autoDeployPolicyRevisions").mockResolvedValue({
+      items: [policy.current],
+    });
+    vi.spyOn(api, "autoDeployPolicyRuns").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "deployments").mockResolvedValue({
+      items: [
+        {
+          id: policy.current.sourceDeploymentId,
+          applicationId: application.id,
+          projectId: project.id,
+          environmentId: policy.environmentId,
+          name: "Production",
+        },
+      ],
+    } as never);
+    vi.spyOn(api, "environments").mockResolvedValue({
+      items: [
+        {
+          id: policy.environmentId,
+          projectId: project.id,
+          name: "Production",
+          namespace: "production",
+        },
+      ],
+    });
+    vi.spyOn(api, "serviceAccounts").mockResolvedValue({
+      items: [
+        {
+          id: policy.current.serviceActorId,
+          projectId: project.id,
+          name: "deployer",
+          role: "developer",
+          createdBy: "user-admin",
+          createdAt: "2026-08-09T00:00:00Z",
+        },
+      ],
+    });
+    const revise = vi
+      .spyOn(api, "reviseAutoDeployPolicy")
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValue(policy);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AutoDeployPoliciesPanel
+          application={application}
+          project={project}
+          definitions={[definition]}
+          enabled
+          humanSession
+          capabilities={[
+            {
+              scopeType: "application",
+              scopeId: application.id,
+              role: "project-admin",
+              actions: ["build-definitions:write"],
+            },
+            {
+              scopeType: "environment",
+              scopeId: policy.environmentId,
+              role: "developer",
+              actions: ["deployments:update"],
+            },
+            {
+              scopeType: "project",
+              scopeId: project.id,
+              role: "project-admin",
+              actions: ["access-grants:create", "access-grants:delete"],
+            },
+          ]}
+        />
+      </QueryClientProvider>,
+    );
+
+    const disable = await screen.findByRole("button", { name: "Disable" });
+    await user.click(disable);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(policy.id));
+    expect(revise).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    await user.click(disable);
+    await waitFor(() => expect(revise).toHaveBeenCalledTimes(1));
+    await user.click(disable);
+    await waitFor(() => expect(revise).toHaveBeenCalledTimes(2));
+    expect(revise.mock.calls[1]?.[2]).toBe(revise.mock.calls[0]?.[2]);
   });
 });

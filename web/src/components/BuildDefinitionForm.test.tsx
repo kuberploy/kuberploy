@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
@@ -92,6 +92,10 @@ beforeEach(() => {
       },
     ],
   });
+  vi.spyOn(api, "buildSecretProfiles").mockResolvedValue({
+    build: [],
+    ssh: [],
+  });
 });
 
 afterEach(() => {
@@ -99,10 +103,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderForm(humanSession = true) {
-  const queryClient = new QueryClient({
+function renderForm(
+  humanSession = true,
+  queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  }),
+) {
   render(
     <QueryClientProvider client={queryClient}>
       <BuildDefinitionForm
@@ -120,10 +126,11 @@ function renderForm(humanSession = true) {
       />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 describe("build definition form", () => {
-  it("submits no build-secret or SSH fields while operator profile resolution is unavailable", async () => {
+  it("submits no build-secret or SSH fields when no operator profiles exist", async () => {
     const user = userEvent.setup();
     const create = vi
       .spyOn(api, "createBuildDefinition")
@@ -157,8 +164,81 @@ describe("build definition form", () => {
     expect(input).not.toHaveProperty("secretFiles");
     expect(input).not.toHaveProperty("sshFiles");
     expect(
-      screen.getByText("Build-secret and SSH profiles are not available yet"),
+      screen.getByText(
+        "No managed build-secret or SSH profiles are configured.",
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("submits only approved profile IDs and never secret file paths", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.buildSecretProfiles).mockResolvedValue({
+      build: [{ id: "npmrc", label: "Private npm registry" }],
+      ssh: [{ id: "github", label: "GitHub deploy key" }],
+    });
+    const create = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockResolvedValue(definition);
+    renderForm();
+
+    await screen.findByRole("checkbox", { name: "Private npm registry" });
+    await user.click(
+      screen.getByRole("checkbox", { name: "Private npm registry" }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", { name: "GitHub deploy key" }),
+    );
+    await user.selectOptions(
+      await screen.findByLabelText(/^GitHub installation/),
+      "installation-safe",
+    );
+    await screen.findByRole("option", { name: "example/api" });
+    await user.selectOptions(
+      screen.getByLabelText(/^Repository/),
+      "repository-safe",
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/^Registry target/),
+      "target-safe",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create immutable definition" }),
+    );
+
+    await screen.findByText("Immutable build definition created");
+    const input = create.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(input).toMatchObject({
+      secretProfileIds: ["npmrc"],
+      sshProfileIds: ["github"],
+    });
+    expect(input).not.toHaveProperty("secretFiles");
+    expect(input).not.toHaveProperty("sshFiles");
+  });
+
+  it("clears selected profiles removed by an authorization refresh", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.buildSecretProfiles)
+      .mockResolvedValueOnce({
+        build: [{ id: "npmrc", label: "Private npm registry" }],
+        ssh: [],
+      })
+      .mockResolvedValueOnce({ build: [], ssh: [] });
+    const queryClient = renderForm();
+
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Private npm registry",
+    });
+    await user.click(checkbox);
+    await queryClient.invalidateQueries({
+      queryKey: ["build-secret-profiles", application.id],
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("checkbox", { name: "Private npm registry" }),
+      ).toBeNull(),
+    );
+    expect(checkbox).not.toBeChecked();
   });
 
   it("uses a readable tag name while submitting the canonical tag ref", async () => {
@@ -233,6 +313,49 @@ describe("build definition form", () => {
     expect(
       screen.getByText("Docker build arguments are not secret storage"),
     ).toBeInTheDocument();
+  });
+
+  it("does not show a late create success after the definition draft changes", async () => {
+    const user = userEvent.setup();
+    let resolveCreate!: (value: BuildDefinition) => void;
+    const create = vi.spyOn(api, "createBuildDefinition").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    renderForm();
+
+    await screen.findByRole("option", { name: "example" });
+    await user.selectOptions(
+      screen.getByLabelText(/^GitHub installation/),
+      "installation-safe",
+    );
+    await screen.findByRole("option", { name: "example/api" });
+    await user.selectOptions(
+      screen.getByLabelText(/^Repository/),
+      "repository-safe",
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/^Registry target/),
+      "target-safe",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create immutable definition" }),
+    );
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    const branch = screen.getByLabelText(/^Branch/);
+    await user.clear(branch);
+    await user.type(branch, "release");
+    resolveCreate(definition);
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Immutable build definition created"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(branch).toHaveValue("release");
   });
 
   it("labels Docker build arguments as build-time-only input", () => {

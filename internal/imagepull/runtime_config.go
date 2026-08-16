@@ -32,12 +32,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrInvalid
 	}
 	enabled, present := lookup(RuntimeEnabledEnv)
-	if !present || enabled == "false" {
-		for _, name := range runtimeEnvironmentNames() {
-			if _, configured := lookup(name); configured {
-				return RuntimeConfig{}, ErrInvalid
-			}
-		}
+	if !present || enabled == "" || enabled == "false" {
 		return RuntimeConfig{}, nil
 	}
 	if enabled != "true" {
@@ -48,7 +43,9 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrInvalid
 	}
 	namespaces := strings.Split(namespaceValue, ",")
-	if len(namespaces) == 0 || !slices.IsSorted(namespaces) || slices.Contains(namespaces, "") {
+	slices.Sort(namespaces)
+	namespaces = slices.Compact(namespaces)
+	if len(namespaces) == 0 || slices.Contains(namespaces, "") {
 		return RuntimeConfig{}, ErrInvalid
 	}
 	profileValue, ok := exactEnvironment(lookup, RuntimeProfilesEnv)
@@ -59,6 +56,8 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if err != nil {
 		return RuntimeConfig{}, ErrInvalid
 	}
+	slices.SortFunc(profiles, compareProfiles)
+	profiles = slices.Compact(profiles)
 	config := DefaultRuntimeConfig()
 	config.Enabled = true
 	config.Namespaces = namespaces
@@ -88,14 +87,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrInvalid
 	}
 	return config, nil
-}
-
-func runtimeEnvironmentNames() []string {
-	return []string{
-		RuntimeNamespacesEnv, RuntimeProfilesEnv, RuntimePollSecondsEnv,
-		RuntimeWorkLeaseSecondsEnv, RuntimeHeartbeatSecondsEnv, RuntimeReadinessSecondsEnv,
-		RuntimeMinBackoffSecondsEnv, RuntimeMaxBackoffSecondsEnv,
-	}
 }
 
 func exactEnvironment(lookup func(string) (string, bool), name string) (string, bool) {

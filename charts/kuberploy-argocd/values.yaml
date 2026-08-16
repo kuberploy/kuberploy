@@ -16,10 +16,11 @@ argoFoundation:
     argoSecretName: argocd-secret
     valkeySecretName: kuberploy-argocd-valkey-auth
   networkPolicy:
-    enabled: true
+    enabled: false
     kubeAPIServerCIDRs: []
     # HTTPS-only Git and OCI access. Operators may use provider IP ranges or an
-    # explicit egress proxy CIDR; there is deliberately no implicit open route.
+    # Empty allows dual-stack HTTPS repository access while excluding the
+    # configured Kubernetes API. Supply CIDRs only for optional narrowing.
     repositoryEgressCIDRs: []
     valkeyNamespace: kuberploy-system
     controlPlaneNamespace: kuberploy-system

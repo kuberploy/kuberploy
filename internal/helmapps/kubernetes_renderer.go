@@ -121,7 +121,7 @@ func rendererInputConfigMap(namespace, name string, labels, binaryData map[strin
 
 func rendererStageContainer(plan RenderPlan) map[string]any {
 	return map[string]any{
-		"name": RendererStageContainer, "image": RendererImage, "imagePullPolicy": "IfNotPresent",
+		"name": RendererStageContainer, "image": RendererExecutionImage, "imagePullPolicy": "IfNotPresent",
 		"command": []any{"/bin/sh", "-ceu"},
 		"args": []any{`umask 077
 cat /chunks/chart-* > /input/chart.tgz
@@ -156,7 +156,7 @@ cat /tmp/rendered.yaml`, "helm-render"}
 		args = append(args, argument)
 	}
 	return map[string]any{
-		"name": RendererContainerName, "image": RendererImage, "imagePullPolicy": "IfNotPresent",
+		"name": RendererContainerName, "image": RendererExecutionImage, "imagePullPolicy": "IfNotPresent",
 		"command": []any{"/bin/sh", "-ceu", "--"}, "args": args,
 		"env": []any{
 			map[string]any{"name": "HOME", "value": "/tmp/helm/home"},

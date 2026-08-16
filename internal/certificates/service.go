@@ -13,6 +13,7 @@ type SecretLifecycle interface {
 	Create(context.Context, secrets.CreateRequest) (secrets.MutationResult, error)
 	Rotate(context.Context, secrets.RotateRequest) (secrets.MutationResult, error)
 	Delete(context.Context, string, string, string) (secrets.Binding, error)
+	DeleteWithIdempotency(context.Context, string, string, string, string) (secrets.Binding, error)
 }
 
 type SecretCatalog interface {
@@ -124,6 +125,14 @@ func (s Service) record(ctx context.Context, secretResult secrets.MutationResult
 }
 
 func (s Service) Delete(ctx context.Context, actorID, bindingID, requestID string) (secrets.Binding, error) {
+	return s.delete(ctx, actorID, bindingID, "", requestID)
+}
+
+func (s Service) DeleteWithIdempotency(ctx context.Context, actorID, bindingID, idempotencyKey, requestID string) (secrets.Binding, error) {
+	return s.delete(ctx, actorID, bindingID, idempotencyKey, requestID)
+}
+
+func (s Service) delete(ctx context.Context, actorID, bindingID, idempotencyKey, requestID string) (secrets.Binding, error) {
 	if s.Secrets == nil || s.Catalog == nil || s.Store == nil || !uuidRE.MatchString(actorID) || !uuidRE.MatchString(bindingID) || !safeText(requestID, 128) {
 		return secrets.Binding{}, ErrInvalid
 	}
@@ -134,7 +143,12 @@ func (s Service) Delete(ctx context.Context, actorID, bindingID, requestID strin
 	if binding.Purpose != secrets.PurposeTLSCertificate {
 		return secrets.Binding{}, ErrNotFound
 	}
-	deleted, err := s.Secrets.Delete(ctx, actorID, bindingID, requestID)
+	var deleted secrets.Binding
+	if idempotencyKey == "" {
+		deleted, err = s.Secrets.Delete(ctx, actorID, bindingID, requestID)
+	} else {
+		deleted, err = s.Secrets.DeleteWithIdempotency(ctx, actorID, bindingID, idempotencyKey, requestID)
+	}
 	if err != nil {
 		return secrets.Binding{}, mapSecretError(err)
 	}

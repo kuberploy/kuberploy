@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -79,6 +80,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return RuntimeConfig{}, errors.New(RuntimeProfilesJSONEnv + " contains trailing JSON")
 	}
+	profiles = normalizeRuntimeProfiles(profiles)
 	config := RuntimeConfig{Enabled: true, Profiles: cloneRuntimeProfiles(profiles)}
 	values := []struct {
 		name        string
@@ -104,6 +106,30 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrInvalid
 	}
 	return config, nil
+}
+
+func normalizeRuntimeProfiles(profiles RuntimeProfiles) RuntimeProfiles {
+	profiles = cloneRuntimeProfiles(profiles)
+	normalize := func(values []string) []string {
+		slices.Sort(values)
+		return slices.Compact(values)
+	}
+	if profiles.CertManager != nil {
+		profiles.CertManager.ProductionSolverTypes = normalize(profiles.CertManager.ProductionSolverTypes)
+		profiles.CertManager.ProductionDNS01Profiles = normalize(profiles.CertManager.ProductionDNS01Profiles)
+		profiles.CertManager.StagingSolverTypes = normalize(profiles.CertManager.StagingSolverTypes)
+		profiles.CertManager.StagingDNS01Profiles = normalize(profiles.CertManager.StagingDNS01Profiles)
+	}
+	for index := range profiles.ExternalDNS {
+		profiles.ExternalDNS[index].DomainFilters = normalize(profiles.ExternalDNS[index].DomainFilters)
+	}
+	slices.SortFunc(profiles.ExternalDNS, func(left, right ExternalDNSProfile) int {
+		return strings.Compare(left.IntegrationID, right.IntegrationID)
+	})
+	profiles.ExternalDNS = slices.CompactFunc(profiles.ExternalDNS, func(left, right ExternalDNSProfile) bool {
+		return reflect.DeepEqual(left, right)
+	})
+	return profiles
 }
 
 func canonicalRuntimeInteger(lookup func(string) (string, bool), name string, minimum, maximum int64) (int64, error) {

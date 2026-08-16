@@ -316,4 +316,26 @@ describe("registry API client", () => {
     );
     expect(result.items[0]?.name).toBe("Production");
   });
+
+  it("sends the caller-stable idempotency key for pull-credential deletion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.deleteProjectRegistryPullCredential(
+      "project/id",
+      "credential/id",
+      "delete-pull-credential-0001",
+    );
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(
+      "/v1/projects/project%2Fid/registry-pull-credentials/credential%2Fid",
+    );
+    expect(init.method).toBe("DELETE");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "delete-pull-credential-0001",
+    );
+  });
 });

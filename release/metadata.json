@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 015 recovers previously leased cross-release cascade work after its bounded attempt counter saturates, serializes the four protected Helm phases through one fair scheduler, retries transient PostgreSQL serialization and deadlock failures within a bounded budget, and aligns cascade absence authority with the platform binding lock order.",
+  "summary": "Schema 016 is current. RC176 prioritizes functional installs with optional NetworkPolicy and provider-egress narrowing, a required fail-closed admission boundary for the enabled privileged builder and credential mutation paths, default public provider egress on required ports, normalized operator lists, dormant disabled-feature compatibility, tunable infrastructure images and sizing, separate read-only Argo observation configuration, and GitHub Retry-At handling.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.175"
+  "version": "0.1.0-rc.176"
 }

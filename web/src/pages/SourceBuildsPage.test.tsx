@@ -113,6 +113,7 @@ function renderPage(response: Capabilities) {
       <SourceBuildsPage />
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 describe("source-build workspace", () => {
@@ -284,5 +285,42 @@ describe("source-build workspace", () => {
       screen.queryByRole("option", { name: /Platform registry/ }),
     ).not.toBeInTheDocument();
     expect(platformTargets).not.toHaveBeenCalled();
+  });
+
+  it("clears revoked application scope before build queries can refetch", async () => {
+    const queryClient = renderPage({
+      features: {
+        githubAppSetup: false,
+        builds: true,
+        builder: true,
+        registry: false,
+      },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: ["build-definitions:read", "builds:read"],
+        },
+      ],
+    });
+
+    expect(await screen.findByText("Attempt history")).toBeInTheDocument();
+    expect(api.buildDefinitions).toHaveBeenCalledTimes(1);
+    expect(api.buildAttempts).toHaveBeenCalledTimes(1);
+
+    queryClient.setQueryData(["applications"], { items: [] });
+    expect(
+      await screen.findByText("No build-readable application"),
+    ).toBeInTheDocument();
+
+    await queryClient.invalidateQueries({
+      queryKey: ["build-definitions", "application-safe"],
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ["build-attempts", "application-safe"],
+    });
+
+    expect(api.buildDefinitions).toHaveBeenCalledTimes(1);
+    expect(api.buildAttempts).toHaveBeenCalledTimes(1);
   });
 });

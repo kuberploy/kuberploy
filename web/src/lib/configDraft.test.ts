@@ -10,6 +10,7 @@ import {
   validateGuidedProbes,
   workloadProcessFromGuided,
   workloadProbesFromGuided,
+  workloadSchedulingFromGuided,
 } from "./configDraft";
 import { defaultGuidedTraefikMiddleware } from "./traefikMiddleware";
 
@@ -58,6 +59,50 @@ spec:
 `;
 
 describe("shared AppConfig draft", () => {
+  it("converts guided scheduling fragments into a typed workload payload", () => {
+    expect(
+      workloadSchedulingFromGuided({
+        nodeSelectorYaml: "workload: high\n",
+        affinityYaml: "{}",
+        topologySpreadYaml:
+          "- maxSkew: 1\n  topologyKey: kubernetes.io/hostname\n  whenUnsatisfiable: DoNotSchedule\n",
+        tolerationsYaml:
+          "- key: workload\n  operator: Equal\n  value: high\n  effect: NoSchedule\n",
+        priorityClassName: " workload-high ",
+      }),
+    ).toEqual({
+      nodeSelector: { workload: "high" },
+      topologySpreadConstraints: [
+        {
+          maxSkew: 1,
+          topologyKey: "kubernetes.io/hostname",
+          whenUnsatisfiable: "DoNotSchedule",
+        },
+      ],
+      tolerations: [
+        {
+          key: "workload",
+          operator: "Equal",
+          value: "high",
+          effect: "NoSchedule",
+        },
+      ],
+      priorityClassName: "workload-high",
+    });
+  });
+
+  it("rejects malformed guided scheduling fragments before submission", () => {
+    expect(() =>
+      workloadSchedulingFromGuided({
+        nodeSelectorYaml: "[]",
+        affinityYaml: "{}",
+        topologySpreadYaml: "[]",
+        tolerationsYaml: "[]",
+        priorityClassName: "",
+      }),
+    ).toThrow(/Node selector must be a YAML object/);
+  });
+
   it("reads guided values from the same YAML document", () => {
     const guided = guidedConfigFromYaml(source);
     expect(guided).toMatchObject({

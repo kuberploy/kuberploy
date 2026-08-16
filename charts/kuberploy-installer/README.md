@@ -35,17 +35,21 @@ irreducible inputs are:
   that readable OCI chart version on the Application; the matching Git tag
   selects only reviewed non-secret value files;
 - release-tagged, non-secret example files below `examples/installer/` containing the
-  existing Secret references, storage classes, API/provider egress CIDRs, DNS
-  provider settings and public URL required by each selected wrapper;
+  existing Secret references, storage classes, optional Kubernetes API CIDRs and
+  provider-egress narrowing, DNS provider settings and public URL required by
+  each selected wrapper. API CIDRs are needed when NetworkPolicy hardening is
+  enabled;
 - explicit `managed` or `adopted` mode. Adoption still requires each wrapper's
   compatibility attestation and never creates the adopted controller.
-- exact `cluster.kubeAPIServerCIDRs` for any enabled controller that reads the
-  Kubernetes API, plus an optional closed `publicEndpoint` hostname/TLS Secret
-  reference for the control-plane Ingress.
+- optional `cluster.kubeAPIServerCIDRs` for NetworkPolicy-hardening rules, plus
+  an optional closed `publicEndpoint` hostname/TLS Secret reference for the
+  control-plane Ingress.
 
 All enabled child charts permit egress to the three RFC1918 private ranges by
 default: `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`. Ingress remains
-default-denied, and public Internet egress still requires explicit values.
+default-denied. Provider HTTPS egress uses the required dual-stack public route
+by default; operators can add bounded CIDRs when infrastructure hardening is
+ready.
 
 Managed Argo CD uses the installer-owned direct Valkey dependency, closing the
 former empty-cluster bootstrap cycle. The installer generates only the exact
@@ -73,7 +77,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.175 \
+  --version 0.1.0-rc.176 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --server-side=false \
@@ -146,28 +150,36 @@ database's current schema; otherwise the older control-plane binaries must
 remain blocked rather than starting against an unsupported history.
 
 An enabled control-plane Application also requires an explicit
-`bootstrap.controlPlaneToken.mode`. `generated` requires exact Kubernetes API
-endpoint `/32` or `/128` CIDRs; the installer injects only the child chart's
-token-generator switch and those CIDRs. The child hook creates and prints the
+`bootstrap.controlPlaneToken.mode`. The child hook creates and prints the
 one-time token without putting it in Git, values, or Helm release storage.
-`precreated` uses the operator-owned `kuberploy-bootstrap` Secret and rejects
+`precreated` uses the operator-owned `kuberploy-bootstrap` Secret and ignores
 dormant API CIDRs; it never reads or discloses that Secret. There is no implicit
 mode, so enabling the control plane while this authority is `disabled` fails
-before Helm mutation.
+before Helm mutation. NetworkPolicy defaults off through
+`cluster.networkPolicyEnabled`; empty API CIDRs use port-scoped public API
+fallback rules, while explicit API CIDRs narrow the policy.
 
-Managed Argo repository egress is also explicit. Populate
-`argoCD.argoFoundation.networkPolicy.repositoryEgressCIDRs` with the current
-published GitHub `git` ranges for the pinned values source and `packages`
-ranges for `ghcr.io` OCI charts. A Git-only allowlist cannot pull release
-charts; the installer never substitutes an all-address egress rule.
+Managed Argo repository egress works without a rotating provider CIDR list.
+Bundled Argo CD and bootstrap Valkey NetworkPolicies are disabled by default
+for a frictionless install. Enable their chart-specific NetworkPolicy settings
+when your infrastructure team is ready to supply cluster-specific API and
+private-service ranges. Empty
+`argoCD.argoFoundation.networkPolicy.repositoryEgressCIDRs` value
+allows dual-stack public HTTPS only, excluding the configured Kubernetes API
+CIDRs. Operators may supply bounded CIDRs to narrow that infrastructure rule;
+repository URL, TLS, redirect, and credential checks remain authoritative.
 
 ## GitHub App and builder
 
 `integrations.github` is the Helm-native switch for the complete source-build
 entry path. Enabling it requires the control-plane and builder components plus
 the public HTTPS endpoint. Supply only the GitHub App ID, client ID, slug,
-cluster UUID, the name of a pre-created `kuberploy-system` Secret, and exact
-egress host CIDRs. The installer enables GitHub setup/webhooks, Git projection,
+cluster UUID, and the name of a pre-created `kuberploy-system` Secret. Empty
+provider CIDR lists allow dual-stack public HTTPS or the verified registry port
+while excluding the configured Kubernetes API CIDRs. Operators may supply
+canonical bounded CIDRs to narrow those infrastructure rules; no live provider
+metadata lookup is required. The installer enables GitHub setup/webhooks, Git
+projection,
 the stage-one platform Git binding, and the hardened builder together; the
 builder boundary is embedded in the control-plane Application so Argo never
 assigns the same cluster-scoped admission resources to two Applications. The
@@ -178,15 +190,16 @@ Secret must contain the private key, webhook
 secret, state-signing secret, and OAuth client secret under the control-plane
 chart's fixed keys. No credential bytes enter Helm values or Argo Applications.
 The same switch enables the read-only source-build log boundary; it remains
-scoped to exact build Jobs and uses the digest-pinned API image from the
-published control-plane chart.
+scoped to exact build Jobs. Published releases still bind their release images
+by digest, while source installs may use explicit operator image tags.
 
-Use stable egress proxies when GitHub or registry destinations do not have
-stable host routes. The control-plane, source checkout, and registry lanes are
-separate arrays so a registry route cannot silently become GitHub API access.
-Set `integrations.github.buildKitImage` to the explicit `v0.32.2` image in a
-fixed approved mirror when Docker Hub endpoints rotate; the installer passes
-the same reference to both the control plane and builder boundary.
+The control-plane, source checkout, and registry lanes remain separate so a
+registry route cannot silently become GitHub API access. Optional strict CIDRs
+or egress proxies can provide additional infrastructure hardening.
+Set `integrations.github.buildKitImage` to the pinned `v0.32.2` tag or a sha256
+mirror, and optionally set `integrations.github.dindImage` to a semantic-version
+tag or sha256 mirror. The installer passes both references to the control plane
+and builder boundary.
 
 `integrations.registry` makes the managed registry component installable from
 the same Helm release without placing registry credentials in an Argo
@@ -202,7 +215,8 @@ values rotate. The separate `lifecycleCredentialSecretName` contains only the
 username/password used for bounded observation and cleanup. Select
 shared-Ingress or dedicated-LoadBalancer exposure and set
 the registry endpoint and TLS Secret. LoadBalancer mode supports bounded
-provider annotations, an LB class, requested IP, and required source ranges;
+provider annotations, an LB class, requested IP, and optional source ranges;
+empty ranges use the infrastructure provider's public default;
 both modes reuse Traefik and the installer-owned cert-manager ClusterIssuer.
 The installer grants
 registry Pod access only to `kuberploy-system` and the isolated

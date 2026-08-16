@@ -17,9 +17,11 @@ required, so manual routes remain invisible even though their host appears in
 the Ingress spec. `upsert-only` is the default. `sync` additionally requires the
 explicit `foundation.allowDestructiveSync=true` acknowledgement.
 
-Managed mode requires bounded Kubernetes API CIDRs plus explicit provider
-egress CIDRs/ports. Provider ranges may be broad only when the operator chooses
-them explicitly. Credentials are references to existing Secret keys or workload
+When NetworkPolicy hardening is enabled, managed mode requires bounded
+Kubernetes API CIDRs. Provider egress defaults to dual-stack public access on
+the configured provider ports with those API CIDRs excluded; optional provider
+CIDRs narrow that route. Provider ports remain
+explicit and bounded. Credentials are references to existing Secret keys or workload
 references. Plaintext env values, ambient workload-identity annotations,
 rendered Secrets, webhook sidecars, and arbitrary argument/container/volume
 injection fail closed. The immutable profile ConfigMap binds the safe provider

@@ -2,29 +2,33 @@
 
 This optional chart creates the namespace security boundary used by the
 ARC-style DinD build runtime. It is disabled by default and does not schedule a
-builder. A controller creates one deterministic Job and one run-scoped
-NetworkPolicy for each build operation.
+builder. A controller creates one deterministic Job and one fail-closed
+ValidatingAdmissionPolicy for each enabled builder installation; an optional
+run-scoped NetworkPolicy can further narrow build egress.
 
 The Pod ServiceAccount has token automount disabled and receives no RBAC. The
 controller gets only namespaced Job, NetworkPolicy, request ConfigMap,
 deterministic ephemeral source-Secret, and log access. Its Secret verbs are
 exactly `create`, `get`, and `delete`; it cannot list, watch, update, or patch
-Secrets. A fail-closed ValidatingAdmissionPolicy permits the single pinned,
-privileged, restartable DinD init-sidecar while requiring the checkout and
-trusted agent containers to stay unprivileged. Default-deny networking remains
-in force until the controller supplies the operation's resolved, bounded egress
-policy.
+Secrets. Admission is mandatory when the builder is enabled and constrains the
+privileged DinD sidecar to the exact generated Job shape. NetworkPolicy remains
+optional for environments that do not need egress narrowing. The checkout and
+trusted agent remain unprivileged.
 
-When embedded under the control-plane chart's `builder` alias, the parent also
-passes `networkPolicy.sourceEgressCIDRs` and `registryEgressCIDRs`. This chart
-validates them as exact IPv4 `/32` or IPv6 `/128` hosts but does not render a
-broad static allow rule; the controller binds the resolved hosts to each
-run-scoped policy.
+When embedded under the control-plane chart's `builder` alias, the parent passes
+optional Kubernetes API exclusions plus optional source and registry CIDRs.
+Empty lists generate dual-stack public rules on only HTTPS and the verified
+registry port; configured API CIDRs are excluded, and no exclusion is required
+when cluster API ranges are not supplied. Nonempty source ranges and exact
+registry hosts optionally narrow those rules. The controller binds the
+normalized result to each run-scoped policy and immutable build definition;
+persisted strict definitions without an `except` field remain replayable.
 
-`buildKitImage` is an explicit `v0.32.2` text-version reference. It may point
-to an operator mirror; the control plane binds the exact reference into every
-immutable request. This is the recommended setup when Docker Hub addresses are
-not stable enough for exact-host NetworkPolicy rules.
+`buildKitImage` is the pinned `v0.32.2` release tag or an immutable `sha256`
+reference for an operator mirror. `dindImage` accepts an explicit semantic
+version or immutable digest. The control plane binds both exact references into
+every immutable request. Tags remain supported for local/mirror functionality;
+digests are recommended when the registry is stable enough for them.
 
 Before enabling the chart, dedicate a node pool with both:
 
@@ -53,3 +57,8 @@ ConfigMap, Secrets, or NetworkPolicy.
 The admission boundary also protects the static `default-deny` policy from
 controller deletion; only a `system:masters` cluster administrator may remove
 it. Plan chart removal and namespace teardown with that break-glass authority.
+
+When embedded under the control-plane chart's `builder` alias, `buildSecret`
+and `sshSecret` values are inherited here for strict release-time schema
+validation. Each configured profile requires a non-empty `applicationIds`
+allowlist; this standalone chart does not mount those Secrets itself.

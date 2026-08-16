@@ -68,6 +68,9 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		defer cancel()
 		for _, statement := range []string{
 			`DELETE FROM runtime_readiness WHERE runtime_kind='argo-desired-state' AND platform_binding_id='` + platformID + `'`,
+			`ALTER TABLE argo_desired_state_materialization_receipts DISABLE TRIGGER USER`,
+			`DELETE FROM argo_desired_state_materialization_receipts WHERE platform_binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `') OR environment_binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
+			`ALTER TABLE argo_desired_state_materialization_receipts ENABLE TRIGGER USER`,
 			`DELETE FROM argo_desired_state_commands WHERE platform_binding_id='` + platformID + `'`,
 			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
 			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,

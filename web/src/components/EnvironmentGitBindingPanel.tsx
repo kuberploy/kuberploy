@@ -51,6 +51,8 @@ export function EnvironmentGitBindingPanel({
   const [targetRef, setTargetRef] = useState("main");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
+  const environmentRef = useRef(environment.id);
+  environmentRef.current = environment.id;
 
   useEffect(() => {
     if (
@@ -86,26 +88,38 @@ export function EnvironmentGitBindingPanel({
 
   const create = useMutation({
     mutationFn: (input: {
+      environmentId: string;
       value: CreateEnvironmentGitBinding;
       idempotencyKey: string;
     }) =>
       api.createEnvironmentGitBinding(
-        environment.id,
+        input.environmentId,
         input.value,
         input.idempotencyKey,
       ),
-    onSuccess: async (created) => {
+    onSuccess: async (created, input) => {
+      if (environmentRef.current !== input.environmentId) return;
       attempt.current = null;
       setConfirmed(false);
       queryClient.setQueryData(
-        ["environment-git-binding", environment.id],
+        ["environment-git-binding", input.environmentId],
         created,
       );
       await queryClient.invalidateQueries({
-        queryKey: ["environment-git-binding", environment.id],
+        queryKey: ["environment-git-binding", input.environmentId],
       });
     },
   });
+
+  useEffect(() => {
+    attempt.current = null;
+    setInstallationId("");
+    setRepositoryId("");
+    setTargetRef("main");
+    setConfirmed(false);
+    setValidationError("");
+    create.reset();
+  }, [environment.id]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -136,7 +150,11 @@ export function EnvironmentGitBindingPanel({
         : crypto.randomUUID();
     attempt.current = { signature, key: idempotencyKey };
     setValidationError("");
-    create.mutate({ value, idempotencyKey });
+    create.mutate({
+      environmentId: environment.id,
+      value,
+      idempotencyKey,
+    });
   };
 
   return (

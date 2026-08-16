@@ -22,6 +22,16 @@ var (
 	lockedImagePattern    = regexp.MustCompile(`^(?:[^\s@]+:v?[0-9]+\.[0-9]+\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\s@]+@sha256:[0-9a-f]{64})$`)
 )
 
+// ValidateExecutionImage is the common image grammar for mutable
+// infrastructure sidecars. Version tags keep local/mirror workflows working;
+// sha256 references provide an immutable option.
+func ValidateExecutionImage(value string) error {
+	if !lockedImagePattern.MatchString(value) {
+		return errors.New("image must use an explicit semantic version or sha256 digest")
+	}
+	return nil
+}
+
 type JobPlanRequest struct {
 	Build                         BuildRequest
 	Namespace                     string
@@ -34,18 +44,21 @@ type JobPlanRequest struct {
 	SSHSecret                     string
 	CheckoutImage                 string
 	AgentImage                    string
-	NodeSelector                  map[string]string
-	Toleration                    TaintToleration
-	CheckoutResources             ContainerResources
-	DinDResources                 ContainerResources
-	AgentResources                ContainerResources
-	WorkspaceSizeLimit            string
-	SocketSizeLimit               string
-	ResultSizeLimit               string
-	DockerDataSizeLimit           string
-	ActiveDeadlineSeconds         int64
-	TTLSecondsAfterFinished       int64
-	Egress                        []EgressEndpoint
+	// DinDImage is optional for backwards-compatible persisted definitions;
+	// an empty value resolves to DefaultDinDImage when the Job is rendered.
+	DinDImage               string
+	NodeSelector            map[string]string
+	Toleration              TaintToleration
+	CheckoutResources       ContainerResources
+	DinDResources           ContainerResources
+	AgentResources          ContainerResources
+	WorkspaceSizeLimit      string
+	SocketSizeLimit         string
+	ResultSizeLimit         string
+	DockerDataSizeLimit     string
+	ActiveDeadlineSeconds   int64
+	TTLSecondsAfterFinished int64
+	Egress                  []EgressEndpoint
 }
 
 type TaintToleration struct {
@@ -64,8 +77,9 @@ type ContainerResources struct {
 }
 
 type EgressEndpoint struct {
-	CIDR  string
-	Ports []int
+	CIDR   string
+	Ports  []int
+	Except []string `json:",omitempty"`
 }
 
 type JobPlan struct {
@@ -170,7 +184,7 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 						},
 						map[string]any{
 							"name":            "dind",
-							"image":           DefaultDinDImage,
+							"image":           effectiveDinDImage(request.DinDImage),
 							"imagePullPolicy": "IfNotPresent",
 							"restartPolicy":   "Always",
 							"command":         []any{"/usr/local/bin/docker-init", "--", "/usr/local/bin/dockerd"},
@@ -245,6 +259,9 @@ func (r JobPlanRequest) Validate() error {
 	if !lockedImagePattern.MatchString(r.CheckoutImage) || !lockedImagePattern.MatchString(r.AgentImage) {
 		return errors.New("checkout and agent images must use explicit versions or release integrity references")
 	}
+	if r.DinDImage != "" && !lockedImagePattern.MatchString(r.DinDImage) {
+		return errors.New("DinD image must use an explicit version or release integrity reference")
+	}
 	if r.CheckoutImage != r.AgentImage {
 		return errors.New("checkout and agent must use the same trusted builder-agent digest")
 	}
@@ -270,8 +287,8 @@ func (r JobPlanRequest) Validate() error {
 	if r.TTLSecondsAfterFinished < 60 || r.TTLSecondsAfterFinished > 86400 {
 		return errors.New("TTL after finish must be between 60 and 86400")
 	}
-	if len(r.Egress) < 1 || len(r.Egress) > 32 {
-		return errors.New("egress must contain between 1 and 32 resolved endpoints")
+	if len(r.Egress) < 1 || len(r.Egress) > 128 {
+		return errors.New("egress must contain between 1 and 128 resolved endpoints")
 	}
 	for index, endpoint := range r.Egress {
 		if index > 0 && r.Egress[index-1].CIDR >= endpoint.CIDR {
@@ -282,8 +299,28 @@ func (r JobPlanRequest) Validate() error {
 		if network != nil {
 			prefix, bits = network.Mask.Size()
 		}
-		if err != nil || network.String() != endpoint.CIDR || !((bits == 32 && prefix == 32) || (bits == 128 && prefix == 128)) {
-			return fmt.Errorf("egress CIDR %q must be one canonical /32 or /128 host", endpoint.CIDR)
+		isDefault := endpoint.CIDR == "0.0.0.0/0" || endpoint.CIDR == "::/0"
+		if err != nil || network.String() != endpoint.CIDR || !(isDefault || (bits == 32 && prefix >= 8 && prefix <= 32) || (bits == 128 && prefix >= 16 && prefix <= 128)) {
+			return fmt.Errorf("egress CIDR %q must be one canonical bounded provider range", endpoint.CIDR)
+		}
+		// Empty operator API CIDRs intentionally mean an open public provider
+		// route. When API CIDRs are known, runtime config adds same-family
+		// exclusions; both shapes are valid because the operation-scoped policy
+		// still limits destination ports and exact build identity.
+		if !isDefault && len(endpoint.Except) != 0 {
+			return errors.New("strict provider egress must not carry default-route exclusions")
+		}
+		if len(endpoint.Except) > 32 {
+			return errors.New("egress exclusions may contain at most 32 CIDRs")
+		}
+		for exceptIndex, value := range endpoint.Except {
+			_, excluded, parseErr := net.ParseCIDR(value)
+			if parseErr != nil || excluded.String() != value || !network.Contains(excluded.IP) {
+				return errors.New("egress exclusions must be canonical contained CIDRs")
+			}
+			if exceptIndex > 0 && endpoint.Except[exceptIndex-1] >= value {
+				return errors.New("egress exclusions must use unique canonical order")
+			}
 		}
 		if len(endpoint.Ports) < 1 || len(endpoint.Ports) > 16 {
 			return errors.New("each egress endpoint must have 1 to 16 ports")
@@ -303,6 +340,13 @@ func (r JobPlanRequest) Validate() error {
 		}
 	}
 	return nil
+}
+
+func effectiveDinDImage(value string) string {
+	if value == "" {
+		return DefaultDinDImage
+	}
+	return value
 }
 
 func (r ContainerResources) validate() error {
@@ -417,8 +461,12 @@ func plannedNetworkPolicy(request JobPlanRequest, name string, labels map[string
 		for _, port := range ports {
 			policyPorts = append(policyPorts, map[string]any{"protocol": "TCP", "port": int64(port)})
 		}
+		ipBlock := map[string]any{"cidr": endpoint.CIDR}
+		if len(endpoint.Except) > 0 {
+			ipBlock["except"] = slices.Clone(endpoint.Except)
+		}
 		egress = append(egress, map[string]any{
-			"to":    []any{map[string]any{"ipBlock": map[string]any{"cidr": endpoint.CIDR}}},
+			"to":    []any{map[string]any{"ipBlock": ipBlock}},
 			"ports": policyPorts,
 		})
 	}

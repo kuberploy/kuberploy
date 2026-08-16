@@ -314,7 +314,7 @@ func insertAutoDeployAudit(ctx context.Context, tx pgx.Tx, actorID, action strin
 	return err
 }
 
-func autoDeployPolicyReplay(ctx context.Context, q rowQuerier, actorID, key, action, digest string) (autodeploy.Policy, autodeploy.Revision, bool, error) {
+func autoDeployPolicyReplay(ctx context.Context, q accessQuerier, actorID, key, action, digest string) (autodeploy.Policy, autodeploy.Revision, bool, error) {
 	var storedAction, storedDigest, policyID string
 	var revision int64
 	err := q.QueryRow(ctx, `SELECT action,request_digest,auto_deploy_policy_id::text,result_revision FROM mutation_receipts
@@ -330,6 +330,13 @@ func autoDeployPolicyReplay(ctx context.Context, q rowQuerier, actorID, key, act
 	}
 	policy, _, err := autoDeployPolicyByID(ctx, q, policyID, false)
 	if err != nil {
+		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
+	}
+	// Idempotent replay is still a read of the accepted policy. Re-check the
+	// actor's current application visibility before returning its durable
+	// result; otherwise a revoked actor could replay a prior mutation through
+	// the revise endpoint without passing the normal policy authorization path.
+	if err = authorizeWith(ctx, q, actorID, domain.PermissionBuildsRead, domain.AccessTarget{Type: "application", ID: policy.ApplicationID}); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
 	stored, err := autoDeployRevisionByID(ctx, q, policyID, revision)

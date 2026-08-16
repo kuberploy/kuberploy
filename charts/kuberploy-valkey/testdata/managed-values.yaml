@@ -1,6 +1,8 @@
 valkeyFoundation:
   managed: true
   adoptExisting: false
+  networkPolicy:
+    enabled: true
 valkey:
   auth:
     usersExistingSecret: kuberploy-valkey-auth

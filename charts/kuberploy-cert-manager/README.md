@@ -29,8 +29,13 @@ the exact supported shape.
 
 The managed profile uses exact v1.21.1 image tags, retained CRDs, two controller,
 webhook, and cainjector replicas, PDBs, restricted Pod Security, resource
-defaults, dedicated service accounts, and wrapper-owned NetworkPolicies. API
-server CIDRs are required and cannot be all-address ranges. Only the controller
+defaults, dedicated service accounts, and optional wrapper-owned NetworkPolicies.
+When NetworkPolicy hardening is enabled, API server CIDRs are optional for
+outbound controller traffic; empty values use a basic port-scoped public API
+fallback, while explicit values cannot be all-address ranges. The webhook's
+kube-apiserver ingress is emitted only when explicit API CIDRs are supplied, so
+enabling NetworkPolicy without that infrastructure input fails closed for the
+webhook instead of exposing port 10250 publicly. Only the controller
 has public TCP/443 egress for ACME; this chart never receives certificate private
 keys in values and never renders custom TLS Secrets.
 

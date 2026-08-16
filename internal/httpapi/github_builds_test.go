@@ -99,15 +99,16 @@ func (b *githubWebhookHTTPBackend) Accept(_ context.Context, headers http.Header
 }
 
 type buildHTTPBackend struct {
-	mu           sync.Mutex
-	definition   builds.BuildDefinition
-	attempt      builds.BuildAttempt
-	repositories []builds.Repository
-	creates      int
-	mutation     httpapi.BuildDefinitionMutation
-	gitBinding   httpapi.GitBindingRepositoryResolution
-	gitBindErr   error
-	gitBindCalls int
+	mu             sync.Mutex
+	definition     builds.BuildDefinition
+	attempt        builds.BuildAttempt
+	repositories   []builds.Repository
+	creates        int
+	mutation       httpapi.BuildDefinitionMutation
+	gitBinding     httpapi.GitBindingRepositoryResolution
+	gitBindErr     error
+	gitBindCalls   int
+	profileCatalog builds.BuildSecretProfileCatalog
 }
 
 func (b *buildHTTPBackend) ResolveGitBindingRepository(_ context.Context, _, _ string) (httpapi.GitBindingRepositoryResolution, error) {
@@ -115,6 +116,12 @@ func (b *buildHTTPBackend) ResolveGitBindingRepository(_ context.Context, _, _ s
 	defer b.mu.Unlock()
 	b.gitBindCalls++
 	return b.gitBinding, b.gitBindErr
+}
+
+func (b *buildHTTPBackend) SecretProfileCatalog(context.Context, string) (builds.BuildSecretProfileCatalog, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.profileCatalog, nil
 }
 
 type buildReadinessHTTPProbe struct{ err error }
@@ -577,6 +584,19 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	project := decode[domain.Project](t, response)
 	response = f.request(http.MethodPost, "/v1/applications", "build-http-application", map[string]string{"projectId": project.ID, "name": "API"})
 	application := decode[domain.Application](t, response)
+	backend.profileCatalog = builds.BuildSecretProfileCatalog{
+		Build: []builds.BuildSecretProfile{{ID: "npmrc", Label: "Private npm registry", File: builder.FileReference{ID: "npmrc", Path: "/var/run/secrets/kuberploy/build/npmrc"}}},
+		SSH:   []builds.BuildSecretProfile{{ID: "github", Label: "GitHub deploy key", File: builder.FileReference{ID: "github", Path: "/var/run/secrets/kuberploy/ssh/id_ed25519"}}},
+	}
+	response = f.request(http.MethodGet, "/v1/applications/"+application.ID+"/build-secret-profiles", "", nil)
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || bytes.Contains(body, []byte("/var/run")) || bytes.Contains(body, []byte("Secret")) {
+		t.Fatalf("profile catalog status=%d body=%s", response.StatusCode, body)
+	}
+	if !bytes.Contains(body, []byte(`"id":"npmrc"`)) || !bytes.Contains(body, []byte(`"id":"github"`)) {
+		t.Fatalf("profile catalog missing approved IDs: %s", body)
+	}
 	response = f.request(http.MethodPost, "/v1/github/installations", "build-http-install", map[string]any{"githubInstallationId": 4242, "accountLogin": "example", "accountType": "Organization", "repositorySelection": "selected", "repositoryCount": 1})
 	installation := decode[domain.GitHubInstallation](t, response)
 	repositoryID := "33333333-3333-4333-8333-333333333333"
@@ -596,7 +616,7 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	backend.repositories = []builds.Repository{{ID: repositoryID, InstallationID: installation.ID, Identity: githubapp.RepositoryIdentity{ID: 33, OwnerID: 22, OwnerLogin: "example", Name: "api"}, Lifecycle: builds.RepositoryActive, LastVerifiedAt: now, CreatedAt: now, UpdatedAt: now}}
 
 	response = f.request(http.MethodGet, "/v1/applications/"+application.ID+"/build-definitions", "", nil)
-	body, _ := io.ReadAll(response.Body)
+	body, _ = io.ReadAll(response.Body)
 	response.Body.Close()
 	for _, forbidden := range []string{"credentialSecret", "execution", "builderAgentImage", "do-not-leak"} {
 		if bytes.Contains(body, []byte(forbidden)) {
@@ -608,6 +628,9 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	}
 	if !bytes.Contains(body, []byte(`"secretFiles":[]`)) || !bytes.Contains(body, []byte(`"sshFiles":[]`)) {
 		t.Fatalf("required empty definition arrays encoded as null or omitted: %s", body)
+	}
+	if !bytes.Contains(body, []byte(`"name":"PUBLIC_MODE","value":""`)) || bytes.Contains(body, []byte(`"value":"production"`)) {
+		t.Fatalf("build argument value was not safely redacted in the schema-compatible response: %s", body)
 	}
 
 	create := map[string]any{"installationId": installation.ID, "repositoryId": repositoryID, "registryTargetId": registryID, "triggerRef": "refs/heads/main",
@@ -679,7 +702,7 @@ func TestBuildHTTPServiceAccountRequiresBuildScopeAndTeamSharedInstallation(t *t
 		"githubInstallationId": 4242, "accountLogin": "example", "accountType": "Organization", "repositorySelection": "selected", "repositoryCount": 1,
 	})
 	installation := decode[domain.GitHubInstallation](t, response)
-	response = f.request(http.MethodPatch, "/v1/github/installations/"+installation.ID+"/sharing", "", map[string]string{"visibility": "team", "teamId": team.ID})
+	response = f.request(http.MethodPatch, "/v1/github/installations/"+installation.ID+"/sharing", "build-bearer-sharing", map[string]string{"visibility": "team", "teamId": team.ID})
 	if response.StatusCode != http.StatusOK {
 		problem := decode[httpapi.Problem](t, response)
 		t.Fatalf("share status=%d problem=%#v", response.StatusCode, problem)

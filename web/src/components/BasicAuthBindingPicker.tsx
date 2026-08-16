@@ -34,13 +34,29 @@ export function BasicAuthBindingPicker({
       (binding.activeVersion ?? 0) > 0,
   );
   const details = useQuery({
-    queryKey: ["basic-auth-binding-details", ...metadata.map(({ id }) => id)],
+    queryKey: [
+      "basic-auth-binding-details",
+      ...metadata
+        .map(
+          ({ id, activeVersion, state }) =>
+            `${id}@${activeVersion ?? 0}@${state}`,
+        )
+        .sort(),
+    ],
     queryFn: () =>
       Promise.all(metadata.map(({ id }) => api.runtimeSecretBinding(id))),
     enabled: metadata.length > 0,
     retry: false,
   });
   const choices = (details.data ?? []).filter((detail) => {
+    const currentMetadata = metadata.find(({ id }) => id === detail.id);
+    if (
+      !currentMetadata ||
+      currentMetadata.state !== detail.state ||
+      currentMetadata.activeVersion !== detail.activeVersion
+    ) {
+      return false;
+    }
     const version = detail.versions.find(
       (candidate) =>
         candidate.number === detail.activeVersion &&

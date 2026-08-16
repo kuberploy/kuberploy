@@ -291,6 +291,10 @@ type githubSharingRequest struct {
 }
 
 func (s *Server) githubInstallationSharing(w http.ResponseWriter, r *http.Request) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
 	var in githubSharingRequest
 	if !decode(w, r, &in) {
 		return
@@ -300,10 +304,13 @@ func (s *Server) githubInstallationSharing(w http.ResponseWriter, r *http.Reques
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "private visibility must omit teamId; team visibility requires teamId.")
 		return
 	}
-	installation, err := s.store.UpdateGitHubInstallationSharing(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"), requestID(r.Context()), domain.UpdateGitHubInstallationSharing{Visibility: in.Visibility, TeamID: in.TeamID})
+	result, err := s.store.UpdateGitHubInstallationSharing(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"), key, fingerprint(in), requestID(r.Context()), domain.UpdateGitHubInstallationSharing{Visibility: in.Visibility, TeamID: in.TeamID})
 	if err != nil {
 		mappedError(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, installation)
+	if result.Replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	writeJSON(w, http.StatusOK, result.Value)
 }

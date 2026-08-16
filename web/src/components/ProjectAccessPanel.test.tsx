@@ -50,6 +50,17 @@ const projectCapability: Capability = {
   ],
 };
 
+const forgedPlatformCapability: Capability = {
+  role: "platform-admin",
+  scopeType: "platform",
+  scopeId: "another-platform",
+  actions: [
+    "access-grants:read",
+    "access-grants:create",
+    "access-grants:delete",
+  ],
+};
+
 function wrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -110,6 +121,91 @@ describe("project access management", () => {
       permissions: ["logs.read"],
     });
     expect(create.mock.calls[0]?.[2]).toEqual(expect.any(String));
+  });
+
+  it("preserves a newer grant draft when the earlier create completes", async () => {
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    let resolveCreate!: (value: AccessGrant) => void;
+    const create = vi.spyOn(api, "createProjectAccessGrant").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        capabilities={[organizationCapability]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await screen.findByText("No explicit grants for this project.");
+    const userId = screen.getByRole("textbox", { name: /exact user id/i });
+    await user.type(userId, grant.subjectUserId!);
+    await user.click(screen.getByRole("button", { name: "Add grant" }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await user.clear(userId);
+    await user.type(userId, "55555555-5555-4555-8555-555555555555");
+
+    resolveCreate(grant);
+    await waitFor(() =>
+      expect(userId).toHaveValue("55555555-5555-4555-8555-555555555555"),
+    );
+  });
+
+  it("ignores a grant completion after project scope changes", async () => {
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    let resolveCreate!: (value: AccessGrant) => void;
+    const create = vi.spyOn(api, "createProjectAccessGrant").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        capabilities={[organizationCapability]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    const oldSubject = grant.subjectUserId!;
+    const userId = await screen.findByRole("textbox", {
+      name: /exact user id/i,
+    });
+    await user.type(userId, oldSubject);
+    await user.click(screen.getByRole("button", { name: "Add grant" }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+
+    rerender(
+      <ProjectAccessPanel
+        project={{ id: "project-2", name: "Billing", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        capabilities={[organizationCapability]}
+        onClose={() => undefined}
+      />,
+    );
+    const newUserId = await screen.findByRole("textbox", {
+      name: /exact user id/i,
+    });
+    await user.type(newUserId, oldSubject);
+
+    resolveCreate(grant);
+    await waitFor(() => expect(newUserId).toHaveValue(oldSubject));
+    expect(create.mock.calls[0]?.[0]).toBe("project-1");
   });
 
   it("assigns one exact team subject without sending a user subject", async () => {
@@ -266,5 +362,26 @@ describe("project access management", () => {
     expect(screen.getByRole("combobox", { name: "Exact scope" })).toHaveValue(
       "project:project-1",
     );
+  });
+
+  it("does not treat a platform capability with the wrong scope ID as global", async () => {
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[]}
+        capabilities={[forgedPlatformCapability]}
+        onClose={() => undefined}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    const scope = await screen.findByRole("combobox", { name: "Exact scope" });
+    expect(scope.querySelectorAll("option")).toHaveLength(0);
+    expect(
+      screen.getByRole("combobox", { name: "Role" }).querySelectorAll("option"),
+    ).toHaveLength(0);
   });
 });

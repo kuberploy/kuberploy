@@ -352,6 +352,75 @@ export function validateGuidedRuntimeProcess(
   }
 }
 
+export function workloadSchedulingFromGuided(
+  values: Pick<
+    GuidedConfig,
+    | "nodeSelectorYaml"
+    | "affinityYaml"
+    | "topologySpreadYaml"
+    | "tolerationsYaml"
+    | "priorityClassName"
+  >,
+): Pick<
+  WorkloadRuntime,
+  | "nodeSelector"
+  | "affinity"
+  | "topologySpreadConstraints"
+  | "tolerations"
+  | "priorityClassName"
+> {
+  const nodeSelector = parseFragment(
+    values.nodeSelectorYaml,
+    "object",
+    "Node selector",
+  );
+  const affinity = parseFragment(values.affinityYaml, "object", "Affinity");
+  const topologySpreadConstraints = parseFragment(
+    values.topologySpreadYaml,
+    "array",
+    "Topology spread constraints",
+  );
+  const tolerations = parseFragment(
+    values.tolerationsYaml,
+    "array",
+    "Tolerations",
+  );
+  const result: Pick<
+    WorkloadRuntime,
+    | "nodeSelector"
+    | "affinity"
+    | "topologySpreadConstraints"
+    | "tolerations"
+    | "priorityClassName"
+  > = {};
+  if (isObject(nodeSelector) && Object.keys(nodeSelector).length) {
+    const entries = Object.entries(nodeSelector);
+    if (entries.some(([, value]) => typeof value !== "string")) {
+      throw new Error("Node selector values must be strings.");
+    }
+    result.nodeSelector = Object.fromEntries(
+      entries as Array<[string, string]>,
+    );
+  }
+  if (isObject(affinity) && Object.keys(affinity).length) {
+    result.affinity = affinity as WorkloadRuntime["affinity"];
+  }
+  if (
+    Array.isArray(topologySpreadConstraints) &&
+    topologySpreadConstraints.length
+  ) {
+    result.topologySpreadConstraints =
+      topologySpreadConstraints as WorkloadRuntime["topologySpreadConstraints"];
+  }
+  if (Array.isArray(tolerations) && tolerations.length) {
+    result.tolerations = tolerations as WorkloadRuntime["tolerations"];
+  }
+  if (values.priorityClassName.trim()) {
+    result.priorityClassName = values.priorityClassName.trim();
+  }
+  return result;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

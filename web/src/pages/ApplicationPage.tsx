@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
   Card,
@@ -180,6 +180,9 @@ export function ApplicationPage() {
     "logs",
     "metrics",
   ];
+  useEffect(() => {
+    if (!tabs.includes(tab)) setTab("overview");
+  }, [tab, tabs]);
 
   return (
     <div className="page">
@@ -408,6 +411,7 @@ export function ApplicationPage() {
           {tab === "config" ? (
             <Card className="card--flush">
               <ConfigEditor
+                key={deployment.data.id}
                 deployment={deployment.data}
                 application={application.data}
               />
@@ -415,6 +419,7 @@ export function ApplicationPage() {
           ) : null}
           {tab === "variables" ? (
             <RuntimeSecretsPanel
+              key={application.data.id}
               application={application.data}
               environments={environments.data?.items ?? []}
               project={applicationProject}
@@ -425,6 +430,7 @@ export function ApplicationPage() {
           ) : null}
           {tab === "certificates" ? (
             <CertificateBindingsPanel
+              key={application.data.id}
               application={application.data}
               environments={environments.data?.items ?? []}
               project={applicationProject}
@@ -435,6 +441,7 @@ export function ApplicationPage() {
           ) : null}
           {tab === "helm" && helmEnvironment ? (
             <HelmApplicationsPanel
+              key={`${application.data.id}:${helmEnvironment.id}`}
               application={application.data}
               environment={helmEnvironment}
               project={applicationProject}
@@ -458,6 +465,7 @@ export function ApplicationPage() {
               />
               {helmEnvironment ? (
                 <DeploymentRollbackPanel
+                  key={`${deployment.data.id}:${helmEnvironment.id}`}
                   deployment={deployment.data}
                   application={application.data}
                   environment={helmEnvironment}
@@ -471,6 +479,7 @@ export function ApplicationPage() {
           ) : null}
           {tab === "artifacts" ? (
             <RegistryPanel
+              key={application.data.id}
               application={application.data}
               project={applicationProject}
               capabilities={effectiveCapabilities}

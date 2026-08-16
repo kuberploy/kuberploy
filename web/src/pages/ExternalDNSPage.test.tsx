@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type {
   Capabilities,
   ExternalDNSIntegration,
@@ -177,6 +177,141 @@ describe("External DNS platform management", () => {
     ).toBeVisible();
   });
 
+  it("reuses the same deactivation idempotency key after a network retry", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const deactivate = vi
+      .spyOn(api, "deactivateExternalDNSIntegration")
+      .mockRejectedValueOnce(new ApiError(0))
+      .mockResolvedValueOnce({ ...integration, lifecycle: "deactivated" });
+    renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: false },
+      capabilities: [
+        platformCapability("external-dns-integrations:read"),
+        platformCapability("external-dns-integrations:write"),
+      ],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(2), {
+      timeout: 3_000,
+    });
+    expect(deactivate.mock.calls[0]?.[0]).toBe(integration.id);
+    expect(deactivate.mock.calls[1]?.[0]).toBe(integration.id);
+    expect(deactivate.mock.calls[0]?.[1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(deactivate.mock.calls[1]?.[1]).toBe(deactivate.mock.calls[0]?.[1]);
+  });
+
+  it("keeps a newer profile editor open after an older deactivation completes", async () => {
+    const user = userEvent.setup();
+    const second = {
+      ...integration,
+      id: "integration-2",
+      slug: "private-dns",
+      name: "Private DNS",
+    };
+    vi.mocked(api.externalDNSIntegrations).mockResolvedValue({
+      items: [integration, second],
+      truncated: false,
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let resolveDeactivate!: (
+      value: ExternalDNSIntegration & { lifecycle: "deactivated" },
+    ) => void;
+    vi.spyOn(api, "deactivateExternalDNSIntegration").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDeactivate = resolve;
+        }),
+    );
+    renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: false },
+      capabilities: [
+        platformCapability("external-dns-integrations:read"),
+        platformCapability("external-dns-integrations:write"),
+      ],
+    });
+
+    expect(await screen.findByText("Private DNS")).toBeVisible();
+    await user.click(screen.getAllByRole("button", { name: "Deactivate" })[0]!);
+    await user.click(
+      screen.getAllByRole("button", { name: /Edit profile/ })[1]!,
+    );
+
+    resolveDeactivate({ ...integration, lifecycle: "deactivated" });
+
+    await waitFor(() =>
+      expect(api.externalDNSIntegrations).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByRole("heading", { name: "Private DNS" })).toBeVisible();
+  });
+
+  it("keeps a reopened profile editor open after its older deactivation completes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let resolveDeactivate!: (
+      value: ExternalDNSIntegration & { lifecycle: "deactivated" },
+    ) => void;
+    vi.spyOn(api, "deactivateExternalDNSIntegration").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDeactivate = resolve;
+        }),
+    );
+    renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: false },
+      capabilities: [
+        platformCapability("external-dns-integrations:read"),
+        platformCapability("external-dns-integrations:write"),
+      ],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(screen.getByRole("button", { name: /Edit profile/ }));
+
+    resolveDeactivate({ ...integration, lifecycle: "deactivated" });
+
+    await waitFor(() =>
+      expect(api.externalDNSIntegrations).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeVisible();
+  });
+
+  it("keeps a reopened profile editor open after its older save completes", async () => {
+    const user = userEvent.setup();
+    let resolveUpdate!: (value: ExternalDNSIntegration) => void;
+    vi.spyOn(api, "updateExternalDNSIntegration").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: false },
+      capabilities: [
+        platformCapability("external-dns-integrations:read"),
+        platformCapability("external-dns-integrations:write"),
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edit profile/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    await waitFor(() =>
+      expect(api.updateExternalDNSIntegration).toHaveBeenCalledOnce(),
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: /Edit profile/ }));
+
+    resolveUpdate(integration);
+
+    await waitFor(() =>
+      expect(api.externalDNSIntegrations).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeVisible();
+  });
+
   it("submits a structured adopted profile with an exact environment", async () => {
     const user = userEvent.setup();
     const create = vi
@@ -222,6 +357,35 @@ describe("External DNS platform management", () => {
       environmentIds: ["environment-1"],
     });
     expect(create.mock.calls[0]?.[1]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("blocks saving an integration removed by a catalog refresh", async () => {
+    const user = userEvent.setup();
+    const queryClient = renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: false },
+      capabilities: [
+        platformCapability("external-dns-integrations:read"),
+        platformCapability("external-dns-integrations:write"),
+      ],
+    });
+    await user.click(
+      await screen.findByRole("button", { name: /Edit profile/ }),
+    );
+
+    vi.mocked(api.externalDNSIntegrations).mockResolvedValueOnce({
+      items: [],
+      truncated: false,
+    });
+    await queryClient.invalidateQueries({
+      queryKey: ["external-dns-integrations"],
+    });
+
+    expect(
+      await screen.findByText(
+        "This integration changed, was deactivated, or is no longer available. Reload the catalog before saving it.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save profile" })).toBeDisabled();
   });
 
   it("keeps mutations human-only even with an exact write capability", async () => {

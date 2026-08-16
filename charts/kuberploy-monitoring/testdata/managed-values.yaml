@@ -1,3 +1,8 @@
+monitoring:
+  networkPolicy:
+    enabled: true
+    kubeAPIServerCIDRs: [10.43.0.1/32]
+
 kube-prometheus-stack:
   prometheus:
     prometheusSpec:

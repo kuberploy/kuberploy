@@ -1,6 +1,8 @@
 postgresqlFoundation:
   managed: true
   adoptExisting: false
+  networkPolicy:
+    enabled: true
   auth:
     existingSecret: kuberploy-postgresql-auth
   storage:

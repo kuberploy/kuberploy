@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -31,9 +30,6 @@ func RuntimeConfigFromLookup(pullConfig imagepull.RuntimeConfig, lookup func(str
 			return RuntimeConfig{}, ErrInvalid
 		}
 		anonymous = strings.Split(value, ",")
-		if !sort.StringsAreSorted(anonymous) {
-			return RuntimeConfig{}, ErrInvalid
-		}
 	}
 	authorities := []TokenAuthority(nil)
 	if value, present := lookup(TokenAuthoritiesEnv); present {
@@ -68,7 +64,7 @@ func decodeTokenAuthorities(raw []byte, result *[]TokenAuthority) error {
 		return ErrInvalid
 	}
 	for index := range *result {
-		if index > 0 && (*result)[index-1].TargetID >= (*result)[index].TargetID {
+		if (*result)[index].TargetID == "" {
 			return ErrInvalid
 		}
 	}

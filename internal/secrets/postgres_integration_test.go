@@ -40,7 +40,7 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Secret project','secret-project',$2,$3)`, testProject, testOrganization, testTime); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Runtime','runtime','runtime-test','secret-runtime',$3)`, testEnvironment, testProject, testTime); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Runtime','runtime','runtime-test','runtime-test',$3)`, testEnvironment, testProject, testTime); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Database','database',$3)`, testApplication, testProject, testTime); err != nil {
@@ -161,9 +161,17 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	if err = service.RemoveReference(ctx, testActor, active.Binding.ID, ReferenceGitCurrent, reference.Reference, "postgres-ref-remove"); err != nil {
 		t.Fatal(err)
 	}
-	deleted, err := service.Delete(ctx, testActor, active.Binding.ID, "postgres-delete")
+	deleted, err := service.DeleteWithIdempotency(ctx, testActor, active.Binding.ID, "postgres-delete-stable-0001", "postgres-delete")
 	if err != nil || deleted.State != BindingDeleted {
 		t.Fatalf("deleted=%#v err=%v", deleted, err)
+	}
+	replayedBinding, replayErr := service.DeleteWithIdempotency(ctx, testActor, active.Binding.ID, "postgres-delete-stable-0001", "postgres-delete-retry")
+	if replayErr != nil || replayedBinding.State != BindingDeleted {
+		t.Fatalf("replayed delete=%#v err=%v", replayedBinding, replayErr)
+	}
+	newKeyBinding, newKeyErr := service.DeleteWithIdempotency(ctx, testActor, active.Binding.ID, "postgres-delete-new-key-0001", "postgres-delete-new-key")
+	if newKeyErr != nil || newKeyBinding.State != BindingDeleted {
+		t.Fatalf("new-key delete=%#v err=%v", newKeyBinding, newKeyErr)
 	}
 	events, err := store.PendingEvents(ctx, 100)
 	if err != nil || len(events) < 8 {

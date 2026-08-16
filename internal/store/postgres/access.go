@@ -125,10 +125,12 @@ func resolveAccessTarget(ctx context.Context, q rowQuerier, target domain.Access
 		if err := q.QueryRow(ctx, `SELECT target_type,target_id::text FROM operations WHERE id=$1`, target.ID).Scan(&targetType, &targetID); err != nil {
 			return resolved, classify(err)
 		}
-		if targetType != "deployment" {
-			return domain.AccessTarget{Type: "platform", ID: "platform"}, nil
+		switch targetType {
+		case "deployment", "environment", "project":
+			return resolveAccessTarget(ctx, q, domain.AccessTarget{Type: targetType, ID: targetID})
+		default:
+			return resolved, base.ErrNotFound
 		}
-		return resolveAccessTarget(ctx, q, domain.AccessTarget{Type: "deployment", ID: targetID})
 	default:
 		return resolved, base.ErrNotFound
 	}
@@ -766,48 +768,67 @@ func (s *Store) AuthorizeGitHubInstallationForProject(ctx context.Context, actor
 	return base.ErrNotFound
 }
 
-func (s *Store) UpdateGitHubInstallationSharing(ctx context.Context, actor, installationID, requestID string, in domain.UpdateGitHubInstallationSharing) (domain.GitHubInstallation, error) {
+func (s *Store) UpdateGitHubInstallationSharing(ctx context.Context, actor, installationID, key, fingerprint, requestID string, in domain.UpdateGitHubInstallationSharing) (base.Result[domain.GitHubInstallation], error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return domain.GitHubInstallation{}, err
+		return base.Result[domain.GitHubInstallation]{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
+	idemScope := "github-installations.sharing:" + installationID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, idemScope, key)); err != nil {
+		return base.Result[domain.GitHubInstallation]{}, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, idemScope, key); findErr != nil {
+		return base.Result[domain.GitHubInstallation]{}, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return base.Result[domain.GitHubInstallation]{}, base.ErrIdempotencyConflict
+		}
+		stored, getErr := getGitHubInstallation(ctx, tx, old.resourceID, false)
+		if getErr != nil {
+			return base.Result[domain.GitHubInstallation]{}, getErr
+		}
+		return base.Result[domain.GitHubInstallation]{Value: stored, Replay: true}, tx.Commit(ctx)
+	}
 	installation, err := getGitHubInstallation(ctx, tx, installationID, true)
 	if err != nil {
-		return domain.GitHubInstallation{}, err
+		return base.Result[domain.GitHubInstallation]{}, err
 	}
 	admin, err := actorIsAdmin(ctx, tx, actor)
 	if err != nil {
-		return domain.GitHubInstallation{}, err
+		return base.Result[domain.GitHubInstallation]{}, err
 	}
 	currentOwner := false
 	if installation.TeamID != "" {
 		currentOwner, err = actorCanManageTeam(ctx, tx, actor, installation.TeamID)
 		if err != nil {
-			return domain.GitHubInstallation{}, err
+			return base.Result[domain.GitHubInstallation]{}, err
 		}
 	}
 	if !admin && actor != installation.OwnerUserID && !currentOwner {
-		return domain.GitHubInstallation{}, base.ErrForbidden
+		return base.Result[domain.GitHubInstallation]{}, base.ErrForbidden
 	}
 	if in.Visibility == "team" {
 		targetOwner, manageErr := actorCanManageTeam(ctx, tx, actor, in.TeamID)
 		if manageErr != nil {
-			return domain.GitHubInstallation{}, manageErr
+			return base.Result[domain.GitHubInstallation]{}, manageErr
 		}
 		if !admin && !targetOwner {
-			return domain.GitHubInstallation{}, base.ErrForbidden
+			return base.Result[domain.GitHubInstallation]{}, base.ErrForbidden
 		}
 		var teamExists bool
 		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM teams WHERE id=$1)`, in.TeamID).Scan(&teamExists); err != nil {
-			return domain.GitHubInstallation{}, err
+			return base.Result[domain.GitHubInstallation]{}, err
 		}
 		if !teamExists {
-			return domain.GitHubInstallation{}, base.ErrNotFound
+			return base.Result[domain.GitHubInstallation]{}, base.ErrNotFound
 		}
 	}
 	if installation.Visibility == in.Visibility && installation.TeamID == in.TeamID {
-		return installation, nil
+		if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "github-installation", installation.ID, nil); err != nil {
+			return base.Result[domain.GitHubInstallation]{}, classify(err)
+		}
+		return base.Result[domain.GitHubInstallation]{Value: installation}, tx.Commit(ctx)
 	}
 	affected := map[string]struct{}{installation.OwnerUserID: {}}
 	for _, teamID := range []string{installation.TeamID, in.TeamID} {
@@ -816,34 +837,37 @@ func (s *Store) UpdateGitHubInstallationSharing(ctx context.Context, actor, inst
 		}
 		rows, queryErr := tx.Query(ctx, `SELECT user_id FROM team_memberships WHERE team_id=$1`, teamID)
 		if queryErr != nil {
-			return domain.GitHubInstallation{}, queryErr
+			return base.Result[domain.GitHubInstallation]{}, queryErr
 		}
 		for rows.Next() {
 			var userID string
 			if queryErr = rows.Scan(&userID); queryErr != nil {
 				rows.Close()
-				return domain.GitHubInstallation{}, queryErr
+				return base.Result[domain.GitHubInstallation]{}, queryErr
 			}
 			affected[userID] = struct{}{}
 		}
 		rows.Close()
 		if queryErr = rows.Err(); queryErr != nil {
-			return domain.GitHubInstallation{}, queryErr
+			return base.Result[domain.GitHubInstallation]{}, queryErr
 		}
 	}
 	now := time.Now().UTC()
 	_, err = tx.Exec(ctx, `UPDATE github_installations SET visibility=$2,team_id=NULLIF($3,'')::uuid,updated_at=$4 WHERE id=$1`, installation.ID, in.Visibility, in.TeamID, now)
 	if err != nil {
-		return domain.GitHubInstallation{}, classify(err)
+		return base.Result[domain.GitHubInstallation]{}, classify(err)
 	}
 	installation.Visibility, installation.TeamID, installation.UpdatedAt = in.Visibility, in.TeamID, now
 	if err = audit(ctx, tx, actor, "github.installation.sharing.update", "github-installation", installation.ID, requestID, map[string]string{"visibility": in.Visibility, "teamId": in.TeamID}); err != nil {
-		return domain.GitHubInstallation{}, err
+		return base.Result[domain.GitHubInstallation]{}, err
 	}
 	if err = invalidateUsers(ctx, tx, affected); err != nil {
-		return domain.GitHubInstallation{}, err
+		return base.Result[domain.GitHubInstallation]{}, err
 	}
-	return installation, tx.Commit(ctx)
+	if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "github-installation", installation.ID, nil); err != nil {
+		return base.Result[domain.GitHubInstallation]{}, classify(err)
+	}
+	return base.Result[domain.GitHubInstallation]{Value: installation}, tx.Commit(ctx)
 }
 
 func projectVisible(ctx context.Context, q accessQuerier, bindings []domain.AccessBinding, project domain.Project) bool {
@@ -1000,6 +1024,9 @@ func (s *Store) ListOperationsForActor(ctx context.Context, actor string) ([]dom
 	for _, item := range items {
 		target, targetErr := resolveAccessTarget(ctx, s.pool, domain.AccessTarget{Type: "operation", ID: item.ID})
 		if targetErr != nil {
+			if errors.Is(targetErr, base.ErrNotFound) {
+				continue
+			}
 			return nil, targetErr
 		}
 		if accesspolicy.HasPermission(bindings, target, domain.PermissionOperationsRead) {

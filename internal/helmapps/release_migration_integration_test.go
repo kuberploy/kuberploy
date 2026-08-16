@@ -74,11 +74,8 @@ func TestPostgresHelmReleaseTwoPhasePublicationContract(t *testing.T) {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
+	pool := openFreshHelmMigrationPool(t, ctx, databaseURL)
+	var err error
 	// This low-level legacy CRUD/CAS contract manually drives phase two. Keep
 	// it on schema 010; schema 011's required live cascade observation is
 	// exercised by TestPostgresProtectedPublicationStoreDisableLifecycle.
@@ -317,6 +314,8 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	assertProtectedIntentValidatorsAreHardened(t, ctx, pool)
 	f := newHelmReleasePGFixture()
+	registerHelmAuthorityCleanup(t, pool, f.platformBindingID,
+		"helm-lifecycle-worker-", "argo-desired-state-lifecycle-")
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1224,6 +1223,9 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	}
 	f := newHelmReleasePGFixture()
 	f.now = time.Now().UTC().Add(-30 * time.Second).Truncate(time.Microsecond)
+	registerHelmAuthorityCleanup(t, pool, f.platformBindingID,
+		"helm-disable-worker-", "helm-publisher-worker-", "helm-cascade-observer-",
+		"argo-desired-state-cascade-")
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -2147,6 +2149,8 @@ func TestPostgresProtectedPublisherActivationSerializesWithClaim(t *testing.T) {
 	}
 	f := newHelmReleasePGFixture()
 	f.now = helmPGDatabaseNow(t, ctx, pool).Add(-30 * time.Second)
+	registerHelmAuthorityCleanup(t, pool, f.platformBindingID,
+		"helm-publisher-race-", "argo-desired-state-race-")
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -2327,6 +2331,8 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	assertProtectedIntentValidatorsAreHardened(t, ctx, pool)
 	f := newHelmReleasePGFixture()
 	f.now = time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Microsecond)
+	registerHelmAuthorityCleanup(t, pool, f.platformBindingID,
+		"helm-publisher-old-", "helm-publisher-current-", "argo-desired-state-adoption-")
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -3122,11 +3128,8 @@ func TestPostgresHelmPublicationPrerequisiteUpgrade(t *testing.T) {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
+	pool := openFreshHelmMigrationPool(t, ctx, databaseURL)
+	var err error
 	if err = applyHelmMigrationsThrough(ctx, pool, "003_repair_protected_desired_revisions"); err != nil {
 		t.Fatal(err)
 	}
@@ -3894,13 +3897,13 @@ func newHelmReleasePGFixture() helmReleasePGFixture {
 		foundationIntentID: id.New(), desiredStateCommandID: id.New(),
 		platformHead: strings.Repeat("a", 40), environmentHead: strings.Repeat("1", 40),
 		foundationRevision: strings.Repeat("8", 40), desiredStateRevision: strings.Repeat("9", 40),
-		catalogDigest:   helmPGDigest([]byte("catalog")),
-		publisherDigest: helmPGDigest([]byte("publisher")),
-		values:          values, valuesDigest: helmPGDigest(values), schema: schema,
+		catalogDigest: helmPGDigest([]byte("catalog")),
+		values:        values, valuesDigest: helmPGDigest(values), schema: schema,
 		schemaDigest: helmPGDigest(schema), manifest: manifest,
 		manifestDigest: helmPGDigest(manifest), inventoryDigest: helmPGDigest([]byte("inventory")),
 		now: time.Now().UTC().Truncate(time.Microsecond),
 	}
+	fixture.publisherDigest = helmPGDigest([]byte("publisher-" + fixture.userID))
 	shortEnvironment := strings.ReplaceAll(fixture.environmentID, "-", "")[:20]
 	fixture.namespace, fixture.argoProject = "helm-"+shortEnvironment, "helm-"+shortEnvironment
 	fixture.ociRepository = "oci://registry.example.com/platform/sample-" + strings.ReplaceAll(fixture.approvalID, "-", "")
@@ -4638,6 +4641,107 @@ func applyHelmMigrationsThrough(ctx context.Context, pool *pgxpool.Pool, target 
 		return fmt.Errorf("migration %s not found", target)
 	}
 	return nil
+}
+
+func openFreshHelmMigrationPool(t *testing.T, ctx context.Context, databaseURL string) *pgxpool.Pool {
+	t.Helper()
+	adminConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	databaseName := "kuberploy_helm_" + strings.ReplaceAll(id.New(), "-", "")
+	adminConfig.ConnConfig.Database = "postgres"
+	adminPool, err := pgxpool.NewWithConfig(ctx, adminConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, "CREATE DATABASE "+(pgx.Identifier{databaseName}).Sanitize()); err != nil {
+		adminPool.Close()
+		t.Fatal(err)
+	}
+	adminPool.Close()
+
+	targetConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetConfig.ConnConfig.Database = databaseName
+	targetPool, err := pgxpool.NewWithConfig(ctx, targetConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		targetPool.Close()
+		dropConfig, dropErr := pgxpool.ParseConfig(databaseURL)
+		if dropErr != nil {
+			t.Errorf("parse Helm migration cleanup connection: %v", dropErr)
+			return
+		}
+		dropConfig.ConnConfig.Database = "postgres"
+		dropPool, dropErr := pgxpool.NewWithConfig(context.Background(), dropConfig)
+		if dropErr != nil {
+			t.Errorf("open Helm migration cleanup connection: %v", dropErr)
+			return
+		}
+		defer dropPool.Close()
+		if _, dropErr = dropPool.Exec(context.Background(), "DROP DATABASE IF EXISTS "+(pgx.Identifier{databaseName}).Sanitize()); dropErr != nil {
+			t.Errorf("drop Helm migration database: %v", dropErr)
+		}
+	})
+	return targetPool
+}
+
+func registerHelmAuthorityCleanup(t *testing.T, pool *pgxpool.Pool, platformBindingID string, workerPrefixes ...string) {
+	t.Helper()
+	patterns := make([]string, len(workerPrefixes))
+	for index, prefix := range workerPrefixes {
+		patterns[index] = prefix + "%"
+	}
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if _, err := pool.Exec(cleanupCtx, `DELETE FROM public.runtime_readiness WHERE worker_id LIKE ANY($1::text[])`, patterns); err != nil {
+			t.Errorf("clean up Helm authority readiness: %v", err)
+		}
+		cascadeTables := []string{
+			"helm_application_cascade_absence_receipts",
+			"helm_application_cascade_adoption_receipts",
+			"helm_application_cascade_receipts",
+			"helm_application_cascade_observation_jobs",
+			"helm_application_cascade_preflights",
+			"helm_application_cascade_observer_activations",
+			"helm_protected_application_intents",
+		}
+		for _, table := range cascadeTables {
+			if _, err := pool.Exec(cleanupCtx, "ALTER TABLE public."+table+" DISABLE TRIGGER USER"); err != nil {
+				t.Errorf("disable %s cleanup trigger: %v", table, err)
+				return
+			}
+		}
+		preflightIDs := `SELECT id FROM public.helm_application_cascade_preflights WHERE platform_binding_id=$1`
+		for _, statement := range []string{
+			`UPDATE public.helm_protected_application_intents
+				SET cascade_required=false,cascade_receipt_id=NULL,cascade_contract=''
+				WHERE cascade_receipt_id IN (` + preflightIDs + `)`,
+			`DELETE FROM public.helm_application_cascade_absence_receipts WHERE cascade_preflight_id IN (` + preflightIDs + `)`,
+			`DELETE FROM public.helm_application_cascade_adoption_receipts WHERE cascade_preflight_id IN (` + preflightIDs + `)`,
+			`DELETE FROM public.helm_application_cascade_receipts WHERE cascade_preflight_id IN (` + preflightIDs + `)`,
+			`DELETE FROM public.helm_application_cascade_observation_jobs WHERE platform_binding_id=$1`,
+			`DELETE FROM public.helm_application_cascade_preflights WHERE platform_binding_id=$1`,
+		} {
+			if _, err := pool.Exec(cleanupCtx, statement, platformBindingID); err != nil {
+				t.Errorf("clean up Helm cascade state: %v", err)
+				break
+			}
+		}
+		if _, err := pool.Exec(cleanupCtx, `DELETE FROM public.helm_application_cascade_observer_activations WHERE platform_binding_id=$1`, platformBindingID); err != nil {
+			t.Errorf("clean up Helm authority activation: %v", err)
+		}
+		for _, table := range cascadeTables {
+			if _, err := pool.Exec(cleanupCtx, "ALTER TABLE public."+table+" ENABLE TRIGGER USER"); err != nil {
+				t.Errorf("restore %s cleanup trigger: %v", table, err)
+			}
+		}
+	})
 }
 
 func helmPGDatabaseNow(t *testing.T, ctx context.Context, q helmPGQuerier) time.Time {

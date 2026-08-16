@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ApiError, api } from "../api/client";
 import type {
   BuildAttempt,
@@ -11,7 +11,9 @@ import { Button, EmptyState, ErrorPanel, Field } from "./ui";
 import { Icon } from "./Icon";
 
 type PromotionCommand = {
+  attemptId: string;
   idempotencyKey: string;
+  draftScope: string;
   environmentId: string;
   replicas: number;
   port: number;
@@ -40,10 +42,36 @@ export function BuildPromotionPanel({
     useState<PromotionCommand["routeMode"]>("internal");
   const [hostname, setHostname] = useState("");
   const [accepted, setAccepted] = useState<Operation>();
+  const draftScope = JSON.stringify({
+    attemptId: attempt.id,
+    environmentId,
+    replicas,
+    port,
+    routeMode,
+    hostname: hostname.trim().toLowerCase(),
+  });
+  const draftScopeRef = useRef(draftScope);
+  draftScopeRef.current = draftScope;
+  const promotionAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
   const projectEnvironments =
     environments.data?.items.filter(
       (item) => item.projectId === attempt.projectId,
     ) ?? [];
+  useEffect(() => {
+    if (
+      environmentId &&
+      environments.data &&
+      !environments.data.items.some(
+        (environment) =>
+          environment.projectId === attempt.projectId &&
+          environment.id === environmentId,
+      )
+    ) {
+      setEnvironmentId("");
+    }
+  }, [attempt.projectId, environmentId, environments.data]);
   const mutation = useMutation({
     mutationFn: (command: PromotionCommand) => {
       let route: DeploymentRouteInput | undefined;
@@ -58,7 +86,7 @@ export function BuildPromotionPanel({
         route = { dnsMode: "sslip", pathPrefix: "/", tlsMode: "httpOnly" };
       }
       return api.promoteBuildAttempt(
-        attempt.id,
+        command.attemptId,
         {
           environmentId: command.environmentId,
           runtime: {
@@ -75,8 +103,54 @@ export function BuildPromotionPanel({
     },
     retry: (failures, error) =>
       error instanceof ApiError && error.status === 0 && failures < 1,
-    onSuccess: setAccepted,
+    onSuccess: (operation, command) => {
+      if (
+        command.attemptId !== attempt.id ||
+        command.draftScope !== draftScopeRef.current
+      )
+        return;
+      if (promotionAttempt.current?.key === command.idempotencyKey) {
+        promotionAttempt.current = null;
+      }
+      setAccepted(operation);
+    },
   });
+  useEffect(() => {
+    setEnvironmentId("");
+    setReplicas(1);
+    setPort(8080);
+    setRouteMode("internal");
+    setHostname("");
+    setAccepted(undefined);
+    promotionAttempt.current = null;
+    mutation.reset();
+  }, [attempt.id]);
+
+  const promote = () => {
+    const signature = JSON.stringify({
+      attemptId: attempt.id,
+      environmentId,
+      replicas,
+      port,
+      routeMode,
+      hostname: hostname.trim().toLowerCase(),
+    });
+    const idempotencyKey =
+      promotionAttempt.current?.signature === signature
+        ? promotionAttempt.current.key
+        : crypto.randomUUID();
+    promotionAttempt.current = { signature, key: idempotencyKey };
+    mutation.mutate({
+      attemptId: attempt.id,
+      idempotencyKey,
+      draftScope,
+      environmentId,
+      replicas,
+      port,
+      routeMode,
+      hostname,
+    });
+  };
 
   if (attempt.state !== "succeeded" || !attempt.image) {
     return (
@@ -197,16 +271,7 @@ export function BuildPromotionPanel({
             port > 65535 ||
             (routeMode === "manual" && !hostname.trim())
           }
-          onClick={() =>
-            mutation.mutate({
-              idempotencyKey: crypto.randomUUID(),
-              environmentId,
-              replicas,
-              port,
-              routeMode,
-              hostname,
-            })
-          }
+          onClick={promote}
         >
           <Icon name="deploy" /> Promote verified build
         </Button>

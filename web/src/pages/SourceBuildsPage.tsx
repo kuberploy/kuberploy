@@ -127,7 +127,6 @@ export function SourceBuildsPage() {
   );
   useEffect(() => {
     if (
-      readableApplications.length > 0 &&
       !readableApplications.some(
         (application) => application.id === selectedApplicationId,
       )
@@ -157,7 +156,7 @@ export function SourceBuildsPage() {
     enabled:
       buildsEnabled &&
       registryEnabled &&
-      Boolean(selectedApplicationId) &&
+      Boolean(selectedApplication) &&
       canReadApplicationRegistry,
     retry: false,
   });
@@ -166,13 +165,13 @@ export function SourceBuildsPage() {
   const definitions = useQuery({
     queryKey: ["build-definitions", selectedApplicationId],
     queryFn: () => api.buildDefinitions(selectedApplicationId),
-    enabled: buildsEnabled && Boolean(selectedApplicationId),
+    enabled: buildsEnabled && Boolean(selectedApplication),
     retry: false,
   });
   const attempts = useQuery({
     queryKey: ["build-attempts", selectedApplicationId],
     queryFn: () => api.buildAttempts(selectedApplicationId, 50),
-    enabled: buildsEnabled && Boolean(selectedApplicationId),
+    enabled: buildsEnabled && Boolean(selectedApplication),
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.items.some((attempt) =>
@@ -209,7 +208,7 @@ export function SourceBuildsPage() {
         title="GitHub source builds"
         description="Create immutable, repository-scoped definitions and follow isolated multi-platform builds from verified webhooks to registry digests."
         actions={
-          buildsEnabled && selectedApplicationId ? (
+          buildsEnabled && selectedApplication ? (
             <Button
               variant="secondary"
               onClick={() =>
@@ -323,6 +322,7 @@ export function SourceBuildsPage() {
 
           {selectedApplication && selectedProject ? (
             <AutoDeployPoliciesPanel
+              key={`${selectedProject.id}:${selectedApplication.id}`}
               application={selectedApplication}
               project={selectedProject}
               definitions={definitions.data?.items ?? []}
@@ -351,6 +351,7 @@ export function SourceBuildsPage() {
                 </div>
                 {builderEnabled ? (
                   <BuildDefinitionForm
+                    key={selectedApplication.id}
                     application={selectedApplication}
                     project={selectedProject}
                     capabilities={effectiveCapabilities}

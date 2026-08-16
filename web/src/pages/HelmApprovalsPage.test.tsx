@@ -109,4 +109,42 @@ describe("Helm approvals settings", () => {
     expect(created.mock.calls[1][1]).toBe(created.mock.calls[0][1]);
     expect(screen.queryByLabelText(/credential|document|renderer/i)).toBeNull();
   });
+
+  it("preserves a newer approval draft when the earlier create completes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    vi.spyOn(api, "capabilities").mockResolvedValue(exact);
+    vi.spyOn(api, "platformHelmApprovals").mockResolvedValue({ items: [] });
+    let resolveCreate!: (
+      value: Awaited<ReturnType<typeof api.createPlatformHelmApproval>>,
+    ) => void;
+    const create = vi
+      .spyOn(api, "createPlatformHelmApproval")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCreate = resolve;
+          }),
+      );
+    renderPage();
+    await screen.findByText("Approve an immutable package");
+    const input = (name: string) =>
+      document.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+    await user.type(input("repository"), "oci://registry/charts/api");
+    await user.type(input("version"), "1.0.0");
+    await user.type(input("manifestDigest"), `sha256:${"a".repeat(64)}`);
+    await user.type(input("packageDigest"), `sha256:${"b".repeat(64)}`);
+    await user.type(input("valuesSchemaDigest"), `sha256:${"c".repeat(64)}`);
+    await user.click(
+      screen.getByRole("button", { name: "Create immutable approval" }),
+    );
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await user.clear(input("version"));
+    await user.type(input("version"), "2.0.0");
+
+    resolveCreate(
+      {} as Awaited<ReturnType<typeof api.createPlatformHelmApproval>>,
+    );
+    await waitFor(() => expect(input("version")).toHaveValue("2.0.0"));
+  });
 });

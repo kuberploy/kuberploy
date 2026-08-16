@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { ApiError, api, errorMessage } from "../api/client";
 import {
@@ -18,6 +18,10 @@ import {
   HealthProbeEditor,
   RuntimeProcessEditor,
 } from "../components/GuidedConfigForm";
+import {
+  SchedulingEditor,
+  type SchedulingEditorValue,
+} from "../components/SchedulingEditor";
 import { RuntimeSecretReferencePicker } from "../components/RuntimeSecretReferencePicker";
 import {
   defaultGuidedProbes,
@@ -25,6 +29,7 @@ import {
   validateGuidedRuntimeProcess,
   workloadProcessFromGuided,
   workloadProbesFromGuided,
+  workloadSchedulingFromGuided,
   type GuidedProbes,
   type GuidedRuntimeProcess,
 } from "../lib/configDraft";
@@ -33,33 +38,38 @@ import {
   isCanonicalTaggedImage,
 } from "../lib/imageReference";
 
-type DeploymentForm = GuidedRuntimeProcess & {
-  projectId: string;
-  environmentId: string;
-  applicationMode: "new" | "existing";
-  applicationId: string;
-  applicationName: string;
-  image: string;
-  replicas: number;
-  port: number;
-  cpuRequest: string;
-  memoryRequest: string;
-  cpuLimit: string;
-  memoryLimit: string;
-  probes: GuidedProbes;
-  routeMode: "internal" | "manual" | "sslip";
-  hostname: string;
-  variables: Array<{ key: string; value: string }>;
-  secretVariables: Array<{
-    name: string;
-    bindingId: string;
-    bindingName: string;
-    key: string;
-    version: number;
-  }>;
-};
+type DeploymentForm = GuidedRuntimeProcess &
+  SchedulingEditorValue & {
+    projectId: string;
+    environmentId: string;
+    applicationMode: "new" | "existing";
+    applicationId: string;
+    applicationName: string;
+    image: string;
+    replicas: number;
+    workloadType: "Deployment" | "StatefulSet";
+    strategyType: "RollingUpdate" | "Recreate" | "OnDelete";
+    podManagementPolicy: "OrderedReady" | "Parallel";
+    port: number;
+    cpuRequest: string;
+    memoryRequest: string;
+    cpuLimit: string;
+    memoryLimit: string;
+    probes: GuidedProbes;
+    routeMode: "internal" | "manual" | "sslip";
+    hostname: string;
+    variables: Array<{ key: string; value: string }>;
+    secretVariables: Array<{
+      name: string;
+      bindingId: string;
+      bindingName: string;
+      key: string;
+      version: number;
+    }>;
+  };
 
 type StableApplicationReservation = { signature: string; key: string };
+type StableDeploymentAttempt = { signature: string; key: string };
 
 function retryNetworkOnce(failureCount: number, error: unknown) {
   return error instanceof ApiError && error.status === 0 && failureCount < 1;
@@ -70,6 +80,10 @@ export function NewDeploymentPage() {
   const queryClient = useQueryClient();
   const stableApplicationReservation =
     useRef<StableApplicationReservation | null>(null);
+  const stableDeploymentAttempt = useRef<StableDeploymentAttempt | null>(null);
+  const [reservedApplicationId, setReservedApplicationId] = useState("");
+  const lastDeploymentProject = useRef("");
+  const lastDeploymentScope = useRef("");
   const projects = useQuery({ queryKey: ["projects"], queryFn: api.projects });
   const environments = useQuery({
     queryKey: ["environments"],
@@ -94,6 +108,9 @@ export function NewDeploymentPage() {
       applicationName: "",
       image: "",
       replicas: 1,
+      workloadType: "Deployment",
+      strategyType: "RollingUpdate",
+      podManagementPolicy: "OrderedReady",
       commandYaml: "[]",
       argsYaml: "[]",
       workingDirectory: "",
@@ -104,6 +121,11 @@ export function NewDeploymentPage() {
       cpuLimit: "",
       memoryLimit: "",
       probes: defaultGuidedProbes("http"),
+      nodeSelectorYaml: "{}",
+      affinityYaml: "{}",
+      topologySpreadYaml: "[]",
+      tolerationsYaml: "[]",
+      priorityClassName: "",
       routeMode: "internal",
       hostname: "",
       variables: [],
@@ -116,18 +138,82 @@ export function NewDeploymentPage() {
     name: "secretVariables",
   });
   const projectId = useWatch({ control: form.control, name: "projectId" });
+  const activeProjectId = useRef(projectId);
+  activeProjectId.current = projectId;
   const applicationMode = useWatch({
     control: form.control,
     name: "applicationMode",
   });
+  const activeApplicationMode = useRef(applicationMode);
+  activeApplicationMode.current = applicationMode;
+  const applicationName = useWatch({
+    control: form.control,
+    name: "applicationName",
+  });
+  const activeApplicationName = useRef(applicationName);
+  activeApplicationName.current = applicationName;
   const applicationId = useWatch({
     control: form.control,
     name: "applicationId",
+  });
+  const workloadType = useWatch({
+    control: form.control,
+    name: "workloadType",
+  });
+  const scheduling = useWatch({
+    control: form.control,
+    name: [
+      "nodeSelectorYaml",
+      "affinityYaml",
+      "topologySpreadYaml",
+      "tolerationsYaml",
+      "priorityClassName",
+    ],
   });
   const environmentId = useWatch({
     control: form.control,
     name: "environmentId",
   });
+  useEffect(() => {
+    if (lastDeploymentProject.current !== projectId) {
+      if (lastDeploymentProject.current) {
+        form.setValue("environmentId", "", { shouldDirty: true });
+        form.setValue("applicationId", "", { shouldDirty: true });
+        form.setValue("routeMode", "internal", { shouldDirty: true });
+        form.setValue("hostname", "", { shouldDirty: true });
+        form.setValue("nodeSelectorYaml", "{}", { shouldDirty: true });
+        form.setValue("affinityYaml", "{}", { shouldDirty: true });
+        form.setValue("topologySpreadYaml", "[]", { shouldDirty: true });
+        form.setValue("tolerationsYaml", "[]", { shouldDirty: true });
+        form.setValue("priorityClassName", "", { shouldDirty: true });
+        variables.replace([]);
+        secretVariables.replace([]);
+        lastDeploymentScope.current = "";
+        setReservedApplicationId("");
+      }
+      lastDeploymentProject.current = projectId;
+    }
+  }, [form, projectId, secretVariables, variables]);
+  useEffect(() => {
+    const scope =
+      applicationId && environmentId ? `${applicationId}:${environmentId}` : "";
+    if (
+      scope &&
+      lastDeploymentScope.current &&
+      lastDeploymentScope.current !== scope
+    ) {
+      form.setValue("nodeSelectorYaml", "{}", { shouldDirty: true });
+      form.setValue("affinityYaml", "{}", { shouldDirty: true });
+      form.setValue("topologySpreadYaml", "[]", { shouldDirty: true });
+      form.setValue("tolerationsYaml", "[]", { shouldDirty: true });
+      form.setValue("priorityClassName", "", { shouldDirty: true });
+      form.setValue("routeMode", "internal", { shouldDirty: true });
+      form.setValue("hostname", "", { shouldDirty: true });
+      variables.replace([]);
+      secretVariables.replace([]);
+    }
+    if (scope) lastDeploymentScope.current = scope;
+  }, [applicationId, environmentId, form, secretVariables, variables]);
   const image = useWatch({ control: form.control, name: "image" }) ?? "";
   const routeMode = useWatch({ control: form.control, name: "routeMode" });
   const secretVariableValues = useWatch({
@@ -177,10 +263,25 @@ export function NewDeploymentPage() {
         scope.image,
       ),
   });
+  const resetImageResolution = imageResolution.reset;
+  useEffect(() => {
+    // A tag preview is authority for one exact scope and image only. Do not
+    // retain it if the operator changes scope and later returns to the same
+    // values; the provider may have moved the tag in the meantime.
+    resetImageResolution();
+  }, [applicationId, environmentId, image, resetImageResolution]);
   const imageResolutionIsCurrent = Boolean(
     imageIsTag &&
     imageResolution.data?.resolved === true &&
     imageResolution.data.requestedImage === image &&
+    imageResolution.variables?.image === image &&
+    imageResolution.variables?.applicationId === applicationId &&
+    imageResolution.variables?.environmentId === environmentId,
+  );
+  const imageResolutionErrorIsCurrent = Boolean(
+    imageIsTag &&
+    applicationMode === "existing" &&
+    imageResolution.error &&
     imageResolution.variables?.image === image &&
     imageResolution.variables?.applicationId === applicationId &&
     imageResolution.variables?.environmentId === environmentId,
@@ -214,14 +315,98 @@ export function NewDeploymentPage() {
     [applications.data, projectId],
   );
 
+  useEffect(() => {
+    if (
+      projectId &&
+      projects.isSuccess &&
+      !projects.data.items.some((project) => project.id === projectId)
+    ) {
+      form.setValue("projectId", "", { shouldDirty: true });
+      form.setValue("environmentId", "", { shouldDirty: true });
+      form.setValue("applicationId", "", { shouldDirty: true });
+      form.setValue("routeMode", "internal", { shouldDirty: true });
+      form.setValue("hostname", "", { shouldDirty: true });
+      form.setValue("nodeSelectorYaml", "{}", { shouldDirty: true });
+      form.setValue("affinityYaml", "{}", { shouldDirty: true });
+      form.setValue("topologySpreadYaml", "[]", { shouldDirty: true });
+      form.setValue("tolerationsYaml", "[]", { shouldDirty: true });
+      form.setValue("priorityClassName", "", { shouldDirty: true });
+      variables.replace([]);
+      secretVariables.replace([]);
+      lastDeploymentScope.current = "";
+      setReservedApplicationId("");
+      return;
+    }
+    if (
+      environmentId &&
+      environments.isSuccess &&
+      !filteredEnvironments.some(
+        (environment) => environment.id === environmentId,
+      )
+    ) {
+      form.setValue("environmentId", "", { shouldDirty: true });
+      form.setValue("routeMode", "internal", { shouldDirty: true });
+      form.setValue("hostname", "", { shouldDirty: true });
+      form.setValue("nodeSelectorYaml", "{}", { shouldDirty: true });
+      form.setValue("affinityYaml", "{}", { shouldDirty: true });
+      form.setValue("topologySpreadYaml", "[]", { shouldDirty: true });
+      form.setValue("tolerationsYaml", "[]", { shouldDirty: true });
+      form.setValue("priorityClassName", "", { shouldDirty: true });
+      variables.replace([]);
+      secretVariables.replace([]);
+      lastDeploymentScope.current = "";
+      return;
+    }
+    if (
+      applicationMode === "existing" &&
+      applicationId &&
+      applicationId !== reservedApplicationId &&
+      applications.isSuccess &&
+      !filteredApplications.some(
+        (application) => application.id === applicationId,
+      )
+    ) {
+      form.setValue("applicationId", "", { shouldDirty: true });
+      form.setValue("routeMode", "internal", { shouldDirty: true });
+      form.setValue("hostname", "", { shouldDirty: true });
+      form.setValue("nodeSelectorYaml", "{}", { shouldDirty: true });
+      form.setValue("affinityYaml", "{}", { shouldDirty: true });
+      form.setValue("topologySpreadYaml", "[]", { shouldDirty: true });
+      form.setValue("tolerationsYaml", "[]", { shouldDirty: true });
+      form.setValue("priorityClassName", "", { shouldDirty: true });
+      variables.replace([]);
+      secretVariables.replace([]);
+      lastDeploymentScope.current = "";
+      setReservedApplicationId("");
+    }
+  }, [
+    applicationId,
+    applicationMode,
+    applications.data,
+    applications.isSuccess,
+    environments.isSuccess,
+    environmentId,
+    filteredApplications,
+    filteredEnvironments,
+    form,
+    projectId,
+    projects.data,
+    projects.isSuccess,
+    reservedApplicationId,
+    secretVariables,
+    variables,
+  ]);
+
   const reserveApplication = useMutation({
     retry: retryNetworkOnce,
     mutationFn: async ({
       projectId,
       name,
+      idempotencyKey,
     }: {
       projectId: string;
       name: string;
+      idempotencyKey: string;
     }) => {
       const normalizedName = name.trim();
       if (!projectId || !normalizedName) {
@@ -229,27 +414,50 @@ export function NewDeploymentPage() {
           "Select a project and enter an application name first.",
         );
       }
-      const signature = `${projectId}:${normalizedName}`;
-      if (stableApplicationReservation.current?.signature !== signature) {
-        stableApplicationReservation.current = {
-          signature,
-          key: crypto.randomUUID(),
-        };
-      }
       return api.createApplication(
         { projectId, name: normalizedName },
-        stableApplicationReservation.current.key,
+        idempotencyKey,
       );
     },
-    onSuccess: async (application) => {
+    onSuccess: async (application, input) => {
+      const signature = `${input.projectId}:${input.name.trim()}`;
+      if (stableApplicationReservation.current?.signature === signature) {
+        stableApplicationReservation.current = null;
+      }
       await queryClient.invalidateQueries({ queryKey: ["applications"] });
+      if (
+        input.projectId !== activeProjectId.current ||
+        application.projectId !== input.projectId ||
+        activeApplicationMode.current !== "new" ||
+        activeApplicationName.current.trim() !== input.name.trim()
+      ) {
+        return;
+      }
+      setReservedApplicationId(application.id);
       form.setValue("applicationId", application.id, { shouldValidate: true });
       form.setValue("applicationMode", "existing", { shouldValidate: true });
     },
   });
+  const reserveApplicationIdentity = () => {
+    const name = form.getValues("applicationName");
+    const signature = `${projectId}:${name.trim()}`;
+    const idempotencyKey =
+      stableApplicationReservation.current?.signature === signature
+        ? stableApplicationReservation.current.key
+        : crypto.randomUUID();
+    stableApplicationReservation.current = { signature, key: idempotencyKey };
+    reserveApplication.mutate({ projectId, name, idempotencyKey });
+  };
 
   const deploy = useMutation({
-    mutationFn: async (values: DeploymentForm) => {
+    mutationFn: async ({
+      values,
+      idempotencyKey,
+    }: {
+      values: DeploymentForm;
+      idempotencyKey: string;
+      draftSignature: string;
+    }) => {
       if (!gitOpsReady) {
         throw new Error(
           "Protected Git and Argo CD must both report fresh readiness before a deployment can be committed.",
@@ -268,6 +476,7 @@ export function NewDeploymentPage() {
       // Application identity is created explicitly before this mutation. That
       // makes every application-scoped preview available on a first release.
       const workloadProcess = workloadProcessFromGuided(values);
+      const workloadScheduling = workloadSchedulingFromGuided(values);
       const workloadProbes = workloadProbesFromGuided(values.probes, [
         { name: "http", containerPort: values.port, protocol: "TCP" },
       ]);
@@ -330,71 +539,98 @@ export function NewDeploymentPage() {
           .map(({ key, value }) => ({ name: key.trim(), value })),
         ...secretEnvironment,
       ];
-      return api.createDeployment({
-        environmentId: values.environmentId,
-        applicationId,
-        image: values.image,
-        ...(isCanonicalTaggedImage(values.image) && imageResolution.data
-          ? { expectedImmutableImage: imageResolution.data.immutableImage }
-          : {}),
-        runtime: {
-          replicas: values.replicas,
-          ...workloadProcess,
-          ports: [
-            {
-              name: "http",
-              containerPort: values.port,
-              protocol: "TCP",
-            },
-          ],
-          env,
-          resources: {
-            requests: {
-              cpu: values.cpuRequest,
-              memory: values.memoryRequest,
-            },
-            ...(values.cpuLimit || values.memoryLimit
-              ? {
-                  limits: {
-                    ...(values.cpuLimit ? { cpu: values.cpuLimit } : {}),
-                    ...(values.memoryLimit
-                      ? { memory: values.memoryLimit }
-                      : {}),
-                  },
-                }
+      return api.createDeployment(
+        {
+          environmentId: values.environmentId,
+          applicationId,
+          image: values.image,
+          ...(isCanonicalTaggedImage(values.image) && imageResolution.data
+            ? { expectedImmutableImage: imageResolution.data.immutableImage }
+            : {}),
+          runtime: {
+            replicas: values.replicas,
+            workloadType: values.workloadType,
+            strategy: { type: values.strategyType },
+            ...(values.workloadType === "StatefulSet"
+              ? { podManagementPolicy: values.podManagementPolicy }
               : {}),
+            ...workloadProcess,
+            ...workloadScheduling,
+            ports: [
+              {
+                name: "http",
+                containerPort: values.port,
+                protocol: "TCP",
+              },
+            ],
+            env,
+            resources: {
+              requests: {
+                cpu: values.cpuRequest,
+                memory: values.memoryRequest,
+              },
+              ...(values.cpuLimit || values.memoryLimit
+                ? {
+                    limits: {
+                      ...(values.cpuLimit ? { cpu: values.cpuLimit } : {}),
+                      ...(values.memoryLimit
+                        ? { memory: values.memoryLimit }
+                        : {}),
+                    },
+                  }
+                : {}),
+            },
+            ...(workloadProbes ? { probes: workloadProbes } : {}),
           },
-          ...(workloadProbes ? { probes: workloadProbes } : {}),
-        },
-        route:
-          values.routeMode === "sslip"
-            ? {
-                dnsMode: "sslip",
-                pathPrefix: "/",
-                tlsMode: "httpOnly",
-              }
-            : values.routeMode === "manual"
+          route:
+            values.routeMode === "sslip"
               ? {
-                  hostname: values.hostname.trim(),
-                  dnsMode: "manual",
+                  dnsMode: "sslip",
                   pathPrefix: "/",
                   tlsMode: "httpOnly",
                 }
-              : undefined,
-      });
+              : values.routeMode === "manual"
+                ? {
+                    hostname: values.hostname.trim(),
+                    dnsMode: "manual",
+                    pathPrefix: "/",
+                    tlsMode: "httpOnly",
+                  }
+                : undefined,
+        },
+        idempotencyKey,
+      );
     },
-    onSuccess: async (operation) => {
+    onSuccess: async (operation, input) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["applications"] }),
         queryClient.invalidateQueries({ queryKey: ["deployments"] }),
         queryClient.invalidateQueries({ queryKey: ["operations"] }),
       ]);
+      if (JSON.stringify(form.getValues()) !== input.draftSignature) return;
+      if (stableDeploymentAttempt.current?.key === input.idempotencyKey) {
+        stableDeploymentAttempt.current = null;
+      }
       await navigate({
         to: "/operations/$operationId",
         params: { operationId: operation.id },
       });
     },
   });
+
+  const submitDeployment = (values: DeploymentForm) => {
+    const signature = JSON.stringify(values);
+    const idempotencyKey =
+      stableDeploymentAttempt.current?.signature === signature
+        ? stableDeploymentAttempt.current.key
+        : crypto.randomUUID();
+    stableDeploymentAttempt.current = { signature, key: idempotencyKey };
+    deploy.mutate({
+      values,
+      idempotencyKey,
+      draftSignature: signature,
+    });
+  };
 
   const loadError = projects.error ?? environments.error ?? applications.error;
   const noScopes = !projects.isPending && !projects.data?.items.length;
@@ -431,7 +667,7 @@ export function NewDeploymentPage() {
           }
         />
       ) : (
-        <form onSubmit={form.handleSubmit((values) => deploy.mutate(values))}>
+        <form onSubmit={form.handleSubmit(submitDeployment)}>
           <Card className="form-card">
             <div className="form-card__heading">
               <span>01</span>
@@ -549,7 +785,32 @@ export function NewDeploymentPage() {
                   {...form.register("applicationMode", {
                     onChange: (event) => {
                       if (event.target.value === "new") {
+                        stableApplicationReservation.current = null;
+                        reserveApplication.reset();
+                        setReservedApplicationId("");
+                        form.setValue("applicationId", "", {
+                          shouldDirty: true,
+                        });
+                        form.setValue("hostname", "", { shouldDirty: true });
                         form.setValue("routeMode", "internal");
+                        form.setValue("nodeSelectorYaml", "{}", {
+                          shouldDirty: true,
+                        });
+                        form.setValue("affinityYaml", "{}", {
+                          shouldDirty: true,
+                        });
+                        form.setValue("topologySpreadYaml", "[]", {
+                          shouldDirty: true,
+                        });
+                        form.setValue("tolerationsYaml", "[]", {
+                          shouldDirty: true,
+                        });
+                        form.setValue("priorityClassName", "", {
+                          shouldDirty: true,
+                        });
+                        variables.replace([]);
+                        secretVariables.replace([]);
+                        lastDeploymentScope.current = "";
                       }
                     },
                   })}
@@ -588,12 +849,7 @@ export function NewDeploymentPage() {
                     type="button"
                     variant="secondary"
                     busy={reserveApplication.isPending}
-                    onClick={() =>
-                      reserveApplication.mutate({
-                        projectId,
-                        name: form.getValues("applicationName"),
-                      })
-                    }
+                    onClick={reserveApplicationIdentity}
                   >
                     Create application identity
                   </Button>
@@ -627,7 +883,7 @@ export function NewDeploymentPage() {
                 </select>
               </Field>
             )}
-            {reserveApplication.data ? (
+            {reservedApplicationId ? (
               <div className="notice notice--success" role="status">
                 <div>
                   <strong>Application identity created</strong>
@@ -638,7 +894,7 @@ export function NewDeploymentPage() {
                 </div>
                 <Link
                   to="/applications/$applicationId"
-                  params={{ applicationId: reserveApplication.data.id }}
+                  params={{ applicationId: reservedApplicationId }}
                   className="button button--secondary"
                 >
                   Source options
@@ -649,12 +905,7 @@ export function NewDeploymentPage() {
               <ErrorPanel
                 title="Application identity was not created"
                 error={reserveApplication.error}
-                onRetry={() =>
-                  reserveApplication.mutate({
-                    projectId,
-                    name: form.getValues("applicationName"),
-                  })
-                }
+                onRetry={reserveApplicationIdentity}
               />
             ) : null}
           </Card>
@@ -845,7 +1096,7 @@ export function NewDeploymentPage() {
                 </p>
               </div>
             ) : null}
-            {imageIsTag && imageResolution.error ? (
+            {imageResolutionErrorIsCurrent ? (
               <div className="notice notice--error" role="alert">
                 <strong>Tag could not be resolved</strong>
                 <p>{errorMessage(imageResolution.error)}</p>
@@ -894,6 +1145,52 @@ export function NewDeploymentPage() {
                 />
               </Field>
             </div>
+            <div className="form-grid form-grid--three">
+              <Field label="Workload type" required>
+                <select
+                  {...form.register("workloadType", {
+                    onChange: (event) => {
+                      const stateful = event.target.value === "StatefulSet";
+                      form.setValue("strategyType", "RollingUpdate", {
+                        shouldDirty: true,
+                        shouldTouch: true,
+                      });
+                      if (stateful) {
+                        form.setValue("podManagementPolicy", "OrderedReady", {
+                          shouldDirty: true,
+                          shouldTouch: true,
+                        });
+                      }
+                    },
+                  })}
+                >
+                  <option value="Deployment">Deployment</option>
+                  <option value="StatefulSet">StatefulSet</option>
+                </select>
+              </Field>
+              <Field
+                label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
+                required
+                hint="StatefulSets support rolling update or on-delete; Deployments support rolling update or recreate."
+              >
+                <select {...form.register("strategyType")}>
+                  <option value="RollingUpdate">Rolling update</option>
+                  {workloadType === "StatefulSet" ? (
+                    <option value="OnDelete">On delete</option>
+                  ) : (
+                    <option value="Recreate">Recreate</option>
+                  )}
+                </select>
+              </Field>
+              {workloadType === "StatefulSet" ? (
+                <Field label="Pod management policy" required>
+                  <select {...form.register("podManagementPolicy")}>
+                    <option value="OrderedReady">Ordered ready</option>
+                    <option value="Parallel">Parallel</option>
+                  </select>
+                </Field>
+              ) : null}
+            </div>
             <RuntimeProcessEditor
               value={processValues}
               onChange={(value) => {
@@ -923,6 +1220,55 @@ export function NewDeploymentPage() {
             <div className="form-card__heading">
               <span>05</span>
               <div>
+                <h2>Scheduling for this service</h2>
+                <p>
+                  Choose placement for this app without changing nodes, taints,
+                  or cluster-wide scheduling policy.
+                </p>
+              </div>
+            </div>
+            <SchedulingEditor
+              value={{
+                nodeSelectorYaml: scheduling[0] ?? "{}",
+                affinityYaml: scheduling[1] ?? "{}",
+                topologySpreadYaml: scheduling[2] ?? "[]",
+                tolerationsYaml: scheduling[3] ?? "[]",
+                priorityClassName: scheduling[4] ?? "",
+              }}
+              applicationId={applicationId}
+              onChange={(value) => {
+                form.setValue("nodeSelectorYaml", value.nodeSelectorYaml, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+                form.setValue("affinityYaml", value.affinityYaml, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+                form.setValue("topologySpreadYaml", value.topologySpreadYaml, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+                form.setValue("tolerationsYaml", value.tolerationsYaml, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+                form.setValue("priorityClassName", value.priorityClassName, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                });
+              }}
+            />
+            <p className="field-hint">
+              Affinity, anti-affinity, and topology selectors are bound to this
+              exact application identity.
+            </p>
+          </Card>
+
+          <Card className="form-card">
+            <div className="form-card__heading">
+              <span>06</span>
+              <div>
                 <h2>Health checks</h2>
                 <p>
                   Add startup, readiness, or liveness checks. All are optional;
@@ -944,7 +1290,7 @@ export function NewDeploymentPage() {
 
           <Card className="form-card">
             <div className="form-card__heading form-card__heading--with-action">
-              <span>06</span>
+              <span>07</span>
               <div>
                 <h2>Runtime environment values</h2>
                 <p>
@@ -1001,7 +1347,7 @@ export function NewDeploymentPage() {
 
           <Card className="form-card">
             <div className="form-card__heading">
-              <span>07</span>
+              <span>08</span>
               <div>
                 <h2>Initial internet route</h2>
                 <p>

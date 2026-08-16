@@ -51,7 +51,7 @@
           "additionalProperties": false,
           "required": ["enabled", "controlPlaneNamespace"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "controlPlaneNamespace": {"const": "kuberploy-system"}
           }
         },
@@ -60,7 +60,7 @@
           "additionalProperties": false,
           "required": ["reference", "pullPolicy"],
           "properties": {
-            "reference": {"const": "docker.io/library/postgres:18.4-alpine3.24"},
+            "reference": {"type": "string", "pattern": "(?:^|/)postgres:18(?:[.-][^\\s]+)?$", "maxLength": 512},
             "pullPolicy": {"enum": ["IfNotPresent", "Never"]}
           }
         },

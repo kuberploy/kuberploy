@@ -79,9 +79,6 @@ func NormalizeRuntimeNamespaces(input []string) ([]string, error) {
 	}
 	slices.Sort(result)
 	result = slices.Compact(result)
-	if len(result) != len(input) {
-		return nil, ErrRuntimeUnavailable
-	}
 	return result, nil
 }
 

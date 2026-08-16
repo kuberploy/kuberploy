@@ -37,10 +37,15 @@ func TestObserverConfigurationIsStrictDefaultOffAndIdentityExact(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(config, ObserverConfig{}) {
 		t.Fatalf("default config=%#v err=%v", config, err)
 	}
-	if _, err = ObserverConfigFromLookup(observerLookup(map[string]string{
+	if dormant, dormantErr := ObserverConfigFromLookup(observerLookup(map[string]string{
 		ObserverEnabledEnv: "false", ObserverNamespaceEnv: "kuberploy-system",
-	})); !errors.Is(err, ErrObservationUnavailable) {
-		t.Fatalf("dormant companion accepted: %v", err)
+	})); dormantErr != nil || dormant != (ObserverConfig{}) {
+		t.Fatalf("disabled observer did not ignore dormant companion: %#v %v", dormant, dormantErr)
+	}
+	if dormant, dormantErr := ObserverConfigFromLookup(observerLookup(map[string]string{
+		ObserverEnabledEnv: "", ObserverPollSecondsEnv: "not-a-number",
+	})); dormantErr != nil || dormant != (ObserverConfig{}) {
+		t.Fatalf("empty enabled observer did not ignore dormant companion: %#v %v", dormant, dormantErr)
 	}
 	if _, err = ObserverConfigFromLookup(observerLookup(map[string]string{
 		ObserverEnabledEnv: "true", ObserverBindingIDEnv: observerTestBindingID,

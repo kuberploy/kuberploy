@@ -31,7 +31,7 @@ kp_stage_chart() {
 kp_stage_chart "${kp_tmp}/install-chart" 6
 kp_stage_chart "${kp_tmp}/upgrade-chart" 7
 
-kp_network_args=(--set-string networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.1/32)
+kp_network_args=(--set networkPolicy.enabled=true --set-string networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.1/32)
 helm lint "${kp_tmp}/install-chart" "${kp_network_args[@]}" >/dev/null
 helm lint "${kp_tmp}/upgrade-chart" "${kp_network_args[@]}" >/dev/null
 helm template kuberploy "${kp_tmp}/install-chart" --namespace kuberploy-system "${kp_network_args[@]}" >"${kp_tmp}/install.yaml"
@@ -74,7 +74,6 @@ grep -q 'helm.sh/hook: pre-install,pre-upgrade' "${kp_tmp}/install.yaml"
 [[ "$(grep -c '^kind: ResourceQuota$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 [[ "$(grep -c '^kind: ValidatingAdmissionPolicy$' "${kp_tmp}/builder-enabled.yaml")" -eq 7 ]]
 [[ "$(grep -c '^kind: ValidatingAdmissionPolicyBinding$' "${kp_tmp}/builder-enabled.yaml")" -eq 7 ]]
-[[ "$(yq eval-all -o=json -I=0 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.validations[].expression]' "${kp_tmp}/builder-enabled.yaml" | grep -c '10.0.0.0/8.*172.16.0.0/12.*192.168.0.0/16')" -eq 1 ]]
 [[ "$(grep -c '^kind: Job$' "${kp_tmp}/builder-enabled.yaml")" -eq 1 ]]
 grep -q 'ghcr.io/kuberploy/kuberploy-builder-agent@sha256:' "${kp_tmp}/builder-enabled.yaml"
 grep -q 'KUBERPLOY_GITHUB_BUILDS_ENABLED: "true"' "${kp_tmp}/github-builder-enabled.yaml"

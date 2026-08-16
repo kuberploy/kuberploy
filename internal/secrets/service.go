@@ -2,7 +2,10 @@ package secrets
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -299,14 +302,44 @@ func (s Service) ReconcileVersion(ctx context.Context, versionID, requestID stri
 }
 
 func (s Service) Delete(ctx context.Context, actorID, bindingID, requestID string) (Binding, error) {
-	if s.Store == nil || !uuidRE.MatchString(actorID) || !uuidRE.MatchString(bindingID) || !requestIDRE.MatchString(requestID) {
+	keyDigest := sha256.Sum256([]byte("legacy-delete\x00" + actorID + "\x00" + bindingID + "\x00" + requestID))
+	return s.DeleteWithIdempotency(ctx, actorID, bindingID, "legacy-delete-"+hex.EncodeToString(keyDigest[:]), requestID)
+}
+
+func (s Service) DeleteWithIdempotency(ctx context.Context, actorID, bindingID, idempotencyKey, requestID string) (Binding, error) {
+	if s.Store == nil || !uuidRE.MatchString(actorID) || !uuidRE.MatchString(bindingID) ||
+		!idempotencyRE.MatchString(idempotencyKey) || !requestIDRE.MatchString(requestID) {
 		return Binding{}, ErrInvalid
+	}
+	binding, err := s.Store.Binding(ctx, bindingID)
+	if err != nil {
+		return Binding{}, err
+	}
+	versions, err := s.Store.Versions(ctx, bindingID)
+	if err != nil {
+		return Binding{}, err
+	}
+	if len(versions) == 0 || versions[0].BindingID != bindingID {
+		return Binding{}, ErrConflict
 	}
 	now := s.now()
 	start := Event{ID: id.New(), BindingID: bindingID, ActorID: actorID, Kind: EventBindingDeleting, RequestID: requestID, OccurredAt: now}
-	binding, versions, err := s.Store.PrepareDelete(ctx, bindingID, actorID, start, now)
+	requestFingerprint := sha256.Sum256([]byte(fmt.Sprintf("delete\x00%s\x00%s\x00%s\x00%s", actorID, binding.Scope.ApplicationID, binding.ID, binding.Purpose)))
+	prepared, preparedVersions, replay, started, err := s.Store.PrepareDelete(ctx, DeleteCommand{ActorID: actorID, BindingID: bindingID,
+		Idempotency: Idempotency{ActorID: actorID, Operation: "delete", ApplicationID: binding.Scope.ApplicationID, Key: idempotencyKey,
+			RequestFingerprint: requestFingerprint, BindingID: bindingID, VersionID: versions[0].ID, CreatedAt: now}, Event: start, Now: now})
 	if err != nil {
 		return Binding{}, err
+	}
+	binding, versions = prepared, preparedVersions
+	// A different delete request must not run provider cleanup concurrently
+	// with the request that owns the deleting transition. Matching retries are
+	// allowed to resume cleanup after the original process lost its response.
+	if binding.State == BindingDeleting && !replay && !started {
+		return binding, ErrConflict
+	}
+	if binding.State == BindingDeleted {
+		return binding, nil
 	}
 	for _, version := range versions {
 		if version.Artifact == nil {

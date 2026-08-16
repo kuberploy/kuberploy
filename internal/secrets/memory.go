@@ -361,39 +361,53 @@ func (s *MemoryStore) References(_ context.Context, bindingID string) ([]Referen
 	return result, nil
 }
 
-func (s *MemoryStore) PrepareDelete(_ context.Context, bindingID, actorID string, event Event, now time.Time) (Binding, []Version, error) {
-	if !uuidRE.MatchString(bindingID) || !uuidRE.MatchString(actorID) || now.IsZero() || event.Validate() != nil || event.Kind != EventBindingDeleting || event.BindingID != bindingID || event.ActorID != actorID {
-		return Binding{}, nil, ErrInvalid
+func (s *MemoryStore) PrepareDelete(_ context.Context, command DeleteCommand) (Binding, []Version, bool, bool, error) {
+	if !uuidRE.MatchString(command.BindingID) || command.ActorID == "" || command.Idempotency.validate() != nil ||
+		command.Idempotency.Operation != "delete" || command.Idempotency.BindingID != command.BindingID ||
+		command.Idempotency.VersionID == "" || command.Now.IsZero() || command.Event.Validate() != nil ||
+		command.Event.Kind != EventBindingDeleting || command.Event.BindingID != command.BindingID || command.Event.ActorID != command.ActorID {
+		return Binding{}, nil, false, false, ErrInvalid
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	binding, ok := s.bindings[bindingID]
-	if !ok {
-		return Binding{}, nil, ErrNotFound
+	if binding, _, replay, err := s.replay(command.Idempotency); replay || err != nil {
+		if err != nil {
+			return Binding{}, nil, false, false, err
+		}
+		return binding, s.versionsLocked(command.BindingID), true, false, nil
 	}
-	versions := s.versionsLocked(bindingID)
+	binding, ok := s.bindings[command.BindingID]
+	if !ok {
+		return Binding{}, nil, false, false, ErrNotFound
+	}
+	versions := s.versionsLocked(command.BindingID)
+	if len(versions) == 0 || versions[0].ID != command.Idempotency.VersionID {
+		return Binding{}, nil, false, false, ErrConflict
+	}
 	if binding.State == BindingDeleting {
-		return binding, versions, nil
+		return binding, versions, false, false, nil
 	}
 	if binding.State == BindingDeleted {
-		return binding, nil, nil
+		s.idempotency[idempotencyMapKey(command.Idempotency)] = command.Idempotency
+		return binding, versions, false, false, nil
 	}
-	if now.Before(binding.UpdatedAt) {
-		return Binding{}, nil, ErrInvalid
+	if command.Now.Before(binding.UpdatedAt) {
+		return Binding{}, nil, false, false, ErrInvalid
 	}
 	for _, reference := range s.references {
-		if reference.BindingID == bindingID {
-			return Binding{}, nil, ErrReferenced
+		if reference.BindingID == command.BindingID {
+			return Binding{}, nil, false, false, ErrReferenced
 		}
 	}
 	for _, version := range versions {
 		if version.State == VersionStaging || version.State == VersionAwaitingReadiness {
-			return Binding{}, nil, ErrConflict
+			return Binding{}, nil, false, false, ErrConflict
 		}
 	}
-	binding.State, binding.DeleteStarted, binding.UpdatedAt = BindingDeleting, now.UTC(), now.UTC()
-	s.bindings[bindingID], s.events[event.ID] = binding, event
-	return binding, versions, nil
+	binding.State, binding.DeleteStarted, binding.UpdatedAt = BindingDeleting, command.Now.UTC(), command.Now.UTC()
+	s.bindings[command.BindingID], s.events[command.Event.ID] = binding, command.Event
+	s.idempotency[idempotencyMapKey(command.Idempotency)] = command.Idempotency
+	return binding, versions, false, true, nil
 }
 
 func (s *MemoryStore) CompleteDelete(_ context.Context, bindingID string, event Event, now time.Time) (Binding, error) {

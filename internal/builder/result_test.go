@@ -46,6 +46,20 @@ func TestMaximumValidBuildResultFitsKubernetesTerminationMessage(t *testing.T) {
 	}
 }
 
+func TestSensitiveBuildArgWarningIsStableAndValueFree(t *testing.T) {
+	warnings := buildArgWarnings([]BuildArg{{Name: "DB_PASSWORD", Value: "do-not-log"}})
+	if len(warnings) != 1 || warnings[0] != WarningSensitiveBuildArg {
+		t.Fatalf("warnings=%v", warnings)
+	}
+	encoded, err := json.Marshal(warnings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "do-not-log") || strings.Contains(string(encoded), "DB_PASSWORD") {
+		t.Fatalf("warning leaked build argument data: %s", encoded)
+	}
+}
+
 func TestTerminationResultRejectsTruncationBeforePublish(t *testing.T) {
 	for name, result := range map[string]any{
 		"at-boundary": map[string]string{"x": strings.Repeat("x", MaxTerminationResultBytes-8)},

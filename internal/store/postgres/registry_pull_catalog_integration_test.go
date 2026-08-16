@@ -62,7 +62,7 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(t.Context(), actorID, "selection", "selection", "request", selection); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID); !errors.Is(err, base.ErrConflict) {
+	if _, err = store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID, "delete-selected", "delete-selected", "request"); !errors.Is(err, base.ErrConflict) {
 		t.Fatalf("selected delete err=%v", err)
 	}
 	if _, err = store.pool.Exec(t.Context(), `INSERT INTO application_registry_pull_selections(application_id,mode,project_credential_id,updated_by,updated_at) VALUES($1,'project-credential',$2,$3,$4)`, otherApplication.Value.ID, credential.ID, actorID, now); err == nil {
@@ -72,7 +72,10 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(t.Context(), actorID, "public", "public", "request", public); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID); err != nil {
-		t.Fatal(err)
+	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID, "delete-credential", "delete-credential", "request"); err != nil || replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
+	}
+	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID, "delete-credential", "delete-credential", "request-retry"); err != nil || !replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
 	}
 }

@@ -2,13 +2,14 @@
 
 This wrapper is an independent, protected Helm/Argo release around
 `kube-prometheus-stack` 88.1.5. It is deliberately not a dependency of the
-Kuberploy control-plane chart. The chart package checksum, dependency lock, and
-all images used by the managed profile are immutable.
+Kuberploy control-plane chart. The chart package and dependency lock remain
+release-bound, while replicas, resources, storage, and image references are
+operator-tunable.
 
 ## Ownership and access
 
 Install the release only into `kuberploy-monitoring`. It owns the namespace,
-Prometheus Operator CRDs, one Prometheus replica, Alertmanager,
+Prometheus Operator CRDs, one or more Prometheus replicas, Alertmanager,
 kube-state-metrics, node-exporter, and the Kuberploy recording rules. Grafana,
 Ingress/Gateway routes, remote-write receivers, the Prometheus admin API,
 arbitrary scrape configuration, and injected containers are disabled.
@@ -19,12 +20,10 @@ with `app.kubernetes.io/name=kuberploy` and
 `kuberploy.io/control-plane-namespace=true`. This label is an administrator
 owned namespace trust decision; a tenant must never be allowed to set it.
 
-`monitoring.networkPolicy.kubeAPIServerCIDRs` must contain the cluster's exact
-API Service and/or node endpoint identities as `/32` or `/128` CIDRs. The
-installer derives this value from `cluster.kubeAPIServerCIDRs`. This explicit
-allowlist is required because some Kubernetes distributions apply Service DNAT
-before egress policy evaluation; the three default private ranges alone cannot
-authorize a public node API endpoint.
+NetworkPolicy is optional. When enabled,
+`monitoring.networkPolicy.kubeAPIServerCIDRs` must contain the cluster API
+Service and/or node endpoints as `/32` or `/128` CIDRs. The installer passes
+these values only when `cluster.networkPolicyEnabled=true`.
 
 ServiceMonitor and PodMonitor discovery requires both:
 
@@ -63,8 +62,8 @@ metrics are absent; absence is never converted to a false zero.
 
 ## Storage and security
 
-Prometheus retention, retention-size cap, CPU/memory resources, PVC size, and
-storage class are the only upstream values that may be changed. PVCs use
+Prometheus replicas, images, retention, retention-size cap, CPU/memory
+resources, PVC size, and storage class may be changed. PVCs use
 `ReadWriteOnce` and are retained when the StatefulSet is deleted or scaled.
 Scrapes have enforced sample, target, label, body-size, and dropped-target
 limits. Kubelet scraping verifies the serving certificate against the projected

@@ -290,16 +290,54 @@ func (r BuildRequest) Validate() error {
 	return nil
 }
 
-func validateBuildKitImage(value string) error {
-	if len(value) < len("a/b:v0.32.2") || len(value) > 512 || strings.TrimSpace(value) != value || strings.Contains(value, "@") {
-		return errors.New("buildKitImage must be an explicit v0.32.2 image reference")
+// containsSensitiveBuildArgName is deliberately a name-only heuristic. Build
+// arguments remain valid because callers may intentionally pass a secret
+// through their own secret-aware Dockerfile flow, but the completed result
+// should make the operator aware that the build may depend on one. Values are
+// never inspected or copied into the warning, so this cannot disclose secret
+// material through the result or progress stream.
+func containsSensitiveBuildArgName(args []BuildArg) bool {
+	for _, arg := range args {
+		for _, part := range strings.Split(arg.Name, "_") {
+			switch part {
+			case "AUTH", "CREDENTIAL", "CREDENTIALS", "KEY", "KEYS", "PASS", "PASSWORD", "PASSWORDS", "PASSCODE", "PASSPHRASE", "PASSWD", "PRIVATE", "SECRET", "SECRETS", "TOKEN", "TOKENS":
+				return true
+			}
+		}
 	}
-	repository, tag, err := splitTaggedReference(value)
-	if err != nil || repository == "" || tag != "v0.32.2" {
-		return errors.New("buildKitImage must be an explicit v0.32.2 image reference")
+	return false
+}
+
+// ValidateBuildKitImage accepts the pinned upstream release tag or an
+// immutable digest for an operator mirror. Digest references are useful in
+// air-gapped/local clusters while the tag remains the functional default.
+func ValidateBuildKitImage(value string) error {
+	if len(value) < len("a/b:v0.32.2") || len(value) > 512 || strings.TrimSpace(value) != value {
+		return errors.New("buildKitImage must be v0.32.2 or an immutable sha256 image reference")
+	}
+	if strings.Contains(value, "@") {
+		at := strings.LastIndexByte(value, '@')
+		if at <= 0 || at == len(value)-1 || !digestPattern.MatchString(value[at+1:]) {
+			return errors.New("buildKitImage must be v0.32.2 or an immutable sha256 image reference")
+		}
+		// Reuse the closed repository/tag grammar without allowing a mutable
+		// digest-bearing reference through the generic candidate-image path.
+		if err := validateImageRef(value[:at] + ":v0.32.2"); err != nil {
+			return errors.New("buildKitImage must be v0.32.2 or an immutable sha256 image reference")
+		}
+		return nil
+	}
+	if err := validateImageRef(value); err != nil {
+		return errors.New("buildKitImage must be v0.32.2 or an immutable sha256 image reference")
+	}
+	_, tag, _ := splitTaggedReference(value)
+	if tag != "v0.32.2" {
+		return errors.New("buildKitImage must be v0.32.2 or an immutable sha256 image reference")
 	}
 	return nil
 }
+
+func validateBuildKitImage(value string) error { return ValidateBuildKitImage(value) }
 
 func (r CheckoutRequest) Validate() error {
 	if r.APIVersion != ProtocolVersion {

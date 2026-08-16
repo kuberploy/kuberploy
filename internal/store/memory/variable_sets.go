@@ -97,6 +97,13 @@ func (s *Store) SaveVariableSet(_ context.Context, actor, key, fingerprint, requ
 		if err := check(previous, true, fingerprint); err != nil {
 			return base.Result[domain.Operation]{}, err
 		}
+		targetType := "environment"
+		if previous.typ == "project" {
+			targetType = "project"
+		}
+		if err := s.authorizeLocked(actor, domain.PermissionConfigWrite, domain.AccessTarget{Type: targetType, ID: previous.resourceID}); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
 		operation, exists := s.operations[previous.operationID]
 		if !exists {
 			return base.Result[domain.Operation]{}, base.ErrConflict

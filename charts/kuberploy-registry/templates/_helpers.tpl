@@ -36,9 +36,7 @@ kuberploy.io/test-run: {{ . | quote }}
 
 {{- define "kuberploy-registry.image" -}}
 {{- $reference := required "image.reference is required" .Values.image.reference -}}
-{{- if ne $reference "docker.io/library/registry:3.1.1" -}}
-{{- fail "image.reference must use the locked OCI Distribution 3.1.1 release" -}}
-{{- end -}}
+{{- if not (regexMatch "^[^[:space:]]+$" $reference) -}}{{- fail "image.reference must be a Kubernetes image reference" -}}{{- end -}}
 {{- $reference -}}
 {{- end -}}
 
@@ -62,7 +60,6 @@ kuberploy.io/test-run: {{ . | quote }}
   {{- end -}}
   {{- if eq $exposure.mode "loadBalancer" -}}
     {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "registry LoadBalancer exposure requires the shared Traefik namespace kuberploy-system" }}{{- end -}}
-    {{- if eq (len $exposure.loadBalancer.sourceRanges) 0 -}}{{ fail "registry LoadBalancer requires explicit source ranges" }}{{- end -}}
     {{- if or (hasKey $exposure.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $exposure.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "registry Cloudflare proxy policy is controlled only by exposure.cloudflareProxied" }}{{- end -}}
   {{- end -}}
   {{- if eq .Values.auth.mode "htpasswd" -}}

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "../api/client";
 import type {
   Application,
@@ -16,6 +16,7 @@ import {
   hasRuntimeSecretCapability,
   runtimeSecretEnvironments,
 } from "../lib/runtimeSecretAccess";
+import { writeOnlyRequestSignature } from "../lib/writeOnlyRequest";
 import { Icon } from "./Icon";
 import {
   Button,
@@ -59,9 +60,20 @@ function destroyWritePayload(payload?: WritePayload) {
 }
 
 function clearWriteOnlyForm(form: HTMLFormElement) {
+  const bindingName = form.querySelector<HTMLInputElement>(
+    "[data-secret-binding-name]",
+  );
+  if (bindingName) bindingName.value = "";
   form
     .querySelectorAll<HTMLInputElement>(
       "[data-secret-material-key], [data-secret-material-value], [data-secret-delivery-source]",
+    )
+    .forEach((input) => {
+      input.value = "";
+    });
+  form
+    .querySelectorAll<HTMLInputElement>(
+      "[data-secret-environment-name], [data-secret-file-path]",
     )
     .forEach((input) => {
       input.value = "";
@@ -399,22 +411,23 @@ function CreateSecretBindingForm({
   onCreated: (binding: RuntimeSecretBindingDetail) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const submitBusyRef = useRef(false);
   const [feedback, setFeedback] = useState<{
     tone: "success" | "error";
     message: string;
   }>();
   const [retryKey, setRetryKey] = useState("");
+  const [retrySignature, setRetrySignature] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy || submitBusyRef.current) return;
     const form = event.currentTarget;
     const name =
       form
         .querySelector<HTMLInputElement>("[data-secret-binding-name]")
         ?.value.trim() ?? "";
-    const provider = form.querySelector<HTMLSelectElement>(
-      "[data-secret-provider]",
-    )?.value;
+    const provider: RuntimeSecretProvider = "sealed-secrets";
     if (!bindingNamePattern.test(name)) {
       setFeedback({
         tone: "error",
@@ -423,17 +436,36 @@ function CreateSecretBindingForm({
       });
       return;
     }
-    if (provider !== "external-secrets" && provider !== "sealed-secrets") {
-      setFeedback({ tone: "error", message: "Choose a supported provider." });
-      return;
-    }
     const collected = collectWritePayload(form);
     if (!collected.ok) {
       setFeedback({ tone: "error", message: collected.error });
       return;
     }
-    const idempotencyKey = retryKey || crypto.randomUUID();
+    submitBusyRef.current = true;
     setBusy(true);
+    let signature: string;
+    try {
+      signature = await writeOnlyRequestSignature({
+        applicationId: application.id,
+        environmentId: environment.id,
+        name,
+        provider,
+        deliveries: collected.payload.deliveries,
+        values: collected.payload.values,
+      });
+    } catch {
+      destroyWritePayload(collected.payload);
+      clearWriteOnlyForm(form);
+      submitBusyRef.current = false;
+      setBusy(false);
+      setFeedback({
+        tone: "error",
+        message: "The write-only request could not be prepared. Try again.",
+      });
+      return;
+    }
+    const idempotencyKey =
+      retryKey && retrySignature === signature ? retryKey : crypto.randomUUID();
     setFeedback(undefined);
     let result: RuntimeSecretBindingDetail | undefined;
     try {
@@ -449,12 +481,14 @@ function CreateSecretBindingForm({
         idempotencyKey,
       );
       setRetryKey("");
+      setRetrySignature("");
       setFeedback({
         tone: "success",
         message: "Safe binding metadata was accepted for provider staging.",
       });
     } catch {
       setRetryKey(idempotencyKey);
+      setRetrySignature(signature);
       setFeedback({
         tone: "error",
         message:
@@ -463,6 +497,7 @@ function CreateSecretBindingForm({
     } finally {
       destroyWritePayload(collected.payload);
       clearWriteOnlyForm(form);
+      submitBusyRef.current = false;
       setBusy(false);
     }
     if (result) onCreated(result);
@@ -484,44 +519,43 @@ function CreateSecretBindingForm({
         </Button>
       </div>
       <form onSubmit={submit} autoComplete="off">
-        <div className="runtime-secret-form-meta">
-          <Field label="Binding name" required>
-            <input
-              aria-label="Runtime secret binding name"
-              data-secret-binding-name
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          <Field label="Provider" required>
-            <select
-              aria-label="Runtime secret provider"
-              data-secret-provider
-              defaultValue="external-secrets"
-            >
-              <option value="external-secrets">External Secrets</option>
-              <option value="sealed-secrets">Sealed Secrets</option>
-            </select>
-          </Field>
-        </div>
-        <SecretWriteFields prefix="Create" />
-        {feedback ? (
-          <MutationNotice tone={feedback.tone}>
-            {feedback.message}
-          </MutationNotice>
-        ) : null}
-        {retryKey ? (
-          <div className="runtime-secret-retry-note">
-            <PlaceholderBadge>Stable retry protected</PlaceholderBadge>
-            Re-enter the exact failed request or close this form to start a new
-            mutation.
+        <fieldset disabled={busy}>
+          <div className="runtime-secret-form-meta">
+            <Field label="Binding name" required>
+              <input
+                aria-label="Runtime secret binding name"
+                data-secret-binding-name
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Field label="Provider">
+              <input
+                aria-label="Runtime secret provider"
+                value="Sealed Secrets"
+                readOnly
+              />
+            </Field>
           </div>
-        ) : null}
-        <div className="runtime-secret-form-actions">
-          <Button type="submit" busy={busy}>
-            Ingest write-only values
-          </Button>
-        </div>
+          <SecretWriteFields prefix="Create" />
+          {feedback ? (
+            <MutationNotice tone={feedback.tone}>
+              {feedback.message}
+            </MutationNotice>
+          ) : null}
+          {retryKey ? (
+            <div className="runtime-secret-retry-note">
+              <PlaceholderBadge>Stable retry protected</PlaceholderBadge>
+              Re-enter the exact failed request or close this form to start a
+              new mutation.
+            </div>
+          ) : null}
+          <div className="runtime-secret-form-actions">
+            <Button type="submit" busy={busy}>
+              Ingest write-only values
+            </Button>
+          </div>
+        </fieldset>
       </form>
     </Card>
   );
@@ -548,20 +582,31 @@ function SecretBindingDetailPanel({
 }) {
   const [rotating, setRotating] = useState(false);
   const [rotateBusy, setRotateBusy] = useState(false);
+  const rotateBusyRef = useRef(false);
   const [rotateRetry, setRotateRetry] = useState<{
     key: string;
     expectedActiveVersion: number;
+    signature: string;
   }>();
   const [rotateFeedback, setRotateFeedback] = useState<{
     tone: "success" | "error";
     message: string;
   }>();
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const deleteBusyRef = useRef(false);
   const [deleteRetryKey, setDeleteRetryKey] = useState("");
   const [deleteFeedback, setDeleteFeedback] = useState<string>();
 
+  useEffect(() => {
+    // A failed retry is bound to the observed CAS version. Once another
+    // observation changes that version, the old write must not be replayed.
+    setRotateRetry(undefined);
+    setRotateFeedback(undefined);
+  }, [binding.id, binding.activeVersion]);
+
   async function rotate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (rotateBusy || rotateBusyRef.current) return;
     const form = event.currentTarget;
     const collected = collectWritePayload(form);
     if (!collected.ok) {
@@ -579,8 +624,31 @@ function SecretBindingDetailPanel({
       });
       return;
     }
-    const idempotencyKey = rotateRetry?.key ?? crypto.randomUUID();
+    rotateBusyRef.current = true;
     setRotateBusy(true);
+    let signature: string;
+    try {
+      signature = await writeOnlyRequestSignature({
+        bindingId: binding.id,
+        expectedActiveVersion,
+        deliveries: collected.payload.deliveries,
+        values: collected.payload.values,
+      });
+    } catch {
+      destroyWritePayload(collected.payload);
+      clearWriteOnlyForm(form);
+      rotateBusyRef.current = false;
+      setRotateBusy(false);
+      setRotateFeedback({
+        tone: "error",
+        message: "The write-only rotation could not be prepared. Try again.",
+      });
+      return;
+    }
+    const idempotencyKey =
+      rotateRetry?.signature === signature
+        ? rotateRetry.key
+        : crypto.randomUUID();
     setRotateFeedback(undefined);
     let succeeded = false;
     try {
@@ -600,7 +668,7 @@ function SecretBindingDetailPanel({
         message: "A new immutable version was accepted for provider staging.",
       });
     } catch {
-      setRotateRetry({ key: idempotencyKey, expectedActiveVersion });
+      setRotateRetry({ key: idempotencyKey, expectedActiveVersion, signature });
       setRotateFeedback({
         tone: "error",
         message:
@@ -609,6 +677,7 @@ function SecretBindingDetailPanel({
     } finally {
       destroyWritePayload(collected.payload);
       clearWriteOnlyForm(form);
+      rotateBusyRef.current = false;
       setRotateBusy(false);
     }
     if (succeeded) onChanged();
@@ -616,6 +685,7 @@ function SecretBindingDetailPanel({
 
   async function remove(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (deleteBusy || deleteBusyRef.current) return;
     const form = event.currentTarget;
     const confirmation =
       form.querySelector<HTMLInputElement>("[data-secret-delete-confirmation]")
@@ -625,6 +695,7 @@ function SecretBindingDetailPanel({
       return;
     }
     const idempotencyKey = deleteRetryKey || crypto.randomUUID();
+    deleteBusyRef.current = true;
     setDeleteBusy(true);
     setDeleteFeedback(undefined);
     let succeeded = false;
@@ -639,6 +710,7 @@ function SecretBindingDetailPanel({
       );
     } finally {
       form.reset();
+      deleteBusyRef.current = false;
       setDeleteBusy(false);
     }
     if (succeeded) onDeleted();
@@ -720,60 +792,64 @@ function SecretBindingDetailPanel({
           onSubmit={rotate}
           autoComplete="off"
         >
-          <div className="runtime-secret-subhead">
-            <div>
-              <h4>Rotate from version {binding.activeVersion}</h4>
-              <p>The compare-and-swap version is sent exactly as observed.</p>
+          <fieldset disabled={rotateBusy}>
+            <div className="runtime-secret-subhead">
+              <div>
+                <h4>Rotate from version {binding.activeVersion}</h4>
+                <p>The compare-and-swap version is sent exactly as observed.</p>
+              </div>
             </div>
-          </div>
-          <SecretWriteFields prefix="Rotate" />
-          {rotateFeedback ? (
-            <MutationNotice tone={rotateFeedback.tone}>
-              {rotateFeedback.message}
-            </MutationNotice>
-          ) : null}
-          {rotateRetry ? (
-            <div className="runtime-secret-retry-note">
-              <PlaceholderBadge>Stable retry protected</PlaceholderBadge>
-              Retry remains bound to active version{" "}
-              {rotateRetry.expectedActiveVersion}.
+            <SecretWriteFields prefix="Rotate" />
+            {rotateFeedback ? (
+              <MutationNotice tone={rotateFeedback.tone}>
+                {rotateFeedback.message}
+              </MutationNotice>
+            ) : null}
+            {rotateRetry ? (
+              <div className="runtime-secret-retry-note">
+                <PlaceholderBadge>Stable retry protected</PlaceholderBadge>
+                Retry remains bound to active version{" "}
+                {rotateRetry.expectedActiveVersion}.
+              </div>
+            ) : null}
+            <div className="runtime-secret-form-actions">
+              <Button type="submit" busy={rotateBusy}>
+                Ingest new version
+              </Button>
             </div>
-          ) : null}
-          <div className="runtime-secret-form-actions">
-            <Button type="submit" busy={rotateBusy}>
-              Ingest new version
-            </Button>
-          </div>
+          </fieldset>
         </form>
       ) : null}
 
       {canDelete ? (
         <form className="runtime-secret-delete" onSubmit={remove}>
-          <div>
-            <span className="eyebrow">Exact destructive confirmation</span>
-            <h4>Delete unreferenced binding</h4>
-            <p>
-              Type <code>{binding.name}</code>. Referenced or readiness-pending
-              versions remain protected by the server.
-            </p>
-          </div>
-          <Field label="Exact binding name">
-            <input
-              aria-label="Exact runtime secret binding name confirmation"
-              data-secret-delete-confirmation
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          <Button type="submit" variant="danger" busy={deleteBusy}>
-            Delete binding
-          </Button>
-          {deleteFeedback ? (
-            <MutationNotice tone="error">{deleteFeedback}</MutationNotice>
-          ) : null}
-          {deleteRetryKey ? (
-            <PlaceholderBadge>Stable delete retry protected</PlaceholderBadge>
-          ) : null}
+          <fieldset disabled={deleteBusy}>
+            <div>
+              <span className="eyebrow">Exact destructive confirmation</span>
+              <h4>Delete unreferenced binding</h4>
+              <p>
+                Type <code>{binding.name}</code>. Referenced or
+                readiness-pending versions remain protected by the server.
+              </p>
+            </div>
+            <Field label="Exact binding name">
+              <input
+                aria-label="Exact runtime secret binding name confirmation"
+                data-secret-delete-confirmation
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Button type="submit" variant="danger" busy={deleteBusy}>
+              Delete binding
+            </Button>
+            {deleteFeedback ? (
+              <MutationNotice tone="error">{deleteFeedback}</MutationNotice>
+            ) : null}
+            {deleteRetryKey ? (
+              <PlaceholderBadge>Stable delete retry protected</PlaceholderBadge>
+            ) : null}
+          </fieldset>
         </form>
       ) : null}
     </Card>
@@ -799,6 +875,9 @@ export function RuntimeSecretsPanel({
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [selectedBindingId, setSelectedBindingId] = useState("");
   const [creating, setCreating] = useState(false);
+  const formScopeRef = useRef("");
+  const selectedBindingRef = useRef("");
+  selectedBindingRef.current = selectedBindingId;
   const readableEnvironments = runtimeSecretEnvironments(
     capabilities,
     "secret-bindings:read",
@@ -810,6 +889,28 @@ export function RuntimeSecretsPanel({
     readableEnvironments.find(
       (environment) => environment.id === selectedEnvironmentId,
     ) ?? readableEnvironments[0];
+  const formScope = `${application.id}:${selectedEnvironment?.id ?? ""}`;
+  formScopeRef.current = formScope;
+  useEffect(() => {
+    formScopeRef.current = formScope;
+  }, [formScope]);
+  useEffect(() => {
+    setSelectedEnvironmentId("");
+    setSelectedBindingId("");
+    setCreating(false);
+  }, [application.id]);
+  useEffect(() => {
+    if (
+      selectedEnvironmentId &&
+      !readableEnvironments.some(
+        (environment) => environment.id === selectedEnvironmentId,
+      )
+    ) {
+      setSelectedEnvironmentId("");
+      setSelectedBindingId("");
+      setCreating(false);
+    }
+  }, [readableEnvironments, selectedEnvironmentId]);
   const list = useQuery({
     queryKey: [
       "runtime-secret-bindings",
@@ -821,14 +922,21 @@ export function RuntimeSecretsPanel({
     enabled: featureEnabled && Boolean(selectedEnvironment),
     retry: false,
   });
-  const selectedListedBinding = list.data?.items.some(
+  const selectedListedBinding = list.data?.items.find(
     (binding) => binding.id === selectedBindingId,
   );
   const detail = useQuery({
-    queryKey: ["runtime-secret-binding", selectedBindingId],
+    queryKey: [
+      "runtime-secret-binding",
+      selectedBindingId,
+      selectedListedBinding?.activeVersion ?? 0,
+      selectedListedBinding?.state ?? "",
+    ],
     queryFn: () => api.runtimeSecretBinding(selectedBindingId),
     enabled:
-      featureEnabled && Boolean(selectedBindingId) && selectedListedBinding,
+      featureEnabled &&
+      Boolean(selectedBindingId) &&
+      Boolean(selectedListedBinding),
     retry: false,
   });
 
@@ -936,6 +1044,7 @@ export function RuntimeSecretsPanel({
           environment={selectedEnvironment}
           onClose={() => setCreating(false)}
           onCreated={(binding) => {
+            if (formScopeRef.current !== formScope) return;
             setCreating(false);
             setSelectedBindingId(binding.id);
             void refreshList();
@@ -1014,10 +1123,22 @@ export function RuntimeSecretsPanel({
                 canRotate={canRotate}
                 canDelete={canDelete}
                 onChanged={() => {
+                  if (
+                    formScopeRef.current !== formScope ||
+                    selectedBindingRef.current !== detail.data?.id
+                  ) {
+                    return;
+                  }
                   void refreshList();
                   void detail.refetch();
                 }}
                 onDeleted={() => {
+                  if (
+                    formScopeRef.current !== formScope ||
+                    selectedBindingRef.current !== detail.data?.id
+                  ) {
+                    return;
+                  }
                   setSelectedBindingId("");
                   void refreshList();
                 }}

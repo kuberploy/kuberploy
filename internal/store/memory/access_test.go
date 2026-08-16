@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/id"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -203,8 +204,15 @@ func TestTeamProjectsAndGitHubInstallationsAreFilteredServerSide(t *testing.T) {
 	if err != nil || replay || verifiedInstallation.ID != installation.Value.ID || verifiedInstallation.RepositoryCount != 3 {
 		t.Fatalf("verified existing installation=%#v replay=%v err=%v", verifiedInstallation, replay, err)
 	}
-	if _, err = store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); err != nil {
-		t.Fatal(err)
+	shared, err := store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "sharing-team-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID})
+	if err != nil || shared.Value.Visibility != "team" {
+		t.Fatalf("sharing result=%#v err=%v", shared, err)
+	}
+	if replay, replayErr := store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "sharing-team-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); replayErr != nil || !replay.Replay || replay.Value.ID != installation.Value.ID {
+		t.Fatalf("sharing replay=%#v err=%v", replay, replayErr)
+	}
+	if _, replayErr := store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "different-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); !errors.Is(replayErr, base.ErrIdempotencyConflict) {
+		t.Fatalf("sharing fingerprint conflict=%v", replayErr)
 	}
 	if accessible, listErr := store.ListGitHubInstallationsForActor(ctx, member.ID); listErr != nil || len(accessible) != 1 {
 		t.Fatalf("member installation access=%#v err=%v", accessible, listErr)
@@ -212,7 +220,7 @@ func TestTeamProjectsAndGitHubInstallationsAreFilteredServerSide(t *testing.T) {
 	if accessible, listErr := store.ListGitHubInstallationsForActor(ctx, outsider.ID); listErr != nil || len(accessible) != 0 {
 		t.Fatalf("outsider installation leak=%#v err=%v", accessible, listErr)
 	}
-	if _, err = store.UpdateGitHubInstallationSharing(ctx, member.ID, installation.Value.ID, "request", domain.UpdateGitHubInstallationSharing{Visibility: "private"}); !errors.Is(err, base.ErrForbidden) {
+	if _, err = store.UpdateGitHubInstallationSharing(ctx, member.ID, installation.Value.ID, "sharing-private-member", "sharing-private-member-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "private"}); !errors.Is(err, base.ErrForbidden) {
 		t.Fatalf("ordinary member reshared installation: %v", err)
 	}
 	serviceAccount, err := store.CreateServiceAccount(ctx, admin.ID, "build-account", "build-account", "request",
@@ -226,11 +234,42 @@ func TestTeamProjectsAndGitHubInstallationsAreFilteredServerSide(t *testing.T) {
 	if err = store.AuthorizeGitHubInstallationForProject(ctx, outsider.ID, installation.Value.ID, teamProject.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("outsider learned or used installation: %v", err)
 	}
-	if _, err = store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "request", domain.UpdateGitHubInstallationSharing{Visibility: "private"}); err != nil {
+	if _, err = store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-private-admin", "sharing-private-admin-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "private"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.AuthorizeGitHubInstallationForProject(ctx, serviceAccount.Value.ID, installation.Value.ID, teamProject.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("service account used private human installation: %v", err)
+	}
+}
+
+func TestGitHubInstallationSharingReplaySurvivesAccessChange(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	owner, _ := invitedUser(t, store, admin, "Team Owner", "sharing-replay")
+	team, err := store.CreateTeam(ctx, admin.ID, "sharing-team", "sharing-team", "request", domain.CreateTeam{Name: "Sharing", Slug: "sharing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, team.Value.ID, "sharing-owner", "sharing-owner", "request", domain.AddTeamMember{UserID: owner.ID, Role: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	installation, err := store.CreateGitHubInstallation(ctx, admin.ID, "sharing-installation", "sharing-installation", "request", domain.CreateGitHubInstallation{
+		GitHubInstallationID: 9001, AccountLogin: "kuberploy", AccountType: "Organization", RepositorySelection: "selected", RepositoryCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-to-team", "sharing-to-team", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); err != nil {
+		t.Fatal(err)
+	}
+	request := domain.UpdateGitHubInstallationSharing{Visibility: "private"}
+	if _, err = store.UpdateGitHubInstallationSharing(ctx, owner.ID, installation.Value.ID, "owner-private", "owner-private", "request", request); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := store.UpdateGitHubInstallationSharing(ctx, owner.ID, installation.Value.ID, "owner-private", "owner-private", "retry", request)
+	if err != nil || !replayed.Replay || replayed.Value.Visibility != "private" {
+		t.Fatalf("sharing replay after access change=%#v err=%v", replayed, err)
 	}
 }
 
@@ -260,6 +299,60 @@ func TestTeamOwnerUserDirectoryIsLimitedToManagedTeamMembers(t *testing.T) {
 	}
 	if !ids[owner.ID] || !ids[visible.ID] || ids[hidden.ID] {
 		t.Fatalf("unsafe owner directory: %#v", ids)
+	}
+}
+
+func TestVariableSetOperationAccessUsesStoredScope(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	owner, _ := invitedUser(t, store, admin, "Project owner", "variable-operation-owner")
+	project, err := store.CreateProject(ctx, admin.ID, "variable-operation-project", "variable-operation-project", domain.CreateProject{Name: "Variables", Slug: "variable-operation-project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.CreateProjectAccessGrant(ctx, admin.ID, "variable-operation-grant", "variable-operation-grant", "request", domain.CreateAccessGrant{
+		ProjectID: project.Value.ID, SubjectUserID: owner.ID, Role: domain.RoleProjectAdmin,
+		ScopeType: domain.ScopeProject, ScopeID: project.Value.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	environment, err := store.CreateEnvironment(ctx, admin.ID, "variable-operation-environment", "variable-operation-environment", domain.CreateEnvironment{
+		ProjectID: project.Value.ID, Name: "Development", Slug: "development",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherProject, err := store.CreateProject(ctx, admin.ID, "variable-operation-other-project", "variable-operation-other-project", domain.CreateProject{Name: "Other", Slug: "variable-operation-other-project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	projectOperation := domain.Operation{ID: id.New(), Kind: "variable-set.git-write", Status: "queued", TargetType: "project", TargetID: project.Value.ID, CreatedAt: now, UpdatedAt: now}
+	environmentOperation := domain.Operation{ID: id.New(), Kind: "variable-set.git-write", Status: "queued", TargetType: "environment", TargetID: environment.Value.ID, CreatedAt: now.Add(time.Second), UpdatedAt: now.Add(time.Second)}
+	otherOperation := domain.Operation{ID: id.New(), Kind: "variable-set.git-write", Status: "queued", TargetType: "project", TargetID: otherProject.Value.ID, CreatedAt: now.Add(2 * time.Second), UpdatedAt: now.Add(2 * time.Second)}
+	unknownOperation := domain.Operation{ID: id.New(), Kind: "future-operation", Status: "queued", TargetType: "future-scope", TargetID: project.Value.ID, CreatedAt: now.Add(3 * time.Second), UpdatedAt: now.Add(3 * time.Second)}
+	store.mu.Lock()
+	store.operations[projectOperation.ID] = projectOperation
+	store.operations[environmentOperation.ID] = environmentOperation
+	store.operations[otherOperation.ID] = otherOperation
+	store.operations[unknownOperation.ID] = unknownOperation
+	store.mu.Unlock()
+
+	for _, operation := range []domain.Operation{projectOperation, environmentOperation} {
+		if visible, getErr := store.GetOperationForActor(ctx, owner.ID, operation.ID); getErr != nil || visible.ID != operation.ID {
+			t.Fatalf("tenant owner could not read scoped operation=%#v err=%v", visible, getErr)
+		}
+	}
+	listed, err := store.ListOperationsForActor(ctx, owner.ID)
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("scoped operation list=%#v err=%v", listed, err)
+	}
+	if _, err = store.GetOperationForActor(ctx, owner.ID, unknownOperation.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("unknown-scope operation was visible: %v", err)
+	}
+	if _, err = store.GetOperationForActor(ctx, owner.ID, otherOperation.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("cross-tenant operation was visible: %v", err)
 	}
 }
 

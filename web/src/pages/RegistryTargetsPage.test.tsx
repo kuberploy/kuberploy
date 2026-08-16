@@ -151,6 +151,66 @@ describe("registry target management", () => {
     expect(key).toHaveLength(36);
   });
 
+  it("blocks saving a target removed by a catalog refresh", async () => {
+    const user = userEvent.setup();
+    const queryClient = renderPage({
+      features: { registry: true },
+      capabilities: [
+        targetCapability("registry-targets:read"),
+        targetCapability("registry-targets:write"),
+      ],
+    });
+    await user.click(
+      await screen.findByRole("button", { name: /Edit metadata/ }),
+    );
+
+    vi.mocked(api.registryTargets).mockResolvedValueOnce({
+      items: [],
+      truncated: false,
+    });
+    await queryClient.invalidateQueries({ queryKey: ["registry-targets"] });
+
+    expect(
+      await screen.findByText(
+        "This registry target changed or is no longer available. Reload the catalog before saving it.",
+      ),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Save target" })).toBeDisabled();
+  });
+
+  it("keeps a reopened target editor open after its older save completes", async () => {
+    const user = userEvent.setup();
+    let resolveUpdate!: (value: RegistryTarget) => void;
+    vi.spyOn(api, "updateRegistryTarget").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveUpdate = resolve;
+        }),
+    );
+    renderPage({
+      features: { registry: true },
+      capabilities: [
+        targetCapability("registry-targets:read"),
+        targetCapability("registry-targets:write"),
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: /Edit metadata/ }),
+    );
+    await user.click(screen.getByRole("button", { name: "Save target" }));
+    await waitFor(() =>
+      expect(api.updateRegistryTarget).toHaveBeenCalledOnce(),
+    );
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: /Edit metadata/ }));
+
+    resolveUpdate(target);
+
+    await waitFor(() => expect(api.registryTargets).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Save target" })).toBeVisible();
+  });
+
   it("keeps mutations hidden for a non-human principal", async () => {
     vi.mocked(api.me).mockResolvedValue({
       id: "service-account",

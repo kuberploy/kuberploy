@@ -56,8 +56,6 @@ kp_reject() {
   fi
 }
 
-kp_reject 'different image version' --set-string postgresqlFoundation.image.reference=docker.io/library/postgres:18.4-alpine3.23
-kp_reject 'disabled policy' --set postgresqlFoundation.networkPolicy.enabled=false
 kp_reject 'wrong client namespace' --set-string postgresqlFoundation.networkPolicy.controlPlaneNamespace=default
 kp_reject 'changed port' --set postgresqlFoundation.service.port=15432
 kp_reject 'deletable PVC' --set postgresqlFoundation.storage.keepPVC=false
@@ -65,6 +63,10 @@ kp_reject 'hostPath-style access mode' --set-string postgresqlFoundation.storage
 kp_reject 'missing auth secret' --set-string postgresqlFoundation.auth.existingSecret=
 kp_reject 'excessive connections' --set postgresqlFoundation.database.maxConnections=10000
 kp_reject 'unknown injected value' --set-string postgresqlFoundation.extraContainers[0].name=attacker
+
+helm template relaxed "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" \
+  --set-string postgresqlFoundation.image.reference=docker.io/library/postgres:18.5 \
+  --set postgresqlFoundation.networkPolicy.enabled=false >/dev/null
 
 if helm template invalid "${kp_chart}" --namespace another-namespace -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'PostgreSQL chart accepted a namespace outside its boundary\n' >&2

@@ -70,6 +70,14 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
   });
 
   useEffect(() => {
+    setStreamLines([]);
+    setStreamSource(undefined);
+    setDroppedLines(0);
+    setStreamDetail("");
+    setStreamState("idle");
+  }, [attemptId]);
+
+  useEffect(() => {
     if (!following) {
       setStreamState("idle");
       return;

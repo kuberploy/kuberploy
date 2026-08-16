@@ -96,7 +96,8 @@ function defaultExpiry(): string {
 
 function capabilityCoversProject(capability: Capability, project: Project) {
   return (
-    capability.scopeType === "platform" ||
+    (capability.scopeType === "platform" &&
+      capability.scopeId === "platform") ||
     (capability.scopeType === "team" &&
       !!project.teamId &&
       capability.scopeId === project.teamId) ||
@@ -135,6 +136,8 @@ export function ProjectAutomationPanel({
     key: string;
   } | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const confirmAccountRef = useRef(confirmAccount);
+  confirmAccountRef.current = confirmAccount;
   const accounts = useQuery({
     queryKey: ["service-accounts", project.id],
     queryFn: () => api.serviceAccounts(project.id),
@@ -159,13 +162,29 @@ export function ProjectAutomationPanel({
     defaultValues: { name: "", role: "developer" },
   });
   const createAccount = useMutation({
-    mutationFn: (input: { value: AccountForm; idempotencyKey: string }) =>
-      api.createServiceAccount(project.id, input.value, input.idempotencyKey),
-    onSuccess: async () => {
-      createAttempt.current = null;
-      form.reset({ name: "", role: "developer" });
+    mutationFn: (input: {
+      projectId: string;
+      value: AccountForm;
+      idempotencyKey: string;
+    }) =>
+      api.createServiceAccount(
+        input.projectId,
+        input.value,
+        input.idempotencyKey,
+      ),
+    onSuccess: async (_result, input) => {
+      if (input.projectId !== project.id) return;
+      const current = form.getValues();
+      const currentSignature = JSON.stringify({
+        ...current,
+        name: current.name.trim(),
+      });
+      if (currentSignature === JSON.stringify(input.value)) {
+        createAttempt.current = null;
+        form.reset({ name: "", role: "developer" });
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["service-accounts", project.id],
+        queryKey: ["service-accounts", input.projectId],
       });
     },
   });
@@ -177,17 +196,27 @@ export function ProjectAutomationPanel({
         ? createAttempt.current.key
         : crypto.randomUUID();
     createAttempt.current = { signature, key: idempotencyKey };
-    createAccount.mutate({ value: normalized, idempotencyKey });
+    createAccount.mutate({
+      projectId: project.id,
+      value: normalized,
+      idempotencyKey,
+    });
   };
   const disableAccount = useMutation({
     mutationFn: (input: { account: ServiceAccount; idempotencyKey: string }) =>
       api.disableServiceAccount(input.account.id, input.idempotencyKey),
     onSuccess: async (_result, input) => {
-      setConfirmAccount(null);
-      setConfirmation("");
-      setExpandedAccountId((current) =>
-        current === input.account.id ? null : current,
-      );
+      const current = confirmAccountRef.current;
+      if (
+        current?.account.id === input.account.id &&
+        current.key === input.idempotencyKey
+      ) {
+        setConfirmAccount(null);
+        setConfirmation("");
+        setExpandedAccountId((expanded) =>
+          expanded === input.account.id ? null : expanded,
+        );
+      }
       await queryClient.invalidateQueries({
         queryKey: ["service-accounts", project.id],
       });
@@ -384,6 +413,7 @@ export function ProjectAutomationPanel({
               </Button>
               <Button
                 variant="secondary"
+                disabled={disableAccount.isPending}
                 onClick={() => {
                   setConfirmAccount(null);
                   setConfirmation("");
@@ -428,6 +458,8 @@ function AccountTokens({
     key: string;
   } | null>(null);
   const [confirmation, setConfirmation] = useState("");
+  const confirmTokenRef = useRef(confirmToken);
+  confirmTokenRef.current = confirmToken;
   const tokens = useQuery({
     queryKey: ["service-account-tokens", account.id],
     queryFn: () => api.serviceAccountTokens(account.id),
@@ -473,15 +505,26 @@ function AccountTokens({
         normalized,
         idempotencyKey,
       );
-      issueAttempt.current = null;
-      form.reset({
-        name: "",
-        expiresAt: defaultExpiry(),
-        appRead: true,
-        appEdit: false,
-        buildCreate: false,
-        logsRead: false,
-      });
+      const current = form.getValues();
+      const currentExpiry = new Date(current.expiresAt);
+      const currentNormalized = {
+        name: current.name.trim(),
+        scopes: scopesFromForm(current),
+        expiresAt: Number.isNaN(currentExpiry.getTime())
+          ? current.expiresAt
+          : currentExpiry.toISOString(),
+      };
+      if (JSON.stringify(currentNormalized) === JSON.stringify(normalized)) {
+        issueAttempt.current = null;
+        form.reset({
+          name: "",
+          expiresAt: defaultExpiry(),
+          appRead: true,
+          appEdit: false,
+          buildCreate: false,
+          logsRead: false,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: ["service-account-tokens", account.id],
       });
@@ -508,9 +551,15 @@ function AccountTokens({
         input.token.id,
         input.idempotencyKey,
       ),
-    onSuccess: async () => {
-      setConfirmToken(null);
-      setConfirmation("");
+    onSuccess: async (_result, input) => {
+      const current = confirmTokenRef.current;
+      if (
+        current?.token.id === input.token.id &&
+        current.key === input.idempotencyKey
+      ) {
+        setConfirmToken(null);
+        setConfirmation("");
+      }
       await queryClient.invalidateQueries({
         queryKey: ["service-account-tokens", account.id],
       });
@@ -543,80 +592,82 @@ function AccountTokens({
           className="automation-token-form"
           onSubmit={form.handleSubmit((value) => void submitToken(value))}
         >
-          <div className="automation-token-form__identity">
-            <Field
-              label="Token name"
-              required
-              error={form.formState.errors.name?.message}
-            >
-              <input
-                autoComplete="off"
-                placeholder="production deploy"
-                {...form.register("name", {
-                  required: "Enter a token name.",
-                  maxLength: {
-                    value: 100,
-                    message: "Use 100 characters or fewer.",
-                  },
-                  validate: (value) =>
-                    value.trim().length > 0 || "Enter a token name.",
-                })}
-              />
-            </Field>
-            <Field
-              label="Expires at"
-              required
-              hint="Must be more than 5 minutes and no more than 90 days away."
-              error={form.formState.errors.expiresAt?.message}
-            >
-              <input
-                type="datetime-local"
-                min={localDateTime(new Date(Date.now() + 6 * 60 * 1_000))}
-                max={localDateTime(
-                  new Date(Date.now() + 90 * 24 * 60 * 60 * 1_000),
-                )}
-                {...form.register("expiresAt", {
-                  required: "Choose when this token expires.",
-                  validate: (value) => {
-                    const expiry = new Date(value).getTime();
-                    const ttl = expiry - Date.now();
-                    if (Number.isNaN(expiry))
-                      return "Enter a valid date and time.";
-                    if (ttl <= 5 * 60 * 1_000)
-                      return "Expiration must be more than 5 minutes away.";
-                    if (ttl > 90 * 24 * 60 * 60 * 1_000)
-                      return "Expiration cannot be more than 90 days away.";
-                    return true;
-                  },
-                })}
-              />
-            </Field>
-          </div>
-          <fieldset className="automation-scopes">
-            <legend>Token scopes</legend>
-            {scopeFields.map((scope) => (
-              <label key={scope.value} className="automation-scope">
-                <input type="checkbox" {...form.register(scope.field)} />
-                <span>
-                  <strong>{scope.value}</strong>
-                  <small>
-                    {scope.label}. {scope.description}
-                  </small>
-                </span>
-              </label>
-            ))}
+          <fieldset disabled={issuePending}>
+            <div className="automation-token-form__identity">
+              <Field
+                label="Token name"
+                required
+                error={form.formState.errors.name?.message}
+              >
+                <input
+                  autoComplete="off"
+                  placeholder="production deploy"
+                  {...form.register("name", {
+                    required: "Enter a token name.",
+                    maxLength: {
+                      value: 100,
+                      message: "Use 100 characters or fewer.",
+                    },
+                    validate: (value) =>
+                      value.trim().length > 0 || "Enter a token name.",
+                  })}
+                />
+              </Field>
+              <Field
+                label="Expires at"
+                required
+                hint="Must be more than 5 minutes and no more than 90 days away."
+                error={form.formState.errors.expiresAt?.message}
+              >
+                <input
+                  type="datetime-local"
+                  min={localDateTime(new Date(Date.now() + 6 * 60 * 1_000))}
+                  max={localDateTime(
+                    new Date(Date.now() + 90 * 24 * 60 * 60 * 1_000),
+                  )}
+                  {...form.register("expiresAt", {
+                    required: "Choose when this token expires.",
+                    validate: (value) => {
+                      const expiry = new Date(value).getTime();
+                      const ttl = expiry - Date.now();
+                      if (Number.isNaN(expiry))
+                        return "Enter a valid date and time.";
+                      if (ttl <= 5 * 60 * 1_000)
+                        return "Expiration must be more than 5 minutes away.";
+                      if (ttl > 90 * 24 * 60 * 60 * 1_000)
+                        return "Expiration cannot be more than 90 days away.";
+                      return true;
+                    },
+                  })}
+                />
+              </Field>
+            </div>
+            <fieldset className="automation-scopes">
+              <legend>Token scopes</legend>
+              {scopeFields.map((scope) => (
+                <label key={scope.value} className="automation-scope">
+                  <input type="checkbox" {...form.register(scope.field)} />
+                  <span>
+                    <strong>{scope.value}</strong>
+                    <small>
+                      {scope.label}. {scope.description}
+                    </small>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+            <div className="automation-token-form__actions">
+              <Button type="submit" busy={issuePending}>
+                Issue one-time token
+              </Button>
+              <small>
+                Token scopes can only reduce the account&apos;s project role.
+              </small>
+            </div>
+            {issueError ? (
+              <div className="form-error">{errorMessage(issueError)}</div>
+            ) : null}
           </fieldset>
-          <div className="automation-token-form__actions">
-            <Button type="submit" busy={issuePending}>
-              Issue one-time token
-            </Button>
-            <small>
-              Token scopes can only reduce the account&apos;s project role.
-            </small>
-          </div>
-          {issueError ? (
-            <div className="form-error">{errorMessage(issueError)}</div>
-          ) : null}
         </form>
       ) : null}
 
@@ -781,6 +832,7 @@ function AccountTokens({
               </Button>
               <Button
                 variant="secondary"
+                disabled={revokeToken.isPending}
                 onClick={() => {
                   setConfirmToken(null);
                   setConfirmation("");

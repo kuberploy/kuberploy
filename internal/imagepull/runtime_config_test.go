@@ -37,12 +37,18 @@ func TestRuntimeConfigFromEnvironmentIsDefaultOffAndExact(t *testing.T) {
 		t.Fatalf("disabled config=%#v err=%v", config, err)
 	}
 	for _, values := range []map[string]string{
-		{RuntimeProfilesEnv: "[]"},
-		{RuntimeEnabledEnv: "false", RuntimeNamespacesEnv: "tenant-a-dev"},
 		{RuntimeEnabledEnv: "yes"},
 	} {
 		if _, err = RuntimeConfigFromLookup(runtimeLookup(values)); !errors.Is(err, ErrInvalid) {
 			t.Fatalf("dormant/ambiguous config accepted: %#v err=%v", values, err)
+		}
+	}
+	for _, values := range []map[string]string{
+		{RuntimeProfilesEnv: "[]"},
+		{RuntimeEnabledEnv: "false", RuntimeNamespacesEnv: "tenant-a-dev"},
+	} {
+		if config, parseErr := RuntimeConfigFromLookup(runtimeLookup(values)); parseErr != nil || config.Enabled {
+			t.Fatalf("dormant config was not ignored: %#v err=%v", values, parseErr)
 		}
 	}
 
@@ -72,10 +78,14 @@ func TestRuntimeProfileJSONRejectsDuplicatesUnknownFieldsAndTrailingData(t *test
 	}
 }
 
-func TestRuntimeConfigRejectsNonCanonicalOrderAndDurationForms(t *testing.T) {
+func TestRuntimeConfigNormalizesListsAndRejectsInvalidDurationForms(t *testing.T) {
+	values := validRuntimeEnvironment(t)
+	values[RuntimeNamespacesEnv] = "tenant-a-prod,tenant-a-dev,tenant-a-prod"
+	config, err := RuntimeConfigFromLookup(runtimeLookup(values))
+	if err != nil || strings.Join(config.Namespaces, ",") != "tenant-a-dev,tenant-a-prod" {
+		t.Fatalf("namespace normalization failed: %#v err=%v", config.Namespaces, err)
+	}
 	for name, mutate := range map[string]func(map[string]string){
-		"namespace order":       func(values map[string]string) { values[RuntimeNamespacesEnv] = "tenant-a-prod,tenant-a-dev" },
-		"duplicate namespace":   func(values map[string]string) { values[RuntimeNamespacesEnv] = "tenant-a-dev,tenant-a-dev" },
 		"leading duration zero": func(values map[string]string) { values[RuntimePollSecondsEnv] = "030" },
 		"short poll":            func(values map[string]string) { values[RuntimePollSecondsEnv] = "1" },
 		"newline":               func(values map[string]string) { values[RuntimeNamespacesEnv] += "\n" },

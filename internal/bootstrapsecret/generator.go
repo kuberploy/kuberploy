@@ -115,7 +115,15 @@ func Generate(ctx context.Context, cfg Config) (Result, error) {
 	}
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(bearer)))
 	request.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}}}
+	// The request body contains the one-time bootstrap token and the bearer
+	// authenticates to the Kubernetes API. Never follow a redirect: doing so
+	// could resend both credentials to an unapproved host or scheme.
+	client := &http.Client{
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	response, err := client.Do(request)
 	if err != nil {
 		return Result{}, errors.New("bootstrap secret Kubernetes request failed")

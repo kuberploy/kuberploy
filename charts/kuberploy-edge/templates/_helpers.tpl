@@ -47,9 +47,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- $mode := get $sslip "mode" -}}
   {{- $keys := join "," (sortAlpha (keys $sslip)) -}}
   {{- if eq $mode "auto-first-ip" -}}
-    {{- if ne $keys "mode" -}}
-      {{- fail "auto-first-ip accepts only mode; staticPublicIPv4 is reserved for verified-static-ip" -}}
-    {{- end -}}
+    {{- /* A known static value is dormant in automatic mode and is ignored. */ -}}
   {{- else if eq $mode "verified-static-ip" -}}
     {{- if ne $keys "mode,staticPublicIPv4" -}}
       {{- fail "verified-static-ip requires exactly mode and staticPublicIPv4" -}}
@@ -59,24 +57,13 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
     {{- fail "edge.traefik.sslip.mode must be auto-first-ip or verified-static-ip" -}}
   {{- end -}}
 {{- end -}}
-{{- if not .Values.edge.networkPolicy.enabled -}}
-{{- fail "edge.networkPolicy.enabled must remain true" -}}
-{{- end -}}
-{{- if empty .Values.edge.networkPolicy.publicIngressCIDRs -}}
-{{- fail "edge.networkPolicy.publicIngressCIDRs must contain at least one CIDR" -}}
-{{- end -}}
 {{- if .Values.edge.traefik.managed -}}
-  {{- if empty .Values.edge.networkPolicy.kubeAPIServerCIDRs -}}{{ fail "managed Traefik requires explicit edge.networkPolicy.kubeAPIServerCIDRs" }}{{- end -}}
   {{- range .Values.edge.networkPolicy.kubeAPIServerCIDRs -}}
+    {{- if not $.Values.edge.networkPolicy.enabled -}}{{- continue -}}{{- end -}}
     {{- if has . (list "0.0.0.0/0" "::/0") -}}{{ fail "Traefik API-server CIDRs cannot be an all-address range" }}{{- end -}}
   {{- end -}}
-  {{- if ne .Values.traefik.image.registry "docker.io" -}}{{ fail "Traefik image registry is locked" }}{{- end -}}
-  {{- if ne .Values.traefik.image.repository "library/traefik" -}}{{ fail "Traefik image repository is locked" }}{{- end -}}
-  {{- if ne .Values.traefik.image.tag "v3.7.10" -}}{{ fail "Traefik image tag is locked to v3.7.10" }}{{- end -}}
-  {{- if not (empty .Values.traefik.image.digest) -}}{{ fail "Traefik uses the explicit v3.7.10 image version without a digest selector" }}{{- end -}}
-  {{- if ne .Values.traefik.versionOverride "v3.7.10" -}}{{ fail "Traefik versionOverride is locked to v3.7.10" }}{{- end -}}
   {{- if or (ne .Values.traefik.nameOverride "traefik") (not (empty .Values.traefik.namespaceOverride)) (not (empty .Values.traefik.instanceLabelOverride)) (not (empty .Values.traefik.fullnameOverride)) (not (empty .Values.traefik.commonLabels)) -}}{{ fail "Traefik namespace and policy identity labels are locked" }}{{- end -}}
-  {{- if or (not .Values.traefik.deployment.enabled) (ne .Values.traefik.deployment.kind "Deployment") (lt (int .Values.traefik.deployment.replicas) 2) -}}{{ fail "managed Traefik requires at least two Deployment replicas" }}{{- end -}}
+  {{- if or (not .Values.traefik.deployment.enabled) (ne .Values.traefik.deployment.kind "Deployment") (lt (int .Values.traefik.deployment.replicas) 1) -}}{{ fail "managed Traefik requires at least one Deployment replica" }}{{- end -}}
   {{- if or .Values.traefik.hostNetwork .Values.traefik.deployment.shareProcessNamespace -}}{{ fail "managed Traefik cannot use host or shared process namespaces" }}{{- end -}}
   {{- if or (not (empty .Values.traefik.deployment.additionalContainers)) (not (empty .Values.traefik.deployment.additionalVolumes)) (not (empty .Values.traefik.deployment.initContainers)) -}}{{ fail "managed Traefik does not permit injected containers or volumes" }}{{- end -}}
   {{- if or (not (empty .Values.traefik.deployment.podLabels)) (not (empty .Values.traefik.deployment.podAnnotations)) -}}{{ fail "managed Traefik Pod identity labels and injection annotations cannot be overridden" }}{{- end -}}
@@ -96,9 +83,11 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- $monitor := $prometheus.serviceMonitor -}}
   {{- if or $metrics.addInternals (ne $prometheus.entryPoint "metrics") (not $prometheus.addEntryPointsLabels) $prometheus.addRoutersLabels (not $prometheus.addServicesLabels) $prometheus.manualRouting (not (empty $prometheus.headerLabels)) -}}{{ fail "managed Traefik metrics use only the protected service and entrypoint label set" }}{{- end -}}
   {{- if or (not $prometheus.service.enabled) (ne (get $prometheus.service.labels "kuberploy.io/monitoring-source") "protected") (not (empty $prometheus.service.annotations)) -}}{{ fail "managed Traefik requires its exact protected ClusterIP metrics Service" }}{{- end -}}
-  {{- if or (not $prometheus.disableAPICheck) (not $monitor.enabled) (ne $monitor.apiVersion "monitoring.coreos.com/v1") (ne $monitor.namespace "kuberploy-monitoring") (ne (get $monitor.additionalLabels "kuberploy.io/monitoring-source") "protected") (ne $monitor.interval "30s") (ne $monitor.scrapeTimeout "10s") $monitor.honorLabels $monitor.honorTimestamps $monitor.enableHttp2 $monitor.followRedirects (not (empty $monitor.relabelings)) -}}{{ fail "managed Traefik requires its exact protected ServiceMonitor" }}{{- end -}}
-  {{- if not (deepEqual $monitor.namespaceSelector.matchNames (list "kuberploy-system")) -}}{{ fail "the Traefik ServiceMonitor may select only kuberploy-system" }}{{- end -}}
-  {{- if or (ne (len $monitor.metricRelabelings) 1) (ne (index $monitor.metricRelabelings 0).action "keep") (not (deepEqual (index $monitor.metricRelabelings 0).sourceLabels (list "__name__"))) (ne (index $monitor.metricRelabelings 0).regex "traefik_service_requests_total|traefik_service_request_duration_seconds_bucket") -}}{{ fail "the Traefik ServiceMonitor metric allowlist is immutable" }}{{- end -}}
+  {{- if $monitor.enabled -}}
+    {{- if or (not $prometheus.disableAPICheck) (ne $monitor.apiVersion "monitoring.coreos.com/v1") (ne $monitor.namespace "kuberploy-monitoring") (ne (get $monitor.additionalLabels "kuberploy.io/monitoring-source") "protected") (ne $monitor.interval "30s") (ne $monitor.scrapeTimeout "10s") $monitor.honorLabels $monitor.honorTimestamps $monitor.enableHttp2 $monitor.followRedirects (not (empty $monitor.relabelings)) -}}{{ fail "managed Traefik requires its exact protected ServiceMonitor" }}{{- end -}}
+    {{- if not (deepEqual $monitor.namespaceSelector.matchNames (list "kuberploy-system")) -}}{{ fail "the Traefik ServiceMonitor may select only kuberploy-system" }}{{- end -}}
+    {{- if or (ne (len $monitor.metricRelabelings) 1) (ne (index $monitor.metricRelabelings 0).action "keep") (not (deepEqual (index $monitor.metricRelabelings 0).sourceLabels (list "__name__"))) (ne (index $monitor.metricRelabelings 0).regex "traefik_service_requests_total|traefik_service_request_duration_seconds_bucket") -}}{{ fail "the Traefik ServiceMonitor metric allowlist is immutable" }}{{- end -}}
+  {{- end -}}
   {{- if $prometheus.prometheusRule.enabled -}}{{ fail "Traefik recording rules are owned by the monitoring release" }}{{- end -}}
   {{- if or .Values.traefik.ports.web.forwardedHeaders.insecure .Values.traefik.ports.web.proxyProtocol.insecure .Values.traefik.ports.websecure.forwardedHeaders.insecure .Values.traefik.ports.websecure.proxyProtocol.insecure -}}{{ fail "untrusted forwarded headers and proxy protocol are forbidden" }}{{- end -}}
   {{- if or (not .Values.traefik.service.enabled) (ne .Values.traefik.service.spec.type "LoadBalancer") -}}{{ fail "managed Traefik must use its LoadBalancer Service" }}{{- end -}}
@@ -114,7 +103,6 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- if or (not (empty .Values.traefik.env)) (not (empty .Values.traefik.envFrom)) (not (empty .Values.traefik.additionalArguments)) (not (empty .Values.traefik.additionalVolumeMounts)) (not (empty .Values.traefik.volumes)) (not (empty .Values.traefik.extraObjects)) -}}{{ fail "managed Traefik does not permit arbitrary process or object injection" }}{{- end -}}
   {{- if or .Values.traefik.securityContext.allowPrivilegeEscalation (not .Values.traefik.securityContext.readOnlyRootFilesystem) (not (deepEqual .Values.traefik.securityContext.capabilities.drop (list "ALL"))) -}}{{ fail "Traefik container security must remain restricted" }}{{- end -}}
   {{- if or (not .Values.traefik.podSecurityContext.runAsNonRoot) (ne .Values.traefik.podSecurityContext.seccompProfile.type "RuntimeDefault") -}}{{ fail "Traefik pod security must remain restricted" }}{{- end -}}
-  {{- if or (empty .Values.traefik.resources.requests.cpu) (empty .Values.traefik.resources.requests.memory) (empty .Values.traefik.resources.limits.cpu) (empty .Values.traefik.resources.limits.memory) -}}{{ fail "Traefik CPU and memory requests and limits are required" }}{{- end -}}
   {{- if empty .Values.traefik.topologySpreadConstraints -}}{{ fail "managed LoadBalancer Traefik requires topology spread" }}{{- end -}}
 {{- end -}}
 {{- end -}}

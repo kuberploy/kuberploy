@@ -23,6 +23,12 @@ describe("invitation acceptance", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
+    queryClient.setQueryData(["projects"], {
+      items: [{ id: "old-private-project", name: "Old private project" }],
+    });
+    queryClient.setQueryData(["capabilities"], {
+      capabilities: [{ scopeType: "project", scopeId: "old-private-project" }],
+    });
     const Wrapper = ({ children }: PropsWithChildren) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
@@ -145,6 +151,8 @@ describe("local password login", () => {
       ...signedInUser,
       authentication: { kind: "session" },
     });
+    expect(queryClient.getQueryData(["projects"])).toBeUndefined();
+    expect(queryClient.getQueryData(["capabilities"])).toBeUndefined();
   });
 });
 

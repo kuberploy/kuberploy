@@ -22,8 +22,8 @@ func validJobPlanRequest() JobPlanRequest {
 		RegistryCacheCredentialSecret: "registry-cache-abc",
 		BuildSecret:                   "build-secrets-abc",
 		SSHSecret:                     "ssh-secrets-abc",
-		CheckoutImage:                 "registry.example.test/system/builder-agent:0.1.0-rc.175",
-		AgentImage:                    "registry.example.test/system/builder-agent:0.1.0-rc.175",
+		CheckoutImage:                 "registry.example.test/system/builder-agent:0.1.0-rc.176",
+		AgentImage:                    "registry.example.test/system/builder-agent:0.1.0-rc.176",
 		NodeSelector:                  map[string]string{"kuberploy.io/node-class": "dind-builder", "kubernetes.io/arch": "amd64"},
 		Toleration:                    TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 		CheckoutResources:             resources,
@@ -222,6 +222,21 @@ func TestJobPlanPrivilegedOnlyDinDAndAgentWorkspaceReadOnly(t *testing.T) {
 	}
 }
 
+func TestJobPlanAcceptsMirroredDinDImage(t *testing.T) {
+	request := validJobPlanRequest()
+	request.DinDImage = "registry.example.test/docker@sha256:" + strings.Repeat("b", 64)
+	plan, err := PlanJob(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := plan.Job["spec"].(map[string]any)["template"].(map[string]any)
+	initContainers := template["spec"].(map[string]any)["initContainers"].([]any)
+	dind := initContainers[1].(map[string]any)
+	if dind["image"] != request.DinDImage {
+		t.Fatalf("DinD image=%v, want %q", dind["image"], request.DinDImage)
+	}
+}
+
 func assertRegistryCredentialProjection(t *testing.T, volumes []any, name, secretName string) {
 	t.Helper()
 	for _, raw := range volumes {
@@ -251,7 +266,9 @@ func TestJobPlanRequiresIsolationResourcesAndBoundedEgress(t *testing.T) {
 		{name: "general node", mutate: func(r *JobPlanRequest) { r.NodeSelector = map[string]string{"kubernetes.io/arch": "amd64"} }},
 		{name: "floating agent", mutate: func(r *JobPlanRequest) { r.AgentImage = "registry.example.test/agent:latest" }},
 		{name: "missing ephemeral limit", mutate: func(r *JobPlanRequest) { r.AgentResources.EphemeralStorageLimit = "" }},
-		{name: "world egress", mutate: func(r *JobPlanRequest) { r.Egress = []EgressEndpoint{{CIDR: "0.0.0.0/0", Ports: []int{443}}} }},
+		{name: "malformed default exclusion", mutate: func(r *JobPlanRequest) {
+			r.Egress = []EgressEndpoint{{CIDR: "0.0.0.0/0", Ports: []int{443}, Except: []string{"10.0.0.1/24"}}}
+		}},
 		{name: "secret mismatch", mutate: func(r *JobPlanRequest) { r.BuildSecret = "" }},
 		{name: "shared push and cache authority", mutate: func(r *JobPlanRequest) { r.RegistryCacheCredentialSecret = r.RegistryPushCredentialSecret }},
 	}
@@ -263,6 +280,56 @@ func TestJobPlanRequiresIsolationResourcesAndBoundedEgress(t *testing.T) {
 				t.Fatal("unsafe Job plan was accepted")
 			}
 		})
+	}
+}
+
+func TestJobPlanAcceptsCanonicalBoundedProviderRanges(t *testing.T) {
+	request := validJobPlanRequest()
+	request.Egress = []EgressEndpoint{
+		{CIDR: "192.0.0.0/20", Ports: []int{443}},
+		{CIDR: "2001:db8::/29", Ports: []int{443}},
+	}
+	if _, err := PlanJob(request); err != nil {
+		t.Fatal(err)
+	}
+	request.Egress[0].CIDR = "192.0.2.1/24"
+	if _, err := PlanJob(request); err == nil {
+		t.Fatal("noncanonical provider range accepted")
+	}
+}
+
+func TestJobPlanAcceptsDefaultPublicEgressOnlyWithExactAPIExclusions(t *testing.T) {
+	request := validJobPlanRequest()
+	request.Egress = []EgressEndpoint{
+		{CIDR: "0.0.0.0/0", Ports: []int{443, 5000}, Except: []string{"10.43.0.1/32"}},
+		{CIDR: "::/0", Ports: []int{443, 5000}, Except: []string{"fd00::1/128"}},
+	}
+	plan, err := PlanJob(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	egress := plan.NetworkPolicy["spec"].(map[string]any)["egress"].([]any)
+	if got := egress[1].(map[string]any)["to"].([]any)[0].(map[string]any)["ipBlock"].(map[string]any)["except"]; !reflect.DeepEqual(got, []string{"10.43.0.1/32"}) {
+		t.Fatalf("IPv4 API exclusion=%#v", got)
+	}
+}
+
+func TestJobPlanAcceptsDefaultPublicEgressWithoutAPIExclusions(t *testing.T) {
+	request := validJobPlanRequest()
+	request.Egress = []EgressEndpoint{
+		{CIDR: "0.0.0.0/0", Ports: []int{443, 5000}},
+		{CIDR: "::/0", Ports: []int{443, 5000}},
+	}
+	plan, err := PlanJob(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	egress := plan.NetworkPolicy["spec"].(map[string]any)["egress"].([]any)
+	for _, raw := range egress[1:] {
+		ipBlock := raw.(map[string]any)["to"].([]any)[0].(map[string]any)["ipBlock"].(map[string]any)
+		if _, present := ipBlock["except"]; present {
+			t.Fatalf("unexpected API exclusion in public-default policy: %#v", ipBlock)
+		}
 	}
 }
 

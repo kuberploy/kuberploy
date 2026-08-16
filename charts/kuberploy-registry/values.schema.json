@@ -102,7 +102,7 @@
             "class": { "type": "string", "maxLength": 253, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?:/[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?)?)$" },
             "ip": { "type": "string", "pattern": "^(?:|(?:[0-9]{1,3}\\.){3}[0-9]{1,3})$" },
             "sourceRanges": {
-              "type": "array", "maxItems": 32, "uniqueItems": true,
+              "type": "array", "maxItems": 32,
               "items": { "type": "string", "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/(?:[0-9]|[1-9][0-9]|1[01][0-9]|12[0-8]))$" }
             }
           }
@@ -153,21 +153,16 @@
       "additionalProperties": false,
       "required": ["enabled", "allowedNamespaces"],
       "properties": {
-        "enabled": { "const": true },
+        "enabled": { "type": "boolean" },
         "allowedNamespaces": {
           "type": "array",
           "maxItems": 64,
-          "uniqueItems": true,
           "items": { "$ref": "#/$defs/dnsLabel" }
         }
       }
     }
   },
   "allOf": [
-    {
-      "if": { "properties": { "exposure": { "properties": { "mode": { "const": "internal" } }, "required": ["mode"] } }, "required": ["exposure"] },
-      "then": { "properties": { "exposure": { "properties": { "cloudflareProxied": { "const": false } } } } }
-    },
     {
       "if": { "properties": { "exposure": { "properties": { "mode": { "enum": ["ingress", "loadBalancer"] } }, "required": ["mode"] } }, "required": ["exposure"] },
       "then": {
@@ -176,23 +171,6 @@
           "exposure": { "properties": { "endpoint": { "minLength": 1 }, "ingressClassName": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
         }
       }
-    },
-    {
-      "if": { "properties": { "exposure": { "properties": { "mode": { "const": "loadBalancer" } }, "required": ["mode"] } }, "required": ["exposure"] },
-      "then": {
-        "properties": {
-          "exposure": { "properties": { "loadBalancer": { "properties": { "sourceRanges": { "minItems": 1 } } } } }
-        }
-      },
-      "else": {
-        "properties": {
-          "exposure": { "properties": { "loadBalancer": { "properties": { "annotations": { "maxProperties": 0 }, "class": { "const": "" }, "ip": { "const": "" }, "sourceRanges": { "maxItems": 0 } } } } }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "exposure": { "properties": { "mode": { "const": "internal" } }, "required": ["mode"] } }, "required": ["exposure"] },
-      "then": { "properties": { "exposure": { "properties": { "endpoint": { "const": "" }, "secretName": { "const": "" }, "clusterIssuerName": { "const": "" } } } } }
     },
     {
       "if": {

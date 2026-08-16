@@ -196,7 +196,7 @@ spec:
       command:
         - /bin/sh
         - -ec
-        - grep -Fxq kuberploy-pvc-ok /data/pvc-marker; nslookup smoke.${kp_namespace}.svc.cluster.local >/dev/null; wget -qO- 'http://smoke:8080/echo?msg=kuberploy-smoke-ok' | grep -Fx kuberploy-smoke-ok
+        - grep -Fxq kuberploy-pvc-ok /data/pvc-marker; nslookup smoke.${kp_namespace}.svc.cluster.local >/dev/null; for kp_attempt in \$(seq 1 30); do wget -qO- 'http://smoke:8080/echo?msg=kuberploy-smoke-ok' | grep -Fx kuberploy-smoke-ok && exit 0; sleep 1; done; exit 1
       resources:
         requests:
           cpu: 10m
@@ -225,7 +225,8 @@ kp_kubectl wait --namespace "${kp_namespace}" \
   --timeout=180s >/dev/null
 
 kp_probe_log="$(kp_kubectl logs --namespace "${kp_namespace}" smoke-probe)"
-[[ "${kp_probe_log}" == "kuberploy-smoke-ok" ]] || \
+kp_probe_last_line="$(tail -n 1 <<<"${kp_probe_log}")"
+[[ "${kp_probe_last_line}" == "kuberploy-smoke-ok" ]] || \
   kp_die "smoke DNS/service response did not match the expected marker"
 
 kp_kubectl create -f - >/dev/null <<EOF

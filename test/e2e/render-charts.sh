@@ -188,7 +188,7 @@ done
 helm template platform-default "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-system > "${kp_tmp}/platform-default.yaml"
 [[ "$(yq eval-all 'select(.kind == "Role" and (.metadata.name | test("-api-observer$"))) | .rules[] | select(.resources | contains(["statefulsets"])) | .verbs | sort | join(",")' "${kp_tmp}/platform-default.yaml")" == "get,list,watch" ]]
-[[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.egress[]?.to[]?.ipBlock.cidr | select(. == "0.0.0.0/0" or . == "::/0")] | length' "${kp_tmp}/platform-default.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/platform-default.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "platform-default-upgrade")] | length' "${kp_tmp}/platform-default.yaml" | tail -1)" == "0" ]]
 
 kp_image="$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_tmp}/runtime.yaml")"
@@ -253,6 +253,34 @@ fi
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_ENABLED' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_AUTH_MODE' "${kp_tmp}/platform.yaml")" == "disabled" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES' "${kp_tmp}/platform.yaml")" == "536870912" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_EXTERNAL_EGRESS_CIDRS' "${kp_tmp}/platform.yaml")" == "192.0.2.10/32" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_KUBE_API_SERVER_CIDRS' "${kp_tmp}/platform.yaml")" == "10.43.0.1/32" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_NETWORK_POLICY_ENABLED' "${kp_tmp}/platform.yaml")" == "true" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_NETWORK_POLICY_ENABLED' "${kp_tmp}/platform-default.yaml")" == "false" ]]
+ yq '.networkPolicy.externalEgressCIDRs = []' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/platform-public-default-values.yaml"
+helm template platform-public-default "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
+  -f "${kp_tmp}/platform-public-default-values.yaml" > "${kp_tmp}/platform-public-default.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-(api|worker)$"))) | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .to[0].ipBlock.except[0] == "10.43.0.1/32") | select(.ports[].port == 443)] | length' "${kp_tmp}/platform-public-default.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-(api|worker)$"))) | .spec.egress[] | select(.to[0].ipBlock.cidr == "::/0" and (.to[0].ipBlock.except // [] | length) == 0) | select(.ports[].port == 443)] | length' "${kp_tmp}/platform-public-default.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_EXTERNAL_EGRESS_CIDRS" or .name == "KUBERPLOY_KUBE_API_SERVER_CIDRS")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "4" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_NETWORK_POLICY_ENABLED")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "2" ]]
+yq '.networkPolicy.enabled = false | .networkPolicy.externalEgressCIDRs = ["10.43.0.0/16"] | .networkPolicy.kubeAPIServerCIDRs = ["10.43.1.0/24"]' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/platform-network-disabled-overlap-values.yaml"
+helm template platform-network-disabled-overlap "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-e2e-render \
+  -f "${kp_tmp}/platform-network-disabled-overlap-values.yaml" > "${kp_tmp}/platform-network-disabled-overlap.yaml"
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_NETWORK_POLICY_ENABLED" and .valueFrom.configMapKeyRef.key == "KUBERPLOY_NETWORK_POLICY_ENABLED")] | length' "${kp_tmp}/platform-network-disabled-overlap.yaml" | tail -1)" == "2" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "web") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_EXTERNAL_EGRESS_CIDRS" or .name == "KUBERPLOY_KUBE_API_SERVER_CIDRS")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "0" ]]
+kp_platform_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/platform.yaml")"
+for kp_network_mutation in \
+  '.networkPolicy.externalEgressCIDRs = ["192.0.2.11/32"]' \
+  '.networkPolicy.kubeAPIServerCIDRs = ["10.43.0.2/32"]'; do
+  yq "${kp_network_mutation}" "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/network-config-changed.yaml"
+  helm template platform "${kp_root}/charts/kuberploy" \
+    --namespace kuberploy-e2e-render -f "${kp_tmp}/network-config-changed.yaml" > "${kp_tmp}/network-config-changed-render.yaml"
+  kp_network_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/network-config-changed-render.yaml")"
+  [[ "${kp_platform_config_name}" != "${kp_network_config_name}" ]] || { printf 'network-policy runtime mutation did not rotate the immutable ConfigMap name: %s\n' "${kp_network_mutation}" >&2; exit 1; }
+  [[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.metadata.annotations."kuberploy.io/config-map"] | unique | join(",")' "${kp_tmp}/network-config-changed-render.yaml" | tail -1)" == "${kp_network_config_name}" ]] || { printf 'network-policy runtime mutation did not bind every Deployment to the rotated ConfigMap\n' >&2; exit 1; }
+done
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRETS_ENABLED' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_CERTIFICATE_OBSERVATION_ENABLED' "${kp_tmp}/platform.yaml")" == "false" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_CERTIFICATE_OBSERVATION"))] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "2" ]]
@@ -358,7 +386,6 @@ kp_expect_platform_reject 'a mutable managed PostgreSQL namespace' --set-string 
 kp_expect_platform_reject 'a mutable managed Valkey namespace' --set-string networkPolicy.managedValkeyNamespace=default
 kp_expect_platform_reject 'an invalid egress CIDR' --set-string 'networkPolicy.kubeAPIServerCIDRs[0]=not-a-cidr'
 kp_expect_platform_reject 'an unknown NetworkPolicy field' --set networkPolicy.attacker=true
-kp_expect_platform_reject 'runtime observation without Kubernetes API CIDRs' --set 'networkPolicy.kubeAPIServerCIDRs={}'
 kp_expect_platform_reject 'a configured Git remote without provider CIDRs' --set 'networkPolicy.externalEgressCIDRs={}'
 
 yq '.config.argoObservation.enabled = true |
@@ -369,9 +396,12 @@ helm template argo-observation "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render \
   -f "${kp_tmp}/argo-observation-values.yaml" > "${kp_tmp}/argo-observation.yaml"
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_OBSERVATION_ENABLED' "${kp_tmp}/argo-observation.yaml")" == "true" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_NAMESPACE' "${kp_tmp}/argo-observation.yaml")" == "kuberploy-e2e-render" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_OBSERVATION_NAMESPACE' "${kp_tmp}/argo-observation.yaml")" == "kuberploy-e2e-render" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | (.data | has("KUBERPLOY_ARGO_NAMESPACE"))' "${kp_tmp}/argo-observation.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS' "${kp_tmp}/argo-observation.yaml")" == "45" ]]
-[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_ARGO_OBSERVATION_ENABLED" or .name == "KUBERPLOY_ARGO_NAMESPACE" or .name == "KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS")] | length' "${kp_tmp}/argo-observation.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_ARGO_OBSERVATION_ENABLED" or .name == "KUBERPLOY_ARGO_OBSERVATION_NAMESPACE" or .name == "KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS")] | length' "${kp_tmp}/argo-observation.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_ARGO_NAMESPACE")] | length' "${kp_tmp}/argo-observation.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_ARGO_OBSERVATION_NAMESPACE")] | length' "${kp_tmp}/argo-observation.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "Role" and (.metadata.name | test("-argo-observer$"))) | .metadata.namespace' "${kp_tmp}/argo-observation.yaml")" == "kuberploy-e2e-render" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "Role" and (.metadata.name | test("-argo-observer$"))) | .rules' "${kp_tmp}/argo-observation.yaml")" == '[{"apiGroups":["argoproj.io"],"resources":["applications"],"verbs":["get","list"]}]' ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "RoleBinding" and (.metadata.name | test("-argo-observer$"))) | .subjects' "${kp_tmp}/argo-observation.yaml")" == '[{"kind":"ServiceAccount","name":"argo-observation-worker","namespace":"kuberploy-e2e-render"}]' ]]
@@ -398,11 +428,9 @@ for kp_argo_mutation in \
   fi
 done
 yq '.networkPolicy.kubeAPIServerCIDRs = []' "${kp_tmp}/argo-observation-values.yaml" > "${kp_tmp}/argo-observation-no-api-egress.yaml"
-if helm template invalid-argo-observation "${kp_root}/charts/kuberploy" \
-  --namespace kuberploy-e2e-render -f "${kp_tmp}/argo-observation-no-api-egress.yaml" >/dev/null 2>&1; then
-  printf 'platform chart enabled Argo observation without Kubernetes API egress\n' >&2
-  exit 1
-fi
+helm template argo-observation-no-api "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-e2e-render -f "${kp_tmp}/argo-observation-no-api-egress.yaml" > "${kp_tmp}/argo-observation-no-api-egress.yaml.rendered"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/argo-observation-no-api-egress.yaml.rendered" | tail -1)" == "1" ]]
 
 yq '.components.worker.image.reference = "ghcr.io/kuberploy/kuberploy-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" |
     .config.managedRegistry.enabled = true |
@@ -447,7 +475,6 @@ kp_registry_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .
 [[ "${kp_registry_config_name}" != "${kp_registry_changed_config_name}" ]] || { printf 'managed registry mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_registry_mutation in \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.managedRegistry.allowPlainHTTP = false' \
   '.config.managedRegistry.credentialSecret.passwordKey = .config.managedRegistry.credentialSecret.usernameKey' \
   '.config.managedRegistry.pullCredentialRef = .config.managedRegistry.pushCredentialRef' \
@@ -455,9 +482,7 @@ for kp_registry_mutation in \
   '.config.managedRegistry.targetID = "../../other"' \
   '.config.managedRegistry.servicePort = 5001' \
   '.config.managedRegistry.credentialRef = "ambiguous-legacy-reference"' \
-  '.config.managedRegistry.unknownField = true' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []'; do
+  '.config.managedRegistry.unknownField = true'; do
   yq "${kp_registry_mutation}" "${kp_tmp}/managed-registry-values.yaml" > "${kp_tmp}/managed-registry-invalid.yaml"
   if helm template invalid-managed-registry "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/managed-registry-invalid.yaml" >/dev/null 2>&1; then
@@ -488,8 +513,8 @@ yq '.config.githubApp.enabled = true |
     .config.publicURL = "https://kuberploy.example.test" |
     .config.githubApp.secretRef.name = "kuberploy-github-app" |
     .builder.enabled = true |
-    .builder.builderAgentImage = "ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.175" |
-    .builder.networkPolicy.sourceEgressCIDRs = ["192.0.2.30/32"] |
+    .builder.builderAgentImage = "ghcr.io/kuberploy/kuberploy-builder-agent:0.1.0-rc.176" |
+    .builder.networkPolicy.sourceEgressCIDRs = ["2001:db8::/29","192.0.0.0/20"] |
     .builder.networkPolicy.registryEgressCIDRs = ["192.0.2.31/32"] |
     .builder.controllerServiceAccount.namespace = "kuberploy-e2e-render" |
     .builder.controllerServiceAccount.name = "github-builds-worker"' \
@@ -506,6 +531,20 @@ helm template github-builds "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "api") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_AUTO_DEPLOY_ENABLED" and .valueFrom.configMapKeyRef.key == "KUBERPLOY_AUTO_DEPLOY_ENABLED")] | length' "${kp_tmp}/github-builds.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_AUTO_DEPLOY_ENABLED")] | length' "${kp_tmp}/github-builds.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_NAMESPACE' "${kp_tmp}/github-builds.yaml")" == "kuberploy-build-dind" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_DIND_IMAGE' "${kp_tmp}/github-builds.yaml")" == "docker.io/library/docker:29.7.1-dind" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS' "${kp_tmp}/github-builds.yaml")" == "192.0.0.0/20,2001:db8::/29" ]]
+
+yq '.networkPolicy.externalEgressCIDRs = ["2001:db8::/29","192.0.0.0/20"]' \
+  "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/provider-egress-unsorted.yaml"
+helm template provider-egress-order "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-e2e-render -f "${kp_tmp}/provider-egress-unsorted.yaml" > "${kp_tmp}/provider-egress-unsorted-render.yaml"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_EXTERNAL_EGRESS_CIDRS' "${kp_tmp}/provider-egress-unsorted-render.yaml")" == "192.0.0.0/20,2001:db8::/29" ]]
+yq '.networkPolicy.externalEgressCIDRs = ["192.0.0.0/20","2001:db8::/29"]' \
+  "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/provider-egress-sorted.yaml"
+helm template provider-egress-order "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-e2e-render -f "${kp_tmp}/provider-egress-sorted.yaml" > "${kp_tmp}/provider-egress-sorted-render.yaml"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/provider-egress-unsorted-render.yaml")" == "$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/provider-egress-sorted-render.yaml")" ]] || { printf 'provider egress input order changed normalized ConfigMap identity\n' >&2; exit 1; }
+[[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.metadata.annotations."kuberploy.io/config-map"] | unique | join(",")' "${kp_tmp}/provider-egress-unsorted-render.yaml" | tail -1)" == "$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/provider-egress-sorted-render.yaml")" ]] || { printf 'normalized provider order did not preserve Deployment ConfigMap binding\n' >&2; exit 1; }
 
 yq '.components.worker.image.reference = "ghcr.io/kuberploy/kuberploy-worker@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" |
     .config.managedRegistry.enabled = true |
@@ -564,8 +603,6 @@ kp_build_logs_base_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .m
 [[ "${kp_build_logs_config_name}" != "${kp_build_logs_base_config_name}" ]] || { printf 'build-log enablement did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_build_log_mutation in \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.networkPolicy.enabled = false' \
   '.config.githubApp.enabled = false' \
   '.builder.enabled = false' \
   '.config.buildLogs.attacker = true'; do
@@ -577,7 +614,7 @@ for kp_build_log_mutation in \
   fi
 done
 
-yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.175"' \
+yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.176"' \
   "${kp_tmp}/github-build-values.yaml" > "${kp_tmp}/git-projection-values.yaml"
 helm template github-builds "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render \
@@ -586,7 +623,7 @@ helm template github-builds "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_AUTH_MODE' "${kp_tmp}/git-projection.yaml")" == "github-app" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CACHE_MAX_BYTES' "${kp_tmp}/git-projection.yaml")" == "536870912" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_POLL_INTERVAL_SECONDS' "${kp_tmp}/git-projection.yaml")" == "300" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CHART_VERSION' "${kp_tmp}/git-projection.yaml")" == "0.1.0-rc.175" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_CHART_VERSION' "${kp_tmp}/git-projection.yaml")" == "0.1.0-rc.176" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_GIT_PROJECTION_POLICY_VERSION' "${kp_tmp}/git-projection.yaml")" == "appconfig-v1alpha1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "git-projection-cache") | .mountPath' "${kp_tmp}/git-projection.yaml")" == "/var/lib/kuberploy/git-projection" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.volumes[] | select(.name == "git-projection-cache") | .emptyDir.sizeLimit' "${kp_tmp}/git-projection.yaml")" == "536870912" ]]
@@ -616,7 +653,6 @@ helm template github-builds "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_DESIRED_STATE_ENABLED,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED] | join(",")' "${kp_tmp}/platform-git-bootstrap.yaml")" == "false,false" ]]
 
 for kp_platform_bootstrap_mutation in \
-  '.config.platformGitBinding.enabled = false' \
   '.config.platformGitBinding.bindingID = "not-a-uuid"' \
   '.config.platformGitBinding.clusterID = "not-a-uuid"' \
   '.config.gitProjection.enabled = false' \
@@ -648,7 +684,8 @@ kp_argo_worker_image='ghcr.io/kuberploy/kuberploy-worker@sha256:bbbbbbbbbbbbbbbb
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_RUNTIME_VIEW_ENABLED,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE,.data.KUBERPLOY_ENVIRONMENT_FOUNDATION_OBSERVER_SERVICE_ACCOUNT] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "true,kuberploy-e2e-render,argo-desired-api" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_PLATFORM_BINDING_ID' "${kp_tmp}/argo-desired-state.yaml")" == "11111111-1111-4111-8111-111111111111" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_CLUSTER_ID' "${kp_tmp}/argo-desired-state.yaml")" == "22222222-2222-4222-8222-222222222222" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_NAMESPACE,.data.KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY,.data.KUBERPLOY_ARGO_RUNTIME_CHART_VERSION,.data.KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST,.data.KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS,.data.KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "kuberploy-e2e-render,oci://ghcr.io/kuberploy/charts,0.1.0-rc.175,sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc,2,300" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_ARGO_NAMESPACE,.data.KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY,.data.KUBERPLOY_ARGO_RUNTIME_CHART_VERSION,.data.KUBERPLOY_ARGO_RUNTIME_CHART_DIGEST,.data.KUBERPLOY_ARGO_DESIRED_STATE_POLL_INTERVAL_SECONDS,.data.KUBERPLOY_ARGO_CATALOG_MAX_AGE_SECONDS] | join(",")' "${kp_tmp}/argo-desired-state.yaml")" == "kuberploy-e2e-render,oci://ghcr.io/kuberploy/charts,0.1.0-rc.176,sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc,2,300" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_OBSERVATION_NAMESPACE' "${kp_tmp}/argo-desired-state.yaml")" == "kuberploy-e2e-render" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_ARGO_RENDERER_IMAGE' "${kp_tmp}/argo-desired-state.yaml")" == "${kp_argo_worker_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].image' "${kp_tmp}/argo-desired-state.yaml")" == "${kp_argo_worker_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | (.data | has("KUBERPLOY_ARGO_ROOT_APPLICATION_NAME")) or (.data | has("KUBERPLOY_ARGO_REPOSITORY_SECRET_NAME"))' "${kp_tmp}/argo-desired-state.yaml")" == "false" ]]
@@ -701,11 +738,7 @@ for kp_argo_desired_mutation in \
   '.config.environmentFoundation.manifestPath = "clusters/attacker/argocd/foundation.yaml"' \
   '.config.argoObservation.namespace = "other-argo"' \
   '.rbac.argoNamespace = "other-argo"' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
   '.networkPolicy.kubeAPIServerCIDRs = ["10.43.0.0/24"]' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.argoDesiredState.platformBindingID = "11111111-1111-9111-8111-111111111111"' \
   '.config.argoDesiredState.clusterID = "not-a-uuid"' \
   '.config.argoDesiredState.runtimeChartRepository = "oci://user@ghcr.io/kuberploy/charts"' \
@@ -799,13 +832,10 @@ kp_helm_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .meta
 [[ "${kp_helm_config_name}" != "${kp_helm_changed_config_name}" ]] || { printf 'Helm operator config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_helm_mutation in \
-  '.config.helmApplications.enabled = false' \
   '.config.helmApplications.rendererNamespace = "kuberploy-e2e-render"' \
   '.config.helmApplications.ociRegistryHosts = []' \
-  '.config.helmApplications.ociRegistryHosts = ["z.example.test","a.example.test"]' \
   '.config.helmApplications.ociAuthHosts = ["ghcr.io","ghcr.io"]' \
   '.config.helmApplications.ociRedirectHosts = ["cdn.example.test","cdn.example.test"]' \
-  '.config.helmApplications.ociRedirectHosts = ["z.example.test","a.example.test"]' \
   '.config.helmApplications.ociRedirectHosts = ["https://cdn.example.test/path?query=1"]' \
   '.config.helmApplications.ociRegistryHosts = ["ghcr.io:65536"]' \
   '.config.helmApplications.ociRegistryHosts = ["bad..example.test"]' \
@@ -823,12 +853,9 @@ for kp_helm_mutation in \
   '.config.gitProjection.enabled = false' \
   '.config.argoDesiredState.enabled = false' \
   '.config.environmentFoundation.enabled = false' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.externalEgressCIDRs = []' \
-  '.networkPolicy.externalEgressCIDRs = ["192.0.2.0/24"]' \
+  '.networkPolicy.externalEgressCIDRs = ["10.0.0.0/7"]' \
   '.networkPolicy.kubeAPIServerCIDRs = ["10.43.0.0/24"]' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"'; do
+  '.config.helmApplications.ociRegistryHosts = []'; do
   yq "${kp_helm_mutation}" "${kp_tmp}/helm-applications-values.yaml" > "${kp_tmp}/helm-applications-invalid.yaml"
   if helm template invalid-helm-applications "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/helm-applications-invalid.yaml" >/dev/null 2>&1; then
@@ -909,19 +936,11 @@ kp_runtime_pull_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap")
 [[ "${kp_runtime_pull_config_name}" != "${kp_runtime_pull_changed_config_name}" ]] || { printf 'runtime registry pull mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_runtime_pull_mutation in \
-  '.config.runtimeRegistryPulls.enabled = false' \
   '.config.runtimeRegistryPulls.namespaces = []' \
-  '.config.runtimeRegistryPulls.namespaces = ["apps-production", "apps-production"]' \
-  '.config.runtimeRegistryPulls.namespaces = ["apps-staging", "apps-production"]' \
   '.config.runtimeRegistryPulls.profiles = []' \
-  '.config.runtimeRegistryPulls.profiles = [.config.runtimeRegistryPulls.profiles[1], .config.runtimeRegistryPulls.profiles[0]]' \
   '.config.runtimeRegistryPulls.profiles[1] = .config.runtimeRegistryPulls.profiles[0]' \
   '.config.runtimeRegistryPulls.profiles[1].name = .config.runtimeRegistryPulls.profiles[0].name' \
   '.config.gitProjection.enabled = false' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.runtimeRegistryPulls.unknownField = true'; do
   yq "${kp_runtime_pull_mutation}" "${kp_tmp}/runtime-registry-pulls-values.yaml" > "${kp_tmp}/runtime-registry-pulls-invalid.yaml"
   if helm template invalid-runtime-pulls "${kp_root}/charts/kuberploy" \
@@ -933,11 +952,6 @@ done
 
 # Template checks remain closed if an operator explicitly bypasses values schema validation.
 for kp_runtime_pull_mutation in \
-  '.config.runtimeRegistryPulls.enabled = false' \
-  '.config.runtimeRegistryPulls.enabled = false | .config.runtimeRegistryPulls.namespaces = [] | .config.runtimeRegistryPulls.profiles = [] | .config.runtimeRegistryPulls.readinessSeconds = 91' \
-  '.config.runtimeRegistryPulls.namespaces = ["apps-staging", "apps-production"]' \
-  '.config.runtimeRegistryPulls.namespaces = ["apps-production", "apps-production"]' \
-  '.config.runtimeRegistryPulls.profiles = [.config.runtimeRegistryPulls.profiles[1], .config.runtimeRegistryPulls.profiles[0]]' \
   '.config.runtimeRegistryPulls.profiles[1].name = .config.runtimeRegistryPulls.profiles[0].name'; do
   yq "${kp_runtime_pull_mutation}" "${kp_tmp}/runtime-registry-pulls-values.yaml" > "${kp_tmp}/runtime-registry-pulls-invalid.yaml"
   if helm template invalid-runtime-pulls "${kp_root}/charts/kuberploy" \
@@ -1056,14 +1070,11 @@ kp_edge_no_sslip_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .met
 [[ "${kp_edge_config_name}" != "${kp_edge_no_sslip_config_name}" ]] || { printf 'sslip policy did not participate in the immutable edge runtime identity\n' >&2; exit 1; }
 
 for kp_edge_mutation in \
-  '.config.edgeRuntime.enabled = false' \
   '.config.edgeRuntime.profiles.traefik = null | .config.edgeRuntime.profiles.certManager = null | .config.edgeRuntime.profiles.externalDNS = []' \
   '.config.edgeRuntime.workLeaseSeconds = 120 | .config.edgeRuntime.heartbeatSeconds = 60' \
   '.config.edgeRuntime.readinessSeconds = 59' \
   '.config.edgeRuntime.minimumBackoffSeconds = 10 | .config.edgeRuntime.maximumBackoffSeconds = 9' \
   '.config.edgeRuntime.profiles.traefik.mode = "owner"' \
-  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:latest"' \
-  '.config.edgeRuntime.profiles.traefik.crds |= reverse' \
   '.config.edgeRuntime.profiles.traefik.sslip = null' \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "caller-ip"' \
   '.config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "8.8.8.8"' \
@@ -1071,19 +1082,11 @@ for kp_edge_mutation in \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "verified-static-ip" | .config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "10.0.0.1"' \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "verified-static-ip" | .config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "008.008.008.008"' \
   '.config.edgeRuntime.profiles.traefik.sslip.callerAddress = "8.8.8.8"' \
-  '.config.edgeRuntime.profiles.certManager.deployments = [.config.edgeRuntime.profiles.certManager.deployments[1], .config.edgeRuntime.profiles.certManager.deployments[0], .config.edgeRuntime.profiles.certManager.deployments[2]]' \
   '.config.edgeRuntime.profiles.certManager.productionIssuer = .config.edgeRuntime.profiles.certManager.stagingIssuer' \
-  '.config.edgeRuntime.profiles.externalDNS += [.config.edgeRuntime.profiles.externalDNS[0]]' \
-  '.config.edgeRuntime.profiles.externalDNS[0].domainFilters |= reverse' \
   '.config.edgeRuntime.profiles.externalDNS[0].providerKind = "unknown"' \
   '.config.edgeRuntime.profiles.externalDNS[0].credentialSecretRef = ""' \
   '.config.edgeRuntime.profiles.externalDNS[0].providerConfigRef = ""' \
   '.config.edgeRuntime.profiles.externalDNS[0].egressConfigRef = ""' \
-  '.config.edgeRuntime.profiles.externalDNS[0].deployment.image = "registry.k8s.io/external-dns/external-dns:latest"' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.edgeRuntime.unknownField = true'; do
   yq "${kp_edge_mutation}" "${kp_tmp}/edge-runtime-values.yaml" > "${kp_tmp}/edge-runtime-invalid-values.yaml"
   if helm template invalid-edge-runtime "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
@@ -1095,27 +1098,18 @@ done
 
 # Critical runtime fences remain render-time closed if schema validation is bypassed.
 for kp_edge_mutation in \
-  '.config.edgeRuntime.enabled = false' \
-  '.config.edgeRuntime.enabled = false | .config.edgeRuntime.profiles.traefik = null | .config.edgeRuntime.profiles.certManager = null | .config.edgeRuntime.profiles.externalDNS = [] | .config.edgeRuntime.readinessSeconds = 91' \
   '.config.edgeRuntime.profiles.traefik = null | .config.edgeRuntime.profiles.certManager = null | .config.edgeRuntime.profiles.externalDNS = []' \
   '.config.edgeRuntime.workLeaseSeconds = 120 | .config.edgeRuntime.heartbeatSeconds = 60' \
   '.config.edgeRuntime.readinessSeconds = 59' \
-  '.config.edgeRuntime.profiles.traefik.deployment.image = "docker.io/library/traefik:latest"' \
-  '.config.edgeRuntime.profiles.traefik.crds |= reverse' \
   '.config.edgeRuntime.profiles.traefik.sslip = null' \
   '.config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "8.8.8.8"' \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "verified-static-ip"' \
   '.config.edgeRuntime.profiles.traefik.sslip.mode = "verified-static-ip" | .config.edgeRuntime.profiles.traefik.sslip.staticPublicIPv4 = "192.0.2.10"' \
   '.config.edgeRuntime.profiles.traefik.sslip.callerAddress = "8.8.8.8"' \
-  '.config.edgeRuntime.profiles.certManager.deployments = [.config.edgeRuntime.profiles.certManager.deployments[1], .config.edgeRuntime.profiles.certManager.deployments[0], .config.edgeRuntime.profiles.certManager.deployments[2]]' \
-  '.config.edgeRuntime.profiles.externalDNS += [.config.edgeRuntime.profiles.externalDNS[0]]' \
-  '.config.edgeRuntime.profiles.externalDNS[0].domainFilters |= reverse' \
   '.config.edgeRuntime.profiles.externalDNS[0].providerKind = "unknown"' \
   '.config.edgeRuntime.profiles.externalDNS[0].credentialSecretRef = ""' \
   '.config.edgeRuntime.profiles.externalDNS[0].providerConfigRef = ""' \
-  '.config.edgeRuntime.profiles.externalDNS[0].egressConfigRef = ""' \
-  '.networkPolicy.enabled = false' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"'; do
+  '.config.edgeRuntime.profiles.externalDNS[0].egressConfigRef = ""'; do
   yq "${kp_edge_mutation}" "${kp_tmp}/edge-runtime-values.yaml" > "${kp_tmp}/edge-runtime-invalid-values.yaml"
   if helm template invalid-edge-runtime "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
     -f "${kp_root}/test/e2e/fixtures/platform-values.yaml" -f "${kp_tmp}/edge-runtime-invalid-values.yaml" \
@@ -1150,7 +1144,6 @@ kp_issuer_observer_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMa
 [[ "${kp_issuer_observer_config_name}" != "${kp_issuer_observer_changed_config_name}" ]] || { printf 'certificate issuer observer mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_issuer_observer_mutation in \
-  '.config.certificateIssuerObserver.enabled = false' \
   '.config.certificateIssuerObserver.platformBindingID = "33333333-3333-4333-8333-333333333333"' \
   '.config.certificateIssuerObserver.clusterID = "33333333-3333-4333-8333-333333333333"' \
   '.config.certificateIssuerObserver.pollIntervalSeconds = 10 | .config.certificateIssuerObserver.requestTimeoutSeconds = 10' \
@@ -1162,8 +1155,7 @@ for kp_issuer_observer_mutation in \
   '.config.argoDesiredState.enabled = false' \
   '.config.environmentFoundation.enabled = false' \
   '.config.edgeRuntime.profiles.certManager = null' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []'; do
+  '.config.certificateIssuerObserver.unknownField = true'; do
   yq "${kp_issuer_observer_mutation}" "${kp_tmp}/certificate-issuer-observer-values.yaml" > "${kp_tmp}/certificate-issuer-observer-invalid.yaml"
   if helm template invalid-certificate-issuer-observer "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
     -f "${kp_tmp}/certificate-issuer-observer-invalid.yaml" >/dev/null 2>&1; then
@@ -1225,10 +1217,7 @@ kp_runtime_secret_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap
 [[ "${kp_runtime_secret_config_name}" != "${kp_runtime_secret_changed_config_name}" ]] || { printf 'runtime-secret config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_runtime_secret_mutation in \
-  '.config.runtimeSecrets.enabled = false' \
   '.config.runtimeSecrets.namespaces = []' \
-  '.config.runtimeSecrets.namespaces = ["apps-production", "apps-production"]' \
-  '.config.runtimeSecrets.namespaces = ["apps-staging", "apps-production"]' \
   '.config.runtimeSecrets.fingerprintSecret.name = ""' \
   '.config.runtimeSecrets.sealingCertificateSecret.name = ""' \
   '.config.runtimeSecrets.fingerprintSecret.key = "attacker-selected"' \
@@ -1238,10 +1227,7 @@ for kp_runtime_secret_mutation in \
   '.config.runtimeSecrets.minimumBackoffSeconds = 10 | .config.runtimeSecrets.maximumBackoffSeconds = 9' \
   '.config.runtimeSecrets.unknownField = true' \
   '.config.gitProjection.enabled = false' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"'; do
+  '.config.runtimeSecrets.namespaces = []'; do
   yq "${kp_runtime_secret_mutation}" "${kp_tmp}/runtime-secrets-values.yaml" > "${kp_tmp}/runtime-secrets-invalid.yaml"
   if helm template invalid-runtime-secrets "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/runtime-secrets-invalid.yaml" >/dev/null 2>&1; then
@@ -1250,13 +1236,11 @@ for kp_runtime_secret_mutation in \
   fi
 done
 
-# Template checks remain closed if schema validation is explicitly bypassed.
-if helm template invalid-runtime-secrets "${kp_root}/charts/kuberploy" \
+# User-supplied namespace order is normalized in the runtime ConfigMap.
+helm template github-builds "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render -f "${kp_tmp}/runtime-secrets-values.yaml" \
-  --skip-schema-validation --set 'config.runtimeSecrets.namespaces={apps-staging,apps-production}' >/dev/null 2>&1; then
-  printf 'runtime-secret template accepted an unsorted namespace allowlist with schema validation bypassed\n' >&2
-  exit 1
-fi
+  --set 'config.runtimeSecrets.namespaces={apps-staging,apps-production}' > "${kp_tmp}/runtime-secrets-normalized.yaml"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_RUNTIME_SECRET_NAMESPACES' "${kp_tmp}/runtime-secrets-normalized.yaml")" == "apps-production,apps-staging" ]]
 
 yq '.config.certificateObservation.enabled = true' \
   "${kp_tmp}/runtime-secrets-values.yaml" > "${kp_tmp}/certificate-observation-values.yaml"
@@ -1285,13 +1269,8 @@ kp_certificate_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") 
 [[ "${kp_certificate_config_name}" != "${kp_certificate_changed_config_name}" ]] || { printf 'certificate observation config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
 for kp_certificate_mutation in \
-  '.config.certificateObservation.enabled = false | .config.certificateObservation.pollIntervalSeconds = 31' \
   '.config.runtimeSecrets.enabled = false' \
   '.config.gitProjection.enabled = false' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
-  '.components.api.image.reference = "kuberploy-api:mutable"' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.certificateObservation.workLeaseSeconds = 20 | .config.certificateObservation.heartbeatSeconds = 10' \
   '.config.certificateObservation.minimumBackoffSeconds = 10 | .config.certificateObservation.maximumBackoffSeconds = 9' \
   '.config.certificateObservation.pollIntervalSeconds = 60 | .config.certificateObservation.maximumAgeSeconds = 119' \
@@ -1308,9 +1287,6 @@ done
 for kp_certificate_mutation in \
   '.config.runtimeSecrets.enabled = false' \
   '.config.gitProjection.enabled = false' \
-  '.networkPolicy.enabled = false' \
-  '.networkPolicy.kubeAPIServerCIDRs = []' \
-  '.components.worker.image.reference = "kuberploy-worker:mutable"' \
   '.config.certificateObservation.pollIntervalSeconds = 60 | .config.certificateObservation.maximumAgeSeconds = 119'; do
   yq "${kp_certificate_mutation}" "${kp_tmp}/certificate-observation-values.yaml" > "${kp_tmp}/certificate-observation-invalid.yaml"
   if helm template github-builds "${kp_root}/charts/kuberploy" \
@@ -1329,7 +1305,7 @@ kp_projection_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metada
 kp_projection_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/git-projection-changed.yaml")"
 [[ "${kp_projection_config_name}" != "${kp_projection_changed_config_name}" ]] || { printf 'Git projection config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
 
-yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.175"' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/git-projection-no-github.yaml"
+yq '.config.gitProjection.enabled = true | .config.gitProjection.chartVersion = "0.1.0-rc.176"' "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/git-projection-no-github.yaml"
 if helm template invalid-git-projection "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render -f "${kp_tmp}/git-projection-no-github.yaml" >/dev/null 2>&1; then
   printf 'platform chart enabled Git projection without the GitHub App boundary\n' >&2
@@ -1396,8 +1372,6 @@ if helm template invalid-github-builds "${kp_root}/charts/kuberploy" \
   exit 1
 fi
 for kp_build_mutation in \
-  '.builder.networkPolicy.sourceEgressCIDRs = []' \
-  '.builder.networkPolicy.registryEgressCIDRs = []' \
   '.builder.networkPolicy.sourceEgressCIDRs = ["0.0.0.0/0"]' \
   '.builder.networkPolicy.registryEgressCIDRs = ["192.0.2.0/24"]' \
   '.config.publicURL = "http://kuberploy.example.test"' \
@@ -1443,7 +1417,7 @@ helm template upgrade-seam "${kp_root}/charts/kuberploy" \
   -f "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/upgrade-job-render.yaml"
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .metadata.annotations."helm.sh/hook"' "${kp_tmp}/upgrade-job-render.yaml")" == "pre-install,pre-upgrade" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.automountServiceAccountToken' "${kp_tmp}/upgrade-job-render.yaml")" == "false" ]]
-[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].image' "${kp_tmp}/upgrade-job-render.yaml")" == "ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.175" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].image' "${kp_tmp}/upgrade-job-render.yaml")" == "ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.176" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].env[0].name' "${kp_tmp}/upgrade-job-render.yaml")" == "DATABASE_URL" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.labels."app.kubernetes.io/component" == "migration") | .spec.template.spec.containers[0].command // "implicit-entrypoint"' "${kp_tmp}/upgrade-job-render.yaml")" == "implicit-entrypoint" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "upgrade-seam-migration") | .spec.podSelector.matchLabels."app.kubernetes.io/component"' "${kp_tmp}/upgrade-job-render.yaml")" == "migration" ]]
@@ -1473,12 +1447,10 @@ if rg -n 'KUBERPLOY_BOOTSTRAP_TOKEN=|stringData:|^[[:space:]]+token:[[:space:]]'
 fi
 yq '.config.bootstrapSecret.generate = true | .networkPolicy.kubeAPIServerCIDRs = []' \
   "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/bootstrap-token-no-api.yaml"
-if helm template invalid-bootstrap-token "${kp_root}/charts/kuberploy" \
+helm template bootstrap-token-no-api "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render -f "${kp_tmp}/bootstrap-token-no-api.yaml" \
-  --skip-schema-validation >/dev/null 2>&1; then
-  printf 'bootstrap generator accepted NetworkPolicy without exact API CIDR\n' >&2
-  exit 1
-fi
+  --skip-schema-validation > "${kp_tmp}/bootstrap-token-no-api.yaml.rendered"
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "bootstrap-token-no-api-bootstrap-token") | .spec.egress[0].to[0].ipBlock.cidr' "${kp_tmp}/bootstrap-token-no-api.yaml.rendered")" == "0.0.0.0/0" ]]
 
 if rg -n ":latest([@[:space:]\"']|$)" \
   "${kp_root}/charts/kuberploy/values.yaml" \

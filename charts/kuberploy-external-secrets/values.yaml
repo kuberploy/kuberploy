@@ -6,7 +6,7 @@ secretFoundation:
   namespace:
     create: true
   networkPolicy:
-    enabled: true
+    enabled: false
     kubeAPIServerCIDRs: []
     providerHTTPSCIDRs: []
     monitoringNamespace: kuberploy-monitoring

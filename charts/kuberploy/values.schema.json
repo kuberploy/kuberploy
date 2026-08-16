@@ -95,15 +95,6 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "mode": { "const": "disabled" } }, "required": ["mode"] },
-              "then": {
-                "properties": {
-                  "prometheusURL": { "const": "" },
-                  "bearerTokenSecret": { "properties": { "name": { "const": "" } } }
-                }
-              }
-            },
-            {
               "if": { "properties": { "mode": { "const": "managed" } }, "required": ["mode"] },
               "then": {
                 "properties": {
@@ -179,17 +170,6 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "appID": { "const": 0 },
-                  "clientID": { "const": "" },
-                  "appSlug": { "const": "" },
-                  "secretRef": { "properties": { "name": { "const": "" } } }
-                }
-              }
-            },
-            {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
                 "properties": {
@@ -244,10 +224,6 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "bindingID": { "const": "" }, "clusterID": { "const": "" } } }
-            },
-            {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "bindingID": { "minLength": 36 }, "clusterID": { "minLength": 36 } } }
             }
@@ -288,22 +264,6 @@
           },
           "allOf": [
             {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "namespaces": { "maxItems": 0 },
-                  "fingerprintSecret": { "properties": { "name": { "const": "" } } },
-                  "sealingCertificateSecret": { "properties": { "name": { "const": "" } } },
-                  "pollIntervalSeconds": { "const": 5 },
-                  "workLeaseSeconds": { "const": 45 },
-                  "heartbeatSeconds": { "const": 10 },
-                  "idleSeconds": { "const": 1 },
-                  "minimumBackoffSeconds": { "const": 2 },
-                  "maximumBackoffSeconds": { "const": 300 }
-                }
-              }
-            },
-            {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
                 "properties": {
@@ -328,23 +288,7 @@
             "minimumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
             "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
             "maximumAgeSeconds": { "type": "integer", "minimum": 10, "maximum": 1800 }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "pollIntervalSeconds": { "const": 30 },
-                  "workLeaseSeconds": { "const": 45 },
-                  "heartbeatSeconds": { "const": 10 },
-                  "idleSeconds": { "const": 1 },
-                  "minimumBackoffSeconds": { "const": 2 },
-                  "maximumBackoffSeconds": { "const": 300 },
-                  "maximumAgeSeconds": { "const": 90 }
-                }
-              }
-            }
-          ]
+          }
         },
         "certificateIssuerObserver": {
           "type": "object",
@@ -360,19 +304,6 @@
             "readinessLeaseSeconds": { "type": "integer", "minimum": 30, "maximum": 900 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "platformBindingID": { "const": "" },
-                  "clusterID": { "const": "" },
-                  "pollIntervalSeconds": { "const": 30 },
-                  "requestTimeoutSeconds": { "const": 10 },
-                  "maximumAgeSeconds": { "const": 120 },
-                  "readinessLeaseSeconds": { "const": 180 }
-                }
-              }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
@@ -394,7 +325,6 @@
             "profiles": {
               "type": "array",
               "maxItems": 32,
-              "uniqueItems": true,
               "items": {
                 "type": "object",
                 "additionalProperties": false,
@@ -418,21 +348,6 @@
             "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "namespaces": { "maxItems": 0 },
-                  "profiles": { "maxItems": 0 },
-                  "pollIntervalSeconds": { "const": 30 },
-                  "workLeaseSeconds": { "const": 120 },
-                  "heartbeatSeconds": { "const": 20 },
-                  "readinessSeconds": { "const": 90 },
-                  "minimumBackoffSeconds": { "const": 5 },
-                  "maximumBackoffSeconds": { "const": 300 }
-                }
-              }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "namespaces": { "minItems": 1 }, "profiles": { "minItems": 1 } } }
@@ -494,7 +409,6 @@
                 "externalDNS": {
                   "type": "array",
                   "maxItems": 64,
-                  "uniqueItems": true,
                   "items": { "$ref": "#/$defs/edgeExternalDNSProfile" }
                 }
               }
@@ -507,26 +421,6 @@
             "maximumBackoffSeconds": { "type": "integer", "minimum": 1, "maximum": 3600 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "profiles": {
-                    "properties": {
-                      "traefik": { "type": "null" },
-                      "certManager": { "type": "null" },
-                      "externalDNS": { "maxItems": 0 }
-                    }
-                  },
-                  "pollIntervalSeconds": { "const": 30 },
-                  "workLeaseSeconds": { "const": 120 },
-                  "heartbeatSeconds": { "const": 20 },
-                  "readinessSeconds": { "const": 90 },
-                  "minimumBackoffSeconds": { "const": 5 },
-                  "maximumBackoffSeconds": { "const": 300 }
-                }
-              }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
@@ -553,11 +447,11 @@
             "clusterID": {"type":"string","pattern":"^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$"},
             "namespace": {"type":"string","pattern":"^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)$"},
             "version": {"type":"string","pattern":"^(?:|v[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?)$"},
-            "image": {"type":"string","pattern":"^(?:|[^\\s@]+@sha256:[0-9a-f]{64})$","maxLength":512},
+            "image": {"type":"string","pattern":"^(?:|[^\\s]+)$","maxLength":512},
             "serviceAccount": {"type":"string","pattern":"^(?:|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)$"},
             "pollIntervalSeconds": {"type":"integer","minimum":1,"maximum":60}
           },
-          "allOf": [{"if":{"properties":{"enabled":{"const":true}},"required":["enabled"]},"then":{"properties":{"platformBindingID":{"minLength":36},"clusterID":{"minLength":36},"namespace":{"minLength":1},"version":{"minLength":1},"image":{"minLength":80},"serviceAccount":{"minLength":1}}}},{"if":{"properties":{"enabled":{"const":false}},"required":["enabled"]},"then":{"properties":{"platformBindingID":{"const":""},"clusterID":{"const":""},"namespace":{"const":""},"version":{"const":""},"image":{"const":""},"serviceAccount":{"const":""},"pollIntervalSeconds":{"const":5}}}}]
+          "allOf": [{"if":{"properties":{"enabled":{"const":true}},"required":["enabled"]},"then":{"properties":{"platformBindingID":{"minLength":36},"clusterID":{"minLength":36},"namespace":{"minLength":1},"version":{"minLength":1},"image":{"minLength":1},"serviceAccount":{"minLength":1}}}}]
         },
         "argoObservation": {
           "type": "object",
@@ -569,10 +463,6 @@
             "pollIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 900 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "namespace": { "const": "" } } }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "namespace": { "minLength": 1 } } }
@@ -591,10 +481,6 @@
             "pollIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 60 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": { "platformBindingID": { "const": "" }, "clusterID": { "const": "" }, "psaVersion": { "const": "" }, "pollIntervalSeconds": { "const": 1 } } }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "platformBindingID": { "minLength": 36 }, "clusterID": { "minLength": 36 }, "psaVersion": { "minLength": 5 } } }
@@ -617,21 +503,6 @@
             "catalogMaxAgeSeconds": { "type": "integer", "minimum": 60, "maximum": 3600 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "platformBindingID": { "const": "" },
-                  "clusterID": { "const": "" },
-                  "namespace": { "const": "" },
-                  "runtimeChartRepository": { "const": "" },
-                  "runtimeChartVersion": { "const": "" },
-                  "runtimeChartDigest": { "const": "" },
-                  "pollIntervalSeconds": { "const": 1 },
-                  "catalogMaxAgeSeconds": { "const": 900 }
-                }
-              }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
@@ -661,15 +532,15 @@
             "readinessLeaseSeconds": { "type": "integer", "minimum": 5, "maximum": 300 },
             "ociRequestSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
             "ociRegistryHosts": {
-              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "type": "array", "maxItems": 64,
               "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
             },
             "ociAuthHosts": {
-              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "type": "array", "maxItems": 64,
               "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
             },
             "ociRedirectHosts": {
-              "type": "array", "maxItems": 64, "uniqueItems": true,
+              "type": "array", "maxItems": 64,
               "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
             },
             "ociCredentialProfiles": {
@@ -702,23 +573,6 @@
             "packageCacheBytes": { "type": "integer", "minimum": 8388608, "maximum": 1073741824 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": { "properties": {
-                "rendererNamespace": { "const": "" },
-                "rendererPollMilliseconds": { "const": 250 },
-                "workPollMilliseconds": { "const": 1000 },
-                "renderLeaseSeconds": { "const": 60 },
-                "publishLeaseSeconds": { "const": 90 },
-                "readinessLeaseSeconds": { "const": 30 },
-                "ociRequestSeconds": { "const": 15 },
-                "ociRegistryHosts": { "maxItems": 0 },
-                "ociAuthHosts": { "maxItems": 0 },
-                "ociRedirectHosts": { "maxItems": 0 },
-                "ociCredentialProfiles": { "maxItems": 0 },
-                "packageCacheBytes": { "const": 67108864 }
-              } }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": { "properties": { "rendererNamespace": { "minLength": 1 }, "ociRegistryHosts": { "minItems": 1 } } }
@@ -758,18 +612,6 @@
             "observationIntervalSeconds": { "type": "integer", "minimum": 15, "maximum": 86400 }
           },
           "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": false } }, "required": ["enabled"] },
-              "then": {
-                "properties": {
-                  "targetID": { "const": "" }, "targetName": { "const": "" }, "endpoint": { "const": "" }, "repositoryPrefix": { "const": "" },
-                  "pullCredentialRef": { "const": "" }, "pushCredentialRef": { "const": "" }, "cacheCredentialRef": { "const": "" },
-                  "lifecycleCredentialRef": { "const": "" }, "allowPlainHTTP": { "const": false }, "namespace": { "const": "" },
-                  "deployment": { "const": "" }, "persistentVolumeClaim": { "const": "" }, "registryConfigMap": { "const": "" },
-                  "credentialSecret": { "properties": { "name": { "const": "" } } }
-                }
-              }
-            },
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
@@ -867,10 +709,10 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "edgeNamespace": { "$ref": "#/$defs/dnsLabel" },
-        "managedPostgreSQLNamespace": { "const": "kuberploy-system" },
-        "managedValkeyNamespace": { "const": "kuberploy-system" },
+        "managedPostgreSQLNamespace": { "$ref": "#/$defs/dnsLabel" },
+        "managedValkeyNamespace": { "$ref": "#/$defs/dnsLabel" },
         "kubeAPIServerCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
-        "externalEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
+        "externalEgressCIDRs": { "$ref": "#/$defs/providerCIDRs" },
         "externalPostgreSQLEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
         "externalValkeyEgressCIDRs": { "$ref": "#/$defs/restrictedCIDRs" }
       }
@@ -945,8 +787,8 @@
               "enabled": { "const": true },
               "networkPolicy": {
                 "properties": {
-                  "sourceEgressCIDRs": { "minItems": 1 },
-                  "registryEgressCIDRs": { "minItems": 1 }
+                  "sourceEgressCIDRs": { "maxItems": 128 },
+                  "registryEgressCIDRs": { "maxItems": 16 }
                 }
               }
             },
@@ -984,22 +826,6 @@
               "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
             },
             "required": ["gitProjection", "githubApp", "platformGitBinding", "argoObservation", "environmentFoundation"]
-          },
-          "components": {
-            "properties": {
-              "api": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } },
-              "worker": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } }
-            }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": {
-                "minItems": 1,
-                "items": { "type": "string", "pattern": "(?:/32|/128)$" }
-              }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs"]
           }
         }
       }
@@ -1029,20 +855,6 @@
               "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
             },
             "required": ["gitProjection", "githubApp", "argoDesiredState", "environmentFoundation"]
-          },
-          "components": {
-            "properties": {
-              "api": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } },
-              "worker": { "properties": { "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } } } }
-            }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": { "minItems": 1, "items": { "type": "string", "pattern": "(?:/32|/128)$" } },
-              "externalEgressCIDRs": { "minItems": 1, "items": { "type": "string", "pattern": "(?:/32|/128)$" } }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs", "externalEgressCIDRs"]
           }
         }
       }
@@ -1108,13 +920,6 @@
               }
             },
             "required": ["gitProjection", "argoDesiredState", "environmentFoundation", "edgeRuntime"]
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": { "minItems": 1 }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs"]
           }
         }
       }
@@ -1148,27 +953,6 @@
               }
             },
             "required": ["runtimeSecrets", "gitProjection"]
-          },
-          "components": {
-            "properties": {
-              "api": {
-                "properties": {
-                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
-                }
-              },
-              "worker": {
-                "properties": {
-                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
-                }
-              }
-            }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": { "minItems": 1 }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs"]
           }
         }
       }
@@ -1225,13 +1009,6 @@
                 "required": ["enabled"]
               }
             }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": { "minItems": 1 }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs"]
           }
         }
       }
@@ -1253,27 +1030,7 @@
       },
       "then": {
         "properties": {
-          "components": {
-            "properties": {
-              "api": {
-                "properties": {
-                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
-                }
-              },
-              "worker": {
-                "properties": {
-                  "image": { "properties": { "reference": { "pattern": "^[^\\s@]+@sha256:[0-9a-f]{64}$" } } }
-                }
-              }
-            }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": { "const": true },
-              "kubeAPIServerCIDRs": { "minItems": 1 }
-            },
-            "required": ["enabled", "kubeAPIServerCIDRs"]
-          }
+          "config": { "type": "object" }
         }
       }
     }
@@ -1442,7 +1199,6 @@
     "edgeDNS01ProfileNames": {
       "type": "array",
       "maxItems": 32,
-      "uniqueItems": true,
       "items": { "$ref": "#/$defs/dnsLabel" }
     },
     "edgeExternalDNSProfile": {
@@ -1469,7 +1225,6 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 64,
-          "uniqueItems": true,
           "items": { "$ref": "#/$defs/edgeObjectName" }
         }
       },
@@ -1517,7 +1272,65 @@
           "type": "string",
           "minLength": 12,
           "maxLength": 512,
-          "pattern": "^[^\\s@]+:v0\\.32\\.2$"
+          "pattern": "^(?:[^\\s@]+:v0\\.32\\.2|[^\\s@]+@sha256:[0-9a-f]{64})$"
+        },
+        "dindImage": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 512,
+          "pattern": "^(?:[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\\s@]+@sha256:[0-9a-f]{64})$"
+        },
+        "buildSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "profiles"],
+          "properties": {
+            "name": { "$ref": "#/$defs/optionalDNSLabel" },
+            "profiles": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "label", "key", "applicationIds"],
+                "properties": {
+                  "id": { "type": "string", "maxLength": 63, "pattern": "^[a-z][a-z0-9_.-]{0,62}$" },
+                  "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "key": { "$ref": "#/$defs/secretKey" },
+                  "applicationIds": {
+                    "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+                    "items": { "type": "string", "maxLength": 36, "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "sshSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "profiles"],
+          "properties": {
+            "name": { "$ref": "#/$defs/optionalDNSLabel" },
+            "profiles": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "label", "key", "applicationIds"],
+                "properties": {
+                  "id": { "type": "string", "maxLength": 63, "pattern": "^[a-z][a-z0-9_.-]{0,62}$" },
+                  "label": { "type": "string", "minLength": 1, "maxLength": 128 },
+                  "key": { "$ref": "#/$defs/secretKey" },
+                  "applicationIds": {
+                    "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+                    "items": { "type": "string", "maxLength": 36, "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" }
+                  }
+                }
+              }
+            }
+          }
         },
         "namespace": {
           "type": "object",
@@ -1547,15 +1360,16 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["enabled"],
-          "properties": { "enabled": { "const": true } }
+          "properties": { "enabled": { "type": "boolean" } }
         },
         "networkPolicy": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "sourceEgressCIDRs", "registryEgressCIDRs"],
+          "required": ["enabled", "kubeAPIServerCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
-            "enabled": { "const": true },
-            "sourceEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
+            "enabled": { "type": "boolean" },
+            "kubeAPIServerCIDRs": { "$ref": "#/$defs/restrictedCIDRs" },
+            "sourceEgressCIDRs": { "$ref": "#/$defs/providerCIDRs" },
             "registryEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" }
           }
         },
@@ -1639,13 +1453,11 @@
     "namespaces": {
       "type": "array",
       "maxItems": 128,
-      "uniqueItems": true,
       "items": { "$ref": "#/$defs/dnsLabel" }
     },
     "cidrs": {
       "type": "array",
       "maxItems": 32,
-      "uniqueItems": true,
       "items": {
         "type": "string",
         "minLength": 3,
@@ -1663,10 +1475,19 @@
         }
       ]
     },
+    "providerCIDRs": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 7,
+        "maxLength": 64,
+        "pattern": "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])|[0-9a-f:]+/(?:1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8]))$"
+      }
+    },
     "hostCIDRs": {
       "type": "array",
       "maxItems": 16,
-      "uniqueItems": true,
       "items": {
         "type": "string",
         "minLength": 7,

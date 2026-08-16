@@ -51,6 +51,9 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := config.ValidateControlPlaneEgressFromEnvironment(); err != nil {
+		return err
+	}
 	databaseURL, err := config.Required("KUBERPLOY_DATABASE_URL")
 	if err != nil {
 		return err

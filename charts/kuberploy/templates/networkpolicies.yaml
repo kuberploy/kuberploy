@@ -1,5 +1,8 @@
 {{- include "kuberploy.validateNetworkPolicy" . -}}
 {{- if .Values.networkPolicy.enabled }}
+{{- $configuredAPICIDRs := .Values.networkPolicy.kubeAPIServerCIDRs -}}
+{{- $apiCIDRs := $configuredAPICIDRs -}}
+{{- if empty $apiCIDRs -}}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" -}}{{- end -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -200,9 +203,9 @@ spec:
       ports:
         - {port: {{ $.Values.config.managedRegistry.servicePort }}, protocol: TCP}
     {{- end }}
-    {{- if and $.Values.networkPolicy.kubeAPIServerCIDRs (or (eq $component "worker") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.environmentFoundation.enabled $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled))) }}
+    {{- if or (eq $component "worker") (and (eq $component "api") (or (eq $.Values.config.monitoring.mode "managed") $.Values.rbac.observedNamespaces $.Values.config.environmentFoundation.enabled $.Values.config.runtimeSecrets.enabled $.Values.config.buildLogs.enabled)) }}
     - to:
-        {{- range $.Values.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock:
             cidr: {{ . | quote }}
         {{- end }}
@@ -210,10 +213,29 @@ spec:
         - {port: 443, protocol: TCP}
         - {port: 6443, protocol: TCP}
     {{- end }}
-    {{- range $.Values.networkPolicy.externalEgressCIDRs }}
+    {{- $externalCIDRs := $.Values.networkPolicy.externalEgressCIDRs -}}
+    {{- $defaultPublicEgress := empty $externalCIDRs -}}
+    {{- if $defaultPublicEgress -}}
+      {{- $externalCIDRs = list "0.0.0.0/0" "::/0" -}}
+    {{- end -}}
+    {{- range $externalCIDR := $externalCIDRs }}
     - to:
         - ipBlock:
-            cidr: {{ . | quote }}
+            cidr: {{ $externalCIDR | quote }}
+            {{- if $defaultPublicEgress }}
+            {{- $exclusions := list -}}
+            {{- range $apiCIDR := $configuredAPICIDRs -}}
+              {{- if or (and (contains "." $externalCIDR) (contains "." $apiCIDR)) (and (contains ":" $externalCIDR) (contains ":" $apiCIDR)) -}}
+                {{- $exclusions = append $exclusions $apiCIDR -}}
+              {{- end -}}
+            {{- end -}}
+            {{- with $exclusions }}
+            except:
+              {{- range . }}
+              - {{ . | quote }}
+              {{- end }}
+            {{- end }}
+            {{- end }}
       ports:
         {{- range $port := sortAlpha (keys $externalPorts) }}
         - {port: {{ atoi $port }}, protocol: TCP}

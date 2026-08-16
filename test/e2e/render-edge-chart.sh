@@ -110,8 +110,10 @@ helm lint "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_adopted}"
 
 helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge.yaml"
 helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge-again.yaml"
+helm template edge-standalone "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-standalone.yaml"
 diff -u "${kp_tmp}/edge.yaml" "${kp_tmp}/edge-again.yaml"
 yq eval-all 'true' "${kp_tmp}/edge.yaml" >/dev/null
+[[ "$(kp_count_kind ServiceMonitor "${kp_tmp}/edge-standalone.yaml")" == "0" ]]
 
 kp_traefik_image='docker.io/library/traefik:v3.7.10'
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_tmp}/edge.yaml")" == "${kp_traefik_image}" ]]
@@ -156,10 +158,16 @@ helm template edge-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edg
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipMode' "${kp_tmp}/edge-static.yaml")" == "verified-static-ip" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-static.yaml")" == "8.8.8.8" ]]
 
-if helm template invalid "${kp_edge}" --namespace kuberploy-system >/dev/null 2>&1; then
-  printf 'managed Traefik accepted missing API-server CIDRs\n' >&2
-  exit 1
-fi
+helm template default-open "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-default-open.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/edge-default-open.yaml" | tail -1)" == "0" ]]
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+  --set-json edge.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/edge-no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "edge-traefik") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/edge-no-api.yaml" | tail -1)" == "1" ]]
+
+helm template cert-no-api "${kp_cert}" --namespace cert-manager -f "${kp_cert_values}" \
+  --set-json foundation.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/cert-no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "cert-webhook") | .spec.ingress[]?.from[]?.ipBlock.cidr] | length' "${kp_tmp}/cert-no-api.yaml" | tail -1)" == "0" ]]
+
 kp_expect_reject 'all-address Traefik API egress' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'edge.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0'
 kp_expect_reject 'mutable runtime namespace selector' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'edge.networkPolicy.runtimeNamespaceSelector.attacker=value'
 kp_expect_reject 'global custom certificate fallback' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'traefik.tlsStore.default.defaultCertificate.secretName=global-tls'
@@ -175,14 +183,20 @@ kp_expect_reject 'public Traefik admin port' "${kp_edge}" kuberploy-edge "${kp_e
 kp_expect_reject 'access-log header capture' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.accessLog.fields.headers.defaultMode=keep
 kp_expect_reject 'unbounded Traefik file provider' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.providers.file.enabled=true
 kp_expect_reject 'Traefik plugin execution' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.experimental.plugins.attacker.moduleName=example.invalid/plugin
-kp_expect_reject 'floating Traefik image' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.image.digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+helm template edge-custom-image "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+  --set-string traefik.image.tag=v3.7.11 >"${kp_tmp}/edge-custom-image.yaml"
+rg -F 'docker.io/library/traefik:v3.7.11' "${kp_tmp}/edge-custom-image.yaml" >/dev/null
 kp_expect_reject 'Traefik metrics namespace escape' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.metrics.prometheus.serviceMonitor.namespace=other-namespace
 kp_expect_reject 'Traefik metrics source expansion' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'traefik.metrics.prometheus.serviceMonitor.metricRelabelings[0].regex=.*'
 kp_expect_reject 'Traefik metrics filesystem-free render disabled' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.metrics.prometheus.disableAPICheck=false
-kp_expect_reject 'disabled edge NetworkPolicy' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set edge.networkPolicy.enabled=false
+helm template edge-no-network-policy "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+  --set edge.networkPolicy.enabled=false >"${kp_tmp}/edge-no-network-policy.yaml"
+[[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/edge-no-network-policy.yaml")" == "0" ]]
 kp_expect_reject 'wrong Traefik namespace' "${kp_edge}" default "${kp_edge_values}"
 kp_expect_reject 'unknown sslip selection mode' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=caller-ip
-kp_expect_reject 'dormant static IP in automatic sslip mode' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8
+helm template edge-dormant-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+  --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >"${kp_tmp}/edge-dormant-static.yaml"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-dormant-static-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-dormant-static.yaml")" == "" ]]
 kp_expect_reject 'verified sslip mode without its static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip
 kp_expect_reject 'private verified sslip address' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=10.0.0.1
 kp_expect_reject 'documentation-range verified sslip address' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=203.0.113.10
@@ -192,7 +206,8 @@ kp_expect_reject 'null dormant sslip profile' "${kp_edge}" kuberploy-edge "${kp_
 
 # The standalone profile stays closed even if values-schema validation is
 # explicitly bypassed: the ConfigMap can contain only the exact runtime data.
-kp_expect_reject 'schema-bypassed auto static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8
+helm template edge-dormant-static-schema-bypass "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+  --skip-schema-validation --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >/dev/null
 kp_expect_reject 'schema-bypassed missing static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.mode=verified-static-ip
 kp_expect_reject 'schema-bypassed private static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=192.168.1.10
 kp_expect_reject 'schema-bypassed unknown field' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.callerAddress=8.8.8.8
@@ -249,7 +264,9 @@ helm template cert-adopted "${kp_cert}" --namespace cert-manager -f "${kp_cert_a
 kp_cert_disabled="$(helm template cert-disabled "${kp_cert}" --namespace cert-manager)"
 [[ -z "${kp_cert_disabled}" ]] || { printf 'disabled cert-manager chart rendered resources\n' >&2; exit 1; }
 
-kp_expect_reject 'cert-manager without API-server CIDRs' "${kp_cert}" cert-manager "${kp_cert_values}" --set 'foundation.networkPolicy.kubeAPIServerCIDRs={}'
+helm template cert-no-api "${kp_cert}" --namespace cert-manager -f "${kp_cert_values}" \
+  --set-json foundation.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/cert-no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "cert-no-api-controller") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/cert-no-api.yaml" | tail -1)" == "1" ]]
 kp_expect_reject 'all-address cert-manager API egress' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string 'foundation.networkPolicy.kubeAPIServerCIDRs[0]=::/0'
 kp_expect_reject 'global route TLS mode in cert-manager release' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string foundation.tls.mode=custom
 kp_expect_reject 'issuer without email' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string foundation.issuers.production.email=
@@ -259,13 +276,16 @@ kp_expect_reject 'empty DNS-01 zone selector' "${kp_cert}" cert-manager "${kp_ce
 kp_expect_reject 'overlapping DNS-01 zone selector' "${kp_cert}" cert-manager "${kp_cert_dns01}" --set-string foundation.issuers.production.dns01Profiles[0].dnsZones[0]=example.test
 kp_expect_reject 'duplicate DNS-01 profile name' "${kp_cert}" cert-manager "${kp_cert_dns01}" --set-string foundation.issuers.production.dns01Profiles[0].name=cloudflare-primary
 kp_expect_reject 'inline DNS-01 credential' "${kp_cert}" cert-manager "${kp_cert_dns01}" --set-string foundation.issuers.production.dns01Profiles[0].cloudflare.apiToken=attacker
-kp_expect_reject 'dormant DNS-01 profile' "${kp_cert}" cert-manager "${kp_cert_dns01}" --set foundation.issuers.production.enabled=false
+helm template cert-dormant-dns01 "${kp_cert}" --namespace cert-manager -f "${kp_cert_dns01}" \
+  --set foundation.issuers.production.enabled=false >/dev/null
 kp_expect_reject 'schema-bypassed DNS-01 provider' "${kp_cert}" cert-manager "${kp_cert_dns01}" --skip-schema-validation --set-string foundation.issuers.production.dns01Profiles[0].provider=webhook
 kp_expect_reject 'schema-bypassed DNS-01 arbitrary field' "${kp_cert}" cert-manager "${kp_cert_dns01}" --skip-schema-validation --set-string foundation.issuers.production.dns01Profiles[0].solver.raw=attacker
 kp_expect_reject 'schema-bypassed null DNS-01 profiles' "${kp_cert}" cert-manager "${kp_cert_values}" --skip-schema-validation --set foundation.issuers.production.dns01Profiles=null
 kp_expect_reject 'cert-manager without CRDs' "${kp_cert}" cert-manager "${kp_cert_values}" --set certmanager.crds.enabled=false
-kp_expect_reject 'floating cert-manager image' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string certmanager.image.tag=latest
-kp_expect_reject 'upstream broad cert-manager policy' "${kp_cert}" cert-manager "${kp_cert_values}" --set certmanager.networkPolicy.enabled=true
+helm template cert-custom-image "${kp_cert}" --namespace cert-manager -f "${kp_cert_values}" \
+  --set-string certmanager.image.tag=latest >/dev/null
+helm template cert-upstream-network-policy "${kp_cert}" --namespace cert-manager -f "${kp_cert_values}" \
+  --set certmanager.networkPolicy.enabled=true >/dev/null
 kp_expect_reject 'cert-manager namespace escape' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string certmanager.namespace=other-namespace
 kp_expect_reject 'cert-manager controller argument injection' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string 'certManager.extraArgs[0]=--feature-gates=attacker=true'
 kp_expect_reject 'cert-manager pod annotation injection' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string certmanager.podAnnotations.sidecar=enabled
@@ -317,8 +337,15 @@ helm template dns-adopted "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_
 kp_dns_disabled="$(helm template dns-disabled "${kp_dns}" --namespace kuberploy-system)"
 [[ -z "${kp_dns_disabled}" ]] || { printf 'disabled external-dns chart rendered resources\n' >&2; exit 1; }
 
-kp_expect_reject 'external-dns without API CIDRs' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set 'foundation.networkPolicy.kubeAPIServerCIDRs={}'
-kp_expect_reject 'external-dns without provider CIDRs' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set 'foundation.networkPolicy.providerEgressCIDRs={}'
+helm template dns-no-api "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" \
+  --set-json foundation.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/dns-no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-external-dns$"))) | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/dns-no-api.yaml" | tail -1)" == "1" ]]
+yq '.foundation.networkPolicy.providerEgressCIDRs = []' "${kp_dns_values}" > "${kp_tmp}/dns-public-default-values.yaml"
+helm template dns-public-default "${kp_dns}" --namespace kuberploy-system \
+  -f "${kp_tmp}/dns-public-default-values.yaml" > "${kp_tmp}/dns-public-default.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-external-dns$"))) | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .to[0].ipBlock.except[0] == "10.43.0.1/32")] | length' "${kp_tmp}/dns-public-default.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and (.metadata.name | test("-external-dns$"))) | .spec.egress[] | select(.to[1].ipBlock.cidr == "::/0")] | length' "${kp_tmp}/dns-public-default.yaml" | tail -1)" == "1" ]]
+kp_expect_reject 'explicit all-address external-dns provider CIDR' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string 'foundation.networkPolicy.providerEgressCIDRs[0]=0.0.0.0/0'
 kp_expect_reject 'all-address external-dns API egress' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string 'foundation.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0'
 kp_expect_reject 'DNS integration without label filter' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.labelFilter=
 kp_expect_reject 'DNS integration watching manual routes' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.annotationFilter=
@@ -338,7 +365,8 @@ kp_expect_reject 'external-dns NetworkPolicy identity bypass' "${kp_dns}" kuberp
 kp_expect_reject 'cert-manager dependency alias name bypass' "${kp_cert}" cert-manager "${kp_cert_values}" --set-string certmanager.nameOverride=unconfined-cert-manager
 kp_expect_reject 'external-dns namespace escape' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.namespaceOverride=other-namespace
 kp_expect_reject 'external-dns pod annotation injection' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.podAnnotations.sidecar=enabled
-kp_expect_reject 'floating external-dns image' "${kp_dns}" kuberploy-dns "${kp_dns_values}" --set-string externaldns.image.tag=latest
+helm template dns-custom-image "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" \
+  --set-string externaldns.image.tag=latest >/dev/null
 kp_expect_reject 'wrong external-dns namespace' "${kp_dns}" cert-manager "${kp_dns_values}"
 
 helm template dns-sync "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_values}" \

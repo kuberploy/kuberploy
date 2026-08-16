@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type {
   ExternalDNSIntegration,
@@ -211,6 +211,32 @@ export function ExternalDNSPage() {
   const [errors, setErrors] = useState<
     Partial<Record<keyof IntegrationDraft, string>>
   >({});
+  const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const deactivateAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
+  const editorSessionRef = useRef(0);
+  const editorScope = JSON.stringify({
+    integrationId: editing?.id ?? null,
+    draft,
+  });
+  const editorScopeRef = useRef(editorScope);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  editorScopeRef.current = editorScope;
+
+  const currentEditingIntegration = editing
+    ? integrations.data?.items.find(
+        (integration) => integration.id === editing.id,
+      )
+    : undefined;
+  const editingIsCurrent =
+    !editing ||
+    Boolean(
+      currentEditingIntegration &&
+      currentEditingIntegration.lifecycle !== "deactivated" &&
+      JSON.stringify(currentEditingIntegration) === JSON.stringify(editing),
+    );
 
   useEffect(() => {
     setDraft(integrationDraft(editing));
@@ -226,12 +252,30 @@ export function ExternalDNSPage() {
       integrationId?: string;
       input: ExternalDNSIntegrationInput;
       idempotencyKey: string;
+      editorScope: string;
+      editorSession: number;
     }) =>
       integrationId
         ? api.updateExternalDNSIntegration(integrationId, input, idempotencyKey)
         : api.createExternalDNSIntegration(input, idempotencyKey),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
+    onMutate: () => setSaveError(null),
+    onSuccess: async (_value, input) => {
+      const isCurrentEditor =
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current;
+      if (!isCurrentEditor) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["external-dns-integrations"],
+          }),
+          queryClient.invalidateQueries({ queryKey: ["external-dns-status"] }),
+        ]);
+        return;
+      }
+      if (saveAttempt.current?.key === input.idempotencyKey)
+        saveAttempt.current = null;
+      editorSessionRef.current += 1;
       setEditing(undefined);
       setDraft(emptyDraft());
       await Promise.all([
@@ -241,14 +285,36 @@ export function ExternalDNSPage() {
         queryClient.invalidateQueries({ queryKey: ["external-dns-status"] }),
       ]);
     },
+    onError: (error, input) => {
+      if (
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current
+      )
+        setSaveError(error);
+    },
   });
 
   const deactivate = useMutation({
-    mutationFn: (integrationId: string) =>
-      api.deactivateExternalDNSIntegration(integrationId, crypto.randomUUID()),
+    mutationFn: ({
+      integrationId,
+      idempotencyKey,
+      editorSession,
+    }: {
+      integrationId: string;
+      idempotencyKey: string;
+      editorSession: number;
+    }) => api.deactivateExternalDNSIntegration(integrationId, idempotencyKey),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
-      setEditing(undefined);
+    onSuccess: async (_value, input) => {
+      const isCurrentAttempt =
+        deactivateAttempt.current?.key === input.idempotencyKey;
+      if (isCurrentAttempt) {
+        deactivateAttempt.current = null;
+        if (editorSessionRef.current === input.editorSession) {
+          editorSessionRef.current += 1;
+          setEditing(undefined);
+        }
+      }
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ["external-dns-integrations"],
@@ -260,6 +326,7 @@ export function ExternalDNSPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (editing && !editingIsCurrent) return;
     const nextErrors = validateDraft(draft);
     setErrors(nextErrors);
     if (
@@ -268,11 +335,44 @@ export function ExternalDNSPage() {
       me.data?.authentication.kind !== "session"
     )
       return;
+    const input = inputFromDraft(draft);
+    const signature = JSON.stringify({ integrationId: editing?.id, input });
+    const idempotencyKey =
+      saveAttempt.current?.signature === signature
+        ? saveAttempt.current.key
+        : crypto.randomUUID();
+    saveAttempt.current = { signature, key: idempotencyKey };
     save.mutate({
       integrationId: editing?.id,
-      input: inputFromDraft(draft),
-      idempotencyKey: crypto.randomUUID(),
+      input,
+      idempotencyKey,
+      editorScope,
+      editorSession: editorSessionRef.current,
     });
+  };
+
+  const deactivateIntegration = (integrationId: string) => {
+    const signature = JSON.stringify({ integrationId });
+    const idempotencyKey =
+      deactivateAttempt.current?.signature === signature
+        ? deactivateAttempt.current.key
+        : crypto.randomUUID();
+    deactivateAttempt.current = { signature, key: idempotencyKey };
+    deactivate.mutate({
+      integrationId,
+      idempotencyKey,
+      editorSession: editorSessionRef.current,
+    });
+  };
+
+  const openEditor = (integration: ExternalDNSIntegration) => {
+    editorSessionRef.current += 1;
+    setEditing(integration);
+  };
+
+  const closeEditor = () => {
+    editorSessionRef.current += 1;
+    setEditing(undefined);
   };
 
   const updateMode = (mode: ExternalDNSIntegrationMode) =>
@@ -376,6 +476,12 @@ export function ExternalDNSPage() {
                   <span className="placeholder-badge">First 100</span>
                 ) : null}
               </div>
+              {deactivate.error ? (
+                <ErrorPanel
+                  error={deactivate.error}
+                  title="Integration was not deactivated"
+                />
+              ) : null}
               {integrations.isPending ? <Skeleton lines={7} /> : null}
               {integrations.error ? (
                 <ErrorPanel
@@ -460,12 +566,17 @@ export function ExternalDNSPage() {
                         <div className="form-actions">
                           <Button
                             variant="secondary"
-                            onClick={() => setEditing(integration)}
+                            disabled={integration.lifecycle === "deactivated"}
+                            onClick={() => openEditor(integration)}
                           >
                             <Icon name="settings" /> Edit profile
                           </Button>
                           <Button
                             variant="secondary"
+                            disabled={
+                              integration.lifecycle === "deactivated" ||
+                              deactivate.isPending
+                            }
                             busy={deactivate.isPending}
                             onClick={() => {
                               if (
@@ -473,7 +584,7 @@ export function ExternalDNSPage() {
                                   `Deactivate ${integration.name}? Its exact protected Git bundle will be removed.`,
                                 )
                               )
-                                deactivate.mutate(integration.id);
+                                deactivateIntegration(integration.id);
                             }}
                           >
                             <Icon name="close" /> Deactivate
@@ -496,15 +607,18 @@ export function ExternalDNSPage() {
                     <h2>{editing?.name ?? "Integration metadata"}</h2>
                   </div>
                   {editing ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => setEditing(undefined)}
-                    >
+                    <Button variant="ghost" onClick={closeEditor}>
                       Cancel
                     </Button>
                   ) : null}
                 </div>
                 <form className="form-grid" onSubmit={submit}>
+                  {editing && !editingIsCurrent ? (
+                    <div className="notice notice--warning">
+                      This integration changed, was deactivated, or is no longer
+                      available. Reload the catalog before saving it.
+                    </div>
+                  ) : null}
                   <Field label="Immutable slug" required error={errors.slug}>
                     <input
                       value={draft.slug}
@@ -730,9 +844,13 @@ export function ExternalDNSPage() {
                   {environments.error ? (
                     <ErrorPanel error={environments.error} />
                   ) : null}
-                  {save.error ? <ErrorPanel error={save.error} /> : null}
+                  {saveError ? <ErrorPanel error={saveError} /> : null}
                   <div className="form-actions">
-                    <Button type="submit" busy={save.isPending}>
+                    <Button
+                      type="submit"
+                      busy={save.isPending}
+                      disabled={Boolean(editing && !editingIsCurrent)}
+                    >
                       <Icon name="check" />{" "}
                       {editing ? "Save profile" : "Add profile"}
                     </Button>

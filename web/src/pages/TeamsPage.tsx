@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
 import type {
@@ -65,34 +65,72 @@ export function TeamsPage() {
   const invitationForm = useForm<InvitationForm>({
     defaultValues: { displayName: "" },
   });
-
-  useEffect(() => {
-    const firstTeam = teams.data?.items[0];
-    const selectionStillExists = teams.data?.items.some(
-      (team) => team.id === selectedTeamId,
-    );
-    if (!selectionStillExists && firstTeam) setSelectedTeamId(firstTeam.id);
-  }, [selectedTeamId, teams.data]);
+  const teamAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const memberAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const invitationAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
+  const sharingAttempt = useRef<{
+    installationId: string;
+    signature: string;
+    key: string;
+  } | null>(null);
+  const removeTargetRef = useRef<TeamMember | null>(null);
+  removeTargetRef.current = removeTarget;
 
   useEffect(() => {
     memberForm.reset({ userId: "", role: "member" });
   }, [memberForm, selectedTeamId]);
 
   const createTeam = useMutation({
-    mutationFn: api.createTeam,
-    onSuccess: async (team) => {
-      teamForm.reset();
-      setCreateOpen(false);
-      setSelectedTeamId(team.id);
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: { name: string; slug?: string };
+      idempotencyKey: string;
+    }) => api.createTeam(input, idempotencyKey),
+    onSuccess: async (team, input) => {
+      if (teamAttempt.current?.key === input.idempotencyKey) {
+        const current = teamForm.getValues();
+        const submitted = {
+          name: input.input.name,
+          slug: input.input.slug ?? "",
+        };
+        if (JSON.stringify(current) === JSON.stringify(submitted)) {
+          teamAttempt.current = null;
+          teamForm.reset();
+          setCreateOpen(false);
+          setSelectedTeamId(team.id);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
   });
   const addMember = useMutation({
-    mutationFn: (input: MemberForm) => api.addTeamMember(selectedTeamId, input),
-    onSuccess: async () => {
-      memberForm.reset({ userId: "", role: "member" });
+    mutationFn: ({
+      teamId,
+      input,
+      idempotencyKey,
+    }: {
+      teamId: string;
+      input: MemberForm;
+      idempotencyKey: string;
+    }) => api.addTeamMember(teamId, input, idempotencyKey),
+    onSuccess: async (_value, input) => {
+      if (
+        memberAttempt.current?.key === input.idempotencyKey &&
+        input.teamId === selectedTeamId
+      ) {
+        const current = memberForm.getValues();
+        if (JSON.stringify(current) === JSON.stringify(input.input)) {
+          memberAttempt.current = null;
+          memberForm.reset({ userId: "", role: "member" });
+        }
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["teams", selectedTeamId, "members"],
+        queryKey: ["teams", input.teamId, "members"],
       });
     },
   });
@@ -100,6 +138,18 @@ export function TeamsPage() {
     mutationFn: (member: TeamMember) =>
       api.removeTeamMember(member.teamId, member.userId),
     onSuccess: async (_, member) => {
+      const currentTarget = removeTargetRef.current;
+      if (
+        member.teamId !== selectedTeamId ||
+        !currentTarget ||
+        currentTarget.teamId !== member.teamId ||
+        currentTarget.userId !== member.userId
+      ) {
+        await queryClient.invalidateQueries({
+          queryKey: ["teams", member.teamId, "members"],
+        });
+        return;
+      }
       setRemoveTarget(null);
       await queryClient.invalidateQueries({
         queryKey: ["teams", member.teamId, "members"],
@@ -107,24 +157,89 @@ export function TeamsPage() {
     },
   });
   const createInvitation = useMutation({
-    mutationFn: api.createInvitation,
-    onSuccess: (created) => {
-      invitationForm.reset();
-      setInvitation(created);
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: InvitationForm;
+      idempotencyKey: string;
+    }) => api.createInvitation(input, idempotencyKey),
+    onSuccess: (created, input) => {
+      if (invitationAttempt.current?.key !== input.idempotencyKey) return;
+      if (invitationForm.getValues().displayName === input.input.displayName) {
+        invitationAttempt.current = null;
+        invitationForm.reset();
+        setInvitation(created);
+      }
     },
   });
   const changeSharing = useMutation({
-    mutationFn: (input: SharingInput) => {
-      if (!shareTarget) throw new Error("No GitHub App installation selected.");
-      return api.updateGitHubInstallationSharing(shareTarget.id, input);
+    mutationFn: (input: {
+      installationId: string;
+      value: SharingInput;
+      idempotencyKey: string;
+    }) => {
+      return api.updateGitHubInstallationSharing(
+        input.installationId,
+        input.value,
+        input.idempotencyKey,
+      );
     },
-    onSuccess: async () => {
-      setShareTarget(null);
+    onSuccess: async (_value, input) => {
+      if (
+        shareTarget?.id === input.installationId &&
+        sharingAttempt.current?.key === input.idempotencyKey
+      ) {
+        sharingAttempt.current = null;
+        setShareTarget(null);
+      }
       await queryClient.invalidateQueries({
         queryKey: ["github-installations"],
       });
     },
   });
+
+  useEffect(() => {
+    const firstTeam = teams.data?.items[0];
+    const selectionStillExists = teams.data?.items.some(
+      (team) => team.id === selectedTeamId,
+    );
+    if (!selectionStillExists) {
+      setSelectedTeamId(firstTeam?.id ?? "");
+      setRemoveTarget(null);
+    }
+  }, [selectedTeamId, teams.data]);
+
+  const submitTeam = (values: TeamForm) => {
+    const input = { name: values.name, slug: values.slug || undefined };
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      teamAttempt.current?.signature === signature
+        ? teamAttempt.current.key
+        : crypto.randomUUID();
+    teamAttempt.current = { signature, key: idempotencyKey };
+    createTeam.mutate({ input, idempotencyKey });
+  };
+
+  const submitMember = (input: MemberForm) => {
+    const signature = JSON.stringify({ teamId: selectedTeamId, input });
+    const idempotencyKey =
+      memberAttempt.current?.signature === signature
+        ? memberAttempt.current.key
+        : crypto.randomUUID();
+    memberAttempt.current = { signature, key: idempotencyKey };
+    addMember.mutate({ teamId: selectedTeamId, input, idempotencyKey });
+  };
+
+  const submitInvitation = (input: InvitationForm) => {
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      invitationAttempt.current?.signature === signature
+        ? invitationAttempt.current.key
+        : crypto.randomUUID();
+    invitationAttempt.current = { signature, key: idempotencyKey };
+    createInvitation.mutate({ input, idempotencyKey });
+  };
 
   const selectedTeam = teams.data?.items.find(
     (team) => team.id === selectedTeamId,
@@ -147,7 +262,8 @@ export function TeamsPage() {
     capabilities.data?.capabilities?.some(
       (capability) =>
         capability.actions?.includes("team-members:write") &&
-        (capability.scopeType === "platform" ||
+        ((capability.scopeType === "platform" &&
+          capability.scopeId === "platform") ||
           (capability.scopeType === "team" &&
             capability.scopeId === selectedTeamId)),
     );
@@ -201,12 +317,7 @@ export function TeamsPage() {
           </div>
           <form
             className="inline-form"
-            onSubmit={teamForm.handleSubmit((values) =>
-              createTeam.mutate({
-                name: values.name,
-                slug: values.slug || undefined,
-              }),
-            )}
+            onSubmit={teamForm.handleSubmit(submitTeam)}
           >
             <Field
               label="Team name"
@@ -357,9 +468,7 @@ export function TeamsPage() {
               {canManageSelectedTeam ? (
                 <form
                   className="member-form"
-                  onSubmit={memberForm.handleSubmit((values) =>
-                    addMember.mutate(values),
-                  )}
+                  onSubmit={memberForm.handleSubmit(submitMember)}
                 >
                   <Field
                     label="Add user"
@@ -429,9 +538,7 @@ export function TeamsPage() {
           ) : (
             <form
               className="invite-form"
-              onSubmit={invitationForm.handleSubmit((values) =>
-                createInvitation.mutate(values),
-              )}
+              onSubmit={invitationForm.handleSubmit(submitInvitation)}
             >
               <Field
                 label="Invitee display name"
@@ -543,7 +650,27 @@ export function TeamsPage() {
           busy={changeSharing.isPending}
           error={changeSharing.error}
           onCancel={() => setShareTarget(null)}
-          onConfirm={(input) => changeSharing.mutate(input)}
+          onConfirm={(input) => {
+            const signature = JSON.stringify({
+              installationId: shareTarget.id,
+              input,
+            });
+            const idempotencyKey =
+              sharingAttempt.current?.installationId === shareTarget.id &&
+              sharingAttempt.current.signature === signature
+                ? sharingAttempt.current.key
+                : crypto.randomUUID();
+            sharingAttempt.current = {
+              installationId: shareTarget.id,
+              signature,
+              key: idempotencyKey,
+            };
+            changeSharing.mutate({
+              installationId: shareTarget.id,
+              value: input,
+              idempotencyKey,
+            });
+          }}
         />
       ) : null}
       {removeTarget ? (

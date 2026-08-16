@@ -38,6 +38,7 @@ type RuntimeSecretBackend interface {
 	Create(context.Context, secrets.CreateRequest) (secrets.MutationResult, error)
 	Rotate(context.Context, secrets.RotateRequest) (secrets.MutationResult, error)
 	Delete(context.Context, string, string, string) (secrets.Binding, error)
+	DeleteWithIdempotency(context.Context, string, string, string, string) (secrets.Binding, error)
 	Binding(context.Context, string) (secrets.Binding, error)
 	ListBindings(context.Context, string, string) ([]secrets.Binding, error)
 	Versions(context.Context, string) ([]secrets.Version, error)
@@ -82,6 +83,9 @@ func (b *runtimeSecretBackend) Rotate(ctx context.Context, request secrets.Rotat
 }
 func (b *runtimeSecretBackend) Delete(ctx context.Context, actorID, bindingID, requestID string) (secrets.Binding, error) {
 	return b.service.Delete(ctx, actorID, bindingID, requestID)
+}
+func (b *runtimeSecretBackend) DeleteWithIdempotency(ctx context.Context, actorID, bindingID, idempotencyKey, requestID string) (secrets.Binding, error) {
+	return b.service.DeleteWithIdempotency(ctx, actorID, bindingID, idempotencyKey, requestID)
 }
 func (b *runtimeSecretBackend) Binding(ctx context.Context, bindingID string) (secrets.Binding, error) {
 	return b.service.Store.Binding(ctx, bindingID)
@@ -562,7 +566,8 @@ func (s *Server) rotateSecretBinding(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteSecretBinding(w http.ResponseWriter, r *http.Request) {
-	if _, ok := secretIdempotencyKey(w, r); !ok {
+	key, ok := secretIdempotencyKey(w, r)
+	if !ok {
 		return
 	}
 	binding, _, ok := s.authorizedSecretBinding(w, r, domain.PermissionSecretsDelete)
@@ -570,7 +575,7 @@ func (s *Server) deleteSecretBinding(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wasDeleted := binding.State == secrets.BindingDeleted
-	if _, err := s.runtimeSecrets.Delete(r.Context(), currentUser(r.Context()).ID, binding.ID, safeSecretRequestID(r.Context())); err != nil {
+	if _, err := s.runtimeSecrets.DeleteWithIdempotency(r.Context(), currentUser(r.Context()).ID, binding.ID, key, safeSecretRequestID(r.Context())); err != nil {
 		mappedSecretError(w, r, err)
 		return
 	}

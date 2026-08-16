@@ -81,7 +81,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, err
 	}
 	defer os.RemoveAll(pushDockerConfig)
-	warnings := []Warning{}
+	warnings := append([]Warning(nil), buildArgWarnings(request.BuildArgs)...)
 	cacheDockerConfig := filepath.Join(runtimeDirectory, "docker-cache-config")
 	cacheCredentialsReady, credentialWarnings := prepareCacheDockerAuth(cacheDockerConfig, cacheRegistryCredentials(request), len(request.Cache.Imports) > 0)
 	warnings = append(warnings, credentialWarnings...)

@@ -15,5 +15,5 @@ data:
   {{- if hasKey .Values.edge.traefik "sslip" }}
   {{- $sslip := get .Values.edge.traefik "sslip" }}
   sslipMode: {{ $sslip.mode | quote }}
-  sslipStaticPublicIPv4: {{ default "" $sslip.staticPublicIPv4 | quote }}
+  sslipStaticPublicIPv4: {{ ternary (default "" $sslip.staticPublicIPv4) "" (eq $sslip.mode "verified-static-ip") | quote }}
   {{- end }}

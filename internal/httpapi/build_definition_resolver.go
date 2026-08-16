@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	registrycore "github.com/kuberploy/kuberploy/internal/registry"
@@ -31,6 +32,27 @@ type BuildDefinitionCatalog interface {
 type ServerBuildDefinitionResolver struct {
 	Catalog BuildDefinitionCatalog
 	Runtime builds.WorkerRuntimeConfig
+}
+
+func (r *ServerBuildDefinitionResolver) SecretProfileCatalog(applicationID string) (builds.BuildSecretProfileCatalog, error) {
+	if r == nil {
+		return builds.BuildSecretProfileCatalog{}, builds.ErrInvalid
+	}
+	return r.Runtime.SecretProfileCatalog(applicationID)
+}
+
+func (r *ServerBuildDefinitionResolver) ResolveSecretProfiles(applicationID string, buildIDs, sshIDs []string) (builds.BuildSecretSelection, error) {
+	if r == nil {
+		return builds.BuildSecretSelection{}, builds.ErrInvalid
+	}
+	return r.Runtime.ResolveSecretProfiles(applicationID, buildIDs, sshIDs)
+}
+
+func (r *ServerBuildDefinitionResolver) ResolveSecretFiles(applicationID string, secretFiles, sshFiles []builder.FileReference) (builds.BuildSecretSelection, error) {
+	if r == nil {
+		return builds.BuildSecretSelection{}, builds.ErrInvalid
+	}
+	return r.Runtime.ResolveSecretFiles(applicationID, secretFiles, sshFiles)
 }
 
 func (r *ServerBuildDefinitionResolver) ResolveBuildDefinition(ctx context.Context, actorID, projectID, applicationID, registryTargetID string) (BuildDefinitionResolution, error) {

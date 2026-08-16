@@ -52,6 +52,9 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if err := config.ValidateControlPlaneEgressFromEnvironment(); err != nil {
+		return err
+	}
 	databaseURL, err := config.Required("KUBERPLOY_DATABASE_URL")
 	if err != nil {
 		return err
@@ -500,9 +503,6 @@ func monitoringClient(mode, runtimeVersion string) (httpapi.MetricsService, erro
 	}
 	switch mode {
 	case "disabled":
-		if endpoint != "" || tokenSetting == "true" {
-			return nil, errors.New("disabled monitoring cannot configure a Prometheus endpoint or credential")
-		}
 		return nil, nil
 	case "managed", "existing":
 		if endpoint == "" {

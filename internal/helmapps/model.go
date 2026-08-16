@@ -20,24 +20,29 @@ const (
 	DescriptorDocument = "app.yaml"
 	ValuesDocument     = "values.yaml"
 
-	HelmVersion           = "4.2.3"
-	RendererContract      = "external-helm-renderer.v1"
-	PolicyVersion         = "external-helm-p0.v1"
-	RendererImage         = "docker.io/alpine/helm:4.2.3"
-	MaximumAttempts       = 10
-	MaximumDescriptorSize = 32 << 10
-	MaximumValuesSize     = 256 << 10
-	MaximumSchemaSize     = 512 << 10
-	MaximumChartSize      = 8 << 20
-	MaximumOutputSize     = 2 << 20
-	MaximumResources      = 128
-	MaximumYAMLNodes      = 8192
-	MaximumYAMLDepth      = 32
-	MaximumChartFiles     = 512
-	MaximumFileSize       = 2 << 20
-	MaximumExpandSize     = 16 << 20
-	MaximumTemporarySize  = 16 << 20
-	RenderTimeout         = 30 * time.Second
+	HelmVersion      = "4.2.3"
+	RendererContract = "external-helm-renderer.v1"
+	PolicyVersion    = "external-helm-p0.v1"
+	RendererImage    = "docker.io/alpine/helm:4.2.3"
+	// RendererExecutionImage is the verified multi-architecture manifest for
+	// RendererImage. Keep RendererImage as the durable logical contract so
+	// existing approvals remain replayable, while renderer Jobs execute the
+	// immutable content.
+	RendererExecutionImage = "docker.io/alpine/helm@sha256:b97ba4f9b27fe7af16ee3d37e6815783c9d4a51289b6240a9024ec471611ae9b"
+	MaximumAttempts        = 10
+	MaximumDescriptorSize  = 32 << 10
+	MaximumValuesSize      = 256 << 10
+	MaximumSchemaSize      = 512 << 10
+	MaximumChartSize       = 8 << 20
+	MaximumOutputSize      = 2 << 20
+	MaximumResources       = 128
+	MaximumYAMLNodes       = 8192
+	MaximumYAMLDepth       = 32
+	MaximumChartFiles      = 512
+	MaximumFileSize        = 2 << 20
+	MaximumExpandSize      = 16 << 20
+	MaximumTemporarySize   = 16 << 20
+	RenderTimeout          = 30 * time.Second
 )
 
 var (

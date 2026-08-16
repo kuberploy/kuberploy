@@ -118,6 +118,10 @@ func (s *Store) UpdateExternalDNSIntegrationForActor(_ context.Context, actor, k
 	if changed {
 		integration.RuntimeRevision++
 		integration.ProtectedGitState = "pending"
+		integration.ProtectedGitRevision = 0
+		integration.ProtectedGitContentDigest = ""
+		integration.ProtectedGitCommit = ""
+		integration.ProtectedGitObservedAt = nil
 	} else {
 		integration.ProtectedGitState = current.ProtectedGitState
 		integration.ProtectedGitRevision = current.ProtectedGitRevision

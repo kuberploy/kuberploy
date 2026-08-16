@@ -167,6 +167,16 @@ export type BuildFileReference = {
   path: string;
 };
 
+export type BuildSecretProfile = {
+  id: string;
+  label: string;
+};
+
+export type BuildSecretProfileCatalog = {
+  build: BuildSecretProfile[];
+  ssh: BuildSecretProfile[];
+};
+
 export type BuildProfile = {
   resource: string;
   timeoutSeconds: number;
@@ -182,8 +192,8 @@ export type CreateBuildDefinition = {
   dockerfilePath: string;
   platforms: Array<"linux/amd64" | "linux/arm64">;
   buildArgs?: BuildArgument[];
-  secretFiles?: BuildFileReference[];
-  sshFiles?: BuildFileReference[];
+  secretProfileIds?: string[];
+  sshProfileIds?: string[];
   cacheTrustLane: string;
   cacheImports: number;
   profile: BuildProfile;
@@ -250,7 +260,7 @@ export type BuildAttempt = {
   maxAttempts: number;
   image?: BuildImage;
   cacheReuse?: "not-requested" | "unavailable" | "hit" | "miss" | "unknown";
-  warnings?: Array<"ColdBuild" | "CacheDegraded">;
+  warnings?: Array<"ColdBuild" | "CacheDegraded" | "SensitiveBuildArg">;
   cacheReference?: string;
   failureCode?: string;
   cancelRequestedAt?: string;

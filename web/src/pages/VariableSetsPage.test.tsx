@@ -219,4 +219,88 @@ describe("VariableSet management", () => {
     expect(preview).not.toHaveBeenCalled();
     expect(save).not.toHaveBeenCalled();
   });
+
+  it("does not bind a late preview to newer YAML", async () => {
+    const user = userEvent.setup();
+    const project: VariableSetSnapshot = {
+      bindingId: "binding-safe",
+      projectId: "project-safe",
+      environmentId: "environment-safe",
+      scope: "project",
+      path: "tenants/project-safe/variables.yaml",
+      present: true,
+      etag: '"sha256:' + "a".repeat(64) + '"',
+      rawYaml: "values:\n  FLAG: old\n",
+      document: { kind: "VariableSet" },
+      indexedRevision: "b".repeat(40),
+    };
+    const environmentSource: VariableSetSnapshot = {
+      ...project,
+      scope: "environment",
+      path: "tenants/project-safe/environments/environment-safe/variables.yaml",
+      present: false,
+      etag: undefined,
+      rawYaml: undefined,
+    };
+    vi.spyOn(api, "environment").mockResolvedValue(environment);
+    vi.spyOn(api, "variableSets").mockResolvedValue({
+      items: [project, environmentSource],
+    });
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "admin-safe",
+      displayName: "Admin",
+      role: "project-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: ["deployment-config:write"],
+        },
+      ],
+    });
+    let resolvePreview!: (
+      value: Awaited<ReturnType<typeof api.previewVariableSet>>,
+    ) => void;
+    const preview = vi.spyOn(api, "previewVariableSet").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    renderView();
+
+    const editor = await screen.findByRole("textbox", {
+      name: "Project variables YAML",
+    });
+    const card = editor.closest("section");
+    if (!card) throw new Error("project variable card missing");
+    const projectEditor = within(card);
+    await user.clear(editor);
+    await user.type(editor, "values:\n  FLAG: old\n");
+    await user.click(
+      projectEditor.getByRole("button", { name: /Preview Git diff/i }),
+    );
+    await waitFor(() => expect(preview).toHaveBeenCalledOnce());
+
+    await user.clear(editor);
+    await user.type(editor, "values:\n  FLAG: new\n");
+    resolvePreview({
+      previewToken: "p".repeat(43),
+      scope: "project",
+      path: project.path,
+      gitDiff: "+  FLAG: old",
+      document: { kind: "VariableSet" },
+      diagnostics: [],
+      expiresAt: "2026-08-16T01:00:00Z",
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText("Git diff preview"),
+      ).not.toBeInTheDocument(),
+    );
+  });
 });

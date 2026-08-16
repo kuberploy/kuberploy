@@ -99,17 +99,21 @@ func TestVariableSetSaveBindsRequestDigestIndependentlyOfCandidateBytes(t *testi
 	if _, err = store.SaveVariableSet(ctx, admin.ID, "parser-drift-save", "sha256:"+strings.Repeat("3", 64), "parser-drift", pinned, driftToken[:], candidateHash[:], raw); !errors.Is(err, base.ErrPreconditionFailed) {
 		t.Fatalf("preview survived parser policy advancement: %v", err)
 	}
-	// Lost-response replay is an immutable receipt lookup: later revocation and
-	// projection readiness changes must not make the accepted result disappear.
-	for grantID := range store.accessGrants {
-		delete(store.accessGrants, grantID)
-	}
+	// Lost-response replay is an immutable receipt lookup: later projection
+	// readiness changes must not make the accepted result disappear while the
+	// actor still has current access.
 	changedBinding = store.gitBindings[environment.Value.ID]
 	changedBinding.State = gitprojection.BindingIndexing
 	store.gitBindings[environment.Value.ID] = changedBinding
 	replayed, err := store.SaveVariableSet(ctx, admin.ID, "project-save", projectDigest, "lost-response-replay", gitprojection.WritePlan{}, nil, nil, nil)
 	if err != nil || !replayed.Replay || replayed.Value.ID != projectSave.operationID {
 		t.Fatalf("accepted replay depended on current plan/preview/parser material: %#v err=%v", replayed, err)
+	}
+	for grantID := range store.accessGrants {
+		delete(store.accessGrants, grantID)
+	}
+	if _, err = store.SaveVariableSet(ctx, admin.ID, "project-save", projectDigest, "revoked-replay", gitprojection.WritePlan{}, nil, nil, nil); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("revoked actor replayed accepted VariableSet: %v", err)
 	}
 
 	projectPlan := projectSave.command.Plan

@@ -11,5 +11,6 @@ foundation:
       enabled: true
       email: platform@example.test
   networkPolicy:
+    enabled: true
     kubeAPIServerCIDRs:
       - 10.43.0.1/32

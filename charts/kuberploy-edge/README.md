@@ -11,10 +11,12 @@ The managed profile installs two explicit-version Traefik 3.7.10 replicas behind
 LoadBalancer Service, with a PDB, topology spread, restricted Pod Security,
 dedicated upstream RBAC/service account, a non-default IngressClass, disabled
 dashboard, safe Kubernetes providers, JSON access logs, TLS 1.2 minimum, and
-NetworkPolicy. Only ports 80 and 443 are public. A separate ClusterIP metrics
-Service exposes port 9100 only to the protected monitoring namespace, and an
-exact ServiceMonitor there retains only Traefik request-count and latency
-histogram series.
+optional NetworkPolicy hardening. Only ports 80 and 443 are public. A separate
+ClusterIP metrics Service exposes port 9100 only to the protected monitoring
+namespace, and an optional protected ServiceMonitor retains only Traefik
+request-count and latency histogram series when the monitoring release is
+selected. Standalone edge installs leave that monitor disabled, so the
+Prometheus CRD is not a prerequisite for basic ingress functionality.
 
 The wrapper passes Traefik's standard scheduling values through, including
 `traefik.nodeSelector`, `traefik.tolerations`, `traefik.affinity`,
@@ -24,9 +26,11 @@ controller. The default remains portable and uses hostname spreading.
 
 Traefik backend egress is limited to namespaces carrying the immutable platform
 label `kuberploy.io/runtime-namespace=true`. The environment controller must
-apply that protected label when it owns a runtime namespace. Kubernetes API
-CIDRs are required operator input and reject all-address ranges; determine the
-actual API Service/endpoint addresses before install:
+apply that protected label when it owns a runtime namespace. When NetworkPolicy
+hardening is enabled, Kubernetes API CIDRs are optional. Empty values use a
+basic port-scoped public API fallback; explicit ranges narrow the policy and
+reject all-address ranges. Determine the actual API Service/endpoint addresses
+before install when choosing the stricter mode:
 
 ```yaml
 edge:

@@ -52,7 +52,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 3. Builders create images only. They never deploy workloads and never receive GitOps write credentials.
 4. PostgreSQL stores users, workflow state, integrations, audit events, and rebuildable projections. It is not a second desired-state database.
 5. Kubernetes and Argo CD are authoritative for observed runtime state.
-6. Plaintext secret values never enter Git, Git commit messages, build arguments, build logs, traces, caches, asynchronous queues, or ordinary database columns. Base64 is encoding, not protection.
+6. Kuberploy-managed plaintext secret values never enter Git, Git commit messages, build logs, traces, caches, asynchronous queues, or ordinary database columns. Caller-supplied build arguments remain caller-owned immutable build-definition input and may be retained by the definition, Docker history, or caches; they are not echoed in result projections, and secret-like names produce a non-blocking warning. Base64 is encoding, not protection.
 7. Mutable image tags may be user input, but Kuberploy resolves and deploys an immutable digest.
 8. A successful build is not a successful deployment. The UI displays each stage separately.
 9. Privileged DinD is treated as a node-level trust boundary even though it does not mount the host Docker socket.
@@ -600,7 +600,9 @@ Input:
 - build-definition revision and hash;
 - context and Dockerfile path;
 - target architecture and stage;
-- non-secret build arguments and secret references;
+- caller-supplied build arguments and managed secret references; secret-like
+  argument names produce a non-blocking warning, while managed secret values
+  are never persisted by Kuberploy;
 - target registry repository;
 - resource, timeout and egress profile.
 
@@ -721,15 +723,20 @@ verified cache manifests.
 
 `mode=max` can contain intermediate filesystem layers and source-derived build
 output, so cache repositories are private and use credentials distinct from
-release push and runtime pull credentials. Dockerfile secrets must use BuildKit
-secret/SSH mounts and must never be supplied as build arguments or copied into a
-layer; cache export does not weaken that invariant.
+release push and runtime pull credentials. Kuberploy-managed Dockerfile secrets
+use BuildKit secret/SSH mounts and are never supplied as build arguments or
+copied into a layer. Caller-supplied build arguments are accepted for
+compatibility, stored as part of the immutable build definition, flagged when
+their names look sensitive, and may be retained by Docker history or cache;
+cache export does not add any Kuberploy credential to the build.
 
 Cache import and export are performance optimizations. A missing, expired or
 unavailable cache produces a visible `ColdBuild`/`CacheDegraded` warning and the
-build continues without cache. Failure to push the final application manifest
-remains terminal. This matches `ignore-error=true` behavior for cache export
-without hiding the warning from the build timeline.
+build continues without cache. Build argument names that look like credentials
+additionally produce a non-blocking `SensitiveBuildArg` warning; the argument
+name and value are never copied into that warning. Failure to push the final
+application manifest remains terminal. This matches `ignore-error=true`
+behavior for cache export without hiding the warning from the build timeline.
 
 In managed mode, cache lifecycle is separate from release retention. The
 starting policy keeps two successful cache generations per

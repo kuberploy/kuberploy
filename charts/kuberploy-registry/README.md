@@ -62,8 +62,9 @@ Traefik and does not grant broad node-CIDR ingress.
 
 `exposure.mode: loadBalancer` creates a dedicated LoadBalancer Service for the
 same shared Traefik pods while keeping the registry backend private. It supports
-bounded provider annotations, `loadBalancerClass`, a requested IP, and required
-source ranges. This is suitable for a private-network LB and does not install a
+bounded provider annotations, `loadBalancerClass`, a requested IP, and optional
+source ranges. An empty range list leaves public reachability to the infrastructure
+LoadBalancer; operators can add ranges as defense in depth. This mode does not install a
 second ingress controller. Both public modes use an exact cert-manager
 Certificate; `endpoint` may be a hostname or IPv4 address supported by the
 selected admin-managed ClusterIssuer.

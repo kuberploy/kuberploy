@@ -42,7 +42,7 @@
           "additionalProperties": false,
           "required": ["enabled", "kubeAPIServerCIDRs", "repositoryEgressCIDRs", "valkeyNamespace", "controlPlaneNamespace", "edgeNamespace", "monitoringNamespace"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrs"},
             "repositoryEgressCIDRs": {"$ref": "#/$defs/cidrs"},
             "valkeyNamespace": {"const": "kuberploy-system"},
@@ -63,25 +63,17 @@
             "repositoryName": {"type": "string", "maxLength": 100},
             "targetRevision": {"type": "string", "maxLength": 211}
           },
-          "oneOf": [
+          "allOf": [
             {
+              "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
+              "then": {
               "properties": {
-                "enabled": {"const": false},
-                "clusterID": {"const": ""},
-                "bindingID": {"const": ""},
-                "repositoryOwner": {"const": ""},
-                "repositoryName": {"const": ""},
-                "targetRevision": {"const": ""}
-              }
-            },
-            {
-              "properties": {
-                "enabled": {"const": true},
                 "clusterID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
                 "bindingID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
                 "repositoryOwner": {"pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$"},
                 "repositoryName": {"pattern": "^[A-Za-z0-9_.-]{1,100}$"},
                 "targetRevision": {"pattern": "^refs/heads/[A-Za-z0-9]([A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$"}
+              }
               }
             }
           ]

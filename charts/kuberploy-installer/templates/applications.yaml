@@ -1,6 +1,7 @@
 {{- define "kuberploy-installer.applicationDocuments" -}}
 {{- include "kuberploy-installer.validate" . -}}
 {{- $root := . -}}
+{{- $networkPolicyEnabled := $root.Values.cluster.networkPolicyEnabled -}}
 {{- $catalog := include "kuberploy-installer.applicationCatalog" . | fromYamlArray -}}
 {{- range $item := $catalog -}}
 {{- $component := get $root.Values.components $item.key -}}
@@ -40,10 +41,14 @@
 {{- end -}}
 {{- if eq $item.key "controlPlane" -}}
   {{- $token := $root.Values.bootstrap.controlPlaneToken -}}
-  {{- $bootstrapValues := dict "config" (dict "bootstrapSecret" (dict "generate" (eq $token.mode "generated"))) -}}
+  {{- $apiCIDRs := $root.Values.cluster.kubeAPIServerCIDRs -}}
   {{- if eq $token.mode "generated" -}}
-    {{- $_ := set $bootstrapValues "networkPolicy" (dict "kubeAPIServerCIDRs" $token.kubeAPIServerCIDRs) -}}
+    {{- $apiCIDRs = $token.kubeAPIServerCIDRs -}}
   {{- end -}}
+  {{- $bootstrapValues := dict
+    "config" (dict "bootstrapSecret" (dict "generate" (eq $token.mode "generated")))
+    "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $apiCIDRs)
+  -}}
   {{- $childValues = mergeOverwrite $childValues $bootstrapValues -}}
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.publicEndpoint.enabled -}}
@@ -61,9 +66,10 @@
   {{- $childValues = mergeOverwrite $childValues $endpointValues -}}
 {{- end -}}
 {{- if eq $item.key "edge" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "edge" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "edge" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "traefik" (dict "metrics" (dict "prometheus" (dict "serviceMonitor" (dict "enabled" $root.Values.components.monitoring.enabled))))) -}}
 {{- else if eq $item.key "certManager" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
   {{- if $root.Values.publicEndpoint.tls.enabled -}}
     {{- $issuer := dict
       "enabled" true
@@ -76,18 +82,18 @@
     {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "issuers" (dict "production" $issuer))) -}}
   {{- end -}}
 {{- else if eq $item.key "externalDNS" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- else if eq $item.key "externalSecrets" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- else if eq $item.key "sealedSecrets" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "secretFoundation" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- else if eq $item.key "monitoring" -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "monitoring" (dict "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "monitoring" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.components.monitoring.enabled -}}
   {{- $monitoringValues := dict
     "config" (dict "monitoring" (dict "mode" "managed" "prometheusURL" "http://prometheus-operated.kuberploy-monitoring.svc:9090" "bearerTokenSecret" (dict "name" "" "key" "token")))
-    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs)
+    "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs)
   -}}
   {{- $childValues = mergeOverwrite $childValues $monitoringValues -}}
 {{- end -}}
@@ -106,8 +112,11 @@
       "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $runtimeChartVersion "runtimeChartDigest" $runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
       "autoDeploy" (dict "enabled" true)
     )
-    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "networkPolicy" (dict "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
-    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
+    "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "dindImage" $github.dindImage
+      "buildSecret" (dict "name" $github.buildSecretName "profiles" $github.buildSecretProfiles)
+      "sshSecret" (dict "name" $github.sshSecretName "profiles" $github.sshSecretProfiles)
+      "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "sourceEgressCIDRs" $github.sourceEgressCIDRs "registryEgressCIDRs" $github.registryEgressCIDRs))
+    "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $github.controlPlaneEgressCIDRs)
     "rbac" (dict "argoNamespace" $github.argoNamespace)
   -}}
   {{- $childValues = mergeOverwrite $childValues $githubValues -}}
@@ -139,7 +148,7 @@
       "credentialSecret" (dict "name" $registry.lifecycleCredentialSecretName "usernameKey" "username" "passwordKey" "password")
       "observationIntervalSeconds" 300
     ))
-    "networkPolicy" (dict "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $externalEgress)
+    "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $externalEgress)
   -}}
   {{- $childValues = mergeOverwrite $childValues $managedRegistryValues -}}
 {{- end -}}
@@ -167,7 +176,7 @@
   {{- $childValues = mergeOverwrite $childValues $pullValues -}}
 {{- end -}}
 {{- if and (eq $item.key "builder") $root.Values.integrations.github.enabled -}}
-  {{- $childValues = mergeOverwrite $childValues (dict "buildKitImage" $root.Values.integrations.github.buildKitImage) -}}
+  {{- $childValues = mergeOverwrite $childValues (dict "buildKitImage" $root.Values.integrations.github.buildKitImage "dindImage" $root.Values.integrations.github.dindImage) -}}
 {{- end -}}
 {{- if and (eq $item.key "registry") $root.Values.integrations.registry.enabled -}}
   {{- $registry := $root.Values.integrations.registry -}}
@@ -235,7 +244,7 @@ spec:
       namespace: {{ $root.Values.integrations.github.argoNamespace }}
     {{- end }}
     {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.runtimePull.enabled }}
-    {{- range $root.Values.integrations.registry.runtimePull.namespaces }}
+    {{- range uniq (sortAlpha $root.Values.integrations.registry.runtimePull.namespaces) }}
     - server: https://kubernetes.default.svc
       namespace: {{ . }}
     {{- end }}
@@ -281,7 +290,7 @@ spec:
         ignoreMissingValueFiles: false
         {{- with $component.valueFiles }}
         valueFiles:
-          {{- range . }}
+          {{- range uniq (sortAlpha .) }}
           - {{ printf "$values/%s" . | quote }}
           {{- end }}
         {{- end }}

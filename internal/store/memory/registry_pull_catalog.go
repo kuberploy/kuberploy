@@ -87,27 +87,36 @@ func (s *Store) CreateProjectRegistryPullCredentialForActor(_ context.Context, a
 	return base.Result[domain.ProjectRegistryPullCredential]{Value: item}, nil
 }
 
-func (s *Store) DeleteProjectRegistryPullCredentialForActor(_ context.Context, actor, projectID, credentialID string) error {
+func (s *Store) DeleteProjectRegistryPullCredentialForActor(_ context.Context, actor, projectID, credentialID, key, fp, _ string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.authorizeLocked(actor, domain.PermissionRegistryPolicyWrite, domain.AccessTarget{Type: "project", ID: projectID}); err != nil {
-		return err
+		return false, err
+	}
+	identity := ik(actor, "project-registry-pull-credentials.delete:"+projectID+":"+credentialID, key)
+	old, replay := s.idempotency[identity]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
 	}
 	item, ok := s.projectRegistryPullCredentials[credentialID]
 	if !ok {
-		return nil
+		return false, base.ErrNotFound
 	}
 	if item.ProjectID != projectID {
-		return base.ErrNotFound
+		return false, base.ErrNotFound
 	}
 	for _, selection := range s.applicationRegistryPullSelections {
 		if selection.ProjectCredentialID == credentialID {
-			return base.ErrConflict
+			return false, base.ErrConflict
 		}
 	}
 	delete(s.projectRegistryPullCredentials, credentialID)
+	s.idempotency[identity] = idemRecord{fingerprint: fp, typ: "project-registry-pull-credential", resourceID: credentialID}
 	s.audits++
-	return nil
+	return false, nil
 }
 
 func (s *Store) ApplicationRegistryPullSelectionForActor(_ context.Context, actor, applicationID string) (domain.ApplicationRegistryPullSelection, error) {

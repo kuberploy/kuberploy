@@ -2,6 +2,13 @@ package main
 
 import "testing"
 
+func TestRunRejectsNoncanonicalProviderCIDRBeforeDependencies(t *testing.T) {
+	t.Setenv("KUBERPLOY_EXTERNAL_EGRESS_CIDRS", "192.0.2.1/24")
+	if err := run(); err == nil {
+		t.Fatal("API accepted a noncanonical provider CIDR")
+	}
+}
+
 func TestMonitoringClientConfigurationFailsClosed(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -12,7 +19,8 @@ func TestMonitoringClientConfigurationFailsClosed(t *testing.T) {
 		wantNil   bool
 	}{
 		{name: "disabled", mode: "disabled", token: "false", wantNil: true},
-		{name: "disabled with endpoint", mode: "disabled", endpoint: "https://prometheus.example.test", token: "false", wantError: true},
+		{name: "disabled with dormant endpoint", mode: "disabled", endpoint: "https://prometheus.example.test", token: "false", wantNil: true},
+		{name: "disabled with dormant credential setting", mode: "disabled", endpoint: "https://prometheus.example.test", token: "true", wantNil: true},
 		{name: "unknown mode", mode: "auto", token: "false", wantError: true},
 		{name: "missing endpoint", mode: "managed", token: "false", wantError: true},
 		{name: "managed cluster service outside Kubernetes", mode: "managed", endpoint: "http://prometheus-operated.kuberploy-monitoring.svc:9090", token: "false", wantError: true},
@@ -27,7 +35,7 @@ func TestMonitoringClientConfigurationFailsClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("KUBERPLOY_PROMETHEUS_URL", test.endpoint)
 			t.Setenv("KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED", test.token)
-			service, err := monitoringClient(test.mode, "0.1.0-rc.175")
+			service, err := monitoringClient(test.mode, "0.1.0-rc.176")
 			if (err != nil) != test.wantError {
 				t.Fatalf("service=%T error=%v", service, err)
 			}

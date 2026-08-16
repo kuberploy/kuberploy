@@ -65,27 +65,31 @@ export function AuthScreen({
   const loginForm = useForm<LoginForm>({
     defaultValues: { login: "", password: "" },
   });
+  const establishSession = async (user: User) => {
+    await queryClient.cancelQueries();
+    queryClient.clear();
+    queryClient.setQueryData(["me"], sessionPrincipal(user));
+  };
   const bootstrap = useMutation({
     mutationFn: api.bootstrap,
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
       bootstrapForm.reset();
-      queryClient.setQueryData(["me"], sessionPrincipal(user));
-      queryClient.invalidateQueries({ queryKey: ["meta"] });
+      await establishSession(user);
     },
   });
   const acceptInvitation = useMutation({
     mutationFn: api.acceptInvitation,
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
       invitationForm.reset();
-      queryClient.setQueryData(["me"], sessionPrincipal(user));
+      await establishSession(user);
       onInvitationAccepted?.();
     },
   });
   const login = useMutation({
     mutationFn: api.login,
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
       loginForm.reset();
-      queryClient.setQueryData(["me"], sessionPrincipal(user));
+      await establishSession(user);
     },
   });
 

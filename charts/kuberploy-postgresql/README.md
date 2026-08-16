@@ -4,7 +4,7 @@ This independent chart provides the small, single-instance managed PostgreSQL
 18.4 profile or records adoption of an operator-managed compatible endpoint. It
 is fixed to `kuberploy-postgresql`, uses the exact multi-platform official image
 digest, a retained RWO PVC, data checksums, SCRAM host authentication,
-default-deny NetworkPolicy, no service-account token, restricted UID 70, a
+optional default-deny NetworkPolicy, no service-account token, restricted UID 70, a
 read-only root filesystem, and bounded resources/configuration.
 
 The chart never creates or prints credentials. Managed mode requires the

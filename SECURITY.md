@@ -29,11 +29,41 @@ maintained systems. A defect in one of them is reportable here when Kuberploy's
 configuration, credential handling, authorization, or documented integration
 turns it into a realistically reachable Kuberploy vulnerability.
 
-The production boundary assumes a dedicated Kubernetes namespace, correctly
-configured cluster admission and network controls, TLS at the public edge, and
-administrator-controlled infrastructure credentials. Development Docker engines
-and operator-supplied Kubernetes test clusters are not production security
+The production boundary assumes a dedicated Kubernetes namespace, TLS at the
+public edge, and administrator-controlled infrastructure credentials. Cluster
+admission rules, NetworkPolicies, IP allowlists, and similar infrastructure
+hardening are optional defense in depth. Supported product features must not
+depend on those optional controls being enabled or on operators maintaining
+third-party provider address lists. Development Docker engines and
+operator-supplied Kubernetes test clusters are not production security
 boundaries.
+
+## Product Priority and Security Baseline
+
+Kuberploy prioritizes reliable feature behavior, upgrade compatibility, and
+automatic recovery. The mandatory product security baseline is intentionally
+small and consistent:
+
+- authenticate protected operations and authorize them server-side within the
+  current tenant, project, namespace, and integration scope;
+- keep Kuberploy-managed plaintext secrets and reusable credentials out of Git,
+  logs, ordinary database fields, and read APIs; caller-supplied build
+  arguments remain caller-owned immutable build-definition input, may be
+  retained by the definition, Docker history, or caches, and receive a
+  non-blocking warning when their names look sensitive;
+- send credentials only to the configured HTTPS host and never across an
+  unapproved host or scheme redirect;
+- preserve durable Git and PostgreSQL state, release integrity, and recovery
+  history; and
+- prevent ordinary tenant or application configuration from granting obvious
+  control-plane, host, or cross-tenant privilege.
+
+Controls beyond that baseline are optional hardening owned by the operator or
+infrastructure team. They may be enabled or narrowed without changing product
+semantics, but their absence must not make a supported integration unavailable.
+Disabled features ignore well-formed dormant settings, unordered user lists are
+normalized, and active configuration is rejected only when it is unsafe at a
+baseline trust boundary or cannot be executed correctly.
 
 ## Threat Model and Trust Boundaries
 
@@ -65,28 +95,32 @@ access does not delete or stop an already deployed immutable workload.
   Invitations and other bearer credentials are short-lived, single-use where
   applicable, stored only as hashes or opaque secret references, and never
   exposed by read APIs or logs.
-- Automation bearer tokens are project-bound, expire within 90 days, are shown
-  only in the first successful issuance response, and are stored as SHA-256
-  hashes with a non-secret prefix. Their effective authorization is the
-  intersection of the service account's current object grants and the token's
-  closed coarse scopes. They cannot carry platform- or organization-admin
-  roles, manage credentials or grants, or fall back to a browser session; a
-  request that supplies both authentication modes is rejected.
+- Automation bearer tokens are project-bound, expire, are shown only in the
+  first successful issuance response, and are stored as hashes with a
+  non-secret prefix. Their effective authorization is limited by the service
+  account's current grants and token scopes. They cannot carry platform-admin
+  authority or fall back to a browser session.
 - Plaintext application secrets, GitHub App private keys, webhook secrets,
-  registry credentials, and installation tokens never enter Git, ordinary
-  database columns, Valkey, build arguments, release metadata, traces, or logs.
-  Base64 encoding alone is not protection.
+  registry credentials, and installation tokens managed by Kuberploy never
+  enter Git, ordinary database columns, Valkey, release metadata, traces, or
+  logs. Caller-supplied build-argument values may be retained in the immutable
+  build definition, Dockerfile history, or caches; Kuberploy does not echo
+  them in warnings or result projections, and names that look sensitive
+  produce a `SensitiveBuildArg` warning. Base64 encoding alone is not
+  protection.
 - GitOps writes preserve repository history, validate the expected head, and
   fail on unresolved conflicts. Argo CD is the only normal writer of tenant
   application workloads.
-- User-controlled endpoints, redirects, archives, YAML, charts, and rendered
-  output are scheme-, address-, size-, time-, and resource-bounded and fail
-  closed. Credentials are not forwarded across an unapproved host or scheme
-  change.
-- Tenant and control-plane Kubernetes identities remain least-privileged and
-  namespace-scoped unless a reviewed feature requires a narrower documented
-  exception. Kuberploy upgrades must not own, prune, or mutate tenant workload
-  resources.
+- User-controlled endpoints and redirects preserve the configured HTTPS host
+  and scheme whenever credentials are attached. Parsers and background work
+  retain practical size, time, and resource bounds without requiring static
+  third-party IP allowlists.
+- Tenant and control-plane Kubernetes identities remain namespace-scoped by
+  default. NetworkPolicy and provider-egress narrowing are optional
+  infrastructure hardening, but any feature that grants a worker mutation
+  authority over privileged Jobs or credential Secrets ships its fail-closed
+  admission boundary as part of the enabled feature. Kuberploy upgrades must
+  not own, prune, or mutate tenant workload resources.
 - Release and deployment artifacts are selected by immutable digest. Published
   release metadata, charts, dependency locks, and updater inputs must agree, and
   upgrade eligibility is validated before mutation.
@@ -120,6 +154,18 @@ boundary violation.
 - Development fixtures may use local hostnames, synthetic credentials, and
   test-only network allowances. Those facts alone are not production findings;
   leakage into production defaults is reportable.
+- Public provider egress on the ports required by an enabled integration is an
+  accepted default. Static provider CIDR allowlists, default-deny egress,
+  image allowlists, canonical list ordering, and rejection of dormant
+  disabled-feature settings are optional hardening, not mandatory product
+  security boundaries. Admission policies that protect an enabled privileged
+  builder or credential-mutating worker are part of that feature's baseline;
+  a finding about their absence is reportable when it crosses a mandatory
+  baseline boundary above.
+- Administrators may choose tags, custom images, namespaces, timing values, and
+  other operational settings. Validation should normalize or warn where
+  practical and reject only configurations that would violate a mandatory
+  baseline boundary or cannot function.
 - Vulnerabilities solely in an upstream project should be reported upstream.
   Kuberploy-specific exploitability, unsafe defaults, or failure to ship a
   necessary compatible update remain in scope.
@@ -144,8 +190,11 @@ outside the MVP; live scoped logs, managed monitoring, Sealed Secrets, the
 managed OCI registry, and in-cluster source builds are implemented default-off
 capabilities.
 
-The current slice compensates by reporting unavailable capabilities explicitly, using
-namespace-scoped service accounts, default-deny network policies, immutable
-release artifacts, write-only invitation/token handling, server-side team and
-installation authorization, PostgreSQL-backed durable operations, and a
-namespaced updater that does not own tenant workloads.
+The current slice reports unavailable capabilities explicitly and relies on
+namespace-scoped service accounts, immutable release artifacts, write-only
+invitation/token handling, server-side team and installation authorization,
+PostgreSQL-backed durable operations, and a namespaced updater that does not own
+tenant workloads. NetworkPolicies, provider CIDR narrowing, and stricter image
+controls remain available as optional infrastructure hardening profiles; the
+enabled builder and credential mutation paths retain their fail-closed
+admission policies.

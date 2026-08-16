@@ -7,7 +7,7 @@ implicit control-plane dependency.
 
 Managed mode pins the controller by multi-platform digest, enables bounded
 health probes and resources, uses restricted containers, keeps both services
-ClusterIP-only, and applies a wrapper-owned default-deny NetworkPolicy. The
+ClusterIP-only, and can apply a wrapper-owned default-deny NetworkPolicy. The
 upstream `system:authenticated` service-proxy binding is explicitly disabled.
 Arbitrary objects, namespaces, commands, volumes, metadata injection, ingress,
 public services, custom probes, and inline keys are forbidden.

@@ -3,7 +3,11 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import type { Capability, HelmReleaseStatus } from "../api/types";
+import type {
+  Capability,
+  HelmMutationResult,
+  HelmReleaseStatus,
+} from "../api/types";
 import { HelmApplicationsPanel } from "./HelmApplicationsPanel";
 
 const application = {
@@ -16,6 +20,17 @@ const environment = {
   projectId: "project-payments",
   name: "Production",
   namespace: "payments-production",
+};
+const nextApplication = {
+  id: "application-orders",
+  projectId: "project-payments",
+  name: "Orders",
+};
+const nextEnvironment = {
+  id: "environment-staging",
+  projectId: "project-payments",
+  name: "Staging",
+  namespace: "orders-staging",
 };
 const project = {
   id: "project-payments",
@@ -37,6 +52,13 @@ const approval = {
   valuesSchema: { type: "object" },
   defaultValuesYaml: "replicaCount: 2\n",
   createdAt: "2026-08-09T00:00:00Z",
+};
+const nextApproval = {
+  ...approval,
+  id: "44444444-4444-4444-8444-444444444444",
+  repository: "oci://registry.example.test/charts/orders",
+  version: "2.0.0",
+  defaultValuesYaml: "replicaCount: 1\n",
 };
 const revision = {
   id: "22222222-2222-4222-8222-222222222222",
@@ -179,6 +201,309 @@ describe("Helm application panel", () => {
       expect.any(String),
     );
     expect(await screen.findByText("Desired intent accepted")).toBeVisible();
+    await waitFor(() =>
+      expect(api.helmRenderedPreview).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("does not mark a newer draft approved when an older preview finishes late", async () => {
+    const user = userEvent.setup();
+    let resolvePreview:
+      | ((value: Awaited<ReturnType<typeof api.previewHelmValues>>) => void)
+      | undefined;
+    vi.mocked(api.previewHelmValues).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    renderPanel();
+    const editor = await screen.findByLabelText("Helm values YAML");
+    const deploy = screen.getByRole("button", {
+      name: "Create update revision",
+    });
+    await user.clear(editor);
+    await user.type(editor, "replicaCount: 3");
+    await user.click(screen.getByRole("button", { name: "Validate values" }));
+    await user.clear(editor);
+    await user.type(editor, "replicaCount: 4");
+    resolvePreview?.({
+      approval: { id: approval.id, revision: approval.revision },
+      normalizedValuesYaml: "replicaCount: 3\n",
+      valuesDigest: `sha256:${"2".repeat(64)}`,
+      currentValuesDigest: undefined,
+      effectiveValues: { replicaCount: 3 },
+      changedPaths: ["/replicaCount"],
+    });
+    await waitFor(() => expect(deploy).toBeDisabled());
+    expect(screen.queryByText("Values validated")).not.toBeInTheDocument();
+  });
+
+  it("resets scoped approval and destructive state when the target changes", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.helmApprovals).mockImplementation(
+      async (applicationId, environmentId) => ({
+        items:
+          applicationId === nextApplication.id &&
+          environmentId === nextEnvironment.id
+            ? [nextApproval]
+            : [approval],
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={application}
+          environment={environment}
+          project={project}
+          capabilities={[
+            ...capabilities,
+            {
+              scopeType: "environment",
+              scopeId: nextEnvironment.id,
+              actions: ["helm.read", "helm.deploy", "helm.rollback"],
+            },
+          ]}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    const editor = await screen.findByLabelText("Helm values YAML");
+    expect(editor).toHaveValue(approval.defaultValuesYaml);
+    await user.clear(editor);
+    await user.type(editor, "replicaCount: 9");
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={nextApplication}
+          environment={nextEnvironment}
+          project={project}
+          capabilities={[
+            ...capabilities,
+            {
+              scopeType: "environment",
+              scopeId: nextEnvironment.id,
+              actions: ["helm.read", "helm.deploy", "helm.rollback"],
+            },
+          ]}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Helm values YAML")).toHaveValue(
+        nextApproval.defaultValuesYaml,
+      ),
+    );
+    expect(
+      screen.queryByDisplayValue("replicaCount: 9"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not reuse a late preview completion after the target changes", async () => {
+    const user = userEvent.setup();
+    let resolvePreview:
+      | ((value: Awaited<ReturnType<typeof api.previewHelmValues>>) => void)
+      | undefined;
+    vi.mocked(api.helmApprovals).mockResolvedValue({ items: [approval] });
+    vi.mocked(api.previewHelmValues).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const grants = [
+      ...capabilities,
+      {
+        scopeType: "environment" as const,
+        scopeId: nextEnvironment.id,
+        actions: ["helm.read", "helm.deploy", "helm.rollback"],
+      },
+    ];
+    const view = render(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={application}
+          environment={environment}
+          project={project}
+          capabilities={grants}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    const editor = await screen.findByLabelText("Helm values YAML");
+    await user.clear(editor);
+    await user.type(editor, "replicaCount: 3");
+    await user.click(screen.getByRole("button", { name: "Validate values" }));
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={nextApplication}
+          environment={nextEnvironment}
+          project={project}
+          capabilities={grants}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    const deploy = await screen.findByRole("button", {
+      name: "Create update revision",
+    });
+    resolvePreview?.({
+      approval: { id: approval.id, revision: approval.revision },
+      normalizedValuesYaml: "replicaCount: 3\n",
+      valuesDigest: `sha256:${"2".repeat(64)}`,
+      currentValuesDigest: undefined,
+      effectiveValues: { replicaCount: 3 },
+      changedPaths: ["/replicaCount"],
+    });
+    await waitFor(() => expect(deploy).toBeDisabled());
+  });
+
+  it("does not show a late mutation completion after the target changes", async () => {
+    const user = userEvent.setup();
+    let resolveUpsert:
+      | ((value: Awaited<ReturnType<typeof api.upsertHelmRelease>>) => void)
+      | undefined;
+    vi.mocked(api.upsertHelmRelease).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveUpsert = resolve;
+        }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const grants = [
+      ...capabilities,
+      {
+        scopeType: "environment" as const,
+        scopeId: nextEnvironment.id,
+        actions: ["helm.read", "helm.deploy", "helm.rollback"],
+      },
+    ];
+    const view = render(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={application}
+          environment={environment}
+          project={project}
+          capabilities={grants}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    const editor = await screen.findByLabelText("Helm values YAML");
+    await user.clear(editor);
+    await user.type(editor, "replicaCount: 3");
+    await user.click(screen.getByRole("button", { name: "Validate values" }));
+    await screen.findByText("Values validated");
+    await user.click(
+      screen.getByRole("button", { name: "Create update revision" }),
+    );
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <HelmApplicationsPanel
+          application={nextApplication}
+          environment={nextEnvironment}
+          project={project}
+          capabilities={grants}
+          featureEnabled
+          rollbackFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("button", { name: "Create update revision" });
+    resolveUpsert?.({ revision, replayed: false });
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Desired intent accepted"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("keeps a newer rollback selection after an older rollback completes", async () => {
+    const user = userEvent.setup();
+    const secondHistoryRevision = {
+      ...revision,
+      id: "55555555-5555-4555-8555-555555555555",
+      generation: 2,
+    };
+    vi.mocked(api.helmReleaseHistory).mockResolvedValue({
+      items: [
+        status,
+        {
+          ...status,
+          revision: {
+            ...revision,
+            id: "33333333-3333-4333-8333-333333333333",
+            generation: 3,
+          },
+          phase: "published",
+        },
+        {
+          ...status,
+          revision: secondHistoryRevision,
+          phase: "published",
+        },
+      ],
+    });
+    let resolveRollback!: (value: HelmMutationResult) => void;
+    vi.mocked(api.rollbackHelmRelease).mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRollback = resolve)),
+    );
+    renderPanel();
+
+    await screen.findByText("Immutable history");
+    const rollbackButtons = await screen.findAllByRole("button", {
+      name: "Roll back to this revision",
+    });
+    await user.click(rollbackButtons[0]!);
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /I understand this publishes a new protected Git intent/i,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm rollback" }));
+    await waitFor(() => expect(api.rollbackHelmRelease).toHaveBeenCalledOnce());
+
+    await user.click(rollbackButtons[1]!);
+    resolveRollback({
+      revision: { ...revision, action: "rollback" },
+      replayed: false,
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Rollback creates a new desired revision"),
+      ).toBeVisible(),
+    );
   });
 
   it("shows truthful render/publication state and only redacted inventory", async () => {

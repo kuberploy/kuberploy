@@ -6,7 +6,7 @@ valkeyFoundation:
   namespace:
     create: true
   networkPolicy:
-    enabled: true
+    enabled: false
     controlPlaneNamespace: kuberploy-system
     argoCDNamespace: argocd
 

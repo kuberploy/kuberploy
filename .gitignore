@@ -19,6 +19,7 @@ Thumbs.db
 .mise.local.toml
 .codex/
 .agents/
+AGENTS.md
 .checkpoints/
 scratch/
 *.checkpoint

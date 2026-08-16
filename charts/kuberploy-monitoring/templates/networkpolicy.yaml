@@ -1,4 +1,6 @@
 {{- if and .Values.monitoring.managed .Values.monitoring.networkPolicy.enabled }}
+{{- $apiCIDRs := .Values.monitoring.networkPolicy.kubeAPIServerCIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -71,7 +73,11 @@ spec:
         - ipBlock: {cidr: 10.0.0.0/8}
         - ipBlock: {cidr: 172.16.0.0/12}
         - ipBlock: {cidr: 192.168.0.0/16}
-        {{- range .Values.monitoring.networkPolicy.kubeAPIServerCIDRs }}
+    - to:
+        {{- range uniq (sortAlpha $apiCIDRs) }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
+      ports:
+        - {port: 443, protocol: TCP}
+        - {port: 6443, protocol: TCP}
 {{- end }}

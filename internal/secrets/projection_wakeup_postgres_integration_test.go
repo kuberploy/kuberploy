@@ -35,7 +35,7 @@ func TestRuntimeSecretMetadataWakeupIsAtomicAndSurvivesSameHeadObservation(t *te
 		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','secret-wakeup',$2,$3)`, []any{actorID, "wake-" + suffix, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Wake team',$2,$3,$4)`, []any{organizationID, "wake-team-" + suffix, actorID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Wake project',$2,$3,$4)`, []any{projectID, "wake-project-" + suffix, organizationID, now}},
-		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Wake env',$3,$4,$5,$6)`, []any{environmentID, projectID, "wake-env-" + suffix, "wake-" + suffix, "wake-argo-" + suffix, now}},
+		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Wake env',$3,$4,$4,$5)`, []any{environmentID, projectID, "wake-env-" + suffix, "wake-" + suffix, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Wake app',$3,$4)`, []any{applicationID, projectID, "wake-app-" + suffix, now}},
 	} {
 		if _, err = pool.Exec(ctx, statement.query, statement.args...); err != nil {

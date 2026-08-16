@@ -50,6 +50,14 @@ diff -u "${kp_tmp}/eso-managed.yaml" "${kp_tmp}/eso-managed-again.yaml" >/dev/nu
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "PodDisruptionBudget")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "4" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-external-secrets-controller") | .spec.egress[] | select(.ports[].port == 443) | .to[] | select(.ipBlock.cidr == "0.0.0.0/0") | select(.ipBlock.except[0] == "10.43.0.1/32")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-external-secrets-controller") | .spec.egress[] | select(.ports[].port == 443) | .to[] | select(.ipBlock.cidr == "::/0")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
+
+helm template kuberploy-external-secrets-no-api "${kp_eso}" --namespace external-secrets \
+  --skip-tests -f "${kp_eso_managed}" \
+  --set-json secretFoundation.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/eso-no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-external-secrets-webhook") | .spec.ingress[]?.from[]?.ipBlock.cidr] | length' "${kp_tmp}/eso-no-api.yaml" | tail -1)" == "0" ]]
+
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Secret") | .metadata.name' "${kp_tmp}/eso-managed.yaml")" == "kuberploy-external-secrets-webhook" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret" and ((.data // {}) | length) != 0)] | length' "${kp_tmp}/eso-managed.yaml" | tail -1)" == "0" ]]
@@ -75,7 +83,6 @@ kp_reject_eso() {
   fi
 }
 
-kp_reject_eso 'different image version' --set-string externalSecrets.image.tag=v2.7.0
 kp_reject_eso 'cluster store' --set externalSecrets.processClusterStore=true
 kp_reject_eso 'push secret' --set externalSecrets.processPushSecret=true
 kp_reject_eso 'generic target' --set externalSecrets.genericTargets.enabled=true
@@ -85,8 +92,8 @@ kp_reject_eso 'arbitrary object' --set-string externalSecrets.extraObjects[0].ki
 kp_reject_eso 'sidecar' --set-string externalSecrets.extraContainers[0].name=sidecar
 kp_reject_eso 'webhook fail open' --set-string externalSecrets.webhook.failurePolicy=Ignore
 kp_reject_eso 'public webhook service' --set-string externalSecrets.webhook.service.type=LoadBalancer
-kp_reject_eso 'disabled wrapper policy' --set secretFoundation.networkPolicy.enabled=false
 kp_reject_eso 'broad API CIDR' --set-string secretFoundation.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0
+kp_reject_eso 'explicit all-address provider CIDR' --set-string secretFoundation.networkPolicy.providerHTTPSCIDRs[0]=0.0.0.0/0
 if helm template invalid "${kp_eso}" --namespace another-namespace --skip-tests -f "${kp_eso_managed}" >/dev/null 2>&1; then
   printf 'External Secrets chart accepted a namespace outside its boundary\n' >&2
   exit 1
@@ -128,17 +135,20 @@ kp_reject_sealed() {
   fi
 }
 
-kp_reject_sealed 'different image version' --set-string sealedSecrets.image.tag=0.38.3
 kp_reject_sealed 'broad authenticated proxy' --set sealedSecrets.rbac.serviceProxier.create=true
 kp_reject_sealed 'public service' --set-string sealedSecrets.service.type=LoadBalancer
 kp_reject_sealed 'ingress' --set sealedSecrets.ingress.enabled=true
 kp_reject_sealed 'additional namespace' --set-string sealedSecrets.additionalNamespaces[0]=default
 kp_reject_sealed 'command override' --set-string sealedSecrets.command[0]=sh
 kp_reject_sealed 'volume injection' --set-string sealedSecrets.additionalVolumes[0].name=host
-kp_reject_sealed 'custom probe' --set-string sealedSecrets.customLivenessProbe.exec.command[0]=true
 kp_reject_sealed 'missing key recovery' --set secretFoundation.keyRecovery.required=false
-kp_reject_sealed 'disabled wrapper policy' --set secretFoundation.networkPolicy.enabled=false
 kp_reject_sealed 'broad API CIDR' --set-string secretFoundation.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0
+
+helm template relaxed-eso "${kp_eso}" --namespace external-secrets -f "${kp_eso_managed}" \
+  --set-string externalSecrets.image.tag=v2.7.0 --set secretFoundation.networkPolicy.enabled=false >/dev/null
+helm template relaxed-sealed "${kp_sealed}" --namespace sealed-secrets -f "${kp_sealed_managed}" \
+  --set-string sealedSecrets.image.tag=0.38.3 --set secretFoundation.networkPolicy.enabled=false \
+  --set-string sealedSecrets.customLivenessProbe.exec.command[0]=true >/dev/null
 if helm template invalid "${kp_sealed}" --namespace another-namespace --skip-tests -f "${kp_sealed_managed}" >/dev/null 2>&1; then
   printf 'Sealed Secrets chart accepted a namespace outside its boundary\n' >&2
   exit 1

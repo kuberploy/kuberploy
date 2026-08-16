@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -105,7 +105,7 @@ describe("runtime-secret reference picker", () => {
       await screen.findByRole("option", { name: "database · v3" }),
     ).toBeVisible();
     expect(screen.queryByRole("option", { name: /external/ })).toBeNull();
-    await user.selectOptions(bindingSelect, binding.id);
+    await user.selectOptions(bindingSelect, `${binding.id}@3`);
 
     const key = await screen.findByRole("option", { name: "password" });
     expect(key).toBeVisible();
@@ -118,7 +118,7 @@ describe("runtime-secret reference picker", () => {
     expect(
       screen.getByLabelText("Secret variable 1 version"),
     ).toHaveTextContent("v3");
-    expect(bindingSelect).toHaveValue(binding.id);
+    expect(bindingSelect).toHaveValue(`${binding.id}@3`);
     expect(document.body).not.toHaveTextContent("caller-must-not-see-this");
     expect(api.runtimeSecretBindings).toHaveBeenCalledWith(
       "application-1",
@@ -142,5 +142,84 @@ describe("runtime-secret reference picker", () => {
       screen.getByRole("combobox", { name: "Secret variable 1 binding" }),
     ).toBeDisabled();
     expect(list).not.toHaveBeenCalled();
+  });
+
+  it("refreshes delivery metadata when the binding active version changes", async () => {
+    let listCall = 0;
+    const list = vi
+      .spyOn(api, "runtimeSecretBindings")
+      .mockImplementation(async () => {
+        listCall += 1;
+        return {
+          items: [{ ...binding, activeVersion: listCall === 1 ? 3 : 4 }],
+        };
+      });
+    const detail = vi
+      .spyOn(api, "runtimeSecretBinding")
+      .mockImplementation(async () => {
+        const version = listCall === 1 ? 3 : 4;
+        return {
+          ...binding,
+          activeVersion: version,
+          versions: [
+            {
+              id: `version-${version}`,
+              number: version,
+              state: "active",
+              deliveries: [
+                {
+                  sourceKey: "password",
+                  kind: "environment",
+                  environmentName: "DATABASE_PASSWORD",
+                },
+              ],
+              createdAt: "2026-08-09T00:00:00Z",
+              updatedAt: "2026-08-09T00:00:00Z",
+            },
+          ],
+        };
+      });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(<Harness />, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    });
+
+    const bindingSelect = screen.getByRole("combobox", {
+      name: "Secret variable 1 binding",
+    });
+    await screen.findByRole("option", { name: "database · v3" });
+    await userEvent.setup().selectOptions(bindingSelect, `${binding.id}@3`);
+    await screen.findByRole("option", { name: "password" });
+
+    await queryClient.invalidateQueries({
+      queryKey: [
+        "runtime-secret-reference-bindings",
+        "application-1",
+        "environment-1",
+      ],
+    });
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
+    expect(
+      screen.getByLabelText("Secret variable 1 version"),
+    ).toHaveTextContent("v3");
+    expect(
+      screen.getByRole("combobox", { name: "Secret variable 1 key" }),
+    ).toBeDisabled();
+    await userEvent.setup().selectOptions(bindingSelect, `${binding.id}@4`);
+    await waitFor(() =>
+      expect(screen.getByLabelText("Secret variable 1 version")).toHaveTextContent(
+        "v4",
+      ),
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Secret variable 1 key" }),
+    ).not.toBeDisabled();
   });
 });

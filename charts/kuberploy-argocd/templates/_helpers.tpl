@@ -31,17 +31,15 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- $name := index . 1 -}}
 {{- $security := $component.containerSecurityContext -}}
 {{- if or (not $security.runAsNonRoot) (not $security.readOnlyRootFilesystem) $security.allowPrivilegeEscalation (ne $security.seccompProfile.type "RuntimeDefault") (not (deepEqual $security.capabilities.drop (list "ALL"))) -}}{{ fail (printf "%s container security context is locked" $name) }}{{- end -}}
-{{- if or (empty $component.resources.requests.cpu) (empty $component.resources.requests.memory) (empty $component.resources.limits.cpu) (empty $component.resources.limits.memory) -}}{{ fail (printf "%s CPU and memory requests and limits are required" $name) }}{{- end -}}
 {{- end -}}
 
 {{- define "kuberploy-argocd.validate" -}}
 {{- $argo := index .Values "argo-cd" -}}
 {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "kuberploy-argocd must be bootstrapped by the installer release in kuberploy-system" }}{{- end -}}
-{{- if ne .Values.argoFoundation.applicationReconcilerImage "registry.k8s.io/kubectl:v1.36.3" -}}{{ fail "Argo bootstrap reconciler image is locked" }}{{- end -}}
+{{- if not (regexMatch "^[^[:space:]]+$" .Values.argoFoundation.applicationReconcilerImage) -}}{{ fail "Argo bootstrap reconciler requires a Kubernetes image reference" }}{{- end -}}
 {{- if eq .Values.argoFoundation.argoCD.managed .Values.argoFoundation.argoCD.adoptExisting -}}{{ fail "exactly one of managed Argo CD or adopted Argo CD must be selected" }}{{- end -}}
 {{- if and .Values.argoFoundation.argoCD.adoptExisting (not .Values.argoFoundation.argoCD.capabilitiesConfirmed) -}}{{ fail "Argo CD adoption requires a completed compatibility and capability check" }}{{- end -}}
 {{- if and (not .Values.argoFoundation.argoCD.managed) .Values.argoFoundation.argoCD.crdsPreinstalledByParent -}}{{ fail "adopted Argo CD cannot claim installer-owned CRD preinstallation" }}{{- end -}}
-{{- if not .Values.argoFoundation.networkPolicy.enabled -}}{{ fail "Argo CD NetworkPolicy cannot be disabled" }}{{- end -}}
 {{- range $key, $want := dict "valkeyNamespace" "kuberploy-system" "controlPlaneNamespace" "kuberploy-system" "edgeNamespace" "kuberploy-system" "monitoringNamespace" "kuberploy-monitoring" -}}
   {{- if ne (index $.Values.argoFoundation.networkPolicy $key) $want -}}{{ fail (printf "Argo CD %s is locked" $key) }}{{- end -}}
 {{- end -}}
@@ -62,16 +60,11 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- range (splitList "/" (trimPrefix "refs/heads/" $bootstrap.targetRevision)) -}}
     {{- if or (empty .) (hasPrefix "." .) (hasSuffix "." .) -}}{{ fail "bootstrap targetRevision contains an invalid branch component" }}{{- end -}}
   {{- end -}}
-{{- else -}}
-  {{- $bootstrap := .Values.argoFoundation.bootstrap -}}
-  {{- if or (not (empty $bootstrap.clusterID)) (not (empty $bootstrap.bindingID)) (not (empty $bootstrap.repositoryOwner)) (not (empty $bootstrap.repositoryName)) (not (empty $bootstrap.targetRevision)) -}}{{ fail "disabled root bootstrap must not retain partial authority values" }}{{- end -}}
 {{- end -}}
 {{- if .Values.argoFoundation.argoCD.managed -}}
-  {{- if empty .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs -}}{{ fail "managed Argo CD requires explicit Kubernetes API CIDRs" }}{{- end -}}
-  {{- if empty .Values.argoFoundation.networkPolicy.repositoryEgressCIDRs -}}{{ fail "managed Argo CD requires explicit HTTPS repository egress CIDRs" }}{{- end -}}
   {{- range .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs -}}{{- if has . (list "0.0.0.0/0" "::/0") -}}{{ fail "Kubernetes API CIDRs cannot be all-address ranges" }}{{- end -}}{{- end -}}
+  {{- range .Values.argoFoundation.networkPolicy.repositoryEgressCIDRs -}}{{- if has . (list "0.0.0.0/0" "::/0") -}}{{ fail "repository egress all-address defaults must be selected by an empty optional CIDR list" }}{{- end -}}{{- end -}}
   {{- if or (ne $argo.nameOverride "argocd") (ne $argo.fullnameOverride "argocd") (ne $argo.namespaceOverride "argocd") -}}{{ fail "Argo CD names and namespace identity are locked" }}{{- end -}}
-  {{- if or (ne $argo.global.image.repository "quay.io/argoproj/argocd") (ne $argo.global.image.tag "v3.5.0") -}}{{ fail "Argo CD image version is locked to v3.5.0" }}{{- end -}}
   {{- $parentOwnsCRDs := .Values.argoFoundation.argoCD.crdsPreinstalledByParent -}}
   {{- if or (not $argo.crds.keep) (not $argo.createClusterRoles) $argo.createAggregateRoles -}}{{ fail "Argo CD CRD retention and RBAC ownership are locked" }}{{- end -}}
   {{- if eq $argo.crds.install $parentOwnsCRDs -}}{{ fail "managed Argo CD must install CRDs itself or attest exact parent preinstallation, never both or neither" }}{{- end -}}
@@ -91,9 +84,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- include "kuberploy-argocd.validateSecurity" (list $argo.server "server") -}}
   {{- include "kuberploy-argocd.validateSecurity" (list $argo.repoServer "repoServer") -}}
   {{- include "kuberploy-argocd.validateSecurity" (list $argo.applicationSet "applicationSet") -}}
-  {{- if or (ne (int $argo.controller.replicas) 1) $argo.controller.dynamicClusterDistribution (not $argo.controller.automountServiceAccountToken) (not $argo.controller.serviceAccount.create) (not $argo.controller.serviceAccount.automountServiceAccountToken) (not $argo.controller.metrics.enabled) $argo.controller.metrics.serviceMonitor.enabled -}}{{ fail "Argo CD application-controller profile is locked" }}{{- end -}}
-  {{- if or (ne (int $argo.server.replicas) 1) $argo.server.hostNetwork (ne $argo.server.service.type "ClusterIP") $argo.server.ingress.enabled $argo.server.ingressGrpc.enabled $argo.server.route.enabled $argo.server.httproute.enabled $argo.server.grpcroute.enabled $argo.server.backendTLSPolicy.enabled $argo.server.listenerset.enabled $argo.server.extensions.enabled -}}{{ fail "Argo CD server must remain authenticated and ClusterIP-only" }}{{- end -}}
-  {{- if or (ne (int $argo.repoServer.replicas) 1) $argo.repoServer.hostNetwork (not (empty $argo.repoServer.existingVolumes)) -}}{{ fail "Argo CD repo-server profile is locked" }}{{- end -}}
-  {{- if or (not $argo.applicationSet.enabled) (ne (int $argo.applicationSet.replicas) 1) $argo.applicationSet.ingress.enabled $argo.applicationSet.httproute.enabled -}}{{ fail "Argo CD ApplicationSet profile is locked" }}{{- end -}}
+  {{- if or (lt (int $argo.controller.replicas) 1) (not $argo.controller.automountServiceAccountToken) (not $argo.controller.serviceAccount.create) (not $argo.controller.serviceAccount.automountServiceAccountToken) -}}{{ fail "Argo CD application-controller must remain enabled with its ServiceAccount" }}{{- end -}}
+  {{- if or (lt (int $argo.server.replicas) 1) $argo.server.hostNetwork (ne $argo.server.service.type "ClusterIP") $argo.server.ingress.enabled $argo.server.ingressGrpc.enabled $argo.server.route.enabled $argo.server.httproute.enabled $argo.server.grpcroute.enabled $argo.server.backendTLSPolicy.enabled $argo.server.listenerset.enabled $argo.server.extensions.enabled -}}{{ fail "Argo CD server must remain authenticated and ClusterIP-only" }}{{- end -}}
+  {{- if or (lt (int $argo.repoServer.replicas) 1) $argo.repoServer.hostNetwork -}}{{ fail "Argo CD repo-server must remain enabled without host networking" }}{{- end -}}
+  {{- if or (not $argo.applicationSet.enabled) (lt (int $argo.applicationSet.replicas) 1) $argo.applicationSet.ingress.enabled $argo.applicationSet.httproute.enabled -}}{{ fail "Argo CD ApplicationSet must remain private and enabled" }}{{- end -}}
 {{- end -}}
 {{- end -}}

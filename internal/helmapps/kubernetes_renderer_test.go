@@ -77,7 +77,7 @@ func TestKubernetesRenderPlanIsDigestBoundNetworkOffAndUncredentialed(t *testing
 	for _, raw := range containers {
 		container := raw.(map[string]any)
 		security := container["securityContext"].(map[string]any)
-		if container["image"] != RendererImage || security["privileged"] != false ||
+		if container["image"] != RendererExecutionImage || security["privileged"] != false ||
 			security["allowPrivilegeEscalation"] != false || security["runAsUser"] != int64(65532) ||
 			security["readOnlyRootFilesystem"] != true ||
 			!reflect.DeepEqual(security["capabilities"], map[string]any{"drop": []any{"ALL"}}) {

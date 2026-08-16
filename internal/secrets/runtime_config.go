@@ -2,7 +2,6 @@ package secrets
 
 import (
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,28 +30,14 @@ func RuntimeConfigFromEnvironment() (RuntimeConfig, error) {
 	return RuntimeConfigFromLookup(os.LookupEnv)
 }
 
-// RuntimeConfigFromLookup is default-off and exact. A disabled runtime cannot
-// carry dormant settings, avoiding accidental capability enablement when API
-// and worker deployments receive different partial configuration.
+// RuntimeConfigFromLookup is default-off. Dormant values are ignored, while an
+// enabled runtime normalizes user lists into its canonical durable identity.
 func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig, error) {
 	if lookup == nil {
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 	enabled, present := lookup(RuntimeSecretsEnabledEnv)
-	if !present {
-		for _, name := range runtimeSecretConfigEnvs() {
-			if _, configured := lookup(name); configured {
-				return RuntimeConfig{}, ErrRuntimeUnavailable
-			}
-		}
-		return RuntimeConfig{}, nil
-	}
-	if enabled == "false" {
-		for _, name := range runtimeSecretConfigEnvs() {
-			if _, configured := lookup(name); configured {
-				return RuntimeConfig{}, ErrRuntimeUnavailable
-			}
-		}
+	if !present || enabled == "" || enabled == "false" {
 		return RuntimeConfig{}, nil
 	}
 	if enabled != "true" {
@@ -65,7 +50,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	namespaces := strings.Split(namespaceValue, ",")
 	normalized, err := NormalizeRuntimeNamespaces(namespaces)
-	if err != nil || !slices.Equal(normalized, namespaces) || strings.Join(normalized, ",") != namespaceValue {
+	if err != nil {
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 	fingerprintRef, ok := exactRuntimeSecretEnv(lookup, RuntimeSecretFingerprintSecretRefEnv, true)
@@ -122,23 +107,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 	return config, nil
-}
-
-func runtimeSecretConfigEnvs() []string {
-	return []string{
-		RuntimeSecretNamespacesEnv,
-		RuntimeSecretFingerprintSecretRefEnv,
-		RuntimeSecretFingerprintSecretKeyEnv,
-		RuntimeSecretFingerprintKeyIDEnv,
-		RuntimeSecretSealingCertificateSecretRefEnv,
-		RuntimeSecretSealingCertificateSecretKeyEnv,
-		RuntimeSecretPollSecondsEnv,
-		RuntimeSecretWorkLeaseSecondsEnv,
-		RuntimeSecretHeartbeatSecondsEnv,
-		RuntimeSecretIdleSecondsEnv,
-		RuntimeSecretMinimumBackoffSecondsEnv,
-		RuntimeSecretMaximumBackoffSecondsEnv,
-	}
 }
 
 func exactRuntimeSecretEnv(lookup func(string) (string, bool), name string, required bool) (string, bool) {

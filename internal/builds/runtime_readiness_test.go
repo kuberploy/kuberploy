@@ -19,6 +19,7 @@ func runtimeConfigFixture(t *testing.T) WorkerRuntimeConfig {
 		BuilderAgentImageEnv:        "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
 		BuilderBuildKitImageEnv:     builder.DefaultBuildKitImage,
 		BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
+		"KUBERPLOY_KUBE_API_SERVER_CIDRS": "10.43.0.1/32",
 	}
 	config, err := WorkerRuntimeConfigFromLookup(mapLookup(values))
 	if err != nil {

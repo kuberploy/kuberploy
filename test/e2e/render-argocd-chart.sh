@@ -61,6 +61,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "StatefulSet")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "argocd-required-connectivity") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .to[0].ipBlock.except[0] == "10.43.0.1/32" and .to[1].ipBlock.cidr == "::/0" and (.to[1].ipBlock.except // [] | length) == 0 and .ports[0].port == 443 and .ports[0].protocol == "TCP")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "argocd-private-egress") | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/managed.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
 [[ "$(yq eval-all '[select(.kind == "Secret")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Ingress" or .kind == "HTTPRoute" or .kind == "GRPCRoute")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
@@ -116,7 +117,6 @@ kp_reject() {
   fi
 }
 
-kp_reject 'different image version' --set-string argo-cd.global.image.tag=v3.4.0
 kp_reject 'bundled Redis' --set argo-cd.redis.enabled=true
 kp_reject 'local admin' --set 'argo-cd.configs.cm.admin\.enabled=true'
 kp_reject 'default tenant role' --set-string 'argo-cd.configs.rbac.policy\.default=role:readonly'
@@ -140,8 +140,6 @@ kp_reject 'trailing-dot root ref component' --set-string argoFoundation.bootstra
 kp_reject 'caller-selected root URL' --set-string argoFoundation.bootstrap.repositoryURL=https://attacker.invalid/repo.git
 kp_reject 'caller-selected root path' --set-string argoFoundation.bootstrap.path=../platform
 kp_reject 'caller-selected credential Secret' --set-string argoFoundation.bootstrap.repositorySecretName=attacker-secret
-kp_reject 'partial disabled bootstrap authority' --set argoFoundation.bootstrap.enabled=false
-kp_reject 'disabled policy' --set argoFoundation.networkPolicy.enabled=false
 kp_reject 'broad API egress' --set-string argoFoundation.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0
 
 # Template validation remains closed when an operator explicitly skips the
@@ -152,8 +150,16 @@ kp_reject 'schema-bypassed caller root path' --skip-schema-validation --set-stri
 kp_reject 'schema-bypassed caller credential' --skip-schema-validation --set-string argoFoundation.bootstrap.repositorySecretName=attacker-secret
 kp_reject 'schema-bypassed invalid cluster UUID' --skip-schema-validation --set-string argoFoundation.bootstrap.clusterID=71111111-1111-0111-8111-111111111111
 kp_reject 'schema-bypassed malformed branch' --skip-schema-validation --set-string argoFoundation.bootstrap.targetRevision=refs/heads/release//candidate
-kp_reject 'schema-bypassed disabled partial authority' --skip-schema-validation --set argoFoundation.bootstrap.enabled=false
 kp_reject 'schema-bypassed string enable flag' --skip-schema-validation --set-string argoFoundation.bootstrap.enabled=true
+
+# Image versions and defense-in-depth policy are operator choices. Disabled
+# bootstrap ignores its dormant authority fields.
+helm template custom-image "${kp_chart}" --namespace kuberploy-system --skip-tests -f "${kp_managed}" \
+  --set-string argo-cd.global.image.tag=v3.4.0 >/dev/null
+kp_relaxed="${kp_tmp}/relaxed.yaml"
+helm template relaxed "${kp_chart}" --namespace kuberploy-system --skip-tests -f "${kp_managed}" \
+  --set argoFoundation.bootstrap.enabled=false --set argoFoundation.networkPolicy.enabled=false >"${kp_relaxed}"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" or (.kind == "Job" and .metadata.name == "kuberploy-platform-bootstrap-reconciler"))] | length' "${kp_relaxed}" | tail -1)" == "0" ]]
 
 if helm template invalid "${kp_chart}" --namespace another-namespace --skip-tests -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'Argo CD chart accepted a namespace outside its boundary\n' >&2

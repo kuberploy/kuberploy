@@ -87,7 +87,6 @@ func TestBuildRequestRejectsCommitAndPathEscapes(t *testing.T) {
 		{name: "missing BuildKit image", mutate: func(r *BuildRequest) { r.BuildKitImage = "" }},
 		{name: "mutable BuildKit image", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit:latest" }},
 		{name: "wrong BuildKit version", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit:v0.32.1" }},
-		{name: "BuildKit digest instead of text version", mutate: func(r *BuildRequest) { r.BuildKitImage = "docker.io/moby/buildkit@sha256:" + strings.Repeat("a", 64) }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -97,6 +96,14 @@ func TestBuildRequestRejectsCommitAndPathEscapes(t *testing.T) {
 				t.Fatal("unsafe request was accepted")
 			}
 		})
+	}
+}
+
+func TestBuildRequestAcceptsBuildKitDigestMirror(t *testing.T) {
+	request := validBuildRequest()
+	request.BuildKitImage = "registry.example.test/mirror/buildkit@sha256:" + strings.Repeat("a", 64)
+	if err := request.Validate(); err != nil {
+		t.Fatalf("digest BuildKit mirror rejected: %v", err)
 	}
 }
 
@@ -161,5 +168,26 @@ func TestBuildRequestAcceptsValidBuildArgWithoutEnforcingNamingPolicy(t *testing
 	request.BuildArgs = []BuildArg{{Name: "API_TOKEN", Value: "caller-selected-value"}}
 	if err := request.Validate(); err != nil {
 		t.Fatalf("valid Docker build argument was rejected: %v", err)
+	}
+}
+
+func TestSensitiveBuildArgWarningUsesNamesOnlyAndNeverBlocks(t *testing.T) {
+	secretValue := "caller-selected-secret-value"
+	request := validBuildRequest()
+	request.BuildArgs = []BuildArg{
+		{Name: "API_TOKEN", Value: secretValue},
+		{Name: "PUBLIC_VALUE", Value: "ordinary"},
+	}
+	if err := request.Validate(); err != nil {
+		t.Fatalf("sensitive-looking build argument was blocked: %v", err)
+	}
+	if !containsSensitiveBuildArgName(request.BuildArgs) {
+		t.Fatal("sensitive-looking build argument did not produce a warning signal")
+	}
+	if containsSensitiveBuildArgName([]BuildArg{{Name: "PUBLIC_VALUE", Value: secretValue}}) {
+		t.Fatal("ordinary build argument produced a sensitive warning")
+	}
+	if !containsSensitiveBuildArgName([]BuildArg{{Name: "DATABASE_PASSWORDS", Value: secretValue}}) {
+		t.Fatal("plural sensitive build argument name did not produce a warning")
 	}
 }

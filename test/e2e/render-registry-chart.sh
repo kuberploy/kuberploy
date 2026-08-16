@@ -159,10 +159,8 @@ helm template registry "${kp_chart}" \
 [[ "$(yq eval-all 'select(.kind == "Ingress") | has(.spec.rules[0].host)' "${kp_tmp}/load-balancer-ip.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | has(.metadata.annotations."external-dns.alpha.kubernetes.io/hostname")' "${kp_tmp}/load-balancer-ip.yaml")" == "false" ]]
 
-if helm template invalid "${kp_chart}" --namespace kuberploy-system -f "${kp_auth_values}" -f "${kp_load_balancer_values}" --set-json exposure.loadBalancer.sourceRanges='[]' >/dev/null 2>&1; then
-  printf 'registry LoadBalancer accepted empty source ranges\n' >&2
-  exit 1
-fi
+helm template public-load-balancer "${kp_chart}" --namespace kuberploy-system -f "${kp_auth_values}" -f "${kp_load_balancer_values}" --set-json exposure.loadBalancer.sourceRanges='[]' > "${kp_tmp}/public-load-balancer.yaml"
+[[ "$(yq eval-all 'select(.kind == "Service" and (.metadata.name | test("-edge$"))) | (.spec.loadBalancerSourceRanges // []) | length' "${kp_tmp}/public-load-balancer.yaml")" == "0" ]]
 if helm template invalid "${kp_chart}" --namespace kuberploy-system -f "${kp_auth_values}" -f "${kp_load_balancer_values}" --set-string exposure.loadBalancer.annotations.external-dns\.alpha\.kubernetes\.io/cloudflare-proxied=true >/dev/null 2>&1; then
   printf 'registry LoadBalancer accepted caller-controlled Cloudflare proxy mode\n' >&2
   exit 1
@@ -188,13 +186,11 @@ if helm template invalid "${kp_chart}" \
   printf 'registry chart accepted a non-ClusterIP Service\n' >&2
   exit 1
 fi
-if helm template invalid "${kp_chart}" \
-    --namespace kuberploy-registry \
-    -f "${kp_auth_values}" \
-    --set networkPolicy.enabled=false >/dev/null 2>&1; then
-  printf 'registry chart accepted a disabled NetworkPolicy\n' >&2
-  exit 1
-fi
+helm template no-network-policy "${kp_chart}" \
+  --namespace kuberploy-registry \
+  -f "${kp_auth_values}" \
+  --set networkPolicy.enabled=false >"${kp_tmp}/no-network-policy.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/no-network-policy.yaml" | tail -1)" == "0" ]]
 if helm template invalid "${kp_chart}" \
     --namespace kuberploy-registry \
     -f "${kp_auth_values}" \

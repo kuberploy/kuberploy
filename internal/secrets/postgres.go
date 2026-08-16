@@ -482,52 +482,92 @@ func (s *PostgreSQLStore) References(ctx context.Context, bindingID string) ([]R
 	return result, classifyPostgres(rows.Err())
 }
 
-func (s *PostgreSQLStore) PrepareDelete(ctx context.Context, bindingID, actorID string, event Event, now time.Time) (Binding, []Version, error) {
-	if !uuidRE.MatchString(bindingID) || !uuidRE.MatchString(actorID) || now.IsZero() || event.Validate() != nil || event.Kind != EventBindingDeleting || event.BindingID != bindingID || event.ActorID != actorID {
-		return Binding{}, nil, ErrInvalid
+func (s *PostgreSQLStore) PrepareDelete(ctx context.Context, command DeleteCommand) (Binding, []Version, bool, bool, error) {
+	if !uuidRE.MatchString(command.BindingID) || command.Idempotency.validate() != nil || command.Idempotency.Operation != "delete" ||
+		command.Idempotency.BindingID != command.BindingID || command.ActorID != command.Idempotency.ActorID || command.Now.IsZero() ||
+		command.Event.Validate() != nil || command.Event.Kind != EventBindingDeleting || command.Event.BindingID != command.BindingID || command.Event.ActorID != command.ActorID {
+		return Binding{}, nil, false, false, ErrInvalid
+	}
+	if binding, _, found, err := s.lookupReplay(ctx, command.Idempotency); found || err != nil {
+		if err != nil {
+			return Binding{}, nil, false, false, err
+		}
+		versions, versionErr := s.Versions(ctx, command.BindingID)
+		return binding, versions, true, false, versionErr
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return Binding{}, nil, err
+		return Binding{}, nil, false, false, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	binding, err := readBinding(ctx, tx, bindingID, true)
+	binding, err := readBinding(ctx, tx, command.BindingID, true)
 	if err != nil {
-		return Binding{}, nil, err
+		return Binding{}, nil, false, false, err
 	}
 	if binding.State == BindingDeleted {
-		return binding, nil, tx.Commit(ctx)
+		if err = insertIdempotency(ctx, tx, command.Idempotency); err != nil {
+			if isUniqueViolation(err) {
+				if replayBinding, _, found, replayErr := s.lookupReplay(ctx, command.Idempotency); found || replayErr != nil {
+					return replayBinding, nil, found, false, replayErr
+				}
+			}
+			return Binding{}, nil, false, false, err
+		}
+		return binding, nil, false, false, tx.Commit(ctx)
+	}
+	started := false
+	if binding.State == BindingDeleting {
+		versions, err := versionsInTx(ctx, tx, command.BindingID)
+		if err != nil {
+			return Binding{}, nil, false, false, err
+		}
+		// Do not record a second idempotency key for a delete already owned by
+		// another request. The service rejects this caller before provider
+		// cleanup; recording it would let a later retry bypass that fence.
+		return binding, versions, false, false, tx.Commit(ctx)
 	}
 	if binding.State != BindingDeleting {
 		var references, pending bool
-		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_binding_references WHERE binding_id=$1), EXISTS(SELECT 1 FROM secret_binding_versions WHERE binding_id=$1 AND state IN ('staging','awaiting-readiness'))`, bindingID).Scan(&references, &pending); err != nil {
-			return Binding{}, nil, classifyPostgres(err)
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_binding_references WHERE binding_id=$1), EXISTS(SELECT 1 FROM secret_binding_versions WHERE binding_id=$1 AND state IN ('staging','awaiting-readiness'))`, command.BindingID).Scan(&references, &pending); err != nil {
+			return Binding{}, nil, false, false, classifyPostgres(err)
 		}
 		if references {
-			return Binding{}, nil, ErrReferenced
+			return Binding{}, nil, false, false, ErrReferenced
 		}
 		if pending {
-			return Binding{}, nil, ErrConflict
+			return Binding{}, nil, false, false, ErrConflict
 		}
-		if _, err = tx.Exec(ctx, `UPDATE secret_bindings SET state='deleting',delete_started_at=$2,updated_at=$2 WHERE id=$1`, bindingID, now.UTC()); err != nil {
-			return Binding{}, nil, classifyPostgres(err)
+		if _, err = tx.Exec(ctx, `UPDATE secret_bindings SET state='deleting',delete_started_at=$2,updated_at=$2 WHERE id=$1`, command.BindingID, command.Now.UTC()); err != nil {
+			return Binding{}, nil, false, false, classifyPostgres(err)
 		}
-		if err = insertEvent(ctx, tx, event); err != nil {
-			return Binding{}, nil, err
+		if err = insertEvent(ctx, tx, command.Event); err != nil {
+			return Binding{}, nil, false, false, err
 		}
-		binding.State, binding.DeleteStarted, binding.UpdatedAt = BindingDeleting, now.UTC(), now.UTC()
-		if err = invalidateRuntimeSecretProjectionTx(ctx, tx, binding.ID, now); err != nil {
-			return Binding{}, nil, err
+		binding.State, binding.DeleteStarted, binding.UpdatedAt = BindingDeleting, command.Now.UTC(), command.Now.UTC()
+		started = true
+		if err = invalidateRuntimeSecretProjectionTx(ctx, tx, binding.ID, command.Now); err != nil {
+			return Binding{}, nil, false, false, err
 		}
 	}
-	versions, err := versionsInTx(ctx, tx, bindingID)
+	versions, err := versionsInTx(ctx, tx, command.BindingID)
 	if err != nil {
-		return Binding{}, nil, err
+		return Binding{}, nil, false, false, err
+	}
+	if len(versions) == 0 || versions[0].ID != command.Idempotency.VersionID {
+		return Binding{}, nil, false, false, ErrConflict
+	}
+	if err = insertIdempotency(ctx, tx, command.Idempotency); err != nil {
+		if isUniqueViolation(err) {
+			if replayBinding, _, found, replayErr := s.lookupReplay(ctx, command.Idempotency); found || replayErr != nil {
+				return replayBinding, versions, found, false, replayErr
+			}
+		}
+		return Binding{}, nil, false, false, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return Binding{}, nil, classifyPostgres(err)
+		return Binding{}, nil, false, false, classifyPostgres(err)
 	}
-	return binding, versions, nil
+	return binding, versions, false, started, nil
 }
 
 func (s *PostgreSQLStore) CompleteDelete(ctx context.Context, bindingID string, event Event, now time.Time) (Binding, error) {

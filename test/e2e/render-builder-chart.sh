@@ -41,6 +41,12 @@ yq eval-all 'true' "${kp_render}" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "RoleBinding") | .subjects[] | select(.name == "kuberploy-build-pod")] | length' "${kp_render}" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_render}" | tail -1)" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "default-deny") | .spec.ingress | length' "${kp_render}")" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" or .kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "14" ]]
+
+# Admission enforcement is mandatory for an enabled privileged builder and
+# binds generated Jobs to the operator-selected runtime contract.
+kp_render="${kp_tmp}/admission-enabled.yaml"
+helm template boundary "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=true >"${kp_render}"
 kp_default_deny_expression="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-default-deny$"))) | .spec.validations[0].expression' "${kp_render}")"
 grep -F '!has(object.spec.ingress) || object.spec.ingress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
 grep -F '!has(object.spec.egress) || object.spec.egress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
@@ -74,7 +80,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.175'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.176'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
@@ -84,7 +90,10 @@ for kp_required in \
   "c.restartPolicy == 'Always'" \
   "v.name == 'workspace' && v.readOnly == true" \
   "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
-  "cidr.endsWith('/32')" \
+  "cidr.matches('^(?:[0-9]{1,3}\\\\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$')" \
+  "r.to[0].ipBlock.cidr == '0.0.0.0/0'" \
+  "r.to[0].ipBlock.cidr == '::/0'" \
+  "r.to[0].ipBlock.except.size() <= 32" \
   "string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4='" \
   "object.data['token'].size() <= 2732" \
   "object.metadata.name.startsWith('source-credentials-')" \
@@ -112,40 +121,58 @@ if yq eval-all 'select(.kind == "Secret" or .kind == "Pod" or .kind == "Job" or 
   printf 'builder boundary chart rendered credentials or a workload\n' >&2
   exit 1
 fi
-if rg -n '/var/run/docker\.sock|NodePort|LoadBalancer|0\.0\.0\.0/0' "${kp_render}"; then
+if rg -n '/var/run/docker\.sock|NodePort|LoadBalancer' "${kp_render}"; then
   printf 'builder boundary render contains a forbidden host or public capability\n' >&2
-  exit 1
-fi
-if helm template invalid "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=false >/dev/null 2>&1; then
-  printf 'builder chart allowed admission enforcement to be disabled\n' >&2
   exit 1
 fi
 if helm template invalid "${kp_chart}" --set enabled=true >/dev/null 2>&1; then
   printf 'enabled builder chart accepted an empty trusted agent digest\n' >&2
   exit 1
 fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=false >/dev/null 2>&1; then
+  printf 'enabled builder chart accepted disabled privileged-job admission\n' >&2
+  exit 1
+fi
 # A different administrator-selected digest is valid chart configuration, but
 # the rendered Job policy must bind controllers to that exact value.
 kp_alt="${kp_tmp}/alternate-image.yaml"
-helm template alternate "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent:2.0.0 >"${kp_alt}"
+helm template alternate "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=true \
+  --set builderAgentImage=attacker.test/agent:2.0.0 >"${kp_alt}"
 rg -F "c.image == 'attacker.test/agent:2.0.0'" "${kp_alt}" >/dev/null
-if helm template invalid "${kp_chart}" -f "${kp_values}" --set builderAgentImage=attacker.test/agent:latest >/dev/null 2>&1; then
-  printf 'builder chart accepted a floating agent image\n' >&2
-  exit 1
-fi
+kp_latest="${kp_tmp}/latest-image.yaml"
+helm template latest "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=true \
+  --set builderAgentImage=operator.example/agent:latest >"${kp_latest}"
+rg -F "c.image == 'operator.example/agent:latest'" "${kp_latest}" >/dev/null
 if helm template invalid "${kp_chart}" -f "${kp_values}" --set unsupportedField=true >/dev/null 2>&1; then
   printf 'builder values schema accepted an unknown field\n' >&2
   exit 1
 fi
 if ! helm template parent-alias "${kp_chart}" -f "${kp_values}" \
-  --set-string networkPolicy.sourceEgressCIDRs[0]=192.0.2.30/32 \
+  --set-string networkPolicy.sourceEgressCIDRs[0]=192.0.0.0/20 \
+  --set-string networkPolicy.sourceEgressCIDRs[1]=2001:db8::/29 \
   --set-string networkPolicy.registryEgressCIDRs[0]=192.0.2.31/32 >/dev/null; then
   printf 'builder chart rejected the parent alias egress contract\n' >&2
   exit 1
 fi
+if ! helm template parent-profile "${kp_chart}" -f "${kp_values}" \
+  --set-json 'buildSecret={"name":"build-secrets","profiles":[{"id":"npmrc","label":"Private npm registry","key":"npmrc","applicationIds":["33333333-3333-4333-8333-333333333333"]}]}' \
+  --set-json 'sshSecret={"name":"ssh-secrets","profiles":[{"id":"github","label":"GitHub deploy key","key":"id_ed25519","applicationIds":["33333333-3333-4333-8333-333333333333"]}]}' >/dev/null; then
+  printf 'builder chart rejected the scoped secret-profile contract\n' >&2
+  exit 1
+fi
 if helm template invalid "${kp_chart}" -f "${kp_values}" \
-  --set-string networkPolicy.sourceEgressCIDRs[0]=192.0.2.0/24 >/dev/null 2>&1; then
-  printf 'builder chart accepted a non-host source egress CIDR\n' >&2
+  --set-json 'buildSecret={"name":"build-secrets","profiles":[{"id":"npmrc","label":"Private npm registry","key":"npmrc"}]}' >/dev/null 2>&1; then
+  printf 'builder chart accepted an unscoped secret profile\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" \
+  --set-string networkPolicy.sourceEgressCIDRs[0]=10.0.0.0/7 >/dev/null 2>&1; then
+  printf 'builder chart accepted an excessively broad source egress CIDR\n' >&2
+  exit 1
+fi
+if helm template invalid "${kp_chart}" -f "${kp_values}" \
+  --set-string networkPolicy.registryEgressCIDRs[0]=192.0.2.0/24 >/dev/null 2>&1; then
+  printf 'builder chart accepted a non-host registry egress CIDR\n' >&2
   exit 1
 fi
 

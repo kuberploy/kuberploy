@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../api/client";
 import type {
   Application,
@@ -14,6 +14,7 @@ import {
   hasCertificateCapability,
 } from "../lib/certificateAccess";
 import { formatDate } from "../lib/format";
+import { writeOnlyRequestSignature } from "../lib/writeOnlyRequest";
 import { Icon } from "./Icon";
 import {
   Button,
@@ -139,12 +140,14 @@ function CreateCertificateForm({
   onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const submitBusyRef = useRef(false);
   const [feedback, setFeedback] = useState("");
   const [retryKey, setRetryKey] = useState("");
+  const [retrySignature, setRetrySignature] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || submitBusyRef.current) return;
     const form = event.currentTarget;
     const nameInput = form.elements.namedItem("name");
     const name =
@@ -161,15 +164,33 @@ function CreateCertificateForm({
       clearCertificatePEM(form);
       return;
     }
-    const idempotencyKey = retryKey || crypto.randomUUID();
-    if (!retryKey) setRetryKey(idempotencyKey);
     const input = {
       environmentId: environment.id,
       name,
       ...collected.payload,
     };
-    clearCertificatePEM(form);
+    submitBusyRef.current = true;
     setBusy(true);
+    let signature: string;
+    try {
+      signature = await writeOnlyRequestSignature({
+        applicationId: application.id,
+        input,
+      });
+    } catch {
+      destroyCertificateWritePayload(input);
+      clearCertificatePEM(form);
+      submitBusyRef.current = false;
+      setBusy(false);
+      setFeedback(
+        "The write-only certificate request could not be prepared. Try again.",
+      );
+      return;
+    }
+    const idempotencyKey =
+      retryKey && retrySignature === signature ? retryKey : crypto.randomUUID();
+    if (!retryKey || retrySignature !== signature) setRetryKey(idempotencyKey);
+    clearCertificatePEM(form);
     setFeedback("");
     try {
       const created = await api.createCertificateBinding(
@@ -178,14 +199,17 @@ function CreateCertificateForm({
         idempotencyKey,
       );
       setRetryKey("");
+      setRetrySignature("");
       onCreated(created);
     } catch (error) {
       void error;
+      setRetrySignature(signature);
       setFeedback(
         "The write-only certificate request failed. PEM was cleared; re-enter the exact same material to retry with the protected idempotency key.",
       );
     } finally {
       destroyCertificateWritePayload(input);
+      submitBusyRef.current = false;
       setBusy(false);
     }
   }
@@ -201,38 +225,45 @@ function CreateCertificateForm({
             Kubernetes TLS Secret identity.
           </p>
         </div>
-        <Button type="button" variant="secondary" onClick={onClose}>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={onClose}
+          disabled={busy}
+        >
           Cancel
         </Button>
       </div>
       <form onSubmit={(event) => void submit(event)}>
-        <Field label="Binding name" required>
-          <input
-            aria-label="Certificate binding name"
-            name="name"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={63}
-            placeholder="public-edge"
-          />
-        </Field>
-        <CertificatePEMFields prefix="Create certificate" />
-        {feedback ? (
-          <div className="notice notice--error" role="alert">
-            {feedback}
+        <fieldset disabled={busy}>
+          <Field label="Binding name" required>
+            <input
+              aria-label="Certificate binding name"
+              name="name"
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={63}
+              placeholder="public-edge"
+            />
+          </Field>
+          <CertificatePEMFields prefix="Create certificate" />
+          {feedback ? (
+            <div className="notice notice--error" role="alert">
+              {feedback}
+            </div>
+          ) : null}
+          {retryKey ? (
+            <small className="runtime-secret-retry-note">
+              A stable idempotency key is retained for this form retry. Re-enter
+              the exact same PEM or cancel and start a new request.
+            </small>
+          ) : null}
+          <div className="runtime-secret-form-actions">
+            <Button type="submit" busy={busy}>
+              Validate and create
+            </Button>
           </div>
-        ) : null}
-        {retryKey ? (
-          <small className="runtime-secret-retry-note">
-            A stable idempotency key is retained for this form retry. Re-enter
-            the exact same PEM or cancel and start a new request.
-          </small>
-        ) : null}
-        <div className="runtime-secret-form-actions">
-          <Button type="submit" busy={busy}>
-            Validate and create
-          </Button>
-        </div>
+        </fieldset>
       </form>
     </Card>
   );
@@ -252,15 +283,26 @@ function CertificateDetail({
   onDeleted: () => void;
 }) {
   const [rotateBusy, setRotateBusy] = useState(false);
+  const rotateBusyRef = useRef(false);
   const [rotateFeedback, setRotateFeedback] = useState("");
   const [rotateRetryKey, setRotateRetryKey] = useState("");
+  const [rotateRetrySignature, setRotateRetrySignature] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const deleteBusyRef = useRef(false);
   const [deleteFeedback, setDeleteFeedback] = useState("");
   const [deleteRetryKey, setDeleteRetryKey] = useState("");
 
+  useEffect(() => {
+    // A failed retry is tied to the observed certificate CAS version. Do not
+    // replay it after another observation advances the active version.
+    setRotateRetryKey("");
+    setRotateRetrySignature("");
+    setRotateFeedback("");
+  }, [binding.id, binding.activeVersion]);
+
   async function rotate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (rotateBusy || !binding.activeVersion) return;
+    if (rotateBusy || rotateBusyRef.current || !binding.activeVersion) return;
     const form = event.currentTarget;
     const collected = collectCertificateWritePayload(form);
     if (!collected.ok) {
@@ -268,33 +310,58 @@ function CertificateDetail({
       clearCertificatePEM(form);
       return;
     }
-    const idempotencyKey = rotateRetryKey || crypto.randomUUID();
-    if (!rotateRetryKey) setRotateRetryKey(idempotencyKey);
     const input = {
       expectedActiveVersion: binding.activeVersion,
       ...collected.payload,
     };
-    clearCertificatePEM(form);
+    rotateBusyRef.current = true;
     setRotateBusy(true);
+    let signature: string;
+    try {
+      signature = await writeOnlyRequestSignature({
+        bindingId: binding.id,
+        input,
+      });
+    } catch {
+      destroyCertificateWritePayload(input);
+      clearCertificatePEM(form);
+      rotateBusyRef.current = false;
+      setRotateBusy(false);
+      setRotateFeedback(
+        "The write-only certificate rotation could not be prepared. Try again.",
+      );
+      return;
+    }
+    const idempotencyKey =
+      rotateRetryKey && rotateRetrySignature === signature
+        ? rotateRetryKey
+        : crypto.randomUUID();
+    if (!rotateRetryKey || rotateRetrySignature !== signature) {
+      setRotateRetryKey(idempotencyKey);
+    }
+    clearCertificatePEM(form);
     setRotateFeedback("");
     try {
       await api.rotateCertificateBinding(binding.id, input, idempotencyKey);
       setRotateRetryKey("");
+      setRotateRetrySignature("");
       onChanged();
     } catch (error) {
       void error;
+      setRotateRetrySignature(signature);
       setRotateFeedback(
         "The write-only certificate rotation failed. PEM was cleared; re-enter the exact same material to retry with the protected idempotency key.",
       );
     } finally {
       destroyCertificateWritePayload(input);
+      rotateBusyRef.current = false;
       setRotateBusy(false);
     }
   }
 
   async function remove(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (deleteBusy) return;
+    if (deleteBusy || deleteBusyRef.current) return;
     const form = event.currentTarget;
     const confirmation = form.elements.namedItem("confirmation");
     if (
@@ -307,6 +374,7 @@ function CertificateDetail({
     confirmation.value = "";
     const idempotencyKey = deleteRetryKey || crypto.randomUUID();
     if (!deleteRetryKey) setDeleteRetryKey(idempotencyKey);
+    deleteBusyRef.current = true;
     setDeleteBusy(true);
     setDeleteFeedback("");
     try {
@@ -316,6 +384,7 @@ function CertificateDetail({
     } catch (error) {
       setDeleteFeedback(errorMessage(error));
     } finally {
+      deleteBusyRef.current = false;
       setDeleteBusy(false);
     }
   }
@@ -384,26 +453,30 @@ function CertificateDetail({
           className="runtime-secret-rotation-form"
           onSubmit={(event) => void rotate(event)}
         >
-          <div className="runtime-secret-subhead">
-            <div>
-              <h4>Rotate from version {binding.activeVersion}</h4>
-              <p>
-                The active version is used as an exact compare-and-swap guard.
-              </p>
+          <fieldset disabled={rotateBusy}>
+            <div className="runtime-secret-subhead">
+              <div>
+                <h4>Rotate from version {binding.activeVersion}</h4>
+                <p>
+                  The active version is used as an exact compare-and-swap guard.
+                </p>
+              </div>
             </div>
-          </div>
-          <CertificatePEMFields prefix="Rotate certificate" />
-          {rotateFeedback ? (
-            <div className="notice notice--error" role="alert">
-              {rotateFeedback}
-            </div>
-          ) : null}
-          {rotateRetryKey ? (
-            <PlaceholderBadge>Stable rotation retry protected</PlaceholderBadge>
-          ) : null}
-          <Button type="submit" busy={rotateBusy}>
-            Validate and rotate
-          </Button>
+            <CertificatePEMFields prefix="Rotate certificate" />
+            {rotateFeedback ? (
+              <div className="notice notice--error" role="alert">
+                {rotateFeedback}
+              </div>
+            ) : null}
+            {rotateRetryKey ? (
+              <PlaceholderBadge>
+                Stable rotation retry protected
+              </PlaceholderBadge>
+            ) : null}
+            <Button type="submit" busy={rotateBusy}>
+              Validate and rotate
+            </Button>
+          </fieldset>
         </form>
       ) : null}
       {canDelete ? (
@@ -411,32 +484,34 @@ function CertificateDetail({
           className="runtime-secret-delete"
           onSubmit={(event) => void remove(event)}
         >
-          <div>
-            <h4>Delete certificate binding</h4>
-            <p>
-              Deletion fails while any Git, active release, or retained rollback
-              reference still uses a version.
-            </p>
-          </div>
-          <Field label={`Type ${binding.name} to confirm`}>
-            <input
-              aria-label="Exact certificate binding name confirmation"
-              name="confirmation"
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Field>
-          <Button type="submit" variant="danger" busy={deleteBusy}>
-            Delete certificate
-          </Button>
-          {deleteFeedback ? (
-            <div className="notice notice--error" role="alert">
-              {deleteFeedback}
+          <fieldset disabled={deleteBusy}>
+            <div>
+              <h4>Delete certificate binding</h4>
+              <p>
+                Deletion fails while any Git, active release, or retained
+                rollback reference still uses a version.
+              </p>
             </div>
-          ) : null}
-          {deleteRetryKey ? (
-            <PlaceholderBadge>Stable delete retry protected</PlaceholderBadge>
-          ) : null}
+            <Field label={`Type ${binding.name} to confirm`}>
+              <input
+                aria-label="Exact certificate binding name confirmation"
+                name="confirmation"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Field>
+            <Button type="submit" variant="danger" busy={deleteBusy}>
+              Delete certificate
+            </Button>
+            {deleteFeedback ? (
+              <div className="notice notice--error" role="alert">
+                {deleteFeedback}
+              </div>
+            ) : null}
+            {deleteRetryKey ? (
+              <PlaceholderBadge>Stable delete retry protected</PlaceholderBadge>
+            ) : null}
+          </fieldset>
         </form>
       ) : null}
     </Card>
@@ -462,6 +537,9 @@ export function CertificateBindingsPanel({
   const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
   const [selectedBindingId, setSelectedBindingId] = useState("");
   const [creating, setCreating] = useState(false);
+  const formScopeRef = useRef("");
+  const selectedBindingRef = useRef("");
+  selectedBindingRef.current = selectedBindingId;
   const readableEnvironments = certificateEnvironments(
     capabilities,
     "certificate-bindings:read",
@@ -473,6 +551,28 @@ export function CertificateBindingsPanel({
     readableEnvironments.find(
       (environment) => environment.id === selectedEnvironmentId,
     ) ?? readableEnvironments[0];
+  const formScope = `${application.id}:${selectedEnvironment?.id ?? ""}`;
+  formScopeRef.current = formScope;
+  useEffect(() => {
+    formScopeRef.current = formScope;
+  }, [formScope]);
+  useEffect(() => {
+    setSelectedEnvironmentId("");
+    setSelectedBindingId("");
+    setCreating(false);
+  }, [application.id]);
+  useEffect(() => {
+    if (
+      selectedEnvironmentId &&
+      !readableEnvironments.some(
+        (environment) => environment.id === selectedEnvironmentId,
+      )
+    ) {
+      setSelectedEnvironmentId("");
+      setSelectedBindingId("");
+      setCreating(false);
+    }
+  }, [readableEnvironments, selectedEnvironmentId]);
   const list = useQuery({
     queryKey: ["certificate-bindings", application.id, selectedEnvironment?.id],
     queryFn: () =>
@@ -480,17 +580,22 @@ export function CertificateBindingsPanel({
     enabled: featureEnabled && humanSession && Boolean(selectedEnvironment?.id),
     retry: false,
   });
-  const selectedListedBinding = list.data?.items.some(
+  const selectedListedBinding = list.data?.items.find(
     (binding) => binding.id === selectedBindingId,
   );
   const detail = useQuery({
-    queryKey: ["certificate-binding", selectedBindingId],
+    queryKey: [
+      "certificate-binding",
+      selectedBindingId,
+      selectedListedBinding?.activeVersion ?? 0,
+      selectedListedBinding?.state ?? "",
+    ],
     queryFn: () => api.certificateBinding(selectedBindingId),
     enabled:
       featureEnabled &&
       humanSession &&
       Boolean(selectedBindingId) &&
-      selectedListedBinding,
+      Boolean(selectedListedBinding),
     retry: false,
   });
 
@@ -588,6 +693,7 @@ export function CertificateBindingsPanel({
           environment={selectedEnvironment}
           onClose={() => setCreating(false)}
           onCreated={(binding) => {
+            if (formScopeRef.current !== formScope) return;
             setCreating(false);
             setSelectedBindingId(binding.id);
             void refreshList();
@@ -663,10 +769,22 @@ export function CertificateBindingsPanel({
                 canRotate={canRotate}
                 canDelete={canDelete}
                 onChanged={() => {
+                  if (
+                    formScopeRef.current !== formScope ||
+                    selectedBindingRef.current !== detail.data?.id
+                  ) {
+                    return;
+                  }
                   void refreshList();
                   void detail.refetch();
                 }}
                 onDeleted={() => {
+                  if (
+                    formScopeRef.current !== formScope ||
+                    selectedBindingRef.current !== detail.data?.id
+                  ) {
+                    return;
+                  }
                   setSelectedBindingId("");
                   void refreshList();
                 }}

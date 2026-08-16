@@ -147,11 +147,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	}
 	enabled, present := lookup(ManagedRegistryRuntimeEnabledEnv)
 	if !present || enabled == "" || enabled == "false" {
-		for _, name := range managedRegistryRuntimeIdentityEnvs() {
-			if value, ok := lookup(name); ok && value != "" {
-				return RuntimeConfig{}, errRegistryRuntimeConfig
-			}
-		}
 		return RuntimeConfig{}, nil
 	}
 	if enabled != "true" {
@@ -188,17 +183,6 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, err
 	}
 	return config, nil
-}
-
-func managedRegistryRuntimeIdentityEnvs() []string {
-	return []string{
-		ManagedRegistryTargetIDEnv, ManagedRegistryTargetNameEnv, ManagedRegistryEndpointEnv, ManagedRegistryRepositoryPrefixEnv,
-		ManagedRegistryPullCredentialRefEnv, ManagedRegistryPushCredentialRefEnv, ManagedRegistryCacheCredentialRefEnv,
-		ManagedRegistryLifecycleCredentialRefEnv, ManagedRegistryAllowPlainHTTPEnv, ManagedRegistryNamespaceEnv,
-		ManagedRegistryDeploymentEnv, ManagedRegistryPVCEnv, ManagedRegistryConfigMapEnv,
-		ManagedRegistryHelperServiceAccountEnv, ManagedRegistryHelperImageEnv,
-		ManagedRegistryObservationSecondsEnv,
-	}
 }
 
 func exactRegistryEnv(lookup func(string) (string, bool), name string) string {

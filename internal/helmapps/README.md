@@ -15,8 +15,9 @@ An administrator approval pins all of the following as one immutable revision:
 - one exact SemVer chart version;
 - the OCI manifest digest, fetched chart-package digest, and
   `values.schema.json` digest, all `sha256`;
-- Helm `4.2.3`, policy `external-helm-p0.v1`, and
-  `docker.io/alpine/helm:4.2.3`;
+- Helm `4.2.3`, policy `external-helm-p0.v1`, and the logical renderer
+  reference `docker.io/alpine/helm:4.2.3`. Kubernetes renderer Jobs execute
+  the verified immutable multi-architecture digest for that reference;
 - a digest of that complete approval identity.
 
 The server constructs `app.yaml` from the approval plus durable project,
@@ -29,9 +30,10 @@ descriptor, normalized values, and limits contract.
 keys, multiple documents, non-JSON values, credential-like leaves, renderer
 controls, arbitrary namespace controls, dependency/CRD switches,
 post-renderers, schema skipping, and pass-credentials. Secret values are not an
-input format; a permitted `existingSecret`-style value is only one DNS-label
-reference to secret material provisioned by the platform's separate secret
-boundary.
+input format. An `existingSecret`-style value may be accepted as chart
+configuration only when it is a DNS-label reference, but rendered external
+workloads may not read or mount arbitrary Kubernetes Secrets; application
+secrets use the platform's separate, application-bound secret contract.
 
 ## Chart admission and render plan
 

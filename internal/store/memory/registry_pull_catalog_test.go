@@ -46,7 +46,7 @@ func TestProjectRegistryPullCredentialsAreMultipleScopedAndSelectable(t *testing
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(ctx, actorID, "select", "select", "request", selection); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID); !errors.Is(err, base.ErrConflict) {
+	if _, err = store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID, "delete-selected", "delete-selected", "request"); !errors.Is(err, base.ErrConflict) {
 		t.Fatalf("selected delete err=%v", err)
 	}
 	cross := domain.ApplicationRegistryPullSelection{ApplicationID: otherApplicationID, Mode: domain.ApplicationRegistryPullCredential, ProjectCredentialID: first.ID}
@@ -57,7 +57,10 @@ func TestProjectRegistryPullCredentialsAreMultipleScopedAndSelectable(t *testing
 	if _, err = store.PutApplicationRegistryPullSelectionForActor(ctx, actorID, "public", "public", "request", public); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID); err != nil {
-		t.Fatal(err)
+	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID, "delete-second", "delete-second", "request"); err != nil || replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
+	}
+	if replay, err := store.DeleteProjectRegistryPullCredentialForActor(ctx, actorID, projectID, second.ID, "delete-second", "delete-second", "request-retry"); err != nil || !replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
 	}
 }

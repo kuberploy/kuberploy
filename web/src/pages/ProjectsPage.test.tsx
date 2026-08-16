@@ -113,6 +113,74 @@ describe("project team ownership", () => {
     });
   });
 
+  it("preserves a newer environment draft when the earlier create completes", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Platform admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          role: "platform-admin",
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["environments:create"],
+        },
+      ],
+    });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "projects").mockResolvedValue({
+      items: [{ id: "project_payments", name: "Payments" }],
+    });
+    vi.spyOn(api, "environments").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+    let resolveCreate!: (
+      value: Awaited<ReturnType<typeof api.createEnvironment>>,
+    ) => void;
+    const createEnvironment = vi
+      .spyOn(api, "createEnvironment")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveCreate = resolve;
+          }),
+      );
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectsPage />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Environment" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project_payments",
+    );
+    const name = screen.getByRole("textbox", { name: "Name" });
+    await user.type(name, "First staging");
+    await user.click(
+      screen.getByRole("button", { name: "Create environment" }),
+    );
+    await waitFor(() => expect(createEnvironment).toHaveBeenCalledOnce());
+    await user.clear(name);
+    await user.type(name, "Newer staging");
+
+    resolveCreate({} as Awaited<ReturnType<typeof api.createEnvironment>>);
+    await waitFor(() => expect(name).toHaveValue("Newer staging"));
+  });
+
   it("lets an admin choose ownership and never renders an unavailable team ID", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user_admin",

@@ -46,7 +46,7 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,team_id) VALUES($1,'Middleware project',$2,$3)`, project, "middleware-"+project[:8], team); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES($1,$2,'Production','production',$3,'middleware')`, environment, project, "middleware-"+environment[:8]); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES($1,$2,'Production','production',$3,$3)`, environment, project, "middleware-"+environment[:8]); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug) VALUES($1,$2,'API','api')`, application, project); err != nil {

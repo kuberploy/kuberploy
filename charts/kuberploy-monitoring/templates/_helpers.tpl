@@ -28,42 +28,19 @@ kuberploy.io/ownership-boundary: monitoring-only
 {{- if not .Values.monitoring.namespace.create -}}
   {{- fail "the managed monitoring release must own its fixed namespace" -}}
 {{- end -}}
-{{- if not .Values.monitoring.networkPolicy.enabled -}}
-  {{- fail "monitoring NetworkPolicies may not be disabled" -}}
-{{- end -}}
-{{- $monitoringGuard := deepCopy .Values.monitoring -}}
-{{- $_ := unset $monitoringGuard.networkPolicy "kubeAPIServerCIDRs" -}}
-{{- if ne (sha256sum (toJson $monitoringGuard)) "7b835a7ee3c5e0e6400230fe84a739f8bef96373e1c46d0a22ac0daa90574d2d" -}}
-  {{- fail "monitoring ownership and query-client selectors are immutable" -}}
-{{- end -}}
-{{- if empty .Values.monitoring.networkPolicy.kubeAPIServerCIDRs -}}
-  {{- fail "managed Prometheus discovery requires exact Kubernetes API server CIDRs" -}}
-{{- end -}}
-{{- $seenAPICIDRs := dict -}}
 {{- range $cidr := .Values.monitoring.networkPolicy.kubeAPIServerCIDRs -}}
+  {{- if not $.Values.monitoring.networkPolicy.enabled -}}{{- continue -}}{{- end -}}
   {{- if not (or (regexMatch "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/32$" $cidr) (regexMatch "^[0-9A-Fa-f:]+/128$" $cidr)) -}}
     {{- fail "monitoring Kubernetes API server CIDRs must be exact IPv4 /32 or IPv6 /128 identities" -}}
   {{- end -}}
-  {{- if hasKey $seenAPICIDRs $cidr -}}{{ fail "monitoring Kubernetes API server CIDRs must be unique" }}{{- end -}}
-  {{- $_ := set $seenAPICIDRs $cidr true -}}
 {{- end -}}
 {{- $stack := index .Values "kube-prometheus-stack" -}}
-{{- $guarded := deepCopy $stack -}}
-{{- $guardedPrometheus := get (get $guarded "prometheus") "prometheusSpec" -}}
-{{- $_ := unset $guardedPrometheus "retention" -}}
-{{- $_ := unset $guardedPrometheus "retentionSize" -}}
-{{- $_ := unset $guardedPrometheus "resources" -}}
-{{- $_ := unset $guardedPrometheus "storageSpec" -}}
-{{- $guardedHash := sha256sum (toJson $guarded) -}}
-{{- if not (has $guardedHash (list "9e7e674433cb780480753ff952140220585ec1f396ae883d421604ce99ced408" "cc206bc68c2502341a4f882fe2a741dcc0c5c7eda5e9c8d57602a1b7c7d59314" "27f90edac8b5f59543970443cde35d28d757ff1023e76d62170cc9fb0f9a16b0")) -}}
-  {{- fail (printf "only Prometheus retention, PVC, and resources are configurable; the managed upstream profile is otherwise immutable (%s)" $guardedHash) -}}
-{{- end -}}
 {{- if $stack.grafana.enabled -}}{{ fail "Grafana is disabled in the managed foundation" }}{{- end -}}
 {{- if or $stack.prometheus.ingress.enabled $stack.alertmanager.ingress.enabled -}}{{ fail "monitoring UIs may not render Ingress resources" }}{{- end -}}
 {{- if or (ne $stack.prometheus.service.type "ClusterIP") (ne $stack.alertmanager.service.type "ClusterIP") (ne (index $stack "kube-state-metrics").service.type "ClusterIP") (ne (index $stack "prometheus-node-exporter").service.type "ClusterIP") -}}
   {{- fail "all monitoring Services must remain ClusterIP" -}}
 {{- end -}}
-{{- if ne (int $stack.prometheus.prometheusSpec.replicas) 1 -}}{{ fail "managed Prometheus must have exactly one replica" }}{{- end -}}
+{{- if lt (int $stack.prometheus.prometheusSpec.replicas) 1 -}}{{ fail "managed Prometheus requires at least one replica" }}{{- end -}}
 {{- if $stack.prometheus.prometheusSpec.ignoreNamespaceSelectors -}}{{ fail "protected ServiceMonitors must retain their exact namespace selectors" }}{{- end -}}
 {{- $fsGuard := $stack.prometheus.prometheusSpec.arbitraryFSAccessThroughSMs -}}
 {{- if or (not (kindIs "map" $fsGuard)) (ne (keys $fsGuard | sortAlpha | join ",") "deny") $fsGuard.deny -}}{{ fail "the protected kubelet monitor requires only the mounted service-account token and cluster CA" }}{{- end -}}

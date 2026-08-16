@@ -118,16 +118,16 @@ func (s *Server) sslipHostname(w http.ResponseWriter, r *http.Request) {
 	}
 	actor := currentUser(r.Context()).ID
 	applicationAuthorization := s.store.Authorize(r.Context(), actor, domain.PermissionResourcesRead, domain.AccessTarget{Type: "application", ID: application.ID})
-	if applicationAuthorization != nil {
-		environmentAuthorization := s.store.Authorize(r.Context(), actor, domain.PermissionResourcesRead, domain.AccessTarget{Type: "environment", ID: environment.ID})
-		if environmentAuthorization != nil {
-			if errors.Is(applicationAuthorization, store.ErrForbidden) || errors.Is(environmentAuthorization, store.ErrForbidden) {
-				mappedError(w, r, store.ErrForbidden)
-			} else {
-				mappedError(w, r, applicationAuthorization)
-			}
-			return
+	environmentAuthorization := s.store.Authorize(r.Context(), actor, domain.PermissionResourcesRead, domain.AccessTarget{Type: "environment", ID: environment.ID})
+	if applicationAuthorization != nil || environmentAuthorization != nil {
+		if errors.Is(applicationAuthorization, store.ErrForbidden) || errors.Is(environmentAuthorization, store.ErrForbidden) {
+			mappedError(w, r, store.ErrForbidden)
+		} else if applicationAuthorization != nil {
+			mappedError(w, r, applicationAuthorization)
+		} else {
+			mappedError(w, r, environmentAuthorization)
 		}
+		return
 	}
 	preview, err := s.sslip.ResolveSSLIPHostname(r.Context(), SSLIPHostnameRequest{
 		ApplicationID: application.ID, EnvironmentID: environment.ID, ProjectID: application.ProjectID, Namespace: environment.Namespace,

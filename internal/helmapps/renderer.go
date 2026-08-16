@@ -309,7 +309,119 @@ func validateNamespacedResource(resource map[string]any, descriptor Descriptor) 
 			return "", ErrUnsafeChart
 		}
 	}
+	if kind == "Deployment" || kind == "StatefulSet" || kind == "Job" || kind == "CronJob" {
+		if err := validateWorkloadPodSpec(resource); err != nil {
+			return "", err
+		}
+	}
 	return fmt.Sprintf("%s\x00%s\x00%s\x00%s", apiVersion, kind, namespace, name), nil
+}
+
+// External Helm applications are not given a Kubernetes Secret capability.
+// A chart may still render ordinary workloads, but a secretKeyRef, secret
+// volume, imagePullSecret, or projected Secret would let an application read
+// any same-namespace Secret by guessing its name. Runtime secrets use the
+// separate application-bound secret-binding contract instead.
+func validateWorkloadPodSpec(resource map[string]any) error {
+	spec, ok := resource["spec"].(map[string]any)
+	if !ok {
+		return ErrUnsafeChart
+	}
+	// Jobs expose the same pod template directly as Deployments, while
+	// CronJobs nest it below spec.jobTemplate. Keep the secret/reference
+	// boundary identical across every workload kind an external chart may
+	// render.
+	if jobTemplate, nested := spec["jobTemplate"]; nested {
+		jobTemplateSpec, ok := jobTemplate.(map[string]any)
+		if !ok {
+			return ErrUnsafeChart
+		}
+		spec, ok = jobTemplateSpec["spec"].(map[string]any)
+		if !ok {
+			return ErrUnsafeChart
+		}
+	}
+	template, ok := spec["template"].(map[string]any)
+	if !ok {
+		return ErrUnsafeChart
+	}
+	podSpec, ok := template["spec"].(map[string]any)
+	if !ok {
+		return ErrUnsafeChart
+	}
+	if _, present := podSpec["imagePullSecrets"]; present || podSpecVolumesContainSecret(podSpec["volumes"]) || podSpecContainersContainSecret(podSpec) {
+		return ErrUnsafeChart
+	}
+	return nil
+}
+
+func podSpecContainersContainSecret(podSpec map[string]any) bool {
+	for _, field := range []string{"containers", "initContainers", "ephemeralContainers"} {
+		containers, ok := podSpec[field].([]any)
+		if !ok {
+			continue
+		}
+		for _, rawContainer := range containers {
+			container, ok := rawContainer.(map[string]any)
+			if !ok {
+				return true
+			}
+			if env, ok := container["env"].([]any); ok {
+				for _, rawEntry := range env {
+					entry, ok := rawEntry.(map[string]any)
+					if !ok {
+						return true
+					}
+					valueFrom, ok := entry["valueFrom"].(map[string]any)
+					if _, present := valueFrom["secretKeyRef"]; ok && present {
+						return true
+					}
+				}
+			}
+			if envFrom, ok := container["envFrom"].([]any); ok {
+				for _, rawEntry := range envFrom {
+					entry, ok := rawEntry.(map[string]any)
+					if !ok {
+						return true
+					}
+					if _, present := entry["secretRef"]; present {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func podSpecVolumesContainSecret(rawVolumes any) bool {
+	volumes, ok := rawVolumes.([]any)
+	if !ok {
+		return false
+	}
+	var containsSecret func(any) bool
+	containsSecret = func(value any) bool {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				switch normalizeKey(key) {
+				case "secret", "secretkeyref", "secretref", "secretname", "nodepublishsecretref":
+					return true
+				}
+				if containsSecret(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if containsSecret(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return containsSecret(volumes)
 }
 
 func validateService(resource map[string]any) error {

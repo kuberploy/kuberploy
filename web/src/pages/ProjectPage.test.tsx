@@ -1,10 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { ProjectPage } from "./ProjectPage";
+
+const routeParams = vi.hoisted(() => ({ projectId: "project_payments" }));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -16,7 +18,7 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
-  useParams: () => ({ projectId: "project_payments" }),
+  useParams: () => routeParams,
 }));
 
 function wrapper() {
@@ -53,7 +55,10 @@ beforeEach(() => {
   });
   vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
   vi.spyOn(api, "projects").mockResolvedValue({
-    items: [{ id: "project_payments", name: "Payments" }],
+    items: [
+      { id: "project_payments", name: "Payments" },
+      { id: "project_other", name: "Other" },
+    ],
   });
   vi.spyOn(api, "environments").mockResolvedValue({
     items: [
@@ -99,6 +104,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  routeParams.projectId = "project_payments";
   vi.restoreAllMocks();
 });
 
@@ -129,5 +135,98 @@ describe("project workspace", () => {
     expect(
       await screen.findByRole("heading", { name: "Service accounts" }),
     ).toBeInTheDocument();
+  });
+
+  it("preserves a newer environment draft when the earlier create completes", async () => {
+    let resolveCreate!: (value: {
+      id: string;
+      projectId: string;
+      name: string;
+      namespace: string;
+      protectionPolicy: "protected";
+    }) => void;
+    const create = vi.spyOn(api, "createEnvironment").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Environments (1)" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Environment" }));
+    const name = screen.getByRole("textbox", { name: "Environment name" });
+    await user.type(name, "Staging");
+    await user.click(
+      screen.getByRole("button", { name: "Create environment" }),
+    );
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await user.clear(name);
+    await user.type(name, "Newer staging");
+
+    resolveCreate({
+      id: "environment_staging",
+      projectId: "project_payments",
+      name: "Staging",
+      namespace: "payments-staging",
+      protectionPolicy: "protected",
+    });
+    await waitFor(() => expect(name).toHaveValue("Newer staging"));
+  });
+
+  it("clears a Git panel selection when its environment leaves access scope", async () => {
+    vi.spyOn(api, "environmentGitBinding").mockRejectedValue(
+      new ApiError(404, { title: "Not found" }),
+    );
+    const { queryClient, Wrapper } = (() => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      return {
+        queryClient: client,
+        Wrapper: ({ children }: PropsWithChildren) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      };
+    })();
+    const user = userEvent.setup();
+    render(<ProjectPage />, { wrapper: Wrapper });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Environments (1)" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Git" }));
+    expect(
+      await screen.findByLabelText("Production Git authority"),
+    ).toBeInTheDocument();
+
+    queryClient.setQueryData(["environments"], { items: [] });
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Production Git authority")).toBeNull(),
+    );
+  });
+
+  it("resets workspace state when navigating to another project", async () => {
+    const user = userEvent.setup();
+    const view = render(<ProjectPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("heading", { name: "Payments" });
+    await user.click(
+      screen.getByRole("button", { name: "Access & automation" }),
+    );
+
+    routeParams.projectId = "project_other";
+    view.rerender(<ProjectPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Services (0)" }),
+      ).toHaveAttribute("aria-current", "page"),
+    );
+    expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument();
   });
 });

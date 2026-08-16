@@ -39,14 +39,15 @@ func TestRegistryOpenAPIContractIsScopedBoundedAndMetadataOnly(t *testing.T) {
 		mutation                        bool
 		agentRead                       bool
 	}{
-		"/v1/registry-targets":                               {"get", "listRegistryTargets", "registry.targets.manage", false, false},
-		"/v1/registry-targets#post":                          {"post", "createRegistryTarget", "registry.targets.manage", true, false},
-		"/v1/registry-targets/{id}":                          {"put", "updateRegistryTarget", "registry.targets.manage", true, false},
-		"/v1/applications/{id}/registry":                     {"get", "getApplicationRegistryInventory", "registry.read", false, true},
-		"/v1/applications/{id}/registry/policies/{targetId}": {"put", "putApplicationRegistryPolicy", "registry.policy.write", true, false},
-		"/v1/applications/{id}/registry/cleanup-previews":    {"post", "createRegistryCleanupPreview", "registry.cleanup.preview", true, false},
-		"/v1/registry-cleanup-plans/{id}":                    {"get", "getRegistryCleanupPlan", "registry.read", false, true},
-		"/v1/registry-cleanup-plans/{id}/executions":         {"post", "executeRegistryCleanupPlan", "registry.cleanup.execute", true, false},
+		"/v1/registry-targets":                                       {"get", "listRegistryTargets", "registry.targets.manage", false, false},
+		"/v1/registry-targets#post":                                  {"post", "createRegistryTarget", "registry.targets.manage", true, false},
+		"/v1/registry-targets/{id}":                                  {"put", "updateRegistryTarget", "registry.targets.manage", true, false},
+		"/v1/applications/{id}/registry":                             {"get", "getApplicationRegistryInventory", "registry.read", false, true},
+		"/v1/applications/{id}/registry/policies/{targetId}":         {"put", "putApplicationRegistryPolicy", "registry.policy.write", true, false},
+		"/v1/applications/{id}/registry/cleanup-previews":            {"post", "createRegistryCleanupPreview", "registry.cleanup.preview", true, false},
+		"/v1/registry-cleanup-plans/{id}":                            {"get", "getRegistryCleanupPlan", "registry.read", false, true},
+		"/v1/registry-cleanup-plans/{id}/executions":                 {"post", "executeRegistryCleanupPlan", "registry.cleanup.execute", true, false},
+		"/v1/projects/{id}/registry-pull-credentials/{credentialId}": {"delete", "deleteProjectRegistryPullCredential", "registry.policy.write", true, false},
 	}
 	operationIDs := map[string]bool{}
 	for key, want := range expected {

@@ -249,12 +249,13 @@ kp_query_policy="$(yq eval-all 'select(.kind == "NetworkPolicy" and (.metadata.n
 [[ "$(yq '.spec.ingress[0].ports[0].port' <<<"${kp_query_policy}")" == "9090" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[]? | select(.namespaceSelector == {})] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy") | .spec.ingress[].from[]?.ipBlock] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/managed.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","10.43.0.1/32"]' ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-private-egress$"))) | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_tmp}/managed.yaml")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "monitoring-private-egress") | .spec.egress[] | select(.to[0].ipBlock.cidr == "10.43.0.1/32" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .immutable' "${kp_tmp}/managed.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .metadata.annotations."argocd.argoproj.io/sync-options"' "${kp_tmp}/managed.yaml")" == "Force=true,Replace=true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | (.data | length)' "${kp_tmp}/managed.yaml")" == "24" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.ignoreNamespaceSelectors + "," + .data.serviceMonitorFilesystemAccess' "${kp_tmp}/managed.yaml")" == "false,kubelet-service-account-token+cluster-ca" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.175,monitoring,kuberploy-monitoring" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.contract + "," + .data.chartName + "," + .data.chartVersion + "," + .data.releaseName + "," + .data.namespace' "${kp_tmp}/managed.yaml")" == "kuberploy-managed-monitoring/v1,kuberploy-monitoring,0.1.0-rc.176,monitoring,kuberploy-monitoring" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.operatorArgumentsSHA256' "${kp_tmp}/managed.yaml")" == "sha256:ad7ee73da3828389d76d5f6102dde3c3c6cde35f0345bf8d7cad220a5c6df7a6" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.upstreamChartSHA256' "${kp_tmp}/managed.yaml")" == "sha256:b558a852552f809ccce66d5677ca1a55c8010470c44a01dbdc4ab3f678bcdc90" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "monitoring-monitoring-profile") | .data.recordingRuleSpecSHA256' "${kp_tmp}/managed.yaml")" == "sha256:0058f63c0c000cc9e491f3775c830554fa7a1bf10d0b86de7e3f8d61e9b09879" ]]
@@ -277,16 +278,24 @@ kp_expect_reject() {
 kp_expect_reject 'wrong release namespace' --namespace other-namespace
 kp_expect_reject 'wrong release identity' --name-template other-monitoring
 kp_expect_reject 'managed monitoring disabled' --set monitoring.managed=false
-kp_expect_reject 'NetworkPolicy disabled' --set monitoring.networkPolicy.enabled=false
-kp_expect_reject 'missing Kubernetes API identity' --set 'monitoring.networkPolicy.kubeAPIServerCIDRs={}'
+helm template monitoring "${kp_chart}" --namespace kuberploy-monitoring --include-crds -f "${kp_values}" \
+  --set monitoring.networkPolicy.enabled=false >"${kp_tmp}/no-network-policy.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/no-network-policy.yaml" | tail -1)" == "0" ]]
+helm template monitoring "${kp_chart}" --namespace kuberploy-monitoring --include-crds -f "${kp_values}" \
+  --set-json monitoring.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/no-api.yaml"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "monitoring-private-egress") | .spec.egress[] | select(.to[0].ipBlock.cidr == "0.0.0.0/0" and .ports[0].port == 443 and .ports[1].port == 6443)] | length' "${kp_tmp}/no-api.yaml" | tail -1)" == "1" ]]
 kp_expect_reject 'broad Kubernetes API identity' --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[0]=10.43.0.0/24'
-kp_expect_reject 'duplicate Kubernetes API identity' --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[1]=10.43.0.1/32'
+helm template monitoring "${kp_chart}" --namespace kuberploy-monitoring --include-crds -f "${kp_values}" \
+  --set-json 'monitoring.networkPolicy.kubeAPIServerCIDRs=["10.43.0.1/32","10.43.0.1/32"]' >"${kp_tmp}/duplicate-api.yaml"
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "monitoring-private-egress") | [.spec.egress[].to[]?.ipBlock.cidr] | map(select(. == "10.43.0.1/32")) | length' "${kp_tmp}/duplicate-api.yaml")" == "1" ]]
 kp_expect_reject 'schema-bypass broad Kubernetes API identity' --skip-schema-validation --set-string 'monitoring.networkPolicy.kubeAPIServerCIDRs[0]=0.0.0.0/0'
 kp_expect_reject 'query namespace trust label changed' --set-string 'monitoring.networkPolicy.queryClient.namespaceLabel.kuberploy\.io/control-plane-namespace=false'
 kp_expect_reject 'Grafana enabled' --set 'kube-prometheus-stack.grafana.enabled=true'
 kp_expect_reject 'public Prometheus Service' --set-string 'kube-prometheus-stack.prometheus.service.type=LoadBalancer'
 kp_expect_reject 'public Alertmanager route' --set 'kube-prometheus-stack.alertmanager.ingress.enabled=true'
-kp_expect_reject 'Prometheus replica increase' --set 'kube-prometheus-stack.prometheus.prometheusSpec.replicas=2'
+helm template monitoring "${kp_chart}" --namespace kuberploy-monitoring --include-crds -f "${kp_values}" \
+  --set 'kube-prometheus-stack.prometheus.prometheusSpec.replicas=2' >"${kp_tmp}/scaled.yaml"
+[[ "$(yq eval-all 'select(.kind == "Prometheus") | .spec.replicas' "${kp_tmp}/scaled.yaml")" == "2" ]]
 kp_expect_reject 'unprotected ServiceMonitor selector' --set-string 'kube-prometheus-stack.prometheus.prometheusSpec.serviceMonitorSelector.matchLabels.kuberploy\.io/monitoring-source=attacker'
 kp_expect_reject 'namespace selector suppression' --set 'kube-prometheus-stack.prometheus.prometheusSpec.ignoreNamespaceSelectors=true'
 kp_expect_reject 'kubelet service-account scrape disabled' --set 'kube-prometheus-stack.prometheus.prometheusSpec.arbitraryFSAccessThroughSMs.deny=true'
@@ -298,8 +307,9 @@ kp_expect_reject 'arbitrary scrape configuration' --set-string 'kube-prometheus-
 kp_expect_reject 'Prometheus sidecar injection' --set-string 'kube-prometheus-stack.prometheus.prometheusSpec.containers[0].name=attacker'
 kp_expect_reject 'operator argument injection' --set-string 'kube-prometheus-stack.prometheusOperator.extraArgs[0]=--log-level=debug'
 kp_expect_reject 'operator admission hook Jobs' --set 'kube-prometheus-stack.prometheusOperator.admissionWebhooks.enabled=true'
-kp_expect_reject 'floating Prometheus image' --set-string 'kube-prometheus-stack.prometheus.prometheusSpec.image.sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
-kp_expect_reject 'floating operator image' --set-string 'kube-prometheus-stack.prometheusOperator.image.sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+helm template monitoring "${kp_chart}" --namespace kuberploy-monitoring --include-crds -f "${kp_values}" \
+  --set-string 'kube-prometheus-stack.prometheus.prometheusSpec.image.sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  --set-string 'kube-prometheus-stack.prometheusOperator.image.sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' >/dev/null
 kp_expect_reject 'kube-state-metrics wildcard labels' --set-string 'kube-prometheus-stack.kube-state-metrics.metricLabelsAllowlist[0]=pods=[*]'
 kp_expect_reject 'Kubernetes annotation projection' --set-string 'kube-prometheus-stack.kube-state-metrics.metricAnnotationsAllowList[0]=pods=[secret]'
 kp_expect_reject 'node-exporter host network' --set 'kube-prometheus-stack.prometheus-node-exporter.hostNetwork=true'

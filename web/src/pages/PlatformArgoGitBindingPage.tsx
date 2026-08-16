@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type { CreatePlatformArgoGitBinding } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -57,6 +57,7 @@ export function PlatformArgoGitBindingPage() {
   const [targetRef, setTargetRef] = useState("platform");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
+  const createAttempt = useRef<{ signature: string; key: string } | null>(null);
 
   useEffect(() => {
     if (
@@ -91,9 +92,17 @@ export function PlatformArgoGitBindingPage() {
   }, [activeRepositories, repositoryId]);
 
   const create = useMutation({
-    mutationFn: (input: CreatePlatformArgoGitBinding) =>
-      api.createPlatformArgoGitBinding(input, crypto.randomUUID()),
-    onSuccess: async (created) => {
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: CreatePlatformArgoGitBinding;
+      idempotencyKey: string;
+    }) => api.createPlatformArgoGitBinding(input, idempotencyKey),
+    onSuccess: async (created, input) => {
+      if (createAttempt.current?.key === input.idempotencyKey) {
+        createAttempt.current = null;
+      }
       setConfirmed(false);
       queryClient.setQueryData(["platform-argo-git-binding"], created);
       await queryClient.invalidateQueries({
@@ -121,7 +130,14 @@ export function PlatformArgoGitBindingPage() {
       return;
     }
     setValidationError("");
-    create.mutate({ installationId, repositoryId, targetRef: exactRef });
+    const input = { installationId, repositoryId, targetRef: exactRef };
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      createAttempt.current?.signature === signature
+        ? createAttempt.current.key
+        : crypto.randomUUID();
+    createAttempt.current = { signature, key: idempotencyKey };
+    create.mutate({ input, idempotencyKey });
   };
 
   return (

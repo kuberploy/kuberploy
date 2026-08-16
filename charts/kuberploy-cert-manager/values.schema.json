@@ -48,7 +48,7 @@
           "additionalProperties": false,
           "required": ["enabled", "kubeAPIServerCIDRs"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrList"}
           }
         }

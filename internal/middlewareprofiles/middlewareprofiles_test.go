@@ -94,3 +94,51 @@ func TestMemoryProfilesAreImmutableAssignedAndReferenceGuarded(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMemoryReferenceReplacementIsAtomicAndRequiresCurrentProfile(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemoryStore()
+	actor, project, environment, application := id.New(), id.New(), id.New(), id.New()
+	now := time.Date(2026, 8, 9, 1, 2, 3, 0, time.UTC)
+	created, err := store.Create(ctx, validCommand(actor, "create-reference-profile", now), "api-limit", Spec{"rateLimit": map[string]any{"average": number("100"), "burst": number("200")}}, []Assignment{{Scope: ProjectScope, ID: project}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "apps/" + application + "/app.yaml"
+	current := Reference{ProfileID: created.Profile.ID, Revision: 1, ApplicationID: application, EnvironmentID: environment, GitPath: path, LogicalName: "api-limit"}
+	if err = store.ReplaceReferences(application, environment, path, []Reference{current}); err != nil {
+		t.Fatal(err)
+	}
+
+	invalid := current
+	invalid.LogicalName = "INVALID"
+	if err = store.ReplaceReferences(application, environment, path, []Reference{invalid}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid replacement error = %v", err)
+	}
+	refs, err := store.References(ctx, created.Profile.ID, 10)
+	if err != nil || len(refs) != 1 || refs[0] != current {
+		t.Fatalf("failed replacement changed references: %#v %v", refs, err)
+	}
+
+	missing := current
+	missing.ProfileID = id.New()
+	if err = store.ReplaceReferences(application, environment, path, []Reference{missing}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing profile error = %v", err)
+	}
+	refs, err = store.References(ctx, created.Profile.ID, 10)
+	if err != nil || len(refs) != 1 || refs[0] != current {
+		t.Fatalf("missing profile replacement changed references: %#v %v", refs, err)
+	}
+
+	if _, err = store.Revise(ctx, validCommand(actor, "revise-reference-profile", now.Add(time.Minute)), Ref{ProfileID: created.Profile.ID, Revision: 1}, Spec{"rateLimit": map[string]any{"average": number("200"), "burst": number("400")}}, []Assignment{{Scope: ProjectScope, ID: project}}); err != nil {
+		t.Fatal(err)
+	}
+	stale := current
+	if err = store.ReplaceReferences(application, environment, path, []Reference{stale}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale profile error = %v", err)
+	}
+	refs, err = store.References(ctx, created.Profile.ID, 10)
+	if err != nil || len(refs) != 1 || refs[0] != current {
+		t.Fatalf("stale replacement changed references: %#v %v", refs, err)
+	}
+}

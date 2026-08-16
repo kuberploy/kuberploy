@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
 import type { Project } from "../api/types";
@@ -54,6 +54,10 @@ export function ProjectPage() {
   const form = useForm<EnvironmentForm>({
     defaultValues: { name: "", protectionPolicy: "protected" },
   });
+  const environmentAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
   const project = projects.data?.items.find((item) => item.id === projectId);
   const projectEnvironments = useMemo(
     () =>
@@ -81,7 +85,8 @@ export function ProjectPage() {
     effectiveCapabilities.some(
       (capability) =>
         capability.actions?.includes(action) &&
-        (capability.scopeType === "platform" ||
+        ((capability.scopeType === "platform" &&
+          capability.scopeId === "platform") ||
           (capability.scopeType === "team" &&
             capability.scopeId === candidate.teamId) ||
           (capability.scopeType === "project" &&
@@ -107,14 +112,59 @@ export function ProjectPage() {
     hasActionAtProject("access-grants:read", project),
   );
   const createEnvironment = useMutation({
-    mutationFn: (value: EnvironmentForm) =>
-      api.createEnvironment({ projectId, ...value }),
-    onSuccess: async () => {
-      form.reset();
-      setCreatingEnvironment(false);
+    mutationFn: ({
+      input,
+      idempotencyKey,
+    }: {
+      input: { projectId: string } & EnvironmentForm;
+      idempotencyKey: string;
+    }) => api.createEnvironment(input, idempotencyKey),
+    onSuccess: async (_value, input) => {
+      if (input.input.projectId === projectId) {
+        const current = form.getValues();
+        const submitted = {
+          name: input.input.name,
+          protectionPolicy: input.input.protectionPolicy,
+        };
+        if (JSON.stringify(current) === JSON.stringify(submitted)) {
+          if (environmentAttempt.current?.key === input.idempotencyKey) {
+            environmentAttempt.current = null;
+          }
+          form.reset();
+          setCreatingEnvironment(false);
+        }
+      }
       await queryClient.invalidateQueries({ queryKey: ["environments"] });
     },
   });
+  const submitEnvironment = (value: EnvironmentForm) => {
+    const input = { projectId, ...value };
+    const signature = JSON.stringify(input);
+    const idempotencyKey =
+      environmentAttempt.current?.signature === signature
+        ? environmentAttempt.current.key
+        : crypto.randomUUID();
+    environmentAttempt.current = { signature, key: idempotencyKey };
+    createEnvironment.mutate({ input, idempotencyKey });
+  };
+  useEffect(() => {
+    setTab("services");
+    form.reset({ name: "", protectionPolicy: "protected" });
+    environmentAttempt.current = null;
+    createEnvironment.reset();
+    setCreatingEnvironment(false);
+    setGitEnvironmentId(null);
+  }, [projectId]);
+  useEffect(() => {
+    if (
+      gitEnvironmentId !== null &&
+      !projectEnvironments.some(
+        (environment) => environment.id === gitEnvironmentId,
+      )
+    ) {
+      setGitEnvironmentId(null);
+    }
+  }, [gitEnvironmentId, projectEnvironments]);
   const loading = [projects, environments, applications, deployments].some(
     (query) => query.isPending,
   );
@@ -254,9 +304,7 @@ export function ProjectPage() {
             <Card className="compact-form-card">
               <form
                 className="inline-form"
-                onSubmit={form.handleSubmit((value) =>
-                  createEnvironment.mutate(value),
-                )}
+                onSubmit={form.handleSubmit(submitEnvironment)}
               >
                 <Field
                   label="Environment name"
@@ -373,6 +421,7 @@ export function ProjectPage() {
         <div className="page-stack">
           {canManageAccess ? (
             <ProjectAccessPanel
+              key={project.id}
               project={project}
               environments={projectEnvironments}
               applications={projectApplications}
@@ -382,6 +431,7 @@ export function ProjectPage() {
           ) : null}
           {showAutomation ? (
             <ProjectAutomationPanel
+              key={project.id}
               project={project}
               capabilities={effectiveCapabilities}
               onClose={() => setTab("services")}

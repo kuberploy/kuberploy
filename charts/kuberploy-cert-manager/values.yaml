@@ -23,7 +23,7 @@ foundation:
       privateKeySecretName: kuberploy-letsencrypt-staging-account
       dns01Profiles: []
   networkPolicy:
-    enabled: true
+    enabled: false
     kubeAPIServerCIDRs: []
 
 certmanager:

@@ -24,7 +24,7 @@ spec:
   loadBalancerIP: {{ . | quote }}
   {{- end }}
   loadBalancerSourceRanges:
-    {{- toYaml .Values.exposure.loadBalancer.sourceRanges | nindent 4 }}
+    {{- toYaml (uniq (sortAlpha .Values.exposure.loadBalancer.sourceRanges)) | nindent 4 }}
   selector:
     app.kubernetes.io/instance: edge-kuberploy-system
     app.kubernetes.io/name: traefik

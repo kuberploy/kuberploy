@@ -366,9 +366,24 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 		t.Fatalf("installation=%#v status=%d", installation, r.StatusCode)
 	}
 	r = f.request("PATCH", "/v1/github/installations/"+installation.ID+"/sharing", "", map[string]string{"visibility": "team", "teamId": team.ID})
+	p = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusBadRequest || p.Code != "IdempotencyKeyRequired" {
+		t.Fatalf("sharing missing key status=%d problem=%#v", r.StatusCode, p)
+	}
+	r = f.request("PATCH", "/v1/github/installations/"+installation.ID+"/sharing", "installation-sharing", map[string]string{"visibility": "team", "teamId": team.ID})
 	installation = decode[domain.GitHubInstallation](t, r)
 	if r.StatusCode != http.StatusOK || installation.Visibility != "team" || installation.TeamID != team.ID {
 		t.Fatalf("shared installation=%#v status=%d", installation, r.StatusCode)
+	}
+	r = f.request("PATCH", "/v1/github/installations/"+installation.ID+"/sharing", "installation-sharing", map[string]string{"visibility": "team", "teamId": team.ID})
+	replayedInstallation := decode[domain.GitHubInstallation](t, r)
+	if r.StatusCode != http.StatusOK || r.Header.Get("Idempotent-Replay") != "true" || replayedInstallation.ID != installation.ID {
+		t.Fatalf("sharing replay=%#v status=%d replay=%q", replayedInstallation, r.StatusCode, r.Header.Get("Idempotent-Replay"))
+	}
+	r = f.request("PATCH", "/v1/github/installations/"+installation.ID+"/sharing", "installation-sharing", map[string]string{"visibility": "private"})
+	p = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusConflict || p.Code != "IdempotencyConflict" {
+		t.Fatalf("sharing fingerprint conflict status=%d problem=%#v", r.StatusCode, p)
 	}
 	r = f.request("POST", "/v1/projects", "team-project", map[string]string{"name": "Team app", "slug": "team-app", "teamId": team.ID})
 	project := decode[domain.Project](t, r)

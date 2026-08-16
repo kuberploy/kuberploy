@@ -52,7 +52,7 @@ func ObserverConfigFromEnvironment() (ObserverConfig, error) {
 	return ObserverConfigFromLookup(os.LookupEnv)
 }
 
-// ObserverConfigFromLookup is default-off and rejects dormant companion
+// ObserverConfigFromLookup is default-off and ignores dormant companion
 // values. It accepts no URL, Kubernetes path, selector, arbitrary GVK, or
 // credential setting. Active issuer names come only from the bounded database
 // catalog; protected Git emits one exact resourceNames/get RBAC rule per name.
@@ -61,12 +61,7 @@ func ObserverConfigFromLookup(lookup func(string) (string, bool)) (ObserverConfi
 		return ObserverConfig{}, ErrObservationUnavailable
 	}
 	enabled, present := lookup(ObserverEnabledEnv)
-	if !present || enabled == "false" {
-		for _, name := range observerCompanionEnvs() {
-			if _, configured := lookup(name); configured {
-				return ObserverConfig{}, ErrObservationUnavailable
-			}
-		}
+	if !present || enabled == "" || enabled == "false" {
 		return ObserverConfig{}, nil
 	}
 	if enabled != "true" {

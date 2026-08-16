@@ -31,7 +31,7 @@
           "additionalProperties": false,
           "required": ["enabled", "kubeAPIServerCIDRs", "providerHTTPSCIDRs", "monitoringNamespace"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrs"},
             "providerHTTPSCIDRs": {"$ref": "#/$defs/cidrs"},
             "monitoringNamespace": {"const": "kuberploy-monitoring"}

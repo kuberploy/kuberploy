@@ -1,6 +1,7 @@
 package helmapps
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -35,7 +36,14 @@ func TestRuntimeConfigFromLookupIsStrictlyDefaultOff(t *testing.T) {
 		if enabled == "false" {
 			values[RuntimeOCIRegistryHostsEnv] = "ghcr.io"
 		}
-		if _, err = RuntimeConfigFromLookup(runtimeLookup(values), ProtectedPublisherIdentity{}); err == nil {
+		config, parseErr := RuntimeConfigFromLookup(runtimeLookup(values), ProtectedPublisherIdentity{})
+		if enabled == "false" {
+			if parseErr != nil || config.Enabled {
+				t.Fatalf("disabled config did not ignore dormant values: %#v err=%v", config, parseErr)
+			}
+			continue
+		}
+		if parseErr == nil {
 			t.Fatalf("enabled value %q or dormant field was accepted", enabled)
 		}
 	}
@@ -71,13 +79,10 @@ func TestRuntimeConfigFromLookupBuildsExactEnabledPolicy(t *testing.T) {
 func TestRuntimeConfigFromLookupRejectsNonCanonicalOrUntrustedInput(t *testing.T) {
 	values, publisher := runtimeEnvironmentFixture(t)
 	mutations := []func(map[string]string){
-		func(v map[string]string) { v[RuntimeOCIRegistryHostsEnv] = "registry.example.com,ghcr.io" },
-		func(v map[string]string) { v[RuntimeOCIRegistryHostsEnv] = "ghcr.io,ghcr.io" },
 		func(v map[string]string) { v[RuntimeOCIAuthHostsEnv] = "" },
 		func(v map[string]string) {
 			v[RuntimeOCIRedirectHostsEnv] = "https://pkg-containers.githubusercontent.com/path?query=1"
 		},
-		func(v map[string]string) { v[RuntimeOCIRedirectHostsEnv] = "z.example.com,a.example.com" },
 		func(v map[string]string) {
 			v[RuntimeOCICredentialProfilesEnv] = `[{"registryHost":"registry.example.com","authHost":"auth.example.com","name":"private-main","mode":"basic","projectionDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","secret":"caller"}]`
 		},
@@ -107,5 +112,16 @@ func TestRuntimeConfigFromLookupRejectsNonCanonicalOrUntrustedInput(t *testing.T
 	}
 	if _, err := RuntimeConfigFromLookup(runtimeLookup(values), ProtectedPublisherIdentity{}); err == nil {
 		t.Fatal("untrusted publisher identity was accepted")
+	}
+}
+
+func TestRuntimeConfigFromLookupNormalizesHostLists(t *testing.T) {
+	values, publisher := runtimeEnvironmentFixture(t)
+	values[RuntimeOCIRegistryHostsEnv] = "registry.example.com,ghcr.io,registry.example.com"
+	values[RuntimeOCIRedirectHostsEnv] = "z.example.com,a.example.com,z.example.com"
+	config, err := RuntimeConfigFromLookup(runtimeLookup(values), publisher)
+	if err != nil || strings.Join(config.OCIRegistryHosts, ",") != "ghcr.io,registry.example.com" ||
+		strings.Join(config.OCIRedirectHosts, ",") != "a.example.com,z.example.com" {
+		t.Fatalf("host normalization failed: %#v err=%v", config, err)
 	}
 }

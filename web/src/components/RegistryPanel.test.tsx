@@ -18,6 +18,11 @@ const application: Application = {
   projectId: "project-a",
   name: "Payments API",
 };
+const nextApplication: Application = {
+  ...application,
+  id: "application-b",
+  name: "Orders API",
+};
 
 const project: Project = {
   id: "project-a",
@@ -167,6 +172,40 @@ describe("application registry panel", () => {
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 
+  it("preserves a newer retention draft when the earlier save completes", async () => {
+    let resolveSave!: (
+      value: Awaited<ReturnType<typeof api.putRegistryPolicy>>,
+    ) => void;
+    const save = vi.spyOn(api, "putRegistryPolicy").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    vi.mocked(api.applicationRegistry).mockResolvedValue({
+      items: [registryTarget("managed")],
+      truncated: false,
+    });
+    const user = userEvent.setup();
+    renderPanel({
+      capabilities: [grant("registry:read"), grant("registry-policies:write")],
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit retention policy" }),
+    );
+    const repository = screen.getByPlaceholderText("payments/service");
+    await user.clear(repository);
+    await user.type(repository, "payments/first");
+    await user.click(screen.getByRole("button", { name: "Save policy" }));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    await user.clear(repository);
+    await user.type(repository, "payments/newer");
+
+    resolveSave({} as Awaited<ReturnType<typeof api.putRegistryPolicy>>);
+    await waitFor(() => expect(repository).toHaveValue("payments/newer"));
+  });
+
   it("never exposes cleanup for an external target", async () => {
     vi.mocked(api.applicationRegistry).mockResolvedValue({
       items: [registryTarget("external")],
@@ -264,6 +303,73 @@ describe("application registry panel", () => {
     );
     const executeKey = vi.mocked(api.executeRegistryCleanup).mock.calls[0]?.[2];
     expect(executeKey).toHaveLength(36);
+  });
+
+  it("ignores a cleanup preview that completes after the application changes", async () => {
+    const user = userEvent.setup();
+    let resolvePreview:
+      | ((
+          value: Awaited<ReturnType<typeof api.previewRegistryCleanup>>,
+        ) => void)
+      | undefined;
+    vi.mocked(api.applicationRegistry).mockResolvedValue({
+      items: [registryTarget("managed")],
+      truncated: false,
+    });
+    vi.mocked(api.previewRegistryCleanup).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <RegistryPanel
+          application={application}
+          project={project}
+          capabilities={[
+            grant("registry:read"),
+            grant("registry-cleanup:preview"),
+            grant("registry-cleanup:execute"),
+          ]}
+          featureEnabled
+          managedFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Create preview" }),
+    );
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <RegistryPanel
+          application={nextApplication}
+          project={project}
+          capabilities={[
+            grant("registry:read"),
+            grant("registry-cleanup:preview"),
+            grant("registry-cleanup:execute"),
+          ]}
+          featureEnabled
+          managedFeatureEnabled
+          humanSession
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Managed registry");
+    resolvePreview?.(cleanupPlan());
+    await waitFor(() =>
+      expect(
+        screen.queryByLabelText(/Confirm exact plan ID/),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("keeps every mutation hidden for a non-human principal", async () => {

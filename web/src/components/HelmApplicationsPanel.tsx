@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api/client";
 import type {
@@ -187,6 +187,9 @@ export function HelmApplicationsPanel({
       project,
     );
   const target = [application.id, environment.id] as const;
+  const scopeKey = target.join("\u0000");
+  const activeScopeRef = useRef(scopeKey);
+  activeScopeRef.current = scopeKey;
   const queryClientKeys = {
     head: ["helm-release", ...target] as const,
     history: ["helm-release-history", ...target] as const,
@@ -235,16 +238,90 @@ export function HelmApplicationsPanel({
   const [disableConfirmation, setDisableConfirmation] = useState("");
   const [rollbackSource, setRollbackSource] = useState("");
   const [rollbackConfirmation, setRollbackConfirmation] = useState(false);
+  const [previewError, setPreviewError] = useState<unknown>(null);
+  const [mutationFeedback, setMutationFeedback] = useState<{
+    scopeKey: string;
+    result?: HelmMutationResult;
+    error?: unknown;
+  } | null>(null);
+  const upsertAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const retryAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const disableAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
+  const rollbackAttempt = useRef<{ signature: string; key: string } | null>(
+    null,
+  );
+  const retryScopeRef = useRef<{
+    releaseId: string;
+    key: string;
+    open: boolean;
+  } | null>(null);
+  const disableScopeRef = useRef<{
+    releaseId: string;
+    key: string;
+    confirmation: string;
+  } | null>(null);
+  const rollbackScopeRef = useRef<{
+    source: string;
+    key: string;
+    confirmed: boolean;
+  } | null>(null);
+  retryScopeRef.current = head.data
+    ? {
+        releaseId: head.data.revision.id,
+        key: retryAttempt.current?.key ?? "",
+        open: retryConfirmation,
+      }
+    : null;
+  disableScopeRef.current = head.data
+    ? {
+        releaseId: head.data.revision.id,
+        key: disableAttempt.current?.key ?? "",
+        confirmation: disableConfirmation,
+      }
+    : null;
+  rollbackScopeRef.current = {
+    source: rollbackSource,
+    key: rollbackAttempt.current?.key ?? "",
+    confirmed: rollbackConfirmation,
+  };
 
   useEffect(() => {
-    const first = approvals.data?.items[0];
-    if (!first || selectedApprovalKey) return;
+    setSelectedApprovalKey("");
+    setValuesYaml("");
+    setPreviewedDraft("");
+    setRetryConfirmation(false);
+    setDisableConfirmation("");
+    setRollbackSource("");
+    setRollbackConfirmation(false);
+    upsertAttempt.current = null;
+    retryAttempt.current = null;
+    disableAttempt.current = null;
+    rollbackAttempt.current = null;
+  }, [application.id, environment.id]);
+
+  useEffect(() => {
+    if (approvals.isFetching) return;
+    const items = approvals.data?.items ?? [];
+    const first = items[0];
+    if (!first) {
+      if (selectedApprovalKey) setSelectedApprovalKey("");
+      return;
+    }
+    if (
+      selectedApprovalKey &&
+      items.some((approval) => approvalKey(approval) === selectedApprovalKey)
+    ) {
+      return;
+    }
     setSelectedApprovalKey(approvalKey(first));
     setValuesYaml(first.defaultValuesYaml || "{}\n");
-  }, [approvals.data, selectedApprovalKey]);
+    setPreviewedDraft("");
+  }, [approvals.data, approvals.isFetching, selectedApprovalKey]);
 
   const draftIdentity = selectedApproval
-    ? `${approvalKey(selectedApproval)}\u0000${valuesYaml}`
+    ? `${application.id}\u0000${environment.id}\u0000${approvalKey(selectedApproval)}\u0000${valuesYaml}`
     : "";
   const valuesBytes = new TextEncoder().encode(valuesYaml).byteLength;
   const valuesValid = valuesBytes > 0 && valuesBytes <= maximumValuesBytes;
@@ -252,53 +329,302 @@ export function HelmApplicationsPanel({
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryClientKeys.head }),
       queryClient.invalidateQueries({ queryKey: queryClientKeys.history }),
+      queryClient.invalidateQueries({
+        queryKey: ["helm-rendered-preview", ...target],
+      }),
     ]);
   };
   const preview = useMutation({
-    mutationFn: (input: HelmValuesInput) =>
-      api.previewHelmValues(...target, input),
+    mutationFn: ({
+      input,
+      applicationId,
+      environmentId,
+    }: {
+      input: HelmValuesInput;
+      applicationId: string;
+      environmentId: string;
+      draftIdentity: string;
+      scopeKey: string;
+    }) => api.previewHelmValues(applicationId, environmentId, input),
     retry: retryNetworkOnce,
-    onSuccess: () => setPreviewedDraft(draftIdentity),
+    onMutate: () => setPreviewError(null),
+    onSuccess: (_value, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      setPreviewedDraft(input.draftIdentity);
+    },
+    onError: (error, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      setPreviewError(error);
+    },
   });
   const upsert = useMutation({
-    mutationFn: ({ input, key }: { input: HelmValuesInput; key: string }) =>
-      api.upsertHelmRelease(...target, input, key),
+    mutationFn: ({
+      input,
+      key,
+      applicationId,
+      environmentId,
+    }: {
+      input: HelmValuesInput;
+      key: string;
+      applicationId: string;
+      environmentId: string;
+      scopeKey: string;
+      draftIdentity: string;
+    }) => api.upsertHelmRelease(applicationId, environmentId, input, key),
     retry: retryNetworkOnce,
-    onSuccess: refresh,
+    onSuccess: async (_value, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      if (input.draftIdentity !== draftIdentity) {
+        await refresh();
+        return;
+      }
+      if (upsertAttempt.current?.key === input.key) {
+        upsertAttempt.current = null;
+      }
+      setMutationFeedback({ scopeKey, result: _value });
+      await refresh();
+    },
+    onError: (error, input) => {
+      if (
+        input.scopeKey === activeScopeRef.current &&
+        input.draftIdentity === draftIdentity
+      ) {
+        setMutationFeedback({ scopeKey, error });
+      }
+    },
   });
   const retry = useMutation({
-    mutationFn: (key: string) => api.retryHelmRelease(...target, key),
+    mutationFn: ({
+      key,
+      applicationId,
+      environmentId,
+    }: {
+      key: string;
+      applicationId: string;
+      environmentId: string;
+      scopeKey: string;
+      releaseId: string;
+    }) => api.retryHelmRelease(applicationId, environmentId, key),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
+    onSuccess: async (_value, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      const current = retryScopeRef.current;
+      if (
+        !current?.open ||
+        current.releaseId !== input.releaseId ||
+        retryAttempt.current?.key !== input.key
+      )
+        return;
+      if (retryAttempt.current?.key === input.key) {
+        retryAttempt.current = null;
+      }
       setRetryConfirmation(false);
+      setMutationFeedback({ scopeKey, result: _value });
       await refresh();
+    },
+    onError: (error, input) => {
+      const current = retryScopeRef.current;
+      if (
+        input.scopeKey === activeScopeRef.current &&
+        current?.open &&
+        current.releaseId === input.releaseId &&
+        retryAttempt.current?.key === input.key
+      ) {
+        setMutationFeedback({ scopeKey, error });
+      }
     },
   });
   const disable = useMutation({
-    mutationFn: (key: string) => api.disableHelmRelease(...target, key),
+    mutationFn: ({
+      key,
+      applicationId,
+      environmentId,
+    }: {
+      key: string;
+      applicationId: string;
+      environmentId: string;
+      scopeKey: string;
+      releaseId: string;
+      confirmation: string;
+    }) => api.disableHelmRelease(applicationId, environmentId, key),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
+    onSuccess: async (_value, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      const current = disableScopeRef.current;
+      if (
+        !current ||
+        current.releaseId !== input.releaseId ||
+        disableAttempt.current?.key !== input.key ||
+        current.confirmation !== input.confirmation
+      )
+        return;
+      if (disableAttempt.current?.key === input.key) {
+        disableAttempt.current = null;
+      }
       setDisableConfirmation("");
+      setMutationFeedback({ scopeKey, result: _value });
       await refresh();
+    },
+    onError: (error, input) => {
+      const current = disableScopeRef.current;
+      if (
+        input.scopeKey === activeScopeRef.current &&
+        current?.releaseId === input.releaseId &&
+        disableAttempt.current?.key === input.key &&
+        current.confirmation === input.confirmation
+      ) {
+        setMutationFeedback({ scopeKey, error });
+      }
     },
   });
   const rollback = useMutation({
-    mutationFn: ({ source, key }: { source: string; key: string }) =>
-      api.rollbackHelmRelease(...target, source, key),
+    mutationFn: ({
+      source,
+      key,
+      applicationId,
+      environmentId,
+    }: {
+      source: string;
+      key: string;
+      applicationId: string;
+      environmentId: string;
+      scopeKey: string;
+      confirmation: boolean;
+    }) => api.rollbackHelmRelease(applicationId, environmentId, source, key),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
+    onSuccess: async (_value, input) => {
+      if (input.scopeKey !== activeScopeRef.current) return;
+      const current = rollbackScopeRef.current;
+      if (
+        !current ||
+        current.source !== input.source ||
+        rollbackAttempt.current?.key !== input.key ||
+        !current.confirmed ||
+        !input.confirmation
+      )
+        return;
+      if (rollbackAttempt.current?.key === input.key) {
+        rollbackAttempt.current = null;
+      }
       setRollbackSource("");
       setRollbackConfirmation(false);
+      setMutationFeedback({ scopeKey, result: _value });
       await refresh();
     },
+    onError: (error, input) => {
+      const current = rollbackScopeRef.current;
+      if (
+        input.scopeKey === activeScopeRef.current &&
+        current?.source === input.source &&
+        rollbackAttempt.current?.key === input.key &&
+        current.confirmed === input.confirmation
+      ) {
+        setMutationFeedback({ scopeKey, error });
+      }
+    },
   });
+
+  useEffect(() => {
+    setPreviewError(null);
+    setMutationFeedback(null);
+    preview.reset();
+    upsert.reset();
+    retry.reset();
+    disable.reset();
+    rollback.reset();
+  }, [application.id, environment.id]);
+
+  const upsertRelease = () => {
+    if (!selectedApproval) return;
+    const input = helmInput(selectedApproval, valuesYaml);
+    const signature = JSON.stringify(input);
+    const key =
+      upsertAttempt.current?.signature === signature
+        ? upsertAttempt.current.key
+        : crypto.randomUUID();
+    upsertAttempt.current = { signature, key };
+    upsert.mutate({
+      input,
+      key,
+      applicationId: application.id,
+      environmentId: environment.id,
+      scopeKey,
+      draftIdentity,
+    });
+  };
+
+  const retryRelease = () => {
+    if (!head.data) return;
+    const releaseId = head.data.revision.id;
+    const signature = JSON.stringify({
+      releaseId,
+      action: "retry",
+    });
+    const key =
+      retryAttempt.current?.signature === signature
+        ? retryAttempt.current.key
+        : crypto.randomUUID();
+    retryAttempt.current = { signature, key };
+    retry.mutate({
+      key,
+      applicationId: application.id,
+      environmentId: environment.id,
+      scopeKey,
+      releaseId,
+    });
+  };
+
+  const disableRelease = () => {
+    if (!head.data) return;
+    const signature = JSON.stringify({
+      releaseId: head.data.revision.id,
+      confirmation: disableConfirmation,
+      action: "disable",
+    });
+    const key =
+      disableAttempt.current?.signature === signature
+        ? disableAttempt.current.key
+        : crypto.randomUUID();
+    disableAttempt.current = { signature, key };
+    disable.mutate({
+      key,
+      applicationId: application.id,
+      environmentId: environment.id,
+      scopeKey,
+      releaseId: head.data.revision.id,
+      confirmation: disableConfirmation,
+    });
+  };
+
+  const rollbackRelease = () => {
+    if (!rollbackSource) return;
+    const signature = JSON.stringify({
+      source: rollbackSource,
+      action: "rollback",
+    });
+    const key =
+      rollbackAttempt.current?.signature === signature
+        ? rollbackAttempt.current.key
+        : crypto.randomUUID();
+    rollbackAttempt.current = { signature, key };
+    rollback.mutate({
+      source: rollbackSource,
+      key,
+      applicationId: application.id,
+      environmentId: environment.id,
+      scopeKey,
+      confirmation: rollbackConfirmation,
+    });
+  };
 
   if (!canRead) return null;
   const noHead = head.error instanceof ApiError && head.error.status === 404;
   const mutationError =
-    upsert.error ?? retry.error ?? disable.error ?? rollback.error;
+    mutationFeedback?.scopeKey === scopeKey ? mutationFeedback.error : null;
   const latestMutation =
-    upsert.data ?? retry.data ?? disable.data ?? rollback.data;
+    mutationFeedback?.scopeKey === scopeKey
+      ? mutationFeedback.result
+      : undefined;
 
   return (
     <div className="helm-applications-panel">
@@ -347,6 +673,7 @@ export function HelmApplicationsPanel({
                   setSelectedApprovalKey(key);
                   setValuesYaml(next?.defaultValuesYaml || "{}\n");
                   setPreviewedDraft("");
+                  setPreviewError(null);
                   preview.reset();
                 }}
               >
@@ -380,11 +707,12 @@ export function HelmApplicationsPanel({
                 onChange={(event) => {
                   setValuesYaml(event.target.value);
                   setPreviewedDraft("");
+                  setPreviewError(null);
                   preview.reset();
                 }}
               />
             </Field>
-            {preview.error ? <ErrorPanel error={preview.error} /> : null}
+            {previewError ? <ErrorPanel error={previewError} /> : null}
             {preview.data && previewedDraft === draftIdentity ? (
               <div className="helm-values-preview" role="status">
                 <strong>Values validated</strong>
@@ -411,9 +739,15 @@ export function HelmApplicationsPanel({
               <Button
                 variant="secondary"
                 busy={preview.isPending}
-                disabled={!valuesValid}
+                disabled={!valuesValid || upsert.isPending}
                 onClick={() =>
-                  preview.mutate(helmInput(selectedApproval, valuesYaml))
+                  preview.mutate({
+                    input: helmInput(selectedApproval, valuesYaml),
+                    applicationId: application.id,
+                    environmentId: environment.id,
+                    draftIdentity,
+                    scopeKey,
+                  })
                 }
               >
                 <Icon name="check" /> Validate values
@@ -421,13 +755,10 @@ export function HelmApplicationsPanel({
               {canDeploy ? (
                 <Button
                   busy={upsert.isPending}
-                  disabled={previewedDraft !== draftIdentity}
-                  onClick={() =>
-                    upsert.mutate({
-                      input: helmInput(selectedApproval, valuesYaml),
-                      key: crypto.randomUUID(),
-                    })
+                  disabled={
+                    previewedDraft !== draftIdentity || preview.isPending
                   }
+                  onClick={upsertRelease}
                 >
                   <Icon name="deploy" />{" "}
                   {noHead ? "Create desired release" : "Create update revision"}
@@ -476,15 +807,15 @@ export function HelmApplicationsPanel({
                       desired release.
                     </p>
                   </div>
-                  <Button
-                    busy={retry.isPending}
-                    onClick={() => retry.mutate(crypto.randomUUID())}
-                  >
+                  <Button busy={retry.isPending} onClick={retryRelease}>
                     Confirm retry
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => setRetryConfirmation(false)}
+                    onClick={() => {
+                      retryAttempt.current = null;
+                      setRetryConfirmation(false);
+                    }}
                   >
                     Cancel
                   </Button>
@@ -492,7 +823,10 @@ export function HelmApplicationsPanel({
               ) : (
                 <Button
                   variant="secondary"
-                  onClick={() => setRetryConfirmation(true)}
+                  onClick={() => {
+                    retryAttempt.current = null;
+                    setRetryConfirmation(true);
+                  }}
                 >
                   <Icon name="refresh" /> Retry as new revision
                 </Button>
@@ -517,7 +851,7 @@ export function HelmApplicationsPanel({
                   disabled={
                     disableConfirmation !== head.data.revision.releaseName
                   }
-                  onClick={() => disable.mutate(crypto.randomUUID())}
+                  onClick={disableRelease}
                 >
                   Disable desired release
                 </Button>
@@ -632,6 +966,7 @@ export function HelmApplicationsPanel({
                 <Button
                   variant="secondary"
                   onClick={() => {
+                    rollbackAttempt.current = null;
                     setRollbackSource(status.revision.id);
                     setRollbackConfirmation(false);
                   }}
@@ -666,16 +1001,18 @@ export function HelmApplicationsPanel({
               variant="danger"
               busy={rollback.isPending}
               disabled={!rollbackConfirmation}
-              onClick={() =>
-                rollback.mutate({
-                  source: rollbackSource,
-                  key: crypto.randomUUID(),
-                })
-              }
+              onClick={rollbackRelease}
             >
               Confirm rollback
             </Button>
-            <Button variant="ghost" onClick={() => setRollbackSource("")}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                rollbackAttempt.current = null;
+                setRollbackSource("");
+                setRollbackConfirmation(false);
+              }}
+            >
               Cancel
             </Button>
           </div>

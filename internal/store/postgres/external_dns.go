@@ -158,7 +158,7 @@ func (s *Store) UpdateExternalDNSIntegrationForActor(ctx context.Context, actor,
 	if err != nil {
 		return base.Result[domain.ExternalDNSIntegration]{}, err
 	}
-	if current.Slug != integration.Slug || current.TXTOwnerID != integration.TXTOwnerID {
+	if current.Lifecycle == "deactivated" || current.Slug != integration.Slug || current.TXTOwnerID != integration.TXTOwnerID {
 		return base.Result[domain.ExternalDNSIntegration]{}, base.ErrConflict
 	}
 	if err = externalDNSEnvironmentsExist(ctx, tx, integration.EnvironmentIDs); err != nil {
@@ -169,9 +169,20 @@ func (s *Store) UpdateExternalDNSIntegrationForActor(ctx context.Context, actor,
 	integration.RuntimeRevision, integration.Lifecycle = current.RuntimeRevision, "active"
 	if changed {
 		integration.RuntimeRevision++
+		integration.ProtectedGitState = "pending"
+		integration.ProtectedGitRevision = 0
+		integration.ProtectedGitContentDigest = ""
+		integration.ProtectedGitCommit = ""
+		integration.ProtectedGitObservedAt = nil
+	} else {
+		integration.ProtectedGitState = current.ProtectedGitState
+		integration.ProtectedGitRevision = current.ProtectedGitRevision
+		integration.ProtectedGitContentDigest = current.ProtectedGitContentDigest
+		integration.ProtectedGitCommit = current.ProtectedGitCommit
+		integration.ProtectedGitObservedAt = current.ProtectedGitObservedAt
 	}
 	suffixes, _ := json.Marshal(integration.AllowedDomainSuffixes)
-	_, err = tx.Exec(ctx, `UPDATE external_dns_integrations SET
+	result, err := tx.Exec(ctx, `UPDATE external_dns_integrations SET
 		name=$2,mode=$3,provider_kind=$4,allowed_domain_suffixes=$5,sync_policy=$6,
 		destructive_sync_confirmed=$7,credential_secret_ref=NULLIF($8,''),provider_config_ref=NULLIF($9,''),
 		egress_config_ref=NULLIF($10,''),operator_profile_ref=NULLIF($11,''),updated_at=$12,runtime_revision=$13,
@@ -186,6 +197,9 @@ func (s *Store) UpdateExternalDNSIntegrationForActor(ctx context.Context, actor,
 		integration.ProviderConfigRef, integration.EgressConfigRef, integration.OperatorProfileRef, integration.UpdatedAt, integration.RuntimeRevision, changed)
 	if err != nil {
 		return base.Result[domain.ExternalDNSIntegration]{}, classify(err)
+	}
+	if result.RowsAffected() != 1 {
+		return base.Result[domain.ExternalDNSIntegration]{}, base.ErrConflict
 	}
 	if err = replaceExternalDNSEnvironments(ctx, tx, integration.ID, integration.EnvironmentIDs, integration.UpdatedAt); err != nil {
 		return base.Result[domain.ExternalDNSIntegration]{}, classify(err)
@@ -219,7 +233,9 @@ func (s *Store) DeactivateExternalDNSIntegrationForActor(ctx context.Context, ac
 	if replay, ok, replayErr := externalDNSReplay(ctx, tx, actor, scope, key, fingerprint); replayErr != nil {
 		return base.Result[domain.ExternalDNSIntegration]{}, replayErr
 	} else if ok {
-		_ = tx.Commit(ctx)
+		if err = tx.Commit(ctx); err != nil {
+			return base.Result[domain.ExternalDNSIntegration]{}, err
+		}
 		return base.Result[domain.ExternalDNSIntegration]{Value: replay, Replay: true}, nil
 	}
 	item, err := externalDNSIntegration(ctx, tx, integrationID, true)

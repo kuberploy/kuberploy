@@ -1,7 +1,9 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/cookiejar"
@@ -12,6 +14,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
+	"github.com/kuberploy/kuberploy/internal/store"
 	"github.com/kuberploy/kuberploy/internal/store/memory"
 )
 
@@ -169,6 +172,80 @@ func TestSSLIPHostnameHTTPReturnsOnlyServerDerivedFreshMetadata(t *testing.T) {
 	features := edgeFeatures(t, fixture.request(http.MethodGet, "/v1/capabilities", "", nil))
 	if !features["sslip"] {
 		t.Fatalf("fresh exact sslip backend was not advertised: %#v", features)
+	}
+}
+
+func TestSSLIPHostnameRequiresApplicationAndEnvironmentAuthorization(t *testing.T) {
+	resolver := &sslipHTTPResolver{preview: validSSLIPPreview()}
+	fixture := newSSLIPAPI(t, resolver, &edgeHTTPReadiness{}, true)
+
+	invitationResponse := fixture.request(http.MethodPost, "/v1/users/invitations", "sslip-authz-invite", map[string]string{"displayName": "Scoped reader"})
+	invitation := decode[domain.UserInvitation](t, invitationResponse)
+	if invitationResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("invitation status=%d", invitationResponse.StatusCode)
+	}
+	const password = "scoped reader correct horse battery staple"
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	developerClient := &http.Client{Jar: jar}
+	acceptBody, _ := json.Marshal(map[string]string{"token": invitation.Token, "displayName": "Scoped reader", "password": password})
+	acceptRequest, err := http.NewRequest(http.MethodPost, fixture.server.URL+"/v1/auth/invitations/accept", bytes.NewReader(acceptBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptRequest.Header.Set("Content-Type", "application/json")
+	acceptResponse, err := developerClient.Do(acceptRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	developer := decode[domain.User](t, acceptResponse)
+	if acceptResponse.StatusCode != http.StatusCreated || developer.ID == "" {
+		t.Fatalf("accept status=%d developer=%#v", acceptResponse.StatusCode, developer)
+	}
+
+	grantResponse := fixture.request(http.MethodPost, "/v1/projects/"+fixture.project.ID+"/grants", "sslip-authz-grant", map[string]any{
+		"subjectUserId": developer.ID, "role": "viewer", "scopeType": "application", "scopeId": fixture.application.ID,
+	})
+	grant := decode[domain.AccessGrant](t, grantResponse)
+	if grantResponse.StatusCode != http.StatusCreated || grant.SubjectUserID != developer.ID {
+		t.Fatalf("grant status=%d grant=%#v", grantResponse.StatusCode, grant)
+	}
+	if err := fixture.store.Authorize(t.Context(), developer.ID, domain.PermissionResourcesRead, domain.AccessTarget{Type: "application", ID: fixture.application.ID}); err != nil {
+		t.Fatalf("application grant was not durable: %v", err)
+	}
+	if err := fixture.store.Authorize(t.Context(), developer.ID, domain.PermissionResourcesRead, domain.AccessTarget{Type: "environment", ID: fixture.environment.ID}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unexpected environment authorization before request: %v", err)
+	}
+
+	loginBody, _ := json.Marshal(map[string]string{"login": "scoped reader", "password": password})
+	loginRequest, err := http.NewRequest(http.MethodPost, fixture.server.URL+"/v1/auth/login", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse, err := developerClient.Do(loginRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loginResponse.StatusCode != http.StatusOK {
+		problem := decode[httpapi.Problem](t, loginResponse)
+		t.Fatalf("developer login status=%d problem=%#v", loginResponse.StatusCode, problem)
+	}
+	loginResponse.Body.Close()
+
+	request, err := http.NewRequest(http.MethodGet, fixture.server.URL+"/v1/applications/"+fixture.application.ID+"/sslip-hostname?environmentId="+fixture.environment.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := developerClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	problem := decode[httpapi.Problem](t, response)
+	if (response.StatusCode != http.StatusForbidden && response.StatusCode != http.StatusNotFound) || (problem.Code != "Forbidden" && problem.Code != "NotFound") || resolver.request.ApplicationID != "" {
+		t.Fatalf("application-only grant leaked sslip hostname: status=%d problem=%#v", response.StatusCode, problem)
 	}
 }
 

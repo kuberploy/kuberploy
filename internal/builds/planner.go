@@ -54,6 +54,7 @@ func jobPlanRequest(request builder.BuildRequest, spec DefinitionSpec, operation
 		RegistryCacheCredentialSecret: spec.Registry.CacheCredentialSecret,
 		BuildSecret:                   spec.Execution.BuildSecret, SSHSecret: spec.Execution.SSHSecret,
 		CheckoutImage: spec.Execution.BuilderAgentImage, AgentImage: spec.Execution.BuilderAgentImage,
+		DinDImage:    spec.Execution.DinDImage,
 		NodeSelector: cloneStringMap(spec.Execution.NodeSelector), Toleration: spec.Execution.Toleration,
 		CheckoutResources: spec.Execution.CheckoutResources, DinDResources: spec.Execution.DinDResources, AgentResources: spec.Execution.AgentResources,
 		WorkspaceSizeLimit: spec.Execution.WorkspaceSizeLimit, SocketSizeLimit: spec.Execution.SocketSizeLimit,

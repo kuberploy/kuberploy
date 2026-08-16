@@ -66,10 +66,21 @@ func (s *Server) projectRegistryPullCredentials(w http.ResponseWriter, r *http.R
 
 func (s *Server) projectRegistryPullCredential(w http.ResponseWriter, r *http.Request) {
 	registryResponseHeaders(w)
-	err := s.store.DeleteProjectRegistryPullCredentialForActor(r.Context(), currentUser(r.Context()).ID, strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("credentialId")))
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	projectID, credentialID := strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("credentialId"))
+	replay, err := s.store.DeleteProjectRegistryPullCredentialForActor(r.Context(), currentUser(r.Context()).ID, projectID, credentialID, key, fingerprint(struct {
+		ProjectID    string `json:"projectId"`
+		CredentialID string `json:"credentialId"`
+	}{projectID, credentialID}), requestID(r.Context()))
 	if err != nil {
 		mappedRegistryError(w, r, err)
 		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -6,6 +6,7 @@ import type {
   Capability,
   Environment,
   Operation,
+  VariableSetScope,
   VariableSetPreview,
   VariableSetSnapshot,
 } from "../api/types";
@@ -83,39 +84,99 @@ function VariableSetEditor({
   const [previewRaw, setPreviewRaw] = useState("");
   const [saveKey, setSaveKey] = useState("");
   const [operation, setOperation] = useState<Operation | null>(null);
+  const [previewError, setPreviewError] = useState<unknown>(null);
+  const [saveError, setSaveError] = useState<unknown>(null);
   const previewMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: ({
+      environmentId,
+      scope,
+      path,
+      etag,
+      rawYaml: requestedRawYaml,
+    }: {
+      environmentId: string;
+      scope: VariableSetScope;
+      path: string;
+      etag?: string;
+      rawYaml: string;
+    }) =>
       api.previewVariableSet(
-        environment.id,
-        snapshot.scope,
-        rawYaml,
-        snapshot.present ? snapshot.etag : undefined,
-        snapshot.path,
+        environmentId,
+        scope,
+        requestedRawYaml,
+        etag,
+        path,
       ),
-    onSuccess: (value) => {
+    onMutate: () => setPreviewError(null),
+    onSuccess: (value, input) => {
+      if (
+        input.environmentId !== environment.id ||
+        input.scope !== snapshot.scope ||
+        input.path !== snapshot.path ||
+        input.rawYaml !== rawYaml
+      )
+        return;
       setPreview(value);
-      setPreviewRaw(rawYaml);
+      setPreviewRaw(input.rawYaml);
       setSaveKey(crypto.randomUUID());
       setOperation(null);
+      setPreviewError(null);
+    },
+    onError: (error, input) => {
+      if (
+        input.environmentId === environment.id &&
+        input.scope === snapshot.scope &&
+        input.path === snapshot.path &&
+        input.rawYaml === rawYaml
+      ) {
+        setPreviewError(error);
+      }
     },
   });
   const saveMutation = useMutation({
-    mutationFn: () => {
-      if (!preview || previewRaw !== rawYaml || !saveKey)
+    mutationFn: (input: {
+      environmentId: string;
+      scope: VariableSetScope;
+      path: string;
+      etag?: string;
+      rawYaml: string;
+      preview: VariableSetPreview;
+      saveKey: string;
+      previewRaw: string;
+    }) => {
+      if (input.previewRaw !== input.rawYaml)
         throw new Error("Preview this exact YAML before saving.");
       return api.saveVariableSet(
-        environment.id,
-        snapshot.scope,
-        rawYaml,
-        preview.previewToken,
-        saveKey,
+        input.environmentId,
+        input.scope,
+        input.rawYaml,
+        input.preview.previewToken,
+        input.saveKey,
       );
     },
-    onSuccess: async (value) => {
-      setOperation(value);
+    onMutate: () => setSaveError(null),
+    onSuccess: async (value, input) => {
+      if (
+        input.environmentId === environment.id &&
+        input.scope === snapshot.scope &&
+        input.path === snapshot.path &&
+        input.rawYaml === rawYaml
+      ) {
+        setOperation(value);
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["variable-sets", environment.id],
+        queryKey: ["variable-sets", input.environmentId],
       });
+    },
+    onError: (error, input) => {
+      if (
+        input.environmentId === environment.id &&
+        input.scope === snapshot.scope &&
+        input.path === snapshot.path &&
+        input.rawYaml === rawYaml
+      ) {
+        setSaveError(error);
+      }
     },
   });
   const exactPreview = preview !== null && previewRaw === rawYaml;
@@ -179,6 +240,8 @@ function VariableSetEditor({
             setPreviewRaw("");
             setSaveKey("");
             setOperation(null);
+            setPreviewError(null);
+            setSaveError(null);
             previewMutation.reset();
             saveMutation.reset();
           }}
@@ -189,14 +252,38 @@ function VariableSetEditor({
           <Button
             variant="secondary"
             busy={previewMutation.isPending}
-            onClick={() => previewMutation.mutate()}
+            disabled={saveMutation.isPending}
+            onClick={() =>
+              previewMutation.mutate({
+                environmentId: environment.id,
+                scope: snapshot.scope,
+                path: snapshot.path,
+                etag: snapshot.present ? snapshot.etag : undefined,
+                rawYaml,
+              })
+            }
           >
             <Icon name="code" /> Preview Git diff
           </Button>
           <Button
             busy={saveMutation.isPending}
-            disabled={!exactPreview || operation !== null}
-            onClick={() => saveMutation.mutate()}
+            disabled={
+              !exactPreview || operation !== null || previewMutation.isPending
+            }
+            onClick={() => {
+              if (preview && saveKey) {
+                saveMutation.mutate({
+                  environmentId: environment.id,
+                  scope: snapshot.scope,
+                  path: snapshot.path,
+                  etag: snapshot.present ? snapshot.etag : undefined,
+                  rawYaml,
+                  preview,
+                  saveKey,
+                  previewRaw,
+                });
+              }
+            }}
           >
             <Icon name="git" /> Save through Git
           </Button>
@@ -207,12 +294,10 @@ function VariableSetEditor({
           and interactive session are required to preview or save this source.
         </p>
       )}
-      {previewMutation.error ? (
-        <ErrorPanel error={previewMutation.error} title="Preview failed" />
+      {previewError ? (
+        <ErrorPanel error={previewError} title="Preview failed" />
       ) : null}
-      {saveMutation.error ? (
-        <ErrorPanel error={saveMutation.error} title="Save failed" />
-      ) : null}
+      {saveError ? <ErrorPanel error={saveError} title="Save failed" /> : null}
       {exactPreview ? (
         <div className="variable-set-preview" aria-label="Git diff preview">
           <div className="eyebrow">Exact Git diff</div>
@@ -316,7 +401,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
         <div className="variable-set-grid">
           {sources.data.items.map((snapshot) => (
             <VariableSetEditor
-              key={`${snapshot.scope}:${snapshot.indexedRevision}:${snapshot.etag ?? "absent"}`}
+              key={`${environment.data.id}:${snapshot.scope}:${snapshot.indexedRevision}:${snapshot.etag ?? "absent"}`}
               environment={environment.data}
               snapshot={snapshot}
               canWrite={canWriteVariableScope(

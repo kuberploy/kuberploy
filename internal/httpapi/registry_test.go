@@ -159,7 +159,7 @@ func TestProjectRegistryPullCredentialCatalogAndServiceSelection(t *testing.T) {
 	if response.StatusCode != http.StatusOK || selection["projectCredentialId"] != credential.ID {
 		t.Fatalf("selection=%#v status=%d", selection, response.StatusCode)
 	}
-	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "", nil)
+	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "delete-selected-pull-credential", nil)
 	if response.StatusCode != http.StatusConflict {
 		t.Fatalf("selected delete status=%d", response.StatusCode)
 	}
@@ -167,9 +167,13 @@ func TestProjectRegistryPullCredentialCatalogAndServiceSelection(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("public status=%d", response.StatusCode)
 	}
-	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "", nil)
+	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "delete-pull-credential", nil)
 	if response.StatusCode != http.StatusNoContent {
 		t.Fatalf("delete status=%d", response.StatusCode)
+	}
+	response = fixture.request(http.MethodDelete, path+"/"+credential.ID, "delete-pull-credential", nil)
+	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("delete replay status=%d replay=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
 	}
 }
 

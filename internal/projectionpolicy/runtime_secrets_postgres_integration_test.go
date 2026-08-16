@@ -70,6 +70,50 @@ func (projectionSealedProvider) DeleteStrictSealedSecret(_ context.Context, arti
 	return secrets.DeleteObservation{Artifact: artifact, Absent: true, ObservedAt: time.Now().UTC()}, nil
 }
 
+func cleanupRuntimeSecretProject(ctx context.Context, pool *pgxpool.Pool, projectID string) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err = tx.Exec(ctx, `ALTER TABLE mutation_receipts DISABLE TRIGGER USER`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM mutation_receipts
+		WHERE secret_binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)
+		   OR secret_version_id IN (SELECT v.id FROM secret_binding_versions v JOIN secret_bindings b ON b.id=v.binding_id WHERE b.project_id=$1)`, projectID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `ALTER TABLE mutation_receipts ENABLE TRIGGER USER`); err != nil {
+		return err
+	}
+	for _, table := range []string{"secret_binding_deliveries", "secret_binding_events"} {
+		if _, err = tx.Exec(ctx, `ALTER TABLE `+table+` DISABLE TRIGGER USER`); err != nil {
+			return err
+		}
+	}
+	for _, query := range []string{
+		`DELETE FROM secret_binding_deliveries WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM secret_binding_events WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM secret_binding_references WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM secret_binding_runtime_reconciliations WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM tls_certificate_versions WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM secret_binding_versions WHERE binding_id IN (SELECT id FROM secret_bindings WHERE project_id=$1)`,
+		`DELETE FROM secret_bindings WHERE project_id=$1`,
+	} {
+		if _, err = tx.Exec(ctx, query, projectID); err != nil {
+			return err
+		}
+	}
+	for _, table := range []string{"secret_binding_events", "secret_binding_deliveries"} {
+		if _, err = tx.Exec(ctx, `ALTER TABLE `+table+` ENABLE TRIGGER USER`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -80,14 +124,31 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Add(-time.Minute)
-	actorID, organizationID, projectID, environmentID, applicationID := id.New(), id.New(), id.New(), id.New(), id.New()
+	actorID, organizationID, projectID, environmentID, environmentBID, applicationID := id.New(), id.New(), id.New(), id.New(), id.New(), id.New()
 	suffix := strings.ReplaceAll(projectID, "-", "")[:12]
 	namespace := "policy-secrets-" + suffix
+	var gitBindingIDs []string
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := cleanupRuntimeSecretProject(cleanupCtx, pool, projectID); err != nil {
+			t.Errorf("cleanup runtime-secret project: %v", err)
+		}
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM git_projected_documents WHERE binding_id=ANY($1::uuid[])`, gitBindingIDs)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM git_projection_generations WHERE binding_id=ANY($1::uuid[])`, gitBindingIDs)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM git_safety_poll_cursors WHERE binding_id=ANY($1::uuid[])`, gitBindingIDs)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM git_verified_head_observations WHERE binding_id=ANY($1::uuid[])`, gitBindingIDs)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM git_repository_bindings WHERE id=ANY($1::uuid[])`, gitBindingIDs)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM applications WHERE id=$1`, applicationID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM environments WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM projects WHERE id=$1`, projectID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM teams WHERE id=$1`, organizationID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM users WHERE id=$1`, actorID)
+	})
 	for _, statement := range []struct {
 		query string
 		args  []any
@@ -132,7 +193,6 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	// Direct Git in another environment must not consume the exact BasicAuth
 	// binding identity even when the application ID is shared across both
 	// destinations.
-	environmentBID := id.New()
 	namespaceB := namespace + "-b"
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Staging',$3,$4,$4,$5)`, environmentBID, projectID, "staging-"+suffix, namespaceB, now); err != nil {
 		t.Fatal(err)
@@ -144,6 +204,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gitBindingIDs = append(gitBindingIDs, binding.ID)
 	binding.TargetHeadRevision, binding.TargetHeadObservedAt, binding.State = strings.Repeat("d", 40), now.Add(2*time.Second), gitprojection.BindingIndexing
 	binding.UpdatedAt = now.Add(2 * time.Second)
 	documentPath, err := gitprojection.ApplicationPath(binding, applicationID)
@@ -177,6 +238,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gitBindingIDs = append(gitBindingIDs, bindingB.ID)
 	bindingB.TargetHeadRevision, bindingB.TargetHeadObservedAt, bindingB.State = strings.Repeat("c", 40), now.Add(2*time.Second), gitprojection.BindingIndexing
 	bindingB.UpdatedAt = now.Add(2 * time.Second)
 	pathB, err := gitprojection.ApplicationPath(bindingB, applicationID)
@@ -399,7 +461,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
@@ -407,6 +469,16 @@ func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
 	actorID, projectID, environmentID, applicationID := id.New(), id.New(), id.New(), id.New()
 	suffix := strings.ReplaceAll(projectID, "-", "")[:12]
 	namespace := "personal-secrets-" + suffix
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if err := cleanupRuntimeSecretProject(cleanupCtx, pool, projectID); err != nil {
+			t.Errorf("cleanup personal runtime-secret project: %v", err)
+		}
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM applications WHERE id=$1`, applicationID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM environments WHERE project_id=$1`, projectID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM projects WHERE id=$1`, projectID)
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM users WHERE id=$1`, actorID)
+	})
 	for _, statement := range []struct {
 		query string
 		args  []any

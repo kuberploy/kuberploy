@@ -120,10 +120,12 @@ func (s *Store) resolveTargetLocked(target domain.AccessTarget) (domain.AccessTa
 		if !ok {
 			return domain.AccessTarget{}, false
 		}
-		if operation.TargetType != "deployment" {
-			return domain.AccessTarget{Type: "platform", ID: "platform"}, true
+		switch operation.TargetType {
+		case "deployment", "environment", "project":
+			return s.resolveTargetLocked(domain.AccessTarget{Type: operation.TargetType, ID: operation.TargetID})
+		default:
+			return domain.AccessTarget{}, false
 		}
-		return s.resolveTargetLocked(domain.AccessTarget{Type: "deployment", ID: operation.TargetID})
 	default:
 		return domain.AccessTarget{}, false
 	}
@@ -531,28 +533,41 @@ func (s *Store) AuthorizeGitHubInstallationForProject(_ context.Context, actor, 
 	return base.ErrNotFound
 }
 
-func (s *Store) UpdateGitHubInstallationSharing(_ context.Context, actor, installationID, _ string, in domain.UpdateGitHubInstallationSharing) (domain.GitHubInstallation, error) {
+func (s *Store) UpdateGitHubInstallationSharing(_ context.Context, actor, installationID, key, fp, _ string, in domain.UpdateGitHubInstallationSharing) (base.Result[domain.GitHubInstallation], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	installation, exists := s.installations[installationID]
 	if !exists {
-		return domain.GitHubInstallation{}, base.ErrNotFound
+		return base.Result[domain.GitHubInstallation]{}, base.ErrNotFound
+	}
+	idemKey := ik(actor, "github-installations.sharing:"+installationID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return base.Result[domain.GitHubInstallation]{}, err
+	}
+	if replay {
+		stored, exists := s.installations[old.resourceID]
+		if !exists {
+			return base.Result[domain.GitHubInstallation]{}, base.ErrNotFound
+		}
+		return base.Result[domain.GitHubInstallation]{Value: stored, Replay: true}, nil
 	}
 	admin := s.isAdminLocked(actor)
 	currentTeamOwner := installation.TeamID != "" && s.canManageTeamLocked(actor, installation.TeamID)
 	if !admin && actor != installation.OwnerUserID && !currentTeamOwner {
-		return domain.GitHubInstallation{}, base.ErrForbidden
+		return base.Result[domain.GitHubInstallation]{}, base.ErrForbidden
 	}
 	if in.Visibility == "team" {
 		if _, exists = s.teams[in.TeamID]; !exists {
-			return domain.GitHubInstallation{}, base.ErrNotFound
+			return base.Result[domain.GitHubInstallation]{}, base.ErrNotFound
 		}
 		if !admin && !s.canManageTeamLocked(actor, in.TeamID) {
-			return domain.GitHubInstallation{}, base.ErrForbidden
+			return base.Result[domain.GitHubInstallation]{}, base.ErrForbidden
 		}
 	}
 	if installation.Visibility == in.Visibility && installation.TeamID == in.TeamID {
-		return installation, nil
+		s.idempotency[idemKey] = idemRecord{fp, "github-installation", installation.ID, ""}
+		return base.Result[domain.GitHubInstallation]{Value: installation}, nil
 	}
 	affected := map[string]struct{}{installation.OwnerUserID: {}}
 	if installation.TeamID != "" {
@@ -569,9 +584,10 @@ func (s *Store) UpdateGitHubInstallationSharing(_ context.Context, actor, instal
 	installation.TeamID = in.TeamID
 	installation.UpdatedAt = time.Now().UTC()
 	s.installations[installation.ID] = installation
+	s.idempotency[idemKey] = idemRecord{fp, "github-installation", installation.ID, ""}
 	s.audits++
 	s.bumpGrantsLocked(affected)
-	return installation, nil
+	return base.Result[domain.GitHubInstallation]{Value: installation}, nil
 }
 
 func (s *Store) ListProjectsForActor(_ context.Context, actor string) ([]domain.Project, error) {

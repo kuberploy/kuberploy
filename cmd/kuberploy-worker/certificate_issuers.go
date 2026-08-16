@@ -2,11 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/certissuers"
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
+
+const maximumCertificateIssuerProviderWait = 7 * 24 * time.Hour
 
 type certificateIssuerRuntime struct {
 	store      *certissuers.PostgresStore
@@ -72,19 +76,47 @@ func (r *certificateIssuerRuntime) Run(ctx context.Context) error {
 	if r == nil || r.store == nil || r.controller == nil || r.observer == nil || r.observer.Validate() != nil || r.poll <= 0 {
 		return certissuers.ErrObservationUnavailable
 	}
-	ticker := time.NewTicker(r.poll)
-	defer ticker.Stop()
 	for {
+		next := r.poll
 		if _, err := r.controller.Reconcile(ctx, certissuers.MaximumObservedIssuers); err != nil {
 			slog.Warn("certificate issuer protected publication failed", "error", err)
+			next = certificateIssuerProviderDelay(err, time.Now().UTC(), r.poll)
 		} else if err = r.observer.RunOnce(ctx); err != nil {
 			slog.Warn("certificate issuer live observation failed", "error", err)
 		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
+		if err := waitCertificateIssuerCycle(ctx, next); err != nil {
+			return err
 		}
+	}
+}
+
+func certificateIssuerProviderDelay(err error, now time.Time, poll time.Duration) time.Duration {
+	if poll <= 0 {
+		return 0
+	}
+	delay := poll
+	var providerError *githubapp.APIError
+	if !errors.As(err, &providerError) || !providerError.Retryable() || !providerError.RetryAt.After(now.Add(delay)) {
+		return delay
+	}
+	delay = providerError.RetryAt.Sub(now)
+	if delay > maximumCertificateIssuerProviderWait {
+		return maximumCertificateIssuerProviderWait
+	}
+	return delay
+}
+
+func waitCertificateIssuerCycle(ctx context.Context, delay time.Duration) error {
+	if ctx == nil || delay <= 0 {
+		return certissuers.ErrObservationUnavailable
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

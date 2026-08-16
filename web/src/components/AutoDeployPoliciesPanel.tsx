@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorMessage } from "../api/client";
 import type {
@@ -95,6 +95,8 @@ export function AutoDeployPoliciesPanel({
 }) {
   const applicationId = application.id;
   const projectId = project.id;
+  const applicationScopeRef = useRef(applicationId);
+  applicationScopeRef.current = applicationId;
   const potentialManagement = hasPotentialAutoDeployManagement(
     humanSession,
     capabilities,
@@ -152,6 +154,8 @@ export function AutoDeployPoliciesPanel({
   const [definitionId, setDefinitionId] = useState("");
   const [deploymentId, setDeploymentId] = useState("");
   const [serviceActorId, setServiceActorId] = useState("");
+  const createAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const reviseAttempt = useRef<{ signature: string; key: string } | null>(null);
   const selectedAccount = serviceAccounts.find(
     (item) => item.id === serviceActorId,
   );
@@ -185,44 +189,129 @@ export function AutoDeployPoliciesPanel({
       setServiceActorId(serviceAccounts[0]?.id ?? "");
   }, [serviceAccounts, serviceActorId]);
   const create = useMutation({
-    mutationFn: () => {
-      const deployment = authorizedCandidates.find(
-        (item) => item.id === deploymentId,
-      );
-      if (!deployment)
+    mutationFn: (input: {
+      applicationId: string;
+      buildDefinitionId: string;
+      environmentId: string;
+      templateDeploymentId: string;
+      serviceActorId: string;
+      idempotencyKey: string;
+    }) => {
+      if (
+        !input.applicationId ||
+        !input.buildDefinitionId ||
+        !input.environmentId ||
+        !input.templateDeploymentId ||
+        !input.serviceActorId
+      )
         throw new Error("Select an existing deployment configuration.");
-      return api.createAutoDeployPolicy(applicationId, {
-        buildDefinitionId: definitionId,
-        environmentId: deployment.environmentId,
-        templateDeploymentId: deployment.id,
-        serviceActorId,
-        enabled: true,
+      return api.createAutoDeployPolicy(
+        input.applicationId,
+        {
+          buildDefinitionId: input.buildDefinitionId,
+          environmentId: input.environmentId,
+          templateDeploymentId: input.templateDeploymentId,
+          serviceActorId: input.serviceActorId,
+          enabled: true,
+        },
+        input.idempotencyKey,
+      );
+    },
+    onSuccess: (_value, input) => {
+      if (input.applicationId !== applicationScopeRef.current) return;
+      if (createAttempt.current?.key === input.idempotencyKey) {
+        createAttempt.current = null;
+      }
+      return queryClient.invalidateQueries({
+        queryKey: ["auto-deploy-policies", input.applicationId],
       });
     },
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["auto-deploy-policies", applicationId],
-      }),
   });
   const revise = useMutation({
     mutationFn: ({
       policy,
       enabled: nextEnabled,
+      idempotencyKey,
     }: {
       policy: AutoDeployPolicy;
       enabled: boolean;
+      idempotencyKey: string;
+      applicationId: string;
     }) =>
-      api.reviseAutoDeployPolicy(policy.id, {
-        templateDeploymentId: policy.current.sourceDeploymentId,
-        serviceActorId: policy.current.serviceActorId,
-        enabled: nextEnabled,
-        expectedRevision: policy.currentRevision,
-      }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: ["auto-deploy-policies", applicationId],
-      }),
+      api.reviseAutoDeployPolicy(
+        policy.id,
+        {
+          templateDeploymentId: policy.current.sourceDeploymentId,
+          serviceActorId: policy.current.serviceActorId,
+          enabled: nextEnabled,
+          expectedRevision: policy.currentRevision,
+        },
+        idempotencyKey,
+      ),
+    onSuccess: (_value, input) => {
+      if (input.applicationId !== applicationScopeRef.current) return;
+      if (reviseAttempt.current?.key === input.idempotencyKey) {
+        reviseAttempt.current = null;
+      }
+      return queryClient.invalidateQueries({
+        queryKey: ["auto-deploy-policies", input.applicationId],
+      });
+    },
   });
+
+  const enablePolicy = () => {
+    const deployment = authorizedCandidates.find(
+      (item) => item.id === deploymentId,
+    );
+    const signature = JSON.stringify({
+      applicationId,
+      definitionId,
+      deploymentId,
+      serviceActorId,
+    });
+    const key =
+      createAttempt.current?.signature === signature
+        ? createAttempt.current.key
+        : crypto.randomUUID();
+    createAttempt.current = { signature, key };
+    create.mutate({
+      applicationId,
+      buildDefinitionId: definitionId,
+      environmentId: deployment?.environmentId ?? "",
+      templateDeploymentId: deployment?.id ?? "",
+      serviceActorId,
+      idempotencyKey: key,
+    });
+  };
+
+  const revisePolicy = (policy: AutoDeployPolicy, nextEnabled: boolean) => {
+    if (
+      !nextEnabled &&
+      !window.confirm(
+        `Disable auto-deploy policy ${policy.id}? Verified builds will stop creating deployment operations until it is enabled again.`,
+      )
+    ) {
+      return;
+    }
+    const signature = JSON.stringify({
+      policyId: policy.id,
+      revision: policy.currentRevision,
+      sourceDeploymentId: policy.current.sourceDeploymentId,
+      serviceActorId: policy.current.serviceActorId,
+      enabled: nextEnabled,
+    });
+    const key =
+      reviseAttempt.current?.signature === signature
+        ? reviseAttempt.current.key
+        : crypto.randomUUID();
+    reviseAttempt.current = { signature, key };
+    revise.mutate({
+      policy,
+      enabled: nextEnabled,
+      applicationId,
+      idempotencyKey: key,
+    });
+  };
 
   if (!enabled) return null;
   const loadError = policies.error;
@@ -307,7 +396,7 @@ export function AutoDeployPoliciesPanel({
             </select>
           </label>
           <Button
-            onClick={() => create.mutate()}
+            onClick={enablePolicy}
             busy={create.isPending}
             disabled={!definitionId || !deploymentId || !serviceActorId}
           >
@@ -359,10 +448,7 @@ export function AutoDeployPoliciesPanel({
                       variant="secondary"
                       busy={revise.isPending}
                       onClick={() =>
-                        revise.mutate({
-                          policy,
-                          enabled: !policy.current.enabled,
-                        })
+                        revisePolicy(policy, !policy.current.enabled)
                       }
                     >
                       {policy.current.enabled ? "Disable" : "Enable"}
@@ -371,10 +457,7 @@ export function AutoDeployPoliciesPanel({
                       variant="secondary"
                       busy={revise.isPending}
                       onClick={() =>
-                        revise.mutate({
-                          policy,
-                          enabled: policy.current.enabled,
-                        })
+                        revisePolicy(policy, policy.current.enabled)
                       }
                     >
                       Repin current config

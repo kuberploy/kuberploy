@@ -277,6 +277,12 @@ func attemptDefinitions(definitions []BuildDefinition, runtime WorkerRuntimeConf
 		if err != nil {
 			return nil, ErrInfrastructure
 		}
+		selection, err := runtime.ResolveSecretFiles(definition.ServiceID, definition.Spec.SecretFiles, definition.Spec.SSHFiles)
+		if err != nil {
+			return nil, ErrInfrastructure
+		}
+		execution.BuildSecret = selection.BuildSecret
+		execution.SSHSecret = selection.SSHSecret
 		result = append(result, AttemptDefinition{Definition: definition, Execution: execution})
 	}
 	return result, nil

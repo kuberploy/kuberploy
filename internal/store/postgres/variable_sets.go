@@ -59,9 +59,8 @@ func (s *Store) CreateVariableSetPreview(ctx context.Context, actor string, plan
 	if _, err = validateVariablePlanTx(ctx, tx, plan); err != nil {
 		return err
 	}
-	now := time.Now().UTC()
 	_, err = tx.Exec(ctx, `INSERT INTO preview_authorities(token_hash,preview_kind,actor_id,binding_id,project_id,environment_id,variable_scope,path,base_revision,base_etag,policy_version,candidate_hash,expires_at,created_at)
-		VALUES($1,'variable-set',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, tokenHash, actor, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, plan.VariablePath, plan.BaseRevision, plan.ExpectedETag, plan.PolicyVersion, candidateHash, expires, now)
+		VALUES($1,'variable-set',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now())`, tokenHash, actor, plan.BindingID, plan.ProjectID, plan.EnvironmentID, plan.VariableScope, plan.VariablePath, plan.BaseRevision, plan.ExpectedETag, plan.PolicyVersion, candidateHash, expires)
 	if err != nil {
 		return classify(err)
 	}
@@ -105,6 +104,13 @@ func (s *Store) SaveVariableSet(ctx context.Context, actor, key, fingerprint, re
 	} else if ok {
 		if old.fingerprint != fingerprint {
 			return base.Result[domain.Operation]{}, base.ErrIdempotencyConflict
+		}
+		targetType := "environment"
+		if old.resourceType == "project" {
+			targetType = "project"
+		}
+		if err = authorizeWith(ctx, tx, actor, domain.PermissionConfigWrite, domain.AccessTarget{Type: targetType, ID: old.resourceID}); err != nil {
+			return base.Result[domain.Operation]{}, err
 		}
 		if old.operationID == nil {
 			return base.Result[domain.Operation]{}, base.ErrConflict
@@ -200,7 +206,10 @@ func (s *Store) SaveVariableSet(ctx context.Context, actor, key, fingerprint, re
 	if err = putIdem(ctx, tx, actor, "variable-sets.save", key, fingerprint, plan.VariableScope, targetID, &op.ID); err != nil {
 		return base.Result[domain.Operation]{}, classify(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set' AND consumed_at IS NULL`, tokenHash, now); err != nil {
+	// Let PostgreSQL stamp consumption. The preview-authority trigger compares
+	// this timestamp against the database clock; an application clock skew can
+	// otherwise reject an otherwise valid VariableSet save.
+	if _, err = tx.Exec(ctx, `UPDATE preview_authorities SET consumed_at=now() WHERE token_hash=$1 AND preview_kind='variable-set' AND consumed_at IS NULL`, tokenHash); err != nil {
 		return base.Result[domain.Operation]{}, err
 	}
 	if err = audit(ctx, tx, actor, "variable-set.accepted", plan.VariableScope, targetID, requestID, map[string]any{"operationId": op.ID, "bindingId": plan.BindingID, "path": plan.VariablePath, "baseRevision": plan.BaseRevision, "publicationMode": mode}); err != nil {

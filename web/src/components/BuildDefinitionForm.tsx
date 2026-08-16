@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { ApiError, api } from "../api/client";
 import type {
@@ -32,9 +32,32 @@ type DefinitionForm = {
   timeoutSeconds: number;
   profileEgress: string;
   maxAttempts: number;
+  secretProfileIds: string[];
+  sshProfileIds: string[];
 };
 
 type StableAttempt = { signature: string; key: string };
+
+const defaultDefinitionValues: DefinitionForm = {
+  installationId: "",
+  repositoryId: "",
+  registryTargetId: "",
+  refType: "branch",
+  triggerRef: "main",
+  contextPath: ".",
+  dockerfilePath: "Dockerfile",
+  amd64: true,
+  arm64: false,
+  buildArgs: "",
+  cacheTrustLane: "protected",
+  cacheImports: 2,
+  profileResource: "standard",
+  timeoutSeconds: 900,
+  profileEgress: "registry-and-source",
+  maxAttempts: 3,
+  secretProfileIds: [],
+  sshProfileIds: [],
+};
 
 const namePattern = /^[a-z][a-z0-9_.-]{0,62}$/;
 const buildArgPattern = /^[A-Z_][A-Z0-9_]{0,127}$/;
@@ -89,6 +112,10 @@ export function BuildDefinitionForm({
 }) {
   const queryClient = useQueryClient();
   const stableAttempt = useRef<StableAttempt | null>(null);
+  const scopeRef = useRef(application.id);
+  scopeRef.current = application.id;
+  const resetFormRef = useRef<() => void>(() => undefined);
+  const resetCreateRef = useRef<() => void>(() => undefined);
   const [parseError, setParseError] = useState<unknown>();
   const [createdDefinitionId, setCreatedDefinitionId] = useState("");
   const canCreate =
@@ -105,26 +132,37 @@ export function BuildDefinitionForm({
     enabled: canCreate,
     retry: false,
   });
-  const form = useForm<DefinitionForm>({
-    defaultValues: {
-      installationId: "",
-      repositoryId: "",
-      registryTargetId: "",
-      refType: "branch",
-      triggerRef: "main",
-      contextPath: ".",
-      dockerfilePath: "Dockerfile",
-      amd64: true,
-      arm64: false,
-      buildArgs: "",
-      cacheTrustLane: "protected",
-      cacheImports: 2,
-      profileResource: "standard",
-      timeoutSeconds: 900,
-      profileEgress: "registry-and-source",
-      maxAttempts: 3,
-    },
+  const secretProfiles = useQuery({
+    queryKey: ["build-secret-profiles", application.id],
+    queryFn: () => api.buildSecretProfiles(application.id),
+    enabled: canCreate,
+    retry: false,
   });
+  const form = useForm<DefinitionForm>({
+    defaultValues: defaultDefinitionValues,
+  });
+  useEffect(() => {
+    if (!secretProfiles.isSuccess || !secretProfiles.data) return;
+    const buildIDs = new Set(
+      secretProfiles.data.build.map((profile) => profile.id),
+    );
+    const sshIDs = new Set(
+      secretProfiles.data.ssh.map((profile) => profile.id),
+    );
+    const current = form.getValues();
+    const nextBuildIDs = current.secretProfileIds.filter((id) =>
+      buildIDs.has(id),
+    );
+    const nextSSHIDs = current.sshProfileIds.filter((id) => sshIDs.has(id));
+    if (
+      JSON.stringify(nextBuildIDs) !== JSON.stringify(current.secretProfileIds)
+    ) {
+      form.setValue("secretProfileIds", nextBuildIDs, { shouldDirty: true });
+    }
+    if (JSON.stringify(nextSSHIDs) !== JSON.stringify(current.sshProfileIds)) {
+      form.setValue("sshProfileIds", nextSSHIDs, { shouldDirty: true });
+    }
+  }, [form, secretProfiles.data, secretProfiles.isSuccess]);
   const installationId = form.watch("installationId");
   const repositories = useQuery({
     queryKey: ["github-installation-repositories", installationId],
@@ -143,25 +181,47 @@ export function BuildDefinitionForm({
     mutationFn: ({
       input,
       key,
+      draftSignature,
+      applicationId,
     }: {
       input: CreateBuildDefinition;
       key: string;
-    }) => api.createBuildDefinition(application.id, input, key),
+      draftSignature: string;
+      applicationId: string;
+    }) => api.createBuildDefinition(applicationId, input, key),
     retry: retryNetworkOnce,
-    onSuccess: async (definition) => {
-      stableAttempt.current = null;
-      setParseError(undefined);
-      setCreatedDefinitionId(definition.id);
+    onSuccess: async (definition, input) => {
+      if (scopeRef.current !== input.applicationId) return;
+      const sameDraft =
+        JSON.stringify(form.getValues()) === input.draftSignature;
+      if (sameDraft) {
+        if (stableAttempt.current?.key === input.key) {
+          stableAttempt.current = null;
+        }
+        setParseError(undefined);
+        setCreatedDefinitionId(definition.id);
+      }
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["build-definitions", application.id],
+          queryKey: ["build-definitions", input.applicationId],
         }),
         queryClient.invalidateQueries({
-          queryKey: ["build-attempts", application.id],
+          queryKey: ["build-attempts", input.applicationId],
         }),
       ]);
     },
   });
+  resetFormRef.current = () => form.reset(defaultDefinitionValues);
+  resetCreateRef.current = create.reset;
+
+  useEffect(() => {
+    scopeRef.current = application.id;
+    stableAttempt.current = null;
+    resetFormRef.current();
+    setParseError(undefined);
+    setCreatedDefinitionId("");
+    resetCreateRef.current();
+  }, [application.id]);
 
   const submit = (value: DefinitionForm) => {
     setParseError(undefined);
@@ -193,6 +253,12 @@ export function BuildDefinitionForm({
           egress: value.profileEgress.trim(),
         },
         maxAttempts: value.maxAttempts,
+        ...(value.secretProfileIds.length
+          ? { secretProfileIds: value.secretProfileIds }
+          : {}),
+        ...(value.sshProfileIds.length
+          ? { sshProfileIds: value.sshProfileIds }
+          : {}),
       };
       const signature = JSON.stringify(input);
       const key =
@@ -200,7 +266,12 @@ export function BuildDefinitionForm({
           ? stableAttempt.current.key
           : crypto.randomUUID();
       stableAttempt.current = { signature, key };
-      create.mutate({ input, key });
+      create.mutate({
+        input,
+        key,
+        draftSignature: JSON.stringify(value),
+        applicationId: application.id,
+      });
     } catch (error) {
       setParseError(error);
     }
@@ -493,14 +564,63 @@ export function BuildDefinitionForm({
             </Field>
           </div>
 
+          <div className="build-secret-profile-picker">
+            <div>
+              <strong>Managed build credentials</strong>
+              <p>
+                Select operator-managed profiles for BuildKit secret or SSH
+                mounts. Secret values never enter this form or API request.
+              </p>
+            </div>
+            {secretProfiles.isPending ? (
+              <p>Loading approved profiles…</p>
+            ) : null}
+            {secretProfiles.error ? (
+              <ErrorPanel error={secretProfiles.error} />
+            ) : null}
+            {!secretProfiles.isPending &&
+            !secretProfiles.error &&
+            !secretProfiles.data?.build.length &&
+            !secretProfiles.data?.ssh.length ? (
+              <p>No managed build-secret or SSH profiles are configured.</p>
+            ) : null}
+            {secretProfiles.data?.build.length ? (
+              <fieldset>
+                <legend>Build-secret profiles</legend>
+                {secretProfiles.data.build.map((profile) => (
+                  <label key={profile.id}>
+                    <input
+                      type="checkbox"
+                      value={profile.id}
+                      {...form.register("secretProfileIds")}
+                    />
+                    {profile.label}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+            {secretProfiles.data?.ssh.length ? (
+              <fieldset>
+                <legend>SSH profiles</legend>
+                {secretProfiles.data.ssh.map((profile) => (
+                  <label key={profile.id}>
+                    <input
+                      type="checkbox"
+                      value={profile.id}
+                      {...form.register("sshProfileIds")}
+                    />
+                    {profile.label}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+          </div>
           <div className="notice notice--warning">
             <div>
-              <strong>
-                Build-secret and SSH profiles are not available yet
-              </strong>
+              <strong>Never put credentials in Docker build arguments</strong>
               <p>
-                This form accepts no build-secret values, file references, or
-                SSH keys.
+                Build arguments can remain in image history or cache. Use an
+                approved profile above for private build inputs.
               </p>
             </div>
           </div>

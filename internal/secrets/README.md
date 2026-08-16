@@ -97,12 +97,11 @@ and Kubernetes response bodies are not persisted or logged by this runtime.
 ## Operator runtime configuration
 
 The runtime is default-off. `KUBERPLOY_RUNTIME_SECRETS_ENABLED` must be exactly
-`true` before any other setting is accepted; when it is absent or exactly
-`false`, even an empty dormant runtime setting is rejected. Enabled API and
-worker processes parse the same exact contract:
+`true` before the other settings are active; absent or false runtimes ignore
+dormant settings. Enabled API and worker processes parse the same contract:
 
-- `KUBERPLOY_RUNTIME_SECRET_NAMESPACES` is a nonempty, sorted, unique
-  comma-separated namespace allowlist;
+- `KUBERPLOY_RUNTIME_SECRET_NAMESPACES` is a nonempty comma-separated namespace
+  allowlist that is sorted and deduplicated during parsing;
 - `KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF` and
   `KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY` plus
   `KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID` identify the operator-owned HMAC
@@ -117,8 +116,8 @@ worker processes parse the same exact contract:
 The key and certificate bytes are never environment variables. Their Secret
 references, fixed projection paths, namespace allowlist, timing values, key ID,
 public certificate fingerprint and worker contract all enter the readiness
-digest. Whitespace, duplicate/unsorted namespaces, noncanonical numbers and
-partial enabled configuration fail closed.
+digest. Whitespace, noncanonical numbers, conflicting identities, and partial
+enabled configuration fail closed.
 
 ## Kubernetes provider adapters
 

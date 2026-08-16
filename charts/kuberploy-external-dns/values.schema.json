@@ -38,7 +38,7 @@
           "additionalProperties": false,
           "required": ["enabled", "kubeAPIServerCIDRs", "providerEgressCIDRs", "providerEgressPorts"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrList"},
             "providerEgressCIDRs": {"$ref": "#/$defs/cidrList"},
             "providerEgressPorts": {

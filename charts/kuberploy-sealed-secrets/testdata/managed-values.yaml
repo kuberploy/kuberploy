@@ -3,4 +3,5 @@ secretFoundation:
     managed: true
     adoptExisting: false
   networkPolicy:
+    enabled: true
     kubeAPIServerCIDRs: [10.43.0.1/32]

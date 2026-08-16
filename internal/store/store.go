@@ -146,7 +146,7 @@ type Store interface {
 	LinkVerifiedGitHubInstallation(context.Context, string, string, string, string, domain.CreateGitHubInstallation) (domain.GitHubInstallation, bool, error)
 	ListGitHubInstallationsForActor(context.Context, string) ([]domain.GitHubInstallation, error)
 	AuthorizeGitHubInstallationForProject(context.Context, string, string, string) error
-	UpdateGitHubInstallationSharing(context.Context, string, string, string, domain.UpdateGitHubInstallationSharing) (domain.GitHubInstallation, error)
+	UpdateGitHubInstallationSharing(context.Context, string, string, string, string, string, domain.UpdateGitHubInstallationSharing) (Result[domain.GitHubInstallation], error)
 	Authorize(context.Context, string, domain.Permission, domain.AccessTarget) error
 	// AuthorizePromotion evaluates resources.write against the exact composite
 	// environment/application target used by deployment creation. It preserves
@@ -162,7 +162,7 @@ type Store interface {
 	ListProjectRegistryPullCredentialsForActor(context.Context, string, string) ([]domain.ProjectRegistryPullCredential, error)
 	ListRegistryPullTargetsForActor(context.Context, string, string) ([]domain.RegistryTarget, error)
 	CreateProjectRegistryPullCredentialForActor(context.Context, string, string, string, string, domain.ProjectRegistryPullCredential) (Result[domain.ProjectRegistryPullCredential], error)
-	DeleteProjectRegistryPullCredentialForActor(context.Context, string, string, string) error
+	DeleteProjectRegistryPullCredentialForActor(context.Context, string, string, string, string, string, string) (bool, error)
 	ApplicationRegistryPullSelectionForActor(context.Context, string, string) (domain.ApplicationRegistryPullSelection, error)
 	PutApplicationRegistryPullSelectionForActor(context.Context, string, string, string, string, domain.ApplicationRegistryPullSelection) (Result[domain.ApplicationRegistryPullSelection], error)
 	SaveRegistryCleanupPreviewForActor(context.Context, string, string, string, string, string, domain.RegistryCleanupPlan) (Result[domain.RegistryCleanupPlan], error)

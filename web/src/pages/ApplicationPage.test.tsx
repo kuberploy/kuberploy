@@ -307,6 +307,36 @@ describe("application runtime-secret navigation", () => {
       "environment-production",
     );
   });
+
+  it("returns to overview when a selected feature tab loses access", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "runtimeSecretBindings").mockResolvedValue({ items: [] });
+    const queryClient = renderApplication({
+      features: { secretBindings: true },
+      capabilities: [
+        {
+          scopeType: "environment",
+          scopeId: "environment-production",
+          actions: ["secret-bindings:read"],
+        },
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Variables & secrets" }),
+    );
+    expect(await screen.findByText("No runtime-secret bindings")).toBeVisible();
+
+    queryClient.setQueryData(["capabilities"], {
+      features: { secretBindings: true },
+      capabilities: [],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Immutable artifact")).toBeVisible(),
+    );
+    expect(screen.queryByText("Secret metadata access not granted")).toBeNull();
+  });
 });
 
 describe("application custom-certificate navigation", () => {

@@ -77,7 +77,7 @@ probes:
     failureThreshold: 3
 
 networkPolicy:
-  enabled: true
+  enabled: false
   # Each client namespace is matched by the immutable Kubernetes namespace
   # label. Empty access is rejected when this chart is enabled.
   allowedNamespaces: []

@@ -133,3 +133,38 @@ func TestExternalDNSMetadataInvalidatesReadyGitProjection(t *testing.T) {
 		t.Fatalf("external DNS metadata did not request exact-head policy revalidation: %#v", invalidated)
 	}
 }
+
+func TestExternalDNSChangedUpdateClearsProtectedGitMetadata(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	project, err := store.CreateProject(ctx, admin.ID, "dns-reset-project", "dns-reset-project", domain.CreateProject{Name: "DNS reset", Slug: "dns-reset"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := store.CreateEnvironment(ctx, admin.ID, "dns-reset-environment", "dns-reset-environment", domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	integration := domain.ExternalDNSIntegration{ID: id.New(), Slug: "public-dns", Name: "Public DNS", Mode: "managed", ProviderKind: "cloudflare", TXTOwnerID: "kuberploy.production",
+		AllowedDomainSuffixes: []string{"example.com"}, SyncPolicy: "upsert-only", CredentialSecretRef: "dns-credentials", ProviderConfigRef: "cloudflare-provider",
+		EgressConfigRef: "internet-egress", EnvironmentIDs: []string{environment.Value.ID}}
+	created, err := store.CreateExternalDNSIntegrationForActor(ctx, admin.ID, "dns-reset-create", "dns-reset-create", "dns-reset-create", integration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := time.Now().UTC()
+	if err = store.RecordExternalDNSPublication(ctx, created.Value.ID, created.Value.RuntimeRevision, false, "sha256:"+strings.Repeat("a", 64), "commit-a", observedAt); err != nil {
+		t.Fatal(err)
+	}
+	updated := created.Value
+	updated.Name = "Public DNS updated"
+	updated.AllowedDomainSuffixes = []string{"example.org"}
+	result, err := store.UpdateExternalDNSIntegrationForActor(ctx, admin.ID, "dns-reset-update", "dns-reset-update", "dns-reset-update", updated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Value.ProtectedGitState != "pending" || result.Value.ProtectedGitRevision != 0 || result.Value.ProtectedGitContentDigest != "" || result.Value.ProtectedGitCommit != "" || result.Value.ProtectedGitObservedAt != nil {
+		t.Fatalf("changed update retained protected Git metadata: %#v", result.Value)
+	}
+}

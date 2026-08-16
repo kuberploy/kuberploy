@@ -48,7 +48,7 @@ func TestPostgreSQLSSLIPObservationAndResolverAreFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,'Production','production',$3,'sslip-argo',$4)`, environmentID, projectID, namespace, now); err != nil {
+		VALUES($1,$2,'Production','production',$3,$3,$4)`, environmentID, projectID, namespace, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)

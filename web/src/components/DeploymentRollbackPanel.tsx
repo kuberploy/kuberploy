@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type {
   Application,
@@ -49,17 +49,41 @@ export function DeploymentRollbackPanel({
   const [selected, setSelected] = useState<DeploymentRollbackCandidate>();
   const [confirmed, setConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
-  const rollback = useMutation({
-    mutationFn: (candidate: DeploymentRollbackCandidate) =>
-      api.rollbackDeployment(
-        deployment.id,
-        candidate.sourceOperationId,
+  const rollbackSelectionRef = useRef<{
+    deploymentId: string;
+    sourceOperationId: string;
+    idempotencyKey: string;
+  } | null>(null);
+  rollbackSelectionRef.current = selected
+    ? {
+        deploymentId: deployment.id,
+        sourceOperationId: selected.sourceOperationId,
         idempotencyKey,
+      }
+    : null;
+  const rollback = useMutation({
+    mutationFn: (input: {
+      deploymentId: string;
+      candidate: DeploymentRollbackCandidate;
+      idempotencyKey: string;
+    }) =>
+      api.rollbackDeployment(
+        input.deploymentId,
+        input.candidate.sourceOperationId,
+        input.idempotencyKey,
       ),
-    onSuccess: async () => {
-      setSelected(undefined);
-      setConfirmed(false);
-      setIdempotencyKey("");
+    onSuccess: async (_value, input) => {
+      if (input.deploymentId !== deployment.id) return;
+      const current = rollbackSelectionRef.current;
+      if (
+        current?.deploymentId === input.deploymentId &&
+        current.sourceOperationId === input.candidate.sourceOperationId &&
+        current.idempotencyKey === input.idempotencyKey
+      ) {
+        setSelected(undefined);
+        setConfirmed(false);
+        setIdempotencyKey("");
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["operations"] }),
         queryClient.invalidateQueries({
@@ -74,6 +98,12 @@ export function DeploymentRollbackPanel({
       ]);
     },
   });
+  useEffect(() => {
+    setSelected(undefined);
+    setConfirmed(false);
+    setIdempotencyKey("");
+    rollback.reset();
+  }, [deployment.id]);
 
   if (!allowed) return null;
   return (
@@ -168,7 +198,13 @@ export function DeploymentRollbackPanel({
               variant="danger"
               busy={rollback.isPending}
               disabled={!confirmed || idempotencyKey === ""}
-              onClick={() => rollback.mutate(selected)}
+              onClick={() =>
+                rollback.mutate({
+                  deploymentId: deployment.id,
+                  candidate: selected,
+                  idempotencyKey,
+                })
+              }
             >
               Confirm rollback
             </Button>

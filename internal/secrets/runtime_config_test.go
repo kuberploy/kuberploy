@@ -3,6 +3,7 @@ package secrets
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,7 +27,7 @@ func runtimeSecretLookup(values map[string]string) func(string) (string, bool) {
 	}
 }
 
-func TestRuntimeSecretConfigIsDefaultOffAndRejectsDormantSettings(t *testing.T) {
+func TestRuntimeSecretConfigIsDefaultOffAndIgnoresDormantSettings(t *testing.T) {
 	config, err := RuntimeConfigFromLookup(runtimeSecretLookup(nil))
 	if err != nil || !reflect.DeepEqual(config, RuntimeConfig{}) {
 		t.Fatalf("default config=%#v err=%v", config, err)
@@ -38,9 +39,15 @@ func TestRuntimeSecretConfigIsDefaultOffAndRejectsDormantSettings(t *testing.T) 
 	for _, values := range []map[string]string{
 		{RuntimeSecretNamespacesEnv: "payments-production"},
 		{RuntimeSecretsEnabledEnv: "false", RuntimeSecretFingerprintSecretRefEnv: ""},
+		{RuntimeSecretsEnabledEnv: ""},
+	} {
+		if config, parseErr := RuntimeConfigFromLookup(runtimeSecretLookup(values)); parseErr != nil || !reflect.DeepEqual(config, RuntimeConfig{}) {
+			t.Fatalf("dormant settings were not ignored: %#v err=%v", values, parseErr)
+		}
+	}
+	for _, values := range []map[string]string{
 		{RuntimeSecretsEnabledEnv: " false"},
 		{RuntimeSecretsEnabledEnv: "TRUE"},
-		{RuntimeSecretsEnabledEnv: ""},
 	} {
 		if _, err = RuntimeConfigFromLookup(runtimeSecretLookup(values)); !errors.Is(err, ErrRuntimeUnavailable) {
 			t.Fatalf("partial disabled settings accepted: %#v err=%v", values, err)
@@ -84,7 +91,6 @@ func TestRuntimeSecretConfigParsesCanonicalAllowlistAndDefaults(t *testing.T) {
 
 func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 	mutations := map[string]string{
-		RuntimeSecretNamespacesEnv:                  "search-production,payments-production",
 		RuntimeSecretFingerprintSecretRefEnv:        "other/secret",
 		RuntimeSecretFingerprintSecretKeyEnv:        "../key",
 		RuntimeSecretFingerprintKeyIDEnv:            " key-id ",
@@ -104,8 +110,12 @@ func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 			t.Fatalf("%s=%q accepted: %v", name, mutation, err)
 		}
 	}
+	values := validRuntimeSecretEnvironment()
+	values[RuntimeSecretNamespacesEnv] = "search-production,payments-production,payments-production"
+	if config, err := RuntimeConfigFromLookup(runtimeSecretLookup(values)); err != nil || strings.Join(config.Namespaces, ",") != "payments-production,search-production" {
+		t.Fatalf("namespace normalization failed: %#v err=%v", config.Namespaces, err)
+	}
 	for _, namespaces := range []string{
-		"payments-production,payments-production",
 		"payments-production,",
 		"payments-production, search-production",
 		"Payments-production",

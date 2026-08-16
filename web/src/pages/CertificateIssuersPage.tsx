@@ -17,6 +17,15 @@ import {
 } from "../components/ui";
 
 type Draft = CertificateIssuerMutation & { name: string };
+type SaveCommand = {
+  editorScope: string;
+  editorSession: number;
+  name: string;
+  input: CertificateIssuerMutation;
+  issuerId?: string;
+  currentRevision?: number;
+  idempotencyKey: string;
+};
 
 const emptyDraft: Draft = {
   name: "",
@@ -29,8 +38,17 @@ const emptyDraft: Draft = {
 export function CertificateIssuersPage() {
   const queryClient = useQueryClient();
   const replayKey = useRef(crypto.randomUUID());
+  const deactivateAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
   const [editing, setEditing] = useState<CertificateIssuerAdminEntry>();
   const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const editorSessionRef = useRef(0);
+  const editorScope = JSON.stringify({ issuerId: editing?.id ?? null, draft });
+  const editorScopeRef = useRef(editorScope);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  editorScopeRef.current = editorScope;
   const principal = useQuery({
     queryKey: ["me"],
     queryFn: api.me,
@@ -53,40 +71,88 @@ export function CertificateIssuersPage() {
     enabled: allowed,
     retry: false,
   });
+  const currentEditingIssuer = editing
+    ? catalog.data?.items.find((issuer) => issuer.id === editing.id)
+    : undefined;
+  const editingIsCurrent =
+    !editing ||
+    Boolean(
+      currentEditingIssuer &&
+      currentEditingIssuer.lifecycle === "active" &&
+      currentEditingIssuer.currentRevision === editing.currentRevision,
+    );
   const save = useMutation({
-    mutationFn: () => {
-      const { name, ...input } = draft;
-      return editing
+    mutationFn: (input: SaveCommand) =>
+      input.issuerId
         ? api.revisePlatformCertificateIssuer(
-            editing.id,
-            editing.currentRevision,
-            input,
-            replayKey.current,
+            input.issuerId,
+            input.currentRevision ?? 0,
+            input.input,
+            input.idempotencyKey,
           )
-        : api.createPlatformCertificateIssuer(name, input, replayKey.current);
-    },
-    onSuccess: async () => {
-      setEditing(undefined);
-      setDraft(emptyDraft);
-      replayKey.current = crypto.randomUUID();
+        : api.createPlatformCertificateIssuer(
+            input.name,
+            input.input,
+            input.idempotencyKey,
+          ),
+    onMutate: () => setSaveError(null),
+    onSuccess: async (_value, input) => {
+      const isCurrentEditor =
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current;
+      if (isCurrentEditor) {
+        editorSessionRef.current += 1;
+        setEditing(undefined);
+        setDraft(emptyDraft);
+        replayKey.current = crypto.randomUUID();
+      }
       await queryClient.invalidateQueries({
         queryKey: ["platform-certificate-issuers"],
       });
+    },
+    onError: (error, input) => {
+      if (
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current
+      )
+        setSaveError(error);
     },
   });
   const deactivate = useMutation({
-    mutationFn: (entry: CertificateIssuerAdminEntry) =>
+    mutationFn: ({
+      entry,
+      idempotencyKey,
+    }: {
+      entry: CertificateIssuerAdminEntry;
+      idempotencyKey: string;
+    }) =>
       api.deactivatePlatformCertificateIssuer(
         entry.id,
         entry.currentRevision,
-        crypto.randomUUID(),
+        idempotencyKey,
       ),
-    onSuccess: async () => {
+    onSuccess: async (_value, input) => {
+      if (deactivateAttempt.current?.key === input.idempotencyKey) {
+        deactivateAttempt.current = null;
+      }
       await queryClient.invalidateQueries({
         queryKey: ["platform-certificate-issuers"],
       });
     },
   });
+
+  const deactivateIssuer = (entry: CertificateIssuerAdminEntry) => {
+    const signature = JSON.stringify({
+      issuerId: entry.id,
+      revision: entry.currentRevision,
+    });
+    const idempotencyKey =
+      deactivateAttempt.current?.signature === signature
+        ? deactivateAttempt.current.key
+        : crypto.randomUUID();
+    deactivateAttempt.current = { signature, key: idempotencyKey };
+    deactivate.mutate({ entry, idempotencyKey });
+  };
 
   const change = (next: Draft) => {
     setDraft(next);
@@ -95,9 +161,20 @@ export function CertificateIssuersPage() {
   };
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    save.mutate();
+    if (editing && !editingIsCurrent) return;
+    const { name, ...input } = draft;
+    save.mutate({
+      editorScope,
+      editorSession: editorSessionRef.current,
+      name,
+      input,
+      issuerId: editing?.id,
+      currentRevision: editing?.currentRevision,
+      idempotencyKey: replayKey.current,
+    });
   };
   const edit = (entry: CertificateIssuerAdminEntry) => {
+    editorSessionRef.current += 1;
     setEditing(entry);
     setDraft({
       name: entry.name,
@@ -290,7 +367,10 @@ export function CertificateIssuersPage() {
             </>
           ) : null}
           <div className="form-actions">
-            <Button type="submit" disabled={save.isPending}>
+            <Button
+              type="submit"
+              disabled={save.isPending || Boolean(editing && !editingIsCurrent)}
+            >
               {save.isPending
                 ? "Publishing…"
                 : editing
@@ -302,6 +382,7 @@ export function CertificateIssuersPage() {
                 type="button"
                 variant="secondary"
                 onClick={() => {
+                  editorSessionRef.current += 1;
                   setEditing(undefined);
                   setDraft(emptyDraft);
                   replayKey.current = crypto.randomUUID();
@@ -311,7 +392,13 @@ export function CertificateIssuersPage() {
               </Button>
             ) : null}
           </div>
-          {save.error ? <ErrorPanel error={save.error} /> : null}
+          {editing && !editingIsCurrent ? (
+            <div className="notice notice--warning">
+              This issuer changed, was deactivated, or is no longer available.
+              Reload the catalog before publishing a revision.
+            </div>
+          ) : null}
+          {saveError ? <ErrorPanel error={saveError} /> : null}
         </form>
       </Card>
 
@@ -399,7 +486,7 @@ export function CertificateIssuersPage() {
                         `Deactivate ${entry.name}? Existing route references must be removed first.`,
                       )
                     ) {
-                      deactivate.mutate(entry);
+                      deactivateIssuer(entry);
                     }
                   }}
                 >

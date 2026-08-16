@@ -1,8 +1,21 @@
 enabled: false
 
-# Required as an explicit text-version image reference before enabled=true.
+# Required as a nonempty operator-selected compatible image reference before enabled=true.
 builderAgentImage: ""
 buildKitImage: docker.io/moby/buildkit:v0.32.2
+# Restartable privileged sidecar image. Version tags keep local mirrors
+# functional; sha256 references are accepted for immutable deployments.
+dindImage: docker.io/library/docker:29.7.1-dind
+
+# Optional operator-managed credential profiles inherited by the control-plane
+# chart. Profile scope is explicit even though this standalone chart does not
+# mount the Secrets itself.
+buildSecret:
+  name: ""
+  profiles: []
+sshSecret:
+  name: ""
+  profiles: []
 
 namespace:
   create: true
@@ -16,10 +29,17 @@ podServiceAccount:
   name: kuberploy-build-pod
 
 admissionPolicy:
+  # Required whenever the privileged builder is enabled. Kubernetes 1.34+
+  # provides ValidatingAdmissionPolicy; keeping this boundary on by default
+  # prevents a compromised controller token from submitting an arbitrary
+  # privileged Job.
   enabled: true
 
 networkPolicy:
-  enabled: true
+  enabled: false
+  kubeAPIServerCIDRs: []
+  sourceEgressCIDRs: []
+  registryEgressCIDRs: []
 
 resourceQuota:
   hard:

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,12 +39,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool), publisher Prote
 		return RuntimeConfig{}, ErrInvalid
 	}
 	enabled, present := lookup(RuntimeEnabledEnv)
-	if !present || enabled == "false" {
-		for _, name := range runtimeEnvironmentNames() {
-			if _, configured := lookup(name); configured {
-				return RuntimeConfig{}, ErrInvalid
-			}
-		}
+	if !present || enabled == "" || enabled == "false" {
 		return RuntimeConfig{}, nil
 	}
 	if enabled != "true" || publisher.Validate() != nil {
@@ -113,10 +110,23 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool), publisher Prote
 		return RuntimeConfig{}, ErrInvalid
 	}
 	config.PackageCacheBytes = int(cacheBytes)
+	config.OCIRegistryHosts = normalizeRuntimeHosts(config.OCIRegistryHosts)
+	config.OCIAuthHosts = normalizeRuntimeHosts(config.OCIAuthHosts)
+	config.OCIRedirectHosts = normalizeRuntimeHosts(config.OCIRedirectHosts)
+	sort.Slice(config.OCICredentialProfiles, func(left, right int) bool {
+		return config.OCICredentialProfiles[left].RegistryHost < config.OCICredentialProfiles[right].RegistryHost
+	})
+	config.OCICredentialProfiles = slices.Compact(config.OCICredentialProfiles)
 	if config.Validate() != nil {
 		return RuntimeConfig{}, ErrInvalid
 	}
 	return config, nil
+}
+
+func normalizeRuntimeHosts(values []string) []string {
+	values = slices.Clone(values)
+	slices.Sort(values)
+	return slices.Compact(values)
 }
 
 func runtimeDuration(lookup func(string) (string, bool), name string, unit time.Duration) (time.Duration, error) {
@@ -131,13 +141,4 @@ func runtimeDuration(lookup func(string) (string, bool), name string, unit time.
 func exactRuntimeEnvironment(lookup func(string) (string, bool), name string) (string, bool) {
 	value, present := lookup(name)
 	return value, present && value != "" && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\x00\r\n")
-}
-
-func runtimeEnvironmentNames() []string {
-	return []string{RuntimeRendererNamespaceEnv, RuntimeRendererServiceAccountEnv,
-		RuntimeRendererPollMillisEnv, RuntimeWorkPollMillisEnv, RuntimeRenderLeaseSecondsEnv,
-		RuntimePublishLeaseSecondsEnv,
-		RuntimeReadinessSecondsEnv, RuntimeOCIRequestSecondsEnv, RuntimeOCIRegistryHostsEnv,
-		RuntimeOCIAuthHostsEnv, RuntimeOCIRedirectHostsEnv, RuntimeOCICredentialProfilesEnv,
-		RuntimePackageCacheBytesEnv, RuntimeArgoNamespaceEnv}
 }

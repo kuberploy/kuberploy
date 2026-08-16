@@ -43,12 +43,34 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 
 	actorID := id.New()
+	var approvalID string
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE helm_chart_approval_documents DISABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("disable Helm approval document cleanup trigger: %v", cleanupErr)
+			return
+		}
+		if approvalID != "" {
+			if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM helm_chart_approval_documents WHERE approval_id=$1`, approvalID); cleanupErr != nil {
+				t.Errorf("clean up Helm approval documents: %v", cleanupErr)
+			}
+			if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM helm_chart_approvals WHERE approval_id=$1`, approvalID); cleanupErr != nil {
+				t.Errorf("clean up Helm approval: %v", cleanupErr)
+			}
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE helm_chart_approval_documents ENABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("restore Helm approval document cleanup trigger: %v", cleanupErr)
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM users WHERE id=$1`, actorID); cleanupErr != nil {
+			t.Errorf("clean up Helm approval actor: %v", cleanupErr)
+		}
+	})
 	now := testTime
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','helm-admission-test',$3,$4)`, actorID,
@@ -59,6 +81,7 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 	packageBytes := packageChart(t, files)
 	approval := testApproval(t, packageBytes, files)
 	approval.ID, approval.CreatedBy, approval.IdempotencyKey = id.New(), actorID, "helm-admission-"+id.New()
+	approvalID = approval.ID
 	approval.CreatedAt = now
 	documentsDigest, err := approvalDocumentsDigest(approval.ApprovalKey,
 		files["values.schema.json"], files["values.yaml"])

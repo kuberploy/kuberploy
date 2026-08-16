@@ -47,6 +47,32 @@ func TestPostgresCascadeActivationRotatesComponentwise(t *testing.T) {
 
 	fixture := newHelmReleasePGFixture()
 	fixture.now = helmPGDatabaseNow(t, ctx, pool).Add(-10 * time.Minute).Truncate(time.Microsecond)
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE public.helm_application_cascade_observer_activations DISABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("disable cascade activation cleanup trigger: %v", cleanupErr)
+			return
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM public.helm_application_cascade_observer_activations WHERE platform_binding_id=$1`, fixture.platformBindingID); cleanupErr != nil {
+			t.Errorf("clean up cascade activation: %v", cleanupErr)
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE public.helm_application_cascade_observer_activations ENABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("restore cascade activation cleanup trigger: %v", cleanupErr)
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE public.helm_chart_approval_documents DISABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("disable Helm approval cleanup trigger: %v", cleanupErr)
+			return
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM helm_chart_approval_documents WHERE approval_id=$1`, fixture.approvalID); cleanupErr != nil {
+			t.Errorf("clean up cascade approval documents: %v", cleanupErr)
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `DELETE FROM helm_chart_approvals WHERE approval_id=$1`, fixture.approvalID); cleanupErr != nil {
+			t.Errorf("clean up cascade approval: %v", cleanupErr)
+		}
+		if _, cleanupErr := pool.Exec(cleanupCtx, `ALTER TABLE public.helm_chart_approval_documents ENABLE TRIGGER USER`); cleanupErr != nil {
+			t.Errorf("restore Helm approval cleanup trigger: %v", cleanupErr)
+		}
+	})
 	setup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)

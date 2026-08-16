@@ -60,11 +60,6 @@ func ProductionRuntimeConfigFromLookup(lookup func(string) (string, bool)) (Prod
 	}
 	enabled, present := lookup(ProductionEnabledEnv)
 	if !present || enabled == "" || enabled == "false" {
-		for _, name := range productionEnvironmentNames {
-			if value, found := lookup(name); found && value != "" {
-				return ProductionRuntimeConfig{}, errors.New(name + " cannot be configured while protected Argo desired state is disabled")
-			}
-		}
 		return ProductionRuntimeConfig{}, nil
 	}
 	if enabled != "true" {
@@ -125,6 +120,16 @@ func ProductionRuntimeConfigFromLookup(lookup func(string) (string, bool)) (Prod
 		return ProductionRuntimeConfig{}, ErrInvalid
 	}
 	return config, nil
+}
+
+func legacyObservationNamespaceAllowed(lookup func(string) (string, bool)) bool {
+	observationEnabled, found := lookup(ObservationEnabledEnv)
+	if !found || observationEnabled != "true" {
+		return false
+	}
+	_, dedicatedPresent := lookup(ObservationNamespaceEnv)
+	legacyNamespace := exactObservationConfig(lookup, ProductionNamespaceEnv)
+	return !dedicatedPresent && kubeRE.MatchString(legacyNamespace)
 }
 
 func productionSeconds(raw string, minimum, maximum int64, name string) (time.Duration, error) {

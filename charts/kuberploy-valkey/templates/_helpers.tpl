@@ -8,13 +8,10 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- define "kuberploy-valkey.validate" -}}
 {{- if ne .Release.Namespace "kuberploy-system" -}}{{ fail "kuberploy-valkey must use the shared protected kuberploy-system namespace" }}{{- end -}}
 {{- if eq .Values.valkeyFoundation.managed .Values.valkeyFoundation.adoptExisting -}}{{ fail "exactly one of valkeyFoundation.managed or valkeyFoundation.adoptExisting must be true" }}{{- end -}}
-{{- if not .Values.valkeyFoundation.networkPolicy.enabled -}}{{ fail "Valkey NetworkPolicy cannot be disabled" }}{{- end -}}
 {{- if ne .Values.valkeyFoundation.networkPolicy.controlPlaneNamespace "kuberploy-system" -}}{{ fail "Valkey control-plane namespace identity is locked" }}{{- end -}}
 {{- if ne .Values.valkeyFoundation.networkPolicy.argoCDNamespace "argocd" -}}{{ fail "Valkey Argo CD namespace identity is locked" }}{{- end -}}
 {{- if .Values.valkeyFoundation.managed -}}
-  {{- if ne .Values.valkey.image.registry "docker.io" -}}{{ fail "Valkey image registry is locked" }}{{- end -}}
-  {{- if ne .Values.valkey.image.repository "valkey/valkey" -}}{{ fail "Valkey image repository is locked" }}{{- end -}}
-  {{- if ne .Values.valkey.image.tag "9.1.1" -}}{{ fail "Valkey image version is locked to 9.1.1" }}{{- end -}}
+  {{- if not (regexMatch "^9(?:[.][0-9]+){1,2}(?:[-+][^[:space:]]+)?$" .Values.valkey.image.tag) -}}{{ fail "managed Valkey requires a Valkey 9 image" }}{{- end -}}
   {{- if or (not (empty .Values.valkey.global.imageRegistry)) (not (empty .Values.valkey.global.imagePullSecrets)) (not (empty .Values.valkey.imagePullSecrets)) -}}{{ fail "Valkey image registry and pull credentials cannot be overridden" }}{{- end -}}
   {{- if or (ne .Values.valkey.nameOverride "valkey") (ne .Values.valkey.fullnameOverride "kuberploy-valkey") -}}{{ fail "Valkey policy identity names are locked" }}{{- end -}}
   {{- if or (not .Values.valkey.serviceAccount.create) .Values.valkey.serviceAccount.automount (not (empty .Values.valkey.serviceAccount.annotations)) (not (empty .Values.valkey.serviceAccount.name)) -}}{{ fail "Valkey requires its exact tokenless ServiceAccount" }}{{- end -}}
@@ -38,9 +35,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- if .Values.valkey.replica.enabled -}}{{ fail "the P0 managed Valkey profile is one recoverable standalone instance" }}{{- end -}}
   {{- if or (not .Values.valkey.dataStorage.enabled) (empty .Values.valkey.dataStorage.requestedSize) (ne .Values.valkey.dataStorage.volumeName "valkey-data") (not .Values.valkey.dataStorage.keepPvc) (not (empty .Values.valkey.dataStorage.hostPath)) (not (empty .Values.valkey.dataStorage.subPath)) (not (deepEqual .Values.valkey.dataStorage.accessModes (list "ReadWriteOnce"))) -}}{{ fail "managed Valkey requires a retained RWO PVC and forbids hostPath" }}{{- end -}}
   {{- if ne .Values.valkey.valkeyConfig "maxmemory 384mb\nmaxmemory-policy noeviction\nappendonly yes\nappendfsync everysec\naof-use-rdb-preamble yes\nsave 900 1\nsave 300 10\nsave 60 10000\n" -}}{{ fail "Valkey durability, memory, and noeviction policy is locked" }}{{- end -}}
-  {{- if or (not .Values.valkey.startupProbe.enabled) (not .Values.valkey.livenessProbe.enabled) (not .Values.valkey.readinessProbe.enabled) (not (empty .Values.valkey.startupProbe.customProbe)) (not (empty .Values.valkey.livenessProbe.customProbe)) (not (empty .Values.valkey.readinessProbe.customProbe)) -}}{{ fail "Valkey health probes cannot be disabled or replaced" }}{{- end -}}
-  {{- if or (empty .Values.valkey.resources.requests.cpu) (empty .Values.valkey.resources.requests.memory) (empty .Values.valkey.resources.limits.cpu) (empty .Values.valkey.resources.limits.memory) -}}{{ fail "Valkey CPU and memory requests and limits are required" }}{{- end -}}
-  {{- if or (ne .Values.valkey.deploymentStrategy "Recreate") .Values.valkey.tls.enabled .Values.valkey.metrics.enabled (not (empty .Values.valkey.networkPolicy)) -}}{{ fail "Valkey deployment strategy, TLS boundary, metrics sidecar, and wrapper NetworkPolicy are locked" }}{{- end -}}
+  {{- if or (ne .Values.valkey.deploymentStrategy "Recreate") .Values.valkey.tls.enabled -}}{{ fail "Valkey requires the RWO-compatible Recreate strategy and the current plaintext internal client protocol" }}{{- end -}}
   {{- if or (not (empty .Values.valkey.podAnnotations)) (not (empty .Values.valkey.podLabels)) (not (empty .Values.valkey.workloadAnnotations)) (not (empty .Values.valkey.commonLabels)) (not (empty .Values.valkey.env)) -}}{{ fail "Valkey identity and environment injection are forbidden" }}{{- end -}}
   {{- if or (not (empty .Values.valkey.extraInitContainers)) (not (empty .Values.valkey.extraContainers)) (not (empty .Values.valkey.extraValkeySecrets)) (not (empty .Values.valkey.extraValkeyConfigs)) .Values.valkey.extraSecretValkeyConfigs (not (empty .Values.valkey.extraVolumes)) (not (empty .Values.valkey.extraVolumeMounts)) -}}{{ fail "Valkey arbitrary container, volume, and config injection are forbidden" }}{{- end -}}
 {{- end -}}

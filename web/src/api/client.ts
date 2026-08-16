@@ -14,6 +14,7 @@ import type {
   BuildLogLine,
   BuildLogSnapshot,
   BuildDefinition,
+  BuildSecretProfileCatalog,
   BuildFileReference,
   BuildProfile,
   CertificateBindingDetail,
@@ -244,8 +245,10 @@ async function request<T>(
   return data;
 }
 
-function idempotencyHeaders(): HeadersInit {
-  return { "Idempotency-Key": crypto.randomUUID() };
+function idempotencyHeaders(
+  idempotencyKey: string | undefined = crypto.randomUUID(),
+): HeadersInit {
+  return { "Idempotency-Key": idempotencyKey };
 }
 
 export function asCollection<T>(
@@ -738,6 +741,10 @@ function safeBuildArgument(argument: BuildArgument): BuildArgument {
   return { name: argument.name, value: argument.value };
 }
 
+function safeBuildDefinitionArgument(argument: BuildArgument): BuildArgument {
+  return { name: argument.name, value: "" };
+}
+
 function safeBuildFileReference(
   reference: BuildFileReference,
 ): BuildFileReference {
@@ -769,7 +776,9 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
       server: definition.registry.server,
       repositoryPrefix: definition.registry.repositoryPrefix,
     },
-    buildArgs: (definition.buildArgs ?? []).slice(0, 64).map(safeBuildArgument),
+    buildArgs: (definition.buildArgs ?? [])
+      .slice(0, 64)
+      .map(safeBuildDefinitionArgument),
     secretFiles: (definition.secretFiles ?? [])
       .slice(0, 32)
       .map(safeBuildFileReference),
@@ -892,6 +901,8 @@ function safeCreateBuildDefinition(
     dockerfilePath: input.dockerfilePath,
     platforms: [...input.platforms].slice(0, 2),
     buildArgs: input.buildArgs?.slice(0, 64).map(safeBuildArgument),
+    secretProfileIds: input.secretProfileIds?.slice(0, 32),
+    sshProfileIds: input.sshProfileIds?.slice(0, 8),
     cacheTrustLane: input.cacheTrustLane,
     cacheImports: input.cacheImports,
     profile: safeBuildProfile(input.profile),
@@ -1813,18 +1824,21 @@ export const api = {
 
   users: () =>
     request<Collection<User> | User[]>("/v1/users").then(asCollection),
-  createInvitation: (input: { displayName: string }) =>
+  createInvitation: (input: { displayName: string }, idempotencyKey?: string) =>
     request<UserInvitation>("/v1/users/invitations", {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
   teams: () =>
     request<Collection<Team> | Team[]>("/v1/teams").then(asCollection),
-  createTeam: (input: { name: string; slug?: string }) =>
+  createTeam: (
+    input: { name: string; slug?: string },
+    idempotencyKey?: string,
+  ) =>
     request<Team>("/v1/teams", {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
   teamMembers: (teamId: string) =>
@@ -1834,10 +1848,11 @@ export const api = {
   addTeamMember: (
     teamId: string,
     input: { userId: string; role: "owner" | "member" },
+    idempotencyKey?: string,
   ) =>
     request<TeamMember>(`/v1/teams/${encodeURIComponent(teamId)}/members`, {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
   removeTeamMember: (teamId: string, userId: string) =>
@@ -1905,10 +1920,15 @@ export const api = {
   updateGitHubInstallationSharing: (
     installationId: string,
     input: { visibility: "private" | "team"; teamId?: string },
+    idempotencyKey: string,
   ) =>
     request<GitHubInstallation>(
       `/v1/github/installations/${encodeURIComponent(installationId)}/sharing`,
-      { method: "PATCH", body: input },
+      {
+        method: "PATCH",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
     ),
   platformArgoGitBinding: () =>
     request<PlatformArgoGitBinding>("/v1/platform/argo/git-binding").then(
@@ -1990,10 +2010,13 @@ export const api = {
 
   projects: () =>
     request<Collection<Project> | Project[]>("/v1/projects").then(asCollection),
-  createProject: (input: { name: string; slug?: string; teamId?: string }) =>
+  createProject: (
+    input: { name: string; slug?: string; teamId?: string },
+    idempotencyKey?: string,
+  ) =>
     request<Project>("/v1/projects", {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
   projectAccessGrants: (projectId: string) =>
@@ -2174,15 +2197,18 @@ export const api = {
         body: { revision },
       },
     ),
-  createEnvironment: (input: {
-    projectId: string;
-    name: string;
-    slug?: string;
-    protectionPolicy?: "development" | "protected";
-  }) =>
+  createEnvironment: (
+    input: {
+      projectId: string;
+      name: string;
+      slug?: string;
+      protectionPolicy?: "development" | "protected";
+    },
+    idempotencyKey?: string,
+  ) =>
     request<Environment>("/v1/environments", {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
   applications: () =>
@@ -2301,6 +2327,13 @@ export const api = {
         nextCursor: collection.nextCursor,
       };
     }),
+  buildSecretProfiles: (applicationId: string) =>
+    request<BuildSecretProfileCatalog>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/build-secret-profiles`,
+    ).then((catalog) => ({
+      build: (catalog.build ?? []).slice(0, 32),
+      ssh: (catalog.ssh ?? []).slice(0, 8),
+    })),
   autoDeployPolicies: (applicationId: string) =>
     request<Collection<AutoDeployPolicy>>(
       `/v1/applications/${encodeURIComponent(applicationId)}/auto-deploy-policies`,
@@ -2522,10 +2555,11 @@ export const api = {
   deleteProjectRegistryPullCredential: (
     projectId: string,
     credentialId: string,
+    idempotencyKey: string,
   ) =>
     request<void>(
       `/v1/projects/${encodeURIComponent(projectId)}/registry-pull-credentials/${encodeURIComponent(credentialId)}`,
-      { method: "DELETE" },
+      { method: "DELETE", headers: { "Idempotency-Key": idempotencyKey } },
     ),
   applicationRegistryPullSelection: (applicationId: string) =>
     request<ApplicationRegistryPullSelection>(
@@ -2846,10 +2880,10 @@ export const api = {
     request<Deployment>(`/v1/deployments/${encodeURIComponent(id)}`).then(
       normalizeDeployment,
     ),
-  createDeployment: (input: CreateDeployment) =>
+  createDeployment: (input: CreateDeployment, idempotencyKey?: string) =>
     request<OperationWire>("/v1/deployments", {
       method: "POST",
-      headers: idempotencyHeaders(),
+      headers: idempotencyHeaders(idempotencyKey),
       body: safeCreateDeploymentInput(input),
     }).then(normalizeOperation),
   previewImageResolution: (

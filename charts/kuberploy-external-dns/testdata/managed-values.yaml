@@ -9,6 +9,7 @@ foundation:
       providerConfigRef: cloudflare-provider
       egressConfigRef: cloudflare-egress
   networkPolicy:
+    enabled: true
     kubeAPIServerCIDRs:
       - 10.43.0.1/32
     providerEgressCIDRs:

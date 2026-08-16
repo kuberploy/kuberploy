@@ -57,6 +57,21 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_LOG_LEVEL
             {{- if or (eq $component "api") (eq $component "worker") }}
+            - name: KUBERPLOY_NETWORK_POLICY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_NETWORK_POLICY_ENABLED
+            - name: KUBERPLOY_EXTERNAL_EGRESS_CIDRS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_EXTERNAL_EGRESS_CIDRS
+            - name: KUBERPLOY_KUBE_API_SERVER_CIDRS
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_KUBE_API_SERVER_CIDRS
             - name: KUBERPLOY_RUNTIME_SECRETS_ENABLED
               valueFrom:
                 configMapKeyRef:
@@ -328,7 +343,7 @@ spec:
                   key: {{ $name }}
             {{- end }}
             {{- end }}
-            {{- range $name := list "KUBERPLOY_BUILDER_NAMESPACE" "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_BUILDKIT_IMAGE" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
+            {{- range $name := list "KUBERPLOY_BUILDER_NAMESPACE" "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_BUILDKIT_IMAGE" "KUBERPLOY_BUILDER_DIND_IMAGE" "KUBERPLOY_BUILDER_BUILD_SECRET" "KUBERPLOY_BUILDER_SSH_SECRET" "KUBERPLOY_BUILDER_BUILD_SECRET_PROFILES" "KUBERPLOY_BUILDER_SSH_SECRET_PROFILES" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
@@ -506,19 +521,19 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_GIT_PROJECTION_POLICY_VERSION
-            {{- range $name := list "KUBERPLOY_ARGO_OBSERVATION_ENABLED" "KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS" }}
+            - name: KUBERPLOY_ARGO_OBSERVATION_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "kuberploy.configName" $ }}
+                  key: KUBERPLOY_ARGO_OBSERVATION_ENABLED
+            {{- if $.Values.config.argoObservation.enabled }}
+            {{- range $name := list "KUBERPLOY_ARGO_OBSERVATION_NAMESPACE" "KUBERPLOY_ARGO_OBSERVATION_POLL_INTERVAL_SECONDS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: {{ $name }}
             {{- end }}
-            {{- if not $.Values.config.argoDesiredState.enabled }}
-            - name: KUBERPLOY_ARGO_NAMESPACE
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_ARGO_NAMESPACE
             {{- end }}
             - name: KUBERPLOY_MANAGED_REGISTRY_RUNTIME_ENABLED
               valueFrom:
@@ -539,7 +554,7 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_BUILDER_NAMESPACE
-            {{- range $name := list "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_BUILDKIT_IMAGE" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
+            {{- range $name := list "KUBERPLOY_BUILDER_POD_SERVICE_ACCOUNT" "KUBERPLOY_BUILDER_AGENT_IMAGE" "KUBERPLOY_BUILDER_BUILDKIT_IMAGE" "KUBERPLOY_BUILDER_DIND_IMAGE" "KUBERPLOY_BUILDER_BUILD_SECRET" "KUBERPLOY_BUILDER_SSH_SECRET" "KUBERPLOY_BUILDER_BUILD_SECRET_PROFILES" "KUBERPLOY_BUILDER_SSH_SECRET_PROFILES" "KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS" "KUBERPLOY_BUILDER_REGISTRY_EGRESS_CIDRS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:

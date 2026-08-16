@@ -27,8 +27,8 @@ therefore cannot change what deployment consumes.
 Plain build arguments with secret-like names are accepted with a prominent
 leakage warning because Dockerfiles commonly use names such as `TOKEN` for
 non-secret frontend build configuration. Kuberploy never treats build
-arguments as a secret transport: their values can be retained in image history
-or cache. Release-push login,
+arguments as a secret transport: their values can be retained in the
+immutable build definition, image history, or cache. Release-push login,
 cache login, source credentials, BuildKit secrets, and SSH files come from
 separate read-only mounts. Their values never enter a command argument or
 environment variable. The agent creates separate private push and cache Docker
@@ -43,8 +43,10 @@ exact registry `cache-from`, and one registry `cache-to` candidate with
 final phase has no cache flags, uses only the release-push Docker configuration,
 and publishes the application image with `--push`. The phases share the same
 private BuildKit content store, not credentials. Missing cache imports or a
-failed cache phase return `ColdBuild`/`CacheDegraded`; failure of the final
-build or push is terminal.
+failed cache phase return `ColdBuild`/`CacheDegraded`. Build argument names
+that look like credentials return the non-blocking `SensitiveBuildArg`
+warning without exposing argument names or values; failure of the final build
+or push is terminal.
 
 ## Kubernetes boundary
 
@@ -61,8 +63,10 @@ NetworkPolicy. The Pod has:
 - UID/GID and fsGroup `65532`, group-readable `0440` projections, restrictive
   container security contexts, size limits, CPU/memory/ephemeral-storage
   requests and limits, deadline, zero Job retries, and TTL;
-- an exact dedicated-node label and taint toleration plus resolved, bounded
-  egress CIDRs. No `0.0.0.0/0` or `::/0` egress is accepted.
+- an exact dedicated-node label and taint toleration plus operation-scoped
+  egress ports. Empty provider CIDR lists use dual-stack public `/0` routes;
+  configured Kubernetes API CIDRs are excluded when available, while explicit
+  provider ranges remain supported for narrower infrastructure policies.
 
 The default-disabled `charts/kuberploy-builder` chart creates the isolated
 namespace, tokenless Pod ServiceAccount, controller-only namespaced RBAC,

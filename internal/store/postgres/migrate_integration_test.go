@@ -93,7 +93,16 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	if historyErr != nil {
 		t.Fatal(historyErr)
 	}
-	cleanupChecksum := history[len(history)-1].Checksum
+	var cleanupChecksum string
+	for _, migration := range history {
+		if migration.Name == migrations.RecoverableRC171CleanupMigration {
+			cleanupChecksum = migration.Checksum
+			break
+		}
+	}
+	if cleanupChecksum == "" {
+		t.Fatalf("migration history does not contain %q", migrations.RecoverableRC171CleanupMigration)
+	}
 	cleanupHistoryID := id.New()
 	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
 		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
@@ -137,19 +146,19 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 109)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 110)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-		WHERE n.nspname='public'`, 104)
+		WHERE n.nspname='public'`, 110)
 	assertCatalogCount(t, ctx, pool, "non-internal triggers", `SELECT count(*)
 		FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND NOT t.tgisinternal`, 101)
+		WHERE n.nspname='public' AND NOT t.tgisinternal`, 105)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 913)
+		WHERE n.nspname='public' AND c.contype='c'`, 929)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.condeferrable`, 13)
+		WHERE n.nspname='public' AND c.condeferrable`, 15)
 	assertCatalogCount(t, ctx, pool, "expression indexes", `SELECT count(*)
 		FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
 		WHERE n.nspname='public' AND i.indexprs IS NOT NULL`, 1)

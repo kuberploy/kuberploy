@@ -32,7 +32,7 @@
           "additionalProperties": false,
           "required": ["enabled", "kubeAPIServerCIDRs", "publicIngressCIDRs"],
           "properties": {
-            "enabled": {"const": true},
+            "enabled": {"type": "boolean"},
             "kubeAPIServerCIDRs": {"$ref": "#/$defs/cidrList"},
             "publicIngressCIDRs": {"$ref": "#/$defs/cidrList"}
           }
@@ -68,8 +68,7 @@
       },
       "oneOf": [
         {
-          "properties": {"mode": {"const": "auto-first-ip"}},
-          "not": {"required": ["staticPublicIPv4"]}
+          "properties": {"mode": {"const": "auto-first-ip"}}
         },
         {
           "properties": {"mode": {"const": "verified-static-ip"}},

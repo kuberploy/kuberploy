@@ -185,6 +185,7 @@ func testWorkerRuntimeConfig() WorkerRuntimeConfig {
 		BuilderAgentImageEnv:        "registry.test/system/builder-agent@sha256:" + strings.Repeat("2", 64),
 		BuilderBuildKitImageEnv:     builder.DefaultBuildKitImage,
 		BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", BuilderRegistryEgressCIDRsEnv: "198.51.100.10/32",
+		"KUBERPLOY_KUBE_API_SERVER_CIDRS": "10.43.0.1/32",
 	}))
 	if err != nil {
 		panic(err)

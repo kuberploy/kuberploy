@@ -8,9 +8,9 @@ an authenticated health-only `default` user plus independent `api-cache`,
 `api-limiter`, `outbox-publisher`, `worker-consumer`, and `argocd` ACL users'
 passwords; the chart never accepts an inline password.
 
-The managed profile is ClusterIP-only, has default-deny ingress and egress,
-accepts TCP clients only from `kuberploy-system` and `argocd`, uses a
-digest-pinned Valkey image, runs restricted without a service-account token,
+The managed profile is ClusterIP-only, optionally enables default-deny ingress
+and egress, accepts the configured clients, uses a Valkey 9-compatible image,
+runs restricted without a service-account token,
 retains a RWO PVC, enforces `noeviction`, and enables AOF. Argo CD is isolated
 in database 1 under its own ACL identity; its password is separately delivered
 to the `argocd` namespace so no credential is stored in Git. It is intentionally

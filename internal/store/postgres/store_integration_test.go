@@ -483,8 +483,15 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil || replay || verifiedInstallation.ID != installation.Value.ID || verifiedInstallation.RepositoryCount != 3 {
 		t.Fatalf("verified existing installation=%#v replay=%v err=%v", verifiedInstallation, replay, err)
 	}
-	if _, err = st.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); err != nil {
-		t.Fatal(err)
+	shared, err := st.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "sharing-team-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID})
+	if err != nil || shared.Value.Visibility != "team" {
+		t.Fatalf("sharing result=%#v err=%v", shared, err)
+	}
+	if replay, replayErr := st.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "sharing-team-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); replayErr != nil || !replay.Replay || replay.Value.ID != installation.Value.ID {
+		t.Fatalf("sharing replay=%#v err=%v", replay, replayErr)
+	}
+	if _, replayErr := st.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "different-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID}); !errors.Is(replayErr, base.ErrIdempotencyConflict) {
+		t.Fatalf("sharing fingerprint conflict=%v", replayErr)
 	}
 	accessible, err := st.ListGitHubInstallationsForActor(ctx, developer.ID)
 	if err != nil || len(accessible) != 1 {

@@ -203,7 +203,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	}
 	work, err := projectionStore.ClaimReconciliation(ctx, "protected-index-proof", indexingAt.Add(2*time.Second), time.Minute)
 	if err != nil || work.Binding.ID != projectionBinding.ID {
-		t.Fatalf("claim=%#v err=%v", work, err)
+		t.Fatalf("claim binding=%q want=%q work=%#v err=%v", work.Binding.ID, projectionBinding.ID, work, err)
 	}
 	badGeneration, err := projectionStore.BeginGeneration(ctx, work.Lease, firstIndexedRevision, projectionBinding.ParserVersion, indexingAt.Add(3*time.Second))
 	if err != nil {
@@ -512,7 +512,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	}
 	rendered, err := argo.RenderApplication(argo.EnvironmentTarget{Project: project.Value, Environment: environment.Value, Binding: advancedBinding,
 		ArgoNamespace: "argocd", Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime",
-			ChartVersion: "0.1.0-rc.175", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
+			ChartVersion: "0.1.0-rc.176", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
 		application.Value, domain.Deployment{ID: updateOperation.TargetID, EnvironmentID: environment.Value.ID, ApplicationID: application.Value.ID,
 			DesiredRevision: desiredRevision})
 	if err != nil || !strings.Contains(string(rendered), `targetRevision: "`+mergeContentRevision+`"`) || strings.Contains(string(rendered), `targetRevision: "`+updateTarget+`"`) {

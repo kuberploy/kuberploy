@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kuberploy/kuberploy/internal/id"
 )
 
 const (
@@ -259,6 +261,98 @@ func TestWriteOnlyExternalSecretLifecycleRotationReferencesAndDelete(t *testing.
 	provider.mu.Unlock()
 	if deleteCalls != 2 {
 		t.Fatalf("delete calls=%d, want one per immutable provider artifact", deleteCalls)
+	}
+}
+
+func TestDeleteIdempotencyPersistsAcrossRetriesAndBindsTarget(t *testing.T) {
+	store := NewMemoryStore()
+	provider := &fakeProviders{}
+	service := testService(store, provider)
+	created, err := service.Create(context.Background(), createRequest(t, ProviderSealedSecrets, "delete-idempotency-value", "delete-create-0001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ReconcileVersion(context.Background(), created.Version.ID, "delete-ready-0001"); err != nil {
+		t.Fatal(err)
+	}
+	const deleteKey = "delete-binding-stable-0001"
+	deleted, err := service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, deleteKey, "delete-request-0001")
+	if err != nil || deleted.State != BindingDeleted {
+		t.Fatalf("first delete=%#v err=%v", deleted, err)
+	}
+	provider.mu.Lock()
+	deleteCalls := provider.deleteCalls
+	provider.mu.Unlock()
+	if deleteCalls != 1 {
+		t.Fatalf("first delete provider calls=%d, want 1", deleteCalls)
+	}
+	replayed, err := service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, deleteKey, "delete-request-retry")
+	if err != nil || replayed.State != BindingDeleted {
+		t.Fatalf("replayed delete=%#v err=%v", replayed, err)
+	}
+	provider.mu.Lock()
+	deleteCalls = provider.deleteCalls
+	provider.mu.Unlock()
+	if deleteCalls != 1 {
+		t.Fatalf("replayed delete provider calls=%d, want unchanged 1", deleteCalls)
+	}
+	newKeyDelete, err := service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, "delete-binding-new-key", "delete-request-new-key")
+	if err != nil || newKeyDelete.State != BindingDeleted {
+		t.Fatalf("new-key delete=%#v err=%v", newKeyDelete, err)
+	}
+	provider.mu.Lock()
+	deleteCalls = provider.deleteCalls
+	provider.mu.Unlock()
+	if deleteCalls != 1 {
+		t.Fatalf("new-key delete provider calls=%d, want unchanged 1", deleteCalls)
+	}
+	secondRequest := createRequest(t, ProviderSealedSecrets, "delete-idempotency-second", "delete-create-0002")
+	secondRequest.Name = "second"
+	second, err := service.Create(context.Background(), secondRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.DeleteWithIdempotency(context.Background(), testActor, second.Binding.ID, deleteKey, "delete-request-other-target"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("same delete key reused for another binding: %v", err)
+	}
+}
+
+func TestDeleteRejectsDifferentKeyWhileProviderCleanupIsInFlight(t *testing.T) {
+	store := NewMemoryStore()
+	provider := &fakeProviders{}
+	service := testService(store, provider)
+	created, err := service.Create(context.Background(), createRequest(t, ProviderSealedSecrets, "delete-inflight-value", "delete-inflight-create"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = service.ReconcileVersion(context.Background(), created.Version.ID, "delete-inflight-ready"); err != nil {
+		t.Fatal(err)
+	}
+	now := testTime.Add(time.Minute)
+	prepared, _, replay, started, err := store.PrepareDelete(context.Background(), DeleteCommand{
+		ActorID:   testActor,
+		BindingID: created.Binding.ID,
+		Idempotency: Idempotency{
+			ActorID: testActor, Operation: "delete", ApplicationID: created.Binding.Scope.ApplicationID,
+			Key: "delete-inflight-owner", BindingID: created.Binding.ID, VersionID: created.Version.ID, CreatedAt: now,
+		},
+		Event: Event{ID: id.New(), BindingID: created.Binding.ID, ActorID: testActor, Kind: EventBindingDeleting, RequestID: "delete-inflight-event", OccurredAt: now},
+		Now:   now,
+	})
+	if err != nil || replay || !started || prepared.State != BindingDeleting {
+		t.Fatalf("prepare in-flight delete binding=%#v replay=%t started=%t err=%v", prepared, replay, started, err)
+	}
+	if _, err = service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, "delete-inflight-other", "delete-inflight-retry"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("different delete key was allowed during in-flight cleanup: %v", err)
+	}
+	if _, err = service.DeleteWithIdempotency(context.Background(), testActor, created.Binding.ID, "delete-inflight-other", "delete-inflight-retry-again"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("replayed different delete key bypassed in-flight cleanup fence: %v", err)
+	}
+	provider.mu.Lock()
+	deleteCalls := provider.deleteCalls
+	provider.mu.Unlock()
+	if deleteCalls != 0 {
+		t.Fatalf("provider cleanup calls=%d, want 0 while another delete owns the transition", deleteCalls)
 	}
 }
 

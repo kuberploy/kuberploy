@@ -1,11 +1,14 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { api } from "../api/client";
 import type { GitHubInstallation, Team, TeamMember } from "../api/types";
 import {
   InvitationSecret,
   InstallationSharingConfirmation,
   RemoveMemberConfirmation,
+  TeamsPage,
 } from "./TeamsPage";
 
 afterEach(() => {
@@ -77,6 +80,97 @@ describe("copyable invitation link", () => {
   });
 });
 
+describe("team creation", () => {
+  it("preserves a newer team draft when the earlier create completes", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: undefined,
+    });
+    let resolveCreate!: (
+      value: Awaited<ReturnType<typeof api.createTeam>>,
+    ) => void;
+    const create = vi.spyOn(api, "createTeam").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve;
+        }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Create team" }),
+    );
+    const name = screen.getByRole("textbox", { name: "Team name" });
+    await user.type(name, "First team");
+    await user.click(
+      screen.getAllByRole("button", { name: "Create team" })[1]!,
+    );
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    await user.clear(name);
+    await user.type(name, "Newer team");
+
+    resolveCreate({} as Awaited<ReturnType<typeof api.createTeam>>);
+    await waitFor(() => expect(name).toHaveValue("Newer team"));
+  });
+
+  it("clears a team selection when access to that team disappears", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: teams });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: undefined,
+    });
+    vi.spyOn(api, "teamMembers").mockResolvedValue({ items: [] });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: teams[0]!.name }),
+    ).toBeVisible();
+    client.setQueryData(["teams"], { items: [] });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { name: "Select a team" }),
+      ).toBeVisible(),
+    );
+    expect(screen.queryByText(teams[0]!.name)).toBeNull();
+  });
+});
+
 describe("GitHub App sharing confirmation", () => {
   it("requires an exact team selection and acknowledgement before sharing", async () => {
     const user = userEvent.setup();
@@ -140,6 +234,64 @@ describe("GitHub App sharing confirmation", () => {
     );
 
     expect(onConfirm).toHaveBeenCalledWith({ visibility: "private" });
+  });
+
+  it("reuses the sharing idempotency key after a network failure", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_1",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: teams });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "teamMembers").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [privateInstallation],
+      nextCursor: undefined,
+    });
+    const update = vi
+      .spyOn(api, "updateGitHubInstallationSharing")
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValue({
+        ...privateInstallation,
+        visibility: "team",
+        teamId: "team_product",
+      });
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Change sharing" }),
+    );
+    await user.click(screen.getByRole("radio", { name: /^team/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /share with team/i }),
+      "team_product",
+    );
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(
+      screen.getByRole("button", { name: /apply sharing change/i }),
+    );
+    await waitFor(() => expect(update).toHaveBeenCalledOnce());
+
+    await user.click(
+      screen.getByRole("button", { name: /apply sharing change/i }),
+    );
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update.mock.calls[1]?.[2]).toBe(update.mock.calls[0]?.[2]);
   });
 });
 

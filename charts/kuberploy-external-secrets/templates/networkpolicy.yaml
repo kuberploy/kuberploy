@@ -1,4 +1,7 @@
-{{- if .Values.secretFoundation.operator.managed }}
+{{- if and .Values.secretFoundation.operator.managed .Values.secretFoundation.networkPolicy.enabled }}
+{{- $configuredAPICIDRs := .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+{{- $apiCIDRs := $configuredAPICIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -28,15 +31,31 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
         - {port: 443, protocol: TCP}
         - {port: 6443, protocol: TCP}
     - to:
-        {{- range .Values.secretFoundation.networkPolicy.providerHTTPSCIDRs }}
-        - ipBlock: {cidr: {{ . | quote }}}
+        {{- $providerCIDRs := .Values.secretFoundation.networkPolicy.providerHTTPSCIDRs -}}
+        {{- $defaultProviderEgress := empty $providerCIDRs -}}
+        {{- if $defaultProviderEgress -}}{{- $providerCIDRs = list "0.0.0.0/0" "::/0" -}}{{- end -}}
+        {{- range $providerCIDR := $providerCIDRs }}
+        - ipBlock:
+            cidr: {{ $providerCIDR | quote }}
+            {{- if $defaultProviderEgress }}
+            {{- $familyAPI := list -}}
+            {{- range $apiCIDR := $configuredAPICIDRs -}}
+              {{- if or (and (contains "." $providerCIDR) (contains "." $apiCIDR)) (and (contains ":" $providerCIDR) (contains ":" $apiCIDR)) -}}
+                {{- $familyAPI = append $familyAPI $apiCIDR -}}
+              {{- end -}}
+            {{- end }}
+            {{- if $familyAPI }}
+            except:
+              {{- toYaml $familyAPI | nindent 14 }}
+            {{- end }}
+            {{- end }}
         {{- end }}
       ports:
         - {port: 443, protocol: TCP}
@@ -55,12 +74,14 @@ spec:
       app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes: [Ingress, Egress]
   ingress:
+    {{- if $configuredAPICIDRs }}
     - from:
-        {{- range .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $configuredAPICIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
         - {port: 10250, protocol: TCP}
+    {{- end }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -76,7 +97,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
@@ -112,7 +133,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.secretFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:

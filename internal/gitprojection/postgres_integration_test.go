@@ -64,7 +64,7 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Projection integration','projection-integration',$2) ON CONFLICT(id) DO NOTHING`, pgProject, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Integration','integration','kp-projection-integration','kp-p-a1000000000040008000000000000001',$3) ON CONFLICT(id) DO NOTHING`, pgEnvironment, pgProject, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Integration','integration','kp-projection-integration','kp-projection-integration',$3) ON CONFLICT(id) DO NOTHING`, pgEnvironment, pgProject, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Projection app','projection-app',$3) ON CONFLICT(id) DO NOTHING`, pgApplication, pgProject, now); err != nil {
@@ -299,7 +299,7 @@ func TestPostgreSQLDependencyInvalidationSchedulesSameHeadReindex(t *testing.T) 
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,'Dependency refresh','dependency-refresh','kp-dependency-refresh','kp-p-a2000000000040008000000000000001',$3)`, environmentID, projectID, now); err != nil {
+		VALUES($1,$2,'Dependency refresh','dependency-refresh','kp-dependency-refresh','kp-dependency-refresh',$3)`, environmentID, projectID, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)

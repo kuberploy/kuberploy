@@ -126,16 +126,23 @@ describe("teams and GitHub access API client", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.updateGitHubInstallationSharing("installation/1", {
-      visibility: "team",
-      teamId: "team_platform",
-    });
+    await api.updateGitHubInstallationSharing(
+      "installation/1",
+      {
+        visibility: "team",
+        teamId: "team_platform",
+      },
+      "sharing-retry-key",
+    );
 
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/v1/github/installations/installation%2F1/sharing",
     );
     expect(init.method).toBe("PATCH");
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "sharing-retry-key",
+    );
     expect(JSON.parse(String(init.body))).toEqual({
       visibility: "team",
       teamId: "team_platform",

@@ -101,12 +101,22 @@ spec:
         - /bin/sh
         - -ec
         - |
-          if wget -qO- http://registry-smoke:5000/v2/ >/dev/null 2>&1; then
-            exit 1
-          fi
           auth="\$(printf '%s:%s' "\${REGISTRY_USER}" "\${REGISTRY_PASSWORD}" | base64 | tr -d '\\n')"
-          wget -qO- --header "Authorization: Basic \${auth}" http://registry-smoke:5000/v2/ >/dev/null
-          printf 'authenticated-registry-ok\\n'
+          for attempt in \$(seq 1 30); do
+            if ! wget -qO- http://registry-smoke:5000/v2/ >/dev/null 2>&1; then
+              if wget -qO- --header "Authorization: Basic \${auth}" http://registry-smoke:5000/v2/ >/dev/null 2>&1; then
+                printf 'authenticated-registry-ok\\n'
+                exit 0
+              fi
+            else
+              # A successful anonymous request would mean the registry auth
+              # boundary is missing; keep retrying only for Service startup
+              # races, never accept an unauthenticated response.
+              exit 1
+            fi
+            sleep 1
+          done
+          exit 1
       env:
         - name: REGISTRY_USER
           valueFrom:

@@ -294,7 +294,7 @@ func validateBuildResult(result builder.BuildResult, cacheRef, logRef string) er
 	}
 	seenWarnings := map[builder.Warning]struct{}{}
 	for _, warning := range result.Warnings {
-		if warning != builder.WarningColdBuild && warning != builder.WarningCacheDegraded {
+		if warning != builder.WarningColdBuild && warning != builder.WarningCacheDegraded && warning != builder.WarningSensitiveBuildArg {
 			return ErrInvalid
 		}
 		if _, duplicate := seenWarnings[warning]; duplicate {

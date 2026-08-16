@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "../api/client";
 import type {
   RegistryTarget,
@@ -94,6 +94,22 @@ export function RegistryTargetsPage() {
   const [errors, setErrors] = useState<
     Partial<Record<keyof TargetDraft, string>>
   >({});
+  const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const editorSessionRef = useRef(0);
+  const editorScope = JSON.stringify({ targetId: editing?.id ?? null, draft });
+  const editorScopeRef = useRef(editorScope);
+  const [saveError, setSaveError] = useState<unknown>(null);
+  editorScopeRef.current = editorScope;
+
+  const currentEditingTarget = editing
+    ? targets.data?.items.find((target) => target.id === editing.id)
+    : undefined;
+  const editingIsCurrent =
+    !editing ||
+    Boolean(
+      currentEditingTarget &&
+      JSON.stringify(currentEditingTarget) === JSON.stringify(editing),
+    );
 
   useEffect(() => {
     setDraft(targetDraft(editing));
@@ -109,20 +125,43 @@ export function RegistryTargetsPage() {
       targetId?: string;
       input: RegistryTargetInput;
       idempotencyKey: string;
+      editorScope: string;
+      editorSession: number;
     }) =>
       targetId
         ? api.updateRegistryTarget(targetId, input, idempotencyKey)
         : api.createRegistryTarget(input, idempotencyKey),
     retry: retryNetworkOnce,
-    onSuccess: async () => {
-      setEditing(undefined);
-      setDraft({ ...emptyTarget });
+    onMutate: () => setSaveError(null),
+    onSuccess: async (_value, input) => {
+      const isCurrentEditor =
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current;
+      if (
+        isCurrentEditor &&
+        saveAttempt.current?.key === input.idempotencyKey
+      ) {
+        saveAttempt.current = null;
+      }
+      if (isCurrentEditor) {
+        editorSessionRef.current += 1;
+        setEditing(undefined);
+        setDraft({ ...emptyTarget });
+      }
       await queryClient.invalidateQueries({ queryKey: ["registry-targets"] });
+    },
+    onError: (error, input) => {
+      if (
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current
+      )
+        setSaveError(error);
     },
   });
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (editing && !editingIsCurrent) return;
     const nextErrors = validateTarget(draft);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0 || !canWrite) return;
@@ -141,11 +180,29 @@ export function RegistryTargetsPage() {
         ? { cacheCredentialRef: draft.cacheCredentialRef.trim() }
         : {}),
     };
+    const signature = JSON.stringify({ targetId: editing?.id, input });
+    const idempotencyKey =
+      saveAttempt.current?.signature === signature
+        ? saveAttempt.current.key
+        : crypto.randomUUID();
+    saveAttempt.current = { signature, key: idempotencyKey };
     save.mutate({
       targetId: editing?.id,
       input,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
+      editorScope,
+      editorSession: editorSessionRef.current,
     });
+  };
+
+  const openEditor = (target: RegistryTarget) => {
+    editorSessionRef.current += 1;
+    setEditing(target);
+  };
+
+  const closeEditor = () => {
+    editorSessionRef.current += 1;
+    setEditing(undefined);
   };
 
   return (
@@ -248,7 +305,7 @@ export function RegistryTargetsPage() {
                     {canWrite && me.data?.authentication.kind === "session" ? (
                       <Button
                         variant="secondary"
-                        onClick={() => setEditing(target)}
+                        onClick={() => openEditor(target)}
                       >
                         <Icon name="settings" /> Edit metadata
                       </Button>
@@ -269,12 +326,18 @@ export function RegistryTargetsPage() {
                   <h2>{editing ? editing.name : "Registry metadata"}</h2>
                 </div>
                 {editing ? (
-                  <Button variant="ghost" onClick={() => setEditing(undefined)}>
+                  <Button variant="ghost" onClick={closeEditor}>
                     Cancel
                   </Button>
                 ) : null}
               </div>
               <form className="form-grid" onSubmit={submit}>
+                {editing && !editingIsCurrent ? (
+                  <div className="notice notice--warning">
+                    This registry target changed or is no longer available.
+                    Reload the catalog before saving it.
+                  </div>
+                ) : null}
                 <Field label="Name" required error={errors.name}>
                   <input
                     value={draft.name}
@@ -360,9 +423,13 @@ export function RegistryTargetsPage() {
                     />
                   </Field>
                 ))}
-                {save.error ? <ErrorPanel error={save.error} /> : null}
+                {saveError ? <ErrorPanel error={saveError} /> : null}
                 <div className="form-actions">
-                  <Button type="submit" busy={save.isPending}>
+                  <Button
+                    type="submit"
+                    busy={save.isPending}
+                    disabled={Boolean(editing && !editingIsCurrent)}
+                  >
                     <Icon name="check" />{" "}
                     {editing ? "Save target" : "Add target"}
                   </Button>

@@ -18,6 +18,10 @@ const bindingIDPattern =
 const bindingNamePattern = /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/;
 const sourceKeyPattern = /^[A-Za-z0-9._-]+$/;
 
+function referenceKey(bindingId: string, version: number) {
+  return `${bindingId}@${version}`;
+}
+
 function selectableBinding(
   binding: RuntimeSecretBindingMetadata,
   applicationId: string,
@@ -152,8 +156,19 @@ function ActiveReferencePicker({
     selectableBinding(binding, applicationId, environmentId),
   );
   const selected = choices.find((binding) => binding.id === value.bindingId);
+  const selectedKey =
+    value.bindingId && value.version > 0
+      ? referenceKey(value.bindingId, value.version)
+      : "";
+  const selectedIsCurrent =
+    selected?.activeVersion === value.version && value.version > 0;
   const detail = useQuery({
-    queryKey: ["runtime-secret-reference-binding", value.bindingId],
+    queryKey: [
+      "runtime-secret-reference-binding",
+      value.bindingId,
+      selected?.activeVersion ?? 0,
+      selected?.state ?? "",
+    ],
     queryFn: () => api.runtimeSecretBinding(value.bindingId),
     enabled: Boolean(selected),
     retry: false,
@@ -188,11 +203,13 @@ function ActiveReferencePicker({
       <Field label={index === 0 ? "Binding" : ""} hint={bindingHint}>
         <select
           aria-label={`Secret variable ${index + 1} binding`}
-          value={value.bindingId}
+          value={selectedKey}
           disabled={readOnly || bindings.isPending || Boolean(bindings.error)}
           onChange={(event) => {
             const binding = choices.find(
-              (candidate) => candidate.id === event.target.value,
+              (candidate) =>
+                referenceKey(candidate.id, candidate.activeVersion!) ===
+                event.target.value,
             );
             onChange(
               binding
@@ -205,15 +222,18 @@ function ActiveReferencePicker({
                 : { bindingId: "", bindingName: "", key: "", version: 0 },
             );
           }}
-        >
-          <option value="">Select ready binding</option>
-          {value.bindingId && !selected ? (
-            <option value={value.bindingId} disabled>
+          >
+            <option value="">Select ready binding</option>
+          {value.bindingId && !selectedIsCurrent ? (
+            <option value={selectedKey} disabled>
               {value.bindingName} · v{value.version || "?"} (unavailable)
             </option>
           ) : null}
           {choices.map((binding) => (
-            <option key={binding.id} value={binding.id}>
+            <option
+              key={referenceKey(binding.id, binding.activeVersion!)}
+              value={referenceKey(binding.id, binding.activeVersion!)}
+            >
               {binding.name} · v{binding.activeVersion}
             </option>
           ))}

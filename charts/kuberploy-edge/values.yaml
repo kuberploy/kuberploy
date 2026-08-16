@@ -12,7 +12,7 @@ edge:
     # sslip:
     #   mode: auto-first-ip
   networkPolicy:
-    enabled: true
+    enabled: false
     # The Kubernetes API endpoint CIDRs are cluster-specific and deliberately
     # have no broad default. 0.0.0.0/0 and ::/0 are rejected here.
     kubeAPIServerCIDRs: []
@@ -133,7 +133,10 @@ traefik:
       # verified without ambient cluster discovery.
       disableAPICheck: true
       serviceMonitor:
-        enabled: true
+        # Monitoring is an optional sibling release. The installer enables
+        # this only when the monitoring component is selected; standalone edge
+        # installs remain usable on clusters without the Prometheus CRD.
+        enabled: false
         apiVersion: monitoring.coreos.com/v1
         metricRelabelings:
           - action: keep

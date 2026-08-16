@@ -108,7 +108,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"listDeploymentRollbackSources": "app.read", "rollbackDeployment": "app.edit",
 		"validateDeploymentConfig": "app.read", "listOperations": "app.read", "getOperation": "app.read", "listApplicationWorkloads": "app.read",
 		"listEnvironmentExternalDNSIntegrations": "app.read", "listApplicationExternalDNSIntegrations": "app.read",
-		"listApplicationBuildDefinitions": "app.read", "listApplicationBuilds": "app.read", "getBuildDefinition": "app.read", "getBuildAttempt": "app.read",
+		"listApplicationBuildDefinitions": "app.read", "listApplicationBuildProfiles": "app.read", "listApplicationBuilds": "app.read", "getBuildDefinition": "app.read", "getBuildAttempt": "app.read",
 		"listApplicationAutoDeployPolicies": "app.read", "getAutoDeployPolicy": "app.read",
 		"listAutoDeployPolicyRevisions": "app.read", "listAutoDeployPolicyRuns": "app.read",
 		"getBuildAttemptLogs":             "logs.read",

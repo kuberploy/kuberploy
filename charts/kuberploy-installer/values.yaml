@@ -35,6 +35,9 @@ applications:
 # injected only into selected child charts that need direct Kubernetes API
 # access. They are not credentials and cannot be broad all-address ranges.
 cluster:
+  # Optional hardening. Leave disabled for a functional install without
+  # environment-specific Kubernetes API CIDRs.
+  networkPolicyEnabled: false
   kubeAPIServerCIDRs: []
 
 # Optional public control-plane endpoint. Enabling it also requires the
@@ -65,7 +68,13 @@ integrations:
     argoNamespace: ""
     psaVersion: ""
     buildKitImage: ""
-    # Exact current GitHub/API endpoints or stable operator egress proxies.
+    dindImage: docker.io/library/docker:29.7.1-dind
+    buildSecretName: ""
+    buildSecretProfiles: []
+    sshSecretName: ""
+    sshSecretProfiles: []
+    # Optional infrastructure hardening. Empty lists use dual-stack public
+    # egress on required ports with Kubernetes API destinations excluded.
     controlPlaneEgressCIDRs: []
     sourceEgressCIDRs: []
     registryEgressCIDRs: []
@@ -79,6 +88,7 @@ integrations:
     pullCredentialRef: ""
     pushCredentialRef: ""
     cacheCredentialRef: ""
+    # Optional exact-host narrowing for the public managed-registry endpoint.
     controlPlaneEgressCIDRs: []
     authSecretName: ""
     secretRevision: ""
@@ -143,7 +153,7 @@ argoCD:
       argoSecretName: argocd-secret
       valkeySecretName: kuberploy-argocd-valkey-auth
     networkPolicy:
-      enabled: true
+      enabled: false
       kubeAPIServerCIDRs: []
       repositoryEgressCIDRs: []
       valkeyNamespace: kuberploy-system
@@ -171,6 +181,6 @@ bootstrapvalkey:
     namespace:
       create: false
     networkPolicy:
-      enabled: true
+      enabled: false
       controlPlaneNamespace: kuberploy-system
       argoCDNamespace: argocd

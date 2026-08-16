@@ -1,4 +1,7 @@
 {{- if and .Values.foundation.enabled .Values.foundation.certManager.managed .Values.foundation.networkPolicy.enabled }}
+{{- $configuredAPICIDRs := .Values.foundation.networkPolicy.kubeAPIServerCIDRs }}
+{{- $apiCIDRs := $configuredAPICIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -28,7 +31,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.foundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
@@ -57,12 +60,14 @@ spec:
       app.kubernetes.io/component: webhook
   policyTypes: [Ingress, Egress]
   ingress:
+    {{- if $configuredAPICIDRs }}
     - from:
-        {{- range .Values.foundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $configuredAPICIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
         - {port: 10250, protocol: TCP}
+    {{- end }}
     - from:
         - namespaceSelector:
             matchLabels:
@@ -78,7 +83,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.foundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:
@@ -114,7 +119,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.foundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock: {cidr: {{ . | quote }}}
         {{- end }}
       ports:

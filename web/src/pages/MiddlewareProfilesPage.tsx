@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../api/client";
 import type {
   MiddlewareProfileAssignment,
@@ -24,6 +24,17 @@ import {
 } from "../components/ui";
 
 type Scope = MiddlewareProfileAssignment["scope"];
+type ProfileSaveCommand = {
+  idempotencyKey: string;
+  editorScope: string;
+  editorSession: number;
+  assignment?: MiddlewareProfileAssignment;
+  definitions: GuidedTraefikMiddleware[];
+  profileId?: string;
+  baseRevision?: number;
+  baseAssignments?: MiddlewareProfileAssignment[];
+  name: string;
+};
 
 export function MiddlewareProfilesPage() {
   const client = useQueryClient();
@@ -36,6 +47,23 @@ export function MiddlewareProfilesPage() {
   ]);
   const [editing, setEditing] = useState<MiddlewareProfileEntry>();
   const [formError, setFormError] = useState<string>();
+  const editorSessionRef = useRef(0);
+  const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const deactivateAttempt = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
+  const cloneAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const editorScope = JSON.stringify({
+    environmentId,
+    applicationId,
+    scope,
+    profileId: editing?.profile.id ?? null,
+    name,
+    definitions,
+  });
+  const editorScopeRef = useRef(editorScope);
+  editorScopeRef.current = editorScope;
   const me = useQuery({ queryKey: ["me"], queryFn: api.me, retry: false });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -72,6 +100,18 @@ export function MiddlewareProfilesPage() {
     enabled: ready && targetValid,
     retry: false,
   });
+  const currentEditingEntry = editing
+    ? catalog.data?.items.find(
+        (entry) => entry.profile.id === editing.profile.id,
+      )
+    : undefined;
+  const editingIsCurrent =
+    !editing ||
+    Boolean(
+      currentEditingEntry &&
+      currentEditingEntry.profile.lifecycle === "active" &&
+      currentEditingEntry.revision.revision === editing.revision.revision,
+    );
   const assignment = useMemo<MiddlewareProfileAssignment | undefined>(() => {
     if (!environment || !application || !project) return undefined;
     return {
@@ -92,7 +132,8 @@ export function MiddlewareProfilesPage() {
           ? "deployment-config:write"
           : "access-grants:create";
       if (!capability.actions?.includes(action)) return false;
-      if (capability.scopeType === "platform") return true;
+      if (capability.scopeType === "platform")
+        return capability.scopeId === "platform";
       if (capability.scopeType === "project")
         return capability.scopeId === project?.id;
       if (capability.scopeType === "environment")
@@ -107,35 +148,61 @@ export function MiddlewareProfilesPage() {
     },
   );
   const reset = () => {
+    editorSessionRef.current += 1;
     setEditing(undefined);
     setName("");
     setDefinitions([defaultGuidedTraefikMiddleware("headers", "profile-spec")]);
     setFormError(undefined);
   };
+  useEffect(() => {
+    if (!environment) {
+      if (environmentId !== "" || applicationId !== "") {
+        setEnvironmentId("");
+        setApplicationId("");
+        reset();
+      }
+      return;
+    }
+    if (!application || application.projectId !== environment.projectId) {
+      if (applicationId !== "") {
+        setApplicationId("");
+        reset();
+      }
+    }
+  }, [application, applicationId, environment, environmentId, reset]);
   const save = useMutation({
-    mutationFn: async () => {
-      if (!assignment || definitions.length !== 1)
+    mutationFn: async (input: ProfileSaveCommand) => {
+      if (!input.assignment || input.definitions.length !== 1)
         throw new Error("Choose exactly one typed middleware family.");
-      const spec = guidedTraefikMiddlewaresToValue(definitions)[0]?.spec as
-        MiddlewareProfileSpec | undefined;
+      const spec = guidedTraefikMiddlewaresToValue(input.definitions)[0]
+        ?.spec as MiddlewareProfileSpec | undefined;
       if (!spec) throw new Error("Middleware specification is missing.");
-      return editing
+      return input.profileId
         ? api.reviseMiddlewareProfile(
-            editing.profile.id,
+            input.profileId,
             {
-              baseRevision: editing.revision.revision,
+              baseRevision: input.baseRevision ?? 0,
               spec,
-              assignments: editing.revision.assignments,
+              assignments: input.baseAssignments ?? [],
             },
-            crypto.randomUUID(),
+            input.idempotencyKey,
           )
         : api.createMiddlewareProfile(
-            { name: name.trim(), spec, assignments: [assignment] },
-            crypto.randomUUID(),
+            { name: input.name, spec, assignments: [input.assignment] },
+            input.idempotencyKey,
           );
     },
-    onSuccess: async () => {
-      reset();
+    onSuccess: async (_value, input) => {
+      const isCurrentEditor =
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current;
+      if (
+        isCurrentEditor &&
+        saveAttempt.current?.key === input.idempotencyKey
+      ) {
+        saveAttempt.current = null;
+      }
+      if (isCurrentEditor) reset();
       await client.invalidateQueries({
         queryKey: ["middleware-profile-catalog"],
       });
@@ -143,34 +210,121 @@ export function MiddlewareProfilesPage() {
         queryKey: ["assigned-middleware-profiles"],
       });
     },
-    onError: (error) => setFormError(errorMessage(error)),
+    onError: (error, input) => {
+      if (
+        input.editorScope === editorScopeRef.current &&
+        input.editorSession === editorSessionRef.current
+      ) {
+        setFormError(errorMessage(error));
+      }
+    },
   });
   const deactivate = useMutation({
-    mutationFn: (entry: MiddlewareProfileEntry) =>
+    mutationFn: ({
+      entry,
+      idempotencyKey,
+    }: {
+      entry: MiddlewareProfileEntry;
+      idempotencyKey: string;
+    }) =>
       api.deactivateMiddlewareProfile(
         entry.profile.id,
         entry.revision.revision,
-        crypto.randomUUID(),
+        idempotencyKey,
       ),
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["middleware-profile-catalog"] }),
+    onSuccess: (_value, input) => {
+      if (deactivateAttempt.current?.key === input.idempotencyKey) {
+        deactivateAttempt.current = null;
+      }
+      return client.invalidateQueries({
+        queryKey: ["middleware-profile-catalog"],
+      });
+    },
   });
   const clone = useMutation({
-    mutationFn: (entry: MiddlewareProfileEntry) => {
-      if (!assignment) throw new Error("Select an exact target first.");
+    mutationFn: ({
+      entry,
+      assignment: requestedAssignment,
+      idempotencyKey,
+    }: {
+      entry: MiddlewareProfileEntry;
+      assignment: MiddlewareProfileAssignment;
+      idempotencyKey: string;
+    }) => {
       return api.cloneMiddlewareProfile(
         entry.profile.id,
         {
           name: `${entry.profile.name}-copy`.slice(0, 63),
           sourceRevision: entry.revision.revision,
-          assignments: [assignment],
+          assignments: [requestedAssignment],
         },
-        crypto.randomUUID(),
+        idempotencyKey,
       );
     },
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["middleware-profile-catalog"] }),
+    onSuccess: (_value, input) => {
+      if (cloneAttempt.current?.key === input.idempotencyKey) {
+        cloneAttempt.current = null;
+      }
+      return client.invalidateQueries({
+        queryKey: ["middleware-profile-catalog"],
+      });
+    },
   });
+
+  const saveProfile = () => {
+    if (!editingIsCurrent) return;
+    const signature = JSON.stringify({
+      profileId: editing?.profile.id,
+      revision: editing?.revision.revision,
+      name: name.trim(),
+      assignment,
+      definitions,
+    });
+    const idempotencyKey =
+      saveAttempt.current?.signature === signature
+        ? saveAttempt.current.key
+        : crypto.randomUUID();
+    saveAttempt.current = { signature, key: idempotencyKey };
+    save.mutate({
+      idempotencyKey,
+      editorScope,
+      editorSession: editorSessionRef.current,
+      assignment,
+      definitions,
+      profileId: editing?.profile.id,
+      baseRevision: editing?.revision.revision,
+      baseAssignments: editing?.revision.assignments,
+      name: name.trim(),
+    });
+  };
+
+  const deactivateProfile = (entry: MiddlewareProfileEntry) => {
+    const signature = JSON.stringify({
+      profileId: entry.profile.id,
+      revision: entry.revision.revision,
+    });
+    const idempotencyKey =
+      deactivateAttempt.current?.signature === signature
+        ? deactivateAttempt.current.key
+        : crypto.randomUUID();
+    deactivateAttempt.current = { signature, key: idempotencyKey };
+    deactivate.mutate({ entry, idempotencyKey });
+  };
+
+  const cloneProfile = (entry: MiddlewareProfileEntry) => {
+    const signature = JSON.stringify({
+      profileId: entry.profile.id,
+      revision: entry.revision.revision,
+      assignment,
+    });
+    const idempotencyKey =
+      cloneAttempt.current?.signature === signature
+        ? cloneAttempt.current.key
+        : crypto.randomUUID();
+    cloneAttempt.current = { signature, key: idempotencyKey };
+    if (!assignment) return;
+    clone.mutate({ entry, assignment, idempotencyKey });
+  };
 
   if (
     [me, capabilities, projects, environments, applications].some(
@@ -285,14 +439,23 @@ export function MiddlewareProfilesPage() {
                 setDefinitions(next.slice(0, 1))
               }
             />
+            {editing && !editingIsCurrent ? (
+              <div className="notice notice--warning">
+                This profile changed or is no longer active. Reload the current
+                catalog before revising it.
+              </div>
+            ) : null}
             {formError ? <ErrorPanel error={new Error(formError)} /> : null}
             <div className="button-row">
               <Button
                 disabled={
-                  !canMutate || !name.trim() || definitions.length !== 1
+                  !canMutate ||
+                  !editingIsCurrent ||
+                  !name.trim() ||
+                  definitions.length !== 1
                 }
                 busy={save.isPending}
-                onClick={() => save.mutate()}
+                onClick={saveProfile}
               >
                 {editing ? "Append revision" : "Create profile"}
               </Button>
@@ -313,6 +476,15 @@ export function MiddlewareProfilesPage() {
                 </p>
               </div>
             </div>
+            {clone.error ? (
+              <ErrorPanel error={clone.error} title="Profile was not cloned" />
+            ) : null}
+            {deactivate.error ? (
+              <ErrorPanel
+                error={deactivate.error}
+                title="Profile was not deactivated"
+              />
+            ) : null}
             {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
             {(catalog.data?.items ?? []).map((entry) => (
               <div className="list-row" key={entry.profile.id}>
@@ -334,6 +506,7 @@ export function MiddlewareProfilesPage() {
                         [],
                       );
                       if (!parsed.definitions[0]) return;
+                      editorSessionRef.current += 1;
                       setEditing(entry);
                       setName(entry.profile.name);
                       setDefinitions(parsed.definitions);
@@ -347,7 +520,7 @@ export function MiddlewareProfilesPage() {
                       !canMutate || entry.profile.lifecycle !== "active"
                     }
                     busy={clone.isPending}
-                    onClick={() => clone.mutate(entry)}
+                    onClick={() => cloneProfile(entry)}
                   >
                     Clone
                   </Button>
@@ -363,7 +536,7 @@ export function MiddlewareProfilesPage() {
                           `Deactivate middleware profile ${entry.profile.name}? Existing assignments must be revised before this profile can be removed from use.`,
                         )
                       ) {
-                        deactivate.mutate(entry);
+                        deactivateProfile(entry);
                       }
                     }}
                   >

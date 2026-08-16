@@ -85,49 +85,62 @@ app.kubernetes.io/component: {{ .component }}
 {{- end -}}
 
 {{- define "kuberploy.configName" -}}
-{{- $input := dict "renderVersion" "v2" "publicURL" .Values.config.publicURL "logLevel" .Values.config.logLevel "git" .Values.config.git "githubApp" .Values.config.githubApp "buildLogs" .Values.config.buildLogs "gitProjection" .Values.config.gitProjection "autoDeploy" .Values.config.autoDeploy "runtimeSecrets" .Values.config.runtimeSecrets "certificateObservation" .Values.config.certificateObservation "certificateIssuerObserver" .Values.config.certificateIssuerObserver "runtimeRegistryPulls" .Values.config.runtimeRegistryPulls "imageTagResolution" .Values.config.imageTagResolution "edgeRuntime" .Values.config.edgeRuntime "argoObservation" .Values.config.argoObservation "environmentFoundation" .Values.config.environmentFoundation "argoDesiredState" .Values.config.argoDesiredState "helmApplications" .Values.config.helmApplications "managedRegistry" .Values.config.managedRegistry "workerImage" .Values.components.worker.image.reference "builder" .Values.builder "ingressClass" .Values.ingress.className -}}
+{{- $builder := deepCopy .Values.builder -}}
+{{- $_ := set $builder.networkPolicy "sourceEgressCIDRs" (uniq (sortAlpha .Values.builder.networkPolicy.sourceEgressCIDRs)) -}}
+{{- $_ = set $builder.networkPolicy "registryEgressCIDRs" (uniq (sortAlpha .Values.builder.networkPolicy.registryEgressCIDRs)) -}}
+{{- $networkPolicy := dict "enabled" .Values.networkPolicy.enabled "externalEgressCIDRs" (uniq (sortAlpha .Values.networkPolicy.externalEgressCIDRs)) "kubeAPIServerCIDRs" (uniq (sortAlpha .Values.networkPolicy.kubeAPIServerCIDRs)) -}}
+{{- $input := dict "renderVersion" "v3" "publicURL" .Values.config.publicURL "logLevel" .Values.config.logLevel "git" .Values.config.git "githubApp" .Values.config.githubApp "buildLogs" .Values.config.buildLogs "gitProjection" .Values.config.gitProjection "autoDeploy" .Values.config.autoDeploy "runtimeSecrets" .Values.config.runtimeSecrets "certificateObservation" .Values.config.certificateObservation "certificateIssuerObserver" .Values.config.certificateIssuerObserver "runtimeRegistryPulls" .Values.config.runtimeRegistryPulls "imageTagResolution" .Values.config.imageTagResolution "edgeRuntime" .Values.config.edgeRuntime "argoObservation" .Values.config.argoObservation "environmentFoundation" .Values.config.environmentFoundation "argoDesiredState" .Values.config.argoDesiredState "helmApplications" .Values.config.helmApplications "managedRegistry" .Values.config.managedRegistry "workerImage" .Values.components.worker.image.reference "builder" $builder "networkPolicy" $networkPolicy "ingressClass" .Values.ingress.className -}}
 {{- printf "%s-config-%s" (include "kuberploy.fullname" .) (toJson $input | sha256sum | trunc 12) -}}
 {{- end -}}
 
 {{- define "kuberploy.validateNetworkPolicy" -}}
-{{- $imageTagResolutionConfigured := or (not (empty .Values.config.runtimeRegistryPulls.profiles)) (not (empty .Values.config.imageTagResolution.anonymousTargetIds)) (not (empty .Values.config.imageTagResolution.tokenAuthorities)) -}}
-{{- if and $imageTagResolutionConfigured (not .Values.networkPolicy.enabled) -}}
-{{- fail "image tag resolution requires networkPolicy.enabled" -}}
-{{- end -}}
-{{- if ne .Values.networkPolicy.managedPostgreSQLNamespace "kuberploy-system" -}}
-{{- fail "networkPolicy.managedPostgreSQLNamespace is locked to kuberploy-system" -}}
-{{- end -}}
-{{- if ne .Values.networkPolicy.managedValkeyNamespace "kuberploy-system" -}}
-{{- fail "networkPolicy.managedValkeyNamespace is locked to kuberploy-system" -}}
-{{- end -}}
-{{- if and (eq .Values.config.valkey.mode "managed") (not (empty .Values.networkPolicy.externalValkeyEgressCIDRs)) -}}
-{{- fail "managed Valkey cannot also enable external Valkey egress" -}}
-{{- end -}}
 {{- if .Values.networkPolicy.enabled -}}
+  {{- if ne .Values.networkPolicy.managedPostgreSQLNamespace "kuberploy-system" -}}
+  {{- fail "networkPolicy.managedPostgreSQLNamespace is locked to kuberploy-system" -}}
+  {{- end -}}
+  {{- if ne .Values.networkPolicy.managedValkeyNamespace "kuberploy-system" -}}
+  {{- fail "networkPolicy.managedValkeyNamespace is locked to kuberploy-system" -}}
+  {{- end -}}
+  {{- if and (eq .Values.config.valkey.mode "managed") (not (empty .Values.networkPolicy.externalValkeyEgressCIDRs)) -}}
+  {{- fail "managed Valkey cannot also enable external Valkey egress" -}}
+  {{- end -}}
   {{- if and (eq .Values.config.valkey.mode "external") (empty .Values.networkPolicy.externalValkeyEgressCIDRs) -}}
   {{- fail "external Valkey requires explicit networkPolicy.externalValkeyEgressCIDRs" -}}
   {{- end -}}
-  {{- if and (or (eq .Values.config.monitoring.mode "managed") .Values.rbac.observedNamespaces .Values.rbac.buildNamespaces .Values.config.githubApp.enabled .Values.config.buildLogs.enabled .Values.config.runtimeSecrets.enabled .Values.config.certificateIssuerObserver.enabled .Values.config.runtimeRegistryPulls.enabled .Values.config.edgeRuntime.enabled .Values.config.argoObservation.enabled .Values.config.environmentFoundation.enabled .Values.config.argoDesiredState.enabled .Values.config.helmApplications.enabled .Values.config.managedRegistry.enabled) (empty .Values.networkPolicy.kubeAPIServerCIDRs) -}}
-  {{- fail "runtime observation and build controllers require explicit networkPolicy.kubeAPIServerCIDRs" -}}
+  {{- range .Values.networkPolicy.kubeAPIServerCIDRs -}}
+    {{- if regexMatch `/0+$` . -}}
+    {{- fail "networkPolicy.kubeAPIServerCIDRs cannot contain an all-address range" -}}
+    {{- end -}}
   {{- end -}}
-  {{- if and (or .Values.config.githubApp.enabled .Values.config.git.remoteURL (eq .Values.config.monitoring.mode "existing")) (empty .Values.networkPolicy.externalEgressCIDRs) -}}
-  {{- fail "configured GitHub, Git, or adopted Prometheus endpoints require explicit networkPolicy.externalEgressCIDRs" -}}
+  {{- range $external := .Values.networkPolicy.externalEgressCIDRs -}}
+    {{- if not (or (regexMatch `^(?:[0-9]{1,3}\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$` $external) (regexMatch `^[0-9a-f:]+/(?:1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8])$` $external)) -}}
+    {{- fail "networkPolicy.externalEgressCIDRs must contain only bounded IPv4 /8-/32 or IPv6 /16-/128 ranges" -}}
+    {{- end -}}
+    {{- range $api := $.Values.networkPolicy.kubeAPIServerCIDRs -}}
+      {{- if eq $external $api -}}
+      {{- fail "networkPolicy external and Kubernetes API CIDRs must be disjoint" -}}
+      {{- end -}}
+    {{- end -}}
   {{- end -}}
-  {{- if and .Values.config.githubApp.enabled (or (empty .Values.builder.networkPolicy.sourceEgressCIDRs) (empty .Values.builder.networkPolicy.registryEgressCIDRs)) -}}
-  {{- fail "GitHub builds require exact builder.networkPolicy source and registry host CIDRs" -}}
+  {{- range .Values.networkPolicy.externalPostgreSQLEgressCIDRs -}}
+    {{- if regexMatch `/0+$` . -}}
+    {{- fail "networkPolicy.externalPostgreSQLEgressCIDRs cannot contain an all-address range" -}}
+    {{- end -}}
   {{- end -}}
-  {{- if and .Values.config.helmApplications.enabled (empty .Values.networkPolicy.externalEgressCIDRs) -}}
-  {{- fail "approved Helm applications require exact OCI registry egress CIDRs" -}}
-  {{- end -}}
-  {{- if and $imageTagResolutionConfigured (empty .Values.networkPolicy.externalEgressCIDRs) -}}
-  {{- fail "image tag resolution requires explicit networkPolicy.externalEgressCIDRs" -}}
+  {{- range .Values.networkPolicy.externalValkeyEgressCIDRs -}}
+    {{- if regexMatch `/0+$` . -}}
+    {{- fail "networkPolicy.externalValkeyEgressCIDRs cannot contain an all-address range" -}}
+    {{- end -}}
   {{- end -}}
 {{- end -}}
 
-{{- range $kind, $cidrs := dict "source" .Values.builder.networkPolicy.sourceEgressCIDRs "registry" .Values.builder.networkPolicy.registryEgressCIDRs -}}
-  {{- range $cidr := $cidrs -}}
-    {{- if not (regexMatch `(?:/32|/128)$` $cidr) -}}
-    {{- fail (printf "builder.networkPolicy.%sEgressCIDRs must contain only /32 or /128 hosts" $kind) -}}
+{{- if .Values.builder.networkPolicy.enabled -}}
+  {{- if gt (add (len .Values.builder.networkPolicy.sourceEgressCIDRs) (len .Values.builder.networkPolicy.registryEgressCIDRs)) 128 -}}
+  {{- fail "builder source and registry egress lists may contain at most 128 entries in total" -}}
+  {{- end -}}
+  {{- range $cidr := .Values.builder.networkPolicy.sourceEgressCIDRs -}}
+    {{- if not (or (regexMatch `^(?:[0-9]{1,3}\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$` $cidr) (regexMatch `^[0-9a-f:]+/(?:1[6-9]|[2-9][0-9]|1[01][0-9]|12[0-8])$` $cidr)) -}}
+    {{- fail "builder.networkPolicy.sourceEgressCIDRs must contain only bounded IPv4 /8-/32 or IPv6 /16-/128 ranges" -}}
     {{- end -}}
     {{- range $api := $.Values.networkPolicy.kubeAPIServerCIDRs -}}
       {{- if eq $cidr $api -}}
@@ -135,30 +148,15 @@ app.kubernetes.io/component: {{ .component }}
       {{- end -}}
     {{- end -}}
   {{- end -}}
-{{- end -}}
-{{- range .Values.networkPolicy.kubeAPIServerCIDRs -}}
-  {{- if regexMatch `/0+$` . -}}
-  {{- fail "networkPolicy.kubeAPIServerCIDRs cannot contain an all-address range" -}}
-  {{- end -}}
-{{- end -}}
-{{- range $external := .Values.networkPolicy.externalEgressCIDRs -}}
-  {{- if regexMatch `/0+$` $external -}}
-  {{- fail "networkPolicy.externalEgressCIDRs cannot contain an all-address range" -}}
-  {{- end -}}
-  {{- range $api := $.Values.networkPolicy.kubeAPIServerCIDRs -}}
-    {{- if eq $external $api -}}
-    {{- fail "networkPolicy external and Kubernetes API CIDRs must be disjoint" -}}
+  {{- range $cidr := .Values.builder.networkPolicy.registryEgressCIDRs -}}
+    {{- if not (regexMatch `(?:/32|/128)$` $cidr) -}}
+    {{- fail "builder.networkPolicy.registryEgressCIDRs must contain only /32 or /128 hosts" -}}
     {{- end -}}
-  {{- end -}}
-{{- end -}}
-{{- range .Values.networkPolicy.externalPostgreSQLEgressCIDRs -}}
-  {{- if regexMatch `/0+$` . -}}
-  {{- fail "networkPolicy.externalPostgreSQLEgressCIDRs cannot contain an all-address range" -}}
-  {{- end -}}
-{{- end -}}
-{{- range .Values.networkPolicy.externalValkeyEgressCIDRs -}}
-  {{- if regexMatch `/0+$` . -}}
-  {{- fail "networkPolicy.externalValkeyEgressCIDRs cannot contain an all-address range" -}}
+    {{- range $api := $.Values.networkPolicy.kubeAPIServerCIDRs -}}
+      {{- if eq $cidr $api -}}
+      {{- fail "builder egress and Kubernetes API CIDRs must be disjoint" -}}
+      {{- end -}}
+    {{- end -}}
   {{- end -}}
 {{- end -}}
 {{- end -}}

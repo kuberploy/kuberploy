@@ -58,6 +58,13 @@ export function ProjectAccessPanel({
   const [confirmGrant, setConfirmGrant] = useState<AccessGrant | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [confirmIdempotencyKey, setConfirmIdempotencyKey] = useState("");
+  const confirmAttemptRef = useRef<{
+    grantId: string;
+    idempotencyKey: string;
+  } | null>(null);
+  confirmAttemptRef.current = confirmGrant
+    ? { grantId: confirmGrant.id, idempotencyKey: confirmIdempotencyKey }
+    : null;
   const grants = useQuery({
     queryKey: ["project-access-grants", project.id],
     queryFn: () => api.projectAccessGrants(project.id),
@@ -117,7 +124,8 @@ export function ProjectAccessPanel({
     capability: Capability,
     scope: ScopeOption,
   ) => {
-    if (capability.scopeType === "platform") return true;
+    if (capability.scopeType === "platform")
+      return capability.scopeId === "platform";
     if (
       capability.scopeType === "team" &&
       capability.scopeId === project.teamId
@@ -172,14 +180,18 @@ export function ProjectAccessPanel({
     }
   }, [form, roleScopeOptions]);
   const createGrant = useMutation({
-    mutationFn: (input: { value: GrantForm; idempotencyKey: string }) => {
+    mutationFn: (input: {
+      projectId: string;
+      value: GrantForm;
+      idempotencyKey: string;
+    }) => {
       const { value } = input;
       const selected = scopeOptions.find(
         (scope) => scope.value === value.scope,
       );
       if (!selected) throw new Error("Select an exact access scope.");
       return api.createProjectAccessGrant(
-        project.id,
+        input.projectId,
         {
           ...(value.subjectType === "team"
             ? { subjectTeamId: value.subjectTeamId }
@@ -192,18 +204,27 @@ export function ProjectAccessPanel({
         input.idempotencyKey,
       );
     },
-    onSuccess: async () => {
-      createAttempt.current = null;
-      form.reset({
-        subjectType: "user",
-        subjectUserId: "",
-        subjectTeamId: "",
-        role: "developer",
-        scope: `project:${project.id}`,
-        logsRead: false,
-      });
+    onSuccess: async (_result, input) => {
+      if (input.projectId === project.id) {
+        const current = form.getValues();
+        const currentSignature = JSON.stringify({
+          ...current,
+          subjectUserId: current.subjectUserId.trim(),
+        });
+        if (currentSignature === JSON.stringify(input.value)) {
+          createAttempt.current = null;
+          form.reset({
+            subjectType: "user",
+            subjectUserId: "",
+            subjectTeamId: "",
+            role: "developer",
+            scope: `project:${project.id}`,
+            logsRead: false,
+          });
+        }
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["project-access-grants", project.id],
+        queryKey: ["project-access-grants", input.projectId],
       });
     },
   });
@@ -218,7 +239,11 @@ export function ProjectAccessPanel({
         ? createAttempt.current.key
         : crypto.randomUUID();
     createAttempt.current = { signature, key };
-    createGrant.mutate({ value: normalized, idempotencyKey: key });
+    createGrant.mutate({
+      projectId: project.id,
+      value: normalized,
+      idempotencyKey: key,
+    });
   };
   const canDeleteGrant = (grant: AccessGrant) => {
     const scope = scopeOptions.find(
@@ -237,21 +262,47 @@ export function ProjectAccessPanel({
     );
   };
   const deleteGrant = useMutation({
-    mutationFn: (input: { grant: AccessGrant; idempotencyKey: string }) =>
+    mutationFn: (input: {
+      projectId: string;
+      grant: AccessGrant;
+      idempotencyKey: string;
+    }) =>
       api.deleteProjectAccessGrant(
-        project.id,
+        input.projectId,
         input.grant.id,
         input.idempotencyKey,
       ),
-    onSuccess: async () => {
-      setConfirmGrant(null);
-      setConfirmation("");
-      setConfirmIdempotencyKey("");
+    onSuccess: async (_result, input) => {
+      if (
+        input.projectId === project.id &&
+        confirmAttemptRef.current?.grantId === input.grant.id &&
+        confirmAttemptRef.current.idempotencyKey === input.idempotencyKey
+      ) {
+        setConfirmGrant(null);
+        setConfirmation("");
+        setConfirmIdempotencyKey("");
+      }
       await queryClient.invalidateQueries({
-        queryKey: ["project-access-grants", project.id],
+        queryKey: ["project-access-grants", input.projectId],
       });
     },
   });
+  useEffect(() => {
+    form.reset({
+      subjectType: "user",
+      subjectUserId: "",
+      subjectTeamId: "",
+      role: "developer",
+      scope: `project:${project.id}`,
+      logsRead: false,
+    });
+    createAttempt.current = null;
+    setConfirmGrant(null);
+    setConfirmation("");
+    setConfirmIdempotencyKey("");
+    createGrant.reset();
+    deleteGrant.reset();
+  }, [project.id]);
 
   return (
     <div className="access-panel" aria-label={`${project.name} access`}>
@@ -405,6 +456,7 @@ export function ProjectAccessPanel({
               busy={deleteGrant.isPending}
               onClick={() =>
                 deleteGrant.mutate({
+                  projectId: project.id,
                   grant: confirmGrant,
                   idempotencyKey: confirmIdempotencyKey,
                 })

@@ -14,7 +14,7 @@ spec:
     - Egress
   ingress:
     - from:
-        {{- range .Values.networkPolicy.allowedNamespaces }}
+        {{- range uniq (sortAlpha .Values.networkPolicy.allowedNamespaces) }}
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ . | quote }}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
+	platformconfig "github.com/kuberploy/kuberploy/internal/config"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 	"github.com/kuberploy/kuberploy/internal/store"
@@ -57,9 +58,10 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 		values := map[string]string{
 			builds.GitHubBuildsEnabledEnv: "true", builds.GitHubAppIDEnv: "12345", builds.GitHubAppClientIDEnv: "Iv1_KuberployClient",
 			builds.BuilderNamespaceEnv: "kuberploy-build-dind", builds.BuilderPodServiceAccountEnv: "kuberploy-build-pod",
-			builds.BuilderAgentImageEnv:        "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
-			builds.BuilderBuildKitImageEnv:     builder.DefaultBuildKitImage,
-			builds.BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
+			builds.BuilderAgentImageEnv:          "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64),
+			builds.BuilderBuildKitImageEnv:       builder.DefaultBuildKitImage,
+			platformconfig.KubeAPIServerCIDRsEnv: "10.43.0.1/32",
+			builds.BuilderSourceEgressCIDRsEnv:   "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
 		}
 		value, ok := values[name]
 		return value, ok
@@ -97,7 +99,8 @@ func TestServerBuildDefinitionResolverRequiresExactApplicationPolicy(t *testing.
 			builds.GitHubBuildsEnabledEnv: "true", builds.GitHubAppIDEnv: "12345", builds.GitHubAppClientIDEnv: "Iv1_KuberployClient",
 			builds.BuilderNamespaceEnv: "kuberploy-build-dind", builds.BuilderPodServiceAccountEnv: "kuberploy-build-pod",
 			builds.BuilderAgentImageEnv: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64), builds.BuilderBuildKitImageEnv: builder.DefaultBuildKitImage,
-			builds.BuilderSourceEgressCIDRsEnv: "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
+			platformconfig.KubeAPIServerCIDRsEnv: "10.43.0.1/32",
+			builds.BuilderSourceEgressCIDRsEnv:   "192.0.2.10/32", builds.BuilderRegistryEgressCIDRsEnv: "192.0.2.20/32",
 		}
 		value, ok := values[name]
 		return value, ok
@@ -115,6 +118,22 @@ func TestServerBuildDefinitionResolverRequiresExactApplicationPolicy(t *testing.
 	catalog.policyErr = store.ErrNotFound
 	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrNotFound) {
 		t.Fatalf("missing application policy accepted: %v", err)
+	}
+}
+
+func TestServerBuildDefinitionResolverScopesSecretProfilesByApplication(t *testing.T) {
+	applicationID := "33333333-3333-4333-8333-333333333333"
+	otherApplicationID := "55555555-5555-4555-8555-555555555555"
+	resolver := &ServerBuildDefinitionResolver{Runtime: builds.WorkerRuntimeConfig{
+		BuildSecretProfiles: []builds.BuildSecretProfile{{ID: "npmrc", Label: "Private npm registry", ApplicationIDs: []string{applicationID}, File: builder.FileReference{ID: "npmrc", Path: builder.BuildSecretRoot + "/npmrc"}}},
+		SSHSecretProfiles:   []builds.BuildSecretProfile{{ID: "github", Label: "GitHub deploy key", ApplicationIDs: []string{otherApplicationID}, File: builder.FileReference{ID: "github", Path: builder.SSHSecretRoot + "/id_ed25519"}}},
+	}}
+	catalog, err := resolver.SecretProfileCatalog(applicationID)
+	if err != nil || len(catalog.Build) != 1 || len(catalog.SSH) != 0 {
+		t.Fatalf("catalog=%#v err=%v", catalog, err)
+	}
+	if _, err = resolver.ResolveSecretProfiles(otherApplicationID, []string{"npmrc"}, nil); !errors.Is(err, builds.ErrInvalid) {
+		t.Fatalf("cross-application profile accepted: %v", err)
 	}
 }
 

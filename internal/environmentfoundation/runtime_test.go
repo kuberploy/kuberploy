@@ -36,19 +36,23 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 		t.Fatalf("default-off config changed: %#v %v", config, err)
 	}
 	for name, value := range map[string]string{
-		RuntimeEnabledEnv: "yes", RuntimePlatformBindingIDEnv: testBindingID,
-		RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "01",
+		RuntimePlatformBindingIDEnv: testBindingID,
+		RuntimePSAVersionEnv:        "v1.31", RuntimePollSecondsEnv: "01",
 		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api",
 	} {
 		t.Run(name, func(t *testing.T) {
-			values := map[string]string{name: value}
-			if name != RuntimeEnabledEnv {
-				values[RuntimeEnabledEnv] = "false"
-			}
-			if _, err := RuntimeConfigFromLookup(func(key string) (string, bool) { result, ok := values[key]; return result, ok }); err == nil {
-				t.Fatal("invalid or disabled stray configuration accepted")
+			values := map[string]string{RuntimeEnabledEnv: "false", name: value}
+			if config, err := RuntimeConfigFromLookup(func(key string) (string, bool) { result, ok := values[key]; return result, ok }); err != nil || config != (RuntimeConfig{}) {
+				t.Fatal("disabled runtime did not ignore dormant configuration")
 			}
 		})
+	}
+	if _, err := RuntimeConfigFromLookup(func(key string) (string, bool) {
+		values := map[string]string{RuntimeEnabledEnv: "yes"}
+		result, ok := values[key]
+		return result, ok
+	}); err == nil {
+		t.Fatal("invalid enabled flag accepted")
 	}
 	config := foundationRuntimeConfig(t)
 	if config.Profile.PlatformBindingID != testBindingID || config.Profile.ControlPlaneNamespace != "kuberploy-system" ||

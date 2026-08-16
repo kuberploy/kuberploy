@@ -124,4 +124,81 @@ describe("build attempt controls", () => {
     expect(cancel.mock.calls[0]?.[1]).toHaveLength(36);
     expect(onUpdated).toHaveBeenCalledWith(updated);
   });
+
+  it("keeps a newer attempt confirmation after an older command completes", async () => {
+    const user = userEvent.setup();
+    let resolveCancel!: (value: BuildAttempt) => void;
+    const updated = { ...attempt, state: "cancelling" as const };
+    const cancel = vi.spyOn(api, "cancelBuildAttempt").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCancel = resolve;
+        }),
+    );
+    const onUpdated = vi.fn();
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const view = render(
+      <QueryClientProvider client={client}>
+        <BuildAttemptActions
+          attempt={attempt}
+          application={application}
+          project={project}
+          capabilities={[
+            {
+              scopeType: "project",
+              scopeId: project.id,
+              actions: ["builds:cancel"],
+            },
+          ]}
+          humanSession
+          onUpdated={onUpdated}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Cancel build" }));
+    await user.type(
+      screen.getByLabelText(new RegExp(`^Type ${attempt.id}`)),
+      attempt.id,
+    );
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+
+    const newerAttempt = { ...attempt, id: "attempt-newer" };
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <BuildAttemptActions
+          attempt={newerAttempt}
+          application={application}
+          project={project}
+          capabilities={[
+            {
+              scopeType: "project",
+              scopeId: project.id,
+              actions: ["builds:cancel"],
+            },
+          ]}
+          humanSession
+          onUpdated={onUpdated}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Cancel build" }),
+      ).toBeInTheDocument(),
+    );
+
+    resolveCancel(updated);
+    await waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    expect(onUpdated).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: "Cancel build" }),
+    ).toBeInTheDocument();
+  });
 });

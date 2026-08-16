@@ -24,16 +24,20 @@ func validRuntimeEnvironment() map[string]string {
 	}
 }
 
-func TestRuntimeConfigDefaultOffAndRejectsPartialConfiguration(t *testing.T) {
+func TestRuntimeConfigDefaultOffAndIgnoresDormantConfiguration(t *testing.T) {
 	lookup := func(string) (string, bool) { return "", false }
 	config, err := RuntimeConfigFromLookup(lookup)
 	if err != nil || config.Enabled {
 		t.Fatalf("default config = %#v, %v", config, err)
 	}
-	values := map[string]string{ManagedRegistryRuntimeEnabledEnv: "false", ManagedRegistryEndpointEnv: "https://registry.example.test"}
-	_, err = RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
-	if !errors.Is(err, errRegistryRuntimeConfig) {
-		t.Fatalf("partial disabled config error = %v", err)
+	for _, values := range []map[string]string{
+		{ManagedRegistryRuntimeEnabledEnv: "false", ManagedRegistryEndpointEnv: "https://registry.example.test"},
+		{ManagedRegistryRuntimeEnabledEnv: "", ManagedRegistryTargetIDEnv: "stale-value"},
+	} {
+		config, parseErr := RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
+		if parseErr != nil || config != (RuntimeConfig{}) {
+			t.Fatalf("dormant config was not ignored: %#v config=%#v err=%v", values, config, parseErr)
+		}
 	}
 }
 

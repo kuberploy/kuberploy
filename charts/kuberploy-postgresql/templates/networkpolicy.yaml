@@ -1,4 +1,4 @@
-{{- if .Values.postgresqlFoundation.managed }}
+{{- if and .Values.postgresqlFoundation.managed .Values.postgresqlFoundation.networkPolicy.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

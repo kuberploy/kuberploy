@@ -1,5 +1,7 @@
 .PHONY: help fmt test web-build helm-lint check secret-scan prisma-migration-test platform-chart-test installer-chart-test builder-chart-test registry-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test registry-cache-smoke registry-kubernetes-smoke kubernetes-harness-test kubernetes-preflight kubernetes-smoke kubernetes-cleanup
 
+PNPM ?= npx --yes --package=pnpm@11.20.0 pnpm
+
 help:
 	@echo "Kuberploy development targets"
 	@echo "  make fmt        Format backend and frontend sources"
@@ -28,14 +30,14 @@ help:
 
 fmt:
 	@if [ -f go.mod ]; then gofmt -w $$(find cmd internal migrations -name '*.go' -type f 2>/dev/null); fi
-	@if [ -f web/package.json ]; then pnpm --dir web format; fi
+	@if [ -f web/package.json ]; then $(PNPM) --dir web format; fi
 
 test:
 	@if [ -f go.mod ]; then go test ./...; fi
-	@if [ -f web/package.json ]; then pnpm --dir web test --run; fi
+	@if [ -f web/package.json ]; then $(PNPM) --dir web test --run; fi
 
 web-build:
-	@if [ -f web/package.json ]; then pnpm --dir web build; fi
+	@if [ -f web/package.json ]; then $(PNPM) --dir web build; fi
 
 helm-lint: platform-chart-test installer-chart-test monitoring-chart-test edge-chart-test argocd-chart-test postgresql-chart-test valkey-chart-test secret-controller-chart-test
 	@for chart in charts/kuberploy charts/kuberploy-runtime charts/kuberploy-registry charts/kuberploy-builder; do \

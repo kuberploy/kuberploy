@@ -72,6 +72,31 @@ func TestProfilesAreExactAndSorted(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigFromLookupNormalizesUserLists(t *testing.T) {
+	config := testRuntimeConfig()
+	config.Profiles.ExternalDNS[0].DomainFilters = []string{"prod.example.com", "example.com", "prod.example.com"}
+	config.Profiles.CertManager.ProductionSolverTypes = []string{"http01", "dns01", "http01"}
+	config.Profiles.CertManager.ProductionDNS01Profiles = []string{"cloudflare-secondary", "cloudflare-primary", "cloudflare-primary"}
+	raw, err := json.Marshal(config.Profiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		RuntimeEnabledEnv: "true", RuntimeProfilesJSONEnv: string(raw), RuntimePollSecondsEnv: "30",
+		RuntimeWorkLeaseSecondsEnv: "120", RuntimeHeartbeatSecondsEnv: "20", RuntimeReadinessSecondsEnv: "90",
+		RuntimeMinimumBackoffEnv: "5", RuntimeMaximumBackoffEnv: "300",
+	}
+	parsed, err := RuntimeConfigFromLookup(func(key string) (string, bool) { value, ok := values[key]; return value, ok })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(parsed.Profiles.ExternalDNS[0].DomainFilters, []string{"example.com", "prod.example.com"}) ||
+		!reflect.DeepEqual(parsed.Profiles.CertManager.ProductionSolverTypes, []string{"dns01", "http01"}) ||
+		!reflect.DeepEqual(parsed.Profiles.CertManager.ProductionDNS01Profiles, []string{"cloudflare-primary", "cloudflare-secondary"}) {
+		t.Fatalf("lists were not normalized: %#v", parsed.Profiles)
+	}
+}
+
 func TestCertManagerProfileFencesServerAndSolverIdentity(t *testing.T) {
 	base := *testRuntimeConfig().Profiles.CertManager
 	base.ProductionSolverTypes = []string{"dns01", "http01"}

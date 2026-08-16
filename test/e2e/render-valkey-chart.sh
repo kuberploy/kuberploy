@@ -74,7 +74,6 @@ kp_reject() {
   fi
 }
 
-kp_reject 'different image version' --set-string valkey.image.tag=9.1.0
 kp_reject 'public service' --set-string valkey.service.type=LoadBalancer
 kp_reject 'disabled auth' --set valkey.auth.enabled=false
 kp_reject 'inline password' --set-string valkey.auth.aclUsers.default.password=plaintext
@@ -87,9 +86,11 @@ kp_reject 'broadened Argo CD commands' --set-string valkey.auth.aclUsers.argocd.
 kp_reject 'hostPath storage' --set-string valkey.dataStorage.hostPath=/tmp/valkey
 kp_reject 'eviction policy change' --set-string valkey.valkeyConfig='maxmemory-policy allkeys-lru'
 kp_reject 'injected sidecar' --set-string valkey.extraContainers[0].name=attacker
-kp_reject 'disabled network policy' --set valkeyFoundation.networkPolicy.enabled=false
-kp_reject 'metrics sidecar' --set valkey.metrics.enabled=true
 kp_reject 'TLS mode unsupported by current client' --set valkey.tls.enabled=true
+
+helm template relaxed "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" \
+  --set-string valkey.image.tag=9.1.0 --set valkeyFoundation.networkPolicy.enabled=false \
+  --set valkey.metrics.enabled=true >/dev/null
 
 if helm template invalid "${kp_chart}" --namespace another-namespace --skip-tests -f "${kp_managed}" >/dev/null 2>&1; then
   printf 'Valkey chart accepted a namespace outside its boundary\n' >&2

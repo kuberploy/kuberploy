@@ -142,26 +142,55 @@ func (s *Store) CreateProjectRegistryPullCredentialForActor(ctx context.Context,
 	return base.Result[domain.ProjectRegistryPullCredential]{Value: item}, nil
 }
 
-func (s *Store) DeleteProjectRegistryPullCredentialForActor(ctx context.Context, actor, projectID, credentialID string) error {
+func (s *Store) DeleteProjectRegistryPullCredentialForActor(ctx context.Context, actor, projectID, credentialID, key, fingerprint, requestID string) (bool, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if err = authorizeWith(ctx, tx, actor, domain.PermissionRegistryPolicyWrite, domain.AccessTarget{Type: "project", ID: projectID}); err != nil {
-		return err
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, "project-registry-pull-credentials.delete:"+projectID+":"+credentialID, key)); err != nil {
+		return false, err
+	}
+	idemScope := "project-registry-pull-credentials.delete:" + projectID + ":" + credentialID
+	if old, ok, findErr := findIdem(ctx, tx, actor, idemScope, key); findErr != nil {
+		return false, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return false, base.ErrIdempotencyConflict
+		}
+		return true, tx.Commit(ctx)
+	}
+	var storedProjectID string
+	if err = tx.QueryRow(ctx, `SELECT project_id::text FROM project_registry_pull_credentials WHERE id=$1 FOR UPDATE`, credentialID).Scan(&storedProjectID); err != nil {
+		return false, classify(err)
+	}
+	if storedProjectID != projectID {
+		return false, base.ErrNotFound
+	}
+	var selected bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM application_registry_pull_selections WHERE project_credential_id=$1)`, credentialID).Scan(&selected); err != nil {
+		return false, err
+	}
+	if selected {
+		return false, base.ErrConflict
 	}
 	result, err := tx.Exec(ctx, `DELETE FROM project_registry_pull_credentials WHERE id=$1 AND project_id=$2`, credentialID, projectID)
 	if err != nil {
-		return classify(err)
+		return false, classify(err)
 	}
 	if result.RowsAffected() == 0 {
-		return nil
+		return false, base.ErrNotFound
 	}
-	if err = audit(ctx, tx, actor, "project-registry-pull-credential.delete", "project", projectID, "", map[string]any{"credentialId": credentialID}); err != nil {
-		return err
+	if err = audit(ctx, tx, actor, "project-registry-pull-credential.delete", "project", projectID, requestID, map[string]any{"credentialId": credentialID}); err != nil {
+		return false, err
 	}
-	return classify(tx.Commit(ctx))
+	if err = putIdem(ctx, tx, actor, idemScope, key, fingerprint, "project-registry-pull-credential", credentialID, nil); err != nil {
+		return false, classify(err)
+	}
+	return false, classify(tx.Commit(ctx))
 }
 
 func scanApplicationRegistryPullSelection(row pgx.Row) (domain.ApplicationRegistryPullSelection, error) {

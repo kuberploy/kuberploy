@@ -25,7 +25,7 @@ func observationRuntimeSecrets() secrets.RuntimeConfig {
 	return config
 }
 
-func TestObservationConfigIsDefaultOffAndRejectsDormantSettings(t *testing.T) {
+func TestObservationConfigIsDefaultOffAndIgnoresDormantSettings(t *testing.T) {
 	for _, values := range []map[string]string{
 		nil,
 		{CertificateObservationEnabledEnv: "false"},
@@ -38,12 +38,19 @@ func TestObservationConfigIsDefaultOffAndRejectsDormantSettings(t *testing.T) {
 	for _, values := range []map[string]string{
 		{CertificateObservationPollSecondsEnv: "30"},
 		{CertificateObservationEnabledEnv: "false", CertificateObservationMaximumAgeSecondsEnv: "90"},
+		{CertificateObservationEnabledEnv: "", CertificateObservationPollSecondsEnv: "not-a-number"},
+	} {
+		config, err := ObservationConfigFromLookup(observationLookup(values), observationRuntimeSecrets())
+		if err != nil || !reflect.DeepEqual(config, ObservationConfig{}) {
+			t.Fatalf("dormant config was not ignored: %#v config=%#v err=%v", values, config, err)
+		}
+	}
+	for _, values := range []map[string]string{
 		{CertificateObservationEnabledEnv: "TRUE"},
 		{CertificateObservationEnabledEnv: " true"},
-		{CertificateObservationEnabledEnv: ""},
 	} {
 		if _, err := ObservationConfigFromLookup(observationLookup(values), observationRuntimeSecrets()); !errors.Is(err, ErrObservationUnavailable) {
-			t.Fatalf("unsafe disabled config accepted: %#v err=%v", values, err)
+			t.Fatalf("malformed enabled flag accepted: %#v err=%v", values, err)
 		}
 	}
 	if _, err := ObservationConfigFromLookup(nil, observationRuntimeSecrets()); !errors.Is(err, ErrObservationUnavailable) {

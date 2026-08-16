@@ -20,8 +20,9 @@ type Warning string
 type CacheReuse string
 
 const (
-	WarningColdBuild     Warning = "ColdBuild"
-	WarningCacheDegraded Warning = "CacheDegraded"
+	WarningColdBuild         Warning = "ColdBuild"
+	WarningCacheDegraded     Warning = "CacheDegraded"
+	WarningSensitiveBuildArg Warning = "SensitiveBuildArg"
 
 	CacheReuseNotRequested CacheReuse = "not-requested"
 	CacheReuseUnavailable  CacheReuse = "unavailable"
@@ -156,4 +157,11 @@ func addWarning(warnings []Warning, warning Warning) []Warning {
 		warnings = append(warnings, warning)
 	}
 	return warnings
+}
+
+func buildArgWarnings(args []BuildArg) []Warning {
+	if containsSensitiveBuildArgName(args) {
+		return []Warning{WarningSensitiveBuildArg}
+	}
+	return nil
 }

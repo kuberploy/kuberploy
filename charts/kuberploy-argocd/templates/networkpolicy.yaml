@@ -1,4 +1,7 @@
-{{- if .Values.argoFoundation.argoCD.managed }}
+{{- if and .Values.argoFoundation.argoCD.managed .Values.argoFoundation.networkPolicy.enabled }}
+{{- $configuredAPICIDRs := .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs }}
+{{- $apiCIDRs := $configuredAPICIDRs }}
+{{- if empty $apiCIDRs }}{{- $apiCIDRs = list "0.0.0.0/0" "::/0" }}{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -52,7 +55,7 @@ spec:
         - {port: 53, protocol: UDP}
         - {port: 53, protocol: TCP}
     - to:
-        {{- range .Values.argoFoundation.networkPolicy.kubeAPIServerCIDRs }}
+        {{- range $apiCIDRs }}
         - ipBlock:
             cidr: {{ . | quote }}
         {{- end }}
@@ -69,9 +72,26 @@ spec:
       ports:
         - {port: 6379, protocol: TCP}
     - to:
-        {{- range .Values.argoFoundation.networkPolicy.repositoryEgressCIDRs }}
+        {{- $repositoryCIDRs := .Values.argoFoundation.networkPolicy.repositoryEgressCIDRs -}}
+        {{- $defaultRepositoryEgress := empty $repositoryCIDRs -}}
+        {{- if $defaultRepositoryEgress -}}{{- $repositoryCIDRs = list "0.0.0.0/0" "::/0" -}}{{- end -}}
+        {{- range $repositoryCIDR := $repositoryCIDRs }}
         - ipBlock:
-            cidr: {{ . | quote }}
+            cidr: {{ $repositoryCIDR | quote }}
+            {{- if $defaultRepositoryEgress }}
+            {{- $exclusions := list -}}
+            {{- range $apiCIDR := $configuredAPICIDRs -}}
+              {{- if or (and (contains "." $repositoryCIDR) (contains "." $apiCIDR)) (and (contains ":" $repositoryCIDR) (contains ":" $apiCIDR)) -}}
+                {{- $exclusions = append $exclusions $apiCIDR -}}
+              {{- end -}}
+            {{- end -}}
+            {{- with $exclusions }}
+            except:
+              {{- range . }}
+              - {{ . | quote }}
+              {{- end }}
+            {{- end }}
+            {{- end }}
         {{- end }}
       ports:
         - {port: 443, protocol: TCP}

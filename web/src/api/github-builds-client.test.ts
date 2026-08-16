@@ -224,6 +224,9 @@ describe("GitHub source-build API client", () => {
     expect(repositories.items).toHaveLength(1);
     expect(definitions.items).toHaveLength(1);
     expect(attempts.items).toHaveLength(1);
+    expect(definitions.items[0]?.buildArgs).toEqual([
+      { name: "APP_ENV", value: "" },
+    ]);
     expect(attempts.items[0]?.cacheReuse).toBe("hit");
     expect(
       JSON.stringify({ installations, repositories, definitions, attempts }),
