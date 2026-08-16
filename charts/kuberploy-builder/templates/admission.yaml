@@ -175,9 +175,9 @@ spec:
       message: private egress must select every builder pod
     - expression: "object.spec.policyTypes.size() == 1 && object.spec.policyTypes[0] == 'Egress' && (!has(object.spec.ingress) || object.spec.ingress.size() == 0)"
       message: private egress must be egress-only
-    - expression: "object.spec.egress.size() == 1 && object.spec.egress.all(r, (r.ports == null || r.ports.size() == 0) && r.to.size() == 3)"
+    - expression: "object.spec.egress.size() == 1 && object.spec.egress.all(r, (!has(r.ports) || r.ports.size() == 0) && r.to.size() == 3)"
       message: private egress must contain one unported three-peer rule
-    - expression: "object.spec.egress[0].to.all(t, t.ipBlock != null && t.namespaceSelector == null && t.podSelector == null && (t.ipBlock.except == null || t.ipBlock.except.size() == 0))"
+    - expression: "object.spec.egress[0].to.all(t, t.ipBlock != null && !has(t.namespaceSelector) && !has(t.podSelector) && (!has(t.ipBlock.except) || t.ipBlock.except.size() == 0))"
       message: private egress peers must be plain IP blocks
     - expression: "object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '10.0.0.0/8') && object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '172.16.0.0/12') && object.spec.egress[0].to.exists_one(t, t.ipBlock.cidr == '192.168.0.0/16')"
       message: private egress must contain the exact RFC1918 ranges
