@@ -47,6 +47,10 @@ yq eval-all 'true' "${kp_render}" >/dev/null
 # binds generated Jobs to the operator-selected runtime contract.
 kp_render="${kp_tmp}/admission-enabled.yaml"
 helm template boundary "${kp_chart}" -f "${kp_values}" --set admissionPolicy.enabled=true >"${kp_render}"
+if rg -n 'has\([^)]*\[[^]]+\]' "${kp_render}" >/dev/null; then
+  printf 'builder admission rendered an indexed has() macro unsupported by Kubernetes CEL\n' >&2
+  exit 1
+fi
 kp_default_deny_expression="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-default-deny$"))) | .spec.validations[0].expression' "${kp_render}")"
 grep -F '!has(object.spec.ingress) || object.spec.ingress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
 grep -F '!has(object.spec.egress) || object.spec.egress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
@@ -57,7 +61,7 @@ grep -F -- "object.metadata.name != 'kuberploy-builder-private-egress'" <<<"${kp
 for kp_private_cidr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
   grep -F -- "${kp_private_cidr}" <<<"${kp_private_egress_validations}" >/dev/null
 done
-grep -F -- "object.spec.egress[0].to.size() == 3" <<<"${kp_private_egress_validations}" >/dev/null
+grep -F -- "r.to.size() == 3" <<<"${kp_private_egress_validations}" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy")] | length' "${kp_render}" | tail -1)" == "7" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail")] | length' "${kp_render}" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "7" ]]
@@ -79,21 +83,21 @@ for kp_required in \
   "v.name in ['source-credentials', 'registry-push-credentials', 'registry-cache-credentials', 'build-secrets', 'ssh-secrets']" \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
-  "!has(v.readOnly) || v.readOnly == false" \
+  "v.readOnly == null || v.readOnly == false" \
   "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.176'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
-  "!has(c.env[0].value)" \
-  '!has(c.lifecycle)' \
+  "e.value == null" \
+  'c.lifecycle == null' \
   'c.securityContext.privileged == true' \
   "c.restartPolicy == 'Always'" \
   "v.name == 'workspace' && v.readOnly == true" \
   "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
-  "cidr.matches('^(?:[0-9]{1,3}\\\\.){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$')" \
-  "r.to[0].ipBlock.cidr == '0.0.0.0/0'" \
-  "r.to[0].ipBlock.cidr == '::/0'" \
-  "r.to[0].ipBlock.except.size() <= 32" \
+  "cidr.matches('^(?:[0-9]{1,3}[.]){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$')" \
+  "t.ipBlock.cidr == '0.0.0.0/0'" \
+  "t.ipBlock.cidr == '::/0'" \
+  "t.ipBlock.except.size() <= 32" \
   "string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4='" \
   "object.data['token'].size() <= 2732" \
   "object.metadata.name.startsWith('source-credentials-')" \
