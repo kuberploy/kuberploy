@@ -25,8 +25,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.176",
-      platformVersion: "0.1.0-rc.176",
+      version: "0.1.0-rc.177",
+      platformVersion: "0.1.0-rc.177",
       bootstrapRequired: false,
     });
     vi.spyOn(api, "latestPlatformRelease").mockResolvedValue(releaseFixture());
@@ -105,8 +105,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.176",
-      platformVersion: "0.1.0-rc.176",
+      version: "0.1.0-rc.177",
+      platformVersion: "0.1.0-rc.177",
       bootstrapRequired: false,
     });
     const fixture = releaseFixture();
@@ -144,7 +144,7 @@ function releaseFixture(): LatestPlatformRelease {
     packageSha256: digest,
   };
   return {
-    currentVersion: "0.1.0-rc.176",
+    currentVersion: "0.1.0-rc.177",
     updateAvailable: true,
     compatibility: { status: "compatible", reasons: [] },
     lastCheckedAt: "2026-08-14T00:00:00Z",
@@ -182,7 +182,7 @@ function releaseFixture(): LatestPlatformRelease {
           chart: "0.1.0-rc.177",
         },
         compatibility: {
-          supportedUpgradeFrom: ">=0.1.0-rc.176 <0.1.0-rc.177",
+          supportedUpgradeFrom: ">=0.1.0-rc.177 <0.1.0-rc.177",
           kubernetes: {
             constraint: ">=1.34.0-0 <1.37.0-0",
             testedMinors: ["1.34", "1.35", "1.36"],
