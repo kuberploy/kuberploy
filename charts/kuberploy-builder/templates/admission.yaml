@@ -125,7 +125,7 @@ spec:
                (t.ipBlock.cidr == '0.0.0.0/0' && t.ipBlock.except.size() <= 32 &&
                 t.ipBlock.except.all(e, e.matches('^(?:[0-9]{1,3}[.]){3}[0-9]{1,3}/(?:[1-9]|[12][0-9]|3[0-2])$'))) ||
                (t.ipBlock.cidr == '::/0' && t.ipBlock.except.size() <= 32 &&
-                t.ipBlock.except.all(e, e.matches('^[0-9a-f:]+/(?:[1-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$')))))
+                t.ipBlock.except.all(e, e.matches('^[0-9a-f:]+/(?:[1-9]|[1-9][0-9]|1[01][0-9]|12[0-8])$'))))
             )
           ) &&
           r.ports.size() >= 1 && r.ports.size() <= 16 &&
