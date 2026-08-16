@@ -23,6 +23,7 @@ type Project struct {
 
 type UserInvitation struct {
 	ID        string    `json:"id"`
+	Email     string    `json:"email"`
 	Token     string    `json:"token,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
 }

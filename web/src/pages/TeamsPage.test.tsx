@@ -57,6 +57,7 @@ describe("copyable invitation link", () => {
       <InvitationSecret
         invitation={{
           id: "invitation_1",
+          email: "developer@example.com",
           token: "kp_invite_secret_value",
           expiresAt: "2026-08-11T00:00:00Z",
         }}
@@ -66,6 +67,7 @@ describe("copyable invitation link", () => {
 
     const link = screen.getByLabelText("One-time invitation link").textContent;
     expect(link).toBeTruthy();
+    expect(screen.getByText("developer@example.com")).toBeInTheDocument();
     const invitationURL = new URL(link!);
     expect(invitationURL.pathname).toBe("/");
     expect(invitationURL.search).toBe("");

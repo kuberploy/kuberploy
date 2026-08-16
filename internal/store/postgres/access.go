@@ -267,7 +267,7 @@ func (s *Store) CreateUserInvitation(ctx context.Context, actor, email string, t
 	if !admin {
 		return domain.UserInvitation{}, base.ErrForbidden
 	}
-	invitation := domain.UserInvitation{ID: id.New(), ExpiresAt: expires.UTC()}
+	invitation := domain.UserInvitation{ID: id.New(), Email: email, ExpiresAt: expires.UTC()}
 	_, err = tx.Exec(ctx, `INSERT INTO user_invitations(id,token_hash,email,created_by,expires_at) VALUES($1,$2,$3,$4,$5)`, invitation.ID, tokenHash, email, actor, invitation.ExpiresAt)
 	if err != nil {
 		return domain.UserInvitation{}, classify(err)

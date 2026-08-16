@@ -260,7 +260,7 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	}
 	r = f.request("POST", "/v1/users/invitations", "ignored-by-token-endpoint", map[string]string{"email": "developer@example.com"})
 	invitation := decode[domain.UserInvitation](t, r)
-	if r.StatusCode != http.StatusCreated || invitation.ID == "" || invitation.Token == "" || !invitation.ExpiresAt.After(time.Now()) || r.Header.Get("Cache-Control") != "no-store" {
+	if r.StatusCode != http.StatusCreated || invitation.ID == "" || invitation.Email != "developer@example.com" || invitation.Token == "" || !invitation.ExpiresAt.After(time.Now()) || r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("invitation=%#v status=%d", invitation, r.StatusCode)
 	}
 	developerJar, _ := cookiejar.New(nil)

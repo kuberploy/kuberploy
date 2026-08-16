@@ -223,7 +223,7 @@ func (s *Store) CreateUserInvitation(_ context.Context, actor, email string, tok
 	if _, exists := s.invitations[key]; exists {
 		return domain.UserInvitation{}, base.ErrConflict
 	}
-	invitation := domain.UserInvitation{ID: id.New(), ExpiresAt: expires.UTC()}
+	invitation := domain.UserInvitation{ID: id.New(), Email: email, ExpiresAt: expires.UTC()}
 	s.invitations[key] = invitationRecord{invitation: invitation, email: email}
 	s.audits++
 	return invitation, nil

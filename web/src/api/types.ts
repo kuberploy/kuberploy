@@ -56,6 +56,7 @@ export type Principal = User & {
 
 export type UserInvitation = {
   id: string;
+  email: string;
   token: string;
   expiresAt: string;
 };

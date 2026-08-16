@@ -175,7 +175,7 @@ describe("installation bootstrap", () => {
     render(<AuthScreen />, { wrapper: Wrapper });
 
     await user.type(screen.getByLabelText(/admin email/i), "admin@example.com");
-    const displayName = screen.getByLabelText(/display name/i);
+    const displayName = screen.getByRole("textbox", { name: /^Display name/ });
     await user.clear(displayName);
     await user.type(displayName, "Platform Admin");
     await user.type(

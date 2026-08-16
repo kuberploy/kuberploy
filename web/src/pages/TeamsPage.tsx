@@ -732,6 +732,10 @@ export function InvitationSecret({
       <code aria-label="One-time invitation link">{invitationLink}</code>
       <dl>
         <div>
+          <dt>Invitee</dt>
+          <dd>{invitation.email}</dd>
+        </div>
+        <div>
           <dt>Invitation</dt>
           <dd>{invitation.id}</dd>
         </div>
