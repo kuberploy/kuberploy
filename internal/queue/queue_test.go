@@ -27,7 +27,7 @@ func (p *datasetRecordingPublisher) Publish(_ context.Context, message domain.Wo
 func TestRelayReconstructsNonTerminalOutboxOncePerDataset(t *testing.T) {
 	ctx := t.Context()
 	store := memory.New()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@example.test", DisplayName: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
 	if err := store.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), []byte("01234567890123456789012345678901"), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}

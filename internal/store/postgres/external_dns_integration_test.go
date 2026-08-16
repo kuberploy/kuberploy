@@ -65,7 +65,7 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 		st.Close()
 	})
 	identity := actorID[:8]
-	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'platform-admin','external-dns-integration',$3,1,$4)`,
 		actorID, "dns-admin-"+identity, "admin-"+identity, databaseTime(time.Now())); err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 		t.Fatalf("application catalog=%#v err=%v", applicationItems, err)
 	}
 
-	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'developer','external-dns-integration',$3,1,$4)`,
 		viewerID, "dns-viewer-"+identity, "viewer-"+identity, databaseTime(time.Now())); err != nil {
 		t.Fatal(err)

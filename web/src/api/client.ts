@@ -1806,10 +1806,11 @@ export const api = {
   },
   bootstrap: (input: {
     token: string;
+    email: string;
     displayName: string;
     password: string;
   }) => request<User>("/v1/auth/bootstrap", { method: "POST", body: input }),
-  login: (input: { login: string; password: string }) =>
+  login: (input: { email: string; password: string }) =>
     request<User>("/v1/auth/login", { method: "POST", body: input }),
   acceptInvitation: (input: {
     token: string;
@@ -1824,7 +1825,7 @@ export const api = {
 
   users: () =>
     request<Collection<User> | User[]>("/v1/users").then(asCollection),
-  createInvitation: (input: { displayName: string }, idempotencyKey?: string) =>
+  createInvitation: (input: { email: string }, idempotencyKey?: string) =>
     request<UserInvitation>("/v1/users/invitations", {
       method: "POST",
       headers: idempotencyHeaders(idempotencyKey),

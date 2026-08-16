@@ -75,7 +75,7 @@ func newSetupService(t *testing.T) (*SetupService, *MemoryStore, *centralmemory.
 	}, Repositories: []githubapp.RepositoryIdentity{{ID: 303, OwnerID: 202, OwnerLogin: "example-org", Name: "api"}}}}
 	buildStore := NewMemoryStore()
 	catalog := centralmemory.New()
-	user := domain.User{ID: setupActorID, Login: "Alice", Role: "platform-admin", Issuer: "test", Subject: "alice", GrantRevision: 1, CreatedAt: clock.now}
+	user := domain.User{ID: setupActorID, Email: "alice@example.test", DisplayName: "Alice", Role: "platform-admin", Issuer: "test", Subject: "alice", GrantRevision: 1, CreatedAt: clock.now}
 	hash := sha256.Sum256([]byte("session"))
 	if err = catalog.BootstrapAdmin(context.Background(), user, strings.Repeat("h", 64), hash[:], clock.now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -182,6 +182,38 @@ func TestSetupBindsExactGitHubUserAndLinksOnlyVerifiedMetadata(t *testing.T) {
 	visible, err := catalog.ListGitHubInstallationsForActor(ctx, setupActorID)
 	if err != nil || len(visible) != 1 || visible[0].ID != linked.Installation.ID {
 		t.Fatalf("central catalog mismatch: %#v err=%v", visible, err)
+	}
+}
+
+func TestSetupLinksPersonalGitHubInstallation(t *testing.T) {
+	service, buildStore, _, provider, _ := newSetupService(t)
+	provider.mu.Lock()
+	provider.result.Verification.Installation.Account = githubapp.AccountIdentity{ID: 202, Login: "alice", Type: "User"}
+	provider.result.Repositories = []githubapp.RepositoryIdentity{{ID: 303, OwnerID: 202, OwnerLogin: "alice", Name: "personal-installation-fixture"}}
+	provider.mu.Unlock()
+
+	ctx := context.Background()
+	begin, err := service.Begin(ctx, BeginSetupRequest{ActorID: setupActorID, ExpectedAccountID: 202, ReturnKey: "source-builds",
+		IdempotencyKey: "personal-setup-authorize-01", RequestFingerprint: "sha256:" + strings.Repeat("8", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauth := continueSetup(t, service, begin.State, 4242)
+	completed, err := service.Complete(ctx, CompleteSetupRequest{ActorID: setupActorID, State: oauth.State, Code: "oauth-code-personal-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := service.Link(ctx, LinkSetupRequest{ActorID: setupActorID, Handoff: completed.Handoff,
+		IdempotencyKey: "personal-setup-link-01", RequestFingerprint: "sha256:" + strings.Repeat("9", 64), RequestID: "personal-request-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked.Installation.AccountType != "User" || linked.Installation.AccountLogin != "alice" || len(linked.Repositories) != 1 ||
+		linked.Repositories[0].Identity.OwnerID != 202 || linked.Repositories[0].Identity.OwnerLogin != "alice" {
+		t.Fatalf("personal installation was not preserved: %#v", linked)
+	}
+	if _, err = buildStore.GitHubUserBinding(ctx, setupActorID); err != nil {
+		t.Fatalf("personal installation did not preserve GitHub user binding: %v", err)
 	}
 }
 

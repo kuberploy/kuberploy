@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/emailaddr"
 	"github.com/kuberploy/kuberploy/internal/passwordauth"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
 type invitationRequest struct {
-	DisplayName string `json:"displayName"`
+	Email string `json:"email"`
 }
 
 func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
@@ -23,9 +24,9 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	in.DisplayName = strings.TrimSpace(in.DisplayName)
-	if in.DisplayName == "" || len(in.DisplayName) > 100 {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "displayName is required and must be at most 100 bytes.")
+	in.Email, _ = emailaddr.Normalize(in.Email)
+	if in.Email == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "email is required and must be a valid email address.")
 		return
 	}
 	raw := make([]byte, 32)
@@ -34,7 +35,7 @@ func (s *Server) createInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hash := sha256.Sum256(raw)
-	invitation, err := s.store.CreateUserInvitation(r.Context(), currentUser(r.Context()).ID, in.DisplayName, hash[:], time.Now().UTC().Add(24*time.Hour), requestID(r.Context()))
+	invitation, err := s.store.CreateUserInvitation(r.Context(), currentUser(r.Context()).ID, in.Email, hash[:], time.Now().UTC().Add(24*time.Hour), requestID(r.Context()))
 	if err != nil {
 		mappedError(w, r, err)
 		return
@@ -58,7 +59,7 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	in.DisplayName = strings.TrimSpace(in.DisplayName)
 	rawToken, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(in.Token))
 	if err != nil || len(rawToken) != 32 || in.DisplayName == "" || len(in.DisplayName) > 100 {
-		writeProblem(w, r, http.StatusUnauthorized, "InvalidInvitation", "Invitation rejected", "The invitation is invalid, expired, already used, or does not match this display name.")
+		writeProblem(w, r, http.StatusUnauthorized, "InvalidInvitation", "Invitation rejected", "The invitation is invalid, expired, or already used.")
 		return
 	}
 	tokenHash := sha256.Sum256(rawToken)
@@ -76,7 +77,7 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 	u, err := s.store.AcceptUserInvitation(r.Context(), tokenHash[:], in.DisplayName, passwordHash, sessionHash[:], time.Now().UTC().Add(s.sessionTTL))
 	if err != nil {
 		if errors.Is(err, store.ErrInvitationInvalid) {
-			writeProblem(w, r, http.StatusUnauthorized, "InvalidInvitation", "Invitation rejected", "The invitation is invalid, expired, already used, or does not match this display name.")
+			writeProblem(w, r, http.StatusUnauthorized, "InvalidInvitation", "Invitation rejected", "The invitation is invalid, expired, or already used.")
 			return
 		}
 		mappedError(w, r, err)
@@ -94,6 +95,7 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 
 type safeUserView struct {
 	ID            string    `json:"id"`
+	Email         string    `json:"email"`
 	DisplayName   string    `json:"displayName"`
 	Role          string    `json:"role"`
 	GrantRevision int64     `json:"grantRevision"`
@@ -101,7 +103,8 @@ type safeUserView struct {
 }
 
 func safeUser(u domain.User) safeUserView {
-	return safeUserView{ID: u.ID, DisplayName: u.Login, Role: u.Role, GrantRevision: u.GrantRevision, CreatedAt: u.CreatedAt}
+	name := u.DisplayName
+	return safeUserView{ID: u.ID, Email: u.Email, DisplayName: name, Role: u.Role, GrantRevision: u.GrantRevision, CreatedAt: u.CreatedAt}
 }
 
 func (s *Server) users(w http.ResponseWriter, r *http.Request) {

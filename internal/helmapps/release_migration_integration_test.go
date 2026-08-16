@@ -3929,7 +3929,7 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,created_at)
+		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 			VALUES($1,$2,'platform-admin','helm-release-test',$3,$4)`, []any{f.userID, "helm-release-" + f.userID, f.userID, f.now}},
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Helm Release',$2,$3)`, []any{f.projectID, "helm-" + f.projectID, f.now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)

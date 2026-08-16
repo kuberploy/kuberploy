@@ -52,7 +52,7 @@ func (s *Store) CreateServiceAccount(_ context.Context, actor, key, fp, requestI
 	}
 	now := time.Now().UTC()
 	accountID := id.New()
-	user := domain.User{ID: accountID, Login: in.Name, Role: "developer", Issuer: "kuberploy:service-account", Subject: accountID, GrantRevision: 1, CreatedAt: now}
+	user := domain.User{ID: accountID, DisplayName: in.Name, Role: "developer", Issuer: "kuberploy:service-account", Subject: accountID, GrantRevision: 1, CreatedAt: now}
 	account := domain.ServiceAccount{ID: accountID, ProjectID: project.ID, Name: in.Name, Role: in.Role, CreatedBy: actor, CreatedAt: now}
 	grant := domain.AccessGrant{ID: id.New(), SubjectUserID: accountID, Role: in.Role, ScopeType: domain.ScopeProject, ScopeID: project.ID, Source: "service-account", CreatedBy: actor, CreatedAt: now}
 	s.users[user.ID] = user

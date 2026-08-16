@@ -31,7 +31,6 @@ export type ApiMeta = {
 
 export type User = {
   id: string;
-  login?: string;
   displayName: string;
   email?: string;
   role: "platform-admin" | "project-admin" | "developer" | "viewer" | string;

@@ -55,7 +55,7 @@ func TestPostgreSQLPolicyActivationPersistsExternalDNSReadinessDiagnostic(t *tes
 	cleanup(ctx)
 	defer cleanup(context.Background())
 
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'platform-admin','projection-policy',$3,1,$4)`, userID, "policy-"+identity, "policy-"+identity, now); err != nil {
 		t.Fatal(err)
 	}

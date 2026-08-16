@@ -22,6 +22,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/buildpromotion"
 	"github.com/kuberploy/kuberploy/internal/deploymentrollback"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/emailaddr"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/imageresolution"
@@ -547,6 +548,7 @@ func (s *Server) configSchema(w http.ResponseWriter, r *http.Request) {
 
 type bootstrapRequest struct {
 	Token       string `json:"token"`
+	Email       string `json:"email"`
 	DisplayName string `json:"displayName"`
 	Password    string `json:"password"`
 }
@@ -565,7 +567,12 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, r, 401, "InvalidBootstrapToken", "Bootstrap rejected", "The bootstrap token is invalid.")
 		return
 	}
+	in.Email, _ = emailaddr.Normalize(in.Email)
 	in.DisplayName = strings.TrimSpace(in.DisplayName)
+	if in.Email == "" {
+		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "email is required and must be a valid email address.", FieldError{Pointer: "/email", Code: "Invalid", Detail: "Enter a valid email address."})
+		return
+	}
 	if in.DisplayName == "" || len(in.DisplayName) > 100 {
 		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "displayName is required.", FieldError{Pointer: "/displayName", Code: "Required", Detail: "Enter a display name of at most 100 characters."})
 		return
@@ -582,7 +589,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := sha256.Sum256(raw)
 	now := time.Now().UTC()
-	u := domain.User{ID: id.New(), Login: in.DisplayName, Role: "platform-admin", Issuer: "kuberploy:bootstrap", Subject: id.New(), GrantRevision: 1, CreatedAt: now}
+	u := domain.User{ID: id.New(), Email: in.Email, DisplayName: in.DisplayName, Role: "platform-admin", Issuer: "kuberploy:bootstrap", Subject: id.New(), GrantRevision: 1, CreatedAt: now}
 	if err := s.store.BootstrapAdmin(r.Context(), u, passwordHash, hash[:], now.Add(s.sessionTTL)); err != nil {
 		if errors.Is(err, store.ErrBootstrapConsumed) {
 			writeProblem(w, r, 409, "BootstrapConsumed", "Bootstrap already completed", "The one-time administrator bootstrap has already been used.")
@@ -602,7 +609,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 }
 
 type loginRequest struct {
-	Login    string `json:"login"`
+	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
@@ -612,13 +619,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	in.Login = strings.TrimSpace(in.Login)
-	if in.Login == "" || len(in.Login) > 100 || len(in.Password) > 256 {
+	in.Email, _ = emailaddr.Normalize(in.Email)
+	if in.Email == "" || len(in.Password) > 256 {
 		passwordauth.DummyVerify(in.Password)
 		s.loginRejected(w, r)
 		return
 	}
-	u, encoded, err := s.store.LocalCredential(r.Context(), in.Login)
+	u, encoded, err := s.store.LocalCredential(r.Context(), in.Email)
 	if err != nil {
 		passwordauth.DummyVerify(in.Password)
 		s.loginRejected(w, r)

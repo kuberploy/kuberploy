@@ -33,7 +33,7 @@ func TestPostgreSQLGitHubPushWakeIsExactAndLostUpdateSafe(t *testing.T) {
 	installationRow, repositoryRow := id.New(), id.New()
 	seed := now.UnixNano() & 0x3fffffffffffffff
 	appID, installationID, repositoryID, accountID := seed+1, seed+2, seed+3, seed+4
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin',$2,$2,$3)`, userID, "wake-"+strings.ReplaceAll(userID, "-", "")[:8], now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin',$2,$2,$3)`, userID, "wake-"+strings.ReplaceAll(userID, "-", "")[:8], now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Wake project',$2,$3)`, projectID, "wake-"+strings.ReplaceAll(projectID, "-", "")[:8], now); err != nil {

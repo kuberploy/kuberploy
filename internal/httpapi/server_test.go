@@ -116,7 +116,7 @@ func decode[T any](t *testing.T, r *http.Response) T {
 	return v
 }
 func (f *apiFixture) bootstrap() domain.User {
-	r := f.request("POST", "/v1/auth/bootstrap", "", map[string]any{"token": "one-time-secret", "displayName": "Local Admin", "password": "correct horse battery staple"})
+	r := f.request("POST", "/v1/auth/bootstrap", "", map[string]any{"token": "one-time-secret", "email": "admin@example.com", "displayName": "Local Admin", "password": "correct horse battery staple"})
 	if r.StatusCode != 201 {
 		f.t.Fatalf("bootstrap status %d", r.StatusCode)
 	}
@@ -152,7 +152,7 @@ func TestBootstrapIsOneTimeAndSessionIsServerSide(t *testing.T) {
 	if r.StatusCode != 200 || r.Header.Get("Cache-Control") != "private, no-store" || got.ID != u.ID || got.Authentication.Kind != "session" {
 		t.Fatalf("me=%#v status=%d", got, r.StatusCode)
 	}
-	r = f.request("POST", "/v1/auth/bootstrap", "", map[string]string{"token": "one-time-secret", "displayName": "Second", "password": "another correct horse battery staple"})
+	r = f.request("POST", "/v1/auth/bootstrap", "", map[string]string{"token": "one-time-secret", "email": "second@example.com", "displayName": "Second", "password": "another correct horse battery staple"})
 	p := decode[httpapi.Problem](t, r)
 	if r.StatusCode != 409 || p.Code != "BootstrapConsumed" || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/problem+json") {
 		t.Fatalf("unexpected second bootstrap: %d %#v", r.StatusCode, p)
@@ -167,9 +167,15 @@ func TestLocalLoginIsEnumerationResistantRotatesAndRestoresExpiredSession(t *tes
 	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	f.bootstrap()
 
-	wrongExisting := f.request("POST", "/v1/auth/login", "", map[string]string{"login": "Local Admin", "password": "incorrect password value"})
+	legacyLogin := f.request("POST", "/v1/auth/login", "", map[string]string{"login": "admin@example.com", "password": "correct horse battery staple"})
+	legacyProblem := decode[httpapi.Problem](t, legacyLogin)
+	if legacyLogin.StatusCode != http.StatusBadRequest || legacyProblem.Code != "InvalidJSON" {
+		t.Fatalf("legacy login field was accepted: status=%d problem=%#v", legacyLogin.StatusCode, legacyProblem)
+	}
+
+	wrongExisting := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "admin@example.com", "password": "incorrect password value"})
 	existingProblem := decode[httpapi.Problem](t, wrongExisting)
-	wrongMissing := f.request("POST", "/v1/auth/login", "", map[string]string{"login": "missing user", "password": "incorrect password value"})
+	wrongMissing := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "missing@example.com", "password": "incorrect password value"})
 	missingProblem := decode[httpapi.Problem](t, wrongMissing)
 	if wrongExisting.StatusCode != http.StatusUnauthorized || wrongMissing.StatusCode != http.StatusUnauthorized || existingProblem.Code != missingProblem.Code || existingProblem.Title != missingProblem.Title || existingProblem.Detail != missingProblem.Detail {
 		t.Fatalf("credential enumeration leak: existing=%d %#v missing=%d %#v", wrongExisting.StatusCode, existingProblem, wrongMissing.StatusCode, missingProblem)
@@ -181,9 +187,9 @@ func TestLocalLoginIsEnumerationResistantRotatesAndRestoresExpiredSession(t *tes
 		t.Fatalf("expired session status=%d", expired.StatusCode)
 	}
 	expired.Body.Close()
-	loggedIn := f.request("POST", "/v1/auth/login", "", map[string]string{"login": "local admin", "password": "correct horse battery staple"})
+	loggedIn := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "ADMIN@example.com", "password": "correct horse battery staple"})
 	user := decode[domain.User](t, loggedIn)
-	if loggedIn.StatusCode != http.StatusOK || loggedIn.Header.Get("Cache-Control") != "no-store" || loggedIn.Header.Get("X-CSRF-Token") == "" || user.Login != "Local Admin" {
+	if loggedIn.StatusCode != http.StatusOK || loggedIn.Header.Get("Cache-Control") != "no-store" || loggedIn.Header.Get("X-CSRF-Token") == "" || user.DisplayName != "Local Admin" || user.Email != "admin@example.com" {
 		t.Fatalf("login status=%d user=%#v", loggedIn.StatusCode, user)
 	}
 	restored := f.request("GET", "/v1/me", "", nil)
@@ -252,7 +258,7 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	if meta["bootstrapRequired"] != false {
 		t.Fatalf("bootstrap state after bootstrap=%#v", meta)
 	}
-	r = f.request("POST", "/v1/users/invitations", "ignored-by-token-endpoint", map[string]string{"displayName": "Invited Developer"})
+	r = f.request("POST", "/v1/users/invitations", "ignored-by-token-endpoint", map[string]string{"email": "developer@example.com"})
 	invitation := decode[domain.UserInvitation](t, r)
 	if r.StatusCode != http.StatusCreated || invitation.ID == "" || invitation.Token == "" || !invitation.ExpiresAt.After(time.Now()) || r.Header.Get("Cache-Control") != "no-store" {
 		t.Fatalf("invitation=%#v status=%d", invitation, r.StatusCode)

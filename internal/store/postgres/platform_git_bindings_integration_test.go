@@ -57,7 +57,7 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+		{`INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 			VALUES($1,$2,'platform-admin','platform-binding-test',$2,1,$3),
 			      ($4,$5,'developer','platform-binding-test',$5,1,$3)`, []any{adminID, "platform-admin-" + suffix, now, viewerID, "platform-viewer-" + suffix}},
 		{`INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at)

@@ -28,7 +28,7 @@ func TestPostgreSQLOperationAccessUsesStoredVariableSetScope(t *testing.T) {
 	adminID, ownerID := id.New(), id.New()
 	projectID, otherProjectID, environmentID := id.New(), id.New(), id.New()
 	projectOperationID, environmentOperationID, otherOperationID := id.New(), id.New(), id.New()
-	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'platform-admin','operation-access-test',$2,1,$3),
 		($4,$5,'developer','operation-access-test',$5,1,$3)`, adminID, "operation-access-admin-"+suffix, now, ownerID, "operation-access-owner-"+suffix); err != nil {
 		t.Fatal(err)

@@ -45,7 +45,7 @@ func (q *oneDeliveryQueue) Ack(context.Context, domain.WorkMessage) error {
 func TestProcessorFallsBackToDurableOperationAndCompletesGit(t *testing.T) {
 	ctx := context.Background()
 	st := memory.New()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@example.test", DisplayName: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
 	if err := st.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), []byte("session-hash"), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func deploymentOperationFixture(t *testing.T) (*memory.Store, domain.Operation) 
 	t.Helper()
 	ctx := t.Context()
 	st := memory.New()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@example.test", DisplayName: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now()}
 	if err := st.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), []byte("session-hash"), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}

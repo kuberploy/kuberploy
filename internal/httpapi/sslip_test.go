@@ -179,7 +179,7 @@ func TestSSLIPHostnameRequiresApplicationAndEnvironmentAuthorization(t *testing.
 	resolver := &sslipHTTPResolver{preview: validSSLIPPreview()}
 	fixture := newSSLIPAPI(t, resolver, &edgeHTTPReadiness{}, true)
 
-	invitationResponse := fixture.request(http.MethodPost, "/v1/users/invitations", "sslip-authz-invite", map[string]string{"displayName": "Scoped reader"})
+	invitationResponse := fixture.request(http.MethodPost, "/v1/users/invitations", "sslip-authz-invite", map[string]string{"email": "scoped.reader@example.com"})
 	invitation := decode[domain.UserInvitation](t, invitationResponse)
 	if invitationResponse.StatusCode != http.StatusCreated {
 		t.Fatalf("invitation status=%d", invitationResponse.StatusCode)
@@ -219,7 +219,7 @@ func TestSSLIPHostnameRequiresApplicationAndEnvironmentAuthorization(t *testing.
 		t.Fatalf("unexpected environment authorization before request: %v", err)
 	}
 
-	loginBody, _ := json.Marshal(map[string]string{"login": "scoped reader", "password": password})
+	loginBody, _ := json.Marshal(map[string]string{"email": "scoped.reader@example.com", "password": password})
 	loginRequest, err := http.NewRequest(http.MethodPost, fixture.server.URL+"/v1/auth/login", bytes.NewReader(loginBody))
 	if err != nil {
 		t.Fatal(err)

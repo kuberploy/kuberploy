@@ -76,7 +76,7 @@ func TestPostgreSQLAPIAcceptancePreservesIndexedRuntimeSecretGuards(t *testing.T
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','store-secret',$2,$3)`, []any{actorID, "store-secret-" + suffix, now}},
+		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','store-secret',$2,$3)`, []any{actorID, "store-secret-" + suffix, now}},
 		{`INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at)
 			VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, []any{id.New(), actorID, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Store secret team',$2,$3,$4)`, []any{organizationID, "store-secret-team-" + suffix, actorID, now}},

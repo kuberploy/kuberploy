@@ -71,7 +71,7 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+		{`INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 			VALUES($1,$2,'platform-admin','registry-pull-policy',$2,1,$3)`, []any{userID, "pull-policy-" + suffix, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,$2,$3,$4,$5)`, []any{teamID, "Pull policy " + suffix, "pull-policy-" + suffix, userID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,$2,$3,$4,$5)`, []any{projectID, "Pull project " + suffix, "pull-project-" + suffix, teamID, now}},

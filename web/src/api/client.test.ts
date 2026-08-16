@@ -50,6 +50,7 @@ describe("typed API client", () => {
 
     await api.bootstrap({
       token: "one-time",
+      email: "admin@example.com",
       displayName: "Example User",
       password: "correct horse battery staple",
     });
@@ -61,6 +62,7 @@ describe("typed API client", () => {
         credentials: "same-origin",
         body: JSON.stringify({
           token: "one-time",
+          email: "admin@example.com",
           displayName: "Example User",
           password: "correct horse battery staple",
         }),

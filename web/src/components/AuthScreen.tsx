@@ -11,6 +11,7 @@ import { Button, Field } from "./ui";
 import { Icon } from "./Icon";
 
 type BootstrapForm = {
+  email: string;
   displayName: string;
   token: string;
   password: string;
@@ -22,7 +23,7 @@ type InvitationAcceptanceForm = {
   password: string;
 };
 
-type LoginForm = { login: string; password: string };
+type LoginForm = { email: string; password: string };
 
 function sessionPrincipal(user: User): Principal {
   return { ...user, authentication: { kind: "session" } };
@@ -53,7 +54,12 @@ export function AuthScreen({
     retry: false,
   });
   const bootstrapForm = useForm<BootstrapForm>({
-    defaultValues: { displayName: "", token: "", password: "" },
+    defaultValues: {
+      email: "",
+      displayName: "Administrator",
+      token: "",
+      password: "",
+    },
   });
   const invitationForm = useForm<InvitationAcceptanceForm>({
     defaultValues: {
@@ -63,7 +69,7 @@ export function AuthScreen({
     },
   });
   const loginForm = useForm<LoginForm>({
-    defaultValues: { login: "", password: "" },
+    defaultValues: { email: "", password: "" },
   });
   const establishSession = async (user: User) => {
     await queryClient.cancelQueries();
@@ -195,13 +201,28 @@ export function AuthScreen({
               className="stack-form"
             >
               <Field
+                label="Admin email"
+                required
+                hint="Used to sign in; your display name is shown separately."
+                error={bootstrapForm.formState.errors.email?.message}
+              >
+                <input
+                  type="email"
+                  autoComplete="email"
+                  placeholder="admin@example.com"
+                  {...bootstrapForm.register("email", {
+                    required: "Enter an administrator email.",
+                  })}
+                />
+              </Field>
+              <Field
                 label="Display name"
                 required
                 error={bootstrapForm.formState.errors.displayName?.message}
               >
                 <input
                   autoComplete="name"
-                  placeholder="Platform admin"
+                  placeholder="Administrator"
                   {...bootstrapForm.register("displayName", {
                     required: "Enter a display name.",
                   })}
@@ -321,14 +342,15 @@ export function AuthScreen({
               className="stack-form"
             >
               <Field
-                label="Login"
+                label="Email"
                 required
-                error={loginForm.formState.errors.login?.message}
+                error={loginForm.formState.errors.email?.message}
               >
                 <input
-                  autoComplete="username"
-                  {...loginForm.register("login", {
-                    required: "Enter your login.",
+                  type="email"
+                  autoComplete="email"
+                  {...loginForm.register("email", {
+                    required: "Enter your email.",
                   })}
                 />
               </Field>

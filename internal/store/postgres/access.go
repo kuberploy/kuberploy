@@ -250,7 +250,7 @@ func (s *Store) BootstrapRequired(ctx context.Context) (bool, error) {
 	return required, err
 }
 
-func (s *Store) CreateUserInvitation(ctx context.Context, actor, displayName string, tokenHash []byte, expires time.Time, requestID string) (domain.UserInvitation, error) {
+func (s *Store) CreateUserInvitation(ctx context.Context, actor, email string, tokenHash []byte, expires time.Time, requestID string) (domain.UserInvitation, error) {
 	now := time.Now().UTC()
 	if len(tokenHash) != 32 || !expires.After(now) || expires.After(now.Add(24*time.Hour+time.Minute)) {
 		return domain.UserInvitation{}, base.ErrConflict
@@ -268,11 +268,11 @@ func (s *Store) CreateUserInvitation(ctx context.Context, actor, displayName str
 		return domain.UserInvitation{}, base.ErrForbidden
 	}
 	invitation := domain.UserInvitation{ID: id.New(), ExpiresAt: expires.UTC()}
-	_, err = tx.Exec(ctx, `INSERT INTO user_invitations(id,token_hash,display_name,created_by,expires_at) VALUES($1,$2,$3,$4,$5)`, invitation.ID, tokenHash, displayName, actor, invitation.ExpiresAt)
+	_, err = tx.Exec(ctx, `INSERT INTO user_invitations(id,token_hash,email,created_by,expires_at) VALUES($1,$2,$3,$4,$5)`, invitation.ID, tokenHash, email, actor, invitation.ExpiresAt)
 	if err != nil {
 		return domain.UserInvitation{}, classify(err)
 	}
-	if err = audit(ctx, tx, actor, "user.invitation.create", "user-invitation", invitation.ID, requestID, map[string]any{"displayName": displayName, "expiresAt": invitation.ExpiresAt}); err != nil {
+	if err = audit(ctx, tx, actor, "user.invitation.create", "user-invitation", invitation.ID, requestID, map[string]any{"email": email, "expiresAt": invitation.ExpiresAt}); err != nil {
 		return domain.UserInvitation{}, err
 	}
 	return invitation, tx.Commit(ctx)
@@ -287,23 +287,23 @@ func (s *Store) AcceptUserInvitation(ctx context.Context, tokenHash []byte, disp
 		return domain.User{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var invitationID, expectedName string
+	var invitationID, expectedEmail string
 	var expires time.Time
 	var acceptedAt *time.Time
-	err = tx.QueryRow(ctx, `SELECT id,display_name,expires_at,accepted_at FROM user_invitations WHERE token_hash=$1 FOR UPDATE`, tokenHash).Scan(&invitationID, &expectedName, &expires, &acceptedAt)
+	err = tx.QueryRow(ctx, `SELECT id,email,expires_at,accepted_at FROM user_invitations WHERE token_hash=$1 FOR UPDATE`, tokenHash).Scan(&invitationID, &expectedEmail, &expires, &acceptedAt)
 	now := time.Now().UTC()
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (acceptedAt != nil || !expires.After(now) || expectedName != displayName || !sessionExpires.After(now)) {
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && (acceptedAt != nil || !expires.After(now) || !sessionExpires.After(now)) {
 		return domain.User{}, base.ErrInvitationInvalid
 	}
 	if err != nil {
 		return domain.User{}, err
 	}
-	u := domain.User{ID: id.New(), Login: displayName, Role: "developer", Issuer: "kuberploy:invitation", Subject: invitationID, GrantRevision: 1, CreatedAt: now}
-	_, err = tx.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, u.ID, u.Login, u.Role, u.Issuer, u.Subject, u.GrantRevision, u.CreatedAt)
+	u := domain.User{ID: id.New(), Email: expectedEmail, DisplayName: displayName, Role: "developer", Issuer: "kuberploy:invitation", Subject: invitationID, GrantRevision: 1, CreatedAt: now}
+	_, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, u.ID, u.Email, u.DisplayName, u.Role, u.Issuer, u.Subject, u.GrantRevision, u.CreatedAt)
 	if err != nil {
 		return domain.User{}, classify(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,login_normalized,password_hash) VALUES($1,$2,$3)`, u.ID, strings.ToLower(strings.TrimSpace(u.Login)), passwordHash)
+	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,email_normalized,password_hash) VALUES($1,$2,$3)`, u.ID, normalizeCredential(u.Email), passwordHash)
 	if err != nil {
 		return domain.User{}, base.ErrInvitationInvalid
 	}
@@ -326,7 +326,7 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 	if err != nil {
 		return nil, err
 	}
-	query := `SELECT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM users u
+	query := `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM users u
 		WHERE NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
 	args := []any{}
 	if !admin {
@@ -338,7 +338,7 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 		if len(managedTeamIDs) == 0 {
 			return nil, base.ErrForbidden
 		}
-		query = `SELECT DISTINCT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
+		query = `SELECT DISTINCT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
 			FROM team_memberships visible JOIN users u ON u.id=visible.user_id
 			WHERE visible.team_id::text=ANY($1)
 			AND NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
@@ -352,7 +352,7 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 	var out []domain.User
 	for rows.Next() {
 		var u domain.User
-		if err = rows.Scan(&u.ID, &u.Login, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt); err != nil {
+		if err = rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -454,7 +454,7 @@ func (s *Store) ListTeamMembersForActor(ctx context.Context, actor, teamID strin
 	if !allowed {
 		return nil, base.ErrNotFound
 	}
-	rows, err := s.pool.Query(ctx, `SELECT m.team_id,m.user_id,m.role,m.created_at,u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
+	rows, err := s.pool.Query(ctx, `SELECT m.team_id,m.user_id,m.role,m.created_at,u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
         FROM team_memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 ORDER BY m.created_at,m.user_id`, teamID)
 	if err != nil {
 		return nil, err
@@ -464,7 +464,7 @@ func (s *Store) ListTeamMembersForActor(ctx context.Context, actor, teamID strin
 	for rows.Next() {
 		var member domain.TeamMember
 		var u domain.User
-		if err = rows.Scan(&member.TeamID, &member.UserID, &member.Role, &member.CreatedAt, &u.ID, &u.Login, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt); err != nil {
+		if err = rows.Scan(&member.TeamID, &member.UserID, &member.Role, &member.CreatedAt, &u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		member.User = &u

@@ -70,7 +70,7 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Projection app','projection-app',$3) ON CONFLICT(id) DO NOTHING`, pgApplication, pgProject, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,'Projection integration','platform-admin','projection-integration','projection-integration',1,$2)`, pgUser, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,'Projection integration','platform-admin','projection-integration','projection-integration',1,$2)`, pgUser, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,github_app_id,github_account_id,lifecycle,permissions,last_verified_at,created_at,updated_at)

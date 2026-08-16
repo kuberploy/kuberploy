@@ -69,7 +69,7 @@ func TestPostgreSQLEdgeRuntimeContract(t *testing.T) {
 	if now.Nanosecond()%1000 == 0 {
 		now = now.Add(time.Nanosecond)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,'edge-runtime-test','platform-admin','edge-runtime-test','edge-runtime-test',1,$2)`, userID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestPostgreSQLExternalDNSManagedReferencesAreFenced(t *testing.T) {
 	defer cleanup(context.Background())
 
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,'edge-managed-dns-test','platform-admin','edge-managed-dns-test','edge-managed-dns-test',1,$2)`, userID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +351,7 @@ func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T
 	cleanup(ctx)
 	defer cleanup(context.Background())
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,'edge-wake-admin','platform-admin','edge-wake-admin','edge-wake-admin',1,$2)`, userID, now); err != nil {
 		t.Fatal(err)
 	}

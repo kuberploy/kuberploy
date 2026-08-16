@@ -209,7 +209,7 @@ func (s *Store) bumpGrantsLocked(userIDs map[string]struct{}) {
 	}
 }
 
-func (s *Store) CreateUserInvitation(_ context.Context, actor, displayName string, tokenHash []byte, expires time.Time, _ string) (domain.UserInvitation, error) {
+func (s *Store) CreateUserInvitation(_ context.Context, actor, email string, tokenHash []byte, expires time.Time, _ string) (domain.UserInvitation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.isAdminLocked(actor) {
@@ -224,7 +224,7 @@ func (s *Store) CreateUserInvitation(_ context.Context, actor, displayName strin
 		return domain.UserInvitation{}, base.ErrConflict
 	}
 	invitation := domain.UserInvitation{ID: id.New(), ExpiresAt: expires.UTC()}
-	s.invitations[key] = invitationRecord{invitation: invitation, displayName: displayName}
+	s.invitations[key] = invitationRecord{invitation: invitation, email: email}
 	s.audits++
 	return invitation, nil
 }
@@ -235,19 +235,19 @@ func (s *Store) AcceptUserInvitation(_ context.Context, tokenHash []byte, displa
 	key := hex.EncodeToString(tokenHash)
 	record, ok := s.invitations[key]
 	now := time.Now().UTC()
-	if !ok || record.accepted || !record.invitation.ExpiresAt.After(now) || record.displayName != displayName || len(sessionHash) != 32 || !sessionExpires.After(now) {
+	if !ok || record.accepted || !record.invitation.ExpiresAt.After(now) || len(sessionHash) != 32 || !sessionExpires.After(now) {
 		return domain.User{}, base.ErrInvitationInvalid
 	}
-	u := domain.User{ID: id.New(), Login: displayName, Role: "developer", Issuer: "kuberploy:invitation", Subject: record.invitation.ID, GrantRevision: 1, CreatedAt: now}
+	u := domain.User{ID: id.New(), Email: record.email, DisplayName: displayName, Role: "developer", Issuer: "kuberploy:invitation", Subject: record.invitation.ID, GrantRevision: 1, CreatedAt: now}
 	if s.passwordCredentials == nil {
 		s.passwordCredentials = map[string]struct{ userID, hash string }{}
 	}
-	login := strings.ToLower(strings.TrimSpace(displayName))
-	if _, exists := s.passwordCredentials[login]; exists || passwordHash == "" {
+	email := strings.ToLower(strings.TrimSpace(record.email))
+	if _, exists := s.passwordCredentials[email]; exists || passwordHash == "" {
 		return domain.User{}, base.ErrInvitationInvalid
 	}
 	s.users[u.ID] = u
-	s.passwordCredentials[login] = struct{ userID, hash string }{u.ID, passwordHash}
+	s.passwordCredentials[email] = struct{ userID, hash string }{u.ID, passwordHash}
 	s.sessions[hex.EncodeToString(sessionHash)] = struct {
 		userID   string
 		revision int64

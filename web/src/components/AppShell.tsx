@@ -316,12 +316,12 @@ export function AppShell({ user }: { user: Principal }) {
               ))}
             </ToggleGroup>
             <span className="user-menu__avatar">
-              {(user.displayName || user.login || "A")
+              {(user.displayName || "A")
                 .slice(0, 1)
                 .toUpperCase()}
             </span>
             <span className="user-menu__copy">
-              <strong>{user.displayName || user.login}</strong>
+              <strong>{user.displayName}</strong>
               <small>{user.role}</small>
             </span>
             <Button

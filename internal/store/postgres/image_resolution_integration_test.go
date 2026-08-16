@@ -30,10 +30,10 @@ func TestAuthorizedImageSourcesSQLIsDeploymentScoped(t *testing.T) {
 	now := databaseTime(time.Now())
 	actorID, viewerID := id.New(), id.New()
 	for _, user := range []struct {
-		id, login, role string
+		id, displayName, role string
 	}{{actorID, "image-resolution-admin-" + actorID[:8], "platform-admin"}, {viewerID, "image-resolution-viewer-" + viewerID[:8], "developer"}} {
-		if _, err = store.pool.Exec(t.Context(), `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
-			VALUES($1,$2,$3,'image-resolution-integration',$4,1,$5)`, user.id, user.login, user.role, user.id, now); err != nil {
+		if _, err = store.pool.Exec(t.Context(), `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
+			VALUES($1,$2,$3,'image-resolution-integration',$4,1,$5)`, user.id, user.displayName, user.role, user.id, now); err != nil {
 			t.Fatal(err)
 		}
 	}

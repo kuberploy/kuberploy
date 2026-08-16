@@ -39,7 +39,7 @@ func TestPostgresStoreApprovalRenderLeaseAndResult(t *testing.T) {
 	approvalID, commandID, scopeID := id.New(), id.New(), userID
 	namespace := "helm-" + strings.ReplaceAll(environmentID[:8], "-", "")
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	_, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+	_, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin',$3,$4,$5)`, userID, "helm-test-"+userID, "helm-test", userID, now)
 	if err != nil {
 		t.Fatal(err)

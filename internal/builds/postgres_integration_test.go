@@ -60,7 +60,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	providerRepo := providerInstall + 1
 	accountID := providerInstall + 2
 	appID := providerInstall + 3
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin',$3,$4,1,$5)`, userID, "Build Test "+suffix, "build-test-"+suffix, "subject-"+suffix, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin',$3,$4,1,$5)`, userID, "Build Test "+suffix, "build-test-"+suffix, "subject-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, projectID, "Build Test "+suffix, "build-"+suffix, now); err != nil {
@@ -199,7 +199,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	viewerID, viewerGrantID := id.New(), id.New()
 	// Login identities use the legacy developer/platform-admin column; the
 	// effective viewer role is carried only by the scoped access grant below.
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'developer',$3,$4,1,$5)`, viewerID, "Build Log Viewer "+suffix, "build-log-test-"+suffix, "build-log-subject-"+suffix, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'developer',$3,$4,1,$5)`, viewerID, "Build Log Viewer "+suffix, "build-log-test-"+suffix, "build-log-subject-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,permissions,source,created_by,created_at)

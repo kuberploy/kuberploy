@@ -122,6 +122,41 @@ func TestSetupCallbackBindsExactUserAndDoesNotTrustInstallationID(t *testing.T) 
 	})
 }
 
+func TestSetupCallbackAcceptsPersonalAccountAndRepositories(t *testing.T) {
+	cfg := validTestConfig(t)
+	userToken := "ghu_personal_setup_token"
+	installation := apiInstallationFixture(cfg, 4242, testUser, map[string]string{"metadata": "read", "contents": "read"})
+	repository := RepositoryIdentity{ID: 303, Name: "personal-installation-fixture", OwnerID: testUser.ID, OwnerLogin: testUser.Login}
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("Authorization") != "Bearer "+userToken {
+			t.Fatalf("wrong personal setup authorization: %q", request.Header.Get("Authorization"))
+		}
+		switch request.URL.Path {
+		case "/user":
+			return httpResponse(http.StatusOK, marshalFixture(t, map[string]any{"id": testUser.ID, "login": testUser.Login, "type": testUser.Type}), nil), nil
+		case "/user/installations":
+			return httpResponse(http.StatusOK, marshalFixture(t, map[string]any{"total_count": 1, "installations": []any{installation}}), nil), nil
+		case "/user/installations/4242/repositories":
+			return httpResponse(http.StatusOK, marshalFixture(t, map[string]any{"total_count": 1, "repositories": []any{apiRepositoryFixture(repository, "User")}}), nil), nil
+		default:
+			t.Fatalf("unexpected personal setup path %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	client, err := NewClient(cfg, staticAppTokens{token: testAppToken()}, transport, &fixedClock{now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verification, err := client.VerifySetupInstallationRaw(context.Background(), userToken, 4242, testUser.ID, testUser.ID)
+	if err != nil || verification.Installation.Account.Type != "User" {
+		t.Fatalf("personal installation verification=%#v err=%v", verification, err)
+	}
+	repositories, err := client.ListUserInstallationRepositories(context.Background(), newCredential(userToken), 4242, testUser)
+	if err != nil || len(repositories) != 1 || repositories[0] != repository {
+		t.Fatalf("personal repositories=%#v err=%v", repositories, err)
+	}
+}
+
 func TestMintInstallationTokenUsesExplicitIDsPermissionsAndPostMintScopeCheck(t *testing.T) {
 	cfg := validTestConfig(t)
 	now := time.Date(2026, 8, 9, 6, 0, 0, 0, time.UTC)

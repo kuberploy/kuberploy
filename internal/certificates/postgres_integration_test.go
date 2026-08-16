@@ -37,7 +37,7 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 		Namespace: "certificate-" + actorID[:8],
 	}
 	suffix := actorID[:8]
-	if _, err = pool.Exec(ctx, "INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$3,$4)",
+	if _, err = pool.Exec(ctx, "INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$3,$4)",
 		actorID, "certificate-"+suffix, "certificate-"+actorID, testNow); err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ func (s *Store) CreateServiceAccount(ctx context.Context, actor, key, fingerprin
 	now := time.Now().UTC()
 	accountID := id.New()
 	account := domain.ServiceAccount{ID: accountID, ProjectID: project.ID, Name: in.Name, Role: in.Role, CreatedBy: actor, CreatedAt: now}
-	if _, err = tx.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'developer','kuberploy:service-account',$3,1,$4)`, account.ID, account.Name, account.ID, account.CreatedAt); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,NULL,$2,'developer','kuberploy:service-account',$3,1,$4)`, account.ID, account.Name, account.ID, account.CreatedAt); err != nil {
 		return base.Result[domain.ServiceAccount]{}, classify(err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO service_accounts(id,project_id,name,role,created_by,created_at) VALUES($1,$2,$3,$4,$5,$6)`, account.ID, account.ProjectID, account.Name, account.Role, account.CreatedBy, account.CreatedAt); err != nil {
@@ -300,13 +300,13 @@ func (s *Store) ServiceAccountByToken(ctx context.Context, tokenHash []byte, now
 	}
 	var principal domain.AutomationPrincipal
 	var scopes []string
-	err := s.pool.QueryRow(ctx, `SELECT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,sa.id,t.id,t.scopes,t.expires_at
+	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,sa.id,t.id,t.scopes,t.expires_at
 		FROM service_account_tokens t
 		JOIN service_accounts sa ON sa.id=t.service_account_id
 		JOIN users u ON u.id=sa.id
 		WHERE t.token_hash=$1 AND t.revoked_at IS NULL AND t.expires_at>$2 AND sa.disabled_at IS NULL
 		  AND u.issuer='kuberploy:service-account' AND u.subject=u.id::text`, tokenHash, now).
-		Scan(&principal.User.ID, &principal.User.Login, &principal.User.Role, &principal.User.Issuer, &principal.User.Subject, &principal.User.GrantRevision, &principal.User.CreatedAt, &principal.ServiceAccountID, &principal.TokenID, &scopes, &principal.ExpiresAt)
+		Scan(&principal.User.ID, &principal.User.Email, &principal.User.DisplayName, &principal.User.Role, &principal.User.Issuer, &principal.User.Subject, &principal.User.GrantRevision, &principal.User.CreatedAt, &principal.ServiceAccountID, &principal.TokenID, &scopes, &principal.ExpiresAt)
 	if err != nil {
 		return domain.AutomationPrincipal{}, classify(err)
 	}

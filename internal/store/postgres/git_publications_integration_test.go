@@ -53,7 +53,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	cleanup(ctx)
 	defer cleanup(context.Background())
 
-	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'platform-admin','git-publication-test',$2,1,$3)`, actorID, "publication-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +512,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	}
 	rendered, err := argo.RenderApplication(argo.EnvironmentTarget{Project: project.Value, Environment: environment.Value, Binding: advancedBinding,
 		ArgoNamespace: "argocd", Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime",
-			ChartVersion: "0.1.0-rc.183", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
+			ChartVersion: "0.1.0-rc.184", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
 		application.Value, domain.Deployment{ID: updateOperation.TargetID, EnvironmentID: environment.Value.ID, ApplicationID: application.Value.ID,
 			DesiredRevision: desiredRevision})
 	if err != nil || !strings.Contains(string(rendered), `targetRevision: "`+mergeContentRevision+`"`) || strings.Contains(string(rendered), `targetRevision: "`+updateTarget+`"`) {

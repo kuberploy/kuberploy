@@ -97,7 +97,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	}
 	defer st.Close()
 	adminSession := sha256.Sum256([]byte("integration-admin-session"))
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "integration", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@integration.test", DisplayName: "Admin", Role: "platform-admin", Issuer: "integration", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	adminPassword := "integration admin password 123"
 	adminPasswordHash, err := passwordauth.Hash(adminPassword)
 	if err != nil {
@@ -107,7 +107,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	invite := sha256.Sum256([]byte("integration-invitation"))
-	if _, err = st.CreateUserInvitation(ctx, admin.ID, "Developer", invite[:], time.Now().Add(time.Hour), "request"); err != nil {
+	if _, err = st.CreateUserInvitation(ctx, admin.ID, "developer@integration.test", invite[:], time.Now().Add(time.Hour), "request"); err != nil {
 		t.Fatal(err)
 	}
 	developerSession := sha256.Sum256([]byte("integration-developer-session"))
@@ -121,7 +121,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Run("local credential lookup rehash and session CAS", func(t *testing.T) {
-		credentialUser, storedHash, lookupErr := st.LocalCredential(ctx, "  dEvElOpEr  ")
+		credentialUser, storedHash, lookupErr := st.LocalCredential(ctx, "  DEVELOPER@INTEGRATION.TEST  ")
 		if lookupErr != nil || credentialUser.ID != developer.ID || storedHash != developerPasswordHash || storedHash == developerPassword {
 			t.Fatalf("normalized credential user=%#v hashMatch=%t plaintext=%t err=%v", credentialUser, storedHash == developerPasswordHash, storedHash == developerPassword, lookupErr)
 		}
@@ -161,7 +161,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatalf("stale session survived grant revision change: %v", err)
 	}
 	managerInvite := sha256.Sum256([]byte("integration-team-manager-invitation"))
-	if _, err = st.CreateUserInvitation(ctx, admin.ID, "Team manager", managerInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
+	if _, err = st.CreateUserInvitation(ctx, admin.ID, "manager@integration.test", managerInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
 		t.Fatal(err)
 	}
 	managerSession := sha256.Sum256([]byte("integration-team-manager-session"))
@@ -349,7 +349,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatalf("stale PostgreSQL rollout leaked status=%#v err=%v", rolloutStatus, err)
 	}
 	viewerInvite := sha256.Sum256([]byte("integration-scoped-viewer-invitation"))
-	if _, err = st.CreateUserInvitation(ctx, admin.ID, "Scoped Viewer", viewerInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
+	if _, err = st.CreateUserInvitation(ctx, admin.ID, "viewer@integration.test", viewerInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
 		t.Fatal(err)
 	}
 	viewerSession := sha256.Sum256([]byte("integration-scoped-viewer-session"))

@@ -37,7 +37,7 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	}
 	actor, team, project, environment, application, binding := id.New(), id.New(), id.New(), id.New(), id.New(), id.New()
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject) VALUES($1,'middleware-admin','platform-admin','test',$2)`, actor, actor); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject) VALUES($1,'middleware-admin','platform-admin','test',$2)`, actor, actor); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO teams(id,name,slug,created_by) VALUES($1,'Middleware team',$2,$3)`, team, "middleware-"+team[:8], actor); err != nil {

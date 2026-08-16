@@ -32,6 +32,13 @@ fresh database for installations created from an older RC migration history.
 After `0.1.0` is stable, this checksum and history are immutable and every
 schema change must use a new ordered migration.
 
+Migration `017_email_identity` separates presentation `display_name` from
+local-auth `email`. Fresh installs ask for an administrator email and display
+name separately; invitation records bind an email, while invitees choose their
+own display name. SSO is not implemented yet. Older RC users whose credentials
+were created from display names need the documented offline recovery or a fresh
+pre-stable database; the API does not accept display names as login identifiers.
+
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
 foreign-key fences. The application does not use Prisma relation emulation;

@@ -46,9 +46,9 @@ type variableSetPreviewRecord struct {
 }
 
 type invitationRecord struct {
-	invitation  domain.UserInvitation
-	displayName string
-	accepted    bool
+	invitation domain.UserInvitation
+	email      string
+	accepted   bool
 }
 
 type Store struct {
@@ -148,13 +148,16 @@ func (s *Store) BootstrapAdmin(_ context.Context, u domain.User, passwordHash st
 	if s.passwordCredentials == nil {
 		s.passwordCredentials = map[string]struct{ userID, hash string }{}
 	}
-	login := strings.ToLower(strings.TrimSpace(u.Login))
-	if _, exists := s.passwordCredentials[login]; exists || passwordHash == "" {
+	email := strings.ToLower(strings.TrimSpace(u.Email))
+	if email == "" {
+		email = strings.ToLower(strings.TrimSpace(u.DisplayName))
+	}
+	if _, exists := s.passwordCredentials[email]; exists || passwordHash == "" {
 		return base.ErrConflict
 	}
 	s.bootstrapUsed = true
 	s.users[u.ID] = u
-	s.passwordCredentials[login] = struct{ userID, hash string }{u.ID, passwordHash}
+	s.passwordCredentials[email] = struct{ userID, hash string }{u.ID, passwordHash}
 	grantID := id.New()
 	s.accessGrants[grantID] = domain.AccessGrant{ID: grantID, SubjectUserID: u.ID, Role: domain.RolePlatformAdmin, ScopeType: domain.ScopePlatform, ScopeID: "platform", Permissions: []domain.Permission{}, Source: "bootstrap", CreatedBy: u.ID, CreatedAt: u.CreatedAt}
 	s.sessions[hex.EncodeToString(hash)] = struct {
@@ -164,10 +167,10 @@ func (s *Store) BootstrapAdmin(_ context.Context, u domain.User, passwordHash st
 	}{u.ID, u.GrantRevision, expires}
 	return nil
 }
-func (s *Store) LocalCredential(_ context.Context, login string) (domain.User, string, error) {
+func (s *Store) LocalCredential(_ context.Context, email string) (domain.User, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	credential, ok := s.passwordCredentials[strings.ToLower(strings.TrimSpace(login))]
+	credential, ok := s.passwordCredentials[strings.ToLower(strings.TrimSpace(email))]
 	u, userOK := s.users[credential.userID]
 	if !ok || !userOK {
 		return domain.User{}, "", base.ErrNotFound
@@ -181,14 +184,17 @@ func (s *Store) CreateLoginSession(_ context.Context, userID, expectedHash, upgr
 	if !ok || len(sessionHash) != 32 || !expires.After(time.Now()) {
 		return domain.User{}, base.ErrNotFound
 	}
-	login := strings.ToLower(strings.TrimSpace(u.Login))
-	credential, ok := s.passwordCredentials[login]
+	email := strings.ToLower(strings.TrimSpace(u.Email))
+	if email == "" {
+		email = strings.ToLower(strings.TrimSpace(u.DisplayName))
+	}
+	credential, ok := s.passwordCredentials[email]
 	if !ok || credential.userID != userID || credential.hash != expectedHash {
 		return domain.User{}, base.ErrNotFound
 	}
 	if upgradedHash != "" {
 		credential.hash = upgradedHash
-		s.passwordCredentials[login] = credential
+		s.passwordCredentials[email] = credential
 	}
 	s.sessions[hex.EncodeToString(sessionHash)] = struct {
 		userID   string

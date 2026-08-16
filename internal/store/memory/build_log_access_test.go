@@ -26,7 +26,7 @@ func TestAuditBuildLogAccessUsesFreshExactAttemptChainAndBothPermissions(t *test
 	applicationID := "33333333-3333-4333-8333-333333333333"
 	attemptID := "11111111-1111-4111-8111-111111111111"
 	grantID := "44444444-4444-4444-8444-444444444444"
-	store.users[actorID] = domain.User{ID: actorID, Login: "viewer", Role: string(domain.RoleViewer), Issuer: "test", Subject: actorID, GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	store.users[actorID] = domain.User{ID: actorID, DisplayName: "viewer", Role: string(domain.RoleViewer), Issuer: "test", Subject: actorID, GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	store.projects[projectID] = domain.Project{ID: projectID, Name: "Project", Slug: "project", CreatedAt: time.Now().UTC()}
 	store.applications[applicationID] = domain.Application{ID: applicationID, ProjectID: projectID, Name: "App", Slug: "app", CreatedAt: time.Now().UTC()}
 	store.accessGrants[grantID] = domain.AccessGrant{ID: grantID, SubjectUserID: actorID, Role: domain.RoleViewer, ScopeType: domain.ScopeApplication, ScopeID: applicationID, Source: "test", CreatedBy: actorID, CreatedAt: time.Now().UTC()}

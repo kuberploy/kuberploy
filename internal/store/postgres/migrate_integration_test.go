@@ -229,7 +229,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	}
 
 	actorID, receiptID := id.New(), id.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','migration-authority',$2,$3)`, actorID, "migration-receipt-"+actorID[:8], now); err != nil {
 		t.Fatal(err)
 	}

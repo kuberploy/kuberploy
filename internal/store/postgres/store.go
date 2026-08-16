@@ -31,6 +31,28 @@ type Store struct {
 	certificateReferences certificateReferenceResolver
 }
 
+func userDisplayName(user domain.User) string {
+	return user.DisplayName
+}
+
+func userCredentialEmail(user domain.User) string {
+	if user.Email != "" {
+		return user.Email
+	}
+	// Compatibility for old Go-only fixtures. New HTTP-created users always
+	// provide Email, and no public endpoint accepts a display name as login.
+	return user.DisplayName
+}
+
+func normalizeCredential(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 func (s *Store) ConfigureCertificateReferences(resolver certificateReferenceResolver) error {
 	if s == nil || s.pool == nil || resolver == nil || s.certificateReferences != nil {
 		return base.ErrPreconditionFailed
@@ -147,11 +169,11 @@ func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHa
 	if consumed != nil {
 		return base.ErrBootstrapConsumed
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, user.ID, user.Login, user.Role, user.Issuer, user.Subject, user.GrantRevision, user.CreatedAt)
+	_, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, user.ID, nullableString(user.Email), userDisplayName(user), user.Role, user.Issuer, user.Subject, user.GrantRevision, user.CreatedAt)
 	if err != nil {
 		return classify(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,login_normalized,password_hash) VALUES($1,$2,$3)`, user.ID, strings.ToLower(strings.TrimSpace(user.Login)), passwordHash)
+	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,email_normalized,password_hash) VALUES($1,$2,$3)`, user.ID, normalizeCredential(userCredentialEmail(user)), passwordHash)
 	if err != nil {
 		return classify(err)
 	}
@@ -170,12 +192,12 @@ func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHa
 	return tx.Commit(ctx)
 }
 
-func (s *Store) LocalCredential(ctx context.Context, login string) (domain.User, string, error) {
+func (s *Store) LocalCredential(ctx context.Context, email string) (domain.User, string, error) {
 	var u domain.User
 	var hash string
-	err := s.pool.QueryRow(ctx, `SELECT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
-		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE c.login_normalized=$1`, strings.ToLower(strings.TrimSpace(login))).
-		Scan(&u.ID, &u.Login, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &hash)
+	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
+		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE c.email_normalized=$1`, normalizeCredential(email)).
+		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &hash)
 	return u, hash, classify(err)
 }
 
@@ -187,9 +209,9 @@ func (s *Store) CreateLoginSession(ctx context.Context, userID, expectedHash, up
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var u domain.User
 	var current string
-	err = tx.QueryRow(ctx, `SELECT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
+	err = tx.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
 		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE u.id=$1 FOR UPDATE`, userID).
-		Scan(&u.ID, &u.Login, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &current)
+		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &current)
 	if err != nil || current != expectedHash || len(sessionHash) != 32 || !expires.After(time.Now()) {
 		return domain.User{}, base.ErrNotFound
 	}
@@ -206,8 +228,8 @@ func (s *Store) CreateLoginSession(ctx context.Context, userID, expectedHash, up
 
 func (s *Store) UserBySession(ctx context.Context, tokenHash []byte, now time.Time) (domain.User, error) {
 	var u domain.User
-	err := s.pool.QueryRow(ctx, `SELECT u.id,u.login,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.grant_revision=u.grant_revision`, tokenHash, now).
-		Scan(&u.ID, &u.Login, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.grant_revision=u.grant_revision`, tokenHash, now).
+		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt)
 	return u, classify(err)
 }
 func (s *Store) RevokeSession(ctx context.Context, tokenHash []byte) error {

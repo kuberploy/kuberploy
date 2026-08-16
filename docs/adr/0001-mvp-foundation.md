@@ -15,7 +15,10 @@ The product is one public Go/TypeScript/Helm monorepo with module identity `gith
 
 ### P0 human identity
 
-Human principals have a provider-neutral stable key `(issuer, subject)`. Display name, username and email are attributes and never authorization keys.
+Human principals have a provider-neutral stable key `(issuer, subject)`. Local
+password credentials use a normalized email address; display name is
+presentation-only. Future SSO providers may supply email metadata, but email is
+not the durable external identity key.
 
 The first implementation provides a one-time bootstrap exchange:
 

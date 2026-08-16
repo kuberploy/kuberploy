@@ -27,7 +27,7 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 		t.Fatal(err)
 	}
 	now, actorID := databaseTime(time.Now()), id.New()
-	if _, err = store.pool.Exec(t.Context(), `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin','registry-pull-test',$4,1,$3)`, actorID, "pull-admin-"+actorID[:8], now, actorID); err != nil {
+	if _, err = store.pool.Exec(t.Context(), `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin','registry-pull-test',$4,1,$3)`, actorID, "pull-admin-"+actorID[:8], now, actorID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.pool.Exec(t.Context(), `INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at) VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, id.New(), actorID, now); err != nil {

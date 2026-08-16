@@ -9,11 +9,12 @@ applications on Kubernetes. It combines a straightforward web experience with
 a GitOps control plane: Git stores non-secret desired state, Argo CD reconciles
 workloads, and PostgreSQL holds durable operations and recovery state.
 
-> **Release status:** `0.1.0-rc.183` is a release candidate. Use a dedicated test
+> **Release status:** `0.1.0-rc.184` is a release candidate. Use a dedicated test
 > cluster until the production qualification matrix is complete.
-> The dedicated Prisma migration Job automatically upgrades supported
-> Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma
-> schema histories require a fresh database.
+> The dedicated Prisma migration Job upgrades supported Prisma-backed RC
+> databases during Helm upgrade. Pre-017 RC local credentials are not inferred
+> as email identities; those installations need offline recovery or a fresh
+> pre-stable database before local sign-in.
 
 ## Highlights
 
@@ -23,6 +24,8 @@ workloads, and PostgreSQL holds durable operations and recovery state.
   for reviewed environments.
 - Immutable image resolution, rollback, direct per-application scheduling, reusable Traefik
   middleware, VariableSet inheritance, runtime secrets, TLS, and DNS workflows.
+- Email-based local sign-in with a separate presentation display name; future
+  SSO providers can attach to the stable issuer/subject identity seam.
 - Team projects, scoped grants, service accounts, GitHub App installations, and
   copyable one-time invitation links—no email provider required.
 - Bounded logs, events, metrics, audit history, rendered configuration previews,
@@ -84,7 +87,7 @@ cp examples/installer/managed-platform-values.yaml installer-values.yaml
 ```bash
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.183 \
+  --version 0.1.0-rc.184 \
   --namespace kuberploy-system --create-namespace \
   --kubeconfig /absolute/path/to/kubeconfig \
   --kube-context exact-context \

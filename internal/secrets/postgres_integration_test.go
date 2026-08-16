@@ -31,7 +31,7 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleanupPostgresSecretFixture(ctx, pool)
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,'secret-test','platform-admin','test','secret-test',$2)`, testActor, testTime); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,'secret-test','platform-admin','test','secret-test',$2)`, testActor, testTime); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Secret team','secret-team',$2,$3)`, testOrganization, testActor, testTime); err != nil {

@@ -153,7 +153,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLAtomicReferences(t *testing.T) {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "policy-" + suffix, now}},
+		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "policy-" + suffix, now}},
 		{`INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,'Policy team',$2,$3,$4)`, []any{organizationID, "policy-team-" + suffix, actorID, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Policy project',$2,$3,$4)`, []any{projectID, "policy-project-" + suffix, organizationID, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "production-" + suffix, namespace, now}},
@@ -483,7 +483,7 @@ func TestRuntimeSecretReferencePolicyPostgreSQLPersonalProject(t *testing.T) {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "personal-policy-" + suffix, now}},
+		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin','test',$2,$3)`, []any{actorID, "personal-policy-" + suffix, now}},
 		{`INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,'Personal project',$2,NULL,$3)`, []any{projectID, "personal-policy-" + suffix, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Production',$3,$4,$4,$5)`, []any{environmentID, projectID, "personal-production-" + suffix, namespace, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'API',$3,$4)`, []any{applicationID, projectID, "personal-api-" + suffix, now}},

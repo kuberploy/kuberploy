@@ -108,9 +108,9 @@ make a local fixture pass.
 
 ## Database schema changes
 
-`migrations/prisma/migrations/001_initial/migration.sql` is the current RC
-checkpoint, regenerated after RC86. Do not edit an applied checkpoint during RC
-testing: add the next ordered native SQL migration, exercise the real upgrade,
+`migrations/prisma/migrations/001_initial/migration.sql` is the immutable
+pre-stable baseline, regenerated after RC86. Do not edit an applied checkpoint
+during RC testing: add the next ordered native SQL migration, exercise the real upgrade,
 review the print-only `npm --prefix migrations run pull` output against the
 migrated disposable database, and bump `migrations.CurrentSchema` in the same
 change. Once the complete RC qualification passes, review and squash all

@@ -23,7 +23,7 @@ import { buildInvitationLink } from "../lib/invitationLink";
 
 type TeamForm = { name: string; slug: string };
 type MemberForm = { userId: string; role: "owner" | "member" };
-type InvitationForm = { displayName: string };
+type InvitationForm = { email: string };
 type SharingInput = {
   visibility: "private" | "team";
   teamId?: string;
@@ -63,7 +63,7 @@ export function TeamsPage() {
     defaultValues: { userId: "", role: "member" },
   });
   const invitationForm = useForm<InvitationForm>({
-    defaultValues: { displayName: "" },
+    defaultValues: { email: "" },
   });
   const teamAttempt = useRef<{ signature: string; key: string } | null>(null);
   const memberAttempt = useRef<{ signature: string; key: string } | null>(null);
@@ -166,7 +166,7 @@ export function TeamsPage() {
     }) => api.createInvitation(input, idempotencyKey),
     onSuccess: (created, input) => {
       if (invitationAttempt.current?.key !== input.idempotencyKey) return;
-      if (invitationForm.getValues().displayName === input.input.displayName) {
+      if (invitationForm.getValues().email === input.input.email) {
         invitationAttempt.current = null;
         invitationForm.reset();
         setInvitation(created);
@@ -541,14 +541,16 @@ export function TeamsPage() {
               onSubmit={invitationForm.handleSubmit(submitInvitation)}
             >
               <Field
-                label="Invitee display name"
+                label="Invitee email"
                 required
-                error={invitationForm.formState.errors.displayName?.message}
+                error={invitationForm.formState.errors.email?.message}
               >
                 <input
-                  placeholder="New teammate"
-                  {...invitationForm.register("displayName", {
-                    required: "Enter the invitee display name.",
+                  type="email"
+                  autoComplete="email"
+                  placeholder="teammate@example.com"
+                  {...invitationForm.register("email", {
+                    required: "Enter the invitee email.",
                   })}
                 />
               </Field>

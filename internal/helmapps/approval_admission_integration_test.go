@@ -72,7 +72,7 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 		}
 	})
 	now := testTime
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','helm-admission-test',$3,$4)`, actorID,
 		"helm-admission-"+actorID, actorID, now); err != nil {
 		t.Fatal(err)

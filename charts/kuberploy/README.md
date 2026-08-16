@@ -34,11 +34,17 @@ NetworkPolicy is enabled, it permits only the supplied API CIDRs. Bootstrap
 remains single-use at the PostgreSQL authority even if the Kubernetes Secret is
 later replayed.
 
+The first administrator setup asks for an email address, display name, and
+password. The email is the local sign-in identifier; the display name is shown
+in the UI independently. Invitation links bind the invited
+email, while the invitee supplies a display name and password. No email-sending
+provider is required, and SSO is reserved for a future provider integration.
+
 This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.183` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.184` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five deployed release images (API, worker, web, migration, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then

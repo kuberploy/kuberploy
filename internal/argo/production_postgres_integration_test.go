@@ -106,7 +106,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at) VALUES($1,'argo-runtime','platform-admin','test','argo-runtime',1,$2)`, []any{userID, now}},
+		{`INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,'argo-runtime','platform-admin','test','argo-runtime',1,$2)`, []any{userID, now}},
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, []any{project.ID, project.Name, project.Slug, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, []any{environment.ID, projectID, environment.Name, environment.Slug, environment.Namespace, environment.ArgoProject, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,$3,$4,$5)`, []any{application.ID, projectID, application.Name, application.Slug, now}},

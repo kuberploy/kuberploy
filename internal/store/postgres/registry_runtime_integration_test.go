@@ -110,7 +110,7 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 	defer st.Close()
 	now := databaseTime(time.Now().UTC())
 	actorID, targetID, planID := id.New(), id.New(), id.New()
-	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-cleanup-"+actorID, now); err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestFailedRegistryOfflineSweepMayResumeWithExactCandidates(t *testing.T) {
 	defer st.Close()
 	now := databaseTime(time.Now().UTC())
 	actorID, targetID, planID := id.New(), id.New(), id.New()
-	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,created_at)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
 		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-sweep-recovery-"+actorID, now); err != nil {
 		t.Fatal(err)
 	}

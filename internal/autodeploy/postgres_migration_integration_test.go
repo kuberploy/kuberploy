@@ -48,7 +48,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO users(id,login,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin',$2,$2,$3),($4,$5,'developer',$5,$5,$3)`, []any{creator, "ad-creator-" + creator[:8], now, actor, "ad-actor-" + actor[:8]}},
+		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at) VALUES($1,$2,'platform-admin',$2,$2,$3),($4,$5,'developer',$5,$5,$3)`, []any{creator, "ad-creator-" + creator[:8], now, actor, "ad-actor-" + actor[:8]}},
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Auto deploy',$2,$3)`, []any{project, "ad-" + project[:8], now}},
 		{`INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at) VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3),($4,$5,'developer','project',$6,'service-account',$2,$3)`, []any{id.New(), creator, now, id.New(), actor, project}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Auto','auto',$3,$3,$4)`, []any{environment, project, "ad-" + environment[:8], now}},

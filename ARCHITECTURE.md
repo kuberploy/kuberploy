@@ -2278,8 +2278,9 @@ Create project and environment
 - Bundled or external Valkey from day one for Streams worker dispatch, the revision-keyed pending/running Operation cache and distributed rate limits, with PostgreSQL outbox replay as the durability boundary and authorized GET polling as the MVP status path.
 - Users can belong to multiple teams; a team can own multiple projects; each project has exactly one owning team (or is explicitly platform-owned), and platform administrators can see all scopes.
 - Project -> environment -> application organization, with environments mapped to administrator-approved namespaces and Argo projects.
-- Team membership roles, copyable 24-hour one-time invitation links that need no
-  email provider and let the invitee set their own local password, safe
+- Team membership roles, copyable 24-hour one-time invitation links that bind an
+  email address without requiring an email provider and let the invitee choose
+  a display name and local password, safe
   last-owner enforcement, and private/team sharing of verified GitHub App
   installations.
 - Three application sources: GitHub plus Dockerfile, existing image, and Helm/OCI chart.

@@ -134,7 +134,7 @@ describe("local password login", () => {
     render(<AuthScreen />, { wrapper: Wrapper });
 
     await screen.findByText("Sign in to continue");
-    await user.type(screen.getByLabelText(/login/i), "Local Admin");
+    await user.type(screen.getByLabelText(/email/i), "admin@example.com");
     await user.type(
       screen.getByLabelText(/^password/i),
       "correct horse battery staple",
@@ -143,7 +143,7 @@ describe("local password login", () => {
 
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith(
-        { login: "Local Admin", password: "correct horse battery staple" },
+        { email: "admin@example.com", password: "correct horse battery staple" },
         expect.anything(),
       ),
     );
@@ -174,7 +174,10 @@ describe("installation bootstrap", () => {
     const user = userEvent.setup();
     render(<AuthScreen />, { wrapper: Wrapper });
 
-    await user.type(screen.getByLabelText(/display name/i), "Platform Admin");
+    await user.type(screen.getByLabelText(/admin email/i), "admin@example.com");
+    const displayName = screen.getByLabelText(/display name/i);
+    await user.clear(displayName);
+    await user.type(displayName, "Platform Admin");
     await user.type(
       screen.getByLabelText(/bootstrap token/i),
       "kp_bootstrap_token",

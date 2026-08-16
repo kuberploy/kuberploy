@@ -12,7 +12,7 @@ import (
 )
 
 func grantRegistryActor(st *Store, actor string, role domain.AccessRole, scopeType domain.AccessScopeType, scopeID string) {
-	st.users[actor] = domain.User{ID: actor, Login: actor, Role: string(role), CreatedAt: time.Now().UTC()}
+	st.users[actor] = domain.User{ID: actor, DisplayName: actor, Role: string(role), CreatedAt: time.Now().UTC()}
 	st.accessGrants["grant-"+actor] = domain.AccessGrant{
 		ID: "grant-" + actor, SubjectUserID: actor, Role: role, ScopeType: scopeType,
 		ScopeID: scopeID, Source: "test", CreatedBy: actor, CreatedAt: time.Now().UTC(),

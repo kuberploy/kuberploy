@@ -36,7 +36,7 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 	repositoryNumber := 800000000 + numericSeed%100000000
 	now := databaseTime(time.Now().UTC())
 	suffix := actorID[:8]
-	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject,grant_revision,created_at)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
 		VALUES($1,$2,'platform-admin','variable-trigger-test',$2,1,$3)`, actorID, "variable-trigger-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}

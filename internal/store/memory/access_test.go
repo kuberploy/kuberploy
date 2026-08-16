@@ -16,7 +16,7 @@ import (
 
 func bootstrapAccessAdmin(t *testing.T, store *Store) domain.User {
 	t.Helper()
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Login: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@example.test", DisplayName: "Admin", Role: "platform-admin", Issuer: "test", Subject: "admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	hash := sha256.Sum256([]byte("admin-session"))
 	if err := store.BootstrapAdmin(context.Background(), admin, strings.Repeat("h", 64), hash[:], time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
@@ -28,7 +28,8 @@ func invitedUser(t *testing.T, store *Store, admin domain.User, name, seed strin
 	t.Helper()
 	ctx := context.Background()
 	token := sha256.Sum256([]byte("invite-" + seed))
-	if _, err := store.CreateUserInvitation(ctx, admin.ID, name, token[:], time.Now().Add(time.Hour), "request"); err != nil {
+	email := "invited-" + seed + "@example.test"
+	if _, err := store.CreateUserInvitation(ctx, admin.ID, email, token[:], time.Now().Add(time.Hour), "request"); err != nil {
 		t.Fatal(err)
 	}
 	session := sha256.Sum256([]byte("session-" + seed))

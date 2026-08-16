@@ -35,7 +35,7 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	admin, tenant := id.New(), id.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO users(id,login,role,issuer,subject) VALUES($1,$2,'platform-admin','test',$2),($3,$4,'developer','test',$4)`, admin, "issuer-admin-"+admin[:8], tenant, "issuer-tenant-"+tenant[:8]); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject) VALUES($1,$2,'platform-admin','test',$2),($3,$4,'developer','test',$4)`, admin, "issuer-admin-"+admin[:8], tenant, "issuer-tenant-"+tenant[:8]); err != nil {
 		t.Fatal(err)
 	}
 	store, _ := NewPostgresStore(pool)
