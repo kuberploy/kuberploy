@@ -46,6 +46,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "PersistentVolumeClaim")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "valkey-default-deny") | .spec.podSelector.matchLabels' "${kp_tmp}/managed.yaml" | jq -cS .)" == '{"app.kubernetes.io/instance":"valkey","app.kubernetes.io/name":"valkey"}' ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "valkey-private-egress") | .spec.podSelector.matchLabels' "${kp_tmp}/managed.yaml" | jq -cS .)" == '{"app.kubernetes.io/instance":"valkey","app.kubernetes.io/name":"valkey"}' ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.spec.containers[0].image] | unique | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "docker.io/valkey/valkey:9.1.1" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.automountServiceAccountToken' "${kp_tmp}/managed.yaml" | tail -1)" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]

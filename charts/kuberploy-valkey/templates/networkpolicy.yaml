@@ -45,7 +45,10 @@ metadata:
   labels:
     {{- include "kuberploy-valkey.labels" . | nindent 4 }}
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+      app.kubernetes.io/instance: {{ .Release.Name }}
   policyTypes: [Egress]
   egress:
     - to:
