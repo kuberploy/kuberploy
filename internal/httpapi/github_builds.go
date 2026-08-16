@@ -228,7 +228,7 @@ func (b *buildBackend) Repositories(ctx context.Context, installationID string) 
 	return b.store.ListRepositories(ctx, installationID)
 }
 func (b *buildBackend) Attempt(ctx context.Context, attemptID string) (builds.BuildAttempt, error) {
-	return b.store.Attempt(ctx, attemptID)
+	return b.store.HistoricalAttempt(ctx, attemptID)
 }
 func (b *buildBackend) Attempts(ctx context.Context, applicationID string, limit int) ([]builds.BuildAttempt, error) {
 	return b.store.AttemptsForService(ctx, applicationID, limit)

@@ -582,6 +582,10 @@ func (s *MemoryStore) Attempt(_ context.Context, attemptID string) (BuildAttempt
 	return cloneAttempt(attempt), nil
 }
 
+func (s *MemoryStore) HistoricalAttempt(ctx context.Context, attemptID string) (BuildAttempt, error) {
+	return s.Attempt(ctx, attemptID)
+}
+
 func (s *MemoryStore) AttemptAuthorization(_ context.Context, attemptID string) (Installation, Repository, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

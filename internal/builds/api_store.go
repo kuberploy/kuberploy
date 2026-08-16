@@ -22,6 +22,10 @@ type APIStore interface {
 	Definition(context.Context, string) (BuildDefinition, error)
 	ListRepositories(context.Context, string) ([]Repository, error)
 	DefinitionsForService(context.Context, string) ([]BuildDefinition, error)
+	// HistoricalAttempt returns the bounded, credential-free attempt projection
+	// used by read-only detail and log authorization. It deliberately does not
+	// validate private execution inputs that may have changed across releases.
+	HistoricalAttempt(context.Context, string) (BuildAttempt, error)
 	AttemptsForService(context.Context, string, int) ([]BuildAttempt, error)
 	ClaimAPICommand(context.Context, string, string, string, string, string, string, time.Time) (string, bool, error)
 	RetryAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)

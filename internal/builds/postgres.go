@@ -528,6 +528,13 @@ func (s *PostgreSQLStore) Attempt(ctx context.Context, attemptID string) (BuildA
 	return attemptByIDQuery(ctx, s.pool, attemptID, false)
 }
 
+func (s *PostgreSQLStore) HistoricalAttempt(ctx context.Context, attemptID string) (BuildAttempt, error) {
+	if !uuidRE.MatchString(attemptID) {
+		return BuildAttempt{}, ErrInvalid
+	}
+	return historicalAttemptByIDQuery(ctx, s.pool, attemptID)
+}
+
 func (s *PostgreSQLStore) AttemptAuthorization(ctx context.Context, attemptID string) (Installation, Repository, error) {
 	var installationID, repositoryID, attemptDigest, definitionDigest string
 	var enabled bool
@@ -878,6 +885,10 @@ func attemptByIDQuery(ctx context.Context, query rowQuery, attemptID string, for
 		suffix = " FOR UPDATE"
 	}
 	return scanAttempt(query.QueryRow(ctx, `SELECT id::text,definition_id::text,delivery_claim_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE id=$1`+suffix, attemptID))
+}
+
+func historicalAttemptByIDQuery(ctx context.Context, query rowQuery, attemptID string) (BuildAttempt, error) {
+	return scanAttemptHistory(query.QueryRow(ctx, `SELECT id::text,definition_id::text,project_id::text,service_id::text,commit_sha,git_ref,generation,state,execution_attempts,max_attempts,cache_reference,result,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE id=$1`, attemptID))
 }
 
 func pushAttemptBySourceQuery(ctx context.Context, query rowQuery, definitionID, commitSHA, gitRef string) (BuildAttempt, error) {

@@ -17,6 +17,7 @@ type retryExecutionStore struct {
 	existing          *builds.BuildAttempt
 	commandReplay     bool
 	capturedExecution builds.ExecutionSettings
+	historicalReads   int
 }
 
 func (s *retryExecutionStore) Attempt(_ context.Context, attemptID string) (builds.BuildAttempt, error) {
@@ -25,6 +26,14 @@ func (s *retryExecutionStore) Attempt(_ context.Context, attemptID string) (buil
 	}
 	if s.existing != nil && attemptID == s.existing.ID {
 		return *s.existing, nil
+	}
+	return builds.BuildAttempt{}, builds.ErrNotFound
+}
+
+func (s *retryExecutionStore) HistoricalAttempt(_ context.Context, attemptID string) (builds.BuildAttempt, error) {
+	s.historicalReads++
+	if attemptID == s.source.ID {
+		return s.source, nil
 	}
 	return builds.BuildAttempt{}, builds.ErrNotFound
 }
@@ -79,5 +88,22 @@ func TestBuildRetryRefreshesTrustedExecutionAndReplayKeepsAcceptedAttempt(t *tes
 	replayed, replay, err := backend.Retry(t.Context(), "66666666-6666-4666-8666-666666666666", sourceID, "retry-runtime-0001", "sha256:"+strings.Repeat("a", 64))
 	if err != nil || !replay || replayed.ID != attempt.ID || resolver.calls != 1 {
 		t.Fatalf("replayed=%#v replay=%v resolverCalls=%d err=%v", replayed, replay, resolver.calls, err)
+	}
+}
+
+func TestBuildBackendReadsHistoricalAttemptProjection(t *testing.T) {
+	store := &retryExecutionStore{source: builds.BuildAttempt{ID: "22222222-2222-4222-8222-222222222222"}}
+	resolver := &retryExecutionResolver{}
+	backend, err := NewBuildBackend(store, resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attempt, err := backend.Attempt(t.Context(), store.source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.ID != store.source.ID || store.historicalReads != 1 {
+		t.Fatalf("attempt=%#v historicalReads=%d", attempt, store.historicalReads)
 	}
 }
