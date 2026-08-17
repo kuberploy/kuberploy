@@ -51,9 +51,14 @@ export function AppShell({ user }: { user: Principal }) {
   const logout = useMutation({
     mutationFn: api.logout,
     // Remove every cached tenant projection as soon as the server revokes the
-    // session. Invalidating only `me` retains its stale Principal when the
-    // expected 401 refetch arrives, leaving a signed-out user in the shell.
-    onSuccess: () => queryClient.clear(),
+    // session, then reset the observed `me` query so the root re-fetches it
+    // and transitions to the signed-out screen on the expected 401.
+    onSuccess: async () => {
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "me",
+      });
+      await queryClient.resetQueries({ queryKey: ["me"], exact: true });
+    },
   });
 
   useEffect(() => {
