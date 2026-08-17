@@ -3914,6 +3914,13 @@ func newHelmReleasePGFixture() helmReleasePGFixture {
 
 func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f helmReleasePGFixture) {
 	t.Helper()
+	userDisplayColumn := "login"
+	if err := tx.QueryRow(ctx, `SELECT CASE WHEN EXISTS(
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema='public' AND table_name='users' AND column_name='display_name'
+	) THEN 'display_name' ELSE 'login' END`).Scan(&userDisplayColumn); err != nil {
+		t.Fatal(err)
+	}
 	approval := Approval{ApprovalKey: ApprovalKey{ID: f.approvalID, Revision: 1},
 		OCIRepository: f.ociRepository, ChartVersion: "1.2.3",
 		ManifestDigest:     helmPGDigest([]byte("chart-manifest")),
@@ -3929,8 +3936,8 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		query string
 		args  []any
 	}{
-		{`INSERT INTO users(id,display_name,role,issuer,subject,created_at)
-			VALUES($1,$2,'platform-admin','helm-release-test',$3,$4)`, []any{f.userID, "helm-release-" + f.userID, f.userID, f.now}},
+		{fmt.Sprintf(`INSERT INTO users(id,%s,role,issuer,subject,created_at)
+			VALUES($1,$2,'platform-admin','helm-release-test',$3,$4)`, userDisplayColumn), []any{f.userID, "helm-release-" + f.userID, f.userID, f.now}},
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Helm Release',$2,$3)`, []any{f.projectID, "helm-" + f.projectID, f.now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
 			VALUES($1,$2,'Helm Release','helm',$3,$4,$5)`, []any{f.environmentID, f.projectID, f.namespace, f.argoProject, f.now}},
