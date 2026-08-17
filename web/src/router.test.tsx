@@ -19,6 +19,28 @@ afterEach(() => {
 });
 
 describe("root invitation boundary", () => {
+  it("preserves and prefills an invitation from the initial URL", async () => {
+    window.history.replaceState({}, "", "/#invite=kp_initial_mount_invite");
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<RootComponent />, { wrapper: Wrapper });
+
+    expect(
+      await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/invitation token/i)).toHaveValue(
+      "kp_initial_mount_invite",
+    );
+    expect(window.location.hash).toBe("");
+  });
+
   it("enters invitation mode when a link changes the hash after root mount", async () => {
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user_existing",

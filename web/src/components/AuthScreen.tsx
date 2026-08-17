@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
 import type { Principal, User } from "../api/types";
@@ -113,6 +113,20 @@ export function AuthScreen({
     }
     clearInvitationFragment();
     const token = incomingInvitationToken || linkedInvitationToken;
+    if (token) {
+      invitationForm.setValue("token", token, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+  }, [invitationForm, invitationToken, linkedInvitationToken]);
+
+  useEffect(() => {
+    const token =
+      invitationToken ??
+      linkedInvitationToken ??
+      invitationTokenFromHash(window.location.hash);
     if (token) {
       invitationForm.setValue("token", token, {
         shouldDirty: false,

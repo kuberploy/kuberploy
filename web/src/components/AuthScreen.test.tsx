@@ -13,6 +13,27 @@ afterEach(() => {
 });
 
 describe("invitation acceptance", () => {
+  it("prefills a token supplied on the initial auth render", async () => {
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<AuthScreen invitationToken="kp_initial_invitation_token" />, {
+      wrapper: Wrapper,
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/invitation token/i)).toHaveValue(
+      "kp_initial_invitation_token",
+    );
+  });
+
   it("hydrates a token when the router supplies an invitation after auth mounts", async () => {
     vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
     const queryClient = new QueryClient({
