@@ -150,6 +150,13 @@ func TestServiceAccountOneTimeTokenAndScopedBearer(t *testing.T) {
 	if response.StatusCode != http.StatusCreated || editIssued.Token == "" {
 		t.Fatalf("edit token status=%d body=%#v", response.StatusCode, editIssued)
 	}
+	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodGet, "/v1/capabilities", editIssued.Token, "", nil)
+	editCapabilities := decode[struct {
+		Actions []string `json:"actions"`
+	}](t, response)
+	if response.StatusCode != http.StatusOK || !containsString(editCapabilities.Actions, "applications:create") || containsString(editCapabilities.Actions, "secret-bindings:bind") {
+		t.Fatalf("edit bearer capabilities advertised unsupported secret mutation: status=%d actions=%#v", response.StatusCode, editCapabilities.Actions)
+	}
 	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodPost, "/v1/applications", editIssued.Token, "bearer-application", map[string]string{"projectId": project.ID, "name": "Bearer app"})
 	application := decode[domain.Application](t, response)
 	if response.StatusCode != http.StatusCreated || application.ProjectID != project.ID {
