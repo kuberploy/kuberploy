@@ -180,7 +180,7 @@ func TestBuildLogReadinessFailsClosedWithoutChangingRuntimeLogs(t *testing.T) {
 	response.Body.Close()
 	response = fixture.request(http.MethodGet, "/v1/builds/"+attemptID+"/logs", "", nil)
 	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "BuildLogRuntimeUnavailable" || service.snapshotRequests != 0 {
+	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "BuildLogRuntimeUnavailable" || service.snapshotRequests != 0 || !strings.Contains(problem.Detail, "Build metadata remains available.") || strings.Contains(problem.Detail, "continues running") {
 		t.Fatalf("unready request status=%d problem=%#v calls=%d", response.StatusCode, problem, service.snapshotRequests)
 	}
 }
