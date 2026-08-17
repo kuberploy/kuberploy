@@ -278,8 +278,8 @@ func (s *Store) CreateUserInvitation(ctx context.Context, actor, email string, t
 	return invitation, tx.Commit(ctx)
 }
 
-func (s *Store) AcceptUserInvitation(ctx context.Context, tokenHash []byte, displayName, passwordHash string, sessionHash []byte, sessionExpires time.Time) (domain.User, error) {
-	if len(tokenHash) != 32 || len(sessionHash) != 32 {
+func (s *Store) AcceptUserInvitation(ctx context.Context, tokenHash []byte, displayName, passwordHash string, sessionHash, previousSessionHash []byte, sessionExpires time.Time) (domain.User, error) {
+	if len(tokenHash) != 32 || len(sessionHash) != 32 || (len(previousSessionHash) != 0 && len(previousSessionHash) != 32) {
 		return domain.User{}, base.ErrInvitationInvalid
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
@@ -297,6 +297,11 @@ func (s *Store) AcceptUserInvitation(ctx context.Context, tokenHash []byte, disp
 	}
 	if err != nil {
 		return domain.User{}, err
+	}
+	if len(previousSessionHash) == 32 {
+		if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1`, previousSessionHash); err != nil {
+			return domain.User{}, err
+		}
 	}
 	u := domain.User{ID: id.New(), Email: expectedEmail, DisplayName: displayName, Role: "developer", Issuer: "kuberploy:invitation", Subject: invitationID, GrantRevision: 1, CreatedAt: now}
 	_, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, u.ID, u.Email, u.DisplayName, u.Role, u.Issuer, u.Subject, u.GrantRevision, u.CreatedAt)

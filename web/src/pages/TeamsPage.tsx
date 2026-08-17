@@ -67,6 +67,9 @@ export function TeamsPage() {
   });
   const teamAttempt = useRef<{ signature: string; key: string } | null>(null);
   const memberAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const memberRoleAttempts = useRef(
+    new Map<string, { signature: string; key: string }>(),
+  );
   const invitationAttempt = useRef<{
     signature: string;
     key: string;
@@ -131,6 +134,31 @@ export function TeamsPage() {
       }
       await queryClient.invalidateQueries({
         queryKey: ["teams", input.teamId, "members"],
+      });
+    },
+  });
+  const updateMemberRole = useMutation({
+    mutationFn: ({
+      member,
+      role,
+      idempotencyKey,
+    }: {
+      member: TeamMember;
+      role: MemberForm["role"];
+      idempotencyKey: string;
+    }) =>
+      api.addTeamMember(
+        member.teamId,
+        { userId: member.userId, role },
+        idempotencyKey,
+      ),
+    onSuccess: async (_value, input) => {
+      const attempt = memberRoleAttempts.current.get(input.member.userId);
+      if (attempt?.key === input.idempotencyKey) {
+        memberRoleAttempts.current.delete(input.member.userId);
+      }
+      await queryClient.invalidateQueries({
+        queryKey: ["teams", input.member.teamId, "members"],
       });
     },
   });
@@ -446,17 +474,56 @@ export function TeamsPage() {
                         {member.role === "owner" ? "Owner" : "Member"}
                       </span>
                       {canManageSelectedTeam ? (
-                        <button
-                          type="button"
-                          className="icon-button member-remove-button"
-                          aria-label={`Remove ${user?.displayName ?? member.userId} from ${selectedTeam.name}`}
-                          onClick={() => {
-                            removeMember.reset();
-                            setRemoveTarget(member);
-                          }}
-                        >
-                          <Icon name="close" />
-                        </button>
+                        <>
+                          <TeamMemberRoleEditor
+                            member={member}
+                            busy={
+                              updateMemberRole.isPending &&
+                              updateMemberRole.variables?.member.userId ===
+                                member.userId
+                            }
+                            error={
+                              updateMemberRole.variables?.member.userId ===
+                              member.userId
+                                ? updateMemberRole.error
+                                : null
+                            }
+                            onSave={(role) => {
+                              const signature = JSON.stringify({
+                                teamId: member.teamId,
+                                userId: member.userId,
+                                role,
+                              });
+                              const previous = memberRoleAttempts.current.get(
+                                member.userId,
+                              );
+                              const idempotencyKey =
+                                previous?.signature === signature
+                                  ? previous.key
+                                  : crypto.randomUUID();
+                              memberRoleAttempts.current.set(member.userId, {
+                                signature,
+                                key: idempotencyKey,
+                              });
+                              updateMemberRole.mutate({
+                                member,
+                                role,
+                                idempotencyKey,
+                              });
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="icon-button member-remove-button"
+                            aria-label={`Remove ${user?.displayName ?? member.userId} from ${selectedTeam.name}`}
+                            onClick={() => {
+                              removeMember.reset();
+                              setRemoveTarget(member);
+                            }}
+                          >
+                            <Icon name="close" />
+                          </button>
+                        </>
                       ) : null}
                     </div>
                   );
@@ -483,7 +550,9 @@ export function TeamsPage() {
                       <option value="">Select user</option>
                       {availableUsers.map((user) => (
                         <option key={user.id} value={user.id}>
-                          {user.displayName}
+                          {user.email
+                            ? `${user.email} · ${user.displayName}`
+                            : `${user.displayName} (email unavailable)`}
                         </option>
                       ))}
                     </select>
@@ -753,6 +822,52 @@ export function InvitationSecret({
           I saved it; dismiss
         </Button>
       </div>
+    </div>
+  );
+}
+
+export function TeamMemberRoleEditor({
+  member,
+  busy,
+  error,
+  onSave,
+}: {
+  member: TeamMember;
+  busy: boolean;
+  error: unknown;
+  onSave: (role: MemberForm["role"]) => void;
+}) {
+  const [role, setRole] = useState<MemberForm["role"]>(member.role);
+  const displayName = member.user?.displayName ?? member.userId;
+
+  useEffect(() => {
+    setRole(member.role);
+  }, [member.role]);
+
+  return (
+    <div className="member-role-editor">
+      <select
+        aria-label={`Role for ${displayName}`}
+        value={role}
+        disabled={busy}
+        onChange={(event) => setRole(event.target.value as MemberForm["role"])}
+      >
+        <option value="member">Member</option>
+        <option value="owner">Owner</option>
+      </select>
+      <Button
+        variant="ghost"
+        disabled={busy || role === member.role}
+        busy={busy}
+        onClick={() => onSave(role)}
+      >
+        Save role
+      </Button>
+      {error ? (
+        <span className="form-error" role="alert">
+          {errorMessage(error)}
+        </span>
+      ) : null}
     </div>
   );
 }

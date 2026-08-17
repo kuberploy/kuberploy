@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -396,6 +397,55 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	if r.StatusCode != http.StatusCreated || project.TeamID != team.ID {
 		t.Fatalf("team project=%#v status=%d", project, r.StatusCode)
 	}
+}
+
+func TestInvitationAcceptanceSwitchesAndRevokesExistingSession(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	r := f.request("POST", "/v1/users/invitations", "switch-invite", map[string]string{"email": "switch@example.com"})
+	invitation := decode[domain.UserInvitation](t, r)
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("invitation status=%d", r.StatusCode)
+	}
+
+	oldJar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverURL, err := url.Parse(f.server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldJar.SetCookies(serverURL, f.client.Jar.Cookies(serverURL))
+	oldClient := &http.Client{Jar: oldJar}
+
+	r = f.request("POST", "/v1/auth/invitations/accept", "", map[string]string{
+		"token":       invitation.Token,
+		"displayName": "Switched user",
+		"password":    "switched user password 123",
+	})
+	accepted := decode[domain.User](t, r)
+	if r.StatusCode != http.StatusCreated || accepted.Email != invitation.Email {
+		t.Fatalf("accepted user=%#v status=%d", accepted, r.StatusCode)
+	}
+	current := f.request("GET", "/v1/me", "", nil)
+	currentUser := decode[domain.User](t, current)
+	if current.StatusCode != http.StatusOK || currentUser.ID != accepted.ID {
+		t.Fatalf("new invitation session was not active: status=%d", current.StatusCode)
+	}
+	oldRequest, err := http.NewRequest(http.MethodGet, f.server.URL+"/v1/me", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldResponse, err := oldClient.Do(oldRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldResponse.StatusCode != http.StatusUnauthorized {
+		oldResponse.Body.Close()
+		t.Fatalf("previous session remained valid: status=%d", oldResponse.StatusCode)
+	}
+	oldResponse.Body.Close()
 }
 
 func TestImageDeploymentWalkingSliceAndIdempotency(t *testing.T) {

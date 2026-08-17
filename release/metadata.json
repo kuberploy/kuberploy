@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 017 is current. RC187 normalizes email addresses for local password authentication, requires email identities at the persistence boundary, keeps display names presentation-only, and returns bound invitee email in invitation responses; it also carries fail-closed admission, public provider egress, tunable infrastructure, read-only Argo observation, GitHub retry handling, and historical source-build reads.",
+  "summary": "Schema 017 is current. RC188 keeps email as the only local login identity, makes display names presentation-only, revokes the prior browser session when an invitation is accepted, and includes an audited offline recovery path for legacy administrators; it also carries fail-closed admission, public provider egress, tunable infrastructure, read-only Argo observation, GitHub retry handling, and historical source-build reads.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.187"
+  "version": "0.1.0-rc.188"
 }

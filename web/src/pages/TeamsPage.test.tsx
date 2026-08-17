@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "../api/client";
-import type { GitHubInstallation, Team, TeamMember } from "../api/types";
+import type { GitHubInstallation, Team, TeamMember, User } from "../api/types";
 import {
   InvitationSecret,
   InstallationSharingConfirmation,
   RemoveMemberConfirmation,
+  TeamMemberRoleEditor,
   TeamsPage,
 } from "./TeamsPage";
 
@@ -170,6 +171,44 @@ describe("team creation", () => {
       ).toBeVisible(),
     );
     expect(screen.queryByText(teams[0]!.name)).toBeNull();
+  });
+
+  it("uses email as the primary identity in the member picker", async () => {
+    const user: User = {
+      id: "user_2",
+      email: "grace@example.com",
+      displayName: "Grace Hopper",
+      role: "developer",
+    };
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Admin",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: teams });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [user] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [],
+      nextCursor: undefined,
+    });
+    vi.spyOn(api, "teamMembers").mockResolvedValue({ items: [] });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByRole("option", {
+        name: "grace@example.com · Grace Hopper",
+      }),
+    ).toBeInTheDocument();
   });
 });
 
@@ -334,5 +373,42 @@ describe("team member removal confirmation", () => {
 
     await user.click(screen.getByRole("button", { name: "Remove member" }));
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+});
+
+describe("team member role editor", () => {
+  const member: TeamMember = {
+    teamId: "team_platform",
+    userId: "user_2",
+    role: "member",
+    user: {
+      id: "user_2",
+      displayName: "Grace Hopper",
+      role: "developer",
+    },
+    createdAt: "2026-08-06T00:00:00Z",
+  };
+
+  it("only submits an explicit role change", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <TeamMemberRoleEditor
+        member={member}
+        busy={false}
+        error={null}
+        onSave={onSave}
+      />,
+    );
+
+    const save = screen.getByRole("button", { name: "Save role" });
+    expect(save).toBeDisabled();
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Role for Grace Hopper" }),
+      "owner",
+    );
+    expect(save).toBeEnabled();
+    await user.click(save);
+    expect(onSave).toHaveBeenCalledWith("owner");
   });
 });

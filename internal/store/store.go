@@ -131,7 +131,7 @@ type Store interface {
 	UserBySession(context.Context, []byte, time.Time) (domain.User, error)
 	RevokeSession(context.Context, []byte) error
 	CreateUserInvitation(context.Context, string, string, []byte, time.Time, string) (domain.UserInvitation, error)
-	AcceptUserInvitation(context.Context, []byte, string, string, []byte, time.Time) (domain.User, error)
+	AcceptUserInvitation(context.Context, []byte, string, string, []byte, []byte, time.Time) (domain.User, error)
 	LocalCredential(context.Context, string) (domain.User, string, error)
 	CreateLoginSession(context.Context, string, string, string, []byte, time.Time) (domain.User, error)
 	ListUsersForActor(context.Context, string) ([]domain.User, error)

@@ -116,7 +116,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	developer, err := st.AcceptUserInvitation(ctx, invite[:], "Developer", developerPasswordHash, developerSession[:], time.Now().Add(time.Hour))
+	developer, err := st.AcceptUserInvitation(ctx, invite[:], "Developer", developerPasswordHash, developerSession[:], nil, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +165,12 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	managerSession := sha256.Sum256([]byte("integration-team-manager-session"))
-	manager, err := st.AcceptUserInvitation(ctx, managerInvite[:], "Team manager", strings.Repeat("m", 64), managerSession[:], time.Now().Add(time.Hour))
+	manager, err := st.AcceptUserInvitation(ctx, managerInvite[:], "Team manager", strings.Repeat("m", 64), managerSession[:], adminSession[:], time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err = st.UserBySession(ctx, adminSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("previous admin session survived invitation acceptance: %v", err)
 	}
 	managerTeam, err := st.CreateTeam(ctx, admin.ID, "manager-team", "manager-team", "request", domain.CreateTeam{Name: "Manager team", Slug: "manager-team"})
 	if err != nil {
@@ -353,7 +356,7 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewerSession := sha256.Sum256([]byte("integration-scoped-viewer-session"))
-	viewer, err := st.AcceptUserInvitation(ctx, viewerInvite[:], "Scoped Viewer", strings.Repeat("h", 64), viewerSession[:], time.Now().Add(time.Hour))
+	viewer, err := st.AcceptUserInvitation(ctx, viewerInvite[:], "Scoped Viewer", strings.Repeat("h", 64), viewerSession[:], nil, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}

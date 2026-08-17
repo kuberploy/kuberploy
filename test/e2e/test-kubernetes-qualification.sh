@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.187"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.188"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
@@ -310,7 +310,10 @@ while (($#)); do
       [[ "$2" != 'Idempotency-Key: qualification-'*'-40-source-build-cancel-live-build' ]] || kp_idempotency_header="true"
       shift 2 ;;
     --write-out) shift 2 ;;
-    --data-binary) [[ "${kp_method}" != GET ]] || kp_method=POST; kp_body="$2"; shift 2 ;;
+    --data-binary)
+      [[ "${kp_method}" != GET ]] || kp_method=POST
+      if [[ "$2" == @* ]]; then kp_body="$(<"${2#@}")"; else kp_body="$2"; fi
+      shift 2 ;;
     -w) shift 2 ;;
     --silent|--show-error|-sS|-fsS) shift ;;
     http*) kp_url="$1"; shift ;;
@@ -325,14 +328,43 @@ if [[ -n "${kp_dump_header}" ]]; then
 fi
 printf 'curl|%s|%s\n' "${kp_method}" "${kp_url}" >>"${KP_COMMAND_LOG}"
 if [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/bootstrap ]]; then
+  jq -e 'has("email") and (.email | test("^qualification-admin-[a-z0-9-]+@example\\.test$")) and
+    has("displayName") and has("password")' <<<"${kp_body}" >/dev/null || {
+    printf 'bootstrap fixture received stale non-email identity payload\n' >&2
+    exit 1
+  }
+  : >"${KP_COMMAND_LOG}.email-bootstrap"
   printf '%s\n' '{"id":"10101010-1010-4010-8010-101010101010"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/logout ]]; then : >"${KP_COMMAND_LOG}.logged-out"; : >"${kp_output}"; printf '204'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/me && -f "${KP_COMMAND_LOG}.logged-out" ]]; then printf '{}' >"${kp_output}"; printf '401'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/me ]]; then printf '{"id":"10101010-1010-4010-8010-101010101010","role":"platform-admin","authentication":{"kind":"session"}}' >"${kp_output}"; printf '200'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/login ]]; then rm -f -- "${KP_COMMAND_LOG}.logged-out"; printf '{"id":"10101010-1010-4010-8010-101010101010"}' >"${kp_output}"; printf '200'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/users/invitations ]]; then printf '{"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' >"${kp_output}"; printf '201'
+elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/login ]]; then
+  jq -e 'has("email") and (.email | test("^qualification-(admin|developer)-[a-z0-9-]+@example\\.test$")) and
+    has("password")' <<<"${kp_body}" >/dev/null || {
+    printf 'login fixture received stale non-email identity payload\n' >&2
+    exit 1
+  }
+  : >"${KP_COMMAND_LOG}.email-login"
+  rm -f -- "${KP_COMMAND_LOG}.logged-out"
+  printf '{"id":"10101010-1010-4010-8010-101010101010"}' >"${kp_output}"; printf '200'
+elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/users/invitations ]]; then
+  jq -e 'has("email") and (.email | test("^qualification-developer-[a-z0-9-]+@example\\.test$")) and
+    (keys | . == ["email"])' <<<"${kp_body}" >/dev/null || {
+    printf 'invitation fixture received stale display-name identity payload\n' >&2
+    exit 1
+  }
+  : >"${KP_COMMAND_LOG}.email-invitation"
+  printf '{"token":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/invitations/accept ]]; then printf '{"id":"20202020-2020-4020-8020-202020202020"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/teams ]]; then printf '{"id":"30303030-3030-4030-8030-303030303030"}' >"${kp_output}"; printf '201'
+elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/teams/*/members ]]; then
+  jq -e '(.userId | test("^[0-9a-f-]{36}$")) and (.role == "member" or .role == "owner")' <<<"${kp_body}" >/dev/null || {
+    printf 'team member fixture received invalid role payload\n' >&2
+    exit 1
+  }
+  jq -c --arg team '30303030-3030-4030-8030-303030303030' \
+    '{teamId:$team,userId:.userId,role:.role}' <<<"${kp_body}" >"${kp_output}"; printf '201'
+elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/*/members/20202020-2020-4020-8020-202020202020 ]]; then printf '{}' >"${kp_output}"; printf '204'
 elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/*/members/* ]]; then printf '{}' >"${kp_output}"; printf '409'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/github/installations ]]; then printf '{"id":"40404040-4040-4040-8040-404040404040"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/github/installations ]]; then printf '{"items":[{"id":"50505050-5050-4050-8050-505050505050","githubInstallationId":12345}]}' >"${kp_output}"; printf '200'

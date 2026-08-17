@@ -74,7 +74,14 @@ func (s *Server) acceptInvitation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessionHash := sha256.Sum256(sessionRaw)
-	u, err := s.store.AcceptUserInvitation(r.Context(), tokenHash[:], in.DisplayName, passwordHash, sessionHash[:], time.Now().UTC().Add(s.sessionTTL))
+	var previousSessionHash []byte
+	if cookie, cookieErr := r.Cookie(sessionCookie); cookieErr == nil {
+		if previousRaw, decodeErr := base64.RawURLEncoding.DecodeString(cookie.Value); decodeErr == nil && len(previousRaw) == 32 {
+			previousHash := sha256.Sum256(previousRaw)
+			previousSessionHash = previousHash[:]
+		}
+	}
+	u, err := s.store.AcceptUserInvitation(r.Context(), tokenHash[:], in.DisplayName, passwordHash, sessionHash[:], previousSessionHash, time.Now().UTC().Add(s.sessionTTL))
 	if err != nil {
 		if errors.Is(err, store.ErrInvitationInvalid) {
 			writeProblem(w, r, http.StatusUnauthorized, "InvalidInvitation", "Invitation rejected", "The invitation is invalid, expired, or already used.")

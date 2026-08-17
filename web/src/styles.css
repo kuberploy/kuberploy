@@ -4150,6 +4150,33 @@ textarea:disabled {
   background: #eef6ff;
 }
 
+.member-role-editor {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.member-role-editor select {
+  min-height: 28px;
+  max-width: 88px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink-soft);
+  background: var(--surface);
+  font-size: 8px;
+}
+
+.member-role-editor .button {
+  min-height: 28px;
+  padding: 0 7px;
+  font-size: 8px;
+}
+
+.member-role-editor .form-error {
+  white-space: nowrap;
+}
+
 .sharing-badge--private {
   color: #5d665f;
   background: var(--surface-soft);
@@ -5082,6 +5109,10 @@ textarea:disabled {
   .invite-form,
   .sharing-options {
     grid-template-columns: 1fr;
+  }
+  .member-role-editor {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
   }
   .installation-row {
     grid-template-columns: 35px minmax(0, 1fr);

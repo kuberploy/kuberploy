@@ -56,7 +56,7 @@ func invitedUser(t *testing.T, store *Store, admin domain.User, name, seed strin
 		t.Fatal(err)
 	}
 	session := sha256.Sum256([]byte("session-" + seed))
-	u, err := store.AcceptUserInvitation(ctx, token[:], name, strings.Repeat("h", 64), session[:], time.Now().Add(time.Hour))
+	u, err := store.AcceptUserInvitation(ctx, token[:], name, strings.Repeat("h", 64), session[:], nil, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestInvitationIsHashedSingleUseAndMembershipRevokesSession(t *testing.T) {
 	store := New()
 	admin := bootstrapAccessAdmin(t, store)
 	member, session := invitedUser(t, store, admin, "Developer", "one")
-	if _, err := store.AcceptUserInvitation(ctx, sha256Bytes("invite-one"), "Developer", strings.Repeat("h", 64), sha256Bytes("another"), time.Now().Add(time.Hour)); !errors.Is(err, base.ErrInvitationInvalid) {
+	if _, err := store.AcceptUserInvitation(ctx, sha256Bytes("invite-one"), "Developer", strings.Repeat("h", 64), sha256Bytes("another"), nil, time.Now().Add(time.Hour)); !errors.Is(err, base.ErrInvitationInvalid) {
 		t.Fatalf("single-use invitation replay err=%v", err)
 	}
 	team, err := store.CreateTeam(ctx, admin.ID, "team", "team", "request", domain.CreateTeam{Name: "Platform", Slug: "platform"})
@@ -97,6 +97,34 @@ func TestInvitationIsHashedSingleUseAndMembershipRevokesSession(t *testing.T) {
 	}
 	if _, err = store.UserBySession(ctx, session[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("membership change retained stale session: %v", err)
+	}
+}
+
+func TestInvitationAcceptanceRevokesPreviousSessionAtomically(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	token := sha256Bytes("invite-switch-account")
+	if _, err := store.CreateUserInvitation(ctx, admin.ID, "switch@example.test", token, time.Now().Add(time.Hour), "request"); err != nil {
+		t.Fatal(err)
+	}
+	previousSession := sha256Bytes("previous-admin-session")
+	store.mu.Lock()
+	store.sessions[hex.EncodeToString(previousSession)] = struct {
+		userID   string
+		revision int64
+		expires  time.Time
+	}{userID: admin.ID, revision: admin.GrantRevision, expires: time.Now().Add(time.Hour)}
+	store.mu.Unlock()
+	newSession := sha256Bytes("new-invite-session")
+	if _, err := store.AcceptUserInvitation(ctx, token, "Switch user", strings.Repeat("h", 64), newSession, previousSession, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UserBySession(ctx, previousSession, time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("previous session survived invitation acceptance: %v", err)
+	}
+	if _, err := store.UserBySession(ctx, newSession, time.Now()); err != nil {
+		t.Fatalf("new invitation session missing: %v", err)
 	}
 }
 

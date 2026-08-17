@@ -156,7 +156,8 @@ kp_cookie_header_from_jar() {
 
 kp_run_installed_auth_and_contract_workflow() {
   local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_base kp_secret_dir kp_job kp_ns
-  local kp_bootstrap_token kp_admin_password kp_developer_password kp_actual kp_admin_id kp_developer_id
+  local kp_bootstrap_token kp_admin_email kp_developer_email kp_admin_password kp_developer_password
+  local kp_actual kp_admin_id kp_developer_id
   local kp_cookie_jar kp_headers kp_invitation kp_team kp_installation
   kp_base="$(jq -er '.apiBaseURL' "${kp_scenario}")"
   kp_secret_dir="$(dirname "${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")"
@@ -175,10 +176,12 @@ kp_run_installed_auth_and_contract_workflow() {
   [[ "$(LC_ALL=C grep -Ec '^KUBERPLOY_BOOTSTRAP_TOKEN=kp_bootstrap_[A-Za-z0-9_-]{43}$' "${kp_secret_dir}/bootstrap.log")" == 1 ]]
   [[ "$(wc -l <"${kp_secret_dir}/bootstrap.log" | tr -d ' ')" == 1 ]]
   kp_bootstrap_token="$(sed -nE 's/^KUBERPLOY_BOOTSTRAP_TOKEN=(kp_bootstrap_[A-Za-z0-9_-]{43})$/\1/p' "${kp_secret_dir}/bootstrap.log")"
+  kp_admin_email="qualification-admin-${KUBERPLOY_E2E_RUN_ID}@example.test"
+  kp_developer_email="qualification-developer-${KUBERPLOY_E2E_RUN_ID}@example.test"
   kp_admin_password="$(openssl rand -base64 32 | tr -d '\n')Aa1!"
   kp_developer_password="$(openssl rand -base64 32 | tr -d '\n')Bb2!"
-  jq -n --arg token "${kp_bootstrap_token}" --arg password "${kp_admin_password}" \
-    '{token:$token,displayName:"Qualification Admin",password:$password}' >"${kp_secret_dir}/request.json"
+  jq -n --arg token "${kp_bootstrap_token}" --arg email "${kp_admin_email}" --arg password "${kp_admin_password}" \
+    '{token:$token,email:$email,displayName:"Qualification Admin",password:$password}' >"${kp_secret_dir}/request.json"
   kp_actual="$(curl --silent --show-error -c "${kp_cookie_jar}" -D "${kp_headers}" -o "${kp_dir}/auth-bootstrap.json" \
     -w '%{http_code}' -H 'Content-Type: application/json' --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/bootstrap")"
   [[ "${kp_actual}" == 201 ]]
@@ -192,7 +195,8 @@ kp_run_installed_auth_and_contract_workflow() {
     --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" "${kp_base}/v1/auth/logout")"
   [[ "${kp_actual}" == 204 ]]
   [[ "$(curl -sS -o /dev/null -w '%{http_code}' --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" "${kp_base}/v1/me")" == 401 ]]
-  jq -n --arg password "${kp_admin_password}" '{login:"Qualification Admin",password:$password}' >"${kp_secret_dir}/request.json"
+  jq -n --arg email "${kp_admin_email}" --arg password "${kp_admin_password}" \
+    '{email:$email,password:$password}' >"${kp_secret_dir}/request.json"
   kp_actual="$(curl -sS -c "${kp_cookie_jar}" -D "${kp_headers}" -o "${kp_dir}/auth-admin-login.json" -w '%{http_code}' \
     -H 'Content-Type: application/json' --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/login")"
   [[ "${kp_actual}" == 200 ]]
@@ -200,7 +204,8 @@ kp_run_installed_auth_and_contract_workflow() {
   awk 'BEGIN{IGNORECASE=1} /^X-CSRF-Token:/ {gsub("\\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' "${kp_headers}" >"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
   chmod 600 "${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
 
-  kp_human_post invite-user /v1/users/invitations '{"displayName":"Qualification Developer"}' 201 "${kp_secret_dir}/invitation.json"
+  kp_human_post invite-user /v1/users/invitations \
+    "$(jq -cn --arg email "${kp_developer_email}" '{email:$email}')" 201 "${kp_secret_dir}/invitation.json"
   kp_invitation="$(jq -er '.token' "${kp_secret_dir}/invitation.json")"
   jq -n --arg token "${kp_invitation}" --arg password "${kp_developer_password}" \
     '{token:$token,displayName:"Qualification Developer",password:$password}' >"${kp_secret_dir}/request.json"
@@ -208,7 +213,8 @@ kp_run_installed_auth_and_contract_workflow() {
     -H 'Content-Type: application/json' --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/invitations/accept")"
   [[ "${kp_actual}" == 201 ]]
   kp_developer_id="$(jq -er '.id' "${kp_dir}/auth-invitation-accepted.json")"
-  jq -n --arg password "${kp_developer_password}" '{login:"Qualification Developer",password:$password}' >"${kp_secret_dir}/request.json"
+  jq -n --arg email "${kp_developer_email}" --arg password "${kp_developer_password}" \
+    '{email:$email,password:$password}' >"${kp_secret_dir}/request.json"
   [[ "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/login")" == 200 ]]
 
   kp_human_post create-auth-team /v1/teams '{"name":"Qualification Owners","slug":"qualification-owners"}' 201 "${kp_dir}/auth-team.json"
@@ -217,6 +223,20 @@ kp_run_installed_auth_and_contract_workflow() {
     --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
     "${kp_base}/v1/teams/${kp_team}/members/${kp_admin_id}")"
   [[ "${kp_actual}" == 409 ]]
+  kp_human_post add-auth-team-member "/v1/teams/${kp_team}/members" \
+    "$(jq -cn --arg u "${kp_developer_id}" '{userId:$u,role:"member"}')" 201 \
+    "${kp_dir}/auth-team-member.json"
+  kp_human_post promote-auth-team-member "/v1/teams/${kp_team}/members" \
+    "$(jq -cn --arg u "${kp_developer_id}" '{userId:$u,role:"owner"}')" 201 \
+    "${kp_dir}/auth-team-member-promoted.json"
+  kp_human_post demote-auth-team-member "/v1/teams/${kp_team}/members" \
+    "$(jq -cn --arg u "${kp_developer_id}" '{userId:$u,role:"member"}')" 201 \
+    "${kp_dir}/auth-team-member-demoted.json"
+  kp_actual="$(curl -sS -o "${kp_dir}/auth-team-member-removed.json" -w '%{http_code}' -X DELETE \
+    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" \
+    --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    "${kp_base}/v1/teams/${kp_team}/members/${kp_developer_id}")"
+  [[ "${kp_actual}" == 204 ]]
   kp_human_post register-installation /v1/github/installations \
     '{"githubInstallationId":987654321,"accountLogin":"qualification-fixture","accountType":"Organization","repositorySelection":"selected","repositoryCount":1}' \
     201 "${kp_dir}/auth-github-installation.json"

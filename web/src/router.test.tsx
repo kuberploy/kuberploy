@@ -113,4 +113,28 @@ describe("root invitation boundary", () => {
       expect.anything(),
     );
   });
+
+  it("clears an invalid invitation fragment for an existing session", async () => {
+    window.history.replaceState({}, "", "/#invite=not%20a%20token");
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_existing",
+      displayName: "Existing User",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<RootComponent />, { wrapper: Wrapper });
+
+    expect(
+      await screen.findByText("Authenticated application session"),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("");
+  });
 });

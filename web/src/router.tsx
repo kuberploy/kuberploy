@@ -4,7 +4,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { api, isUnauthorized } from "./api/client";
 import { AppShell } from "./components/AppShell";
 import { AuthScreen } from "./components/AuthScreen";
@@ -30,12 +30,18 @@ import { MiddlewareProfilesPage } from "./pages/MiddlewareProfilesPage";
 import { VariableSetsPage } from "./pages/VariableSetsPage";
 import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
 import { AuditPage } from "./pages/AuditPage";
-import { invitationTokenFromHash } from "./lib/invitationLink";
+import {
+  clearInvitationFragment,
+  invitationTokenFromHash,
+} from "./lib/invitationLink";
 
 export function RootComponent() {
   const [invitationToken, setInvitationToken] = useState(() =>
     invitationTokenFromHash(window.location.hash),
   );
+  useLayoutEffect(() => {
+    clearInvitationFragment();
+  }, []);
   const me = useQuery({
     queryKey: ["me"],
     queryFn: api.me,

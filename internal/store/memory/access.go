@@ -229,7 +229,7 @@ func (s *Store) CreateUserInvitation(_ context.Context, actor, email string, tok
 	return invitation, nil
 }
 
-func (s *Store) AcceptUserInvitation(_ context.Context, tokenHash []byte, displayName, passwordHash string, sessionHash []byte, sessionExpires time.Time) (domain.User, error) {
+func (s *Store) AcceptUserInvitation(_ context.Context, tokenHash []byte, displayName, passwordHash string, sessionHash, previousSessionHash []byte, sessionExpires time.Time) (domain.User, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := hex.EncodeToString(tokenHash)
@@ -245,6 +245,12 @@ func (s *Store) AcceptUserInvitation(_ context.Context, tokenHash []byte, displa
 	email := strings.ToLower(strings.TrimSpace(record.email))
 	if _, exists := s.passwordCredentials[email]; exists || passwordHash == "" {
 		return domain.User{}, base.ErrInvitationInvalid
+	}
+	if len(previousSessionHash) != 0 && len(previousSessionHash) != 32 {
+		return domain.User{}, base.ErrInvitationInvalid
+	}
+	if len(previousSessionHash) == 32 {
+		delete(s.sessions, hex.EncodeToString(previousSessionHash))
 	}
 	s.users[u.ID] = u
 	s.passwordCredentials[email] = struct{ userID, hash string }{u.ID, passwordHash}
