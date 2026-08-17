@@ -41,6 +41,11 @@ export function RootComponent() {
   );
   useLayoutEffect(() => {
     clearInvitationFragment();
+    const handleHashChange = () => {
+      setInvitationToken(invitationTokenFromHash(window.location.hash));
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
   const me = useQuery({
     queryKey: ["me"],

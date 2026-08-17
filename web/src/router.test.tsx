@@ -19,6 +19,34 @@ afterEach(() => {
 });
 
 describe("root invitation boundary", () => {
+  it("enters invitation mode when a link changes the hash after root mount", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_existing",
+      displayName: "Existing administrator",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<RootComponent />, { wrapper: Wrapper });
+    expect(
+      await screen.findByText("Authenticated application session"),
+    ).toBeInTheDocument();
+
+    window.location.hash = "invite=kp_same_page_invite";
+
+    expect(
+      await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+    expect(window.location.hash).toBe("");
+  });
+
   it("shows and clears an invitation even when an existing session is valid", async () => {
     window.history.replaceState(
       { existing: true },
