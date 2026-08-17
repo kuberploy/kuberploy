@@ -45,6 +45,10 @@ export function AuthScreen({
     () =>
       invitationToken ?? invitationTokenFromHash(window.location.hash) ?? "",
   );
+  const [invitationInputToken, setInvitationInputToken] = useState(
+    () =>
+      invitationToken ?? invitationTokenFromHash(window.location.hash) ?? "",
+  );
   const [inviteMode, setInviteMode] = useState(
     () => linkedInvitationToken.length > 0,
   );
@@ -109,6 +113,7 @@ export function AuthScreen({
       incomingInvitationToken !== linkedInvitationToken
     ) {
       setLinkedInvitationToken(incomingInvitationToken);
+      setInvitationInputToken(incomingInvitationToken);
       setInviteMode(true);
     }
     clearInvitationFragment();
@@ -361,6 +366,16 @@ export function AuthScreen({
                   {...invitationForm.register("token", {
                     required: "Enter your invitation token.",
                   })}
+                  value={invitationInputToken}
+                  onChange={(event) => {
+                    const token = event.currentTarget.value;
+                    setInvitationInputToken(token);
+                    invitationForm.setValue("token", token, {
+                      shouldDirty: true,
+                      shouldTouch: true,
+                      shouldValidate: false,
+                    });
+                  }}
                 />
               </Field>
               {acceptInvitation.error ? (
