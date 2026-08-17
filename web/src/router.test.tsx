@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./api/client";
+import { ApiError, api } from "./api/client";
 import { RootComponent } from "./router";
 
 vi.mock("./components/AppShell", () => ({
@@ -77,6 +77,36 @@ describe("root invitation boundary", () => {
 
     expect(
       await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders the application after a successful login", async () => {
+    vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    vi.spyOn(api, "login").mockResolvedValue({
+      id: "user_admin",
+      displayName: "Administrator",
+      role: "platform-admin",
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const user = userEvent.setup();
+
+    render(<RootComponent />, { wrapper: Wrapper });
+    await screen.findByText("Sign in to continue");
+    await user.type(screen.getByLabelText(/email/i), "admin@example.com");
+    await user.type(
+      screen.getByLabelText(/^password/i),
+      "correct horse battery staple",
+    );
+    await user.click(screen.getByRole("button", { name: /^sign in/i }));
+
+    expect(
+      await screen.findByText("Authenticated application session"),
     ).toBeInTheDocument();
   });
 

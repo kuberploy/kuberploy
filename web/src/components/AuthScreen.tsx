@@ -73,7 +73,9 @@ export function AuthScreen({
   });
   const establishSession = async (user: User) => {
     await queryClient.cancelQueries();
-    queryClient.clear();
+    queryClient.removeQueries({
+      predicate: (query) => query.queryKey[0] !== "me",
+    });
     queryClient.setQueryData(["me"], sessionPrincipal(user));
   };
   const bootstrap = useMutation({
