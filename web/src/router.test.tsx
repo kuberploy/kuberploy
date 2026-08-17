@@ -47,6 +47,39 @@ describe("root invitation boundary", () => {
     expect(window.location.hash).toBe("");
   });
 
+  it("keeps the incoming invitation when routing clears the fragment first", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_existing",
+      displayName: "Existing administrator",
+      role: "platform-admin",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<RootComponent />, { wrapper: Wrapper });
+    expect(
+      await screen.findByText("Authenticated application session"),
+    ).toBeInTheDocument();
+
+    const inviteURL = new URL(window.location.href);
+    inviteURL.hash = "invite=kp_router_cleared_fragment_invite";
+    window.history.replaceState(window.history.state, "", "/");
+    window.dispatchEvent(new HashChangeEvent("hashchange", {
+      newURL: inviteURL.toString(),
+      oldURL: window.location.href,
+    }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+  });
+
   it("shows and clears an invitation even when an existing session is valid", async () => {
     window.history.replaceState(
       { existing: true },

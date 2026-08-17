@@ -41,8 +41,8 @@ export function RootComponent() {
   );
   useLayoutEffect(() => {
     clearInvitationFragment();
-    const handleHashChange = () => {
-      setInvitationToken(invitationTokenFromHash(window.location.hash));
+    const handleHashChange = (event: HashChangeEvent) => {
+      setInvitationToken(invitationTokenFromHash(new URL(event.newURL).hash));
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
