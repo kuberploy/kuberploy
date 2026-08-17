@@ -12,7 +12,7 @@ import (
 
 func TestAuditTimelineRequiresExactAuthorizedScope(t *testing.T) {
 	s := New()
-	admin := domain.User{ID: "11111111-1111-4111-8111-111111111111", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	admin := domain.User{ID: "11111111-1111-4111-8111-111111111111", Email: "admin@audit.test", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	if err := s.BootstrapAdmin(context.Background(), admin, "hash", make([]byte, 32), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}

@@ -35,15 +35,6 @@ func userDisplayName(user domain.User) string {
 	return user.DisplayName
 }
 
-func userCredentialEmail(user domain.User) string {
-	if user.Email != "" {
-		return user.Email
-	}
-	// Compatibility for old Go-only fixtures. New HTTP-created users always
-	// provide Email, and no public endpoint accepts a display name as login.
-	return user.DisplayName
-}
-
 func normalizeCredential(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 
 func nullableString(value string) any {
@@ -157,6 +148,9 @@ func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 func (s *Store) Close()                         { s.pool.Close() }
 
 func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHash string, sessionHash []byte, expires time.Time) error {
+	if strings.TrimSpace(user.Email) == "" || passwordHash == "" {
+		return base.ErrConflict
+	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return err
@@ -173,7 +167,7 @@ func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHa
 	if err != nil {
 		return classify(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,email_normalized,password_hash) VALUES($1,$2,$3)`, user.ID, normalizeCredential(userCredentialEmail(user)), passwordHash)
+	_, err = tx.Exec(ctx, `INSERT INTO user_password_credentials(user_id,email_normalized,password_hash) VALUES($1,$2,$3)`, user.ID, normalizeCredential(user.Email), passwordHash)
 	if err != nil {
 		return classify(err)
 	}

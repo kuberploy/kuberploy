@@ -149,10 +149,10 @@ func (s *Store) BootstrapAdmin(_ context.Context, u domain.User, passwordHash st
 		s.passwordCredentials = map[string]struct{ userID, hash string }{}
 	}
 	email := strings.ToLower(strings.TrimSpace(u.Email))
-	if email == "" {
-		email = strings.ToLower(strings.TrimSpace(u.DisplayName))
+	if email == "" || passwordHash == "" {
+		return base.ErrConflict
 	}
-	if _, exists := s.passwordCredentials[email]; exists || passwordHash == "" {
+	if _, exists := s.passwordCredentials[email]; exists {
 		return base.ErrConflict
 	}
 	s.bootstrapUsed = true
@@ -185,9 +185,6 @@ func (s *Store) CreateLoginSession(_ context.Context, userID, expectedHash, upgr
 		return domain.User{}, base.ErrNotFound
 	}
 	email := strings.ToLower(strings.TrimSpace(u.Email))
-	if email == "" {
-		email = strings.ToLower(strings.TrimSpace(u.DisplayName))
-	}
 	credential, ok := s.passwordCredentials[email]
 	if !ok || credential.userID != userID || credential.hash != expectedHash {
 		return domain.User{}, base.ErrNotFound

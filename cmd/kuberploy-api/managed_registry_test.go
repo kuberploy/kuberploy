@@ -35,7 +35,7 @@ func apiRegistryConfig() registry.RuntimeConfig {
 
 func TestManagedRegistryAPIConstructsLocalManagementAndExactProbe(t *testing.T) {
 	store := managedRegistryAPIStoreStub{memory.New()}
-	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", Email: "admin@registry.test", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
 	if err := store.BootstrapAdmin(context.Background(), admin, "hash", make([]byte, 32), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}

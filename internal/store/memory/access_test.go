@@ -24,6 +24,29 @@ func bootstrapAccessAdmin(t *testing.T, store *Store) domain.User {
 	return admin
 }
 
+func TestBootstrapRequiresEmailAndNeverUsesDisplayNameAsCredential(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := domain.User{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", DisplayName: "Admin", Role: "platform-admin", GrantRevision: 1, CreatedAt: time.Now().UTC()}
+	if err := store.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), sha256Bytes("session-empty-email"), time.Now().Add(time.Hour)); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("bootstrap without email err=%v", err)
+	}
+	if used, err := store.BootstrapRequired(ctx); err != nil || !used {
+		t.Fatalf("empty-email bootstrap consumed installation: required=%v err=%v", used, err)
+	}
+
+	admin.Email = "admin@example.test"
+	if err := store.BootstrapAdmin(ctx, admin, strings.Repeat("h", 64), sha256Bytes("session-with-email"), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.LocalCredential(ctx, admin.DisplayName); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("display name was accepted as a local credential: %v", err)
+	}
+	if user, _, err := store.LocalCredential(ctx, "ADMIN@EXAMPLE.TEST"); err != nil || user.ID != admin.ID {
+		t.Fatalf("normalized email lookup user=%#v err=%v", user, err)
+	}
+}
+
 func invitedUser(t *testing.T, store *Store, admin domain.User, name, seed string) (domain.User, [32]byte) {
 	t.Helper()
 	ctx := context.Background()
