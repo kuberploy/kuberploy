@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { api, type BuildLogOptions } from "../api/client";
+import { ApiError, api, type BuildLogOptions } from "../api/client";
 import type {
   BuildLogLine,
   BuildLogSource,
@@ -17,6 +17,13 @@ const lookbackChoices = [
   { value: 1_440, label: "24 hours" },
 ] as const;
 const maximumVisibleLines = 2_000;
+
+function unavailableDescription(error: unknown) {
+  if (error instanceof ApiError && (error.status === 404 || error.status === 410)) {
+    return "The live build source has ended or was removed. Terminal build metadata remains available.";
+  }
+  return "The exact live builder source could not be verified. Terminal build metadata remains available.";
+}
 
 function sinceTimestamp(minutes: number) {
   return new Date(Date.now() - minutes * 60_000)
@@ -257,7 +264,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         <EmptyState
           icon="logs"
           title="Build logs unavailable"
-          description="The exact live build source could not be read. The build continues running."
+          description={unavailableDescription(snapshot.error)}
           action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
           compact
         />

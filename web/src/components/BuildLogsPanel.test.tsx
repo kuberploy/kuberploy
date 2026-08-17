@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { BuildLogSnapshot, BuildLogStreamEvent } from "../api/types";
 import { BuildLogsPanel } from "./BuildLogsPanel";
 
@@ -152,5 +152,27 @@ describe("source-build log panel", () => {
     expect(
       screen.getByText("The build log stream has ended."),
     ).toBeInTheDocument();
+  });
+
+  it("does not claim a terminal build is still running when its live source is gone", async () => {
+    vi.spyOn(api, "buildLogSnapshot").mockRejectedValue(
+      new ApiError(404, {
+        type: "about:blank",
+        title: "Not found",
+        status: 404,
+        detail: "The requested build was not found.",
+      }),
+    );
+
+    render(<BuildLogsPanel attemptId="completed-attempt" />, {
+      wrapper: wrapper(),
+    });
+
+    expect(
+      await screen.findByText(
+        "The live build source has ended or was removed. Terminal build metadata remains available.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/continues running/i)).not.toBeInTheDocument();
   });
 });

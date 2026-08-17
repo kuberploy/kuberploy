@@ -283,7 +283,7 @@ func writeBuildLogSSE(w io.Writer, event buildlogs.StreamEvent) error {
 }
 
 func buildLogsUnavailable(w http.ResponseWriter, r *http.Request) {
-	writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogRuntimeUnavailable", "Build logs unavailable", "No verified Kubernetes source-build log boundary is available. The build continues running.")
+	writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogRuntimeUnavailable", "Build logs unavailable", "No verified Kubernetes source-build log boundary is available. Build metadata remains available.")
 }
 
 func writeBuildLogError(w http.ResponseWriter, r *http.Request, err error) {
@@ -301,6 +301,6 @@ func writeBuildLogError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, buildlogs.ErrScopeViolation):
 		writeProblem(w, r, http.StatusBadGateway, "BuildLogResponseRejected", "Build log response rejected", "Kubernetes returned an object outside the authorized build scope.")
 	default:
-		writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogRuntimeUnavailable", "Build logs unavailable", "The Kubernetes build log boundary could not be read. The build continues running.")
+		writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogRuntimeUnavailable", "Build logs unavailable", "The Kubernetes build log boundary could not be read. Build metadata remains available.")
 	}
 }
