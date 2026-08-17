@@ -6,7 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/miekg/dns v1.1.72
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
-	github.com/valkey-io/valkey-go v1.0.76
+	github.com/valkey-io/valkey-go v1.0.77
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
