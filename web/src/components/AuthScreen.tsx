@@ -41,7 +41,7 @@ export function AuthScreen({
   onInvitationDismissed?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [linkedInvitationToken] = useState(
+  const [linkedInvitationToken, setLinkedInvitationToken] = useState(
     () =>
       invitationToken ?? invitationTokenFromHash(window.location.hash) ?? "",
   );
@@ -102,8 +102,25 @@ export function AuthScreen({
   });
 
   useLayoutEffect(() => {
+    const incomingInvitationToken =
+      invitationToken ?? invitationTokenFromHash(window.location.hash) ?? "";
+    if (
+      incomingInvitationToken &&
+      incomingInvitationToken !== linkedInvitationToken
+    ) {
+      setLinkedInvitationToken(incomingInvitationToken);
+      setInviteMode(true);
+    }
     clearInvitationFragment();
-  }, []);
+    const token = incomingInvitationToken || linkedInvitationToken;
+    if (token) {
+      invitationForm.setValue("token", token, {
+        shouldDirty: false,
+        shouldTouch: false,
+        shouldValidate: false,
+      });
+    }
+  }, [invitationForm, invitationToken, linkedInvitationToken]);
 
   const offline =
     connectionError &&

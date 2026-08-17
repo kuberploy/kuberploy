@@ -13,6 +13,28 @@ afterEach(() => {
 });
 
 describe("invitation acceptance", () => {
+  it("hydrates a token when the router supplies an invitation after auth mounts", async () => {
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { rerender } = render(<AuthScreen />, { wrapper: Wrapper });
+    await screen.findByText("Sign in to continue");
+
+    rerender(<AuthScreen invitationToken="kp_late_invitation_token" />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/invitation token/i)).toHaveValue(
+      "kp_late_invitation_token",
+    );
+  });
+
   it("opens invitation mode from a fragment, prefills the token, and removes it from browser history", async () => {
     window.history.replaceState(
       { preserved: true },
