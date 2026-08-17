@@ -27,6 +27,9 @@ while (($#)); do
         --data-binary) body="${2#@}" ;;
       esac
       shift 2 ;;
+    --resolve)
+      printf '%s\n' "$2" >"${KP_PUBLIC_PROVIDER_RESOLVE_LOG}"
+      shift 2 ;;
     --silent|--show-error) shift ;;
     https://*) url="$1"; shift ;;
     *) shift ;;
@@ -68,6 +71,42 @@ EOF
 chmod 755 "${kp_tmp}/curl" "${kp_tmp}/dig"
 export PATH="${kp_tmp}:${PATH}"
 export KP_PUBLIC_PROVIDER_FAKE_STATE="${kp_state}"
+export KP_PUBLIC_PROVIDER_RESOLVE_LOG="${kp_tmp}/resolve.log"
+export KP_PUBLIC_PROVIDER_OPENSSL_LOG="${kp_tmp}/openssl.log"
+
+cat >"${kp_tmp}/openssl" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == "s_client" ]]; then
+  kp_connect=""
+  while (($#)); do
+    if [[ "$1" == "-connect" ]]; then
+      kp_connect="$2"
+      shift 2
+    else
+      shift
+    fi
+  done
+  printf '%s\n' "${kp_connect}" >"${KP_PUBLIC_PROVIDER_OPENSSL_LOG}"
+  printf 'fake-certificate\n'
+  exit 0
+fi
+if [[ "${1:-}" == "x509" ]]; then
+  kp_output=""
+  while (($#)); do
+    if [[ "$1" == "-out" ]]; then
+      kp_output="$2"
+      shift 2
+    else
+      shift
+    fi
+  done
+  [[ -z "${kp_output}" ]] || printf 'fake-certificate\n' >"${kp_output}"
+  exit 0
+fi
+exit 1
+EOF
+chmod 755 "${kp_tmp}/openssl"
 export KUBERPLOY_E2E_RUN_ID="pv1"
 export KUBERPLOY_E2E_PUBLIC_PROVIDER_ZONE="example.test"
 export KUBERPLOY_E2E_PUBLIC_HOSTNAME="kuberploy-pv1.example.test"
@@ -97,6 +136,13 @@ jq -e '.exactProviderRecord == true and .publicDNSObserved == true and .target =
   "${kp_evidence}" >/dev/null
 grep -Fqx 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' <(jq -r '.uid' "${kp_inventory}")
 ! grep -F 'token-do-not-leak' "${kp_evidence}" "${kp_inventory}"
+
+export KUBERPLOY_E2E_PUBLIC_PROVIDER_HTTPS_EVIDENCE_FILE="${kp_tmp}/https.json"
+kp_public_provider_verify_https
+jq -e '.tlsHostnameVerified == true and .httpStatus == 200 and .publicHTTPSObserved == true' \
+  "${KUBERPLOY_E2E_PUBLIC_PROVIDER_HTTPS_EVIDENCE_FILE}" >/dev/null
+grep -Fqx '192.0.2.10:443' "${KP_PUBLIC_PROVIDER_OPENSSL_LOG}"
+grep -Fqx 'kuberploy-pv1.example.test:443:192.0.2.10' "${KP_PUBLIC_PROVIDER_RESOLVE_LOG}"
 
 jq '.content = "198.51.100.11"' "${kp_state}" >"${kp_state}.tmp"
 mv -- "${kp_state}.tmp" "${kp_state}"

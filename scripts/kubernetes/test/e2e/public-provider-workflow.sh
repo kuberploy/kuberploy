@@ -294,13 +294,23 @@ kp_public_provider_cleanup() {
 
 kp_public_provider_verify_https() {
   local kp_evidence="${KUBERPLOY_E2E_PUBLIC_PROVIDER_HTTPS_EVIDENCE_FILE:?HTTPS evidence file required}"
-  local kp_host="${KUBERPLOY_E2E_PUBLIC_HOSTNAME}" kp_http_status
+  local kp_host="${KUBERPLOY_E2E_PUBLIC_HOSTNAME}" kp_target="${KUBERPLOY_E2E_PUBLIC_DNS_TARGET:-}" kp_http_status
   local kp_cert="${kp_evidence}.cert" kp_handshake="${kp_evidence}.handshake"
-  openssl s_client -connect "${kp_host}:443" -servername "${kp_host}" </dev/null 2>"${kp_handshake}" |
+  if [[ -n "${kp_target}" ]]; then
+    kp_public_provider_validate_target
+  else
+    kp_target="${kp_host}"
+  fi
+  openssl s_client -connect "${kp_target}:443" -servername "${kp_host}" </dev/null 2>"${kp_handshake}" |
     openssl x509 -out "${kp_cert}" >/dev/null
   openssl x509 -in "${kp_cert}" -checkhost "${kp_host}" -checkend 300 -noout >/dev/null
-  kp_http_status="$(curl --silent --show-error --output "${kp_evidence}.body" \
-    --write-out '%{http_code}' "https://${kp_host}/")"
+  if [[ "${kp_target}" == "${kp_host}" ]]; then
+    kp_http_status="$(curl --silent --show-error --output "${kp_evidence}.body" \
+      --write-out '%{http_code}' "https://${kp_host}/")"
+  else
+    kp_http_status="$(curl --silent --show-error --resolve "${kp_host}:443:${kp_target}" \
+      --output "${kp_evidence}.body" --write-out '%{http_code}' "https://${kp_host}/")"
+  fi
   [[ "${kp_http_status}" == "200" ]] || kp_die "public HTTPS route returned HTTP ${kp_http_status}"
   jq -n --arg host "${kp_host}" --arg status "${kp_http_status}" \
     '{schemaVersion:1,hostname:$host,tlsHostnameVerified:true,tlsExpiryWindowSeconds:300,
