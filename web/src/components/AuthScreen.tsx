@@ -128,11 +128,16 @@ export function AuthScreen({
       linkedInvitationToken ??
       invitationTokenFromHash(window.location.hash);
     if (token) {
-      invitationForm.setValue("token", token, {
-        shouldDirty: false,
-        shouldTouch: false,
-        shouldValidate: false,
-      });
+      invitationForm.reset(
+        {
+          ...invitationForm.getValues(),
+          token,
+        },
+        {
+          keepErrors: true,
+          keepTouched: true,
+        },
+      );
     }
   }, [invitationForm, invitationToken, linkedInvitationToken]);
 
