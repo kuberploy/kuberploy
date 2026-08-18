@@ -47,6 +47,13 @@ afterEach(() => {
 });
 
 describe("appearance", () => {
+  it("uses a deployment-neutral cluster label", () => {
+    renderShell({});
+
+    expect(screen.getByText("Kubernetes cluster")).toBeInTheDocument();
+    expect(screen.queryByText("Local cluster")).not.toBeInTheDocument();
+  });
+
   it("offers auto, light, and dark modes and persists an override", () => {
     renderShell({});
 

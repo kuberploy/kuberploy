@@ -286,7 +286,7 @@ export function AppShell({ user }: { user: Principal }) {
             <Icon name="menu" />
           </button>
           <div className="topbar__context">
-            <span className="topbar__cluster">Local cluster</span>
+            <span className="topbar__cluster">Kubernetes cluster</span>
             <Icon name="chevron" />
             <span className="topbar__page">{pageName}</span>
           </div>
