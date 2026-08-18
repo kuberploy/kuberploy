@@ -56,8 +56,33 @@ grep -F '!has(object.spec.ingress) || object.spec.ingress.size() == 0' <<<"${kp_
 grep -F '!has(object.spec.egress) || object.spec.egress.size() == 0' <<<"${kp_default_deny_expression}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "default-deny") | .spec.egress | length' "${kp_render}")" == "0" ]]
 kp_private_egress_validations="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-private-egress$"))) | .spec.validations[].expression' "${kp_render}")"
+kp_builder_egress_validations="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-egress$")) and (.metadata.name | test("-private-egress$") | not)) | .spec.validations[].expression' "${kp_render}")"
 kp_dynamic_egress_match="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-egress$")) and (.metadata.name | test("-private-egress$") | not)) | .spec.matchConditions[] | select(.name == "run-policy-only") | .expression' "${kp_render}")"
 grep -F -- "object.metadata.name != 'kuberploy-builder-private-egress'" <<<"${kp_dynamic_egress_match}" >/dev/null
+for kp_optional_field_guard in \
+  'has(t.namespaceSelector)' \
+  'has(t.podSelector)' \
+  'has(t.ipBlock)' \
+  'has(t.ipBlock.except)' \
+  'has(t.namespaceSelector.matchExpressions)' \
+  'has(p.endPort)'; do
+  grep -F -- "${kp_optional_field_guard}" <<<"${kp_builder_egress_validations}" >/dev/null || {
+    printf 'builder egress admission omitted optional-field guard: %s\n' "${kp_optional_field_guard}" >&2
+    exit 1
+  }
+done
+for kp_unsafe_optional_access in \
+  't.namespaceSelector != null' \
+  't.podSelector != null' \
+  't.ipBlock != null' \
+  't.ipBlock == null' \
+  't.ipBlock.except == null' \
+  'p.endPort == null'; do
+  if grep -F -- "${kp_unsafe_optional_access}" <<<"${kp_builder_egress_validations}" >/dev/null; then
+    printf 'builder egress admission still directly reads optional field: %s\n' "${kp_unsafe_optional_access}" >&2
+    exit 1
+  fi
+done
 for kp_private_cidr in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do
   grep -F -- "${kp_private_cidr}" <<<"${kp_private_egress_validations}" >/dev/null
 done
@@ -84,7 +109,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "v.readOnly == null || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.205'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.206'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
