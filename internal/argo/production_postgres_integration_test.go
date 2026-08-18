@@ -450,6 +450,33 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 			t.Fatalf("ready binding was not authorized: %#v", authority)
 		}
 	}
+	staleCatalogAt := now.Add(-2 * time.Minute)
+	if _, err = pool.Exec(ctx, `UPDATE github_installations SET last_verified_at=$1 WHERE github_app_id=$2`, staleCatalogAt, int64(1001)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET last_verified_at=$1 WHERE installation_id IN ($2,$3)`, staleCatalogAt, installationPlatformID, installationEnvironmentID); err != nil {
+		t.Fatal(err)
+	}
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now, time.Minute)
+	if err != nil || len(authorities) != 3 {
+		t.Fatalf("stale authorities=%#v err=%v", authorities, err)
+	}
+	verifiedBindings := make([]gitprojection.Binding, 0, len(authorities))
+	for _, authority := range authorities {
+		verifiedBindings = append(verifiedBindings, authority.Binding)
+	}
+	if err = catalog.MarkArgoRepositoryBindingsVerified(ctx, 1001, verifiedBindings, now); err != nil {
+		t.Fatalf("renew provider-verified catalog: %v", err)
+	}
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now.Add(time.Second), time.Minute)
+	if err != nil || len(authorities) != 3 {
+		t.Fatalf("renewed authorities=%#v err=%v", authorities, err)
+	}
+	for _, authority := range authorities {
+		if !authority.Authorized || authority.RevocationRequired {
+			t.Fatalf("provider-verified catalog was not renewed: %#v", authority)
+		}
+	}
 	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET lifecycle='removed',removed_at=$2,updated_at=$2 WHERE id=$1`, repositoryEnvironmentID, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}

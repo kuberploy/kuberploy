@@ -103,6 +103,55 @@ func (c *PostgreSQLRuntimeBindingCatalog) ArgoRepositoryBindings(
 	return authorities, nil
 }
 
+// MarkArgoRepositoryBindingsVerified renews only identities that just passed
+// VerifyInstallation and ResolveRemoteRef. It does not mint credentials or
+// alter binding authority; it prevents a healthy runtime from repeating the
+// same expensive provider proof on every readiness heartbeat.
+func (c *PostgreSQLRuntimeBindingCatalog) MarkArgoRepositoryBindingsVerified(
+	ctx context.Context, appID int64, bindings []gitprojection.Binding, now time.Time,
+) error {
+	if c == nil || c.pool == nil || appID <= 0 || len(bindings) == 0 || now.IsZero() {
+		return ErrInvalid
+	}
+	tx, err := c.pool.Begin(ctx)
+	if err != nil {
+		return classifyPostgres(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, binding := range bindings {
+		if binding.Validate() != nil || binding.CredentialMode != gitprojection.CredentialGitHubApp {
+			return ErrInvalid
+		}
+		var installationID string
+		err = tx.QueryRow(ctx, `UPDATE github_installations
+			SET last_verified_at=$4,updated_at=GREATEST(updated_at,$4)
+			WHERE github_app_id=$1 AND github_installation_id=$2 AND lifecycle='active'
+			  AND EXISTS (
+				SELECT 1 FROM github_repositories r
+				WHERE r.installation_id=github_installations.id AND r.github_repository_id=$3
+				  AND r.lifecycle='active' AND r.github_owner_id=github_installations.github_account_id
+			  )
+			RETURNING id::text`, appID, binding.Repository.InstallationID, binding.Repository.RepositoryID, now.UTC()).Scan(&installationID)
+		if err != nil {
+			return classifyPostgres(err)
+		}
+		var repositoryID string
+		err = tx.QueryRow(ctx, `UPDATE github_repositories
+			SET last_verified_at=$3,updated_at=GREATEST(updated_at,$3)
+			WHERE installation_id=$1 AND github_repository_id=$2 AND github_owner_id=(
+				SELECT github_account_id FROM github_installations WHERE id=$1
+			) AND lifecycle='active'
+			RETURNING id::text`, installationID, binding.Repository.RepositoryID, now.UTC()).Scan(&repositoryID)
+		if err != nil {
+			return classifyPostgres(err)
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return classifyPostgres(err)
+	}
+	return nil
+}
+
 func scanRuntimeBindingAuthority(row pgx.Row) (gitprojection.Binding, RepositoryBindingAuthority, error) {
 	var binding gitprojection.Binding
 	var targetHead, indexedRevision *string

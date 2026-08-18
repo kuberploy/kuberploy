@@ -90,6 +90,13 @@ type RuntimeBindingCatalog interface {
 	ArgoRepositoryBindings(context.Context, int64, string, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error)
 }
 
+// RuntimeBindingCatalogRefresher lets a successful exact provider proof renew
+// the durable catalog observation. Without this, every readiness heartbeat
+// re-runs the full provider verification set once the catalog ages out.
+type RuntimeBindingCatalogRefresher interface {
+	MarkArgoRepositoryBindingsVerified(context.Context, int64, []gitprojection.Binding, time.Time) error
+}
+
 // GitHubAppPrivateKeySource returns a fresh caller-owned key buffer. The
 // controller clears it after the bounded apply set and never stores it in Git,
 // PostgreSQL, observations, errors, or readiness identities.
@@ -527,6 +534,7 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		return ProductionPrerequisiteProof{}, err
 	}
 	verifiedHeads := make(map[string]gitprojection.VerifiedHead)
+	verifiedBindings := make([]gitprojection.Binding, 0, len(authorities))
 	authorities = slices.Clone(authorities)
 	for index := range authorities {
 		authority := &authorities[index]
@@ -546,6 +554,7 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		authority.Authorized = true
 		authority.CatalogObservedAt = now.UTC()
 		verifiedHeads[authority.Binding.ID] = head
+		verifiedBindings = append(verifiedBindings, authority.Binding)
 	}
 	credentialObservation, err := p.Credentials.Reconcile(ctx, authorities, p.Identity.PlatformBindingID, now.UTC(), maximumAge)
 	if err != nil {
@@ -572,6 +581,12 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 			return ProductionPrerequisiteProof{}, err
 		}
 		return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady
+	}
+	verifiedHeads[platform.ID] = head
+	if refresher, ok := p.Catalog.(RuntimeBindingCatalogRefresher); ok && len(verifiedBindings) > 0 {
+		if err = refresher.MarkArgoRepositoryBindingsVerified(ctx, p.Identity.GitHubAppID, verifiedBindings, now.UTC()); err != nil {
+			return ProductionPrerequisiteProof{}, err
+		}
 	}
 	protection, err := p.Protection.VerifyPlatformRepositoryProtection(ctx, platform, head, now.UTC())
 	if err != nil {

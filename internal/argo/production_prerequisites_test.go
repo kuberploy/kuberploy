@@ -66,12 +66,25 @@ type staticRuntimeBindingCatalog struct {
 	err    error
 }
 
+type refreshingRuntimeBindingCatalog struct {
+	staticRuntimeBindingCatalog
+	calls    int
+	bindings []gitprojection.Binding
+	errMark  error
+}
+
 type staticFoundationProbe struct{ err error }
 
 func (p staticFoundationProbe) Probe(context.Context) error { return p.err }
 
 func (c staticRuntimeBindingCatalog) ArgoRepositoryBindings(context.Context, int64, string, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error) {
 	return c.values, c.err
+}
+
+func (c *refreshingRuntimeBindingCatalog) MarkArgoRepositoryBindingsVerified(_ context.Context, _ int64, bindings []gitprojection.Binding, _ time.Time) error {
+	c.calls++
+	c.bindings = append([]gitprojection.Binding(nil), bindings...)
+	return c.errMark
 }
 
 type staticHeadVerifier struct {
@@ -275,13 +288,17 @@ func TestProductionPrerequisitesRequireExactProviderHeadCredentialSetAndRootSpec
 		ProviderRequest: "runtime-environment-head", ObservedAt: now}
 	credentials.Keys.(*staticPrivateKeySource).value = []byte("refreshed-test-key")
 	credentials.Kubernetes.(*recordingCredentialKubernetes).applies = nil
-	prerequisites.Catalog = staticRuntimeBindingCatalog{values: staleAuthorities}
+	refreshingCatalog := &refreshingRuntimeBindingCatalog{staticRuntimeBindingCatalog: staticRuntimeBindingCatalog{values: staleAuthorities}}
+	prerequisites.Catalog = refreshingCatalog
 	prerequisites.Provider = staticHeadVerifier{heads: map[string]gitprojection.VerifiedHead{
 		platform.ID: head, environment.ID: environmentHead,
 	}}
 	proof, err = prerequisites.ObserveProductionPrerequisites(t.Context(), now)
 	if err != nil || proof.CredentialCount != 2 || len(credentials.Kubernetes.(*recordingCredentialKubernetes).applies) != 2 {
 		t.Fatalf("provider re-verification did not refresh stale matching authorities: proof=%#v err=%v", proof, err)
+	}
+	if refreshingCatalog.calls != 1 || len(refreshingCatalog.bindings) != 2 {
+		t.Fatalf("provider verification did not renew the stale catalog: calls=%d bindings=%d", refreshingCatalog.calls, len(refreshingCatalog.bindings))
 	}
 	prerequisites.Catalog = staticRuntimeBindingCatalog{values: authorities}
 	prerequisites.Provider = staticHeadVerifier{head: head}
