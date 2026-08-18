@@ -6,6 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
@@ -67,6 +68,25 @@ describe("appearance", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(localStorage.getItem("kuberploy-theme")).toBe("dark");
     expect(dark).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("supports arrow focus and Space activation for theme radios", async () => {
+    const user = userEvent.setup();
+    renderShell({});
+
+    const automatic = screen.getByRole("radio", {
+      name: "Use automatic theme",
+    });
+    const light = screen.getByRole("radio", { name: "Use light theme" });
+
+    automatic.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(light).toHaveFocus();
+    expect(light).toHaveAttribute("aria-checked", "false");
+
+    await user.keyboard(" ");
+    expect(light).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 });
 
