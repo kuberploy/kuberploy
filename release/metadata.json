@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC216 keeps email-only login with separate display names, replaces native browser confirmations with accessible dialogs, and makes theme keyboard activation reliable across browsers and assistive-input drivers. It also carries Helm capability mapping, Git bundle CAS, immutable source replacement, Kubernetes 1.36 builder policy fixes, registry pull rotation, and recoverable Argo desired-state retries.",
+  "summary": "Schema 018 is current. RC217 keeps email-only login with separate display names, replaces native browser confirmations with accessible dialogs, fixes theme keyboard activation, and accepts valid OCI descriptor artifactType metadata during managed-registry inventory and cleanup. It also carries Helm capability mapping, Git bundle CAS, immutable source replacement, Kubernetes 1.36 builder policy fixes, registry pull rotation, and recoverable Argo retries.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.216"
+  "version": "0.1.0-rc.217"
 }

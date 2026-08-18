@@ -18,7 +18,7 @@ import (
 
 func TestDistributionObserverAcceptsExactBuildxAttestation(t *testing.T) {
 	const subjectDigest = "sha256:70e84cdc49c9bc20fb1150d17e1aa76cb71be6b3a891900439352aeea5fe1bd2"
-	body := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.docker.attestation.manifest.v1+json","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + subjectDigest + `","size":2185},"config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"data":"e30="},"layers":[{"mediaType":"application/vnd.in-toto+json","digest":"sha256:69ef63c3a804ea741a0bd0698984e6eb66fc35ff27513739442afde0e0d06c36","size":1390}]}`)
+	body := []byte(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json","artifactType":"application/vnd.docker.attestation.manifest.v1+json","subject":{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"` + subjectDigest + `","size":2185},"config":{"mediaType":"application/vnd.oci.empty.v1+json","digest":"sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a","size":2,"artifactType":"application/vnd.dev.sigstore.bundle.v0.3+json","data":"e30="},"layers":[{"mediaType":"application/vnd.in-toto+json","digest":"sha256:69ef63c3a804ea741a0bd0698984e6eb66fc35ff27513739442afde0e0d06c36","size":1390}]}`)
 	sum := sha256.Sum256(body)
 	digest := "sha256:" + fmt.Sprintf("%x", sum[:])
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.216"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.217"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done

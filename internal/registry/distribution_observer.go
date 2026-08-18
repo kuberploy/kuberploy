@@ -91,12 +91,13 @@ func NewDistributionObserver(target domain.RegistryTarget, config DistributionOb
 func (o *DistributionObserver) Target() domain.RegistryTarget { return o.target }
 
 type distributionDescriptor struct {
-	MediaType   string            `json:"mediaType"`
-	Digest      string            `json:"digest"`
-	Size        int64             `json:"size"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-	Data        string            `json:"data,omitempty"`
-	Platform    *struct {
+	MediaType    string            `json:"mediaType"`
+	Digest       string            `json:"digest"`
+	Size         int64             `json:"size"`
+	ArtifactType string            `json:"artifactType,omitempty"`
+	Annotations  map[string]string `json:"annotations,omitempty"`
+	Data         string            `json:"data,omitempty"`
+	Platform     *struct {
 		Architecture string `json:"architecture"`
 		OS           string `json:"os"`
 		Variant      string `json:"variant"`
@@ -480,7 +481,7 @@ func (o *DistributionObserver) fetchManifest(ctx context.Context, repository, di
 }
 
 func validManifestDescriptor(descriptor distributionDescriptor, platform bool) bool {
-	if !validDigest(descriptor.Digest) || descriptor.Size < 0 || !validDescriptorData(descriptor) ||
+	if !validDigest(descriptor.Digest) || descriptor.Size < 0 || !validDescriptorArtifactType(descriptor) || !validDescriptorData(descriptor) ||
 		(descriptor.MediaType != ociManifestMediaType && descriptor.MediaType != dockerManifestMediaType && descriptor.MediaType != ociIndexMediaType && descriptor.MediaType != dockerIndexMediaType) {
 		return false
 	}
@@ -503,7 +504,11 @@ func validManifestDescriptor(descriptor distributionDescriptor, platform bool) b
 }
 
 func validBlobDescriptor(descriptor distributionDescriptor) bool {
-	return validDigest(descriptor.Digest) && descriptor.Size >= 0 && validDescriptorData(descriptor) && descriptor.MediaType != "" && len(descriptor.MediaType) <= 256 && !strings.ContainsAny(descriptor.MediaType, "\x00\r\n")
+	return validDigest(descriptor.Digest) && descriptor.Size >= 0 && validDescriptorArtifactType(descriptor) && validDescriptorData(descriptor) && descriptor.MediaType != "" && len(descriptor.MediaType) <= 256 && !strings.ContainsAny(descriptor.MediaType, "\x00\r\n")
+}
+
+func validDescriptorArtifactType(descriptor distributionDescriptor) bool {
+	return len(descriptor.ArtifactType) <= 256 && !strings.ContainsAny(descriptor.ArtifactType, "\x00\r\n")
 }
 
 func validDescriptorData(descriptor distributionDescriptor) bool {

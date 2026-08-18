@@ -16,7 +16,7 @@ func TestPhysicalRegistryCheckpointProvesExplicitReachability(t *testing.T) {
 	base := filepath.Join(root, "docker", "registry", "v2")
 	configBody := []byte("config-body")
 	configDigest := digestBytes(configBody)
-	manifestBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":%q,"size":%d},"layers":[]}`,
+	manifestBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":%q,"size":%d,"artifactType":"application/vnd.dev.sigstore.bundle.v0.3+json"},"layers":[]}`,
 		ociManifestMediaType, configDigest, len(configBody)))
 	manifestDigest := digestBytes(manifestBody)
 	indexBody := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"manifests":[{"mediaType":%q,"digest":%q,"size":%d,"platform":{"os":"linux","architecture":"amd64"}}]}`,
