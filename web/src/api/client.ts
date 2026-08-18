@@ -2881,10 +2881,17 @@ export const api = {
     request<Deployment>(`/v1/deployments/${encodeURIComponent(id)}`).then(
       normalizeDeployment,
     ),
-  createDeployment: (input: CreateDeployment, idempotencyKey?: string) =>
+  createDeployment: (
+    input: CreateDeployment,
+    idempotencyKey?: string,
+    gitETag?: string,
+  ) =>
     request<OperationWire>("/v1/deployments", {
       method: "POST",
-      headers: idempotencyHeaders(idempotencyKey),
+      headers: {
+        ...idempotencyHeaders(idempotencyKey),
+        ...(gitETag ? { "If-Match": gitETag } : {}),
+      },
       body: safeCreateDeploymentInput(input),
     }).then(normalizeOperation),
   previewImageResolution: (

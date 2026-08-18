@@ -50,6 +50,7 @@ beforeEach(() => {
       { id: "application-1", projectId: "project-1", name: "Payments API" },
     ],
   });
+  vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
   vi.spyOn(api, "capabilities").mockResolvedValue({
     features: { secretBindings: false, git: true, argo: true },
     capabilities: [],
@@ -63,6 +64,83 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
+  it("loads the current Git bundle ETag before updating an existing deployment", async () => {
+    const user = userEvent.setup();
+    const etag = `"sha256:${"a".repeat(64)}"`;
+    vi.mocked(api.deployments).mockResolvedValue({
+      items: [
+        {
+          id: "deployment-1",
+          applicationId: "application-1",
+          environmentId: "environment-1",
+          runtime: {
+            replicas: 1,
+            ports: [{ name: "http", containerPort: 3000, protocol: "TCP" }],
+            resources: { requests: { cpu: "50m", memory: "100Mi" } },
+          },
+        },
+      ],
+    });
+    const deploymentConfig = vi
+      .spyOn(api, "deploymentConfig")
+      .mockResolvedValue({
+        kind: "ConfigBundle",
+        etag,
+        targetHeadRevision: "a".repeat(40),
+        indexedRevision: "b".repeat(40),
+        configRevision: "c".repeat(40),
+        freshness: "fresh",
+        documents: [],
+      });
+    const createDeployment = vi
+      .spyOn(api, "createDeployment")
+      .mockResolvedValue({
+        id: "operation-1",
+        kind: "deployment.create",
+        status: "queued",
+        state: "queued",
+        targetType: "deployment",
+        targetId: "deployment-2",
+        requestId: "request-1",
+        generation: 1,
+        progress: [],
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      });
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    await screen.findByRole("option", { name: "Payments" });
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Project" }),
+      "project-1",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /^Environment/ }),
+      "environment-1",
+    );
+    await user.click(
+      screen.getByRole("radio", { name: "Existing application" }),
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Application" }),
+      "application-1",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: /^Image digest/ }),
+      `ghcr.io/acme/payments@sha256:${"d".repeat(64)}`,
+    );
+
+    await waitFor(() =>
+      expect(deploymentConfig).toHaveBeenCalledWith("deployment-1"),
+    );
+    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
+
+    await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
+    expect(createDeployment.mock.calls[0]?.[2]).toBe(etag);
+  });
+
   it("reserves a durable application before enabling first-deployment scope", async () => {
     const user = userEvent.setup();
     const createApplication = vi

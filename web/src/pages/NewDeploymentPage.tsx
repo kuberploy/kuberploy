@@ -174,6 +174,36 @@ export function NewDeploymentPage() {
     control: form.control,
     name: "environmentId",
   });
+  const existingDeploymentScope =
+    applicationMode === "existing" && applicationId && environmentId
+      ? `${applicationId}:${environmentId}`
+      : "";
+  const existingDeployments = useQuery({
+    queryKey: ["deployments"],
+    queryFn: api.deployments,
+    enabled: Boolean(existingDeploymentScope),
+    retry: false,
+  });
+  const existingDeployment = useMemo(() => {
+    if (!existingDeploymentScope) return undefined;
+    return existingDeployments.data?.items
+      .filter(
+        (deployment) =>
+          `${deployment.applicationId}:${deployment.environmentId}` ===
+          existingDeploymentScope,
+      )
+      .sort((a, b) =>
+        (b.updatedAt ?? b.createdAt ?? "").localeCompare(
+          a.updatedAt ?? a.createdAt ?? "",
+        ),
+      )[0];
+  }, [existingDeploymentScope, existingDeployments.data]);
+  const existingGitBundle = useQuery({
+    queryKey: ["deployment-config", existingDeployment?.id],
+    queryFn: () => api.deploymentConfig(existingDeployment!.id),
+    enabled: Boolean(existingDeployment?.id),
+    retry: false,
+  });
   useEffect(() => {
     if (lastDeploymentProject.current !== projectId) {
       if (lastDeploymentProject.current) {
@@ -599,6 +629,7 @@ export function NewDeploymentPage() {
                 : undefined,
         },
         idempotencyKey,
+        existingGitBundle.data?.etag,
       );
     },
     onSuccess: async (operation, input) => {
@@ -633,6 +664,16 @@ export function NewDeploymentPage() {
   };
 
   const loadError = projects.error ?? environments.error ?? applications.error;
+  const gitBundlePending =
+    Boolean(existingDeploymentScope) &&
+    (!existingDeployments.isSuccess ||
+      Boolean(existingDeployment && existingGitBundle.isPending));
+  const gitBundleError =
+    existingDeployments.error ?? existingGitBundle.error ?? null;
+  const gitBundleReady =
+    !existingDeploymentScope ||
+    (existingDeployments.isSuccess &&
+      (!existingDeployment || Boolean(existingGitBundle.data?.etag)));
   const noScopes = !projects.isPending && !projects.data?.items.length;
 
   return (
@@ -1493,6 +1534,21 @@ export function NewDeploymentPage() {
               </p>
             </div>
           ) : null}
+          {existingDeploymentScope && gitBundlePending ? (
+            <div className="notice notice--info" role="status">
+              <strong>Loading current Git configuration</strong>
+              <p>
+                Existing applications use the current strong Git bundle ETag
+                for a safe deployment update.
+              </p>
+            </div>
+          ) : null}
+          {existingDeploymentScope && gitBundleError ? (
+            <div className="notice notice--error" role="alert">
+              <strong>Current Git configuration is unavailable</strong>
+              <p>{errorMessage(gitBundleError)}</p>
+            </div>
+          ) : null}
           <div className="form-actions">
             <Link to="/" className="button button--ghost">
               Cancel
@@ -1507,6 +1563,7 @@ export function NewDeploymentPage() {
                 processError ||
                 !sslipRouteReady ||
                 !gitOpsReady ||
+                !gitBundleReady ||
                 !imageReady,
               )}
             >

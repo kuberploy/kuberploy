@@ -119,6 +119,38 @@ describe("typed API client", () => {
     });
   });
 
+  it("sends the current Git bundle ETag for an existing deployment update", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ id: "op_etag", kind: "deploy", state: "queued" }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const etag = `"sha256:${"b".repeat(64)}"`;
+
+    await api.createDeployment(
+      {
+        applicationId: "app_1",
+        environmentId: "env_1",
+        image: `ghcr.io/kuberploy/hello@sha256:${"c".repeat(64)}`,
+        runtime: {
+          replicas: 1,
+          ports: [{ name: "http", containerPort: 3000, protocol: "TCP" }],
+          resources: { requests: { cpu: "50m", memory: "100Mi" } },
+        },
+      },
+      "deployment-attempt-1",
+      etag,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("If-Match")).toBe(etag);
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "deployment-attempt-1",
+    );
+  });
+
   it("previews a tag through the closed image-resolution contract and strips authority metadata", async () => {
     const digest = `registry.example.test/payments/api@sha256:${"a".repeat(64)}`;
     const fetchMock = vi.fn().mockResolvedValue(

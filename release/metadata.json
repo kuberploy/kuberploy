@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 017 is current. RC203 keeps email as the only local login identity and display names presentation-only, renews exact provider catalog proofs after successful verification, revokes prior sessions after invitation acceptance, and carries fail-closed admission, public-provider egress, tunable infrastructure, read-only Argo observation, GitHub retry handling, historical source-build reads, and active immutable source visibility.",
+  "summary": "Schema 017 is current. RC204 keeps email as the only local login identity and display names presentation-only, renews exact provider catalog proofs after successful verification, carries strong Git bundle CAS into existing-app deployment updates, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.203"
+  "version": "0.1.0-rc.204"
 }
