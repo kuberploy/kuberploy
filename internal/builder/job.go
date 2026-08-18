@@ -444,6 +444,14 @@ func stringMapAny(values map[string]string) map[string]any {
 	return result
 }
 
+func stringSliceAny(values []string) []any {
+	result := make([]any, len(values))
+	for index, value := range values {
+		result[index] = value
+	}
+	return result
+}
+
 func plannedNetworkPolicy(request JobPlanRequest, name string, labels map[string]any) map[string]any {
 	egress := []any{
 		map[string]any{
@@ -463,7 +471,9 @@ func plannedNetworkPolicy(request JobPlanRequest, name string, labels map[string
 		}
 		ipBlock := map[string]any{"cidr": endpoint.CIDR}
 		if len(endpoint.Except) > 0 {
-			ipBlock["except"] = slices.Clone(endpoint.Except)
+			// Keep JSON arrays in the same representation returned by the
+			// Kubernetes API so exact adoption survives a round trip.
+			ipBlock["except"] = stringSliceAny(endpoint.Except)
 		}
 		egress = append(egress, map[string]any{
 			"to":    []any{map[string]any{"ipBlock": ipBlock}},

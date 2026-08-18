@@ -1,6 +1,7 @@
 package builder
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -22,8 +23,8 @@ func validJobPlanRequest() JobPlanRequest {
 		RegistryCacheCredentialSecret: "registry-cache-abc",
 		BuildSecret:                   "build-secrets-abc",
 		SSHSecret:                     "ssh-secrets-abc",
-		CheckoutImage:                 "registry.example.test/system/builder-agent:0.1.0-rc.207",
-		AgentImage:                    "registry.example.test/system/builder-agent:0.1.0-rc.207",
+		CheckoutImage:                 "registry.example.test/system/builder-agent:0.1.0-rc.208",
+		AgentImage:                    "registry.example.test/system/builder-agent:0.1.0-rc.208",
 		NodeSelector:                  map[string]string{"kuberploy.io/node-class": "dind-builder", "kubernetes.io/arch": "amd64"},
 		Toleration:                    TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 		CheckoutResources:             resources,
@@ -309,9 +310,51 @@ func TestJobPlanAcceptsDefaultPublicEgressOnlyWithExactAPIExclusions(t *testing.
 		t.Fatal(err)
 	}
 	egress := plan.NetworkPolicy["spec"].(map[string]any)["egress"].([]any)
-	if got := egress[1].(map[string]any)["to"].([]any)[0].(map[string]any)["ipBlock"].(map[string]any)["except"]; !reflect.DeepEqual(got, []string{"10.43.0.1/32"}) {
+	if got := egress[1].(map[string]any)["to"].([]any)[0].(map[string]any)["ipBlock"].(map[string]any)["except"]; !reflect.DeepEqual(got, []any{"10.43.0.1/32"}) {
 		t.Fatalf("IPv4 API exclusion=%#v", got)
 	}
+}
+
+func TestJobPlanNetworkPolicySurvivesKubernetesJSONRoundTrip(t *testing.T) {
+	request := validJobPlanRequest()
+	request.Egress = []EgressEndpoint{{CIDR: "0.0.0.0/0", Ports: []int{443}, Except: []string{"10.43.0.1/32"}}}
+	plan, err := PlanJob(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(plan.NetworkPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	var roundTripped map[string]any
+	if err := decoder.Decode(&roundTripped); err != nil {
+		t.Fatal(err)
+	}
+	roundTripped = normalizeJSONNumbers(roundTripped).(map[string]any)
+	if !reflect.DeepEqual(roundTripped["spec"], plan.NetworkPolicy["spec"]) {
+		t.Fatalf("network policy changed across JSON round trip: %#v != %#v", roundTripped["spec"], plan.NetworkPolicy["spec"])
+	}
+}
+
+func normalizeJSONNumbers(value any) any {
+	switch value := value.(type) {
+	case map[string]any:
+		for key, item := range value {
+			value[key] = normalizeJSONNumbers(item)
+		}
+	case []any:
+		for index, item := range value {
+			value[index] = normalizeJSONNumbers(item)
+		}
+	case json.Number:
+		integer, err := value.Int64()
+		if err == nil {
+			return integer
+		}
+	}
+	return value
 }
 
 func TestJobPlanAcceptsDefaultPublicEgressWithoutAPIExclusions(t *testing.T) {
