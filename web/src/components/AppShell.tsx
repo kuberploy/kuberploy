@@ -315,6 +315,15 @@ export function AppShell({ user }: { user: Principal }) {
                   aria-label={label}
                   title={label.replace("Use ", "")}
                   value={preference}
+                  onKeyDown={(event) => {
+                    // Keep Space activation reliable across browsers and
+                    // assistive-input drivers. Prevent the native button
+                    // default so the explicit click cannot fire twice.
+                    if (event.key === " " || event.key === "Spacebar") {
+                      event.preventDefault();
+                      event.currentTarget.click();
+                    }
+                  }}
                 >
                   <ThemeIcon className="size-3.5" />
                 </ToggleGroupItem>
