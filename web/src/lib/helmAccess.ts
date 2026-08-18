@@ -8,6 +8,17 @@ import type {
 export type HelmAction =
   "helm.read" | "helm.deploy" | "helm.retry" | "helm.rollback";
 
+const apiActions: Record<HelmAction, readonly string[]> = {
+  "helm.read": [
+    "helm-approvals:read",
+    "helm-releases:read",
+    "helm-values:preview",
+  ],
+  "helm.deploy": ["helm-releases:deploy", "helm-releases:disable"],
+  "helm.retry": ["helm-releases:retry"],
+  "helm.rollback": ["helm-releases:rollback"],
+};
+
 export function hasHelmCapability(
   capabilities: Capability[],
   action: HelmAction,
@@ -22,7 +33,11 @@ export function hasHelmCapability(
     return false;
   }
   return capabilities.some((capability) => {
-    if (capability.actions?.includes(action) !== true) return false;
+    const actionAllowed =
+      capability.actions?.includes(action) === true ||
+      apiActions[action]?.every((item) => capability.actions?.includes(item)) ===
+        true;
+    if (!actionAllowed) return false;
     switch (capability.scopeType) {
       case "platform":
         return capability.scopeId === "platform";

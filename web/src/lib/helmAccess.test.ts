@@ -41,6 +41,43 @@ describe("Helm effective access", () => {
     ).toBe(true);
   });
 
+  it("accepts the action names emitted by the capabilities API", () => {
+    expect(
+      hasHelmCapability(
+        [
+          {
+            scopeType: "platform",
+            scopeId: "platform",
+            actions: [
+              "helm-approvals:read",
+              "helm-releases:read",
+              "helm-values:preview",
+            ],
+          },
+        ],
+        "helm.read",
+        application,
+        environment,
+        project,
+      ),
+    ).toBe(true);
+    expect(
+      hasHelmCapability(
+        [
+          {
+            scopeType: "platform",
+            scopeId: "platform",
+            actions: ["helm-releases:deploy", "helm-releases:disable"],
+          },
+        ],
+        "helm.deploy",
+        application,
+        environment,
+        project,
+      ),
+    ).toBe(true);
+  });
+
   it("rejects cross-project and unrelated namespace grants", () => {
     const capabilities: Capability[] = [
       {
