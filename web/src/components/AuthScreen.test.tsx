@@ -159,6 +159,37 @@ describe("invitation acceptance", () => {
 });
 
 describe("local password login", () => {
+  it("does not show bootstrap before installation metadata resolves", async () => {
+    let resolveMeta!: (value: Awaited<ReturnType<typeof api.meta>>) => void;
+    vi.spyOn(api, "meta").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveMeta = resolve;
+        }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<AuthScreen />, { wrapper: Wrapper });
+
+    expect(
+      screen.getByRole("heading", { name: "Checking installation" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText(/admin email/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /sign in/i }),
+    ).not.toBeInTheDocument();
+
+    resolveMeta({ bootstrapRequired: false });
+    expect(
+      await screen.findByRole("heading", { name: "Sign in to continue" }),
+    ).toBeInTheDocument();
+  });
+
   it("restores a recurring session without retaining the password", async () => {
     const signedInUser = {
       id: "user_admin",
@@ -186,7 +217,10 @@ describe("local password login", () => {
 
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith(
-        { email: "admin@example.com", password: "correct horse battery staple" },
+        {
+          email: "admin@example.com",
+          password: "correct horse battery staple",
+        },
         expect.anything(),
       ),
     );
@@ -217,6 +251,7 @@ describe("installation bootstrap", () => {
     const user = userEvent.setup();
     render(<AuthScreen />, { wrapper: Wrapper });
 
+    await screen.findByRole("heading", { name: "Claim this installation" });
     await user.type(screen.getByLabelText(/admin email/i), "admin@example.com");
     const displayName = screen.getByRole("textbox", { name: /^Display name/ });
     await user.clear(displayName);

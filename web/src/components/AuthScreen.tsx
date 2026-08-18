@@ -146,21 +146,27 @@ export function AuthScreen({
     }
   }, [invitationForm, invitationToken, linkedInvitationToken]);
 
-  const offline =
+  const connectionOffline =
     connectionError &&
     !(
       connectionError instanceof Error &&
       "status" in connectionError &&
       (connectionError as { status?: number }).status === 401
     );
-  const bootstrapRequired = meta.data?.bootstrapRequired !== false;
+  const offline = Boolean(connectionOffline) || (!inviteMode && meta.isError);
+  const bootstrapRequired = meta.data?.bootstrapRequired === true;
   const mode = offline
     ? "offline"
     : inviteMode
       ? "invitation"
-      : bootstrapRequired
-        ? "bootstrap"
-        : "session";
+      : meta.isPending
+        ? "loading"
+        : meta.isError
+          ? "offline"
+          : bootstrapRequired
+            ? "bootstrap"
+            : "session";
+  const unavailableError = connectionOffline ?? meta.error ?? connectionError;
 
   return (
     <main className="auth-layout">
@@ -207,34 +213,45 @@ export function AuthScreen({
           <span className="eyebrow">
             {mode === "offline"
               ? "Connection"
-              : mode === "invitation"
-                ? "Team invitation"
-                : mode === "bootstrap"
-                  ? "First run"
-                  : "Session required"}
+              : mode === "loading"
+                ? "Installation"
+                : mode === "invitation"
+                  ? "Team invitation"
+                  : mode === "bootstrap"
+                    ? "First run"
+                    : "Session required"}
           </span>
           <h2>
             {mode === "offline"
               ? "Control plane unavailable"
-              : mode === "invitation"
-                ? "Join your Kuberploy team"
-                : mode === "bootstrap"
-                  ? "Claim this installation"
-                  : "Sign in to continue"}
+              : mode === "loading"
+                ? "Checking installation"
+                : mode === "invitation"
+                  ? "Join your Kuberploy team"
+                  : mode === "bootstrap"
+                    ? "Claim this installation"
+                    : "Sign in to continue"}
           </h2>
           <p className="auth-card__lead">
             {mode === "offline"
               ? "The UI cannot reach the same-origin API. Check the API service and retry without changing your cluster."
-              : mode === "invitation"
-                ? "Choose your own password to join. The one-time token from the invitation link is sent directly to this installation and is never saved by the UI."
-                : mode === "bootstrap"
-                  ? "Use the one-time token printed by the installer. The first account becomes platform administrator."
-                  : "Authentication is managed by this installation. Restore your session, then retry."}
+              : mode === "loading"
+                ? "Checking whether this installation needs its first administrator before showing the correct sign-in flow."
+                : mode === "invitation"
+                  ? "Choose your own password to join. The one-time token from the invitation link is sent directly to this installation and is never saved by the UI."
+                  : mode === "bootstrap"
+                    ? "Use the one-time token printed by the installer. The first account becomes platform administrator."
+                    : "Authentication is managed by this installation. Restore your session, then retry."}
           </p>
 
           {mode === "offline" ? (
             <div className="notice notice--error" role="alert">
-              <p>{errorMessage(connectionError)}</p>
+              <p>{errorMessage(unavailableError)}</p>
+            </div>
+          ) : mode === "loading" ? (
+            <div className="auth-loading" role="status">
+              <span className="spinner" aria-hidden="true" />
+              <span>Reading installation state…</span>
             </div>
           ) : mode === "bootstrap" ? (
             <form
@@ -431,7 +448,7 @@ export function AuthScreen({
             </form>
           )}
 
-          {mode !== "offline" ? (
+          {mode !== "offline" && mode !== "loading" ? (
             <Button
               variant="secondary"
               onClick={() => {

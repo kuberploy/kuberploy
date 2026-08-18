@@ -4657,6 +4657,18 @@ textarea:disabled {
   font-size: 11px;
   line-height: 1.65;
 }
+.auth-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 43px;
+  margin-bottom: 11px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+.auth-loading .spinner {
+  color: var(--mint-dark);
+}
 .stack-form {
   display: flex;
   flex-direction: column;
