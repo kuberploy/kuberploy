@@ -91,6 +91,43 @@ grep -F -- "r.to.size() == 3" <<<"${kp_private_egress_validations}" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and .spec.failurePolicy != "Fail")] | length' "${kp_render}" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "7" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicyBinding" and .spec.validationActions[0] != "Deny")] | length' "${kp_render}" | tail -1)" == "0" ]]
+kp_job_validations="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and .spec.matchConstraints.resourceRules[0].resources[0] == "jobs") | .spec.validations[].expression' "${kp_render}")"
+for kp_job_optional_guard in \
+  'has(v.emptyDir)' \
+  'has(v.configMap)' \
+  'has(v.secret)' \
+  'has(v.emptyDir.sizeLimit)' \
+  'has(c.env)' \
+  'has(c.startupProbe)' \
+  '!has(v.readOnly)' \
+  '!has(c.lifecycle)' \
+  '!has(c.securityContext.privileged)' \
+  '!has(e.value)'; do
+  grep -F -- "${kp_job_optional_guard}" <<<"${kp_job_validations}" >/dev/null || {
+    printf 'builder Job admission omitted optional-field guard: %s\n' "${kp_job_optional_guard}" >&2
+    exit 1
+  }
+done
+for kp_unsafe_job_optional_access in \
+  'v.emptyDir != null' \
+  'v.configMap != null' \
+  'v.secret != null' \
+  'v.emptyDir.sizeLimit != null' \
+  'v.readOnly == null' \
+  'c.env == null' \
+  'c.envFrom == null' \
+  'c.command == null' \
+  'c.lifecycle == null' \
+  'c.startupProbe == null' \
+  'c.readinessProbe == null' \
+  'c.livenessProbe == null' \
+  'c.securityContext.privileged == null' \
+  'e.value == null'; do
+  if grep -F -- "${kp_unsafe_job_optional_access}" <<<"${kp_job_validations}" >/dev/null; then
+    printf 'builder Job admission still directly reads optional field: %s\n' "${kp_unsafe_job_optional_access}" >&2
+    exit 1
+  fi
+done
 
 for kp_required in \
   'request.userInfo.username' \
@@ -108,13 +145,13 @@ for kp_required in \
   "v.name in ['source-credentials', 'registry-push-credentials', 'registry-cache-credentials', 'build-secrets', 'ssh-secrets']" \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
-  "v.readOnly == null || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.206'" \
+  "!has(v.readOnly) || v.readOnly == false" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.207'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
-  "e.value == null" \
-  'c.lifecycle == null' \
+  "!has(e.value) || e.value == ''" \
+  '!has(c.lifecycle)' \
   'c.securityContext.privileged == true' \
   "c.restartPolicy == 'Always'" \
   "v.name == 'workspace' && v.readOnly == true" \

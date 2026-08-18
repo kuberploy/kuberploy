@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC206 keeps email as the only local login identity and display names presentation-only, carries strong Git bundle CAS into existing-app deployment updates, allows immutable source-definition replacement with disabled history, fixes builder egress admission on Kubernetes 1.36 optional fields, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
+  "summary": "Schema 018 is current. RC207 keeps email as the only local login identity and display names presentation-only, carries strong Git bundle CAS into existing-app deployment updates, allows immutable source-definition replacement with disabled history, fixes builder Job and egress admission on Kubernetes 1.36 optional fields, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.206"
+  "version": "0.1.0-rc.207"
 }
