@@ -44,8 +44,18 @@ export function PlatformArgoGitBindingPage() {
     enabled: humanPlatformAdmin,
     retry: false,
   });
+  const capabilities = useQuery({
+    queryKey: ["capabilities"],
+    queryFn: api.capabilities,
+    enabled: humanPlatformAdmin && Boolean(binding.data),
+    retry: false,
+    staleTime: 10_000,
+  });
   const bindingMissing = isStatus(binding.error, 404);
   const canSelectAuthority = humanPlatformAdmin && bindingMissing;
+  const argoReady =
+    capabilities.data?.features?.argoCD === true ||
+    capabilities.data?.features?.argo === true;
   const installations = useQuery({
     queryKey: ["github-installations"],
     queryFn: api.githubInstallations,
@@ -227,11 +237,15 @@ export function PlatformArgoGitBindingPage() {
           </dl>
           <div className="notice" role="status">
             <div>
-              <strong>Authority recorded; Argo remains fail-closed</strong>
+              <strong>
+                {argoReady
+                  ? "Authority recorded; Argo is ready"
+                  : "Authority recorded; Argo remains fail-closed"}
+              </strong>
               <p>
-                Capability stays disabled until repository credentials, the root
-                Application, protected desired-state materialization, and exact
-                Kubernetes observations are ready.
+                {argoReady
+                  ? "Protected desired state is materialized and the exact Kubernetes observations are healthy."
+                  : "Capability stays disabled until repository credentials, the root Application, protected desired-state materialization, and exact Kubernetes observations are ready."}
               </p>
             </div>
           </div>

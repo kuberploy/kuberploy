@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Schema 017 is current. RC193 keeps email as the only local login identity, makes display names presentation-only, revokes the prior browser session when an invitation is accepted, hides human-only secret mutations from bearer capabilities, and includes an audited offline recovery path for legacy administrators; it also carries fail-closed admission, public provider egress, tunable infrastructure, read-only Argo observation, GitHub retry handling, and historical source-build reads.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.199"
+  "version": "0.1.0-rc.200"
 }

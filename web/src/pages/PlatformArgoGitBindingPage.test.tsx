@@ -53,6 +53,9 @@ describe("platform Argo Git authority page", () => {
     vi.spyOn(api, "platformArgoGitBinding")
       .mockRejectedValueOnce(new ApiError(404, { title: "Not found" }))
       .mockResolvedValue(created);
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: { argoCD: true },
+    });
     vi.spyOn(api, "githubInstallations").mockResolvedValue({
       items: [
         {
@@ -118,6 +121,12 @@ describe("platform Argo Git authority page", () => {
     expect(screen.getByText("platform")).toBeVisible();
     expect(screen.queryByText("refs/heads/platform")).toBeNull();
     expect(screen.getByText(created.pathPrefix)).toBeVisible();
+    expect(
+      await screen.findByText("Authority recorded; Argo is ready"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("Authority recorded; Argo remains fail-closed"),
+    ).toBeNull();
     expect(screen.queryByLabelText(/secret|credential|clone url/i)).toBeNull();
   });
 
