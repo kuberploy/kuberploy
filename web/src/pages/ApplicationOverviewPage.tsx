@@ -7,7 +7,7 @@ import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { Icon } from "../components/Icon";
 import { hasBuildApplicationCapability } from "../lib/buildAccess";
-import { gitRefLabel } from "../lib/format";
+import { gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
   Card,
@@ -370,16 +370,40 @@ export function ApplicationOverviewPage() {
                 description="Both the Source Builds API and the cluster builder must report ready before a build definition can be created."
               />
             ) : (
-              <BuildDefinitionForm
-                key={application.data.id}
-                application={application.data}
-                project={project}
-                capabilities={effectiveCapabilities}
-                humanSession={humanSession}
-                registryTargets={
-                  registry.data?.items.map((item) => item.target) ?? []
-                }
-              />
+              <>
+                {activeBuildDefinition ? (
+                  <div className="notice notice--info">
+                    <div>
+                      <strong>Active immutable definition</strong>
+                      <p>
+                        GitHub / {gitRefLabel(activeBuildDefinition.triggerRef)}
+                        {" · "}
+                        {activeBuildDefinition.dockerfilePath}
+                      </p>
+                      <small>
+                        {activeBuildDefinition.platforms.join(", ")} ·{" "}
+                        {activeBuildDefinition.registry.server} ·{" "}
+                        {shortId(activeBuildDefinition.definitionDigest, 12)}
+                      </small>
+                      <p>
+                        Form below starts a new immutable definition. Existing
+                        definition stays in history until its replacement is
+                        verified.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+                <BuildDefinitionForm
+                  key={application.data.id}
+                  application={application.data}
+                  project={project}
+                  capabilities={effectiveCapabilities}
+                  humanSession={humanSession}
+                  registryTargets={
+                    registry.data?.items.map((item) => item.target) ?? []
+                  }
+                />
+              </>
             )}
           </Card>
         </div>

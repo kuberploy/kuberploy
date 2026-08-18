@@ -211,4 +211,71 @@ describe("application source overview", () => {
       screen.getByRole("button", { name: /Manage source/ }),
     ).toBeInTheDocument();
   });
+
+  it("shows active immutable source before starting a replacement definition", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { builds: true, builder: true },
+      capabilities: [
+        {
+          role: "developer",
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["build-definitions:read", "build-definitions:write"],
+        },
+      ],
+    });
+    vi.mocked(api.buildDefinitions).mockResolvedValue({
+      items: [
+        {
+          id: "definition-1",
+          projectId: "project-1",
+          applicationId: "application-1",
+          installationId: "installation-1",
+          repositoryId: "repository-1",
+          triggerRef: "refs/tags/v1.2.3",
+          contextPath: ".",
+          dockerfilePath: "deploy/Dockerfile",
+          platforms: ["linux/amd64", "linux/arm64"],
+          registry: {
+            targetId: "target-1",
+            mode: "managed",
+            server: "registry.example.com",
+            repositoryPrefix: "payments",
+          },
+          buildArgs: [],
+          secretFiles: [],
+          sshFiles: [],
+          cacheTrustLane: "protected",
+          cacheImports: 2,
+          profile: {
+            resource: "standard",
+            timeoutSeconds: 900,
+            egress: "registry-and-source",
+          },
+          maxAttempts: 3,
+          definitionDigest: `sha256:${"c".repeat(64)}`,
+          definitionGeneration: 2,
+          enabled: true,
+          createdAt: "2026-08-12T00:00:00Z",
+          updatedAt: "2026-08-12T00:00:00Z",
+        },
+      ],
+      nextCursor: null,
+    });
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+    await screen.findByRole("heading", { name: "Payments API" });
+    await user.click(screen.getByRole("button", { name: "Source & build" }));
+
+    expect(
+      await screen.findByText("Active immutable definition"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("GitHub / v1.2.3 · deploy/Dockerfile"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Form below starts a new immutable definition/),
+    ).toBeInTheDocument();
+  });
 });
