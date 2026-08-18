@@ -86,11 +86,12 @@ func (w *DesiredStateRuntimeWorker) ProcessOne(ctx context.Context) (bool, error
 		w.ReportError(work.Command.ID, failureCode, err)
 	}
 	// Once the immutable write-base receipt exists, the Git push may have
-	// succeeded even if its database acknowledgement did not. Never make that
-	// ambiguous recovery state terminal: a later worker (including one running
-	// a newer chart identity) must inspect the operation trailer and finish the
-	// exact durable command.
-	if current.State == DesiredStateClaimed && current.WriteBaseRevision == "" && IsPermanentDesiredStateError(err) {
+	// succeeded even if its database acknowledgement did not. The writer first
+	// searches provider history for the exact operation trailer. Only an absent
+	// trailer is terminal; an acknowledged operation remains recoverable.
+	if current.State == DesiredStateClaimed &&
+		((current.WriteBaseRevision == "" && IsPermanentDesiredStateError(err)) ||
+			errors.Is(err, ErrDesiredStateWriteNotFound)) {
 		_, finishErr := w.Store.FailDesiredState(ctx, lease, failureCode, now)
 		if finishErr != nil {
 			return true, errors.Join(err, finishErr)
@@ -192,6 +193,8 @@ func desiredStateFailureCode(err error) string {
 	case errors.Is(err, gitprojection.ErrDiverged):
 		return "binding-diverged"
 	case errors.Is(err, ErrConflict), errors.Is(err, gitprojection.ErrConflict):
+		return "stale-git-base"
+	case errors.Is(err, ErrDesiredStateWriteNotFound):
 		return "stale-git-base"
 	case errors.Is(err, ErrInvalid), errors.Is(err, gitprojection.ErrInvalid):
 		return "invalid-command"

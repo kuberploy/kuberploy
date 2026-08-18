@@ -241,7 +241,7 @@ func (w *DesiredStateWriter) recoverUnacknowledged(ctx context.Context, command 
 		return DesiredStateCommand{}, err
 	}
 	if !present {
-		return DesiredStateCommand{}, ErrConflict
+		return DesiredStateCommand{}, ErrDesiredStateWriteNotFound
 	}
 	if err = prepared.VerifyPathContentETag(ctx, command.Path, `"`+command.ContentSHA256+`"`); err != nil {
 		return DesiredStateCommand{}, err

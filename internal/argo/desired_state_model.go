@@ -26,6 +26,10 @@ var (
 	ErrDesiredStateNotReady       = errors.New("matching Argo desired-state worker is not ready")
 	ErrNoDesiredStateChange       = errors.New("Argo desired state did not change")
 	ErrRegistryReferencesNotReady = errors.New("exact registry pull artifacts are not ready")
+	// ErrDesiredStateWriteNotFound means the durable write-base exists, but
+	// the exact operation trailer is absent from provider history. The command
+	// cannot be recovered safely; its environment must be replanned.
+	ErrDesiredStateWriteNotFound = errors.New("exact Argo desired-state write commit was not found")
 
 	desiredStateOwnerRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
 	strongETagRE        = regexp.MustCompile(`^"sha256:[0-9a-f]{64}"$`)

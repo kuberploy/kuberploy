@@ -598,6 +598,36 @@ func TestDesiredStateRuntimeUsesHeartbeatedLeaseForDurableRetry(t *testing.T) {
 	}
 }
 
+func TestDesiredStateRuntimeRetiresUnrecoverableWriteBaseAndReplans(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	if _, err := fixture.commands.BindDesiredStateWriteBase(t.Context(), fixture.claim.Lease,
+		fixture.baseHead, fixture.providerNow, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "test-reset", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	fixture.advanceUnrelated(t)
+	worker := &argo.DesiredStateRuntimeWorker{
+		Store: fixture.commands, Writer: fixture.writer(fixture.provider(t, nil)),
+		LeaseDuration: 2 * time.Minute, PollInterval: 250 * time.Millisecond,
+		Observation: argo.DesiredStateRuntimeWorkerObservation{
+			WorkerID: "argo-runtime-worker-replan", DesiredStateRuntimeIdentity: fixture.identity,
+			StartedAt: fixture.now, ObservedAt: fixture.now,
+		},
+		Now: func() time.Time { return fixture.now },
+	}
+	processed, err := worker.ProcessOne(t.Context())
+	if err != nil || !processed {
+		t.Fatalf("unrecoverable write-base was not retired: processed=%v err=%v", processed, err)
+	}
+	current, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if readErr != nil || current.State != argo.DesiredStateFailed || current.LastFailureCode != "stale-git-base" || current.Lease != nil {
+		t.Fatalf("unrecoverable write-base remained live: %#v err=%v", current, readErr)
+	}
+}
+
 func TestDesiredStateRuntimeTerminatesOnClaimInfrastructureFailure(t *testing.T) {
 	fixture := newDesiredStateWriterFixture(t)
 	infrastructureFailure := errors.New("database unavailable")
