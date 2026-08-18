@@ -151,6 +151,29 @@ describe("typed API client", () => {
     );
   });
 
+  it("sends the current Git bundle ETag for a rollback intent", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ id: "op_rollback", kind: "deploy", state: "queued" }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const etag = `"sha256:${"d".repeat(64)}"`;
+
+    await api.rollbackDeployment(
+      "deployment-1",
+      "11111111-1111-4111-8111-111111111111",
+      "rollback-attempt-1",
+      etag,
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.get("If-Match")).toBe(etag);
+    expect(headers.get("Idempotency-Key")).toBe("rollback-attempt-1");
+  });
+
   it("previews a tag through the closed image-resolution contract and strips authority metadata", async () => {
     const digest = `registry.example.test/payments/api@sha256:${"a".repeat(64)}`;
     const fetchMock = vi.fn().mockResolvedValue(

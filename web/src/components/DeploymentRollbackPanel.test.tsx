@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import type {
   Application,
+  ConfigBundle,
   Deployment,
   DeploymentRollbackCandidate,
   Environment,
@@ -59,6 +60,15 @@ const candidates: DeploymentRollbackCandidate[] = [
 ];
 
 function renderPanel() {
+  vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+    kind: "ConfigBundle",
+    etag: `"sha256:${"c".repeat(64)}"`,
+    targetHeadRevision: "a".repeat(40),
+    indexedRevision: "a".repeat(40),
+    configRevision: "b".repeat(64),
+    freshness: "fresh",
+    documents: [],
+  } as ConfigBundle);
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },

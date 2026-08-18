@@ -46,6 +46,12 @@ export function DeploymentRollbackPanel({
     enabled: allowed,
     retry: false,
   });
+  const gitBundle = useQuery({
+    queryKey: ["deployment-config", deployment.id],
+    queryFn: () => api.deploymentConfig(deployment.id),
+    enabled: allowed,
+    retry: false,
+  });
   const [selected, setSelected] = useState<DeploymentRollbackCandidate>();
   const [confirmed, setConfirmed] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState("");
@@ -66,11 +72,13 @@ export function DeploymentRollbackPanel({
       deploymentId: string;
       candidate: DeploymentRollbackCandidate;
       idempotencyKey: string;
+      gitETag: string;
     }) =>
       api.rollbackDeployment(
         input.deploymentId,
         input.candidate.sourceOperationId,
         input.idempotencyKey,
+        input.gitETag,
       ),
     onSuccess: async (_value, input) => {
       if (input.deploymentId !== deployment.id) return;
@@ -120,6 +128,15 @@ export function DeploymentRollbackPanel({
         </div>
       </div>
       {sources.isPending ? <Skeleton lines={3} /> : null}
+      {gitBundle.isPending ? (
+        <p className="muted">Loading the current protected Git bundle…</p>
+      ) : null}
+      {gitBundle.error ? (
+        <ErrorPanel
+          error={gitBundle.error}
+          onRetry={() => void gitBundle.refetch()}
+        />
+      ) : null}
       {sources.error ? (
         <ErrorPanel
           error={sources.error}
@@ -197,12 +214,17 @@ export function DeploymentRollbackPanel({
               type="button"
               variant="danger"
               busy={rollback.isPending}
-              disabled={!confirmed || idempotencyKey === ""}
+              disabled={
+                !confirmed ||
+                idempotencyKey === "" ||
+                gitBundle.data?.etag === undefined
+              }
               onClick={() =>
                 rollback.mutate({
                   deploymentId: deployment.id,
                   candidate: selected,
                   idempotencyKey,
+                  gitETag: gitBundle.data?.etag ?? "",
                 })
               }
             >

@@ -2928,12 +2928,16 @@ export const api = {
     id: string,
     sourceOperationId: string,
     idempotencyKey: string,
+    gitETag?: string,
   ) =>
     request<OperationWire>(
       `/v1/deployments/${encodeURIComponent(id)}/rollback`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+          ...(gitETag ? { "If-Match": gitETag } : {}),
+        },
         body: { sourceOperationId },
       },
     ).then(normalizeOperation),

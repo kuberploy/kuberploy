@@ -30,7 +30,7 @@ func TestManagedQueryFailsClosedBeforeProviderQueryWhenAttestationIsUnavailable(
 	}
 }
 
-const managedChartVersionForTest = "0.1.0-rc.209"
+const managedChartVersionForTest = "0.1.0-rc.210"
 
 type fixedManagedObserver struct {
 	snapshot ManagedMonitoringSnapshot
@@ -150,7 +150,7 @@ func TestManagedSnapshotAttestationBindsRunningReleaseVersion(t *testing.T) {
 	if err := validateManagedSnapshot(snapshot, "0.1.0-rc.10"); !errors.Is(err, ErrUnsafeResponse) {
 		t.Fatalf("substituted release version error=%v", err)
 	}
-	for _, invalid := range []string{"", "dev", "v0.1.0-rc.209", "0.1.0+build", "0.1.0-rc.209-extra"} {
+	for _, invalid := range []string{"", "dev", "v0.1.0-rc.210", "0.1.0+build", "0.1.0-rc.210-extra"} {
 		if validManagedChartVersion(invalid) {
 			t.Fatalf("invalid managed chart version accepted: %q", invalid)
 		}

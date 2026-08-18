@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
-import type { Capabilities } from "../api/types";
+import type { Capabilities, ConfigBundle } from "../api/types";
 import { ApplicationPage } from "./ApplicationPage";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -44,6 +44,15 @@ beforeEach(() => {
     argoObservedRevision: "a".repeat(40),
     argoObservedAt: "2026-08-09T00:00:00Z",
   });
+  vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+    kind: "ConfigBundle",
+    etag: `"sha256:${"c".repeat(64)}"`,
+    targetHeadRevision: "a".repeat(40),
+    indexedRevision: "a".repeat(40),
+    configRevision: "b".repeat(64),
+    freshness: "fresh",
+    documents: [],
+  } as ConfigBundle);
   vi.spyOn(api, "operations").mockResolvedValue({ items: [] });
   vi.spyOn(api, "environments").mockResolvedValue({
     items: [
@@ -550,6 +559,7 @@ describe("application deployment rollback", () => {
       "deployment-production",
       sourceOperationId,
       expect.any(String),
+      `"sha256:${"c".repeat(64)}"`,
     );
     expect(
       await screen.findByText("Rollback Git intent accepted"),
