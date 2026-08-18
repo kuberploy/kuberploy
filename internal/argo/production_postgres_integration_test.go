@@ -461,6 +461,11 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err != nil || len(authorities) != 3 {
 		t.Fatalf("stale authorities=%#v err=%v", authorities, err)
 	}
+	for _, authority := range authorities {
+		if authority.Authorized || authority.RevocationRequired {
+			t.Fatalf("stale catalog proof was treated as authorized: %#v", authority)
+		}
+	}
 	verifiedBindings := make([]gitprojection.Binding, 0, len(authorities))
 	for _, authority := range authorities {
 		verifiedBindings = append(verifiedBindings, authority.Binding)
