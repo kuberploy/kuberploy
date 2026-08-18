@@ -25,6 +25,10 @@ type ProductionDesiredStateRuntime struct {
 	Materializer  ProductionDesiredStateMaterializer
 	PollInterval  time.Duration
 	Now           func() time.Time
+	// ReportPrerequisiteError receives the exact reason a composite readiness
+	// proof was withheld. Production callers use it for operator diagnostics;
+	// readiness remains fail-closed when the callback is nil.
+	ReportPrerequisiteError func(error)
 }
 
 // ProductionDesiredStateReadinessProbe is the single API-facing readiness
@@ -69,6 +73,12 @@ func (r *ProductionDesiredStateRuntime) now() time.Time {
 		return r.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (r *ProductionDesiredStateRuntime) reportPrerequisiteError(err error) {
+	if r != nil && err != nil && r.ReportPrerequisiteError != nil {
+		r.ReportPrerequisiteError(err)
+	}
 }
 
 func (r *ProductionDesiredStateRuntime) Run(ctx context.Context) error {
@@ -126,6 +136,7 @@ func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error
 		if err == nil {
 			break
 		}
+		r.reportPrerequisiteError(err)
 		timer := time.NewTimer(pollDuration)
 		select {
 		case <-ctx.Done():
@@ -167,6 +178,7 @@ func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error
 					prerequisiteErr = ErrPlatformRootNotReady
 				}
 				if prerequisiteErr != nil {
+					r.reportPrerequisiteError(prerequisiteErr)
 					select {
 					case heartbeatErrors <- errors.Join(ErrArgoRuntimePrerequisiteNotReady, prerequisiteErr):
 					default:

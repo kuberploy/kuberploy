@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC208 keeps email as the only local login identity and display names presentation-only, carries strong Git bundle CAS into existing-app deployment updates, allows immutable source-definition replacement with disabled history, fixes Kubernetes 1.36 builder Job and NetworkPolicy admission round trips, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
+  "summary": "Schema 018 is current. RC209 keeps email as the only local login identity and display names presentation-only, carries strong Git bundle CAS into existing-app deployment updates, allows immutable source-definition replacement with disabled history, fixes Kubernetes 1.36 builder Job and NetworkPolicy admission round trips, keeps shared-registry runtime pull rotation usable after operator profile changes, and reports exact withheld Argo readiness prerequisites.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.208"
+  "version": "0.1.0-rc.209"
 }

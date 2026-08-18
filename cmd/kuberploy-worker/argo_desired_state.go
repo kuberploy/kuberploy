@@ -112,6 +112,9 @@ func newArgoDesiredStateRuntime(
 	runtime := &argo.ProductionDesiredStateRuntime{
 		Worker: worker, Prerequisites: prerequisites, Materializer: components.Materializer,
 		PollInterval: config.PollInterval,
+		ReportPrerequisiteError: func(err error) {
+			slog.Warn("Argo desired-state prerequisites not ready", "error", err)
+		},
 	}
 	return &argoDesiredStateRuntime{store: store, runtime: runtime, kubernetes: kubernetes,
 		observation: worker.Observation}, nil
