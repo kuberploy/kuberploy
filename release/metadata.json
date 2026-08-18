@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 017 is current. RC204 keeps email as the only local login identity and display names presentation-only, renews exact provider catalog proofs after successful verification, carries strong Git bundle CAS into existing-app deployment updates, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
+  "summary": "Schema 018 is current. RC205 keeps email as the only local login identity and display names presentation-only, carries strong Git bundle CAS into existing-app deployment updates, allows immutable source-definition replacement with disabled history, and keeps shared-registry runtime pull rotation usable after operator profile changes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.204"
+  "version": "0.1.0-rc.205"
 }

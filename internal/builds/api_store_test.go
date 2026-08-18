@@ -10,6 +10,28 @@ import (
 	"time"
 )
 
+func TestMemoryDefinitionReplacementKeepsImmutableHistory(t *testing.T) {
+	ctx := context.Background()
+	store, original := seedMemory(t, RegistryManaged)
+	replacementID := "99999999-9999-4999-8999-999999999999"
+	replacement := definitionWithIDs(t, testNow.Add(time.Minute), RegistryManaged, replacementID, original.ProjectID, original.ServiceID, original.InstallationID, original.RepositoryID, original.Spec.Registry.TargetID)
+	if err := store.PutDefinition(ctx, replacement); err != nil {
+		t.Fatalf("replace definition: %v", err)
+	}
+	gotOriginal, err := store.Definition(ctx, original.ID)
+	if err != nil || gotOriginal.Enabled {
+		t.Fatalf("original definition=%#v err=%v, want disabled history", gotOriginal, err)
+	}
+	gotReplacement, err := store.Definition(ctx, replacement.ID)
+	if err != nil || !gotReplacement.Enabled {
+		t.Fatalf("replacement definition=%#v err=%v, want active", gotReplacement, err)
+	}
+	authorized, err := store.AuthorizePush(ctx, testAppID, testProviderInstall, repositoryFixture(testNow).Identity, "refs/heads/main")
+	if err != nil || len(authorized.Definitions) != 1 || authorized.Definitions[0].ID != replacement.ID {
+		t.Fatalf("authorized definitions=%#v err=%v", authorized.Definitions, err)
+	}
+}
+
 func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	ctx := context.Background()
 	store, definition := seedMemory(t, RegistryManaged)

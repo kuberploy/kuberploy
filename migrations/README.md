@@ -40,6 +40,11 @@ were created from display names need the documented
 [offline recovery](../docs/legacy-email-recovery.md) or a fresh pre-stable
 database; the API does not accept display names as login identifiers.
 
+Migration `018_build_definition_replacement` keeps source-build definitions
+immutable while allowing a new definition for the same application/ref to
+replace the active one. The prior definition is retained as disabled history;
+matching pushes authorize only the active definition.
+
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
 foreign-key fences. The application does not use Prisma relation emulation;

@@ -141,6 +141,13 @@ func (s *PostgreSQLStore) PutDefinition(ctx context.Context, definition BuildDef
 		pushCredential != definition.Spec.Registry.PushCredentialSecret || cacheCredential != definition.Spec.Registry.CacheCredentialSecret {
 		return ErrUnauthorized
 	}
+	if definition.Enabled {
+		if _, err = tx.Exec(ctx, `UPDATE build_definitions SET enabled=false,updated_at=$1
+			WHERE project_id=$2 AND service_id=$3 AND repository_id=$4 AND trigger_ref=$5 AND id<>$6 AND enabled=true`,
+			definition.UpdatedAt, definition.ProjectID, definition.ServiceID, definition.RepositoryID, definition.TriggerRef, definition.ID); err != nil {
+			return classifyPostgres(err)
+		}
+	}
 	spec, _ := json.Marshal(definition.Spec)
 	command, err := tx.Exec(ctx, `INSERT INTO build_definitions(id,project_id,service_id,installation_id,repository_id,registry_target_id,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)

@@ -345,7 +345,7 @@ model build_definitions {
   created_at         DateTime @default(now()) @db.Timestamptz(6)
   updated_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([project_id, service_id, repository_id, trigger_ref])
+  @@unique([project_id, service_id, repository_id, trigger_ref], map: "build_definitions_active_ref_idx", where: raw("(enabled = true)"))
   @@index([installation_id, repository_id, trigger_ref], map: "build_definitions_push_idx", where: raw("(enabled = true)"))
 }
 

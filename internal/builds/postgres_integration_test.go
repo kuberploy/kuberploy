@@ -468,4 +468,31 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = pool.Exec(ctx, `DELETE FROM github_one_time_claims WHERE kind='github-delivery' AND claim_key=$1`, claimKey); err == nil {
 		t.Fatal("database allowed permanent tombstone deletion")
 	}
+
+	// Source changes keep the old definition as immutable history while making
+	// exactly one replacement eligible for a matching push.
+	replacementID := id.New()
+	replacement := definitionWithIDs(t, now.Add(2*time.Hour), RegistryManaged, replacementID, projectID, serviceID, installationID, repositoryID, registryID)
+	if err = store.PutDefinition(ctx, replacement); err != nil {
+		t.Fatalf("replace definition: %v", err)
+	}
+	original, err := store.Definition(ctx, definitionID)
+	if err != nil || original.Enabled {
+		t.Fatalf("original definition=%#v err=%v, want disabled history", original, err)
+	}
+	active, err := store.Definition(ctx, replacementID)
+	if err != nil || !active.Enabled {
+		t.Fatalf("replacement definition=%#v err=%v, want active", active, err)
+	}
+	activePush, err := store.AuthorizePush(ctx, appID, providerInstall, repository.Identity, event.Ref)
+	if err != nil || len(activePush.Definitions) != 2 {
+		t.Fatalf("replacement authorized=%#v err=%v", activePush.Definitions, err)
+	}
+	activeIDs := map[string]bool{}
+	for _, candidate := range activePush.Definitions {
+		activeIDs[candidate.ID] = candidate.Enabled
+	}
+	if !activeIDs[replacementID] || activeIDs[definitionID] {
+		t.Fatalf("replacement active IDs=%v", activeIDs)
+	}
 }
