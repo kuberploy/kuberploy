@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Schema 018 is current. RC211 keeps email-only local login and display-name separation, gates the auth screen on installation metadata, Git bundle CAS for deployment updates and rollback intents, immutable source-definition replacement, Kubernetes 1.36 builder policy fixes, shared-registry pull rotation, and exact Argo readiness diagnostics.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.212"
+  "version": "0.1.0-rc.213"
 }

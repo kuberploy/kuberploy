@@ -38,12 +38,12 @@ def main() -> None:
             (root / "scripts/helm/prepare-dependencies.sh").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
-        validate_installer_dependency_source(fixture, "0.1.0-rc.212")
+        validate_installer_dependency_source(fixture, "0.1.0-rc.213")
         lock = installer / "dependencies.lock"
         body = lock.read_text(encoding="utf-8")
         lock.write_text(body.replace("kuberploy-argocd", "other-argocd", 1), encoding="utf-8")
         try:
-            validate_installer_dependency_source(fixture, "0.1.0-rc.212")
+            validate_installer_dependency_source(fixture, "0.1.0-rc.213")
         except SystemExit as error:
             if "non-canonical" not in str(error):
                 raise
@@ -52,7 +52,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, "0.1.0-rc.212")
+        validate_stable_qualification(qualification_root, "0.1.0-rc.213")
         try:
             validate_stable_qualification(qualification_root, "0.1.0")
         except SystemExit as error:
@@ -64,8 +64,8 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": "0.1.0-rc.212",
-            "candidateTag": "v0.1.0-rc.212",
+            "candidateVersion": "0.1.0-rc.213",
+            "candidateTag": "v0.1.0-rc.213",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
