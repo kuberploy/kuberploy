@@ -1,8 +1,13 @@
-import { useEffect, useId } from "react";
 import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from "react";
 import { Icon, type IconName } from "./Icon";
 import { errorMessage } from "../api/client";
 import { operationTone, titleCase } from "../lib/format";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./shadcn/dialog";
 
 export function Button({
   variant = "primary",
@@ -132,38 +137,24 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const titleId = `confirm-dialog-title-${useId().replace(/:/g, "")}`;
-  const descriptionId = `${titleId}-description`;
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onCancel();
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [busy, onCancel]);
-
   return (
-    <div
-      className="confirmation-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onCancel();
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onCancel();
       }}
     >
-      <section
-        className="confirmation-dialog"
+      <DialogContent
+        className="confirmation-dialog max-w-none"
         role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
+        showCloseButton={false}
       >
         <span className="confirmation-dialog__icon">
           <Icon name={icon} />
         </span>
         <span className="eyebrow">Confirm action</span>
-        <h2 id={titleId}>{title}</h2>
-        <p id={descriptionId}>{description}</p>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{description}</DialogDescription>
         <div className="confirmation-dialog__actions">
           <Button
             variant="secondary"
@@ -182,8 +173,8 @@ export function ConfirmDialog({
             {confirmLabel}
           </Button>
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
