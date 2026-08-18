@@ -51,6 +51,7 @@ describe("middleware profile management", () => {
   });
 
   it("requires explicit confirmation before deactivation", async () => {
+    const user = userEvent.setup();
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user-a",
       displayName: "Admin",
@@ -111,30 +112,35 @@ describe("middleware profile management", () => {
       .spyOn(api, "deactivateMiddlewareProfile")
       .mockRejectedValueOnce(new Error("profile is still referenced"))
       .mockResolvedValue({} as never);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     renderPage();
-    await userEvent.selectOptions(
+    await user.selectOptions(
       await screen.findByLabelText("Environment"),
       "environment-a",
     );
-    await userEvent.selectOptions(
+    await user.selectOptions(
       screen.getByLabelText("Application"),
       "application-a",
     );
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Deactivate" }),
-    );
-    expect(confirm).toHaveBeenCalledWith(
-      expect.stringContaining("secure-headers"),
-    );
+    await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    expect(
+      screen.getByRole("alertdialog", {
+        name: /Deactivate middleware profile/,
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deactivate).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(
+      screen.getByRole("button", { name: "Deactivate profile" }),
+    );
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(1));
     expect(
       await screen.findByText("Profile was not deactivated"),
     ).toBeVisible();
-    await userEvent.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(
+      screen.getByRole("button", { name: "Deactivate profile" }),
+    );
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(2));
     expect(deactivate.mock.calls[1]?.[2]).toBe(deactivate.mock.calls[0]?.[2]);
   });

@@ -261,7 +261,6 @@ describe("RegistryPullCredentialsPanel", () => {
       .spyOn(api, "deleteProjectRegistryPullCredential")
       .mockRejectedValueOnce(new Error("network unavailable"))
       .mockResolvedValueOnce(undefined);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -283,10 +282,17 @@ describe("RegistryPullCredentialsPanel", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Remove" }),
     );
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("Production"));
+    expect(
+      screen.getByRole("alertdialog", {
+        name: /Remove project pull credential Production/,
+      }),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(remove).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove credential" }),
+    );
     await waitFor(() =>
       expect(remove).toHaveBeenCalledWith(
         "project-1",
@@ -300,6 +306,9 @@ describe("RegistryPullCredentialsPanel", () => {
       expect(screen.getByText("Credential was not removed")).toBeVisible(),
     );
     await userEvent.click(screen.getByRole("button", { name: "Remove" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Remove credential" }),
+    );
     await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
     expect(remove.mock.calls[1]?.[2]).toBe(firstKey);
   });

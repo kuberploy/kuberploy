@@ -1,5 +1,6 @@
+import { useEffect, useId } from "react";
 import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from "react";
-import { Icon } from "./Icon";
+import { Icon, type IconName } from "./Icon";
 import { errorMessage } from "../api/client";
 import { operationTone, titleCase } from "../lib/format";
 
@@ -14,9 +15,9 @@ export function Button({
 }) {
   return (
     <button
+      {...props}
       className={`button button--${variant}`}
       disabled={busy || props.disabled}
-      {...props}
     >
       {busy ? <span className="spinner" aria-hidden="true" /> : null}
       {children}
@@ -108,6 +109,80 @@ export function ErrorPanel({
           <Icon name="refresh" /> Retry
         </Button>
       ) : null}
+    </div>
+  );
+}
+
+export function ConfirmDialog({
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  icon = "settings",
+  busy = false,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  icon?: IconName;
+  busy?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const titleId = `confirm-dialog-title-${useId().replace(/:/g, "")}`;
+  const descriptionId = `${titleId}-description`;
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [busy, onCancel]);
+
+  return (
+    <div
+      className="confirmation-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onCancel();
+      }}
+    >
+      <section
+        className="confirmation-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+      >
+        <span className="confirmation-dialog__icon">
+          <Icon name={icon} />
+        </span>
+        <span className="eyebrow">Confirm action</span>
+        <h2 id={titleId}>{title}</h2>
+        <p id={descriptionId}>{description}</p>
+        <div className="confirmation-dialog__actions">
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={onCancel}
+            autoFocus
+          >
+            {cancelLabel}
+          </Button>
+          <Button
+            variant="danger"
+            busy={busy}
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {confirmLabel}
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }

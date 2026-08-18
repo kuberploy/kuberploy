@@ -16,6 +16,7 @@ import { TraefikMiddlewareEditor } from "../components/TraefikMiddlewareEditor";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Field,
@@ -46,6 +47,8 @@ export function MiddlewareProfilesPage() {
     defaultGuidedTraefikMiddleware("headers", "profile-spec"),
   ]);
   const [editing, setEditing] = useState<MiddlewareProfileEntry>();
+  const [deactivationCandidate, setDeactivationCandidate] =
+    useState<MiddlewareProfileEntry>();
   const [formError, setFormError] = useState<string>();
   const editorSessionRef = useRef(0);
   const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
@@ -530,15 +533,7 @@ export function MiddlewareProfilesPage() {
                       !canMutate || entry.profile.lifecycle !== "active"
                     }
                     busy={deactivate.isPending}
-                    onClick={() => {
-                      if (
-                        window.confirm(
-                          `Deactivate middleware profile ${entry.profile.name}? Existing assignments must be revised before this profile can be removed from use.`,
-                        )
-                      ) {
-                        deactivateProfile(entry);
-                      }
-                    }}
+                    onClick={() => setDeactivationCandidate(entry)}
                   >
                     Deactivate
                   </Button>
@@ -554,6 +549,21 @@ export function MiddlewareProfilesPage() {
           description="Choose an environment and application in the same project to load the authorized library."
         />
       )}
+      {deactivationCandidate ? (
+        <ConfirmDialog
+          title={`Deactivate middleware profile ${deactivationCandidate.profile.name}?`}
+          description="Existing assignments must be revised before this profile can be removed from use."
+          confirmLabel="Deactivate profile"
+          icon="close"
+          busy={deactivate.isPending}
+          onCancel={() => setDeactivationCandidate(undefined)}
+          onConfirm={() => {
+            const entry = deactivationCandidate;
+            setDeactivationCandidate(undefined);
+            deactivateProfile(entry);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

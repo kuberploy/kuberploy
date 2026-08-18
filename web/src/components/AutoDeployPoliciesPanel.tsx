@@ -16,6 +16,7 @@ import {
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Skeleton,
@@ -154,6 +155,8 @@ export function AutoDeployPoliciesPanel({
   const [definitionId, setDefinitionId] = useState("");
   const [deploymentId, setDeploymentId] = useState("");
   const [serviceActorId, setServiceActorId] = useState("");
+  const [disableConfirmation, setDisableConfirmation] =
+    useState<AutoDeployPolicy | null>(null);
   const createAttempt = useRef<{ signature: string; key: string } | null>(null);
   const reviseAttempt = useRef<{ signature: string; key: string } | null>(null);
   const selectedAccount = serviceAccounts.find(
@@ -284,13 +287,13 @@ export function AutoDeployPoliciesPanel({
     });
   };
 
-  const revisePolicy = (policy: AutoDeployPolicy, nextEnabled: boolean) => {
-    if (
-      !nextEnabled &&
-      !window.confirm(
-        `Disable auto-deploy policy ${policy.id}? Verified builds will stop creating deployment operations until it is enabled again.`,
-      )
-    ) {
+  const revisePolicy = (
+    policy: AutoDeployPolicy,
+    nextEnabled: boolean,
+    confirmed = false,
+  ) => {
+    if (!nextEnabled && !confirmed) {
+      setDisableConfirmation(policy);
       return;
     }
     const signature = JSON.stringify({
@@ -477,6 +480,21 @@ export function AutoDeployPoliciesPanel({
       )}
       {revise.error ? (
         <p className="field__error">{errorMessage(revise.error)}</p>
+      ) : null}
+      {disableConfirmation ? (
+        <ConfirmDialog
+          title={`Disable auto-deploy policy ${disableConfirmation.id}?`}
+          description="Verified builds will stop creating deployment operations until this policy is enabled again."
+          confirmLabel="Disable policy"
+          icon="close"
+          busy={revise.isPending}
+          onCancel={() => setDisableConfirmation(null)}
+          onConfirm={() => {
+            const policy = disableConfirmation;
+            setDisableConfirmation(null);
+            revisePolicy(policy, false, true);
+          }}
+        />
       ) : null}
     </Card>
   );

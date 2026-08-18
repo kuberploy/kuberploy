@@ -180,7 +180,6 @@ describe("auto-deploy policy read-only access", () => {
       .spyOn(api, "reviseAutoDeployPolicy")
       .mockRejectedValueOnce(new Error("response lost"))
       .mockResolvedValue(policy);
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -221,13 +220,19 @@ describe("auto-deploy policy read-only access", () => {
 
     const disable = await screen.findByRole("button", { name: "Disable" });
     await user.click(disable);
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(policy.id));
+    expect(
+      screen.getByRole("alertdialog", {
+        name: new RegExp(`Disable auto-deploy policy ${policy.id}`),
+      }),
+    ).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(revise).not.toHaveBeenCalled();
 
-    confirm.mockReturnValue(true);
     await user.click(disable);
+    await user.click(screen.getByRole("button", { name: "Disable policy" }));
     await waitFor(() => expect(revise).toHaveBeenCalledTimes(1));
     await user.click(disable);
+    await user.click(screen.getByRole("button", { name: "Disable policy" }));
     await waitFor(() => expect(revise).toHaveBeenCalledTimes(2));
     expect(revise.mock.calls[1]?.[2]).toBe(revise.mock.calls[0]?.[2]);
   });

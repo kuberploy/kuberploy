@@ -9,6 +9,7 @@ import { formatDate, shortId } from "../lib/format";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Field,
@@ -43,6 +44,8 @@ export function CertificateIssuersPage() {
     key: string;
   } | null>(null);
   const [editing, setEditing] = useState<CertificateIssuerAdminEntry>();
+  const [deactivationCandidate, setDeactivationCandidate] =
+    useState<CertificateIssuerAdminEntry>();
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const editorSessionRef = useRef(0);
   const editorScope = JSON.stringify({ issuerId: editing?.id ?? null, draft });
@@ -480,15 +483,7 @@ export function CertificateIssuersPage() {
                   type="button"
                   variant="danger"
                   disabled={deactivate.isPending}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Deactivate ${entry.name}? Existing route references must be removed first.`,
-                      )
-                    ) {
-                      deactivateIssuer(entry);
-                    }
-                  }}
+                  onClick={() => setDeactivationCandidate(entry)}
                 >
                   Deactivate
                 </Button>
@@ -498,6 +493,21 @@ export function CertificateIssuersPage() {
         ))}
       </div>
       {deactivate.error ? <ErrorPanel error={deactivate.error} /> : null}
+      {deactivationCandidate ? (
+        <ConfirmDialog
+          title={`Deactivate ${deactivationCandidate.name}?`}
+          description="Existing route references must be removed first."
+          confirmLabel="Deactivate issuer"
+          icon="close"
+          busy={deactivate.isPending}
+          onCancel={() => setDeactivationCandidate(undefined)}
+          onConfirm={() => {
+            const entry = deactivationCandidate;
+            setDeactivationCandidate(undefined);
+            deactivateIssuer(entry);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

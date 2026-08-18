@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC214 keeps email-only local login and display-name separation, Helm capability mapping, Git bundle CAS for deployment updates and rollback intents, immutable source-definition replacement, Kubernetes 1.36 builder policy fixes, shared-registry pull rotation, and recoverable Argo desired-state retries.",
+  "summary": "Schema 018 is current. RC215 keeps email-only local login and display-name separation, replaces native browser confirmations with accessible in-app dialogs, Helm capability mapping, Git bundle CAS for deployment updates and rollback intents, immutable source-definition replacement, Kubernetes 1.36 builder policy fixes, shared-registry pull rotation, and recoverable Argo desired-state retries.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.214"
+  "version": "0.1.0-rc.215"
 }

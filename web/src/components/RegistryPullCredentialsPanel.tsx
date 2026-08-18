@@ -2,7 +2,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Application, Project } from "../api/types";
-import { Button, Card, EmptyState, ErrorPanel, Field, StatusPill } from "./ui";
+import {
+  Button,
+  Card,
+  ConfirmDialog,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  StatusPill,
+} from "./ui";
 
 export function RegistryPullCredentialsPanel({
   application,
@@ -19,6 +27,10 @@ export function RegistryPullCredentialsPanel({
   const [name, setName] = useState("");
   const [targetId, setTargetId] = useState("");
   const [selection, setSelection] = useState("");
+  const [credentialToRemove, setCredentialToRemove] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
   const scopeKey = `${project.id}:${application.id}`;
   const scopeRef = useRef(scopeKey);
   const createAttempt = useRef<{ signature: string; key: string } | null>(null);
@@ -166,6 +178,27 @@ export function RegistryPullCredentialsPanel({
         : crypto.randomUUID();
     createAttempt.current = { signature, key: idempotencyKey };
     create.mutate({ input, projectId: project.id, idempotencyKey, scopeKey });
+  };
+
+  const removeCredential = (credential: { id: string; name: string }) => {
+    const signature = JSON.stringify({
+      projectId: project.id,
+      credentialId: credential.id,
+    });
+    const idempotencyKey =
+      removeAttempt.current?.signature === signature
+        ? removeAttempt.current.key
+        : crypto.randomUUID();
+    removeAttempt.current = {
+      signature,
+      key: idempotencyKey,
+    };
+    remove.mutate({
+      projectId: project.id,
+      credentialId: credential.id,
+      idempotencyKey,
+      scopeKey,
+    });
   };
 
   const saveSelection = (value: string) => {
@@ -327,32 +360,12 @@ export function RegistryPullCredentialsPanel({
                   type="button"
                   variant="ghost"
                   disabled={selectedValue === credential.id || remove.isPending}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        `Remove project pull credential ${credential.name}? Services will no longer be able to select it.`,
-                      )
-                    ) {
-                      const signature = JSON.stringify({
-                        projectId: project.id,
-                        credentialId: credential.id,
-                      });
-                      const idempotencyKey =
-                        removeAttempt.current?.signature === signature
-                          ? removeAttempt.current.key
-                          : crypto.randomUUID();
-                      removeAttempt.current = {
-                        signature,
-                        key: idempotencyKey,
-                      };
-                      remove.mutate({
-                        projectId: project.id,
-                        credentialId: credential.id,
-                        idempotencyKey,
-                        scopeKey,
-                      });
-                    }
-                  }}
+                  onClick={() =>
+                    setCredentialToRemove({
+                      id: credential.id,
+                      name: credential.name,
+                    })
+                  }
                 >
                   Remove
                 </Button>
@@ -360,6 +373,21 @@ export function RegistryPullCredentialsPanel({
             </div>
           ))}
         </div>
+      ) : null}
+      {credentialToRemove ? (
+        <ConfirmDialog
+          title={`Remove project pull credential ${credentialToRemove.name}?`}
+          description="Services will no longer be able to select this credential."
+          confirmLabel="Remove credential"
+          icon="close"
+          busy={remove.isPending}
+          onCancel={() => setCredentialToRemove(null)}
+          onConfirm={() => {
+            const credential = credentialToRemove;
+            setCredentialToRemove(null);
+            removeCredential(credential);
+          }}
+        />
       ) : null}
     </Card>
   );

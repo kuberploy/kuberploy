@@ -12,6 +12,7 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Field,
@@ -207,6 +208,8 @@ export function ExternalDNSPage() {
     retry: false,
   });
   const [editing, setEditing] = useState<ExternalDNSIntegration>();
+  const [deactivationCandidate, setDeactivationCandidate] =
+    useState<ExternalDNSIntegration>();
   const [draft, setDraft] = useState<IntegrationDraft>(emptyDraft);
   const [errors, setErrors] = useState<
     Partial<Record<keyof IntegrationDraft, string>>
@@ -578,14 +581,9 @@ export function ExternalDNSPage() {
                               deactivate.isPending
                             }
                             busy={deactivate.isPending}
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  `Deactivate ${integration.name}? Its exact protected Git bundle will be removed.`,
-                                )
-                              )
-                                deactivateIntegration(integration.id);
-                            }}
+                            onClick={() =>
+                              setDeactivationCandidate(integration)
+                            }
                           >
                             <Icon name="close" /> Deactivate
                           </Button>
@@ -870,6 +868,21 @@ export function ExternalDNSPage() {
           </div>
         </>
       )}
+      {deactivationCandidate ? (
+        <ConfirmDialog
+          title={`Deactivate ${deactivationCandidate.name}?`}
+          description="Its exact protected Git bundle will be removed."
+          confirmLabel="Deactivate integration"
+          icon="close"
+          busy={deactivate.isPending}
+          onCancel={() => setDeactivationCandidate(undefined)}
+          onConfirm={() => {
+            const integration = deactivationCandidate;
+            setDeactivationCandidate(undefined);
+            deactivateIntegration(integration.id);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

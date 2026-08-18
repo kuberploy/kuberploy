@@ -179,7 +179,6 @@ describe("External DNS platform management", () => {
 
   it("reuses the same deactivation idempotency key after a network retry", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     const deactivate = vi
       .spyOn(api, "deactivateExternalDNSIntegration")
       .mockRejectedValueOnce(new ApiError(0))
@@ -193,6 +192,9 @@ describe("External DNS platform management", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(
+      screen.getByRole("button", { name: "Deactivate integration" }),
+    );
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(2), {
       timeout: 3_000,
     });
@@ -214,7 +216,6 @@ describe("External DNS platform management", () => {
       items: [integration, second],
       truncated: false,
     });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let resolveDeactivate!: (
       value: ExternalDNSIntegration & { lifecycle: "deactivated" },
     ) => void;
@@ -235,6 +236,9 @@ describe("External DNS platform management", () => {
     expect(await screen.findByText("Private DNS")).toBeVisible();
     await user.click(screen.getAllByRole("button", { name: "Deactivate" })[0]!);
     await user.click(
+      screen.getByRole("button", { name: "Deactivate integration" }),
+    );
+    await user.click(
       screen.getAllByRole("button", { name: /Edit profile/ })[1]!,
     );
 
@@ -248,7 +252,6 @@ describe("External DNS platform management", () => {
 
   it("keeps a reopened profile editor open after its older deactivation completes", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     let resolveDeactivate!: (
       value: ExternalDNSIntegration & { lifecycle: "deactivated" },
     ) => void;
@@ -267,6 +270,9 @@ describe("External DNS platform management", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(
+      screen.getByRole("button", { name: "Deactivate integration" }),
+    );
     await user.click(screen.getByRole("button", { name: /Edit profile/ }));
 
     resolveDeactivate({ ...integration, lifecycle: "deactivated" });
