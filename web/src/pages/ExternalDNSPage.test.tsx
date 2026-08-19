@@ -177,6 +177,42 @@ describe("External DNS platform management", () => {
     ).toBeVisible();
   });
 
+  it("polls configured runtime readiness until controller observation completes", async () => {
+    const status = vi.mocked(api.externalDNSStatus);
+    status
+      .mockResolvedValueOnce({
+        configurationState: "configured",
+        controllerReadiness: "unobserved",
+        runtimeAvailable: false,
+        detail: "Waiting for controller observation.",
+      })
+      .mockResolvedValueOnce({
+        configurationState: "configured",
+        controllerReadiness: "ready",
+        runtimeAvailable: true,
+        detail: "The exact controller profile is freshly observed.",
+      });
+
+    renderPage({
+      features: { externalDNSConfiguration: true, externalDNS: true },
+      capabilities: [platformCapability("external-dns-integrations:read")],
+    });
+
+    expect(
+      await screen.findByText("Waiting for controller observation."),
+    ).toBeVisible();
+
+    await waitFor(() => expect(status).toHaveBeenCalledTimes(2), {
+      timeout: 3_000,
+    });
+
+    expect(
+      await screen.findByText(
+        "The exact controller profile is freshly observed.",
+      ),
+    ).toBeVisible();
+  });
+
   it("reuses the same deactivation idempotency key after a network retry", async () => {
     const user = userEvent.setup();
     const deactivate = vi

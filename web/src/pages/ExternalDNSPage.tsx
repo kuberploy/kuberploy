@@ -200,6 +200,11 @@ export function ExternalDNSPage() {
     queryFn: api.externalDNSStatus,
     enabled: featureEnabled && canRead,
     retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.configurationState === "configured" &&
+      query.state.data.runtimeAvailable !== true
+        ? 2_000
+        : false,
   });
   const environments = useQuery({
     queryKey: ["environments"],
