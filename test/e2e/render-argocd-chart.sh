@@ -102,6 +102,7 @@ rg -F 'key: redis.db' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'name: kuberploy-argocd-valkey-auth' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'policy.default: ""' "${kp_tmp}/managed.yaml" >/dev/null
 rg -F 'admin.enabled: "false"' "${kp_tmp}/managed.yaml" >/dev/null
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "argocd-cm") | .data."resource.customizations.ignoreResourceUpdates.all"' "${kp_tmp}/managed.yaml")" == 'jqPathExpressions: []' ]]
 if rg -n 'image: .*redis|image: .*dex|kind: Secret' "${kp_tmp}/managed.yaml" >/dev/null; then
   printf 'managed Argo CD rendered an embedded cache, Dex, or Secret\n' >&2
   exit 1

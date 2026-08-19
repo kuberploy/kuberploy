@@ -110,6 +110,11 @@ argo-cd:
       timeout.reconciliation: 120s
       timeout.reconciliation.jitter: 60s
       timeout.hard.reconciliation: 0s
+      # Argo's upstream global /status ignore can leave a freshly-created
+      # Application stuck in Progressing until an unrelated object refreshes
+      # it. Health transitions are product state; observe them directly.
+      resource.customizations.ignoreResourceUpdates.all: |
+        jqPathExpressions: []
       statusbadge.enabled: false
     params:
       create: true
