@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ const (
 	cacheKeyPrefix  = "kp:v1:cache:operation-status:"
 	maximumValue    = 64 << 10
 	maximumCacheTTL = 2 * time.Minute
+	cacheIOTimeout  = 2 * time.Second
 )
 
 var (
@@ -130,7 +132,11 @@ func NewValkeyCache(options Options) (*ValkeyCache, error) {
 	if options.TTL < time.Second || options.TTL > maximumCacheTTL {
 		return nil, fmt.Errorf("operation cache TTL must be between 1s and %s", maximumCacheTTL)
 	}
-	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: options.Addresses, Username: options.Username, Password: options.Password, ClientName: "kuberploy-operation-cache", DisableCache: true})
+	client, err := valkey.NewClient(valkey.ClientOption{
+		InitAddress: options.Addresses, Username: options.Username, Password: options.Password,
+		ClientName: "kuberploy-operation-cache", DisableCache: true, DisableRetry: true,
+		Dialer: net.Dialer{Timeout: cacheIOTimeout}, ConnWriteTimeout: cacheIOTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}

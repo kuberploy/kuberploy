@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -100,6 +101,40 @@ func TestOptionsFailClosed(t *testing.T) {
 	}
 	if _, err := NewValkeyCache(Options{Addresses: []string{"127.0.0.1:6379"}, TTL: 3 * time.Minute}); err == nil {
 		t.Fatal("unbounded TTL was accepted")
+	}
+}
+
+func TestValkeyCacheConstructionHasBoundedUnresponsiveServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				select {
+				case <-stop:
+					_ = connection.Close()
+				case <-time.After(5 * time.Second):
+					_ = connection.Close()
+				}
+			}()
+		}
+	}()
+
+	started := time.Now()
+	if _, err = NewValkeyCache(Options{Addresses: []string{listener.Addr().String()}, TTL: 2 * time.Second}); err == nil {
+		t.Fatal("unresponsive Valkey server was accepted")
+	}
+	if elapsed := time.Since(started); elapsed > 4*cacheIOTimeout {
+		t.Fatalf("cache load exceeded fallback budget: %s", elapsed)
 	}
 }
 
