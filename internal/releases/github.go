@@ -78,6 +78,9 @@ func (g *GitHubChecker) Latest(ctx context.Context, cachedETag string) (FetchRes
 	if resp.StatusCode == http.StatusNotModified {
 		return FetchResult{ETag: cachedETag, NotModified: true}, nil
 	}
+	if resp.StatusCode == http.StatusNotFound {
+		return FetchResult{}, ErrNoStableRelease
+	}
 	if resp.StatusCode != http.StatusOK {
 		return FetchResult{}, fmt.Errorf("canonical GitHub release returned HTTP %d", resp.StatusCode)
 	}

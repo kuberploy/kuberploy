@@ -37,6 +37,10 @@ type latestReleaseResponse struct {
 func (s *Server) latestRelease(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := s.releaseSnapshot(r)
 	if err != nil {
+		if errors.Is(err, releases.ErrNoStableRelease) {
+			writeProblem(w, r, http.StatusServiceUnavailable, "NoStableRelease", "No stable release available", "No stable Kuberploy release is published yet. Release candidates remain operator-managed.")
+			return
+		}
 		writeProblem(w, r, 503, "ReleaseCheckUnavailable", "Release check unavailable", "The canonical Kuberploy release could not be verified.")
 		return
 	}

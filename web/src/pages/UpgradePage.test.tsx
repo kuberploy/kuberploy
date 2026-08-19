@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import type { LatestPlatformRelease } from "../api/types";
 import { UpgradePage } from "./UpgradePage";
 
@@ -130,6 +130,49 @@ describe("platform releases page", () => {
     );
     expect(screen.getByText("No Helm upgrade command available")).toBeVisible();
     expect(screen.queryByText(/helm upgrade/)).not.toBeInTheDocument();
+  });
+
+  it("explains the stable-only feed on an RC installation", async () => {
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          role: "platform-admin",
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["platform-releases:read"],
+        },
+      ],
+      actions: ["platform-releases:read"],
+      features: {},
+    });
+    vi.spyOn(api, "meta").mockResolvedValue({
+      version: "0.1.0-rc.226",
+      platformVersion: "0.1.0-rc.226",
+      bootstrapRequired: false,
+    });
+    vi.spyOn(api, "latestPlatformRelease").mockRejectedValue(
+      new ApiError(503, {
+        code: "NoStableRelease",
+        title: "No stable release available",
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <UpgradePage />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      await screen.findByText("No stable release is published yet"),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/release candidate uses an exact operator-managed chart/i),
+    ).toBeVisible();
+    expect(screen.getByText("Stable release feed is empty.")).toBeVisible();
   });
 });
 

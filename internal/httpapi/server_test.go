@@ -656,6 +656,26 @@ func TestReleaseCheckFailsClosedWithoutInstallerChart(t *testing.T) {
 	}
 }
 
+func TestReleaseCheckReportsMissingStableRelease(t *testing.T) {
+	f := newUpgradeAPIWithReleaseError(t, releases.ErrNoStableRelease)
+	f.bootstrap()
+	r := f.request(http.MethodGet, "/v1/platform/releases/latest", "", nil)
+	problem := decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "NoStableRelease" {
+		t.Fatalf("missing stable release status=%d problem=%#v", r.StatusCode, problem)
+	}
+}
+
+func newUpgradeAPIWithReleaseError(t *testing.T, releaseErr error) *apiFixture {
+	t.Helper()
+	st := memory.New()
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.226", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	jar, _ := cookiejar.New(nil)
+	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
+	t.Cleanup(srv.Close)
+	return f
+}
+
 func TestMutationRejectsMissingCSRFAndUnknownJSON(t *testing.T) {
 	f := newAPI(t)
 	f.bootstrap()

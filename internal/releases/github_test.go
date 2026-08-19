@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -160,6 +161,18 @@ func TestGitHubCheckerRejectsUntrustedReleaseStates(t *testing.T) {
 				t.Fatal("expected release rejection")
 			}
 		})
+	}
+}
+
+func TestGitHubCheckerDistinguishesMissingStableRelease(t *testing.T) {
+	checker := NewGitHubChecker(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != latestReleaseURL {
+			t.Fatalf("unexpected URL %s", r.URL)
+		}
+		return response(http.StatusNotFound, `{"message":"Not Found"}`, nil), nil
+	})})
+	if _, err := checker.Latest(context.Background(), ""); !errors.Is(err, ErrNoStableRelease) {
+		t.Fatalf("missing stable release error=%v", err)
 	}
 }
 

@@ -17,7 +17,10 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
 
-var ErrNotModified = errors.New("release metadata not modified")
+var (
+	ErrNotModified     = errors.New("release metadata not modified")
+	ErrNoStableRelease = errors.New("no stable release is published")
+)
 
 type FetchResult struct {
 	Release     domain.ReleaseInfo

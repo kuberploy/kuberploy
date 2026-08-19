@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api, errorMessage } from "../api/client";
+import { ApiError, api, errorMessage } from "../api/client";
 import { Icon } from "../components/Icon";
 import {
   Button,
@@ -36,6 +36,9 @@ export function UpgradePage() {
     latest.data?.currentVersion ??
     meta.data?.platformVersion ??
     meta.data?.version;
+  const noStableRelease =
+    latest.error instanceof ApiError &&
+    latest.error.problem?.code === "NoStableRelease";
   const release = latest.data?.release;
   const compatibility = latest.data?.compatibility ?? {
     status: "unknown" as const,
@@ -94,8 +97,16 @@ export function UpgradePage() {
         <Card className="upgrade-unavailable">
           <EmptyState
             icon="refresh"
-            title="No public release is available right now"
-            description="The current control plane keeps running unchanged. Release discovery may be disabled, the first public release may not exist yet, or GitHub may be temporarily unavailable."
+            title={
+              noStableRelease
+                ? "No stable release is published yet"
+                : "No public release is available right now"
+            }
+            description={
+              noStableRelease
+                ? "This release candidate uses an exact operator-managed chart. The in-product release feed lists stable releases only."
+                : "The current control plane keeps running unchanged. Release discovery may be disabled, the first public release may not exist yet, or GitHub may be temporarily unavailable."
+            }
             action={
               <Button variant="secondary" onClick={() => void latest.refetch()}>
                 <Icon name="refresh" /> Try again
@@ -108,7 +119,9 @@ export function UpgradePage() {
             <code>{currentVersion ?? "Not reported"}</code>
             <span>Last check error</span>
             <p>
-              {latest.error
+              {noStableRelease
+                ? "Stable release feed is empty."
+                : latest.error
                 ? errorMessage(latest.error)
                 : "No release returned."}
             </p>
