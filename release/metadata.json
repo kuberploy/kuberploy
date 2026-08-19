@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC240 keeps email-only login/display-name presentation, purges accepted invitation tokens, polls asynchronous runtime-secret, custom-certificate, and External DNS readiness, observes Argo health transitions during fresh install, retries GHCR propagation before digest verification, and uses shadcn/Base UI dialogs, bounded operation/release caches, endpoint-aware registry TLS rollouts, stable-feed diagnosis, and ResourceQuota-safe qualification Jobs.",
+  "summary": "Schema 018 is current. RC241 keeps email-only login/display-name presentation, purges accepted invitation tokens, polls asynchronous runtime-secret, custom-certificate, and External DNS readiness, observes Argo health transitions during fresh install, retries GHCR propagation before digest verification, and uses shadcn/Base UI dialogs, bounded operation/release caches, endpoint-aware registry TLS rollouts, stable-feed diagnosis, and ResourceQuota-safe qualification Jobs.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.240"
+  "version": "0.1.0-rc.241"
 }
