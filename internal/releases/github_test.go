@@ -166,10 +166,15 @@ func TestGitHubCheckerRejectsUntrustedReleaseStates(t *testing.T) {
 
 func TestGitHubCheckerDistinguishesMissingStableRelease(t *testing.T) {
 	checker := NewGitHubChecker(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != latestReleaseURL {
+		switch r.URL.String() {
+		case latestReleaseURL:
+			return response(http.StatusNotFound, `{"message":"Not Found"}`, nil), nil
+		case releaseListURL:
+			return response(http.StatusOK, `[]`, nil), nil
+		default:
 			t.Fatalf("unexpected URL %s", r.URL)
+			return nil, nil
 		}
-		return response(http.StatusNotFound, `{"message":"Not Found"}`, nil), nil
 	})})
 	if _, err := checker.Latest(context.Background(), ""); !errors.Is(err, ErrNoStableRelease) {
 		t.Fatalf("missing stable release error=%v", err)
@@ -179,15 +184,48 @@ func TestGitHubCheckerDistinguishesMissingStableRelease(t *testing.T) {
 func TestGitHubCheckerDistinguishesNonStableLatestRelease(t *testing.T) {
 	manifest, _ := json.Marshal(validManifest())
 	checker := NewGitHubChecker(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.String() != latestReleaseURL {
+		switch r.URL.String() {
+		case latestReleaseURL:
+			return response(http.StatusOK, githubPayload(t, manifest, func(v map[string]any) {
+				v["tag_name"] = "v1.1.0-rc.1"
+			}), nil), nil
+		case releaseListURL:
+			return response(http.StatusOK, `[]`, nil), nil
+		default:
 			t.Fatalf("unexpected URL %s", r.URL)
+			return nil, nil
 		}
-		return response(http.StatusOK, githubPayload(t, manifest, func(v map[string]any) {
-			v["tag_name"] = "v1.1.0-rc.1"
-		}), nil), nil
 	})})
 	if _, err := checker.Latest(context.Background(), ""); !errors.Is(err, ErrNoStableRelease) {
 		t.Fatalf("non-stable latest release error=%v", err)
+	}
+}
+
+func TestGitHubCheckerFallsBackToOrderedStableReleaseList(t *testing.T) {
+	manifest, _ := json.Marshal(validManifest())
+	latestRC := githubPayload(t, manifest, func(v map[string]any) {
+		v["tag_name"] = "v1.1.0-rc.1"
+	})
+	stable := githubPayload(t, manifest, nil)
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		switch r.URL.String() {
+		case latestReleaseURL:
+			return response(http.StatusOK, latestRC, map[string]string{"ETag": `"latest"`}), nil
+		case releaseListURL:
+			return response(http.StatusOK, "["+latestRC+","+stable+"]", nil), nil
+		case "https://api.github.com/repos/kuberploy/kuberploy/releases/assets/42":
+			return response(http.StatusOK, string(manifest), nil), nil
+		default:
+			t.Fatalf("unexpected URL %s", r.URL)
+			return nil, nil
+		}
+	})}
+	result, err := NewGitHubChecker(client).Latest(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Release.Version != "1.1.0" || result.ETag != `"latest"` {
+		t.Fatalf("fallback result=%#v", result)
 	}
 }
 

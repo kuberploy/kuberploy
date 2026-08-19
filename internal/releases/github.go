@@ -17,6 +17,7 @@ import (
 )
 
 const latestReleaseURL = "https://api.github.com/repos/kuberploy/kuberploy/releases/latest"
+const releaseListURL = "https://api.github.com/repos/kuberploy/kuberploy/releases?per_page=100"
 const maxReleaseBytes = int64(1 << 20)
 const maxManifestBytes = int64(256 << 10)
 const githubAPIVersion = "2026-03-10"
@@ -79,7 +80,7 @@ func (g *GitHubChecker) Latest(ctx context.Context, cachedETag string) (FetchRes
 		return FetchResult{ETag: cachedETag, NotModified: true}, nil
 	}
 	if resp.StatusCode == http.StatusNotFound {
-		return FetchResult{}, ErrNoStableRelease
+		return g.latestStableFromList(ctx, "")
 	}
 	if resp.StatusCode != http.StatusOK {
 		return FetchResult{}, fmt.Errorf("canonical GitHub release returned HTTP %d", resp.StatusCode)
@@ -94,8 +95,49 @@ func (g *GitHubChecker) Latest(ctx context.Context, cachedETag string) (FetchRes
 	}
 	version := strings.TrimPrefix(release.TagName, "v")
 	if !ValidStableVersion(version) || release.Draft || release.Prerelease {
-		return FetchResult{}, ErrNoStableRelease
+		// GitHub's /releases/latest contract excludes prereleases, but a
+		// malformed or manually reclassified RC can still be returned there.
+		// Consult the ordered release list so an older real stable release is
+		// not hidden behind that bad metadata.
+		return g.latestStableFromList(ctx, resp.Header.Get("ETag"))
 	}
+	return g.verifyStableRelease(ctx, release, resp.Header.Get("ETag"))
+}
+
+func (g *GitHubChecker) latestStableFromList(ctx context.Context, etag string) (FetchResult, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, releaseListURL, nil)
+	if err != nil {
+		return FetchResult{}, err
+	}
+	setGitHubHeaders(req)
+	resp, err := g.client.Do(req)
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("fetch canonical GitHub release list: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return FetchResult{}, fmt.Errorf("canonical GitHub release list returned HTTP %d", resp.StatusCode)
+	}
+	body, err := readBounded(resp.Body, maxReleaseBytes*4)
+	if err != nil {
+		return FetchResult{}, fmt.Errorf("read GitHub release list: %w", err)
+	}
+	var releases []githubRelease
+	if err = json.Unmarshal(body, &releases); err != nil {
+		return FetchResult{}, fmt.Errorf("decode GitHub release list: %w", err)
+	}
+	for _, release := range releases {
+		version := strings.TrimPrefix(release.TagName, "v")
+		if !ValidStableVersion(version) || release.Draft || release.Prerelease {
+			continue
+		}
+		return g.verifyStableRelease(ctx, release, etag)
+	}
+	return FetchResult{}, ErrNoStableRelease
+}
+
+func (g *GitHubChecker) verifyStableRelease(ctx context.Context, release githubRelease, etag string) (FetchResult, error) {
+	version := strings.TrimPrefix(release.TagName, "v")
 	if !release.Immutable || release.PublishedAt.IsZero() {
 		return FetchResult{}, errors.New("latest GitHub release is not a published immutable stable release")
 	}
@@ -145,7 +187,7 @@ func (g *GitHubChecker) Latest(ctx context.Context, cachedETag string) (FetchRes
 	if manifest.Release.Version != version || manifest.Release.Tag != release.TagName {
 		return FetchResult{}, errors.New("release tag and manifest version do not match")
 	}
-	return FetchResult{Release: domain.ReleaseInfo{Tag: release.TagName, Version: version, ManifestDigest: digest, Manifest: manifest, ManifestBytes: append([]byte(nil), manifestBytes...), PublishedAt: release.PublishedAt.UTC()}, ETag: resp.Header.Get("ETag")}, nil
+	return FetchResult{Release: domain.ReleaseInfo{Tag: release.TagName, Version: version, ManifestDigest: digest, Manifest: manifest, ManifestBytes: append([]byte(nil), manifestBytes...), PublishedAt: release.PublishedAt.UTC()}, ETag: etag}, nil
 }
 
 func setGitHubHeaders(req *http.Request) {
