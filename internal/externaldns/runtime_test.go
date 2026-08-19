@@ -33,7 +33,15 @@ func TestManagedRuntimeBundleIsClosedAndExact(t *testing.T) {
 			t.Fatalf("missing non-root runtime identity %q", required)
 		}
 	}
-	for _, forbidden := range []string{"apiToken", "secretValue", "latest", "--domain-filter=evil.example"} {
+	for _, required := range []string{`"name": "CF_API_TOKEN"`, `"key": "apiToken"`, `"name": "cloudflare-provider"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("missing Cloudflare credential mapping %q", required)
+		}
+	}
+	if strings.Contains(text, `"secretRef": {`) {
+		t.Fatal("Cloudflare runtime must map the provider token to CF_API_TOKEN")
+	}
+	for _, forbidden := range []string{"secretValue", "token-value", "latest", "--domain-filter=evil.example"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("unexpected %q", forbidden)
 		}

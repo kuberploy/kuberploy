@@ -67,9 +67,20 @@ func managedArguments(item domain.ExternalDNSIntegration) []string {
 	return values
 }
 
+func managedCredentialSources(item domain.ExternalDNSIntegration) map[string]any {
+	providerConfig := map[string]any{"configMapRef": map[string]any{"name": item.ProviderConfigRef}}
+	if item.ProviderKind == "cloudflare" {
+		return map[string]any{
+			"env":     []any{map[string]any{"name": "CF_API_TOKEN", "valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": item.CredentialSecretRef, "key": "apiToken", "optional": false}}}},
+			"envFrom": []any{providerConfig},
+		}
+	}
+	return map[string]any{"envFrom": []any{map[string]any{"secretRef": map[string]any{"name": item.CredentialSecretRef}}, providerConfig}}
+}
+
 // RenderManagedBundle emits a closed set of JSON documents (JSON is valid
-// YAML). Credential values are never read; only the exact Secret name is used
-// through envFrom so each provider can expose its conventional variables.
+// YAML). Credential values are never read; only exact Secret and ConfigMap
+// references are materialized.
 func RenderManagedBundle(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate) ([]byte, edge.ExternalDNSProfile, error) {
 	p, err := ManagedProfile(item, t)
 	if err != nil {
@@ -78,10 +89,14 @@ func RenderManagedBundle(item domain.ExternalDNSIntegration, t ManagedRuntimeTem
 	labels := map[string]any{"app.kubernetes.io/name": "external-dns", "app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/version": p.Version, "kuberploy.io/dns-integration": item.ID}
 	annotations := map[string]any{"kuberploy.io/edge-spec-digest": p.Deployment.SpecDigest, "kuberploy.io/provider-config-ref": item.ProviderConfigRef, "kuberploy.io/egress-config-ref": item.EgressConfigRef, "kuberploy.io/runtime-revision": fmt.Sprint(item.RuntimeRevision)}
 	profileData := p.ProfileData()
+	runtimeContainer := map[string]any{"name": "external-dns", "image": t.Image, "args": managedArguments(item), "securityContext": map[string]any{"allowPrivilegeEscalation": false, "capabilities": map[string]any{"drop": []string{"ALL"}}, "readOnlyRootFilesystem": true, "runAsGroup": int64(65532), "runAsNonRoot": true, "runAsUser": int64(65532)}, "resources": map[string]any{"requests": map[string]any{"cpu": "25m", "memory": "64Mi"}, "limits": map[string]any{"cpu": "500m", "memory": "256Mi"}}}
+	for key, value := range managedCredentialSources(item) {
+		runtimeContainer[key] = value
+	}
 	objects := []any{
 		map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": t.ServiceAccount, "namespace": t.Namespace, "labels": labels}},
 		map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": p.ProfileConfigMap, "namespace": t.Namespace, "labels": labels}, "data": profileData},
-		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": p.Deployment.Name, "namespace": t.Namespace, "labels": labels, "annotations": annotations}, "spec": map[string]any{"replicas": 1, "selector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/dns-integration": item.ID}}, "template": map[string]any{"metadata": map[string]any{"labels": labels}, "spec": map[string]any{"serviceAccountName": t.ServiceAccount, "securityContext": map[string]any{"fsGroup": int64(65534), "runAsNonRoot": true, "seccompProfile": map[string]any{"type": "RuntimeDefault"}}, "containers": []any{map[string]any{"name": "external-dns", "image": t.Image, "args": managedArguments(item), "envFrom": []any{map[string]any{"secretRef": map[string]any{"name": item.CredentialSecretRef}}, map[string]any{"configMapRef": map[string]any{"name": item.ProviderConfigRef}}}, "securityContext": map[string]any{"allowPrivilegeEscalation": false, "capabilities": map[string]any{"drop": []string{"ALL"}}, "readOnlyRootFilesystem": true, "runAsGroup": int64(65532), "runAsNonRoot": true, "runAsUser": int64(65532)}, "resources": map[string]any{"requests": map[string]any{"cpu": "25m", "memory": "64Mi"}, "limits": map[string]any{"cpu": "500m", "memory": "256Mi"}}}}}}}},
+		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": map[string]any{"name": p.Deployment.Name, "namespace": t.Namespace, "labels": labels, "annotations": annotations}, "spec": map[string]any{"replicas": 1, "selector": map[string]any{"matchLabels": map[string]any{"kuberploy.io/dns-integration": item.ID}}, "template": map[string]any{"metadata": map[string]any{"labels": labels}, "spec": map[string]any{"serviceAccountName": t.ServiceAccount, "securityContext": map[string]any{"fsGroup": int64(65534), "runAsNonRoot": true, "seccompProfile": map[string]any{"type": "RuntimeDefault"}}, "containers": []any{runtimeContainer}}}}},
 		map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole", "metadata": map[string]any{"name": p.Deployment.Name, "labels": labels}, "rules": []any{map[string]any{"apiGroups": []string{"networking.k8s.io"}, "resources": []string{"ingresses"}, "verbs": []string{"get", "list", "watch"}}}},
 		map[string]any{"apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRoleBinding", "metadata": map[string]any{"name": p.Deployment.Name, "labels": labels}, "subjects": []any{map[string]any{"kind": "ServiceAccount", "name": t.ServiceAccount, "namespace": t.Namespace}}, "roleRef": map[string]any{"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": p.Deployment.Name}},
 	}
