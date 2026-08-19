@@ -159,6 +159,30 @@ describe("invitation acceptance", () => {
 });
 
 describe("local password login", () => {
+  it("uses email as the only login identity field", async () => {
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    render(<AuthScreen />, { wrapper: Wrapper });
+
+    await screen.findByRole("heading", { name: "Sign in to continue" });
+    expect(screen.getByRole("textbox", { name: "Email" })).toHaveAttribute(
+      "type",
+      "email",
+    );
+    expect(screen.getByLabelText(/^Password/i)).toHaveAttribute(
+      "type",
+      "password",
+    );
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^display name/i)).not.toBeInTheDocument();
+  });
+
   it("does not show bootstrap before installation metadata resolves", async () => {
     let resolveMeta!: (value: Awaited<ReturnType<typeof api.meta>>) => void;
     vi.spyOn(api, "meta").mockImplementation(
