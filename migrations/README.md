@@ -35,7 +35,8 @@ schema change must use a new ordered migration.
 Migration `017_email_identity` separates presentation `display_name` from
 local-auth `email`. Fresh installs ask for an administrator email and display
 name separately; invitation records bind an email, while invitees choose their
-own display name. SSO is not implemented yet. Older RC users whose credentials
+own display name. This release intentionally supports local email/password
+authentication only; SSO/OIDC is future scope. Older RC users whose credentials
 were created from display names need the documented
 [offline recovery](../docs/legacy-email-recovery.md) or a fresh pre-stable
 database; the API does not accept display names as login identifiers.
