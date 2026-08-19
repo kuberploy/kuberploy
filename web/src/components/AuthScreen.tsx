@@ -52,6 +52,7 @@ export function AuthScreen({
   const [inviteMode, setInviteMode] = useState(
     () => linkedInvitationToken.length > 0,
   );
+  const [invitationCompleted, setInvitationCompleted] = useState(false);
   const meta = useQuery({
     queryKey: ["meta"],
     queryFn: api.meta,
@@ -92,7 +93,11 @@ export function AuthScreen({
   const acceptInvitation = useMutation({
     mutationFn: api.acceptInvitation,
     onSuccess: async (user) => {
-      invitationForm.reset();
+      setInvitationCompleted(true);
+      setInviteMode(false);
+      setLinkedInvitationToken("");
+      setInvitationInputToken("");
+      invitationForm.reset({ displayName: "", token: "", password: "" });
       await establishSession(user);
       onInvitationAccepted?.();
     },
@@ -106,6 +111,10 @@ export function AuthScreen({
   });
 
   useLayoutEffect(() => {
+    if (invitationCompleted) {
+      clearInvitationFragment();
+      return;
+    }
     const incomingInvitationToken =
       invitationToken ?? invitationTokenFromHash(window.location.hash) ?? "";
     if (
@@ -125,9 +134,15 @@ export function AuthScreen({
         shouldValidate: false,
       });
     }
-  }, [invitationForm, invitationToken, linkedInvitationToken]);
+  }, [
+    invitationCompleted,
+    invitationForm,
+    invitationToken,
+    linkedInvitationToken,
+  ]);
 
   useEffect(() => {
+    if (invitationCompleted) return;
     const token =
       invitationToken ??
       linkedInvitationToken ??
@@ -144,7 +159,12 @@ export function AuthScreen({
         },
       );
     }
-  }, [invitationForm, invitationToken, linkedInvitationToken]);
+  }, [
+    invitationCompleted,
+    invitationForm,
+    invitationToken,
+    linkedInvitationToken,
+  ]);
 
   const connectionOffline =
     connectionError &&

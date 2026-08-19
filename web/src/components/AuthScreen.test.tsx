@@ -156,6 +156,12 @@ describe("invitation acceptance", () => {
       token: "kp_invite_one_time",
       password: "developer password 123",
     });
+    expect(
+      screen.queryByLabelText(/invitation token/i),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Sign in to continue" }),
+    ).toBeInTheDocument();
     expect(queryClient.getQueryData(["me"])).toEqual({
       ...acceptedUser,
       authentication: { kind: "session" },
