@@ -1,7 +1,7 @@
 {
   "name": "@kuberploy/web",
   "private": true,
-  "version": "0.1.0-rc.226",
+  "version": "0.1.0-rc.227",
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "engines": {
