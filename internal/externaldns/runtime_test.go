@@ -28,6 +28,11 @@ func TestManagedRuntimeBundleIsClosedAndExact(t *testing.T) {
 			t.Fatalf("missing %q", required)
 		}
 	}
+	for _, required := range []string{`"fsGroup": 65534`, `"runAsGroup": 65532`, `"runAsNonRoot": true`, `"runAsUser": 65532`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("missing non-root runtime identity %q", required)
+		}
+	}
 	for _, forbidden := range []string{"apiToken", "secretValue", "latest", "--domain-filter=evil.example"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("unexpected %q", forbidden)
