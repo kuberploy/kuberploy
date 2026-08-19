@@ -636,10 +636,10 @@ kp_delete_owned_valkey_dataset() {
     {apiVersion:"v1",kind:"Pod",metadata:{name:$name,namespace:$ns,labels:{
       "kuberploy.io/test-run":$run,"app.kubernetes.io/managed-by":$managed,
       "app.kubernetes.io/name":"valkey","app.kubernetes.io/instance":"valkey"}},spec:{
-      automountServiceAccountToken:false,restartPolicy:"Never",securityContext:.spec.template.spec.securityContext,
+      automountServiceAccountToken:false,restartPolicy:"Never",securityContext:(.spec.template.spec.securityContext + {runAsNonRoot:true}),
       containers:[{name:"wipe",image:$valkey.image,imagePullPolicy:$valkey.imagePullPolicy,
         command:["/bin/sh","-ec"],args:["find /data -mindepth 1 -depth -delete"],
-        securityContext:{allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]},readOnlyRootFilesystem:true},
+        securityContext:{allowPrivilegeEscalation:false,capabilities:{drop:["ALL"]},readOnlyRootFilesystem:true,runAsNonRoot:true},
         volumeMounts:[{name:"valkey-data",mountPath:"/data"}]}],volumes:[{name:"valkey-data",
           persistentVolumeClaim:{claimName:$claim}}]}}
   ' "${kp_before}" >"${kp_helper_file}"

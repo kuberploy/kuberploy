@@ -31,6 +31,10 @@ jq -n '
 kp_render_outbox_relay_job "${kp_worker_file}" relay-probe kuberploy-system relay-test kuberploy "${kp_job_file}"
 jq -e '
   .kind == "Job" and
+  .metadata.labels["app.kubernetes.io/component"] == "outbox-relay" and
+  .spec.template.metadata.labels["app.kubernetes.io/component"] == "outbox-relay" and
+  .spec.template.metadata.labels["app.kubernetes.io/component"] != "worker" and
+  .spec.template.spec.securityContext.runAsNonRoot == true and
   .spec.template.spec.containers[0].command == ["/kuberploy-worker","outbox-relay-once"] and
   .spec.template.spec.containers[0].resources.requests == {cpu:"50m",memory:"64Mi"} and
   .spec.template.spec.containers[0].resources.limits == {cpu:"1",memory:"512Mi"} and

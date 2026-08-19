@@ -24,11 +24,11 @@ kp_render_outbox_relay_job() {
     {apiVersion:"batch/v1",kind:"Job",metadata:{name:$name,namespace:$ns,labels:{
       "kuberploy.io/test-run":$run,"app.kubernetes.io/managed-by":$managed,
       "app.kubernetes.io/name":"kuberploy","app.kubernetes.io/instance":.metadata.labels["app.kubernetes.io/instance"],
-      "app.kubernetes.io/component":"worker"}},
+      "app.kubernetes.io/component":"outbox-relay"}},
      spec:{backoffLimit:0,ttlSecondsAfterFinished:3600,template:{metadata:{labels:{
        "kuberploy.io/test-run":$run,"app.kubernetes.io/managed-by":$managed,
        "app.kubernetes.io/name":"kuberploy","app.kubernetes.io/instance":.metadata.labels["app.kubernetes.io/instance"],
-       "app.kubernetes.io/component":"worker"}},spec:{
+       "app.kubernetes.io/component":"outbox-relay"}},spec:{
        serviceAccountName:.spec.template.spec.serviceAccountName,automountServiceAccountToken:false,
        restartPolicy:"Never",securityContext:.spec.template.spec.securityContext,containers:[{
          name:"relay",image:$worker.image,imagePullPolicy:$worker.imagePullPolicy,
