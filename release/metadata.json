@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC221 keeps email-only login with separate display names, routes every destructive confirmation through the shadcn/Base UI dialog boundary with keyboard-safe focus handling, and survives transient Valkey startup timeouts without hiding configuration errors. It carries the RC219 theme, registry descriptor, Helm capability, Git CAS, builder-policy, registry-pull, and Argo recovery fixes.",
+  "summary": "Schema 018 is current. RC222 keeps email-only login with separate display names, routes every destructive confirmation through the shadcn/Base UI dialog boundary with keyboard-safe focus handling, protects one-time credentials from accidental dialog dismissal, and survives transient Valkey startup timeouts without hiding configuration errors. It carries the RC219 theme, registry descriptor, Helm capability, Git CAS, builder-policy, registry-pull, and Argo recovery fixes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.221"
+  "version": "0.1.0-rc.222"
 }

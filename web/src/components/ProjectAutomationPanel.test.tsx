@@ -198,6 +198,10 @@ describe("project service account management", () => {
       within(dialog).getByLabelText("New service account token"),
     ).toHaveTextContent(rawToken);
     expect(dialog).toHaveTextContent("cannot display this credential again");
+    await user.keyboard("{Escape}");
+    expect(
+      screen.getByRole("alertdialog", { name: "Copy this token now" }),
+    ).toBeInTheDocument();
     await user.click(
       within(dialog).getByRole("button", { name: "Copy token" }),
     );

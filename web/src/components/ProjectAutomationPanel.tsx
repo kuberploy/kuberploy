@@ -748,12 +748,10 @@ function AccountTokens({
       {issuedCredential ? (
         <Dialog
           open
-          onOpenChange={(open) => {
-            if (!open) {
-              setIssuedCredential(null);
-              setCopyState("idle");
-            }
-          }}
+          // The raw credential is unrecoverable after dismissal. Keep this
+          // dialog open for Escape and backdrop clicks; the explicit dismiss
+          // action below is the only safe close path.
+          onOpenChange={() => undefined}
         >
           <DialogContent
             className="confirmation-dialog token-issue-dialog max-w-none"
