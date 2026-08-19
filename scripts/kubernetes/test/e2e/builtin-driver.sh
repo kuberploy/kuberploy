@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/security-driver.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/github-build-workflow.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/config-edge-driver.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/image-tag-resolution-workflow.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/outbox-relay-job.sh"
 
 kp_action="${1:?run or cleanup required}"
 kp_namespace="kuberploy-e2e-${KUBERPLOY_E2E_RUN_ID}"
@@ -585,31 +586,8 @@ kp_create_outbox_relay_job() {
   local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence"
   local kp_job_file="${kp_dir}/workflow-outbox-relay-job.json" kp_uid
   kp_plan_create_inventory batch/v1 Job "${kp_namespace_value}" "${kp_job_name}"
-  jq --arg name "${kp_job_name}" --arg ns "${kp_namespace_value}" \
-    --arg run "${KUBERPLOY_E2E_RUN_ID}" --arg managed "${KUBERPLOY_E2E_MANAGED_BY_LABEL_VALUE}" '
-    [.spec.template.spec.containers[] | select(.name=="worker")][0] as $worker |
-    [$worker.env[] | select(.name=="KUBERPLOY_DATABASE_URL" or
-      .name=="KUBERPLOY_VALKEY_ADDRESSES" or .name=="KUBERPLOY_VALKEY_USERNAME" or
-      .name=="KUBERPLOY_VALKEY_PASSWORD" or .name=="KUBERPLOY_VALKEY_PUBLISHER_USERNAME" or
-      .name=="KUBERPLOY_VALKEY_PUBLISHER_PASSWORD")] as $env |
-    select(any($env[];.name=="KUBERPLOY_DATABASE_URL") and
-      any($env[];.name=="KUBERPLOY_VALKEY_ADDRESSES") and
-      any($env[];.name=="KUBERPLOY_VALKEY_PUBLISHER_USERNAME") and
-      any($env[];.name=="KUBERPLOY_VALKEY_PUBLISHER_PASSWORD")) |
-    {apiVersion:"batch/v1",kind:"Job",metadata:{name:$name,namespace:$ns,labels:{
-      "kuberploy.io/test-run":$run,"app.kubernetes.io/managed-by":$managed,
-      "app.kubernetes.io/name":"kuberploy","app.kubernetes.io/instance":.metadata.labels["app.kubernetes.io/instance"],
-      "app.kubernetes.io/component":"worker"}},
-     spec:{backoffLimit:0,ttlSecondsAfterFinished:3600,template:{metadata:{labels:{
-       "kuberploy.io/test-run":$run,"app.kubernetes.io/managed-by":$managed,
-       "app.kubernetes.io/name":"kuberploy","app.kubernetes.io/instance":.metadata.labels["app.kubernetes.io/instance"],
-       "app.kubernetes.io/component":"worker"}},spec:{
-       serviceAccountName:.spec.template.spec.serviceAccountName,automountServiceAccountToken:false,
-       restartPolicy:"Never",securityContext:.spec.template.spec.securityContext,containers:[{
-         name:"relay",image:$worker.image,imagePullPolicy:$worker.imagePullPolicy,
-         command:["/kuberploy-worker","outbox-relay-once"],env:$env,
-         securityContext:$worker.securityContext}]}}}}
-  ' "${kp_worker_file}" >"${kp_job_file}"
+  kp_render_outbox_relay_job "${kp_worker_file}" "${kp_job_name}" "${kp_namespace_value}" \
+    "${KUBERPLOY_E2E_RUN_ID}" "${KUBERPLOY_E2E_MANAGED_BY_LABEL_VALUE}" "${kp_job_file}"
   jq -e '.spec.template.spec.containers[0].image | test("@sha256:[a-f0-9]{64}$")' "${kp_job_file}" >/dev/null
   "${KUBERPLOY_E2E_KUBECTL}" create -f "${kp_job_file}" >/dev/null
   kp_uid="$("${KUBERPLOY_E2E_KUBECTL}" get job "${kp_job_name}" --namespace "${kp_namespace_value}" -o json | jq -er '.metadata.uid')"

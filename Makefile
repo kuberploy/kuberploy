@@ -92,6 +92,7 @@ registry-kubernetes-smoke:
 kubernetes-harness-test:
 	@./test/e2e/test-kubernetes-harness.sh
 	@./test/e2e/test-public-provider-workflow.sh
+	@./test/e2e/test-outbox-relay-job.sh
 	@./test/e2e/test-kubernetes-qualification.sh
 
 kubernetes-preflight:

@@ -9,6 +9,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/config"
 	"github.com/kuberploy/kuberploy/internal/queue"
 	"github.com/kuberploy/kuberploy/internal/store/postgres"
+	"github.com/kuberploy/kuberploy/internal/valkeystartup"
 )
 
 // runOutboxRelayOnce is a bounded recovery/qualification command. It uses only
@@ -24,15 +25,7 @@ func runOutboxRelayOnce(ctx context.Context, output io.Writer) error {
 		return err
 	}
 	defer database.Close()
-	addresses := config.List("KUBERPLOY_VALKEY_ADDRESSES", "127.0.0.1:6379")
-	defaultUsername := os.Getenv("KUBERPLOY_VALKEY_USERNAME")
-	defaultPassword := os.Getenv("KUBERPLOY_VALKEY_PASSWORD")
-	publisher, err := queue.NewValkeyStream(queue.ValkeyOptions{
-		Addresses:  addresses,
-		Username:   config.Get("KUBERPLOY_VALKEY_PUBLISHER_USERNAME", defaultUsername),
-		Password:   valkeyCredential("KUBERPLOY_VALKEY_PUBLISHER_PASSWORD", defaultPassword),
-		ClientName: "kuberploy-outbox-relay-once",
-	})
+	publisher, err := openOutboxPublisher(ctx)
 	if err != nil {
 		return err
 	}
@@ -45,4 +38,29 @@ func runOutboxRelayOnce(ctx context.Context, output io.Writer) error {
 		Published int   `json:"published"`
 		Replayed  int64 `json:"replayed"`
 	}{Published: published, Replayed: replayed})
+}
+
+type outboxPublisherOpen func(queue.ValkeyOptions) (*queue.ValkeyStream, error)
+type outboxPublisherRetry func(context.Context, func() (*queue.ValkeyStream, error)) (*queue.ValkeyStream, error)
+
+func outboxPublisherOptions() queue.ValkeyOptions {
+	return queue.ValkeyOptions{
+		Addresses:  config.List("KUBERPLOY_VALKEY_ADDRESSES", "127.0.0.1:6379"),
+		Username:   config.Get("KUBERPLOY_VALKEY_PUBLISHER_USERNAME", os.Getenv("KUBERPLOY_VALKEY_USERNAME")),
+		Password:   valkeyCredential("KUBERPLOY_VALKEY_PUBLISHER_PASSWORD", os.Getenv("KUBERPLOY_VALKEY_PASSWORD")),
+		ClientName: "kuberploy-outbox-relay-once",
+	}
+}
+
+func openOutboxPublisher(ctx context.Context) (*queue.ValkeyStream, error) {
+	return openOutboxPublisherWith(ctx, outboxPublisherOptions(), queue.NewValkeyStream,
+		func(retryContext context.Context, open func() (*queue.ValkeyStream, error)) (*queue.ValkeyStream, error) {
+			return valkeystartup.Open(retryContext, open)
+		})
+}
+
+func openOutboxPublisherWith(ctx context.Context, options queue.ValkeyOptions, open outboxPublisherOpen, retry outboxPublisherRetry) (*queue.ValkeyStream, error) {
+	return retry(ctx, func() (*queue.ValkeyStream, error) {
+		return open(options)
+	})
 }
