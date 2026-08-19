@@ -292,8 +292,18 @@ jobs:
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           [[ "${IMAGE_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]
-          kp_image_json="$(docker buildx imagetools inspect \
-            "${REGISTRY_IMAGE}@${IMAGE_DIGEST}" --format '{{json .Image}}')"
+          kp_image_json=""
+          for kp_attempt in {1..12}; do
+            if kp_image_json="$(docker buildx imagetools inspect \
+              "${REGISTRY_IMAGE}@${IMAGE_DIGEST}" --format '{{json .Image}}' 2>&1)"; then
+              break
+            fi
+            if (( kp_attempt == 12 )); then
+              printf '%s\n' "${kp_image_json}" >&2
+              exit 1
+            fi
+            sleep 5
+          done
           jq -e --arg architecture "${ARCHITECTURE}" \
             '.os == "linux" and .architecture == $architecture' <<<"${kp_image_json}" >/dev/null
           mkdir -p "${RUNNER_TEMP}/image-digests"
@@ -367,8 +377,18 @@ jobs:
                 'select(.component == $component and .platform == $platform and .architecture == $architecture and .image == $image) | .digest' \
                 "${kp_record}")"
               [[ "${kp_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
-              kp_image_json="$(docker buildx imagetools inspect \
-                "${kp_image}@${kp_digest}" --format '{{json .Image}}')"
+              kp_image_json=""
+              for kp_attempt in {1..12}; do
+                if kp_image_json="$(docker buildx imagetools inspect \
+                  "${kp_image}@${kp_digest}" --format '{{json .Image}}' 2>&1)"; then
+                  break
+                fi
+                if (( kp_attempt == 12 )); then
+                  printf '%s\n' "${kp_image_json}" >&2
+                  exit 1
+                fi
+                sleep 5
+              done
               jq -e --arg architecture "${kp_architecture}" \
                 '.os == "linux" and .architecture == $architecture' <<<"${kp_image_json}" >/dev/null
               kp_sources+=("${kp_image}@${kp_digest}")

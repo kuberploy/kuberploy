@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC236 keeps email-only login/display-name presentation, purges accepted invitation tokens, polls asynchronous runtime-secret and custom-certificate readiness, and uses shadcn/Base UI dialogs, bounded operation/release caches, endpoint-aware registry TLS rollouts, stable-feed diagnosis, and ResourceQuota-safe qualification Jobs.",
+  "summary": "Schema 018 is current. RC237 keeps email-only login/display-name presentation, purges accepted invitation tokens, polls asynchronous runtime-secret and custom-certificate readiness, retries GHCR propagation before digest verification, and uses shadcn/Base UI dialogs, bounded operation/release caches, endpoint-aware registry TLS rollouts, stable-feed diagnosis, and ResourceQuota-safe qualification Jobs.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.236"
+  "version": "0.1.0-rc.237"
 }
