@@ -572,6 +572,17 @@ spec:
           ports:
             - name: http
               containerPort: {{ $config.port }}
+          {{- if eq $component "api" }}
+          # API startup opens several Valkey clients. Keep liveness from
+          # restarting a process while it is waiting through a transient
+          # managed-Valkey startup race.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 12
+          {{- end }}
           readinessProbe:
             httpGet:
               path: {{ if eq $component "api" }}/readyz{{ else }}/healthz{{ end }}

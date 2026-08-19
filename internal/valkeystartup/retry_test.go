@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"syscall"
 	"testing"
 	"time"
 )
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
 
 func TestOpenRetriesConnectionRefused(t *testing.T) {
 	attempts := 0
@@ -54,5 +61,12 @@ func TestIsRetryableExcludesPermanentDNSMiss(t *testing.T) {
 	}
 	if !IsRetryable(&net.DNSError{Name: "valkey", IsTemporary: true}) {
 		t.Fatal("temporary DNS error was not considered retryable")
+	}
+}
+
+func TestIsRetryableRecognizesWrappedDialTimeout(t *testing.T) {
+	err := &net.OpError{Op: "dial", Net: "tcp", Err: timeoutError{}}
+	if !os.IsTimeout(err) || !IsRetryable(err) {
+		t.Fatalf("dial timeout was not retryable: %v", err)
 	}
 }

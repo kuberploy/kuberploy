@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"syscall"
 	"time"
 )
@@ -70,7 +71,7 @@ func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.ECONNREFUSED) ||
+	if os.IsTimeout(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ETIMEDOUT) ||
 		errors.Is(err, syscall.EHOSTUNREACH) || errors.Is(err, syscall.ENETUNREACH) {
 		return true
