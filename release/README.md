@@ -48,7 +48,7 @@ cannot publish. Do not push a `v*` tag until the checklist is complete: the
 workflow deliberately cannot repair repository settings, and a draft left
 after publication starts requires explicit administrator review.
 
-The source chart intentionally uses exact development tags. Release packaging
+The source chart intentionally uses explicit release-candidate tags. Release packaging
 copies it to a temporary directory, enables `global.requireImageDigest`, and
 injects the API, worker, web, migration, and builder-agent `image@sha256`
 references. The published OCI chart and `.tgz` therefore render the same

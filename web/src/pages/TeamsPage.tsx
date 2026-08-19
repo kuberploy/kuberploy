@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
@@ -55,6 +60,19 @@ export function TeamsPage() {
   const installations = useQuery({
     queryKey: ["github-installations"],
     queryFn: api.githubInstallations,
+  });
+  const accessibleTeamIDs = useMemo(
+    () =>
+      Array.from(
+        new Set((teams.data?.items ?? []).map((team) => team.id)),
+      ).sort(),
+    [teams.data],
+  );
+  const accessibleTeamMembers = useQueries({
+    queries: accessibleTeamIDs.map((teamId) => ({
+      queryKey: ["github-installation-team-members", teamId],
+      queryFn: () => api.teamMembers(teamId),
+    })),
   });
   const members = useQuery({
     queryKey: ["teams", selectedTeamId, "members"],
@@ -305,6 +323,32 @@ export function TeamsPage() {
     () => new Map(teams.data?.items.map((team) => [team.id, team]) ?? []),
     [teams.data],
   );
+  const teamOwnerIDs = useMemo(() => {
+    const owners = new Map<string, Set<string>>();
+    accessibleTeamIDs.forEach((teamId, index) => {
+      const members =
+        accessibleTeamMembers[index]?.data?.items.filter(
+          (member) => member.teamId === teamId,
+        ) ?? [];
+      owners.set(
+        teamId,
+        new Set(
+          members
+            .filter((member) => member.role === "owner")
+            .map((member) => member.userId),
+        ),
+      );
+    });
+    return owners;
+  }, [accessibleTeamIDs, accessibleTeamMembers]);
+  const shareableTeams = useMemo(() => {
+    if (me.data?.role === "platform-admin") return teams.data?.items ?? [];
+    const userID = me.data?.id;
+    if (!userID) return [];
+    return (teams.data?.items ?? []).filter((team) =>
+      teamOwnerIDs.get(team.id)?.has(userID),
+    );
+  }, [me.data, teamOwnerIDs, teams.data]);
 
   const loadError = teams.error ?? users.error ?? installations.error;
 
@@ -664,6 +708,16 @@ export function TeamsPage() {
               const sharedTeam = installation.teamId
                 ? teamsById.get(installation.teamId)
                 : undefined;
+              const canManageSharing =
+                me.data?.role === "platform-admin" ||
+                me.data?.id === installation.ownerUserId ||
+                (installation.visibility === "team" &&
+                  Boolean(
+                    installation.teamId &&
+                    teamOwnerIDs
+                      .get(installation.teamId)
+                      ?.has(me.data?.id ?? ""),
+                  ));
               return (
                 <article className="installation-row" key={installation.id}>
                   <span className="installation-row__mark">
@@ -693,19 +747,21 @@ export function TeamsPage() {
                     </span>
                     <small>
                       {installation.visibility === "private"
-                        ? "Installing user only"
+                        ? "Installer and platform admins"
                         : (sharedTeam?.name ?? installation.teamId ?? "Team")}
                     </small>
                   </div>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      changeSharing.reset();
-                      setShareTarget(installation);
-                    }}
-                  >
-                    Change sharing
-                  </Button>
+                  {canManageSharing ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        changeSharing.reset();
+                        setShareTarget(installation);
+                      }}
+                    >
+                      Change sharing
+                    </Button>
+                  ) : null}
                 </article>
               );
             })}
@@ -723,7 +779,7 @@ export function TeamsPage() {
       {shareTarget ? (
         <InstallationSharingConfirmation
           installation={shareTarget}
-          teams={teams.data?.items ?? []}
+          teams={shareableTeams}
           busy={changeSharing.isPending}
           error={changeSharing.error}
           onCancel={() => setShareTarget(null)}
@@ -1019,7 +1075,7 @@ export function InstallationSharingConfirmation({
             <span>
               <strong>Private</strong>
               <small>
-                Only the user who installed the GitHub App can use it.
+                Only the installer and platform administrators can use it.
               </small>
             </span>
           </label>

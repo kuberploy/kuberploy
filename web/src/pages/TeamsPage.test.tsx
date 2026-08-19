@@ -213,6 +213,25 @@ describe("team creation", () => {
 });
 
 describe("GitHub App sharing confirmation", () => {
+  it("describes private access as installer plus platform administrators", () => {
+    render(
+      <InstallationSharingConfirmation
+        installation={privateInstallation}
+        teams={teams}
+        busy={false}
+        error={null}
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Only the installer and platform administrators can use it.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("requires an exact team selection and acknowledgement before sharing", async () => {
     const user = userEvent.setup();
     const onConfirm = vi.fn();
@@ -248,6 +267,52 @@ describe("GitHub App sharing confirmation", () => {
       visibility: "team",
       teamId: "team_product",
     });
+  });
+
+  it("hides sharing mutation controls from ordinary shared-team members", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({
+      id: "user_member",
+      displayName: "Team member",
+      role: "developer",
+      authentication: { kind: "session" },
+    });
+    vi.spyOn(api, "capabilities").mockResolvedValue({ capabilities: [] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: teams });
+    vi.spyOn(api, "users").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "githubInstallations").mockResolvedValue({
+      items: [
+        { ...privateInstallation, visibility: "team", teamId: "team_product" },
+      ],
+      nextCursor: undefined,
+    });
+    vi.spyOn(api, "teamMembers").mockResolvedValue({
+      items: [
+        {
+          teamId: "team_product",
+          userId: "user_member",
+          role: "member",
+          createdAt: "2026-08-06T00:00:00Z",
+        },
+      ],
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={client}>
+        <TeamsPage />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findAllByText("Product engineering")).not.toHaveLength(
+      0,
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Change sharing" }),
+      ).toBeNull(),
+    );
   });
 
   it("omits teamId when making a team installation private", async () => {

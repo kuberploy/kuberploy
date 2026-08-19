@@ -1,7 +1,7 @@
 global:
   testRun: ""
   # Published release packaging sets this true and injects image@sha256 refs.
-  # Source defaults remain exact development tags because no images exist yet.
+  # Source defaults remain explicit release-candidate tags for repeatable tests.
   requireImageDigest: false
 
 config:
