@@ -39,6 +39,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/runtimeview"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	"github.com/kuberploy/kuberploy/internal/store/postgres"
+	"github.com/kuberploy/kuberploy/internal/valkeystartup"
 )
 
 var version = "dev"
@@ -81,21 +82,27 @@ func run() error {
 	cachePassword := valkeyCredential("KUBERPLOY_VALKEY_CACHE_PASSWORD", valkeyPassword)
 	limiterUsername := config.Get("KUBERPLOY_VALKEY_LIMITER_USERNAME", valkeyUsername)
 	limiterPassword := valkeyCredential("KUBERPLOY_VALKEY_LIMITER_PASSWORD", valkeyPassword)
-	releaseCache, err := releases.NewValkeyCache(releases.ValkeyCacheOptions{
-		Addresses: valkeyAddresses,
-		Username:  cacheUsername,
-		Password:  cachePassword,
+	releaseCache, err := valkeystartup.Open(ctx, func() (*releases.ValkeyCache, error) {
+		return releases.NewValkeyCache(releases.ValkeyCacheOptions{
+			Addresses: valkeyAddresses,
+			Username:  cacheUsername,
+			Password:  cachePassword,
+		})
 	})
 	if err != nil {
 		return err
 	}
 	defer releaseCache.Close()
-	operationCache, err := operationcache.NewValkeyCache(operationcache.Options{Addresses: valkeyAddresses, Username: cacheUsername, Password: cachePassword, TTL: 30 * time.Second})
+	operationCache, err := valkeystartup.Open(ctx, func() (*operationcache.ValkeyCache, error) {
+		return operationcache.NewValkeyCache(operationcache.Options{Addresses: valkeyAddresses, Username: cacheUsername, Password: cachePassword, TTL: 30 * time.Second})
+	})
 	if err != nil {
 		return err
 	}
 	defer operationCache.Close()
-	highRiskLimiter, err := ratelimit.NewValkeyLimiter(ratelimit.ValkeyOptions{Addresses: valkeyAddresses, Username: limiterUsername, Password: limiterPassword})
+	highRiskLimiter, err := valkeystartup.Open(ctx, func() (*ratelimit.ValkeyLimiter, error) {
+		return ratelimit.NewValkeyLimiter(ratelimit.ValkeyOptions{Addresses: valkeyAddresses, Username: limiterUsername, Password: limiterPassword})
+	})
 	if err != nil {
 		return err
 	}

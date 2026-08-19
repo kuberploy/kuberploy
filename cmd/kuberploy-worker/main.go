@@ -25,6 +25,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/registry"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	"github.com/kuberploy/kuberploy/internal/store/postgres"
+	"github.com/kuberploy/kuberploy/internal/valkeystartup"
 	"github.com/kuberploy/kuberploy/internal/worker"
 )
 
@@ -143,16 +144,20 @@ func run() error {
 	valkeyAddresses := config.List("KUBERPLOY_VALKEY_ADDRESSES", "127.0.0.1:6379")
 	valkeyUsername := os.Getenv("KUBERPLOY_VALKEY_USERNAME")
 	valkeyPassword := os.Getenv("KUBERPLOY_VALKEY_PASSWORD")
-	consumerStream, err := queue.NewValkeyStream(queue.ValkeyOptions{Addresses: valkeyAddresses,
-		Username: config.Get("KUBERPLOY_VALKEY_CONSUMER_USERNAME", valkeyUsername), Password: valkeyCredential("KUBERPLOY_VALKEY_CONSUMER_PASSWORD", valkeyPassword),
-		ClientName: "kuberploy-worker-consumer"})
+	consumerStream, err := valkeystartup.Open(ctx, func() (*queue.ValkeyStream, error) {
+		return queue.NewValkeyStream(queue.ValkeyOptions{Addresses: valkeyAddresses,
+			Username: config.Get("KUBERPLOY_VALKEY_CONSUMER_USERNAME", valkeyUsername), Password: valkeyCredential("KUBERPLOY_VALKEY_CONSUMER_PASSWORD", valkeyPassword),
+			ClientName: "kuberploy-worker-consumer"})
+	})
 	if err != nil {
 		return err
 	}
 	defer consumerStream.Close()
-	publisherStream, err := queue.NewValkeyStream(queue.ValkeyOptions{Addresses: valkeyAddresses,
-		Username: config.Get("KUBERPLOY_VALKEY_PUBLISHER_USERNAME", valkeyUsername), Password: valkeyCredential("KUBERPLOY_VALKEY_PUBLISHER_PASSWORD", valkeyPassword),
-		ClientName: "kuberploy-outbox-publisher"})
+	publisherStream, err := valkeystartup.Open(ctx, func() (*queue.ValkeyStream, error) {
+		return queue.NewValkeyStream(queue.ValkeyOptions{Addresses: valkeyAddresses,
+			Username: config.Get("KUBERPLOY_VALKEY_PUBLISHER_USERNAME", valkeyUsername), Password: valkeyCredential("KUBERPLOY_VALKEY_PUBLISHER_PASSWORD", valkeyPassword),
+			ClientName: "kuberploy-outbox-publisher"})
+	})
 	if err != nil {
 		return err
 	}

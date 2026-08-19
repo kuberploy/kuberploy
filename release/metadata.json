@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC218 keeps email-only login with separate display names, moves shared confirmations onto the shadcn/Base UI dialog boundary with keyboard-safe focus handling, and carries the RC217 theme, registry descriptor, Helm capability, Git CAS, builder-policy, registry-pull, and Argo recovery fixes.",
+  "summary": "Schema 018 is current. RC219 keeps email-only login with separate display names, moves shared confirmations onto the shadcn/Base UI dialog boundary with keyboard-safe focus handling, and retries transient Valkey startup races without hiding configuration errors. It carries the RC218 theme, registry descriptor, Helm capability, Git CAS, builder-policy, registry-pull, and Argo recovery fixes.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.218"
+  "version": "0.1.0-rc.219"
 }
