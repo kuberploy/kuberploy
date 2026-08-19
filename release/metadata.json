@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC224 keeps email-only login and display-name presentation, shadcn/Base UI destructive dialogs, safe one-time credential dismissal, bounded operation-cache outages with PostgreSQL fallback, Valkey startup retry during outbox recovery, and ResourceQuota-safe qualification Jobs. It includes RC219 theme, registry descriptor, Helm capability, Git CAS, builder policy, registry pulls, and Argo recovery.",
+  "summary": "Schema 018 is current. RC225 keeps email-only login and display-name presentation, shadcn/Base UI destructive dialogs, safe one-time credential dismissal, bounded operation-cache and release-cache outages with PostgreSQL or GitHub fallback, Valkey startup retry during outbox recovery, and ResourceQuota-safe qualification Jobs. It includes RC219 theme, registry descriptor, Helm capability, Git CAS, builder policy, registry pulls, and Argo recovery.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.224"
+  "version": "0.1.0-rc.225"
 }
