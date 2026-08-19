@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC228 keeps email-only login and display-name presentation, shadcn/Base UI destructive dialogs, safe one-time credential dismissal, bounded operation-cache and release-cache outages with PostgreSQL or GitHub fallback, endpoint-aware managed-registry TLS rollouts, explicit stable-feed diagnosis, and ResourceQuota-safe qualification Jobs. It includes RC219 theme, registry descriptor, Helm capability, Git CAS, builder policy, registry pulls, and Argo recovery.",
+  "summary": "Schema 018 is current. RC229 keeps email-only login/display-name presentation, shadcn/Base UI dialogs, bounded operation/release caches with PostgreSQL or ordered GitHub stable fallback, endpoint-aware registry TLS rollouts, stable-feed diagnosis, and ResourceQuota-safe qualification Jobs. It includes RC219 theme, registry descriptor, Helm capability, Git CAS, builder policy, registry pulls, and Argo recovery.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.228"
+  "version": "0.1.0-rc.229"
 }
