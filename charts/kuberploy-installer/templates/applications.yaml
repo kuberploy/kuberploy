@@ -123,7 +123,7 @@
 {{- end -}}
 {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.enabled -}}
   {{- $registry := $root.Values.integrations.registry -}}
-  {{- $registryConfigIdentity := dict "authMode" "htpasswd" "authRealm" "kuberploy-registry" "port" 5000 "tls" true -}}
+  {{- $registryConfigIdentity := dict "authMode" "htpasswd" "authRealm" "kuberploy-registry" "port" 5000 "tls" (ne $registry.exposureMode "internal") "endpoint" $registry.endpoint "tlsSecretName" $registry.tlsSecretName -}}
   {{- $registryConfigMap := printf "registry-config-%s" (toJson $registryConfigIdentity | sha256sum | trunc 12) -}}
   {{- $externalEgress := $registry.controlPlaneEgressCIDRs -}}
   {{- if $root.Values.integrations.github.enabled -}}

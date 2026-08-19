@@ -481,6 +481,13 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
   --set-string publicEndpoint.tls.accountEmail=platform@example.com \
   "${kp_github_args[@]}" "${kp_registry_pull_args[@]}" >"${kp_tmp}/registry-pull-platform.yaml"
 kp_expand_installer_applications "${kp_tmp}/registry-pull-platform.yaml"
+yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject' \
+  "${kp_tmp}/registry-pull-platform.yaml" >"${kp_tmp}/registry-child-values.yaml"
+helm template registry "${kp_root}/charts/kuberploy-registry" --namespace kuberploy-system \
+  -f "${kp_tmp}/registry-child-values.yaml" >"${kp_tmp}/registry-child.yaml"
+kp_installer_registry_config_map="$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.managedRegistry.registryConfigMap' "${kp_tmp}/registry-pull-platform.yaml")"
+kp_child_registry_config_map="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/registry-child.yaml")"
+[[ -n "${kp_installer_registry_config_map}" && "${kp_installer_registry_config_map}" == "${kp_child_registry_config_map}" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.enabled' "${kp_tmp}/registry-pull-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.profiles[0].targetId' "${kp_tmp}/registry-pull-platform.yaml")" == "55555555-5555-4555-8555-555555555555" ]]
 [[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | .spec.destinations[] | select(.namespace == "kp-example-development") | .namespace' "${kp_tmp}/registry-pull-platform.yaml")" == "kp-example-development" ]]
