@@ -13,8 +13,18 @@ func TestHashVerifyAndValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	second, err := Hash("correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encoded == second {
+		t.Fatal("equal passwords produced the same salted credential")
+	}
 	if ok, upgrade := Verify(encoded, "correct horse battery staple"); !ok || upgrade {
 		t.Fatalf("current credential ok=%v upgrade=%v", ok, upgrade)
+	}
+	if ok, upgrade := Verify(second, "correct horse battery staple"); !ok || upgrade {
+		t.Fatalf("second current credential ok=%v upgrade=%v", ok, upgrade)
 	}
 	if ok, _ := Verify(encoded, "wrong password entirely"); ok {
 		t.Fatal("wrong password verified")

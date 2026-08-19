@@ -69,6 +69,16 @@ helm template proxied "${kp_chart}" \
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.secretName' "${kp_auth_render}")" == "registry-tls" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.issuerRef.name' "${kp_auth_render}")" == "kuberploy-letsencrypt-production" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.dnsNames[0]' "${kp_auth_render}")" == "registry.example.com" ]]
+
+kp_endpoint_changed_render="${kp_tmp}/endpoint-changed.yaml"
+helm template authenticated "${kp_chart}" \
+  --namespace kuberploy-registry \
+  -f "${kp_auth_values}" \
+  --set-string exposure.endpoint=registry-new.example.com >"${kp_endpoint_changed_render}"
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_auth_render}")" != \
+   "$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_endpoint_changed_render}")" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.metadata.annotations."checksum/config"' "${kp_auth_render}")" != \
+   "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.metadata.annotations."checksum/config"' "${kp_endpoint_changed_render}")" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .spec.storageClassName' "${kp_auth_render}")" == "fixture-storage" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .spec.resources.requests.storage' "${kp_auth_render}")" == "2Gi" ]]
 [[ "$(yq eval-all 'select(.kind == "PersistentVolumeClaim") | .metadata.annotations."helm.sh/resource-policy"' "${kp_auth_render}")" == "keep" ]]
