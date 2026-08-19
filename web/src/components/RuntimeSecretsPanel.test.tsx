@@ -283,6 +283,60 @@ describe("runtime-secret management panel", () => {
     expect(screen.queryByText("External Secrets")).not.toBeInTheDocument();
   });
 
+  it("polls asynchronous create readiness and pending rotation activation", async () => {
+    const user = userEvent.setup();
+    const versionOne = detail.versions[0]!;
+    const versionTwo = {
+      ...versionOne,
+      id: "version-5",
+      number: 5,
+      state: "awaiting-readiness" as const,
+    };
+    const provisioning = {
+      ...detail,
+      state: "provisioning" as const,
+      activeVersion: undefined,
+    };
+    const pendingRotation = {
+      ...detail,
+      state: "ready" as const,
+      activeVersion: 3,
+      versions: [versionOne, versionTwo],
+    };
+    const activatedRotation = {
+      ...pendingRotation,
+      activeVersion: 5,
+      versions: [versionOne, { ...versionTwo, state: "active" as const }],
+    };
+    vi.spyOn(api, "runtimeSecretBindings").mockResolvedValue({
+      items: [
+        {
+          ...detail,
+          state: "provisioning",
+          activeVersion: undefined,
+        },
+      ],
+    });
+    const getDetail = vi
+      .spyOn(api, "runtimeSecretBinding")
+      .mockResolvedValueOnce(provisioning)
+      .mockResolvedValueOnce(pendingRotation)
+      .mockResolvedValue(activatedRotation);
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /database-credentials/i }),
+    );
+    await screen.findByText("Not active");
+    await waitFor(
+      () => expect(getDetail.mock.calls.length).toBeGreaterThanOrEqual(3),
+      { timeout: 3_000 },
+    );
+    expect(
+      screen.getByText("Active version").nextElementSibling,
+    ).toHaveTextContent("5");
+  });
+
   it("clears values and sanitizes errors while retaining only a stable retry key", async () => {
     const user = userEvent.setup();
     const secretValue = "s3cr3t-error-should-disappear";
@@ -442,7 +496,9 @@ describe("runtime-secret management panel", () => {
       screen.getByRole("textbox", { name: "Rotate environment variable 1" }),
       "DATABASE_PASSWORD",
     );
-    await user.click(screen.getByRole("button", { name: "Ingest new version" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ingest new version" }),
+    );
     await screen.findByText(/write-only rotation failed/i);
     const firstKey = rotate.mock.calls[0]?.[2];
 
@@ -450,7 +506,9 @@ describe("runtime-secret management panel", () => {
       ["runtime-secret-bindings", application.id, production.id],
       { items: [{ ...detail, activeVersion: 4 }] },
     );
-    await waitFor(() => expect(screen.getByText("Version 4")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Version 4")).toBeInTheDocument(),
+    );
     await user.click(screen.getByRole("button", { name: "Rotate" }));
 
     await user.type(
@@ -469,7 +527,9 @@ describe("runtime-secret management panel", () => {
       screen.getByRole("textbox", { name: "Rotate environment variable 1" }),
       "DATABASE_PASSWORD",
     );
-    await user.click(screen.getByRole("button", { name: "Ingest new version" }));
+    await user.click(
+      screen.getByRole("button", { name: "Ingest new version" }),
+    );
     await waitFor(() => expect(rotate).toHaveBeenCalledTimes(2));
     expect(rotate.mock.calls[1]?.[1].expectedActiveVersion).toBe(4);
     expect(rotate.mock.calls[1]?.[2]).not.toBe(firstKey);

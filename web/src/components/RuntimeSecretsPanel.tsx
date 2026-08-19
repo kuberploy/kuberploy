@@ -921,6 +921,13 @@ export function RuntimeSecretsPanel({
       api.runtimeSecretBindings(application.id, selectedEnvironment!.id),
     enabled: featureEnabled && Boolean(selectedEnvironment),
     retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.items.some(
+        (binding) =>
+          binding.state === "provisioning" || binding.state === "deleting",
+      )
+        ? 1_000
+        : false,
   });
   const selectedListedBinding = list.data?.items.find(
     (binding) => binding.id === selectedBindingId,
@@ -938,6 +945,20 @@ export function RuntimeSecretsPanel({
       Boolean(selectedBindingId) &&
       Boolean(selectedListedBinding),
     retry: false,
+    refetchInterval: (query) => {
+      const binding = query.state.data;
+      if (!binding) return false;
+      const pendingVersion =
+        binding.state === "ready" &&
+        binding.versions.some(
+          (version) => version.number > (binding.activeVersion ?? 0),
+        );
+      return binding.state === "provisioning" ||
+        binding.state === "deleting" ||
+        pendingVersion
+        ? 1_000
+        : false;
+    },
   });
 
   if (!featureEnabled) return null;
