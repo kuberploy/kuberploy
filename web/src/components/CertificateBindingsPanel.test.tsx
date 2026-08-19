@@ -327,6 +327,51 @@ describe("certificate management panel", () => {
     expect(remove.mock.calls[0]?.[1]).toMatch(/^[A-Za-z0-9._:-]{16,128}$/);
   });
 
+  it("polls asynchronous create readiness and pending rotation activation", async () => {
+    const user = userEvent.setup();
+    const versionOne = detail.versions[0]!;
+    const versionTwo = { ...versionOne, number: 3 };
+    const provisioning = {
+      ...detail,
+      state: "provisioning" as const,
+      activeVersion: 0,
+      versions: [versionOne],
+    };
+    const pendingRotation = {
+      ...detail,
+      state: "ready" as const,
+      activeVersion: 2,
+      versions: [versionOne, versionTwo],
+    };
+    const activatedRotation = {
+      ...pendingRotation,
+      activeVersion: 3,
+    };
+    vi.spyOn(api, "certificateBindings").mockResolvedValue({
+      items: [
+        {
+          ...detail,
+          state: "provisioning",
+          activeVersion: 0,
+        },
+      ],
+    });
+    const getDetail = vi
+      .spyOn(api, "certificateBinding")
+      .mockResolvedValueOnce(provisioning)
+      .mockResolvedValueOnce(pendingRotation)
+      .mockResolvedValue(activatedRotation);
+    renderPanel();
+
+    await user.click(
+      await screen.findByRole("button", { name: /public-edge/i }),
+    );
+    await screen.findByText("No active version");
+    await screen.findByText("Rotate from version 2", {}, { timeout: 3_000 });
+    await screen.findByText("Rotate from version 3", {}, { timeout: 3_000 });
+    expect(getDetail.mock.calls.length).toBeGreaterThanOrEqual(3);
+  });
+
   it("does not retry a failed rotation after the observed active version changes", async () => {
     const user = userEvent.setup();
     const updatedDetail = {
