@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"os"
 	"strings"
 	"testing"
@@ -100,6 +101,40 @@ func TestReleaseCacheSnapshotValidationAndOptions(t *testing.T) {
 	}
 	if _, err := NewValkeyCache(ValkeyCacheOptions{Addresses: []string{"bad\naddress"}}); err == nil {
 		t.Fatal("invalid Valkey address was accepted")
+	}
+}
+
+func TestReleaseCacheConstructionHasBoundedUnresponsiveServer(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			connection, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				select {
+				case <-stop:
+					_ = connection.Close()
+				case <-time.After(5 * time.Second):
+					_ = connection.Close()
+				}
+			}()
+		}
+	}()
+
+	started := time.Now()
+	if _, err = NewValkeyCache(ValkeyCacheOptions{Addresses: []string{listener.Addr().String()}}); err == nil {
+		t.Fatal("unresponsive Valkey server was accepted")
+	}
+	if elapsed := time.Since(started); elapsed > 4*releaseCacheIOTimeout {
+		t.Fatalf("release cache construction exceeded fallback budget: %s", elapsed)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ const (
 	releaseCacheSchema     = "kuberploy.release-cache/v1"
 	maxReleaseCacheBytes   = 512 << 10
 	maximumReleaseCacheTTL = 10 * time.Minute
+	releaseCacheIOTimeout  = 2 * time.Second
 )
 
 type ValkeyCacheOptions struct {
@@ -52,7 +54,11 @@ func NewValkeyCache(options ValkeyCacheOptions) (*ValkeyCache, error) {
 			return nil, errors.New("Valkey release cache address is invalid")
 		}
 	}
-	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: options.Addresses, Username: options.Username, Password: options.Password, ClientName: "kuberploy-release-cache", DisableCache: true})
+	client, err := valkey.NewClient(valkey.ClientOption{
+		InitAddress: options.Addresses, Username: options.Username, Password: options.Password,
+		ClientName: "kuberploy-release-cache", DisableCache: true, DisableRetry: true,
+		Dialer: net.Dialer{Timeout: releaseCacheIOTimeout}, ConnWriteTimeout: releaseCacheIOTimeout,
+	})
 	if err != nil {
 		return nil, err
 	}

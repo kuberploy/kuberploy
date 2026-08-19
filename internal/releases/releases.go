@@ -71,7 +71,9 @@ func (s *Service) Latest(ctx context.Context) (Snapshot, error) {
 		return s.local, nil
 	}
 	if !s.hasLocal && s.cache != nil {
-		cached, ok, err := s.cache.Load(ctx)
+		cacheCtx, cancel := context.WithTimeout(ctx, releaseCacheIOTimeout)
+		cached, ok, err := s.cache.Load(cacheCtx)
+		cancel()
 		if err == nil && ok {
 			s.local = cached
 			s.hasLocal = true
@@ -98,7 +100,9 @@ func (s *Service) Latest(ctx context.Context) (Snapshot, error) {
 		s.hasLocal = true
 	}
 	if s.cache != nil {
-		_ = s.cache.Store(ctx, s.local, s.ttl)
+		cacheCtx, cancel := context.WithTimeout(ctx, releaseCacheIOTimeout)
+		_ = s.cache.Store(cacheCtx, s.local, s.ttl)
+		cancel()
 	}
 	return s.local, nil
 }
