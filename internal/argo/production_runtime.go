@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
 // ProductionDesiredStateMaterializer discovers exact active indexed
@@ -81,6 +83,21 @@ func (r *ProductionDesiredStateRuntime) reportPrerequisiteError(err error) {
 	}
 }
 
+func (r *ProductionDesiredStateRuntime) prerequisiteWait(err error, fallback time.Duration) time.Duration {
+	if r == nil {
+		return fallback
+	}
+	var apiErr *githubapp.APIError
+	if !errors.As(err, &apiErr) || !apiErr.Retryable() || apiErr.RetryAt.IsZero() {
+		return fallback
+	}
+	wait := apiErr.RetryAt.Sub(r.now())
+	if wait > fallback {
+		return wait
+	}
+	return fallback
+}
+
 func (r *ProductionDesiredStateRuntime) Run(ctx context.Context) error {
 	if r.validate() != nil {
 		return ErrInvalid
@@ -97,7 +114,7 @@ func (r *ProductionDesiredStateRuntime) Run(ctx context.Context) error {
 		// A protected Git write can make the root Application transiently
 		// OutOfSync. Let the readiness lease age/fence immediately, then wait
 		// for a new exact composite proof instead of killing the whole worker.
-		timer := time.NewTimer(pollDuration)
+		timer := time.NewTimer(r.prerequisiteWait(err, pollDuration))
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
@@ -137,7 +154,7 @@ func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error
 			break
 		}
 		r.reportPrerequisiteError(err)
-		timer := time.NewTimer(pollDuration)
+		timer := time.NewTimer(r.prerequisiteWait(err, pollDuration))
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {

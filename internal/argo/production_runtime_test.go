@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
 
@@ -48,6 +49,23 @@ func (s signalingNotReadyPrerequisite) ObserveProductionPrerequisites(context.Co
 	default:
 	}
 	return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady
+}
+
+type rateLimitedPrerequisite struct {
+	called  chan struct{}
+	retryAt time.Time
+	calls   atomic.Int64
+}
+
+func (s *rateLimitedPrerequisite) ObserveProductionPrerequisites(context.Context, time.Time) (ProductionPrerequisiteProof, error) {
+	s.calls.Add(1)
+	select {
+	case s.called <- struct{}{}:
+	default:
+	}
+	return ProductionPrerequisiteProof{}, errors.Join(ErrArgoRuntimePrerequisiteNotReady, &githubapp.APIError{
+		Class: githubapp.APIErrorRateLimit, RetryAt: s.retryAt,
+	})
 }
 
 type productionRuntimeMaterializerStub struct {
@@ -151,6 +169,32 @@ func TestProductionDesiredStateRuntimeCancellationInterruptsPrerequisiteWait(t *
 	if err := store.DesiredStateRuntimeReady(t.Context(), runtime.Worker.Observation.DesiredStateRuntimeIdentity,
 		now, DesiredStateHeartbeatMaxAge); !errors.Is(err, ErrDesiredStateNotReady) {
 		t.Fatalf("canceled pre-ready runtime left a readiness receipt: %v", err)
+	}
+}
+
+func TestProductionDesiredStateRuntimeHonorsProviderRetryAt(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	runtime, _ := productionRuntimeFixture(t, now)
+	prerequisite := &rateLimitedPrerequisite{called: make(chan struct{}, 1), retryAt: now.Add(500 * time.Millisecond)}
+	runtime.Prerequisites = prerequisite
+	runtime.PollInterval = 250 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	select {
+	case <-prerequisite.called:
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("runtime did not enter rate-limit wait")
+	}
+	time.Sleep(350 * time.Millisecond)
+	if got := prerequisite.calls.Load(); got != 1 {
+		cancel()
+		t.Fatalf("rate-limited prerequisite retried before RetryAt: calls=%d", got)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("rate-limited runtime did not stop with its context: %v", err)
 	}
 }
 
