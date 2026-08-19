@@ -17,7 +17,9 @@ import (
 	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
@@ -276,23 +278,156 @@ func TestEdgeRoutePolicyRequiresExactFreshObservedProfilesPostgreSQL(t *testing.
 	}
 }
 
+func TestEdgeRoutePolicyUsesActiveManagedExternalDNSProfilePostgreSQL(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	identity := strings.ReplaceAll(id.New()[:8], "-", "")
+	userID, teamID, projectID, environmentID, integrationID := id.New(), id.New(), id.New(), id.New(), id.New()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cleanup := func(cleanupContext context.Context) {
+		workerID := "projection-dynamic-edge-" + identity
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global' AND worker_id=$1`, workerID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key=$1`, "external-dns/"+integrationID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM external_dns_integration_environments WHERE integration_id=$1`, integrationID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM external_dns_integrations WHERE id=$1`, integrationID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, environmentID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM projects WHERE id=$1`, projectID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM teams WHERE id=$1`, teamID)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM users WHERE id=$1`, userID)
+	}
+	cleanup(ctx)
+	defer cleanup(context.Background())
+
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
+		VALUES($1,$2,'platform-admin',$3, $3,1,$4)`, userID, "dynamic-edge-"+identity, "dynamic-edge-"+identity, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO teams(id,name,slug,created_by,created_at) VALUES($1,$2,$3,$4,$5)`,
+		teamID, "Dynamic edge "+identity, "dynamic-edge-"+identity, userID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,team_id,created_at) VALUES($1,$2,$3,$4,$5)`,
+		projectID, "Dynamic project "+identity, "dynamic-project-"+identity, teamID, now); err != nil {
+		t.Fatal(err)
+	}
+	namespace := "dynamic-edge-" + identity
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
+		VALUES($1,$2,'Production','production',$3,$3,$4)`, environmentID, projectID, namespace, now); err != nil {
+		t.Fatal(err)
+	}
+	integration := domain.ExternalDNSIntegration{ID: integrationID, Slug: "dynamic-" + identity, Name: "Dynamic " + identity,
+		Mode: externaldns.ModeManaged, ProviderKind: "cloudflare", TXTOwnerID: "dynamic." + identity,
+		AllowedDomainSuffixes: []string{"example.test"}, SyncPolicy: externaldns.SyncPolicyUpsert,
+		CredentialSecretRef: "dynamic-credential-" + identity, ProviderConfigRef: "dynamic-provider-" + identity,
+		EgressConfigRef: "dynamic-egress-" + identity, EnvironmentIDs: []string{environmentID}, RuntimeRevision: 1, Lifecycle: "active"}
+	suffixes, _ := json.Marshal(integration.AllowedDomainSuffixes)
+	if _, err = pool.Exec(ctx, `INSERT INTO external_dns_integrations(
+		id,slug,name,mode,provider_kind,txt_owner_id,allowed_domain_suffixes,sync_policy,destructive_sync_confirmed,
+		credential_secret_ref,provider_config_ref,egress_config_ref,created_by,created_at,updated_at,runtime_revision,lifecycle)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,$9,$10,$11,$12,$13,$13,$14,$15)`,
+		integration.ID, integration.Slug, integration.Name, integration.Mode, integration.ProviderKind, integration.TXTOwnerID,
+		suffixes, integration.SyncPolicy, integration.CredentialSecretRef, integration.ProviderConfigRef, integration.EgressConfigRef,
+		userID, now, integration.RuntimeRevision, integration.Lifecycle); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO external_dns_integration_environments(integration_id,environment_id,created_at) VALUES($1,$2,$3)`, integrationID, environmentID, now); err != nil {
+		t.Fatal(err)
+	}
+
+	base := edgeRouteTestConfig(t)
+	operational := externaldns.OperationalConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(),
+		Template: externaldns.ManagedRuntimeTemplate{Namespace: "external-dns", Version: "v0.18.0",
+			Image: "registry.k8s.io/external-dns/external-dns:v0.18.0", ServiceAccount: "external-dns"}, PollInterval: 30 * time.Second}
+	profile, err := externaldns.ManagedProfile(integration, operational.Template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := base
+	runtime.Profiles.ExternalDNS = []edge.ExternalDNSProfile{profile}
+	runtimeDigest, err := runtime.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := runtime.TargetProfiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerID := "projection-dynamic-edge-" + identity
+	for _, targetProfile := range profiles {
+		desired, desiredErr := targetProfile.Desired(runtimeDigest)
+		if desiredErr != nil {
+			t.Fatal(desiredErr)
+		}
+		if _, err = pool.Exec(ctx, `INSERT INTO edge_runtime_targets(
+			 target_key,profile_revision,kind,integration_id,management_mode,namespace,profile_config_map,
+			external_txt_owner_id,external_policy,external_domains,external_provider_kind,external_credential_secret_ref,
+			external_provider_config_ref,external_egress_config_ref,desired_digest,runtime_config_digest,
+			active,runtime_state,next_observation_at,last_observed_at,observed_identity_digest,
+			observed_resource_versions,created_at,updated_at)
+			VALUES($1,$2,$3,NULLIF($4,'')::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,true,'ready',$17,$18,$19,$20,$18,$18)`,
+			desired.Key, desired.Revision, desired.Kind, desired.IntegrationID, desired.Mode, desired.Namespace, desired.ProfileConfigMap,
+			desired.ExternalTXTOwnerID, desired.ExternalPolicy, desired.ExternalDomains, desired.ExternalProviderKind, desired.ExternalCredentialSecretRef,
+			desired.ExternalProviderConfigRef, desired.ExternalEgressConfigRef, desired.DesiredDigest, desired.RuntimeConfigDigest,
+			now.Add(time.Minute), now.Add(time.Second), "sha256:"+strings.Repeat("d", 64), "sha256:"+strings.Repeat("e", 64)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
+		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
+		VALUES('edge','global',$1,1,$2,$3,jsonb_build_object('targetCount',$4::integer),'{}'::jsonb,$5,$6,$7,$6)`,
+		workerID, edge.RuntimeContract, runtimeDigest, runtime.TargetCount(), now, now.Add(time.Second), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := &EdgeRouteReferencePolicy{Config: base, ExternalDNSConfig: operational}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready, err := policy.ReadyExternalDNSIntegrationTx(ctx, tx, integrationID, environmentID, now.Add(2*time.Second))
+	_ = tx.Rollback(ctx)
+	if err != nil || !ready {
+		t.Fatalf("active managed integration was not matched to the dynamic runtime profile: ready=%v err=%v", ready, err)
+	}
+	tx, err = pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diagnostics, err := policy.ValidateCurrentTx(ctx, tx, edgeRouteExternalDNSTestDocument(t, integration.Slug), now.Add(2*time.Second))
+	_ = tx.Rollback(ctx)
+	if err != nil || len(diagnostics) != 0 {
+		t.Fatalf("dynamic edge digest rejected a valid route: diagnostics=%#v err=%v", diagnostics, err)
+	}
+}
+
 func TestRuntimePolicyDigestFencesExactEdgeProfiles(t *testing.T) {
-	disabled, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{})
+	disabled, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, externaldns.OperationalConfig{})
 	if err != nil || !strings.HasPrefix(disabled, "sha256:") {
 		t.Fatalf("disabled digest=%q err=%v", disabled, err)
 	}
 	config := edgeRouteTestConfig(t)
-	first, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, config)
+	first, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, config, externaldns.OperationalConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	config.Profiles.CertManager.Revision++
-	second, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, config)
+	second, err := RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, config, externaldns.OperationalConfig{})
 	if err != nil || first == second || first == disabled {
 		t.Fatalf("edge digest did not fence profile revision: disabled=%q first=%q second=%q err=%v", disabled, first, second, err)
 	}
 	dormant := edge.DefaultRuntimeConfig()
-	if _, err = RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, dormant); err == nil {
+	if _, err = RuntimePolicyDigest(secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, dormant, externaldns.OperationalConfig{}); err == nil {
 		t.Fatal("disabled edge config with dormant timing fields was accepted")
 	}
 }
@@ -317,6 +452,23 @@ func edgeRouteTestDocument(t *testing.T, tlsMode, reference string) AppConfigPol
 	spec["routes"] = []any{map[string]any{
 		"id": "public", "host": "api.example.test", "path": "/", "port": "http", "ingressClassName": "traefik",
 		"middlewareRefs": []any{"secure"}, "dns": map[string]any{"mode": "manual"}, "tls": tls,
+	}}
+	document, err := newAppConfigPolicyDocument(scope, parsed, runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
+
+func edgeRouteExternalDNSTestDocument(t *testing.T, integrationRef string) AppConfigPolicyDocument {
+	t.Helper()
+	scope := runtimeSecretDocumentScope(t, "apps-production")
+	runtime := domain.NormalizeWorkloadRuntime(domain.DefaultWorkloadRuntime(8080, nil))
+	parsed := privatePolicyParsed("66666666-6666-4666-8666-666666666666", "managed-main", 7)
+	spec := parsed["spec"].(map[string]any)
+	spec["routes"] = []any{map[string]any{
+		"id": "public", "host": "api.example.test", "path": "/", "port": "http", "ingressClassName": "traefik",
+		"middlewareRefs": []any{}, "dns": map[string]any{"mode": "externalDns", "integrationRef": integrationRef}, "tls": map[string]any{"mode": "httpOnly"},
 	}}
 	document, err := newAppConfigPolicyDocument(scope, parsed, runtime)
 	if err != nil {

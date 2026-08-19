@@ -8,20 +8,21 @@ import (
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/middlewareprofiles"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
 
 const (
-	runtimePolicyContract    = "appconfig-dynamic-policy.v6"
+	runtimePolicyContract    = "appconfig-dynamic-policy.v7"
 	directSchedulingContract = "direct-workload-scheduling.v1"
 )
 
 // RuntimePolicyDigest fences Git projection readiness to every dynamic policy
 // input used during activation. It contains only safe configuration digests,
 // never key material or registry credential bytes.
-func RuntimePolicyDigest(secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig) (string, error) {
+func RuntimePolicyDigest(secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig, externalDNSConfig externaldns.OperationalConfig) (string, error) {
 	secretDigest, err := secrets.RuntimePolicyDigest(secretConfig)
 	if err != nil {
 		return "", err
@@ -42,6 +43,10 @@ func RuntimePolicyDigest(secretConfig secrets.RuntimeConfig, certificateConfig c
 	if err != nil {
 		return "", edge.ErrInvalid
 	}
+	externalDNSDigest, err := externalDNSPolicyDigest(externalDNSConfig)
+	if err != nil {
+		return "", externaldns.ErrRuntimeUnavailable
+	}
 	encoded, err := json.Marshal(struct {
 		Contract           string `json:"contract"`
 		RuntimeSecrets     string `json:"runtimeSecrets"`
@@ -49,11 +54,30 @@ func RuntimePolicyDigest(secretConfig secrets.RuntimeConfig, certificateConfig c
 		CertificateIssuers string `json:"certificateIssuers"`
 		RuntimeImagePulls  string `json:"runtimeImagePulls"`
 		EdgeRoutes         string `json:"edgeRoutes"`
+		ExternalDNS        string `json:"externalDNS"`
 		Scheduling         string `json:"scheduling"`
 		Middleware         string `json:"middleware"`
-	}{runtimePolicyContract, secretDigest, certificateDigest, issuerDigest, pullDigest, edgeDigest, directSchedulingContract, middlewareprofiles.Contract})
+	}{runtimePolicyContract, secretDigest, certificateDigest, issuerDigest, pullDigest, edgeDigest, externalDNSDigest, directSchedulingContract, middlewareprofiles.Contract})
 	if err != nil {
 		return "", imagepull.ErrInvalid
+	}
+	digest := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
+func externalDNSPolicyDigest(config externaldns.OperationalConfig) (string, error) {
+	if err := config.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(struct {
+		Enabled              bool
+		BindingID            string
+		ClusterID            string
+		Template             externaldns.ManagedRuntimeTemplate
+		PollIntervalNanosecs int64
+	}{config.Enabled, config.BindingID, config.ClusterID, config.Template, config.PollInterval.Nanoseconds()})
+	if err != nil {
+		return "", err
 	}
 	digest := sha256.Sum256(encoded)
 	return "sha256:" + hex.EncodeToString(digest[:]), nil

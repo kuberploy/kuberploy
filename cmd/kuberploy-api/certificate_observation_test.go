@@ -8,6 +8,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/secrets"
@@ -71,12 +72,12 @@ func TestCertificateAPIReadinessRequiresRuntimeSecretsAndObservation(t *testing.
 }
 
 func TestGitProjectionAPIRejectsCertificateObservationWhenProjectionIsDisabled(t *testing.T) {
-	api, err := newGitProjectionAPI(t.Context(), "not-a-database-url", gitprojection.RuntimeConfig{}, apiCertificateRuntimeSecrets(), apiCertificateObservation(), certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, nil)
+	api, err := newGitProjectionAPI(t.Context(), "not-a-database-url", gitprojection.RuntimeConfig{}, apiCertificateRuntimeSecrets(), apiCertificateObservation(), certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, externaldns.OperationalConfig{}, nil)
 	if api != nil || !errors.Is(err, gitprojection.ErrInvalid) {
 		t.Fatalf("api=%#v err=%v", api, err)
 	}
 	dormant := certificates.DefaultObservationConfig()
-	api, err = newGitProjectionAPI(t.Context(), "not-a-database-url", gitprojection.RuntimeConfig{}, secrets.RuntimeConfig{}, dormant, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, nil)
+	api, err = newGitProjectionAPI(t.Context(), "not-a-database-url", gitprojection.RuntimeConfig{}, secrets.RuntimeConfig{}, dormant, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, externaldns.OperationalConfig{}, nil)
 	if api != nil || !errors.Is(err, certificates.ErrObservationUnavailable) {
 		t.Fatalf("dormant api=%#v err=%v", api, err)
 	}

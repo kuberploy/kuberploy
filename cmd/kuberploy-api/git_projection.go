@@ -9,6 +9,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -25,7 +26,7 @@ type gitProjectionAPI struct {
 	protection gitprojection.RepositoryProtectionVerifier
 }
 
-func newGitProjectionAPI(ctx context.Context, databaseURL string, config gitprojection.RuntimeConfig, secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig, catalog gitprojection.DeploymentCatalog) (*gitProjectionAPI, error) {
+func newGitProjectionAPI(ctx context.Context, databaseURL string, config gitprojection.RuntimeConfig, secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig, externalDNSConfig externaldns.OperationalConfig, catalog gitprojection.DeploymentCatalog) (*gitProjectionAPI, error) {
 	if _, err := certificates.ObservationPolicyDigest(certificateConfig); err != nil {
 		return nil, certificates.ErrObservationUnavailable
 	}
@@ -41,7 +42,7 @@ func newGitProjectionAPI(ctx context.Context, databaseURL string, config gitproj
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	policyDigest, err := projectionpolicy.RuntimePolicyDigest(secretConfig, certificateConfig, issuerConfig, registryPullConfig, edgeConfig)
+	policyDigest, err := projectionpolicy.RuntimePolicyDigest(secretConfig, certificateConfig, issuerConfig, registryPullConfig, edgeConfig, externalDNSConfig)
 	if err != nil {
 		return nil, err
 	}

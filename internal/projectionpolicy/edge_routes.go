@@ -2,6 +2,7 @@ package projectionpolicy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -10,7 +11,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/certissuers"
+	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
@@ -42,6 +45,7 @@ type CertificateIssuerReferencePolicy interface {
 // treats configured metadata as runtime readiness.
 type EdgeRouteReferencePolicy struct {
 	Config              edge.RuntimeConfig
+	ExternalDNSConfig   externaldns.OperationalConfig
 	Certificates        CertificateReferenceResolver
 	ManagedIssuers      CertificateIssuerReferencePolicy
 	ManagedIssuerMaxAge time.Duration
@@ -54,7 +58,7 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 	document AppConfigPolicyDocument,
 	now time.Time,
 ) ([]gitprojection.Diagnostic, error) {
-	if p == nil || tx == nil || now.IsZero() || document.validate() != nil || p.Config.Validate() != nil {
+	if p == nil || tx == nil || now.IsZero() || document.validate() != nil || p.Config.Validate() != nil || p.ExternalDNSConfig.Validate() != nil {
 		return nil, gitprojection.ErrInvalid
 	}
 	routes := document.Routes()
@@ -75,12 +79,16 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 	if !p.Config.Enabled || p.Config.Profiles.Traefik == nil {
 		return routeDiagnosticForAll(routes, "EdgeTraefikUnavailable", "No operator-approved Traefik route profile is enabled.", ""), nil
 	}
-	digest, err := p.Config.Digest()
+	runtimeConfig, err := p.runtimeConfigTx(ctx, tx)
 	if err != nil {
 		return nil, gitprojection.ErrInvalid
 	}
-	traefikProfile := edge.TargetProfile{Kind: edge.KindTraefik, Traefik: p.Config.Profiles.Traefik}
-	traefikReady, err := p.targetReadyTx(ctx, tx, digest, traefikProfile, now)
+	digest, err := runtimeConfig.Digest()
+	if err != nil {
+		return nil, gitprojection.ErrInvalid
+	}
+	traefikProfile := edge.TargetProfile{Kind: edge.KindTraefik, Traefik: runtimeConfig.Profiles.Traefik}
+	traefikReady, err := p.targetReadyTx(ctx, tx, runtimeConfig, digest, traefikProfile, now)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +111,7 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 		if effectiveIngressClass == "" {
 			effectiveIngressClass = "traefik"
 		}
-		if effectiveIngressClass != p.Config.Profiles.Traefik.IngressClass.Name {
+		if effectiveIngressClass != runtimeConfig.Profiles.Traefik.IngressClass.Name {
 			diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "IngressClassNotApproved", Detail: "The route ingress class does not match the exact operator-approved Traefik profile.", Pointer: pointer + "/ingressClassName"})
 		}
 		if route.ID != "" {
@@ -132,7 +140,7 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 			}
 		}
 		if route.DNS.Mode == "sslip" {
-			if p.Config.Profiles.Traefik.SSLIP == nil || p.SSLIP == nil {
+			if runtimeConfig.Profiles.Traefik.SSLIP == nil || p.SSLIP == nil {
 				diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "SSLIPHostnameUnavailable", Detail: "No fresh operator-approved public Traefik ingress address is available for sslip.io.", Pointer: pointer + "/dns"})
 			} else {
 				resolved, resolveErr := p.SSLIP.ResolveHostnameTx(ctx, tx, edge.SSLIPHostnameRequest{
@@ -159,12 +167,12 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 		case "httpOnly":
 			// Traefik readiness is the only serving dependency.
 		case "letsencrypt":
-			if p.Config.Profiles.CertManager == nil {
+			if runtimeConfig.Profiles.CertManager == nil {
 				diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "CertManagerProfileUnavailable", Detail: "Let's Encrypt routes require an operator-approved cert-manager profile.", Pointer: pointer + "/tls"})
 				continue
 			}
-			certProfile := p.Config.Profiles.CertManager
-			if certProfile.IngressClassName != p.Config.Profiles.Traefik.IngressClass.Name || effectiveIngressClass != certProfile.IngressClassName {
+			certProfile := runtimeConfig.Profiles.CertManager
+			if certProfile.IngressClassName != runtimeConfig.Profiles.Traefik.IngressClass.Name || effectiveIngressClass != certProfile.IngressClassName {
 				diagnostics = append(diagnostics, gitprojection.Diagnostic{Code: "CertificateIngressClassMismatch", Detail: "The route, Traefik profile, and cert-manager solver ingress class must match exactly.", Pointer: pointer + "/ingressClassName"})
 			}
 			if !slices.Contains(certProfile.ApprovedIssuers(), route.TLS.IssuerRef) {
@@ -175,7 +183,7 @@ func (p *EdgeRouteReferencePolicy) ValidateCurrentTx(
 					managedIssuerPointers = append(managedIssuerPointers, pointer+"/tls/issuerRef")
 				}
 			}
-			certReady, readyErr := p.targetReadyTx(ctx, tx, digest, edge.TargetProfile{Kind: edge.KindCertManager, CertManager: certProfile}, now)
+			certReady, readyErr := p.targetReadyTx(ctx, tx, runtimeConfig, digest, edge.TargetProfile{Kind: edge.KindCertManager, CertManager: certProfile}, now)
 			if readyErr != nil {
 				return nil, readyErr
 			}
@@ -279,23 +287,27 @@ func certificateScope(scope DocumentScope) secrets.Scope {
 // ReadyExternalDNSIntegrationTx implements the independent runtime readiness
 // seam used after durable integration assignment and hostname policy succeed.
 func (p *EdgeRouteReferencePolicy) ReadyExternalDNSIntegrationTx(ctx context.Context, tx pgx.Tx, integrationID, _ string, now time.Time) (bool, error) {
-	if p == nil || tx == nil || integrationID == "" || now.IsZero() || p.Config.Validate() != nil || !p.Config.Enabled {
+	if p == nil || tx == nil || integrationID == "" || now.IsZero() || p.Config.Validate() != nil || p.ExternalDNSConfig.Validate() != nil || !p.Config.Enabled {
 		return false, nil
 	}
-	digest, err := p.Config.Digest()
+	runtimeConfig, err := p.runtimeConfigTx(ctx, tx)
 	if err != nil {
 		return false, nil
 	}
-	for index := range p.Config.Profiles.ExternalDNS {
-		profile := &p.Config.Profiles.ExternalDNS[index]
+	digest, err := runtimeConfig.Digest()
+	if err != nil {
+		return false, nil
+	}
+	for index := range runtimeConfig.Profiles.ExternalDNS {
+		profile := &runtimeConfig.Profiles.ExternalDNS[index]
 		if profile.IntegrationID == integrationID {
-			return p.targetReadyTx(ctx, tx, digest, edge.TargetProfile{Kind: edge.KindExternalDNS, ExternalDNS: profile}, now)
+			return p.targetReadyTx(ctx, tx, runtimeConfig, digest, edge.TargetProfile{Kind: edge.KindExternalDNS, ExternalDNS: profile}, now)
 		}
 	}
 	return false, nil
 }
 
-func (p *EdgeRouteReferencePolicy) targetReadyTx(ctx context.Context, tx pgx.Tx, configDigest string, profile edge.TargetProfile, now time.Time) (bool, error) {
+func (p *EdgeRouteReferencePolicy) targetReadyTx(ctx context.Context, tx pgx.Tx, runtimeConfig edge.RuntimeConfig, configDigest string, profile edge.TargetProfile, now time.Time) (bool, error) {
 	desired, err := profile.Desired(configDigest)
 	if err != nil {
 		return false, gitprojection.ErrInvalid
@@ -319,16 +331,96 @@ func (p *EdgeRouteReferencePolicy) targetReadyTx(ctx context.Context, tx pgx.Tx,
 	if kind != string(desired.Kind) || integrationID != desired.IntegrationID || mode != string(desired.Mode) || namespace != desired.Namespace ||
 		profileConfigMap != desired.ProfileConfigMap || txtOwner != desired.ExternalTXTOwnerID || externalPolicy != desired.ExternalPolicy ||
 		externalDomains != desired.ExternalDomains || desiredDigest != desired.DesiredDigest || runtimeDigest != configDigest || !active ||
-		state != string(edge.StateReady) || lastObserved == nil || lastObserved.After(now.UTC()) || lastObserved.Before(now.UTC().Add(-p.Config.ReadinessMaxAge)) {
+		state != string(edge.StateReady) || lastObserved == nil || lastObserved.After(now.UTC()) || lastObserved.Before(now.UTC().Add(-runtimeConfig.ReadinessMaxAge)) {
 		return false, nil
 	}
 	var workerReady bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global'
 		AND contract_version=$1 AND config_digest=$2 AND (identity->>'targetCount')::integer=$3
-		  AND observed_at<=$4 AND observed_at>=$5 AND lease_until>$4
-	)`, edge.RuntimeContract, configDigest, p.Config.TargetCount(), now.UTC(), now.UTC().Add(-p.Config.ReadinessMaxAge)).Scan(&workerReady)
+		AND observed_at<=$4 AND observed_at>=$5 AND lease_until>$4
+	)`, edge.RuntimeContract, configDigest, runtimeConfig.TargetCount(), now.UTC(), now.UTC().Add(-runtimeConfig.ReadinessMaxAge)).Scan(&workerReady)
 	return workerReady, err
+}
+
+// runtimeConfigTx mirrors the worker's dynamic ExternalDNS desired-state
+// projection. The static edge config contains adopted profiles, while active
+// managed integrations are rendered from the operator-owned runtime template.
+// Building this inside the activation transaction keeps route validation and
+// runtime readiness on the same exact profile set and digest.
+func (p *EdgeRouteReferencePolicy) runtimeConfigTx(ctx context.Context, tx pgx.Tx) (edge.RuntimeConfig, error) {
+	if p.ExternalDNSConfig.Validate() != nil {
+		return edge.RuntimeConfig{}, externaldns.ErrRuntimeUnavailable
+	}
+	if !p.ExternalDNSConfig.Enabled {
+		return p.Config, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT i.id,i.slug,i.name,i.mode,i.provider_kind,i.txt_owner_id,i.allowed_domain_suffixes,
+		i.sync_policy,i.destructive_sync_confirmed,COALESCE(i.credential_secret_ref,''),COALESCE(i.provider_config_ref,''),
+		COALESCE(i.egress_config_ref,''),COALESCE(i.operator_profile_ref,''),
+		ARRAY(SELECT x.environment_id::text FROM external_dns_integration_environments x WHERE x.integration_id=i.id ORDER BY x.environment_id),
+		i.runtime_revision,i.lifecycle
+		FROM external_dns_integrations i WHERE i.lifecycle='active' ORDER BY i.name,i.id`)
+	if err != nil {
+		return edge.RuntimeConfig{}, err
+	}
+	defer rows.Close()
+	static := make(map[string]edge.ExternalDNSProfile, len(p.Config.Profiles.ExternalDNS))
+	for _, profile := range p.Config.Profiles.ExternalDNS {
+		static[profile.IntegrationID] = profile
+	}
+	profiles := make([]edge.ExternalDNSProfile, 0, len(p.Config.Profiles.ExternalDNS))
+	for rows.Next() {
+		var item struct {
+			ID, Slug, Name, Mode, ProviderKind, TXTOwnerID                              string
+			Suffixes                                                                    []byte
+			SyncPolicy                                                                  string
+			DestructiveSyncConfirmed                                                    bool
+			CredentialSecretRef, ProviderConfigRef, EgressConfigRef, OperatorProfileRef string
+			EnvironmentIDs                                                              []string
+			RuntimeRevision                                                             int64
+			Lifecycle                                                                   string
+		}
+		if err = rows.Scan(&item.ID, &item.Slug, &item.Name, &item.Mode, &item.ProviderKind, &item.TXTOwnerID,
+			&item.Suffixes, &item.SyncPolicy, &item.DestructiveSyncConfirmed, &item.CredentialSecretRef,
+			&item.ProviderConfigRef, &item.EgressConfigRef, &item.OperatorProfileRef, &item.EnvironmentIDs,
+			&item.RuntimeRevision, &item.Lifecycle); err != nil {
+			return edge.RuntimeConfig{}, err
+		}
+		var suffixes []string
+		if err = json.Unmarshal(item.Suffixes, &suffixes); err != nil {
+			return edge.RuntimeConfig{}, err
+		}
+		integration := domain.ExternalDNSIntegration{ID: item.ID, Slug: item.Slug, Name: item.Name, Mode: item.Mode,
+			ProviderKind: item.ProviderKind, TXTOwnerID: item.TXTOwnerID, AllowedDomainSuffixes: suffixes,
+			SyncPolicy: item.SyncPolicy, DestructiveSyncConfirmed: item.DestructiveSyncConfirmed,
+			CredentialSecretRef: item.CredentialSecretRef, ProviderConfigRef: item.ProviderConfigRef,
+			EgressConfigRef: item.EgressConfigRef, OperatorProfileRef: item.OperatorProfileRef,
+			EnvironmentIDs: item.EnvironmentIDs, RuntimeRevision: item.RuntimeRevision, Lifecycle: item.Lifecycle}
+		switch integration.Mode {
+		case externaldns.ModeManaged:
+			profile, profileErr := externaldns.ManagedProfile(integration, p.ExternalDNSConfig.Template)
+			if profileErr != nil {
+				return edge.RuntimeConfig{}, profileErr
+			}
+			profiles = append(profiles, profile)
+		case externaldns.ModeAdopted:
+			profile, ok := static[integration.ID]
+			if !ok || profile.Revision != integration.RuntimeRevision {
+				return edge.RuntimeConfig{}, externaldns.ErrRuntimeUnavailable
+			}
+			profiles = append(profiles, profile)
+		default:
+			return edge.RuntimeConfig{}, externaldns.ErrRuntimeUnavailable
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return edge.RuntimeConfig{}, err
+	}
+	runtime := p.Config
+	runtime.Enabled = true
+	runtime.Profiles.ExternalDNS = profiles
+	return runtime, runtime.Validate()
 }
 
 func routeDiagnosticForAll(routes []AppConfigRouteDocument, code, detail, suffix string) []gitprojection.Diagnostic {

@@ -13,6 +13,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/certissuers"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/edge"
+	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
@@ -102,7 +103,7 @@ func (w *projectionOperationWriter) WriteVariable(ctx context.Context, operation
 	return publication, nil
 }
 
-func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, config gitprojection.RuntimeConfig, secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig, certificateResolver *certificates.PostgreSQLReferenceResolver, issuerStore *certissuers.PostgresStore) (*gitProjectionRuntime, error) {
+func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, config gitprojection.RuntimeConfig, secretConfig secrets.RuntimeConfig, certificateConfig certificates.ObservationConfig, issuerConfig certissuers.ObserverConfig, registryPullConfig imagepull.RuntimeConfig, edgeConfig edge.RuntimeConfig, externalDNSConfig externaldns.OperationalConfig, certificateResolver *certificates.PostgreSQLReferenceResolver, issuerStore *certissuers.PostgresStore) (*gitProjectionRuntime, error) {
 	if _, err := certificates.ObservationPolicyDigest(certificateConfig); err != nil {
 		return nil, certificates.ErrObservationUnavailable
 	}
@@ -135,7 +136,7 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 	if err != nil {
 		return nil, err
 	}
-	policyDigest, err := projectionpolicy.RuntimePolicyDigest(secretConfig, certificateConfig, issuerConfig, registryPullConfig, edgeConfig)
+	policyDigest, err := projectionpolicy.RuntimePolicyDigest(secretConfig, certificateConfig, issuerConfig, registryPullConfig, edgeConfig, externalDNSConfig)
 	if err != nil {
 		store.Close()
 		return nil, err
@@ -156,7 +157,7 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 		Client: gitprojection.GitHubGitClientAdapter{Client: provider}, Write: true,
 	}
 	indexer := config.Indexer(store)
-	edgePolicy := &projectionpolicy.EdgeRouteReferencePolicy{Config: edgeConfig, Certificates: certificateResolver}
+	edgePolicy := &projectionpolicy.EdgeRouteReferencePolicy{Config: edgeConfig, ExternalDNSConfig: externalDNSConfig, Certificates: certificateResolver}
 	if issuerConfig.Enabled {
 		edgePolicy.ManagedIssuers = issuerStore
 		edgePolicy.ManagedIssuerMaxAge = issuerConfig.MaximumAge

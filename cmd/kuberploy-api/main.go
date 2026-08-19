@@ -242,7 +242,7 @@ func run() error {
 	if certificateRuntime != nil {
 		defer certificateRuntime.Close()
 	}
-	gitProjection, err := newGitProjectionAPI(ctx, databaseURL, gitProjectionConfig, runtimeSecretConfig, certificateObservationConfig, certificateIssuerConfig, runtimeRegistryPullConfig, edgeRuntimeConfig, db)
+	gitProjection, err := newGitProjectionAPI(ctx, databaseURL, gitProjectionConfig, runtimeSecretConfig, certificateObservationConfig, certificateIssuerConfig, runtimeRegistryPullConfig, edgeRuntimeConfig, externalDNSOperationalConfig, db)
 	if err != nil {
 		return err
 	}
