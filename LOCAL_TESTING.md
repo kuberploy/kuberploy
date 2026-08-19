@@ -1,6 +1,6 @@
 # Development build and Kubernetes integration testing
 
-Status: development test contract, updated 2026-08-09.
+Status: development test contract, updated 2026-08-20.
 
 Kuberploy separates local container builds from Kubernetes integration. A
 local Docker-compatible engine may be used for Buildx and registry-cache
