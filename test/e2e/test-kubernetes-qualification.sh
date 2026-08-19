@@ -324,7 +324,9 @@ if [[ -n "${kp_cookie_jar}" ]]; then
   printf '.fixture.test\tTRUE\t/\tTRUE\t0\tkuberploy_session\tfixture-session\n.fixture.test\tTRUE\t/\tTRUE\t0\tkuberploy_csrf\tfixture-csrf\n' >"${kp_cookie_jar}"
 fi
 if [[ -n "${kp_dump_header}" ]]; then
-  printf 'HTTP/1.1 200 OK\r\nX-CSRF-Token: fixture-csrf\r\nX-Kuberploy-Qualification: passed\r\n\r\n' >"${kp_dump_header}"
+  # HTTP/2 clients commonly lowercase response header names. Keep the fixture
+  # honest so the qualification driver proves portable CSRF extraction.
+  printf 'HTTP/1.1 200 OK\r\nx-csrf-token: fixture-csrf\r\nX-Kuberploy-Qualification: passed\r\n\r\n' >"${kp_dump_header}"
 fi
 printf 'curl|%s|%s\n' "${kp_method}" "${kp_url}" >>"${KP_COMMAND_LOG}"
 if [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/bootstrap ]]; then

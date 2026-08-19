@@ -188,7 +188,7 @@ kp_run_installed_auth_and_contract_workflow() {
   [[ "${kp_actual}" == 201 ]]
   kp_admin_id="$(jq -er '.id' "${kp_dir}/auth-bootstrap.json")"
   kp_cookie_header_from_jar "${kp_cookie_jar}" "${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}"
-  awk 'BEGIN{IGNORECASE=1} /^X-CSRF-Token:/ {gsub("\\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' \
+  awk 'tolower($1)=="x-csrf-token:" {gsub("\\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' \
     "${kp_headers}" >"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
   chmod 600 "${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
 
@@ -202,7 +202,7 @@ kp_run_installed_auth_and_contract_workflow() {
     -H 'Content-Type: application/json' --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/login")"
   [[ "${kp_actual}" == 200 ]]
   kp_cookie_header_from_jar "${kp_cookie_jar}" "${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}"
-  awk 'BEGIN{IGNORECASE=1} /^X-CSRF-Token:/ {gsub("\\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' "${kp_headers}" >"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
+  awk 'tolower($1)=="x-csrf-token:" {gsub("\\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' "${kp_headers}" >"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
   chmod 600 "${KUBERPLOY_E2E_CSRF_TOKEN_FILE}"
 
   kp_human_post invite-user /v1/users/invitations \
