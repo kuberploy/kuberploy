@@ -176,10 +176,12 @@ func TestLocalLoginIsEnumerationResistantRotatesAndRestoresExpiredSession(t *tes
 
 	wrongExisting := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "admin@example.com", "password": "incorrect password value"})
 	existingProblem := decode[httpapi.Problem](t, wrongExisting)
+	displayNameLogin := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "Local Admin", "password": "correct horse battery staple"})
+	displayNameProblem := decode[httpapi.Problem](t, displayNameLogin)
 	wrongMissing := f.request("POST", "/v1/auth/login", "", map[string]string{"email": "missing@example.com", "password": "incorrect password value"})
 	missingProblem := decode[httpapi.Problem](t, wrongMissing)
-	if wrongExisting.StatusCode != http.StatusUnauthorized || wrongMissing.StatusCode != http.StatusUnauthorized || existingProblem.Code != missingProblem.Code || existingProblem.Title != missingProblem.Title || existingProblem.Detail != missingProblem.Detail {
-		t.Fatalf("credential enumeration leak: existing=%d %#v missing=%d %#v", wrongExisting.StatusCode, existingProblem, wrongMissing.StatusCode, missingProblem)
+	if wrongExisting.StatusCode != http.StatusUnauthorized || displayNameLogin.StatusCode != http.StatusUnauthorized || wrongMissing.StatusCode != http.StatusUnauthorized || existingProblem.Code != displayNameProblem.Code || existingProblem.Code != missingProblem.Code || existingProblem.Title != displayNameProblem.Title || existingProblem.Title != missingProblem.Title || existingProblem.Detail != displayNameProblem.Detail || existingProblem.Detail != missingProblem.Detail {
+		t.Fatalf("credential enumeration or display-name login leak: existing=%d %#v display-name=%d %#v missing=%d %#v", wrongExisting.StatusCode, existingProblem, displayNameLogin.StatusCode, displayNameProblem, wrongMissing.StatusCode, missingProblem)
 	}
 
 	time.Sleep(30 * time.Millisecond)
