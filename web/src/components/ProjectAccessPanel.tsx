@@ -11,6 +11,12 @@ import type {
   Environment,
   Project,
 } from "../api/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./shadcn/dialog";
 import { Button, Field, Skeleton } from "./ui";
 
 type GrantForm = {
@@ -438,47 +444,66 @@ export function ProjectAccessPanel({
       )}
 
       {confirmGrant ? (
-        <div className="access-confirm" role="alertdialog" aria-modal="true">
-          <strong>Confirm the exact grant</strong>
-          <p>
-            Type <code>{confirmGrant.id}</code> to revoke this assignment and
-            invalidate every affected user session.
-          </p>
-          <input
-            aria-label="Exact grant ID confirmation"
-            value={confirmation}
-            onChange={(event) => setConfirmation(event.target.value)}
-          />
-          <div>
-            <Button
-              variant="danger"
-              disabled={confirmation !== confirmGrant.id}
-              busy={deleteGrant.isPending}
-              onClick={() =>
-                deleteGrant.mutate({
-                  projectId: project.id,
-                  grant: confirmGrant,
-                  idempotencyKey: confirmIdempotencyKey,
-                })
-              }
-            >
-              Revoke exact grant
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setConfirmGrant(null);
-                setConfirmation("");
-                setConfirmIdempotencyKey("");
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-          {deleteGrant.error ? (
-            <div className="form-error">{errorMessage(deleteGrant.error)}</div>
-          ) : null}
-        </div>
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !deleteGrant.isPending) {
+              setConfirmGrant(null);
+              setConfirmation("");
+              setConfirmIdempotencyKey("");
+            }
+          }}
+        >
+          <DialogContent
+            className="confirmation-dialog access-confirm max-w-none"
+            role="alertdialog"
+            showCloseButton={false}
+          >
+            <DialogTitle>Confirm the exact grant</DialogTitle>
+            <DialogDescription>
+              Type <code>{confirmGrant.id}</code> to revoke this assignment and
+              invalidate every affected user session.
+            </DialogDescription>
+            <input
+              aria-label="Exact grant ID confirmation"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              autoFocus
+            />
+            <div>
+              <Button
+                variant="danger"
+                disabled={confirmation !== confirmGrant.id}
+                busy={deleteGrant.isPending}
+                onClick={() =>
+                  deleteGrant.mutate({
+                    projectId: project.id,
+                    grant: confirmGrant,
+                    idempotencyKey: confirmIdempotencyKey,
+                  })
+                }
+              >
+                Revoke exact grant
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={deleteGrant.isPending}
+                onClick={() => {
+                  setConfirmGrant(null);
+                  setConfirmation("");
+                  setConfirmIdempotencyKey("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+            {deleteGrant.error ? (
+              <div className="form-error" role="alert">
+                {errorMessage(deleteGrant.error)}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

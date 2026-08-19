@@ -4430,17 +4430,6 @@ textarea:disabled {
   font-size: 8px !important;
 }
 
-.confirmation-backdrop {
-  position: fixed;
-  z-index: 80;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(5, 14, 10, 0.66);
-  backdrop-filter: blur(4px);
-}
-
 .confirmation-dialog {
   width: min(500px, 100%);
   padding: 27px;

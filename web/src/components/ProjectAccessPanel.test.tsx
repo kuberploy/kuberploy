@@ -300,6 +300,33 @@ describe("project access management", () => {
     expect(remove.mock.calls[0]?.[2]).toEqual(expect.any(String));
   });
 
+  it("uses the shared dialog escape path for revocation", async () => {
+    vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [grant] });
+    vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ProjectAccessPanel
+        project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
+        environments={[]}
+        applications={[
+          { id: grant.scopeId, projectId: "project-1", name: "API" },
+        ]}
+        capabilities={[projectCapability]}
+        onClose={onClose}
+      />,
+      { wrapper: wrapper() },
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleName(
+      "Confirm the exact grant",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("reuses the idempotency key when an unchanged create attempt is retried", async () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
     vi.spyOn(api, "teams").mockResolvedValue({ items: [] });

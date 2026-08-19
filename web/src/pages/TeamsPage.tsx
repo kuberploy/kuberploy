@@ -18,6 +18,12 @@ import {
   PageHeader,
   Skeleton,
 } from "../components/ui";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "../components/shadcn/dialog";
 import { formatDate } from "../lib/format";
 import { buildInvitationLink } from "../lib/invitationLink";
 
@@ -889,22 +895,26 @@ export function RemoveMemberConfirmation({
 }) {
   const displayName = member.user?.displayName ?? member.userId;
   return (
-    <div className="confirmation-backdrop">
-      <section
-        className="confirmation-dialog"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onCancel();
+      }}
+    >
+      <DialogContent
+        className="confirmation-dialog max-w-none"
         role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="remove-member-confirmation-title"
+        showCloseButton={false}
       >
         <span className="confirmation-dialog__icon">
           <Icon name="user" />
         </span>
         <span className="eyebrow">Membership access change</span>
-        <h2 id="remove-member-confirmation-title">Remove {displayName}?</h2>
-        <p>
+        <DialogTitle>Remove {displayName}?</DialogTitle>
+        <DialogDescription>
           This removes the user from {teamName} and revokes their current
           sessions so removed access cannot remain active.
-        </p>
+        </DialogDescription>
         {member.role === "owner" ? (
           <p className="sharing-dialog__hint">
             The API will reject this change if this is the team's final owner.
@@ -923,8 +933,8 @@ export function RemoveMemberConfirmation({
             Remove member
           </Button>
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -966,25 +976,29 @@ export function InstallationSharingConfirmation({
       : `Team: ${(targetTeam?.name ?? teamId) || "not selected"}`;
 
   return (
-    <div className="confirmation-backdrop">
-      <section
-        className="confirmation-dialog sharing-dialog"
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onCancel();
+      }}
+    >
+      <DialogContent
+        className="confirmation-dialog sharing-dialog max-w-none"
         role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="sharing-confirmation-title"
+        showCloseButton={false}
       >
         <span className="confirmation-dialog__icon">
           <Icon name="git" />
         </span>
         <span className="eyebrow">Explicit access change</span>
-        <h2 id="sharing-confirmation-title">
+        <DialogTitle>
           Change sharing for {installation.accountLogin}?
-        </h2>
-        <p>
+        </DialogTitle>
+        <DialogDescription>
           This changes who can deploy repositories authorized by GitHub App
           installation #{installation.githubInstallationId}. It does not expose
           or copy installation credentials.
-        </p>
+        </DialogDescription>
 
         <div
           className="sharing-options"
@@ -1101,7 +1115,7 @@ export function InstallationSharingConfirmation({
             Apply sharing change <Icon name="arrow" />
           </Button>
         </div>
-      </section>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

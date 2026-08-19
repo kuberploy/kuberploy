@@ -12,6 +12,12 @@ import type {
 } from "../api/types";
 import { formatDate, titleCase } from "../lib/format";
 import { Icon } from "./Icon";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "./shadcn/dialog";
 import { Button, ErrorPanel, Field, Skeleton, StatusPill } from "./ui";
 
 type AccountForm = {
@@ -372,24 +378,29 @@ export function ProjectAutomationPanel({
       ) : null}
 
       {confirmAccount ? (
-        <div className="confirmation-backdrop">
-          <section
-            className="confirmation-dialog"
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !disableAccount.isPending) {
+              setConfirmAccount(null);
+              setConfirmation("");
+            }
+          }}
+        >
+          <DialogContent
+            className="confirmation-dialog max-w-none"
             role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="disable-service-account-title"
+            showCloseButton={false}
           >
             <span className="confirmation-dialog__icon">
               <Icon name="terminal" />
             </span>
             <span className="eyebrow">Immediate revocation</span>
-            <h2 id="disable-service-account-title">
-              Disable {confirmAccount.account.name}?
-            </h2>
-            <p>
+            <DialogTitle>Disable {confirmAccount.account.name}?</DialogTitle>
+            <DialogDescription>
               This disables the identity and revokes all of its tokens. Type the
               exact service account name to continue.
-            </p>
+            </DialogDescription>
             <Field label="Exact service account name" required>
               <input
                 autoFocus
@@ -423,12 +434,12 @@ export function ProjectAutomationPanel({
               </Button>
             </div>
             {disableAccount.error ? (
-              <div className="form-error">
+              <div className="form-error" role="alert">
                 {errorMessage(disableAccount.error)}
               </div>
             ) : null}
-          </section>
-        </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -735,22 +746,29 @@ function AccountTokens({
       ) : null}
 
       {issuedCredential ? (
-        <div className="confirmation-backdrop">
-          <section
-            className="confirmation-dialog token-issue-dialog"
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) {
+              setIssuedCredential(null);
+              setCopyState("idle");
+            }
+          }}
+        >
+          <DialogContent
+            className="confirmation-dialog token-issue-dialog max-w-none"
             role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="issued-token-title"
+            showCloseButton={false}
           >
             <span className="confirmation-dialog__icon">
               <Icon name="check" />
             </span>
             <span className="eyebrow">Shown exactly once</span>
-            <h2 id="issued-token-title">Copy this token now</h2>
-            <p>
+            <DialogTitle>Copy this token now</DialogTitle>
+            <DialogDescription>
               Kuberploy cannot display this credential again. Store it in your
               CI secret manager, then dismiss this dialog.
-            </p>
+            </DialogDescription>
             <code
               className="token-secret"
               aria-label="New service account token"
@@ -787,28 +805,35 @@ function AccountTokens({
                 before dismissing.
               </div>
             ) : null}
-          </section>
-        </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {confirmToken ? (
-        <div className="confirmation-backdrop">
-          <section
-            className="confirmation-dialog"
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !revokeToken.isPending) {
+              setConfirmToken(null);
+              setConfirmation("");
+            }
+          }}
+        >
+          <DialogContent
+            className="confirmation-dialog max-w-none"
             role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="revoke-token-title"
+            showCloseButton={false}
           >
             <span className="confirmation-dialog__icon">
               <Icon name="terminal" />
             </span>
             <span className="eyebrow">Immediate revocation</span>
-            <h2 id="revoke-token-title">Revoke {confirmToken.token.name}?</h2>
-            <p>
+            <DialogTitle>Revoke {confirmToken.token.name}?</DialogTitle>
+            <DialogDescription>
               Requests using this credential will fail immediately. Type its
               exact non-secret prefix to continue:{" "}
               <code>{confirmToken.token.prefix}</code>
-            </p>
+            </DialogDescription>
             <Field label="Exact token prefix" required>
               <input
                 autoFocus
@@ -842,12 +867,12 @@ function AccountTokens({
               </Button>
             </div>
             {revokeToken.error ? (
-              <div className="form-error">
+              <div className="form-error" role="alert">
                 {errorMessage(revokeToken.error)}
               </div>
             ) : null}
-          </section>
-        </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </div>
   );

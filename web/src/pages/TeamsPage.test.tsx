@@ -374,6 +374,27 @@ describe("team member removal confirmation", () => {
     await user.click(screen.getByRole("button", { name: "Remove member" }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
+
+  it("closes through the shared dialog escape path", async () => {
+    const user = userEvent.setup();
+    const onCancel = vi.fn();
+    render(
+      <RemoveMemberConfirmation
+        member={member}
+        teamName="Platform engineering"
+        busy={false}
+        error={null}
+        onCancel={onCancel}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("alertdialog")).toHaveAccessibleName(
+      "Remove Grace Hopper?",
+    );
+    await user.keyboard("{Escape}");
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
 });
 
 describe("team member role editor", () => {
