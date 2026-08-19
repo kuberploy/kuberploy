@@ -278,6 +278,7 @@ export function AuthScreen({
               <Field
                 label="Display name"
                 required
+                hint="Shown in the workspace; sign in with the admin email above."
                 error={bootstrapForm.formState.errors.displayName?.message}
               >
                 <input
@@ -341,6 +342,7 @@ export function AuthScreen({
               <Field
                 label="Display name"
                 required
+                hint="Shown in the workspace; the invitation email is the sign-in identity."
                 error={invitationForm.formState.errors.displayName?.message}
               >
                 <input

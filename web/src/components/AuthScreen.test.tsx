@@ -132,6 +132,11 @@ describe("invitation acceptance", () => {
     await user.click(
       screen.getByRole("button", { name: /use a team invitation/i }),
     );
+    expect(
+      screen.getByText(
+        "Shown in the workspace; the invitation email is the sign-in identity.",
+      ),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText(/display name/i), "Ada Lovelace");
     await user.type(
       screen.getByLabelText(/invitation token/i),
@@ -276,7 +281,10 @@ describe("installation bootstrap", () => {
     render(<AuthScreen />, { wrapper: Wrapper });
 
     await screen.findByRole("heading", { name: "Claim this installation" });
-    await user.type(screen.getByLabelText(/admin email/i), "admin@example.com");
+    await user.type(
+      screen.getByRole("textbox", { name: /^Admin email/ }),
+      "admin@example.com",
+    );
     const displayName = screen.getByRole("textbox", { name: /^Display name/ });
     await user.clear(displayName);
     await user.type(displayName, "Platform Admin");
