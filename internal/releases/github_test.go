@@ -176,6 +176,21 @@ func TestGitHubCheckerDistinguishesMissingStableRelease(t *testing.T) {
 	}
 }
 
+func TestGitHubCheckerDistinguishesNonStableLatestRelease(t *testing.T) {
+	manifest, _ := json.Marshal(validManifest())
+	checker := NewGitHubChecker(&http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != latestReleaseURL {
+			t.Fatalf("unexpected URL %s", r.URL)
+		}
+		return response(http.StatusOK, githubPayload(t, manifest, func(v map[string]any) {
+			v["tag_name"] = "v1.1.0-rc.1"
+		}), nil), nil
+	})})
+	if _, err := checker.Latest(context.Background(), ""); !errors.Is(err, ErrNoStableRelease) {
+		t.Fatalf("non-stable latest release error=%v", err)
+	}
+}
+
 func TestGitHubCheckerRejectsDigestMismatchAndUnknownManifestFields(t *testing.T) {
 	base, _ := json.Marshal(validManifest())
 	t.Run("digest", func(t *testing.T) {

@@ -93,7 +93,10 @@ func (g *GitHubChecker) Latest(ctx context.Context, cachedETag string) (FetchRes
 		return FetchResult{}, fmt.Errorf("decode GitHub release: %w", err)
 	}
 	version := strings.TrimPrefix(release.TagName, "v")
-	if !ValidStableVersion(version) || release.Draft || release.Prerelease || !release.Immutable || release.PublishedAt.IsZero() {
+	if !ValidStableVersion(version) || release.Draft || release.Prerelease {
+		return FetchResult{}, ErrNoStableRelease
+	}
+	if !release.Immutable || release.PublishedAt.IsZero() {
 		return FetchResult{}, errors.New("latest GitHub release is not a published immutable stable release")
 	}
 	var asset *githubAsset
