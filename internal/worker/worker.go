@@ -63,6 +63,19 @@ func (p *Processor) RunOnce(ctx context.Context) (int, error) {
 	for _, message := range messages {
 		op, execute, err := p.Store.StartOperation(ctx, message.OperationID, message.Generation, name, lease)
 		if err != nil {
+			// A queued Valkey delivery can outlive its operation when normal
+			// retention cleanup removes the durable row first.  The operation is
+			// authoritative; acknowledge only this stale delivery so it cannot
+			// poison the consumer forever.  Preserve retries for every other
+			// storage error.
+			if errors.Is(err, store.ErrNotFound) {
+				if p.Queue != nil && message.DeliveryID != "" {
+					if ackErr := p.Queue.Ack(ctx, message); ackErr != nil {
+						return processed, ackErr
+					}
+				}
+				continue
+			}
 			return processed, err
 		}
 		if !execute {

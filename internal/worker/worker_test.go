@@ -121,6 +121,26 @@ func TestProcessorFallsBackToDurableOperationAndCompletesGit(t *testing.T) {
 	}
 }
 
+func TestProcessorAcknowledgesStaleQueueDelivery(t *testing.T) {
+	queue := &oneDeliveryQueue{message: domain.WorkMessage{
+		OperationID: "deleted-operation",
+		Generation:  1,
+		DeliveryID:  "7-0",
+	}}
+	processor := &Processor{Store: memory.New(), Queue: queue, Name: "worker"}
+
+	n, err := processor.RunOnce(t.Context())
+	if err != nil || n != 0 {
+		t.Fatalf("stale delivery n=%d err=%v", n, err)
+	}
+	if queue.acks != 1 {
+		t.Fatalf("stale delivery acknowledgements=%d, want 1", queue.acks)
+	}
+	if n, err = processor.RunOnce(t.Context()); err != nil || n != 0 || queue.acks != 1 {
+		t.Fatalf("stale delivery replay n=%d err=%v acknowledgements=%d", n, err, queue.acks)
+	}
+}
+
 type gitWriterFunc func(context.Context, domain.Operation, domain.Project, domain.Environment, domain.Application, domain.Deployment) (domain.GitPublicationResult, error)
 
 func (f gitWriterFunc) Write(ctx context.Context, op domain.Operation, project domain.Project, environment domain.Environment, application domain.Application, deployment domain.Deployment) (domain.GitPublicationResult, error) {

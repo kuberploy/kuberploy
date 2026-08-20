@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 019. RC269 fixes Helm OCI no-change publication when current policy changes while desired-state bytes reuse an older verified command; adds migration 019 and exact continuation regression coverage.",
+  "summary": "Schema 019. RC270 fixes stale Valkey work deliveries poisoning the worker loop while retaining RC269 Helm OCI no-change publication and migration 019 coverage.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.269"
+  "version": "0.1.0-rc.270"
 }
