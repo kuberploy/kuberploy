@@ -79,7 +79,7 @@ func TestSnapshotKeepsScopeSentinelAndRecordsFailingKubernetesStage(t *testing.T
 func TestSnapshotRejectsResolverScopeConfusion(t *testing.T) {
 	service, resolver, auditor, client := newTestService(t)
 	resolver.authorized.ApplicationID = "66666666-6666-4666-8666-666666666666"
-	if _, err := service.Snapshot(t.Context(), snapshotRequest()); !errors.Is(err, ErrScopeViolation) || !strings.Contains(err.Error(), "resolve attempt binding") {
+	if _, err := service.Snapshot(t.Context(), snapshotRequest()); !errors.Is(err, ErrScopeViolation) || !strings.Contains(err.Error(), "resolve attempt ownership") {
 		t.Fatalf("err=%v", err)
 	}
 	if len(auditor.events) != 0 || client.getJobs != 0 {

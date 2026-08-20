@@ -108,14 +108,24 @@ func (s *Service) resolve(ctx context.Context, access AccessRequest) (Authorized
 	if err != nil {
 		return AuthorizedAttempt{}, err
 	}
-	if authorized.Access != access || !uuidPattern.MatchString(authorized.ApplicationID) || !uuidPattern.MatchString(authorized.ProjectID) ||
-		authorized.Attempt.ID != access.AttemptID || authorized.Attempt.ServiceID != authorized.ApplicationID ||
-		authorized.Attempt.ProjectID != authorized.ProjectID || !kubeNamePattern.MatchString(authorized.Attempt.JobNamespace) ||
-		!kubeNamePattern.MatchString(authorized.Attempt.JobName) || authorized.Attempt.PlanRequest.Namespace != authorized.Attempt.JobNamespace ||
-		authorized.Attempt.PlanRequest.Build.OperationID != authorized.Attempt.ID || authorized.Attempt.PlanRequest.Build.Generation != authorized.Attempt.Generation ||
-		authorized.Attempt.PlanRequest.Build.ProjectID != authorized.ProjectID || authorized.Attempt.PlanRequest.Build.ServiceID != authorized.ApplicationID ||
-		authorized.Attempt.PlanRequest.Build.Commit != authorized.Attempt.CommitSHA || authorized.Attempt.CheckoutRequest.Commit != authorized.Attempt.CommitSHA {
-		return AuthorizedAttempt{}, scopeStage("resolve attempt binding")
+	if authorized.Access != access {
+		return AuthorizedAttempt{}, scopeStage("resolve access identity")
+	}
+	if !uuidPattern.MatchString(authorized.ApplicationID) || !uuidPattern.MatchString(authorized.ProjectID) {
+		return AuthorizedAttempt{}, scopeStage("resolve ownership IDs")
+	}
+	if authorized.Attempt.ID != access.AttemptID || authorized.Attempt.ServiceID != authorized.ApplicationID || authorized.Attempt.ProjectID != authorized.ProjectID {
+		return AuthorizedAttempt{}, scopeStage("resolve attempt ownership")
+	}
+	if !kubeNamePattern.MatchString(authorized.Attempt.JobNamespace) || !kubeNamePattern.MatchString(authorized.Attempt.JobName) || authorized.Attempt.PlanRequest.Namespace != authorized.Attempt.JobNamespace {
+		return AuthorizedAttempt{}, scopeStage("resolve Job binding")
+	}
+	if authorized.Attempt.PlanRequest.Build.OperationID != authorized.Attempt.ID || authorized.Attempt.PlanRequest.Build.Generation != authorized.Attempt.Generation ||
+		authorized.Attempt.PlanRequest.Build.ProjectID != authorized.ProjectID || authorized.Attempt.PlanRequest.Build.ServiceID != authorized.ApplicationID {
+		return AuthorizedAttempt{}, scopeStage("resolve plan binding")
+	}
+	if authorized.Attempt.PlanRequest.Build.Commit != authorized.Attempt.CommitSHA || authorized.Attempt.CheckoutRequest.Commit != authorized.Attempt.CommitSHA {
+		return AuthorizedAttempt{}, scopeStage("resolve commit binding")
 	}
 	plan, err := builder.PlanJob(authorized.Attempt.PlanRequest)
 	if err != nil || !builder.CanAdoptJob(plan.Job, authorized.Attempt.PlanRequest) {
