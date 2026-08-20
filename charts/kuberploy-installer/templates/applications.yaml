@@ -436,7 +436,7 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade,post-rollback
     helm.sh/hook-weight: "20"
-    helm.sh/hook-delete-policy: before-hook-creation
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
   labels:
     {{- include "kuberploy-installer.labels" . | nindent 4 }}
 spec:

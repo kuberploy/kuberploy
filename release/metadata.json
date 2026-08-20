@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC252 keeps email-only login, separates proxy clients for high-risk authentication rate limits, retires unconfigured registry-pull artifacts at worker startup while retaining rollback metadata, reconstructs managed External DNS profiles, follows OS theme changes, purges accepted invitation tokens, polls runtime readiness, observes Argo health, retries providers and GHCR propagation, and uses shadcn/Base UI dialogs with bounded caches.",
+  "summary": "Schema 018. RC253 keeps email-only login, separates proxy clients for auth rate limits, cleans successful installer hook Jobs for rollback recovery, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, and uses shadcn/Base dialogs.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.252"
+  "version": "0.1.0-rc.253"
 }
