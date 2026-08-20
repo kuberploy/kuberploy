@@ -287,6 +287,24 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		environmentID, targetID, 1, readyAt, id.New(), readyAt.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
+	// Switching the accepted document back to public retires the worker
+	// artifact without deleting rollback metadata, and a later private
+	// generation reactivates that exact immutable artifact.
+	if _, _, err = stage(publicRaw, true, policyFor(config)); err != nil {
+		t.Fatal(err)
+	}
+	var publicTransitionActive bool
+	if err = pool.QueryRow(ctx, `SELECT active FROM runtime_registry_pull_artifacts
+		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=$3`, environmentID, targetID, 1).Scan(&publicTransitionActive); err != nil {
+		t.Fatal(err)
+	}
+	if publicTransitionActive {
+		t.Fatal("public transition left the unreferenced artifact active")
+	}
+	_, privateDocument, err = stage(privateRaw, true, policyFor(config))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if eligible, eligibilityErr := registryPullEligible(t, pool, privatePolicyDocument, readyAt.Add(time.Second), time.Minute); eligibilityErr != nil || !eligible {
 		t.Fatalf("ready artifact eligibility=%t err=%v", eligible, eligibilityErr)
 	}
@@ -410,20 +428,22 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		t.Fatalf("rotated ready eligibility=%t err=%v", eligible, eligibilityErr)
 	}
 
-	// Deleting one AppConfig cannot prove a shared environment/target Secret is
-	// unused. Schema 025 therefore retains the active artifact exactly.
+	// An accepted generation with no private AppConfigs retires the active
+	// worker artifact, while retaining its immutable row and Secret identity for
+	// a later exact rollback/reference.
 	deletedBinding, _, err := stage(nil, false, policyFor(rotatedConfig))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterDelete := activeArtifact(t, pool, environmentID, targetID); afterDelete != rotatedArtifact {
-		t.Fatalf("deletion destructively changed shared artifact: before=%#v after=%#v", rotatedArtifact, afterDelete)
-	}
-	deactivatedAt := deletedBinding.UpdatedAt.Add(time.Second)
-	if _, err = pool.Exec(ctx, `UPDATE runtime_registry_pull_artifacts SET active=false,updated_at=$4
-		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=$3`, environmentID, targetID, 2, deactivatedAt); err != nil {
+	var afterDeleteActive bool
+	if err = pool.QueryRow(ctx, `SELECT active FROM runtime_registry_pull_artifacts
+		WHERE environment_id=$1 AND registry_target_id=$2 AND profile_revision=$3`, environmentID, targetID, 2).Scan(&afterDeleteActive); err != nil {
 		t.Fatal(err)
 	}
+	if afterDeleteActive {
+		t.Fatalf("deletion left unreferenced artifact active: before=%#v", rotatedArtifact)
+	}
+	deactivatedAt := deletedBinding.UpdatedAt.Add(time.Second)
 	if eligible, eligibilityErr := registryPullEligible(t, pool, rotatedPolicyDocument, deactivatedAt.Add(time.Second), time.Minute); eligibilityErr != nil || eligible {
 		t.Fatalf("inactive artifact eligibility=%t err=%v", eligible, eligibilityErr)
 	}

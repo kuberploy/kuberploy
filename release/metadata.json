@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018 is current. RC249 keeps email-only login, reconstructs active managed External DNS profiles during Git projection, follows operating-system theme changes across modern and legacy browser listener APIs, purges accepted invitation tokens, polls runtime readiness, observes Argo health, honors provider retry backoff, retries GHCR propagation, and uses shadcn/Base UI dialogs plus bounded release/operation caches.",
+  "summary": "Schema 018 is current. RC250 keeps email-only login, retires unreferenced registry-pull artifacts while retaining rollback metadata, reconstructs managed External DNS profiles, follows OS theme changes, purges accepted invitation tokens, polls runtime readiness, observes Argo health, retries providers and GHCR propagation, and uses shadcn/Base UI dialogs with bounded caches.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.249"
+  "version": "0.1.0-rc.250"
 }

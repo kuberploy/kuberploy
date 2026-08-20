@@ -52,6 +52,15 @@ type CurrentReferenceReconciler interface {
 	ReconcileCurrentTx(context.Context, pgx.Tx, AppConfigPolicyDocument, time.Time) error
 }
 
+// GenerationReferenceReconciler lets a reference family reconcile state that
+// is shared by multiple AppConfigs only after the complete generation has
+// passed validation. The generation view is the exact set of accepted current
+// documents; a family must retain any shared resource referenced by one of
+// them and may retire only resources absent from the whole view.
+type GenerationReferenceReconciler interface {
+	ReconcileGenerationTx(context.Context, pgx.Tx, gitprojection.Binding, []AppConfigPolicyDocument, time.Time) error
+}
+
 // ExternalDNSRuntimePolicy is intentionally separate from configured profile
 // metadata. A configured/assigned profile never implies a ready controller.
 type ExternalDNSRuntimePolicy interface {
@@ -266,6 +275,18 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		if v.Middleware != nil {
 			if err = v.Middleware.ReconcileDeletedTx(ctx, tx, scope.Path); err != nil {
 				return gitprojection.AppConfigPolicyValidation{}, err
+			}
+		}
+	}
+	// Retire shared dynamic references only after the complete generation is
+	// accepted. A diagnostic means the generation intentionally leaves the
+	// prior indexed reference state untouched.
+	if len(validation.Diagnostics) == 0 {
+		for _, family := range []ReferencePolicy{v.Edge, v.Secrets, v.Registry} {
+			if reconciler, ok := family.(GenerationReferenceReconciler); ok {
+				if err := reconciler.ReconcileGenerationTx(ctx, tx, input.Binding, currentDocuments, now); err != nil {
+					return gitprojection.AppConfigPolicyValidation{}, err
+				}
 			}
 		}
 	}

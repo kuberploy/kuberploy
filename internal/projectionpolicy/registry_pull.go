@@ -115,14 +115,72 @@ func (p *RegistryPullReferencePolicy) ValidateCurrentTx(
 	return nil, nil
 }
 
-// ReconcileDeletedTx is intentionally a metadata-only no-op in the stable schema.
-// Artifacts are shared by every application using an environment/target pair,
-// and old immutable Secrets are rollback material. Safe deactivation and GC
-// require a later exact desired-reference plus observed-workload retention
-// table; one deleted AppConfig is not proof that either can be removed.
+// ReconcileDeletedTx remains a compatibility no-op for callers that reconcile
+// one path at a time. GenerationReferenceReconciler below performs the safe
+// environment-wide sweep after the complete accepted generation is known.
 func (p *RegistryPullReferencePolicy) ReconcileDeletedTx(_ context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) error {
 	if tx == nil || now.IsZero() || !validDocumentScope(scope) {
 		return gitprojection.ErrInvalid
+	}
+	return nil
+}
+
+// ReconcileGenerationTx retires only active artifacts whose target is absent
+// from every accepted private AppConfig in the environment. Artifact rows and
+// Kubernetes Secrets remain intact as immutable rollback material; inactive
+// rows are reactivated atomically by EnsureArtifactTx when a rollback or a
+// later private generation references the exact profile again.
+func (p *RegistryPullReferencePolicy) ReconcileGenerationTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	binding gitprojection.Binding,
+	current []AppConfigPolicyDocument,
+	now time.Time,
+) error {
+	if p == nil || tx == nil || now.IsZero() || binding.Validate() != nil || binding.Kind != gitprojection.BindingEnvironment {
+		return gitprojection.ErrInvalid
+	}
+	retained := make(map[string]struct{}, len(current))
+	for _, document := range current {
+		scope := document.Scope()
+		if scope.Binding.EnvironmentID != binding.EnvironmentID || scope.Namespace == "" {
+			return gitprojection.ErrInvalid
+		}
+		if pull := document.Delivery(); pull.HasRegistryPull {
+			retained[pull.RegistryPull.TargetID] = struct{}{}
+		}
+	}
+	rows, err := tx.Query(ctx, `SELECT registry_target_id::text
+		FROM runtime_registry_pull_artifacts
+		WHERE environment_id=$1 AND active
+		FOR UPDATE`, binding.EnvironmentID)
+	if err != nil {
+		return err
+	}
+	activeTargets := make([]string, 0)
+	for rows.Next() {
+		var targetID string
+		if err = rows.Scan(&targetID); err != nil {
+			rows.Close()
+			return err
+		}
+		activeTargets = append(activeTargets, targetID)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	for _, targetID := range activeTargets {
+		if _, keep := retained[targetID]; keep {
+			continue
+		}
+		if _, err = tx.Exec(ctx, `UPDATE runtime_registry_pull_artifacts
+			SET active=false,lease_owner=NULL,lease_until=NULL,worker_contract=NULL,
+				worker_config_digest=NULL,updated_at=$2
+			WHERE environment_id=$1 AND registry_target_id=$3 AND active`, binding.EnvironmentID, now.UTC(), targetID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
