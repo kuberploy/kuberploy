@@ -118,9 +118,13 @@ func (s *Server) currentConfig(r *http.Request, atLeastRevision string, wait tim
 			return domain.Deployment{}, domain.DeploymentConfig{}, nil, bundleErr
 		}
 		applicationDocument, found := applicationBundleDocument(bundle, deployment.ApplicationID)
-		if !found || !applicationDocument.Valid {
+		if !found {
 			return domain.Deployment{}, domain.DeploymentConfig{}, nil, gitprojection.ErrInvalid
 		}
+		// A schema-valid AppConfig can be policy-invalid because a referenced
+		// runtime disappeared or an operator observation expired. Keep that raw
+		// Git document editable so the owner can remove or replace the broken
+		// reference. Syntax/schema-invalid documents still fail below.
 		_, applicationRuntime, diagnostics := appconfig.ParseAndValidate(applicationDocument.Raw)
 		if len(diagnostics) != 0 {
 			return domain.Deployment{}, domain.DeploymentConfig{}, nil, gitprojection.ErrInvalid

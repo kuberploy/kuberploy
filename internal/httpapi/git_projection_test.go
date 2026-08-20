@@ -253,6 +253,15 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		bundle.TargetHeadRevision != binding.TargetHeadRevision || bundle.IndexedRevision != binding.IndexedRevision || backend.atLeast != binding.IndexedRevision || backend.wait != 2*time.Second {
 		t.Fatalf("projected bundle status=%d wire=%#v backend=%#v", r.StatusCode, bundle, backend)
 	}
+	policyInvalidDocument := document
+	policyInvalidDocument.Valid = false
+	policyInvalidDocument.Diagnostics = []gitprojection.Diagnostic{{Code: "ExternalRuntimeUnavailable", Detail: "referenced runtime disappeared", Pointer: "/spec/routes/0"}}
+	backend.bundle.Documents = []gitprojection.Document{policyInvalidDocument}
+	r = f.request("GET", "/v1/deployments/"+operation.TargetID+"/config", "", nil)
+	repairable := decode[configBundleWire](t, r)
+	if r.StatusCode != http.StatusOK || repairable.ETag != etag || len(repairable.Documents) != 1 || repairable.Documents[0].RawYAML != string(document.Raw) {
+		t.Fatalf("schema-valid policy-invalid config was not repairable: status=%d bundle=%#v", r.StatusCode, repairable)
+	}
 	backend.planErr = nil
 	backend.plan.Precondition = gitprojection.MutationMatchETag
 	backend.plan.ExpectedETag = etag

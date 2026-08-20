@@ -50,7 +50,7 @@ func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate
 	}{"external-dns-managed-deployment.v1", item.ID, t.Image, item.RuntimeRevision, args})
 	p := edge.ExternalDNSProfile{IntegrationID: item.ID, Revision: item.RuntimeRevision, Mode: edge.ModeManaged, Namespace: t.Namespace, Version: t.Version,
 		Deployment: edge.DeploymentExpectation{Name: name, ContainerName: "external-dns", Image: t.Image, SpecDigest: digest(contract)}, ProfileConfigMap: name + "-profile",
-		LabelFilter: "kuberploy.io/dns-integration=" + item.ID, AnnotationFilter: "", ProviderKind: item.ProviderKind, CredentialSecretRef: item.CredentialSecretRef,
+		LabelFilter: "kuberploy.io/dns-integration=" + item.Slug, AnnotationFilter: "", ProviderKind: item.ProviderKind, CredentialSecretRef: item.CredentialSecretRef,
 		ProviderConfigRef: item.ProviderConfigRef, EgressConfigRef: item.EgressConfigRef, TXTOwnerID: item.TXTOwnerID, Policy: item.SyncPolicy, DomainFilters: append([]string(nil), item.AllowedDomainSuffixes...)}
 	sort.Strings(p.DomainFilters)
 	if p.Validate() != nil {
@@ -60,7 +60,7 @@ func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate
 }
 
 func managedArguments(item domain.ExternalDNSIntegration) []string {
-	values := []string{"--source=ingress", "--provider=" + item.ProviderKind, "--registry=txt", "--policy=" + item.SyncPolicy, "--txt-owner-id=" + item.TXTOwnerID, "--label-filter=kuberploy.io/dns-integration=" + item.ID}
+	values := []string{"--source=ingress", "--provider=" + item.ProviderKind, "--registry=txt", "--policy=" + item.SyncPolicy, "--txt-owner-id=" + item.TXTOwnerID, "--label-filter=kuberploy.io/dns-integration=" + item.Slug}
 	for _, domain := range item.AllowedDomainSuffixes {
 		values = append(values, "--domain-filter="+domain)
 	}

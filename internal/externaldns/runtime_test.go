@@ -22,8 +22,11 @@ func TestManagedRuntimeBundleIsClosedAndExact(t *testing.T) {
 	if profile.Validate() != nil || profile.Revision != 3 {
 		t.Fatalf("invalid profile %#v", profile)
 	}
+	if profile.LabelFilter != "kuberploy.io/dns-integration=primary" {
+		t.Fatalf("runtime must select the immutable integration slug rendered by the workload chart, got %q", profile.LabelFilter)
+	}
 	text := string(content)
-	for _, required := range []string{`"kind": "Deployment"`, `"kind": "ClusterRole"`, `"name": "cloudflare-credentials"`, `"--domain-filter=prod.example.com"`, `"kuberploy.io/edge-spec-digest"`} {
+	for _, required := range []string{`"kind": "Deployment"`, `"kind": "ClusterRole"`, `"name": "cloudflare-credentials"`, `"--domain-filter=prod.example.com"`, `"--label-filter=kuberploy.io/dns-integration=primary"`, `"kuberploy.io/edge-spec-digest"`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("missing %q", required)
 		}
