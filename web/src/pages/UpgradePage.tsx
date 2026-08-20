@@ -54,7 +54,7 @@ export function UpgradePage() {
     : "";
   const helmCommand =
     release && canUpgrade
-      ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --wait --timeout 20m`
+      ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout 20m`
       : "";
 
   return (
