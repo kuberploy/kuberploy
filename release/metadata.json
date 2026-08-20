@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 019. RC275 aligns ExternalDNS route selectors with immutable integration slugs and lets owners repair schema-valid configs whose runtime policy references became unavailable.",
+  "summary": "Schema 020. RC276 advances operator-managed ExternalDNS bundles under a new exact runtime revision so protected Git publication and readiness converge after upgrades.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.275"
+  "version": "0.1.0-rc.276"
 }
