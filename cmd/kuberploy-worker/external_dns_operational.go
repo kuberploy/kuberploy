@@ -154,12 +154,22 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 			targets, targetErr := runtime.DesiredTargets()
 			now := time.Now().UTC()
 			if digestErr == nil && targetErr == nil {
+				revisionAdvanced := false
 				err = r.edgeStore.SynchronizeTargets(ctx, digest, targets, now)
-				if err == nil {
+				if errors.Is(err, edge.ErrConflict) {
+					var advanceErr error
+					revisionAdvanced, advanceErr = r.advanceConflictingExternalDNSRuntimeRevisions(ctx, targets)
+					if advanceErr != nil {
+						err = advanceErr
+					} else if revisionAdvanced {
+						err = nil
+					}
+				}
+				if err == nil && !revisionAdvanced {
 					err = r.edgeStore.RecordReadiness(ctx, edge.Readiness{WorkerID: r.workerID, WorkerEpoch: 1, Contract: edge.RuntimeContract, ConfigDigest: digest, TargetCount: len(targets), StartedAt: r.startedAt, ObservedAt: now, LeaseUntil: now.Add(runtime.ReadinessMaxAge)})
 				}
 				controller := &edge.RuntimeController{Store: r.edgeStore, Observer: r.observer, Config: runtime, WorkerID: r.workerID, WorkerEpoch: 1, Now: func() time.Time { return time.Now().UTC() }}
-				for i := 0; err == nil && i < len(targets); i++ {
+				for i := 0; err == nil && !revisionAdvanced && i < len(targets); i++ {
 					_, err = controller.Reconcile(ctx, digest)
 				}
 			}
@@ -174,6 +184,51 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 		}
 	}
 }
+
+func (r *externalDNSOperationalRuntime) advanceConflictingExternalDNSRuntimeRevisions(ctx context.Context, targets []edge.DesiredTarget) (bool, error) {
+	items, err := r.source.ListExternalDNSIntegrationsForRuntime(ctx, edge.MaximumExternalDNSProfiles)
+	if err != nil {
+		return false, err
+	}
+	byID := make(map[string]domain.ExternalDNSIntegration, len(items))
+	for _, item := range items {
+		byID[item.ID] = item
+	}
+	advanced := false
+	for _, desired := range targets {
+		if desired.Kind != edge.KindExternalDNS {
+			continue
+		}
+		current, targetErr := r.edgeStore.Target(ctx, desired.Key, desired.Revision)
+		if errors.Is(targetErr, edge.ErrNotFound) {
+			continue
+		}
+		if targetErr != nil {
+			return false, targetErr
+		}
+		item, ok := byID[desired.IntegrationID]
+		if !ok || !externalDNSTargetRevisionAdvanceNeeded(item, current.DesiredTarget, desired) {
+			continue
+		}
+		if err = r.source.AdvanceExternalDNSRuntimeRevision(ctx, item.ID, item.RuntimeRevision, item.ProtectedGitContentDigest, time.Now().UTC()); err != nil {
+			return false, err
+		}
+		advanced = true
+	}
+	return advanced, nil
+}
+
+func externalDNSTargetRevisionAdvanceNeeded(item domain.ExternalDNSIntegration, current, desired edge.DesiredTarget) bool {
+	if item.Mode != externaldns.ModeManaged || item.Lifecycle != "active" || item.ProtectedGitState != "materialized" ||
+		item.ProtectedGitRevision != item.RuntimeRevision || item.ProtectedGitCommit == "" || item.ProtectedGitContentDigest == "" ||
+		desired.Kind != edge.KindExternalDNS || desired.IntegrationID != item.ID || desired.Revision != item.RuntimeRevision ||
+		current.Kind != edge.KindExternalDNS || current.IntegrationID != item.ID || current.Revision != item.RuntimeRevision {
+		return false
+	}
+	current.RuntimeConfigDigest = desired.RuntimeConfigDigest
+	return current != desired
+}
+
 func (r *externalDNSOperationalRuntime) Close() {
 	if r != nil && r.edgeStore != nil {
 		r.edgeStore.Close()
