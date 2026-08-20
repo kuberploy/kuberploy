@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018. RC253 keeps email-only login, separates proxy clients for auth rate limits, cleans successful installer hook Jobs for rollback recovery, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, and uses shadcn/Base dialogs.",
+  "summary": "Schema 018. RC254 keeps email-only login, separates proxy clients for auth rate limits, cleans successful installer hook Jobs for rollback recovery, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs before qualification mutation, and uses shadcn/Base dialogs.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.253"
+  "version": "0.1.0-rc.254"
 }

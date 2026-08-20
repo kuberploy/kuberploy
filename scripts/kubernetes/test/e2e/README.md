@@ -193,6 +193,11 @@ requires:
   declarative scenario. These are live-only inputs; the repository cannot know
   an operator's project/application/deployment IDs or credentials in advance.
 
+`workflow.sourceBuild.push.deliveryId` must be a lowercase canonical UUID. The
+GitHub webhook verifier enforces the provider delivery-ID format, so a readable
+fixture label such as `qualification-delivery-1` is rejected before the
+source-build workflow can run.
+
 When `KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS=true`, the harness runs the
 repository-owned Cloudflare workflow in `public-provider-workflow.sh`. It
 creates only the exact run-scoped

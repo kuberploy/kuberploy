@@ -298,7 +298,7 @@ kp_qualification_validate_scenario() {
       .workflow.sourceBuild.github.senderLogin; type == "string" and test("^[A-Za-z0-9_.-]{1,100}$"))
     and ((.workflow.sourceBuild.push | keys | sort) == ["afterCommit","deliveryId"])
     and (.workflow.sourceBuild.push.afterCommit | type == "string" and test("^[a-f0-9]{40}$"))
-    and (.workflow.sourceBuild.push.deliveryId | type == "string" and test("^[A-Za-z0-9._:-]{1,100}$"))
+    and (.workflow.sourceBuild.push.deliveryId | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
     and ((.workflow.sourceBuild.builderPool | keys) == ["nodeSelector"])
     and (.workflow.sourceBuild.builderPool.nodeSelector | type == "object" and length > 0)
     and (.workflow.sourceBuild.definition | type == "object")

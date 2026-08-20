@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.253"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.254"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
@@ -714,7 +714,7 @@ export KUBERPLOY_E2E_TEARDOWN_PUBLIC_KEY_FILE="${kp_teardown_public}"
 export KUBERPLOY_E2E_SCENARIO_FILE="${kp_tmp}/scenario.json"
 
 source "${kp_root}/scripts/kubernetes/test/e2e/lib.sh"
-kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"qualification-delivery-1","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
+kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"9f000000-0000-4000-8000-000000000001","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
 kp_scenario="$(jq -c --arg digest "${kp_teardown_key_digest}" \
   '.teardown.publicKeySHA256=$digest |
    .workflow.directDeployment.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |
@@ -800,6 +800,20 @@ jq -e '.type == "kubernetes.io/tls" and (.metadata.uid | length > 0) and
   "${kp_tmp}/kuberploy-qualification-success1/60-local-tls/evidence"
 jq -e '.directGeneration == 7' \
   "${kp_tmp}/kuberploy-qualification-success1/workflow-state.json" >/dev/null
+
+# GitHub delivery IDs are canonical lowercase UUIDs. Reject a fixture or
+# operator scenario that would pass declarative validation but fail webhook
+# verification after the first mutating stage starts.
+cp "${KUBERPLOY_E2E_SCENARIO_FILE}" "${kp_tmp}/scenario-valid-delivery.json"
+jq '.workflow.sourceBuild.push.deliveryId="qualification-delivery-1"' \
+  "${kp_tmp}/scenario-valid-delivery.json" >"${KUBERPLOY_E2E_SCENARIO_FILE}"
+kp_expect_failure malformed-webhook-delivery-id \
+  kp_run_qualification malformeddelivery1
+[[ ! -e "${kp_tmp}/kuberploy-qualification-malformeddelivery1" ]]
+cp "${kp_tmp}/scenario-valid-delivery.json" "${KUBERPLOY_E2E_SCENARIO_FILE}"
+export KUBERPLOY_E2E_RUN_ID="success1"
+export KUBERPLOY_E2E_ARTIFACT_DIR="${kp_tmp}/kuberploy-qualification-success1"
+
 grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE} --server-side=false" \
   "${KP_COMMAND_LOG}" >/dev/null
 grep -F "helm|upgrade kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_INSTALLER_VALUES_FILE} --server-side=false --wait --wait-for-jobs --timeout 20m" \
