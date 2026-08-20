@@ -462,6 +462,37 @@ func TestKubernetesAdapterRetriesFailedJobWithSameImmutablePlan(t *testing.T) {
 	}
 }
 
+func TestKubernetesAdapterRemovesTerminalFailureAuxiliaries(t *testing.T) {
+	attempt, workload := kubernetesWorkloadFixture(t)
+	resources := newFakeBuildResources()
+	adapter := newTestKubernetesAdapter(t, resources)
+	if _, err := adapter.ensure(context.Background(), workload, sourceTokenOne()); err != nil {
+		t.Fatal(err)
+	}
+	jobKey := resources.key(resourceJobs, attempt.JobNamespace, attempt.JobName)
+	resources.objects[jobKey]["status"] = map[string]any{
+		"failed":     int64(1),
+		"conditions": []any{map[string]any{"type": "Failed", "status": "True", "reason": "BackoffLimitExceeded"}},
+	}
+	resources.pods = []map[string]any{buildPodFixture(resources, attempt, "Failed", true, nil)}
+	workload.Attempt.State = AttemptRunning
+
+	observation, err := adapter.ensure(context.Background(), workload, sourceTokenTwo())
+	if err != nil || observation.State != WorkloadFailed {
+		t.Fatalf("failed observation=%#v err=%v", observation, err)
+	}
+	if _, found := resources.objects[jobKey]; !found {
+		t.Fatal("terminal failure deleted the bounded Job/log authority")
+	}
+	for _, resource := range []kubernetesResource{resourceConfigMaps, resourceNetworkPolicies, resourceSecrets} {
+		for key := range resources.objects {
+			if strings.HasPrefix(key, string(resource)+"/") {
+				t.Fatalf("terminal failure left auxiliary %s", key)
+			}
+		}
+	}
+}
+
 func TestKubernetesAdapterWaitsForForegroundRetryCleanupWithoutBurningAttempt(t *testing.T) {
 	attempt, workload := kubernetesWorkloadFixture(t)
 	resources := newFakeBuildResources()

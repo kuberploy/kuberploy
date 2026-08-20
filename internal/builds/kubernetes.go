@@ -311,7 +311,15 @@ func (a *KubernetesAdapter) ensure(ctx context.Context, workload BuildWorkload, 
 	observation.Job = cloneMap(workload.Plan.Job)
 	observation.NetworkPolicy = cloneMap(workload.Plan.NetworkPolicy)
 	observation.InputDigest = workload.InputDigest
-	if shouldDeleteSourceSecret(liveJob, pods) {
+	if observation.State == WorkloadFailed {
+		// Keep the terminal Job/Pod as the bounded result/log authority, but do
+		// not retain the request or run-scoped egress policy after a failed
+		// attempt. Retries recreate both exact auxiliaries from the immutable
+		// plan, and terminal failures must not accumulate policy residue.
+		if err = a.cleanupTerminalAuxiliaries(ctx, desired); err != nil {
+			return WorkloadObservation{}, err
+		}
+	} else if shouldDeleteSourceSecret(liveJob, pods) {
 		if err = a.deleteSourceSecretIfOwned(ctx, desired.sourceSecret); err != nil {
 			return WorkloadObservation{}, err
 		}
