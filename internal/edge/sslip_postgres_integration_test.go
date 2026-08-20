@@ -32,10 +32,10 @@ func TestPostgreSQLSSLIPObservationAndResolverAreFenced(t *testing.T) {
 	)
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = pool.Exec(cleanupContext, `UPDATE edge_runtime_targets SET active=false,lease_owner=NULL,lease_until=NULL,
-			worker_contract=NULL,worker_config_digest=NULL WHERE target_key='traefik'`)
+			worker_contract=NULL,worker_config_digest=NULL WHERE target_key IN ('traefik','cert-manager')`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_sslip_ingress_observations WHERE target_key='traefik'`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global' AND worker_id=$1`, testWorkerID)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key='traefik'`)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM edge_runtime_targets WHERE target_key IN ('traefik','cert-manager')`)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM applications WHERE id=$1`, applicationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM environments WHERE id=$1`, environmentID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM projects WHERE id=$1`, projectID)
@@ -56,6 +56,7 @@ func TestPostgreSQLSSLIPObservationAndResolverAreFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := testRuntimeConfig()
+	dynamicCertManager := config.Profiles.CertManager
 	config.Profiles.CertManager = nil
 	config.Profiles.ExternalDNS = nil
 	config.Profiles.Traefik.SSLIP = &SSLIPProfile{Mode: SSLIPAutoFirstIP}
@@ -100,10 +101,56 @@ func TestPostgreSQLSSLIPObservationAndResolverAreFenced(t *testing.T) {
 	if err != nil || result.Hostname != "kp-f374a6c25092167f09ce.8-8-8-8.sslip.io" || result.Source != SSLIPSourceServiceIP || !result.ObservedAt.Equal(observedAt) {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
+	// The API keeps its operator-authored Traefik profile, while managed
+	// integrations can expand the worker's global runtime after API startup.
+	// The exact current Traefik observation remains usable under that admitted
+	// runtime digest; the unrelated target does not gate SSLIP readiness.
+	dynamicConfig := config
+	dynamicConfig.Profiles.CertManager = dynamicCertManager
+	dynamicDigest, err := dynamicConfig.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dynamicTargets, err := dynamicConfig.DesiredTargets()
+	if err != nil || len(dynamicTargets) != 2 {
+		t.Fatalf("dynamic targets=%#v err=%v", dynamicTargets, err)
+	}
+	dynamicStartedAt := now.Add(3 * time.Second)
+	if err = store.SynchronizeTargets(ctx, dynamicDigest, dynamicTargets, dynamicStartedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE edge_runtime_targets
+		SET next_observation_at=CASE WHEN target_key='traefik' THEN $1::timestamptz ELSE $2::timestamptz END
+		WHERE target_key IN ('traefik','cert-manager')`, dynamicStartedAt, dynamicStartedAt.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	dynamicLease, found, err := store.ClaimTarget(ctx, testWorkerID, RuntimeContract, dynamicDigest, dynamicStartedAt, dynamicConfig.WorkLease)
+	if err != nil || !found || dynamicLease.Target.Key != "traefik" {
+		t.Fatalf("dynamic claim=%#v found=%v err=%v", dynamicLease, found, err)
+	}
+	dynamicObservedAt := dynamicStartedAt.Add(time.Second)
+	dynamicReceipt := ObservationReceipt{TargetKey: dynamicLease.Target.Key, DesiredDigest: dynamicLease.Target.DesiredDigest,
+		IdentityDigest: testDigest("pg-sslip-identity/8.8.8.8"), ResourceVersionDigest: testDigest("pg-sslip-version/2"), SSLIP: endpoint}
+	if _, err = store.RecordTargetReady(ctx, dynamicLease, dynamicReceipt, dynamicObservedAt, dynamicStartedAt.Add(dynamicConfig.PollInterval)); err != nil {
+		t.Fatal(err)
+	}
+	dynamicReadiness := Readiness{WorkerID: testWorkerID, WorkerEpoch: 2, Contract: RuntimeContract, ConfigDigest: dynamicDigest,
+		TargetCount: 2, StartedAt: dynamicStartedAt, ObservedAt: dynamicObservedAt, LeaseUntil: dynamicStartedAt.Add(dynamicConfig.ReadinessMaxAge)}
+	if err = store.RecordReadiness(ctx, dynamicReadiness); err != nil {
+		t.Fatal(err)
+	}
+	resolver.Now = func() time.Time { return dynamicObservedAt.Add(time.Second) }
+	result, err = resolver.ResolveHostname(ctx, SSLIPHostnameRequest{ApplicationID: applicationID, EnvironmentID: environmentID, ProjectID: projectID, Namespace: namespace})
+	if err != nil || result.Hostname != "kp-f374a6c25092167f09ce.8-8-8-8.sslip.io" || !result.ObservedAt.Equal(dynamicObservedAt) {
+		t.Fatalf("dynamic runtime result=%#v err=%v", result, err)
+	}
+	if err = resolver.Probe(ctx); err != nil {
+		t.Fatalf("dynamic runtime probe: %v", err)
+	}
 	if _, err = resolver.ResolveHostname(ctx, SSLIPHostnameRequest{ApplicationID: applicationID, EnvironmentID: environmentID, ProjectID: projectID, Namespace: "wrong-namespace"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-scope result err=%v", err)
 	}
-	resolver.Now = func() time.Time { return observedAt.Add(config.ReadinessMaxAge + time.Second) }
+	resolver.Now = func() time.Time { return dynamicObservedAt.Add(config.ReadinessMaxAge + time.Second) }
 	if _, err = resolver.ResolveHostname(ctx, SSLIPHostnameRequest{ApplicationID: applicationID, EnvironmentID: environmentID, ProjectID: projectID, Namespace: namespace}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("stale observation err=%v", err)
 	}

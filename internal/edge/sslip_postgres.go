@@ -112,6 +112,27 @@ func (r *PostgreSQLSSLIPResolver) ResolveHostname(ctx context.Context, request S
 	return result, nil
 }
 
+// Probe verifies the exact current Traefik target and its admitted worker
+// runtime. Managed ExternalDNS targets are dynamic, so the static API startup
+// digest cannot be used as the Traefik readiness identity.
+func (r *PostgreSQLSSLIPResolver) Probe(ctx context.Context) error {
+	if r == nil || r.pool == nil {
+		return ErrUnavailable
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err = r.currentObservationTx(ctx, tx, r.now()); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return classifyPostgreSQL(err)
+	}
+	return nil
+}
+
 func (r *PostgreSQLSSLIPResolver) ResolveHostnameTx(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -134,13 +155,37 @@ func (r *PostgreSQLSSLIPResolver) ResolveHostnameTx(
 	if err != nil {
 		return SSLIPHostnameResolution{}, classifyPostgreSQL(err)
 	}
+	observation, err := r.currentObservationTx(ctx, tx, now)
+	if err != nil {
+		return SSLIPHostnameResolution{}, err
+	}
+	hostname, err := SSLIPHostname(request.ApplicationID, request.EnvironmentID, observation.Endpoint.PublicIPv4)
+	if err != nil {
+		return SSLIPHostnameResolution{}, ErrConflict
+	}
+	result := SSLIPHostnameResolution{Hostname: hostname, Source: observation.Endpoint.Source, ObservedAt: observation.ObservedAt.UTC()}
+	if result.Validate() != nil {
+		return SSLIPHostnameResolution{}, ErrConflict
+	}
+	return result, nil
+}
+
+func (r *PostgreSQLSSLIPResolver) currentObservationTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	now time.Time,
+) (SSLIPIngressObservation, error) {
+	if r == nil || tx == nil || now.IsZero() || r.Config.Validate() != nil || !r.Config.Enabled ||
+		r.Config.Profiles.Traefik == nil || r.Config.Profiles.Traefik.SSLIP == nil {
+		return SSLIPIngressObservation{}, ErrInvalid
+	}
 	configDigest, err := r.Config.Digest()
 	if err != nil {
-		return SSLIPHostnameResolution{}, ErrInvalid
+		return SSLIPIngressObservation{}, ErrInvalid
 	}
 	desired, err := (TargetProfile{Kind: KindTraefik, Traefik: r.Config.Profiles.Traefik}).Desired(configDigest)
 	if err != nil {
-		return SSLIPHostnameResolution{}, ErrInvalid
+		return SSLIPIngressObservation{}, ErrInvalid
 	}
 	var observation SSLIPIngressObservation
 	var publicIPv4, targetState, targetDesiredDigest, targetRuntimeDigest string
@@ -160,42 +205,37 @@ func (r *PostgreSQLSSLIPResolver) ResolveHostnameTx(
 		&observation.RuntimeConfigDigest, &publicIPv4, &observation.Endpoint.Source,
 		&observation.Endpoint.ServiceUID, &observation.Endpoint.ServiceResourceVersion, &observation.ObservedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return SSLIPHostnameResolution{}, ErrUnavailable
+		return SSLIPIngressObservation{}, ErrUnavailable
 	}
 	if err != nil {
-		return SSLIPHostnameResolution{}, classifyPostgreSQL(err)
+		return SSLIPIngressObservation{}, classifyPostgreSQL(err)
 	}
 	observation.Endpoint.PublicIPv4 = publicIPv4
+	durableDesired := desired
+	durableDesired.RuntimeConfigDigest = targetRuntimeDigest
 	profile := r.Config.Profiles.Traefik.SSLIP
 	modeMatches := profile.Mode == SSLIPAutoFirstIP && observation.Endpoint.Source == SSLIPSourceServiceIP ||
 		profile.Mode == SSLIPVerifiedStaticIP && observation.Endpoint.PublicIPv4 == profile.StaticPublicIPv4
-	if !targetActive || targetState != string(StateReady) || targetDesiredDigest != desired.DesiredDigest || targetRuntimeDigest != configDigest ||
-		observation.Validate(desired) != nil || !targetLastObserved.Equal(observation.ObservedAt) || !modeMatches ||
+	if !targetActive || targetState != string(StateReady) || targetDesiredDigest != desired.DesiredDigest ||
+		observation.Validate(durableDesired) != nil || !targetLastObserved.Equal(observation.ObservedAt) || !modeMatches ||
 		observation.ObservedAt.After(now.UTC().Add(5*time.Second)) || observation.ObservedAt.Before(now.UTC().Add(-r.Config.ReadinessMaxAge)) {
-		return SSLIPHostnameResolution{}, ErrUnavailable
+		return SSLIPIngressObservation{}, ErrUnavailable
 	}
 	var workerReady bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM runtime_readiness WHERE runtime_kind='edge' AND scope_key='global'
-		AND contract_version=$1 AND config_digest=$2 AND (identity->>'targetCount')::integer=$3
-		  AND observed_at BETWEEN $4::timestamptz-make_interval(secs=>$5) AND $4::timestamptz+interval '5 seconds'
-		  AND lease_until>$4::timestamptz
-	)`, RuntimeContract, configDigest, r.Config.TargetCount(), now.UTC(), int64(r.Config.ReadinessMaxAge.Seconds())).Scan(&workerReady)
+		AND contract_version=$1 AND config_digest=$2
+		  AND (identity->>'targetCount')::integer=(SELECT count(*) FROM edge_runtime_targets WHERE active)
+		  AND observed_at BETWEEN $3::timestamptz-make_interval(secs=>$4) AND $3::timestamptz+interval '5 seconds'
+		  AND lease_until>$3::timestamptz
+	)`, RuntimeContract, targetRuntimeDigest, now.UTC(), int64(r.Config.ReadinessMaxAge.Seconds())).Scan(&workerReady)
 	if err != nil {
-		return SSLIPHostnameResolution{}, classifyPostgreSQL(err)
+		return SSLIPIngressObservation{}, classifyPostgreSQL(err)
 	}
 	if !workerReady {
-		return SSLIPHostnameResolution{}, ErrUnavailable
+		return SSLIPIngressObservation{}, ErrUnavailable
 	}
-	hostname, err := SSLIPHostname(request.ApplicationID, request.EnvironmentID, observation.Endpoint.PublicIPv4)
-	if err != nil {
-		return SSLIPHostnameResolution{}, ErrConflict
-	}
-	result := SSLIPHostnameResolution{Hostname: hostname, Source: observation.Endpoint.Source, ObservedAt: observation.ObservedAt.UTC()}
-	if result.Validate() != nil {
-		return SSLIPHostnameResolution{}, ErrConflict
-	}
-	return result, nil
+	return observation, nil
 }
 
 func (r *PostgreSQLSSLIPResolver) now() time.Time {

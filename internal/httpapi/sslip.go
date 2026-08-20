@@ -43,6 +43,7 @@ type SSLIPHostnamePreview struct {
 }
 
 type SSLIPHostnameResolver interface {
+	Probe(context.Context) error
 	ResolveSSLIPHostname(context.Context, SSLIPHostnameRequest) (SSLIPHostnamePreview, error)
 }
 
@@ -79,13 +80,17 @@ func (s *Server) sslipNoStore(next http.Handler) http.Handler {
 
 func (s *Server) sslipReady(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.sslip == nil || s.edgeReadiness == nil || !s.edgeFeatures.Traefik {
+		if s.sslip == nil || !s.edgeFeatures.Traefik {
 			sslipUnavailable(w, r)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
-		if err := s.edgeReadiness.Probe(ctx); err != nil {
+		// The resolver probes the exact current Traefik target. A global edge
+		// digest from API startup becomes stale when managed ExternalDNS targets
+		// are admitted or removed and must not disable an otherwise healthy
+		// Traefik/SSLIP path.
+		if err := s.sslip.Probe(ctx); err != nil {
 			sslipUnavailable(w, r)
 			return
 		}

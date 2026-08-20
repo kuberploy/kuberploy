@@ -132,7 +132,12 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 		certificateIssuerManagementConfigured = s.certificateIssuerRuntimeReadiness.Probe(ctx) == nil
 		cancel()
 	}
-	sslipConfigured := s.sslip != nil && edgeConfigured && s.edgeFeatures.Traefik
+	sslipConfigured := false
+	if s.sslip != nil && s.edgeFeatures.Traefik {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		sslipConfigured = s.sslip.Probe(ctx) == nil
+		cancel()
+	}
 	customCertificatesConfigured := false
 	if s.certificates != nil && s.certificateReadiness != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

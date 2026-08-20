@@ -19,10 +19,13 @@ import (
 )
 
 type sslipHTTPResolver struct {
-	preview httpapi.SSLIPHostnamePreview
-	err     error
-	request httpapi.SSLIPHostnameRequest
+	preview  httpapi.SSLIPHostnamePreview
+	err      error
+	probeErr error
+	request  httpapi.SSLIPHostnameRequest
 }
+
+func (r *sslipHTTPResolver) Probe(context.Context) error { return r.probeErr }
 
 func (r *sslipHTTPResolver) ResolveSSLIPHostname(_ context.Context, request httpapi.SSLIPHostnameRequest) (httpapi.SSLIPHostnamePreview, error) {
 	r.request = request
@@ -286,7 +289,7 @@ func TestSSLIPHostnameHTTPRejectsCallerFieldsAncestryAndInvalidObservation(t *te
 	}
 }
 
-func TestSSLIPCapabilityAndRouteRequireResolverTraefikAndFreshEdgeReadiness(t *testing.T) {
+func TestSSLIPCapabilityAndRouteRequireResolverTraefikAndFreshTargetReadiness(t *testing.T) {
 	for _, test := range []struct {
 		name      string
 		resolver  *sslipHTTPResolver
@@ -294,8 +297,7 @@ func TestSSLIPCapabilityAndRouteRequireResolverTraefikAndFreshEdgeReadiness(t *t
 		traefik   bool
 	}{
 		{name: "no resolver", readiness: &edgeHTTPReadiness{}, traefik: true},
-		{name: "no readiness", resolver: &sslipHTTPResolver{preview: validSSLIPPreview()}, traefik: true},
-		{name: "stale readiness", resolver: &sslipHTTPResolver{preview: validSSLIPPreview()}, readiness: &edgeHTTPReadiness{err: errors.New("stale")}, traefik: true},
+		{name: "stale target readiness", resolver: &sslipHTTPResolver{preview: validSSLIPPreview(), probeErr: errors.New("stale")}, readiness: &edgeHTTPReadiness{}, traefik: true},
 		{name: "no traefik", resolver: &sslipHTTPResolver{preview: validSSLIPPreview()}, readiness: &edgeHTTPReadiness{}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -311,4 +313,15 @@ func TestSSLIPCapabilityAndRouteRequireResolverTraefikAndFreshEdgeReadiness(t *t
 			}
 		})
 	}
+	t.Run("unrelated global digest is stale", func(t *testing.T) {
+		fixture := newSSLIPAPI(t, &sslipHTTPResolver{preview: validSSLIPPreview()}, &edgeHTTPReadiness{err: errors.New("stale global digest")}, true)
+		features := edgeFeatures(t, fixture.request(http.MethodGet, "/v1/capabilities", "", nil))
+		if !features["sslip"] {
+			t.Fatalf("healthy target-scoped sslip was not advertised: %#v", features)
+		}
+		response := fixture.request(http.MethodGet, "/v1/applications/"+fixture.application.ID+"/sslip-hostname?environmentId="+fixture.environment.ID, "", nil)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("status=%d", response.StatusCode)
+		}
+	})
 }

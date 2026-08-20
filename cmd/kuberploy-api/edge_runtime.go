@@ -41,6 +41,13 @@ func (c edgeCertificateIssuerCatalog) ApprovedCertificateIssuers(_ context.Conte
 
 type sslipHTTPResolver struct{ resolver *edge.PostgreSQLSSLIPResolver }
 
+func (r sslipHTTPResolver) Probe(ctx context.Context) error {
+	if r.resolver == nil {
+		return edge.ErrUnavailable
+	}
+	return r.resolver.Probe(ctx)
+}
+
 func (r sslipHTTPResolver) ResolveSSLIPHostname(ctx context.Context, request httpapi.SSLIPHostnameRequest) (httpapi.SSLIPHostnamePreview, error) {
 	if r.resolver == nil {
 		return httpapi.SSLIPHostnamePreview{}, edge.ErrUnavailable
