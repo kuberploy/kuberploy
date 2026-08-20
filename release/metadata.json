@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 019. RC274 refreshes Git projection generation and activation timestamps after repository I/O so concurrent runtime observations remain valid.",
+  "summary": "Schema 019. RC275 aligns ExternalDNS route selectors with immutable integration slugs and lets owners repair schema-valid configs whose runtime policy references became unavailable.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.274"
+  "version": "0.1.0-rc.275"
 }
