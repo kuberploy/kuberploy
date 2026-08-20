@@ -30,7 +30,7 @@ curl() {
     esac
   done
   [[ -n "${kp_output}" ]]
-  printf '{"source":{"ready":true},"lines":[{"message":"safe lifecycle event"}]}\n' >"${kp_output}"
+  printf '{"source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":false,"previous":false},"lines":[{"type":"line","source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":false,"previous":false},"message":"safe lifecycle event"}]}\n' >"${kp_output}"
   printf '200'
 }
 

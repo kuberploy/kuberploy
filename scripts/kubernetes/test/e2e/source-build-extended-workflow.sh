@@ -231,8 +231,16 @@ kp_assert_second_build_cache_hit() {
     --request GET --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/builds/${kp_build_id}/logs?follow=false&tailLines=2000&limitBytes=5242880")"
   [[ "${kp_actual}" == "200" ]]
-  jq -e '.source.ready == true' "${kp_logs}" >/dev/null ||
-    kp_die "second build did not expose a ready bounded build-log source"
+  jq -e '
+    .source as $source |
+    ($source.id | test("^build_[a-f0-9]{32}$")) and
+    (($source.ready | type) == "boolean") and $source.previous == false and
+    (.lines | type == "array" and length > 0) and
+    all(.lines[];
+      .type == "line" and .source.id == $source.id and
+      ((.source.ready | type) == "boolean") and .source.previous == false)
+  ' "${kp_logs}" >/dev/null ||
+    kp_die "second build did not expose a bounded verified build-log source"
 }
 
 kp_run_source_build_extended_workflow() {

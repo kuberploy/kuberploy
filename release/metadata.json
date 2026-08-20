@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 019. RC271 aligns source-build cache-hit qualification with the trusted cache projection and bounded safe logs while retaining RC270 worker stale-delivery recovery.",
+  "summary": "Schema 019. RC272 verifies completed source-build cache hits through trusted terminal metadata and bounded opaque logs while retaining RC270 worker stale-delivery recovery.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.271"
+  "version": "0.1.0-rc.272"
 }

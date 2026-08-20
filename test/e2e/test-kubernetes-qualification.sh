@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.271"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.272"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
@@ -523,7 +523,7 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/65656565-*/retry 
   esac
   printf '202'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/67676767-*/logs* ]]; then
-  printf '%s\n' '{"source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":true},"lines":[{"type":"line","source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":true},"message":"safe lifecycle event","truncated":false}],"bytes":20,"truncated":false,"observedAt":"2026-08-10T00:00:00Z"}' >"${kp_output}"; printf '200'
+  printf '%s\n' '{"source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":false,"previous":false},"lines":[{"type":"line","source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":false,"previous":false},"message":"safe lifecycle event","truncated":false}],"bytes":20,"truncated":false,"observedAt":"2026-08-10T00:00:00Z"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/67676767-* ]]; then
   printf '%s\n' '{"id":"67676767-6767-4767-8767-676767676767","state":"succeeded","cacheReuse":"hit","cacheReference":"registry.fixture.test/cache:generation-2","warnings":[],"image":{"reference":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/68686868-* ]]; then
