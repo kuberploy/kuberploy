@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC277 recovers changed operator-managed ExternalDNS runtime targets by advancing the exact durable integration revision before protected Git republish.",
+  "summary": "Schema 020. RC278 increments dynamic ExternalDNS readiness epochs when the exact runtime config identity changes so same-process lifecycle operations converge.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.277"
+  "version": "0.1.0-rc.278"
 }
