@@ -175,3 +175,26 @@ func TestExternalDNSRuntimeAdvancesExactConflictingDurableTarget(t *testing.T) {
 		t.Fatalf("runtime config-only change advanced=%v calls=%d err=%v", advanced, source.advances, err)
 	}
 }
+
+func TestExternalDNSReadinessEpochAdvancesOnlyAfterConfigAdmission(t *testing.T) {
+	runtime := &externalDNSOperationalRuntime{workerEpoch: 1}
+	first := "sha256:" + strings.Repeat("a", 64)
+	second := "sha256:" + strings.Repeat("b", 64)
+	if epoch := runtime.nextReadinessEpoch(first); epoch != 1 {
+		t.Fatalf("initial epoch=%d", epoch)
+	}
+	runtime.readinessConfigDigest = first
+	if epoch := runtime.nextReadinessEpoch(first); epoch != 1 {
+		t.Fatalf("unchanged config epoch=%d", epoch)
+	}
+	if epoch := runtime.nextReadinessEpoch(second); epoch != 2 {
+		t.Fatalf("changed config epoch=%d", epoch)
+	}
+	if epoch := runtime.nextReadinessEpoch(second); epoch != 2 {
+		t.Fatalf("unadmitted config consumed another epoch=%d", epoch)
+	}
+	runtime.workerEpoch, runtime.readinessConfigDigest = 2, second
+	if epoch := runtime.nextReadinessEpoch(second); epoch != 2 {
+		t.Fatalf("admitted config epoch=%d", epoch)
+	}
+}

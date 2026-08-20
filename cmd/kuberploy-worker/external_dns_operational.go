@@ -20,14 +20,16 @@ type externalDNSRuntimeStore interface {
 	RecordExternalDNSPublication(context.Context, string, int64, bool, string, string, time.Time) error
 }
 type externalDNSOperationalRuntime struct {
-	source    externalDNSRuntimeStore
-	edgeStore edgeRuntimeStore
-	observer  edge.TargetObserver
-	publisher *externaldns.ProtectedPublisher
-	base      edge.RuntimeConfig
-	config    externaldns.OperationalConfig
-	workerID  string
-	startedAt time.Time
+	source                externalDNSRuntimeStore
+	edgeStore             edgeRuntimeStore
+	observer              edge.TargetObserver
+	publisher             *externaldns.ProtectedPublisher
+	base                  edge.RuntimeConfig
+	config                externaldns.OperationalConfig
+	workerID              string
+	startedAt             time.Time
+	workerEpoch           int64
+	readinessConfigDigest string
 }
 
 func newExternalDNSOperationalRuntimeWithDatabase(ctx context.Context, databaseURL, host string, source externalDNSRuntimeStore, base edge.RuntimeConfig, config externaldns.OperationalConfig, git *gitProjectionRuntime) (*externalDNSOperationalRuntime, error) {
@@ -57,7 +59,7 @@ func newExternalDNSOperationalRuntimeWithDatabase(ctx context.Context, databaseU
 		store.Close()
 		return nil, err
 	}
-	return &externalDNSOperationalRuntime{source: source, edgeStore: store, observer: &edge.KubernetesTargetObserver{Reader: reader, Resolver: net.DefaultResolver}, publisher: publisher, base: base, config: config, workerID: owner, startedAt: started}, nil
+	return &externalDNSOperationalRuntime{source: source, edgeStore: store, observer: &edge.KubernetesTargetObserver{Reader: reader, Resolver: net.DefaultResolver}, publisher: publisher, base: base, config: config, workerID: owner, startedAt: started, workerEpoch: 1}, nil
 }
 
 func (r *externalDNSOperationalRuntime) desired(ctx context.Context) (edge.RuntimeConfig, error) {
@@ -155,6 +157,7 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 			now := time.Now().UTC()
 			if digestErr == nil && targetErr == nil {
 				revisionAdvanced := false
+				readinessEpoch := r.nextReadinessEpoch(digest)
 				err = r.edgeStore.SynchronizeTargets(ctx, digest, targets, now)
 				if errors.Is(err, edge.ErrConflict) {
 					var advanceErr error
@@ -166,9 +169,12 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 					}
 				}
 				if err == nil && !revisionAdvanced {
-					err = r.edgeStore.RecordReadiness(ctx, edge.Readiness{WorkerID: r.workerID, WorkerEpoch: 1, Contract: edge.RuntimeContract, ConfigDigest: digest, TargetCount: len(targets), StartedAt: r.startedAt, ObservedAt: now, LeaseUntil: now.Add(runtime.ReadinessMaxAge)})
+					err = r.edgeStore.RecordReadiness(ctx, edge.Readiness{WorkerID: r.workerID, WorkerEpoch: readinessEpoch, Contract: edge.RuntimeContract, ConfigDigest: digest, TargetCount: len(targets), StartedAt: r.startedAt, ObservedAt: now, LeaseUntil: now.Add(runtime.ReadinessMaxAge)})
+					if err == nil {
+						r.workerEpoch, r.readinessConfigDigest = readinessEpoch, digest
+					}
 				}
-				controller := &edge.RuntimeController{Store: r.edgeStore, Observer: r.observer, Config: runtime, WorkerID: r.workerID, WorkerEpoch: 1, Now: func() time.Time { return time.Now().UTC() }}
+				controller := &edge.RuntimeController{Store: r.edgeStore, Observer: r.observer, Config: runtime, WorkerID: r.workerID, WorkerEpoch: readinessEpoch, Now: func() time.Time { return time.Now().UTC() }}
 				for i := 0; err == nil && !revisionAdvanced && i < len(targets); i++ {
 					_, err = controller.Reconcile(ctx, digest)
 				}
@@ -183,6 +189,17 @@ func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (r *externalDNSOperationalRuntime) nextReadinessEpoch(configDigest string) int64 {
+	epoch := r.workerEpoch
+	if epoch < 1 {
+		epoch = 1
+	}
+	if r.readinessConfigDigest != "" && r.readinessConfigDigest != configDigest {
+		epoch++
+	}
+	return epoch
 }
 
 func (r *externalDNSOperationalRuntime) advanceConflictingExternalDNSRuntimeRevisions(ctx context.Context, targets []edge.DesiredTarget) (bool, error) {
