@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018. RC260 keeps email-only login, separates auth limits, cleans installer hooks and registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, qualifies independent retries, preserves safe build-log verifier causes, publishes automatically, and rejects stale installer versions before Argo drift.",
+  "summary": "Schema 018. RC261 keeps email-only login, separates auth limits, cleans installer hooks and registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, qualifies independent retries, preserves safe build-log scope stages, publishes automatically, and rejects stale installer versions before Argo drift.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.260"
+  "version": "0.1.0-rc.261"
 }

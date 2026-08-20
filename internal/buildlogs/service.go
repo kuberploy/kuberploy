@@ -115,25 +115,25 @@ func (s *Service) resolve(ctx context.Context, access AccessRequest) (Authorized
 		authorized.Attempt.PlanRequest.Build.OperationID != authorized.Attempt.ID || authorized.Attempt.PlanRequest.Build.Generation != authorized.Attempt.Generation ||
 		authorized.Attempt.PlanRequest.Build.ProjectID != authorized.ProjectID || authorized.Attempt.PlanRequest.Build.ServiceID != authorized.ApplicationID ||
 		authorized.Attempt.PlanRequest.Build.Commit != authorized.Attempt.CommitSHA || authorized.Attempt.CheckoutRequest.Commit != authorized.Attempt.CommitSHA {
-		return AuthorizedAttempt{}, ErrScopeViolation
+		return AuthorizedAttempt{}, scopeStage("resolve attempt binding")
 	}
 	plan, err := builder.PlanJob(authorized.Attempt.PlanRequest)
 	if err != nil || !builder.CanAdoptJob(plan.Job, authorized.Attempt.PlanRequest) {
-		return AuthorizedAttempt{}, ErrScopeViolation
+		return AuthorizedAttempt{}, scopeStage("resolve build plan")
 	}
 	metadata, _ := plan.Job["metadata"].(map[string]any)
 	if metadata["name"] != authorized.Attempt.JobName || metadata["namespace"] != authorized.Attempt.JobNamespace {
-		return AuthorizedAttempt{}, ErrScopeViolation
+		return AuthorizedAttempt{}, scopeStage("resolve Job identity")
 	}
 	// Resolver results are documented immutable, but deep-copy the durable
 	// attempt anyway so a follow session cannot race a mutable fake/cache.
 	encoded, err := json.Marshal(authorized.Attempt)
 	if err != nil {
-		return AuthorizedAttempt{}, ErrScopeViolation
+		return AuthorizedAttempt{}, scopeStage("clone authorized attempt")
 	}
 	var cloned builds.BuildAttempt
 	if err = json.Unmarshal(encoded, &cloned); err != nil {
-		return AuthorizedAttempt{}, ErrScopeViolation
+		return AuthorizedAttempt{}, scopeStage("decode authorized attempt")
 	}
 	authorized.Attempt = cloned
 	return authorized, nil
@@ -159,6 +159,10 @@ func wrapScopeStage(stage string, err error) error {
 		return fmt.Errorf("%s: %w", stage, ErrScopeViolation)
 	}
 	return err
+}
+
+func scopeStage(stage string) error {
+	return fmt.Errorf("%s: %w", stage, ErrScopeViolation)
 }
 
 func (s *Service) discover(ctx context.Context, authorized AuthorizedAttempt, previous bool) (sourceBinding, error) {
