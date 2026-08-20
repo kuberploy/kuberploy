@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
@@ -54,6 +55,21 @@ func remoteRateLimitSubject(r *http.Request) (string, error) {
 	value := r.RemoteAddr
 	if host, _, err := net.SplitHostPort(value); err == nil {
 		value = host
+	}
+	peer, err := netip.ParseAddr(value)
+	if err != nil || peer.Zone() != "" {
+		return "", errors.New("request client address is unavailable")
+	}
+	// The managed public path is Traefik -> web Nginx -> API. Traefik
+	// sanitizes X-Forwarded-For at the public boundary and Nginx appends its
+	// transport peer before forwarding to the API. The first address is
+	// therefore the client identity; Forwarded and X-Real-IP remain ignored.
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+		value, _, _ = strings.Cut(forwarded, ",")
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return "", errors.New("request forwarded client address is unavailable")
+		}
 	}
 	address, err := netip.ParseAddr(value)
 	if err != nil || address.Zone() != "" {

@@ -24,15 +24,47 @@ func (f *fixedHighRiskLimiter) Allow(_ context.Context, request ratelimit.Reques
 	return f.decision, f.err
 }
 
-func TestRemoteRateLimitSubjectUsesTransportPeerOnly(t *testing.T) {
+func TestRemoteRateLimitSubjectUsesSanitizedForwardedClient(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "https://kuberploy.example/v1/auth/bootstrap", nil)
-	request.RemoteAddr = "192.0.2.25:43100"
+	request.RemoteAddr = "10.42.0.230:43100"
 	request.Header.Set("Forwarded", "for=203.0.113.9")
 	request.Header.Set("X-Forwarded-For", "203.0.113.9")
 	request.Header.Set("X-Real-IP", "203.0.113.9")
 	subject, err := remoteRateLimitSubject(request)
-	if err != nil || subject != "ip:192.0.2.25" {
+	if err != nil || subject != "ip:203.0.113.9" {
 		t.Fatalf("subject=%q err=%v", subject, err)
+	}
+
+	request.Header.Set("X-Forwarded-For", "198.51.100.12, 10.42.0.28")
+	subject, err = remoteRateLimitSubject(request)
+	if err != nil || subject != "ip:198.51.100.12" {
+		t.Fatalf("multi-hop subject=%q err=%v", subject, err)
+	}
+
+	request.Header.Set("X-Forwarded-For", "not-an-ip")
+	if subject, err = remoteRateLimitSubject(request); err == nil || subject != "" {
+		t.Fatalf("malformed subject=%q err=%v", subject, err)
+	}
+
+	request.Header.Del("X-Forwarded-For")
+	subject, err = remoteRateLimitSubject(request)
+	if err != nil || subject != "ip:10.42.0.230" {
+		t.Fatalf("untrusted-header subject=%q err=%v", subject, err)
+	}
+}
+
+func TestHighRiskLimiterSeparatesClientsBehindManagedProxy(t *testing.T) {
+	limiter := &fixedHighRiskLimiter{decision: ratelimit.Decision{Allowed: true, Remaining: 4}}
+	server := &Server{highRiskLimiter: limiter}
+	handler := server.highRiskRemote(bootstrapLimit, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	for _, client := range []string{"198.51.100.12", "203.0.113.9"} {
+		request := httptest.NewRequest(http.MethodPost, "/v1/auth/login", nil)
+		request.RemoteAddr = "10.42.0.230:43100"
+		request.Header.Set("X-Forwarded-For", client+", 10.42.0.28")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	if len(limiter.requests) != 2 || limiter.requests[0].Subject != "ip:198.51.100.12" || limiter.requests[1].Subject != "ip:203.0.113.9" {
+		t.Fatalf("requests=%#v", limiter.requests)
 	}
 }
 

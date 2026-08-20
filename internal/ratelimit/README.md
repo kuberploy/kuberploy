@@ -23,7 +23,9 @@ management and runtime-secret writes. It returns `429`
 with a rounded-up `Retry-After` when the distributed decision denies a request.
 If Valkey is unavailable, these endpoints return retryable `503` with
 `Retry-After`; they never proceed through the memory fallback. Authenticated
-buckets use the already-authorized user ID. Unauthenticated buckets use only
-the transport peer address and deliberately ignore forwarding headers until a
-separately configured trusted-proxy boundary exists. Authorization is always
-evaluated independently and never cached here.
+buckets use the already-authorized user ID. Unauthenticated buckets use the
+first `X-Forwarded-For` address on the managed Traefik -> web Nginx -> API
+path; Traefik sanitizes that header at the public boundary and the API still
+validates the transport peer. Direct requests without that managed path use
+the transport peer, while `Forwarded` and `X-Real-IP` are ignored.
+Authorization is always evaluated independently and never cached here.

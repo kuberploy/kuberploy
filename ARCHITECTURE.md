@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-20, RC249): the production code paths now
+Current implementation status (2026-08-20, RC252): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary
@@ -2193,7 +2193,10 @@ deployment rollback as a new environment-policy-governed Git intent; server-side
 tag-to-digest resolution; reusable typed middleware profiles; human Git-backed
 project/environment VariableSet management; durable push auto-deploy policy UI,
 run history and readiness; verified push wake plus safety-poll repair; and
-server-derived `sslip.io` routes. Those paths are default-off where applicable
+server-derived `sslip.io` routes; email-only local authentication with separate
+display names; shadcn/Base confirmation dialogs; and startup retirement of
+unconfigured registry-pull artifacts while preserving rollback metadata. Those
+paths are default-off where applicable
 and remain capability-gated by their exact configuration and fresh runtime
 observations; they are not the unwired blockers described in earlier drafts.
 
