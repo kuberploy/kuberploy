@@ -476,11 +476,22 @@ func sourceBuildLogService(db *postgres.Store, sourceBuilds *sourceBuildAPI) (ht
 	if err != nil {
 		return nil, nil, err
 	}
-	service, err := httpapi.NewBuildLogService(db, sourceBuilds.backend, client)
+	// Build logs need the immutable execution binding (plan, namespace, Job
+	// name, and commit), not the API backend's deliberately bounded historical
+	// projection. The backend's Attempt method is correct for read-only API
+	// detail but cannot authorize a Kubernetes log source.
+	service, err := httpapi.NewBuildLogService(db, sourceBuildAttemptCatalog(sourceBuilds), client)
 	if err != nil {
 		return nil, nil, err
 	}
 	return service, client, nil
+}
+
+func sourceBuildAttemptCatalog(sourceBuilds *sourceBuildAPI) buildlogs.AttemptCatalog {
+	if sourceBuilds == nil {
+		return nil
+	}
+	return sourceBuilds.store
 }
 
 func runtimeViewService(db *postgres.Store) (httpapi.RuntimeViewService, httpapi.ReadinessProbe, error) {

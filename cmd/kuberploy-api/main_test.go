@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/kuberploy/kuberploy/internal/builds"
+)
 
 func TestRunRejectsNoncanonicalProviderCIDRBeforeDependencies(t *testing.T) {
 	t.Setenv("KUBERPLOY_EXTERNAL_EGRESS_CIDRS", "192.0.2.1/24")
@@ -35,7 +39,7 @@ func TestMonitoringClientConfigurationFailsClosed(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("KUBERPLOY_PROMETHEUS_URL", test.endpoint)
 			t.Setenv("KUBERPLOY_PROMETHEUS_BEARER_TOKEN_ENABLED", test.token)
-			service, err := monitoringClient(test.mode, "0.1.0-rc.264")
+			service, err := monitoringClient(test.mode, "0.1.0-rc.265")
 			if (err != nil) != test.wantError {
 				t.Fatalf("service=%T error=%v", service, err)
 			}
@@ -59,6 +63,14 @@ func TestSourceBuildLogServiceConfigurationFailsClosed(t *testing.T) {
 	t.Setenv("KUBERPLOY_BUILD_LOGS_ENABLED", "true")
 	if _, _, err = sourceBuildLogService(nil, nil); err == nil {
 		t.Fatal("build logs started without the source-build runtime")
+	}
+}
+
+func TestSourceBuildLogAttemptCatalogUsesExecutionStore(t *testing.T) {
+	store := &builds.PostgreSQLStore{}
+	source := &sourceBuildAPI{store: store}
+	if got := sourceBuildAttemptCatalog(source); got != store {
+		t.Fatalf("build log catalog=%T, want full execution store", got)
 	}
 }
 
