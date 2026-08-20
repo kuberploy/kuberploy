@@ -117,8 +117,14 @@ func (s *Service) resolve(ctx context.Context, access AccessRequest) (Authorized
 	if authorized.Attempt.ID != access.AttemptID || authorized.Attempt.ServiceID != authorized.ApplicationID || authorized.Attempt.ProjectID != authorized.ProjectID {
 		return AuthorizedAttempt{}, scopeStage("resolve attempt ownership")
 	}
-	if !kubeNamePattern.MatchString(authorized.Attempt.JobNamespace) || !kubeNamePattern.MatchString(authorized.Attempt.JobName) || authorized.Attempt.PlanRequest.Namespace != authorized.Attempt.JobNamespace {
-		return AuthorizedAttempt{}, scopeStage("resolve Job binding")
+	if !kubeNamePattern.MatchString(authorized.Attempt.JobNamespace) {
+		return AuthorizedAttempt{}, scopeStage("resolve Job namespace")
+	}
+	if !kubeNamePattern.MatchString(authorized.Attempt.JobName) {
+		return AuthorizedAttempt{}, scopeStage("resolve Job name")
+	}
+	if authorized.Attempt.PlanRequest.Namespace != authorized.Attempt.JobNamespace {
+		return AuthorizedAttempt{}, scopeStage("resolve Job namespace binding")
 	}
 	if authorized.Attempt.PlanRequest.Build.OperationID != authorized.Attempt.ID || authorized.Attempt.PlanRequest.Build.Generation != authorized.Attempt.Generation ||
 		authorized.Attempt.PlanRequest.Build.ProjectID != authorized.ProjectID || authorized.Attempt.PlanRequest.Build.ServiceID != authorized.ApplicationID {

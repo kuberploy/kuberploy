@@ -87,6 +87,35 @@ func TestSnapshotRejectsResolverScopeConfusion(t *testing.T) {
 	}
 }
 
+func TestSnapshotRejectsResolverJobBindingConfusion(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		stage string
+		mutate func(*AuthorizedAttempt)
+	}{
+		{name: "namespace", stage: "resolve Job namespace", mutate: func(authorized *AuthorizedAttempt) {
+			authorized.Attempt.JobNamespace = "Kuberploy-Build-Dind"
+		}},
+		{name: "name", stage: "resolve Job name", mutate: func(authorized *AuthorizedAttempt) {
+			authorized.Attempt.JobName = "Kuberploy-Build"
+		}},
+		{name: "namespace binding", stage: "resolve Job namespace binding", mutate: func(authorized *AuthorizedAttempt) {
+			authorized.Attempt.PlanRequest.Namespace = "other-build-namespace"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, resolver, auditor, client := newTestService(t)
+			test.mutate(&resolver.authorized)
+			if _, err := service.Snapshot(t.Context(), snapshotRequest()); !errors.Is(err, ErrScopeViolation) || !strings.Contains(err.Error(), test.stage) {
+				t.Fatalf("err=%v", err)
+			}
+			if len(auditor.events) != 0 || client.getJobs != 0 {
+				t.Fatal("invalid Job binding reached audit or Kubernetes")
+			}
+		})
+	}
+}
+
 func TestSnapshotRejectsJobSpecAndPodOwnerSubstitution(t *testing.T) {
 	t.Run("job spec", func(t *testing.T) {
 		service, _, _, client := newTestService(t)
