@@ -25,6 +25,7 @@ python3 "${kp_root}/release/test_check_public_source.py"
 python3 "${kp_root}/release/validate_source.py" --root "${kp_root}" >/dev/null
 python3 "${kp_root}/release/test_validate_source.py"
 "${kp_root}/scripts/helm/test-installer-dependency-packaging.sh"
+"${kp_root}/scripts/kubernetes/test-source-build-cache-hit.sh"
 (
   cd "${kp_root}/release/tools"
   go test ./...

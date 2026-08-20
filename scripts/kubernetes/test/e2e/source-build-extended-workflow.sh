@@ -221,14 +221,18 @@ kp_wait_auto_deploy_submission() {
 kp_assert_second_build_cache_hit() {
   local kp_build_id="${1:?build required}" kp_terminal="${2:?terminal evidence required}"
   local kp_logs="${3:?log evidence required}" kp_actual
-  jq -e '.state == "succeeded" and (.cacheReference|test("^.+:generation-[1-9][0-9]*$")) and
-    ((.warnings == null) or (.warnings | type == "array" and length == 0))' "${kp_terminal}" >/dev/null
+  # BuildKit's raw progress is intentionally private: an untrusted Dockerfile
+  # may print arbitrary process output, so the agent exposes the verified,
+  # server-owned cache classification instead of forwarding `CACHED` lines.
+  jq -e '.state == "succeeded" and .cacheReuse == "hit" and (.cacheReference|test("^.+:generation-[1-9][0-9]*$")) and
+    ((.warnings == null) or (.warnings | type == "array" and length == 0))' "${kp_terminal}" >/dev/null ||
+    kp_die "second build did not expose a verified cache hit"
   kp_actual="$(curl --silent --show-error --output "${kp_logs}" --write-out '%{http_code}' \
     --request GET --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/builds/${kp_build_id}/logs?follow=false&tailLines=2000&limitBytes=5242880")"
   [[ "${kp_actual}" == "200" ]]
-  jq -e '.source.ready == true and any(.lines[]; .message | test("(^|[[:space:]])CACHED([[:space:]]|$)"))' \
-    "${kp_logs}" >/dev/null || kp_die "second build did not expose an actual BuildKit cache hit"
+  jq -e '.source.ready == true' "${kp_logs}" >/dev/null ||
+    kp_die "second build did not expose a ready bounded build-log source"
 }
 
 kp_run_source_build_extended_workflow() {
