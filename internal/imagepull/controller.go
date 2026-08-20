@@ -80,6 +80,11 @@ func (c *RuntimeController) Run(ctx context.Context) error {
 	if err := c.preflightProjectedCredentials(ctx); err != nil {
 		return err
 	}
+	if reconciler, ok := c.Store.(ConfigurationReconciler); ok {
+		if _, err := reconciler.RetireUnconfiguredArtifacts(ctx, c.Config, c.now()); err != nil {
+			return err
+		}
+	}
 	digest, err := c.Config.Digest()
 	if err != nil {
 		return ErrUnavailable

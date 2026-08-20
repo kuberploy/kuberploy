@@ -17,6 +17,38 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{artifacts: make(map[ArtifactKey]Artifact), readiness: make(map[string]Readiness)}
 }
 
+func (s *MemoryStore) RetireUnconfiguredArtifacts(ctx context.Context, config RuntimeConfig, now time.Time) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if config.Validate() != nil || now.IsZero() {
+		return 0, ErrInvalid
+	}
+	now = now.UTC()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	retired := 0
+	for key, artifact := range s.artifacts {
+		if !artifact.Active || artifactMatchesConfig(artifact, config) {
+			continue
+		}
+		artifact.Active = false
+		artifact.UpdatedAt = now
+		clearArtifactLease(&artifact)
+		s.artifacts[key] = artifact
+		retired++
+	}
+	return retired, nil
+}
+
+func artifactMatchesConfig(artifact Artifact, config RuntimeConfig) bool {
+	profile, found := config.ProfileForTarget(artifact.RegistryTargetID)
+	return found && config.AllowsNamespace(artifact.Namespace) &&
+		artifact.PullCredentialRef == profile.CredentialRef &&
+		artifact.ProfileName == profile.Name && artifact.ProfileRevision == profile.Revision &&
+		artifact.SecretName == SecretName(artifact.Namespace, artifact.RegistryTargetID, profile.Revision)
+}
+
 func (s *MemoryStore) EnsureArtifact(ctx context.Context, desired DesiredArtifact, now time.Time) (Artifact, error) {
 	if err := ctx.Err(); err != nil {
 		return Artifact{}, err

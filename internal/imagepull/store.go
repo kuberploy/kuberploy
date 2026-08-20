@@ -16,3 +16,10 @@ type Store interface {
 	RecordReadiness(context.Context, Readiness) error
 	RuntimeReady(context.Context, string, string, int, time.Time) error
 }
+
+// ConfigurationReconciler retires durable artifact rows that no longer match
+// the operator's current namespace/profile authority. Rows remain available
+// for explicit rollback, but inactive rows are never claimed by the worker.
+type ConfigurationReconciler interface {
+	RetireUnconfiguredArtifacts(context.Context, RuntimeConfig, time.Time) (int, error)
+}

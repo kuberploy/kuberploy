@@ -19,6 +19,66 @@ func NewPostgreSQLStore(pool *pgxpool.Pool) (*PostgreSQLStore, error) {
 	return &PostgreSQLStore{pool: pool}, nil
 }
 
+// RetireUnconfiguredArtifacts runs at worker startup after the projected
+// credential preflight. It stops claiming artifacts from an old operator
+// profile or namespace while retaining their immutable rows for rollback.
+func (s *PostgreSQLStore) RetireUnconfiguredArtifacts(ctx context.Context, config RuntimeConfig, now time.Time) (int, error) {
+	if s == nil || s.pool == nil || config.Validate() != nil || now.IsZero() {
+		return 0, ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err := tx.Query(ctx, `SELECT environment_id::text,namespace,registry_target_id::text,
+		pull_credential_ref,profile_name,profile_revision,secret_name
+		FROM runtime_registry_pull_artifacts WHERE active FOR UPDATE`)
+	if err != nil {
+		return 0, classifyPostgres(err)
+	}
+	type artifactIdentity struct {
+		environmentID, namespace, targetID, pullCredentialRef, profileName, secretName string
+		profileRevision                                                                int64
+	}
+	active := make([]artifactIdentity, 0)
+	for rows.Next() {
+		var identity artifactIdentity
+		if err = rows.Scan(&identity.environmentID, &identity.namespace, &identity.targetID,
+			&identity.pullCredentialRef, &identity.profileName, &identity.profileRevision, &identity.secretName); err != nil {
+			rows.Close()
+			return 0, classifyPostgres(err)
+		}
+		active = append(active, identity)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, classifyPostgres(err)
+	}
+	rows.Close()
+	retired := 0
+	for _, identity := range active {
+		profile, found := config.ProfileForTarget(identity.targetID)
+		if found && config.AllowsNamespace(identity.namespace) && identity.pullCredentialRef == profile.CredentialRef &&
+			identity.profileName == profile.Name && identity.profileRevision == profile.Revision &&
+			identity.secretName == SecretName(identity.namespace, identity.targetID, profile.Revision) {
+			continue
+		}
+		if _, err = tx.Exec(ctx, `UPDATE runtime_registry_pull_artifacts
+			SET active=false,lease_owner=NULL,lease_until=NULL,worker_contract=NULL,
+				worker_config_digest=NULL,updated_at=$2
+			WHERE environment_id=$1 AND registry_target_id=$3 AND profile_revision=$4 AND active`,
+			identity.environmentID, now.UTC(), identity.targetID, identity.profileRevision); err != nil {
+			return 0, classifyPostgres(err)
+		}
+		retired++
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, classifyPostgres(err)
+	}
+	return retired, nil
+}
+
 func OpenPostgreSQLStore(ctx context.Context, databaseURL string) (*PostgreSQLStore, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {

@@ -182,4 +182,18 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 	if err = store.RecordReadiness(ctx, readiness); !errors.Is(err, ErrConflict) {
 		t.Fatalf("skipped readiness epoch=%v", err)
 	}
+	config := DefaultRuntimeConfig()
+	config.Enabled = true
+	config.Namespaces = []string{namespace}
+	config.Profiles = []Profile{{Name: "integration", TargetID: targetID, RegistryServer: "registry.integration.test",
+		CredentialRef: pullRef, Revision: 1, SourceSecretRef: "registry-pull-integration", SourceSecretKey: ".dockerconfigjson"}}
+	if err = config.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if retired, retireErr := store.RetireUnconfiguredArtifacts(ctx, config, now.Add(8*time.Minute)); retireErr != nil || retired != 1 {
+		t.Fatalf("stale profile retirement count=%d err=%v", retired, retireErr)
+	}
+	if latest, loadErr := store.Artifact(ctx, rotated.ArtifactKey); loadErr != nil || latest.Active {
+		t.Fatalf("stale profile remained active: %#v err=%v", latest, loadErr)
+	}
 }

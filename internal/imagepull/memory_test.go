@@ -55,6 +55,41 @@ func TestMemoryArtifactRotationIsAtomicAndOldSecretIsRetainedInactive(t *testing
 	}
 }
 
+func TestMemoryConfigurationReconciliationRetiresOldProfileWithoutDeletingRollbackRows(t *testing.T) {
+	store := NewMemoryStore()
+	now := time.Date(2026, 8, 9, 2, 30, 0, 0, time.UTC)
+	current := desiredArtifact(t, 3)
+	rotated := desiredArtifact(t, 4)
+	if _, err := store.EnsureArtifact(t.Context(), current, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.EnsureArtifact(t.Context(), rotated, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	retired, err := store.RetireUnconfiguredArtifacts(t.Context(), testRuntimeConfig(), now.Add(2*time.Minute))
+	if err != nil || retired != 1 {
+		t.Fatalf("retired=%d err=%v", retired, err)
+	}
+	old, err := store.Artifact(t.Context(), current.ArtifactKey)
+	if err != nil || old.Active {
+		t.Fatalf("old rollback row missing or unexpectedly active: %#v err=%v", old, err)
+	}
+	latest, err := store.Artifact(t.Context(), rotated.ArtifactKey)
+	if err != nil || latest.Active {
+		t.Fatalf("old profile remained claimable: %#v err=%v", latest, err)
+	}
+	if _, err = store.EnsureArtifact(t.Context(), current, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if retained, err := store.RetireUnconfiguredArtifacts(t.Context(), testRuntimeConfig(), now.Add(4*time.Minute)); err != nil || retained != 0 {
+		t.Fatalf("current profile was retired: count=%d err=%v", retained, err)
+	}
+	currentRow, _ := store.Artifact(t.Context(), current.ArtifactKey)
+	if !currentRow.Active {
+		t.Fatalf("current profile was not retained: %#v", currentRow)
+	}
+}
+
 func TestMemoryArtifactLeaseFencesRotationHeartbeatAndResult(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 8, 9, 3, 0, 0, 0, time.UTC)
