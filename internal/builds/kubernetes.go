@@ -111,8 +111,8 @@ func VerifyObservedBuildJob(attempt BuildAttempt, live map[string]any) (Observed
 		return ObservedBuildJob{}, ErrInvalid
 	}
 	desired := withInputDigest(plan.Job, attempt.InputDigest)
-	if validateLiveJob(live, desired) != nil {
-		return ObservedBuildJob{}, ErrInfrastructure
+	if validationErr := validateLiveJob(live, desired); validationErr != nil {
+		return ObservedBuildJob{}, validationErr
 	}
 	metadata, _ := live["metadata"].(map[string]any)
 	uid, _ := metadata["uid"].(string)
@@ -147,8 +147,11 @@ func observableBuildAttemptState(state AttemptState) bool {
 // The caller must still re-read and compare the Pod UID immediately before
 // opening the log subresource to close delete/recreate races.
 func VerifyObservedBuildPod(job ObservedBuildJob, live map[string]any) (ObservedBuildPod, error) {
-	if job.object == nil || job.Namespace == "" || job.Name == "" || job.UID == "" || validateBuildPod(live, job.object) != nil {
+	if job.object == nil || job.Namespace == "" || job.Name == "" || job.UID == "" {
 		return ObservedBuildPod{}, ErrInfrastructure
+	}
+	if validationErr := validateBuildPod(live, job.object); validationErr != nil {
+		return ObservedBuildPod{}, validationErr
 	}
 	metadata, _ := live["metadata"].(map[string]any)
 	uid, _ := metadata["uid"].(string)

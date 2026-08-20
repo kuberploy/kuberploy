@@ -2,6 +2,7 @@ package builds
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -45,12 +46,12 @@ func TestBuildLogObservationVerifierReusesExactControllerIdentity(t *testing.T) 
 
 	mutatedJob := cloneMap(liveJob)
 	mutatedJob["spec"].(map[string]any)["parallelism"] = int64(2)
-	if _, err = VerifyObservedBuildJob(attempt, mutatedJob); !errors.Is(err, ErrInfrastructure) {
+	if _, err = VerifyObservedBuildJob(attempt, mutatedJob); !errors.Is(err, ErrInfrastructure) || !strings.Contains(err.Error(), "normalized Job spec") {
 		t.Fatalf("mutated Job accepted: %v", err)
 	}
 	wrongOwner := cloneMap(pod)
 	wrongOwner["metadata"].(map[string]any)["ownerReferences"].([]any)[0].(map[string]any)["uid"] = "66666666-6666-4666-8666-666666666666"
-	if _, err = VerifyObservedBuildPod(job, wrongOwner); !errors.Is(err, ErrInfrastructure) {
+	if _, err = VerifyObservedBuildPod(job, wrongOwner); !errors.Is(err, ErrInfrastructure) || !strings.Contains(err.Error(), "controller owner") {
 		t.Fatalf("foreign owner accepted: %v", err)
 	}
 	missingAgent := cloneMap(pod)
