@@ -6,6 +6,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -419,8 +420,15 @@ func (p *EdgeRouteReferencePolicy) runtimeConfigTx(ctx context.Context, tx pgx.T
 	}
 	runtime := p.Config
 	runtime.Enabled = true
+	sortExternalDNSProfiles(profiles)
 	runtime.Profiles.ExternalDNS = profiles
 	return runtime, runtime.Validate()
+}
+
+func sortExternalDNSProfiles(profiles []edge.ExternalDNSProfile) {
+	slices.SortFunc(profiles, func(left, right edge.ExternalDNSProfile) int {
+		return strings.Compare(left.IntegrationID, right.IntegrationID)
+	})
 }
 
 func routeDiagnosticForAll(routes []AppConfigRouteDocument, code, detail, suffix string) []gitprojection.Diagnostic {
