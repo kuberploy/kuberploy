@@ -16,6 +16,7 @@ import (
 
 type externalDNSRuntimeStore interface {
 	ListExternalDNSIntegrationsForRuntime(context.Context, int) ([]domain.ExternalDNSIntegration, error)
+	AdvanceExternalDNSRuntimeRevision(context.Context, string, int64, string, time.Time) error
 	RecordExternalDNSPublication(context.Context, string, int64, bool, string, string, time.Time) error
 }
 type externalDNSOperationalRuntime struct {
@@ -71,6 +72,13 @@ func (r *externalDNSOperationalRuntime) desired(ctx context.Context) (edge.Runti
 	}
 	for _, item := range items {
 		if item.Mode == externaldns.ModeManaged {
+			if externalDNSRuntimeRevisionAdvanceNeeded(item, r.config.Template) {
+				if err = r.source.AdvanceExternalDNSRuntimeRevision(ctx, item.ID, item.RuntimeRevision, item.ProtectedGitContentDigest, time.Now().UTC()); err != nil {
+					return edge.RuntimeConfig{}, err
+				}
+				item.RuntimeRevision++
+				item.ProtectedGitState, item.ProtectedGitRevision, item.ProtectedGitContentDigest, item.ProtectedGitCommit, item.ProtectedGitObservedAt = "pending", 0, "", "", nil
+			}
 			var profile edge.ExternalDNSProfile
 			if item.Lifecycle == "active" {
 				profile, err = externaldns.ManagedProfile(item, r.config.Template)
@@ -122,6 +130,15 @@ func externalDNSPublicationNeeded(item domain.ExternalDNSIntegration, template e
 	}
 	contentDigest, err := externaldns.ManagedBundleDigest(item, template)
 	return err != nil || contentDigest != item.ProtectedGitContentDigest
+}
+
+func externalDNSRuntimeRevisionAdvanceNeeded(item domain.ExternalDNSIntegration, template externaldns.ManagedRuntimeTemplate) bool {
+	if item.Mode != externaldns.ModeManaged || item.Lifecycle != "active" || item.ProtectedGitState != "materialized" ||
+		item.ProtectedGitRevision != item.RuntimeRevision || item.ProtectedGitCommit == "" || item.ProtectedGitContentDigest == "" {
+		return false
+	}
+	contentDigest, err := externaldns.ManagedBundleDigest(item, template)
+	return err == nil && contentDigest != item.ProtectedGitContentDigest
 }
 
 func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {

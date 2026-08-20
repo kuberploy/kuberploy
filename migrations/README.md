@@ -53,6 +53,12 @@ current policy, runtime, bytes, route, and projection freshness; the referenced
 command's policy digest is immutable origin metadata and is not required to
 match it.
 
+Migration `020_external_dns_runtime_republish` lets the trusted managed
+ExternalDNS reconciler advance one exact runtime revision when a release
+changes the protected runtime bundle without changing operator input. The
+advance is accepted only while resetting an exact materialized receipt to
+pending; stale publication and edge-observation revisions remain fenced.
+
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
 foreign-key fences. The application does not use Prisma relation emulation;

@@ -75,6 +75,43 @@ func (s *Store) RecordExternalDNSPublication(ctx context.Context, integrationID 
 	return nil
 }
 
+func (s *Store) AdvanceExternalDNSRuntimeRevision(ctx context.Context, integrationID string, revision int64, contentDigest string, changedAt time.Time) error {
+	if revision < 1 || contentDigest == "" || changedAt.IsZero() {
+		return base.ErrConflict
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	item, err := externalDNSIntegration(ctx, tx, integrationID, true)
+	if err != nil {
+		return err
+	}
+	if item.Lifecycle != "active" || item.RuntimeRevision != revision || item.ProtectedGitState != "materialized" ||
+		item.ProtectedGitRevision != revision || item.ProtectedGitContentDigest != contentDigest {
+		return base.ErrConflict
+	}
+	now := databaseTime(changedAt)
+	result, err := tx.Exec(ctx, `UPDATE external_dns_integrations SET runtime_revision=runtime_revision+1,updated_at=$4,
+		protected_git_state='pending',protected_git_revision=NULL,protected_git_content_digest='',protected_git_commit='',protected_git_observed_at=NULL
+		WHERE id=$1 AND runtime_revision=$2 AND lifecycle='active' AND protected_git_state='materialized'
+		  AND protected_git_revision=$2 AND protected_git_content_digest=$3`, integrationID, revision, contentDigest, now)
+	if err != nil {
+		return classify(err)
+	}
+	if result.RowsAffected() != 1 {
+		return base.ErrConflict
+	}
+	if err = invalidateExternalDNSProjectionBindings(ctx, tx, item.EnvironmentIDs, now); err != nil {
+		return err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return classify(err)
+	}
+	return nil
+}
+
 func (s *Store) CreateExternalDNSIntegrationForActor(ctx context.Context, actor, key, fingerprint, requestID string, integration domain.ExternalDNSIntegration) (base.Result[domain.ExternalDNSIntegration], error) {
 	if err := externaldns.Validate(integration); err != nil {
 		return base.Result[domain.ExternalDNSIntegration]{}, err

@@ -19,7 +19,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is published in the
 // immutable release manifest for Helm-driven install and upgrade qualification.
-const CurrentSchema = "019_helm_no_change_policy_materialization"
+const CurrentSchema = "020_external_dns_runtime_republish"
 
 // RecoverableRC171Migration identifies the one published migration failure
 // whose rolled-back Prisma evidence may coexist with the canonical successful

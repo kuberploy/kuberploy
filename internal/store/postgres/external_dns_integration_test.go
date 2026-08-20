@@ -220,6 +220,18 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 	if _, err = st.ListExternalDNSIntegrationsForActor(ctx, viewerID); !errors.Is(err, base.ErrForbidden) && !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("application grant crossed into platform metadata: %v", err)
 	}
+	republishAt := databaseTime(time.Now())
+	if err = st.AdvanceExternalDNSRuntimeRevision(ctx, integration.ID, 1, contentDigest, republishAt); err != nil {
+		t.Fatalf("managed runtime republish advance: %v", err)
+	}
+	runtimeItems, err = st.ListExternalDNSIntegrationsForRuntime(ctx, 64)
+	runtimeItem, found = findExternalDNSRuntimeItem(runtimeItems, integration.ID)
+	if err != nil || !found || runtimeItem.RuntimeRevision != 2 || runtimeItem.ProtectedGitState != "pending" || runtimeItem.ProtectedGitRevision != 0 {
+		t.Fatalf("managed runtime republish state=%#v err=%v", runtimeItem, err)
+	}
+	if err = st.AdvanceExternalDNSRuntimeRevision(ctx, integration.ID, 1, contentDigest, republishAt.Add(time.Second)); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("stale managed runtime republish CAS accepted: %v", err)
+	}
 
 	updated := created.Value
 	updated.Name = "Updated DNS " + identity
@@ -227,7 +239,7 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 	if err != nil || updateResult.Replay || updateResult.Value.Name != updated.Name {
 		t.Fatalf("update=%#v err=%v", updateResult, err)
 	}
-	if updateResult.Value.RuntimeRevision != 2 || updateResult.Value.ProtectedGitState != "pending" {
+	if updateResult.Value.RuntimeRevision != 3 || updateResult.Value.ProtectedGitState != "pending" {
 		t.Fatalf("update did not advance exact runtime revision: %#v", updateResult.Value)
 	}
 	if err = st.RecordExternalDNSPublication(ctx, integration.ID, 1, false, contentDigest, commit, databaseTime(time.Now())); !errors.Is(err, base.ErrConflict) {
@@ -242,11 +254,11 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 	if _, err = st.pool.Exec(ctx, `UPDATE external_dns_integrations SET runtime_revision=runtime_revision+1 WHERE id=$1`, integration.ID); err == nil {
 		t.Fatal("runtime revision advanced without desired-state change")
 	}
-	if err = st.RecordExternalDNSPublication(ctx, integration.ID, 2, false, contentDigest, commit, databaseTime(time.Now())); err != nil {
+	if err = st.RecordExternalDNSPublication(ctx, integration.ID, 3, false, contentDigest, commit, databaseTime(time.Now())); err != nil {
 		t.Fatalf("current publication rejected: %v", err)
 	}
 	noOpUpdate, err := st.UpdateExternalDNSIntegrationForActor(ctx, actorID, "dns-noop-update-"+identity, "dns-noop-update-fingerprint-"+identity, "request-noop-update-"+identity, updated)
-	if err != nil || noOpUpdate.Value.ProtectedGitState != "materialized" || noOpUpdate.Value.ProtectedGitRevision != 2 || noOpUpdate.Value.ProtectedGitCommit != commit {
+	if err != nil || noOpUpdate.Value.ProtectedGitState != "materialized" || noOpUpdate.Value.ProtectedGitRevision != 3 || noOpUpdate.Value.ProtectedGitCommit != commit {
 		t.Fatalf("no-op update lost protected Git metadata: %#v err=%v", noOpUpdate, err)
 	}
 	reinvalidatedBinding, err := projectionStore.Binding(ctx, projectionBinding.ID)
@@ -300,7 +312,7 @@ func TestExternalDNSManagementSQLPaths(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("pending dematerialization missing: %#v %v", runtimeItems, err)
 	}
-	if err = st.RecordExternalDNSPublication(ctx, integration.ID, 2, true, "", strings.Repeat("e", 40), databaseTime(time.Now())); err != nil {
+	if err = st.RecordExternalDNSPublication(ctx, integration.ID, 3, true, "", strings.Repeat("e", 40), databaseTime(time.Now())); err != nil {
 		t.Fatalf("dematerialization receipt: %v", err)
 	}
 	runtimeItems, err = st.ListExternalDNSIntegrationsForRuntime(ctx, 64)

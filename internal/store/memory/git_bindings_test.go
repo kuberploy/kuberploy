@@ -168,3 +168,38 @@ func TestExternalDNSChangedUpdateClearsProtectedGitMetadata(t *testing.T) {
 		t.Fatalf("changed update retained protected Git metadata: %#v", result.Value)
 	}
 }
+
+func TestExternalDNSManagedRuntimeRepublishAdvancesRevision(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	project, err := store.CreateProject(ctx, admin.ID, "dns-republish-project", "dns-republish-project", domain.CreateProject{Name: "DNS republish", Slug: "dns-republish"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := store.CreateEnvironment(ctx, admin.ID, "dns-republish-environment", "dns-republish-environment", domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	integration := domain.ExternalDNSIntegration{ID: id.New(), Slug: "republish-dns", Name: "Republish DNS", Mode: "managed", ProviderKind: "cloudflare", TXTOwnerID: "kuberploy.republish",
+		AllowedDomainSuffixes: []string{"example.com"}, SyncPolicy: "upsert-only", CredentialSecretRef: "dns-credentials", ProviderConfigRef: "cloudflare-provider",
+		EgressConfigRef: "internet-egress", EnvironmentIDs: []string{environment.Value.ID}}
+	created, err := store.CreateExternalDNSIntegrationForActor(ctx, admin.ID, "dns-republish-create", "dns-republish-create", "dns-republish-create", integration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("a", 64)
+	if err = store.RecordExternalDNSPublication(ctx, created.Value.ID, 1, false, digest, strings.Repeat("b", 40), time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.AdvanceExternalDNSRuntimeRevision(ctx, created.Value.ID, 1, digest, time.Now().UTC().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.ListExternalDNSIntegrationsForRuntime(ctx, 64)
+	if err != nil || len(items) != 1 || items[0].RuntimeRevision != 2 || items[0].ProtectedGitState != "pending" || items[0].ProtectedGitRevision != 0 {
+		t.Fatalf("runtime republish state=%#v err=%v", items, err)
+	}
+	if err = store.AdvanceExternalDNSRuntimeRevision(ctx, created.Value.ID, 1, digest, time.Now().UTC().Add(2*time.Second)); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("stale runtime republish CAS accepted: %v", err)
+	}
+}

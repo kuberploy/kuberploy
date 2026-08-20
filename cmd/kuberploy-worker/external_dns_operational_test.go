@@ -42,6 +42,13 @@ func TestExternalDNSPublicationNeededOnlyForUnmaterializedOrChangedContent(t *te
 	if externalDNSPublicationNeeded(item, template) {
 		t.Fatal("unchanged materialized integration should not republish")
 	}
+	if externalDNSRuntimeRevisionAdvanceNeeded(item, template) {
+		t.Fatal("unchanged materialized integration should not advance runtime revision")
+	}
+	item.ProtectedGitContentDigest = "sha256:" + strings.Repeat("d", 64)
+	if !externalDNSRuntimeRevisionAdvanceNeeded(item, template) {
+		t.Fatal("changed managed bundle must advance runtime revision before republishing")
+	}
 
 	item.RuntimeRevision++
 	if !externalDNSPublicationNeeded(item, template) {

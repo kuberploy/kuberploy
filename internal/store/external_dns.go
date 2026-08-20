@@ -17,5 +17,6 @@ type ExternalDNSStore interface {
 	ExternalDNSIntegrationsForEnvironmentActor(context.Context, string, string) ([]domain.ExternalDNSIntegration, error)
 	ExternalDNSIntegrationsForApplicationActor(context.Context, string, string, string) ([]domain.ExternalDNSIntegration, error)
 	ListExternalDNSIntegrationsForRuntime(context.Context, int) ([]domain.ExternalDNSIntegration, error)
+	AdvanceExternalDNSRuntimeRevision(context.Context, string, int64, string, time.Time) error
 	RecordExternalDNSPublication(context.Context, string, int64, bool, string, string, time.Time) error
 }

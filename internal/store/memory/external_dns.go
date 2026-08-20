@@ -185,6 +185,22 @@ func (s *Store) RecordExternalDNSPublication(_ context.Context, integrationID st
 	return nil
 }
 
+func (s *Store) AdvanceExternalDNSRuntimeRevision(_ context.Context, integrationID string, revision int64, contentDigest string, changedAt time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item, ok := s.externalDNSIntegrations[integrationID]
+	if !ok || revision < 1 || changedAt.IsZero() || item.Lifecycle != "active" || item.RuntimeRevision != revision ||
+		item.ProtectedGitState != "materialized" || item.ProtectedGitRevision != revision || item.ProtectedGitContentDigest != contentDigest || contentDigest == "" {
+		return base.ErrConflict
+	}
+	item.RuntimeRevision++
+	item.ProtectedGitState, item.ProtectedGitRevision, item.ProtectedGitContentDigest, item.ProtectedGitCommit, item.ProtectedGitObservedAt = "pending", 0, "", "", nil
+	item.UpdatedAt = changedAt.UTC()
+	s.externalDNSIntegrations[integrationID] = cloneExternalDNSIntegration(item)
+	s.invalidateExternalDNSProjectionBindingsLocked(item.EnvironmentIDs, item.UpdatedAt)
+	return nil
+}
+
 func (s *Store) invalidateExternalDNSProjectionBindingsLocked(environmentIDs []string, changedAt time.Time) {
 	seen := make(map[string]struct{}, len(environmentIDs))
 	for _, environmentID := range environmentIDs {
