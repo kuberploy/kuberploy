@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC278 increments dynamic ExternalDNS readiness epochs when the exact runtime config identity changes so same-process lifecycle operations converge.",
+  "summary": "Schema 020. RC279 keeps SSLIP available when managed ExternalDNS changes the worker runtime by binding readiness to the exact current Traefik observation and admitted runtime identity.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.278"
+  "version": "0.1.0-rc.279"
 }
