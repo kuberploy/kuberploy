@@ -77,14 +77,18 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.259 \
+  --version 0.1.0-rc.260 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
+  --reset-values \
   --server-side=false \
   --wait
 ```
 
-Keep `--server-side=false` on every upgrade. Argo CD legitimately records
+Keep `--reset-values` and `--server-side=false` on every upgrade. The enabled
+child package versions must match the installer chart version; reusing stored
+values can retain an older RC and is rejected before Argo resources are
+changed. Argo CD legitimately records
 server-side managed-field ownership while reconciling its `Application`
 objects; Helm's client-side three-way update avoids force-taking that live
 ownership while still applying the explicit installer package delta.

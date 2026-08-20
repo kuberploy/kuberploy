@@ -172,6 +172,10 @@ def main() -> None:
         raise SystemExit(
             "README must state the supported Prisma-backed upgrade and unsupported pre-Prisma boundary"
         )
+    if "--reset-values" not in readme or "--reuse-values" not in readme:
+        raise SystemExit(
+            "README must document reset-values upgrades and reject reuse-values drift"
+        )
     if args.tag and args.tag != f"v{version}":
         raise SystemExit(f"tag {args.tag} does not match source version v{version}")
     validate_stable_qualification(args.root, version)

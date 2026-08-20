@@ -74,6 +74,7 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- $name := index . 0 -}}
 {{- $component := index . 1 -}}
 {{- $adoptable := index . 2 -}}
+{{- $chartVersion := index . 3 -}}
 {{- if and $component.enabled (eq $component.mode "disabled") -}}
   {{- fail (printf "components.%s requires an explicit managed or adopted mode" $name) -}}
 {{- end -}}
@@ -89,6 +90,9 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
 {{- if $component.enabled -}}
   {{- if not (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-rc\\.[0-9]+)?$" $component.expectedPackageVersion) -}}
     {{- fail (printf "components.%s.expectedPackageVersion must be an explicit semantic version" $name) -}}
+  {{- end -}}
+  {{- if ne $component.expectedPackageVersion $chartVersion -}}
+    {{- fail (printf "components.%s.expectedPackageVersion must match installer chart version %s; use the release values file with --reset-values instead of --reuse-values" $name $chartVersion) -}}
   {{- end -}}
   {{- range $valueFile := $component.valueFiles -}}
     {{- $relative := trimPrefix "examples/installer/" $valueFile -}}
@@ -123,17 +127,17 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- end -}}
 {{- end -}}
 
-{{- include "kuberploy-installer.validateComponent" (list "controlPlane" .Values.components.controlPlane false) -}}
-{{- include "kuberploy-installer.validateComponent" (list "postgresql" .Values.components.postgresql true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "valkey" .Values.components.valkey true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "edge" .Values.components.edge true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "certManager" .Values.components.certManager true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "externalDNS" .Values.components.externalDNS true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "externalSecrets" .Values.components.externalSecrets true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "sealedSecrets" .Values.components.sealedSecrets true) -}}
-{{- include "kuberploy-installer.validateComponent" (list "monitoring" .Values.components.monitoring false) -}}
-{{- include "kuberploy-installer.validateComponent" (list "builder" .Values.components.builder false) -}}
-{{- include "kuberploy-installer.validateComponent" (list "registry" .Values.components.registry false) -}}
+{{- include "kuberploy-installer.validateComponent" (list "controlPlane" .Values.components.controlPlane false .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "postgresql" .Values.components.postgresql true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "valkey" .Values.components.valkey true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "edge" .Values.components.edge true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "certManager" .Values.components.certManager true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "externalDNS" .Values.components.externalDNS true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "externalSecrets" .Values.components.externalSecrets true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "sealedSecrets" .Values.components.sealedSecrets true .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "monitoring" .Values.components.monitoring false .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "builder" .Values.components.builder false .Chart.Version) -}}
+{{- include "kuberploy-installer.validateComponent" (list "registry" .Values.components.registry false .Chart.Version) -}}
 
 {{- $token := .Values.bootstrap.controlPlaneToken -}}
 {{- if .Values.components.controlPlane.enabled -}}

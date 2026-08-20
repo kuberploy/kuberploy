@@ -166,6 +166,17 @@ def main() -> None:
             raise SystemExit("validator accepted CI without deterministic Helm dependency preparation")
         (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
 
+        readme = fixture / "README.md"
+        readme_text = readme.read_text(encoding="utf-8")
+        readme.write_text(readme_text.replace("--reset-values", "--reuse-values"), encoding="utf-8")
+        missing_reset_values = run_validator(root, fixture, workflow)
+        if missing_reset_values.returncode == 0 or "reset-values upgrades" not in (
+            missing_reset_values.stdout + missing_reset_values.stderr
+        ):
+            raise SystemExit("validator accepted installer documentation without reset-values guidance")
+        readme.write_text(readme_text, encoding="utf-8")
+        (fixture / ".github/workflows/ci.yml").write_text(ci_workflow, encoding="utf-8")
+
         (fixture / ".github/dependabot.yml").write_text(
             dependabot.replace("    directory: /migrations\n", "    directory: /missing-migrations\n", 1),
             encoding="utf-8",
