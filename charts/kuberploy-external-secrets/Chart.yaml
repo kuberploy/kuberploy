@@ -2,8 +2,8 @@ apiVersion: v2
 name: kuberploy-external-secrets
 description: Independently managed or adopted External Secrets Operator foundation for Kuberploy
 type: application
-version: 0.1.0-rc.258
-appVersion: "0.1.0-rc.258"
+version: 0.1.0-rc.259
+appVersion: "0.1.0-rc.259"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   kuberploy.io/external-secrets-chart-sha256: 251e4615013c6d2f9ade5cedf1cd8615613f286bfc381e44fb005f197e611ecd
