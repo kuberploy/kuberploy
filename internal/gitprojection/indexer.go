@@ -26,6 +26,11 @@ type Indexer struct {
 	Policy       AppConfigPolicyValidator
 	MaxDocuments int
 	MaxBytes     int
+	// Now refreshes durable timestamps after repository I/O. A projection can
+	// spend seconds preparing and reading a mirror; reusing the caller's start
+	// timestamp would make concurrent runtime observations appear to come from
+	// the future during activation policy checks.
+	Now func() time.Time
 }
 
 func (i Indexer) Index(ctx context.Context, lease ReconciliationLease, repository *PreparedRepository, now time.Time) (Binding, error) {
@@ -63,32 +68,68 @@ func (i Indexer) FullReindex(ctx context.Context, lease ReconciliationLease, rep
 	if binding.State != BindingDiverged || binding.TargetHeadRevision != repository.Head.Commit || repository.Head.ValidateFor(binding) != nil {
 		return Binding{}, ErrConflict
 	}
-	if err = i.Store.SetBindingState(ctx, binding.ID, binding.TargetHeadRevision, BindingIndexing, now); err != nil {
+	stateAt, err := i.currentTime(now)
+	if err != nil {
+		return Binding{}, err
+	}
+	if err = i.Store.SetBindingState(ctx, binding.ID, binding.TargetHeadRevision, BindingIndexing, stateAt); err != nil {
 		return Binding{}, err
 	}
 	binding.State = BindingIndexing
-	result, err := i.indexFull(ctx, lease, repository, binding, now)
+	result, err := i.indexFull(ctx, lease, repository, binding, stateAt)
 	if err != nil {
-		_ = i.Store.SetBindingState(ctx, binding.ID, binding.TargetHeadRevision, BindingDiverged, now)
+		failedAt, timeErr := i.currentTime(stateAt)
+		if timeErr == nil {
+			_ = i.Store.SetBindingState(ctx, binding.ID, binding.TargetHeadRevision, BindingDiverged, failedAt)
+		}
 	}
 	return result, err
 }
 
 func (i Indexer) indexFull(ctx context.Context, lease ReconciliationLease, repository *PreparedRepository, binding Binding, now time.Time) (Binding, error) {
-	generation, err := i.Store.BeginGeneration(ctx, lease, repository.Head.Commit, binding.ParserVersion, now)
+	startedAt, err := i.currentTime(now)
 	if err != nil {
 		return Binding{}, err
 	}
-	documents, err := i.readDocuments(ctx, repository, generation, now)
+	generation, err := i.Store.BeginGeneration(ctx, lease, repository.Head.Commit, binding.ParserVersion, startedAt)
 	if err != nil {
-		_ = i.Store.FailGeneration(ctx, lease, generation, now)
+		return Binding{}, err
+	}
+	documents, err := i.readDocuments(ctx, repository, generation, startedAt)
+	if err != nil {
+		failedAt, timeErr := i.currentTime(startedAt)
+		if timeErr == nil {
+			_ = i.Store.FailGeneration(ctx, lease, generation, failedAt)
+		}
 		return Binding{}, err
 	}
 	if err = i.Store.PutDocuments(ctx, generation, documents); err != nil {
-		_ = i.Store.FailGeneration(ctx, lease, generation, now)
+		failedAt, timeErr := i.currentTime(startedAt)
+		if timeErr == nil {
+			_ = i.Store.FailGeneration(ctx, lease, generation, failedAt)
+		}
 		return Binding{}, err
 	}
-	return i.Store.ActivateGeneration(ctx, lease, generation, i.Policy, now)
+	activatedAt, err := i.currentTime(startedAt)
+	if err != nil {
+		return Binding{}, err
+	}
+	return i.Store.ActivateGeneration(ctx, lease, generation, i.Policy, activatedAt)
+}
+
+func (i Indexer) currentTime(fallback time.Time) (time.Time, error) {
+	fallback = fallback.UTC()
+	if fallback.IsZero() {
+		return time.Time{}, ErrInvalid
+	}
+	if i.Now == nil {
+		return fallback, nil
+	}
+	current := i.Now().UTC()
+	if current.IsZero() || current.Before(fallback) {
+		return time.Time{}, ErrInvalid
+	}
+	return current, nil
 }
 
 func (i Indexer) readDocuments(ctx context.Context, repository *PreparedRepository, generation Generation, now time.Time) ([]Document, error) {

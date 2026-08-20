@@ -136,7 +136,8 @@ func (c RuntimeConfig) MirrorManager() *MirrorManager {
 }
 
 func (c RuntimeConfig) Indexer(store Store) Indexer {
-	return Indexer{Store: store, MaxDocuments: productionIndexDocuments, MaxBytes: defaultMaxIndexBytes}
+	return Indexer{Store: store, MaxDocuments: productionIndexDocuments, MaxBytes: defaultMaxIndexBytes,
+		Now: func() time.Time { return time.Now().UTC() }}
 }
 
 func (c RuntimeConfig) Validate() error {

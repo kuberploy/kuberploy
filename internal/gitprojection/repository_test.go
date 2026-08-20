@@ -908,6 +908,49 @@ func TestIndexerUsesExactHeadPreservesPathETagAndRepairsDivergence(t *testing.T)
 	}
 }
 
+func TestIndexerRefreshesClockAfterRepositoryPreparation(t *testing.T) {
+	fixture := seedRepository(t, false)
+	store := gitprojection.NewMemoryStore()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	fixture.binding.TargetHeadRevision = ""
+	fixture.binding.TargetHeadObservedAt = time.Time{}
+	fixture.binding.State = gitprojection.BindingWaiting
+	fixture.binding.UpdatedAt = base
+	if err := store.PutBinding(t.Context(), fixture.binding); err != nil {
+		t.Fatal(err)
+	}
+	lease := claimProjectionLease(t, store, base.Add(time.Second))
+	binding, _, err := store.RecordVerifiedHead(t.Context(), verified(fixture.binding, fixture.head, "fresh-clock-provider", base.Add(2*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &gitprojection.MirrorManager{Root: filepath.Join(t.TempDir(), "cache"), AllowLocalTests: true, LocalRemote: fixture.remote}
+	prepared, err := manager.Prepare(t.Context(), binding, verified(binding, fixture.head, "fresh-clock-provider", base.Add(2*time.Second)), operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close(t.Context()) //nolint:errcheck
+	generationAt, activationAt := base.Add(10*time.Second), base.Add(20*time.Second)
+	times := []time.Time{generationAt, activationAt}
+	indexer := gitprojection.Indexer{Store: store, Policy: gitprojection.SchemaOnlyAppConfigPolicyValidator{}, Now: func() time.Time {
+		value := times[0]
+		times = times[1:]
+		return value
+	}}
+	indexed, err := indexer.Index(t.Context(), lease, prepared, base.Add(3*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationPath, _ := gitprojection.ApplicationPath(indexed, applicationID)
+	document, err := store.Document(t.Context(), indexed.ID, applicationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(times) != 0 || !document.IndexedAt.Equal(generationAt) || !indexed.IndexedAt.Equal(activationAt) || !indexed.UpdatedAt.Equal(activationAt) {
+		t.Fatalf("projection reused stale timestamp: document=%s binding=%s remaining=%d", document.IndexedAt, indexed.IndexedAt, len(times))
+	}
+}
+
 func TestIndexerActivatesPlatformBindingWithoutParsingTenantDocuments(t *testing.T) {
 	fixture := seedRepository(t, false)
 	const platformClusterID = "88888888-8888-4888-8888-888888888888"
