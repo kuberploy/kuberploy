@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 019. RC272 verifies completed source-build cache hits through trusted terminal metadata and bounded opaque logs while retaining RC270 worker stale-delivery recovery.",
+  "summary": "Schema 019. RC274 refreshes Git projection generation and activation timestamps after repository I/O so concurrent runtime observations remain valid.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.272"
+  "version": "0.1.0-rc.274"
 }
