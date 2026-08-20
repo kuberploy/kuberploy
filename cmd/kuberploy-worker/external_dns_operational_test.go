@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/edge"
 	"github.com/kuberploy/kuberploy/internal/externaldns"
 )
 
@@ -50,5 +51,16 @@ func TestExternalDNSPublicationNeededOnlyForUnmaterializedOrChangedContent(t *te
 	item.ProtectedGitState = "pending"
 	if !externalDNSPublicationNeeded(item, template) {
 		t.Fatal("pending integration must publish")
+	}
+}
+
+func TestExternalDNSProfilesSortByIntegrationID(t *testing.T) {
+	profiles := []edge.ExternalDNSProfile{
+		{IntegrationID: "cccccccc-cccc-4ccc-8ccc-cccccccccccc"},
+		{IntegrationID: "88888888-8888-4888-8888-888888888888"},
+	}
+	sortExternalDNSProfiles(profiles)
+	if profiles[0].IntegrationID >= profiles[1].IntegrationID {
+		t.Fatalf("profiles not sorted by integration ID: %#v", profiles)
 	}
 }

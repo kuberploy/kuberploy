@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -101,10 +103,17 @@ func (r *externalDNSOperationalRuntime) desired(ctx context.Context) (edge.Runti
 			profiles = append(profiles, profile)
 		}
 	}
+	sortExternalDNSProfiles(profiles)
 	runtime := r.base
 	runtime.Profiles.ExternalDNS = profiles
 	runtime.Enabled = true
 	return runtime, runtime.Validate()
+}
+
+func sortExternalDNSProfiles(profiles []edge.ExternalDNSProfile) {
+	slices.SortFunc(profiles, func(left, right edge.ExternalDNSProfile) int {
+		return strings.Compare(left.IntegrationID, right.IntegrationID)
+	})
 }
 
 func externalDNSPublicationNeeded(item domain.ExternalDNSIntegration, template externaldns.ManagedRuntimeTemplate) bool {
