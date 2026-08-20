@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018. RC264 keeps email-only login, separates auth limits, cleans installer hooks, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, qualifies independent retries, splits build-log scope stages including Job binding, uses the full execution catalog for logs, publishes automatically, and rejects stale installer versions.",
+  "summary": "Schema 018. RC266 keeps email-only login, separates auth limits, cleans installer hooks, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, qualifies independent retries, splits build-log scope stages including Job binding, uses the full execution catalog for logs, publishes automatically, and rejects stale installer versions.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.265"
+  "version": "0.1.0-rc.266"
 }
