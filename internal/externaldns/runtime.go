@@ -115,6 +115,17 @@ func RenderManagedBundle(item domain.ExternalDNSIntegration, t ManagedRuntimeTem
 	return out.Bytes(), p, nil
 }
 
+// ManagedBundleDigest returns the exact protected-Git content digest for an
+// active managed integration. Callers can use the durable publication receipt
+// to avoid repeating an unchanged provider/Git reconciliation.
+func ManagedBundleDigest(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate) (string, error) {
+	content, _, err := RenderManagedBundle(item, t)
+	if err != nil {
+		return "", err
+	}
+	return digest(content), nil
+}
+
 func digest(value []byte) string {
 	sum := sha256.Sum256(value)
 	return "sha256:" + hex.EncodeToString(sum[:])

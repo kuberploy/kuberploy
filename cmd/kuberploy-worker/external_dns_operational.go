@@ -69,23 +69,28 @@ func (r *externalDNSOperationalRuntime) desired(ctx context.Context) (edge.Runti
 	}
 	for _, item := range items {
 		if item.Mode == externaldns.ModeManaged {
-			receipt, publishErr := r.publisher.Reconcile(ctx, item)
-			if publishErr != nil {
-				err = publishErr
-				return edge.RuntimeConfig{}, err
+			var profile edge.ExternalDNSProfile
+			if item.Lifecycle == "active" {
+				profile, err = externaldns.ManagedProfile(item, r.config.Template)
+				if err != nil {
+					return edge.RuntimeConfig{}, err
+				}
 			}
-			if err = r.source.RecordExternalDNSPublication(ctx, item.ID, item.RuntimeRevision, receipt.Deleted, receipt.ContentDigest, receipt.CommittedRevision, time.Now().UTC()); err != nil {
-				return edge.RuntimeConfig{}, err
-			}
-			item.ProtectedGitState = "materialized"
-			if receipt.Deleted {
-				item.ProtectedGitState = "dematerialized"
+			if externalDNSPublicationNeeded(item, r.config.Template) {
+				receipt, publishErr := r.publisher.Reconcile(ctx, item)
+				if publishErr != nil {
+					err = publishErr
+					return edge.RuntimeConfig{}, err
+				}
+				if err = r.source.RecordExternalDNSPublication(ctx, item.ID, item.RuntimeRevision, receipt.Deleted, receipt.ContentDigest, receipt.CommittedRevision, time.Now().UTC()); err != nil {
+					return edge.RuntimeConfig{}, err
+				}
+				item.ProtectedGitState = "materialized"
+				if receipt.Deleted {
+					item.ProtectedGitState = "dematerialized"
+				}
 			}
 			if item.Lifecycle == "active" {
-				profile, profileErr := externaldns.ManagedProfile(item, r.config.Template)
-				if profileErr != nil {
-					return edge.RuntimeConfig{}, profileErr
-				}
 				profiles = append(profiles, profile)
 			}
 		} else if item.Lifecycle == "active" {
@@ -100,6 +105,14 @@ func (r *externalDNSOperationalRuntime) desired(ctx context.Context) (edge.Runti
 	runtime.Profiles.ExternalDNS = profiles
 	runtime.Enabled = true
 	return runtime, runtime.Validate()
+}
+
+func externalDNSPublicationNeeded(item domain.ExternalDNSIntegration, template externaldns.ManagedRuntimeTemplate) bool {
+	if item.Lifecycle != "active" || item.ProtectedGitState != "materialized" || item.ProtectedGitRevision != item.RuntimeRevision || item.ProtectedGitCommit == "" {
+		return true
+	}
+	contentDigest, err := externaldns.ManagedBundleDigest(item, template)
+	return err != nil || contentDigest != item.ProtectedGitContentDigest
 }
 
 func (r *externalDNSOperationalRuntime) Run(ctx context.Context) error {
