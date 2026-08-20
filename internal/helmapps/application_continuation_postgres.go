@@ -151,7 +151,6 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 			AND current_command.state='verified'
 			AND current_command.committed_revision=materialization.desired_state_revision
 			AND current_command.content_sha256=materialization.desired_state_content_sha256
-			AND current_command.policy_digest=materialization.policy_digest
 			AND current_command.chart_repository=materialization.chart_repository
 			AND current_command.chart_name=materialization.chart_name
 			AND current_command.chart_version=materialization.chart_version

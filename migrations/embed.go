@@ -19,7 +19,7 @@ var FS embed.FS
 
 // CurrentSchema is bumped with every ordered migration and is published in the
 // immutable release manifest for Helm-driven install and upgrade qualification.
-const CurrentSchema = "018_build_definition_replacement"
+const CurrentSchema = "019_helm_no_change_policy_materialization"
 
 // RecoverableRC171Migration identifies the one published migration failure
 // whose rolled-back Prisma evidence may coexist with the canonical successful

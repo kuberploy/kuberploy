@@ -46,6 +46,13 @@ immutable while allowing a new definition for the same application/ref to
 replace the active one. The prior definition is retained as disabled history;
 matching pushes authorize only the active definition.
 
+Migration `019_helm_no_change_policy_materialization` lets a no-change Helm
+materialization reuse an older verified desired-state command when the current
+policy digest changed. The materialization receipt remains authoritative for
+current policy, runtime, bytes, route, and projection freshness; the referenced
+command's policy digest is immutable origin metadata and is not required to
+match it.
+
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
 foreign-key fences. The application does not use Prisma relation emulation;

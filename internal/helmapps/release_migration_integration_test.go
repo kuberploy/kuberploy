@@ -670,6 +670,10 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	currentMaterialization := verifiedCurrentCommand
 	currentMaterialization.ID = id.New()
+	// The current projection may update policy while reusing the exact bytes of
+	// an older verified command. The materialization receipt owns current policy
+	// authority; the command remains immutable origin metadata.
+	currentMaterialization.PolicyDigest = helmPGDigest([]byte("argo-materialization-policy-current"))
 	currentMaterialization.Generation++
 	currentMaterialization.EnvironmentRevision = noChangeEnvironmentRevision
 	currentMaterialization.EnvironmentGeneration = 3
