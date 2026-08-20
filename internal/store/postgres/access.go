@@ -233,7 +233,7 @@ func invalidateUsers(ctx context.Context, tx pgx.Tx, userIDs map[string]struct{}
 			return err
 		}
 		if tag.RowsAffected() > 0 {
-			if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=now() WHERE service_account_id=$1 AND revoked_at IS NULL`, userID); err != nil {
+			if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=GREATEST(now(),created_at) WHERE service_account_id=$1 AND revoked_at IS NULL`, userID); err != nil {
 				return err
 			}
 			if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {

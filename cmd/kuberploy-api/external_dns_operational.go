@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
@@ -65,6 +67,7 @@ func (p *dynamicExternalDNSReadiness) Probe(ctx context.Context) error {
 	}
 	runtime := p.base
 	runtime.Enabled = true
+	sortExternalDNSProfiles(profiles)
 	runtime.Profiles.ExternalDNS = profiles
 	if runtime.Validate() != nil {
 		return externaldns.ErrRuntimeUnavailable
@@ -78,6 +81,12 @@ func (p *dynamicExternalDNSReadiness) Probe(ctx context.Context) error {
 		now = p.now()
 	}
 	return p.store.RuntimeReady(ctx, edge.RuntimeContract, digest, runtime.TargetCount(), now, runtime.ReadinessMaxAge)
+}
+
+func sortExternalDNSProfiles(profiles []edge.ExternalDNSProfile) {
+	slices.SortFunc(profiles, func(left, right edge.ExternalDNSProfile) int {
+		return strings.Compare(left.IntegrationID, right.IntegrationID)
+	})
 }
 
 func enableDynamicExternalDNSAPI(api *edgeAPI, catalog externalDNSRuntimeCatalog, base edge.RuntimeConfig, config externaldns.OperationalConfig) error {

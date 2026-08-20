@@ -241,7 +241,7 @@ func (s *Store) RevokeServiceAccountToken(ctx context.Context, actor, serviceAcc
 	}
 	if token.RevokedAt == nil {
 		now := time.Now().UTC()
-		if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=$2 WHERE id=$1 AND revoked_at IS NULL`, token.ID, now); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=GREATEST($2,created_at) WHERE id=$1 AND revoked_at IS NULL`, token.ID, now); err != nil {
 			return false, err
 		}
 		if err = audit(ctx, tx, actor, "service-account-token.revoke", "service-account-token", token.ID, requestID, map[string]any{"serviceAccountId": account.ID, "prefix": token.Prefix}); err != nil {
@@ -281,7 +281,7 @@ func (s *Store) DisableServiceAccount(ctx context.Context, actor, serviceAccount
 		if _, err = tx.Exec(ctx, `UPDATE service_accounts SET disabled_at=$2 WHERE id=$1 AND disabled_at IS NULL`, account.ID, now); err != nil {
 			return false, err
 		}
-		if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=$2 WHERE service_account_id=$1 AND revoked_at IS NULL`, account.ID, now); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE service_account_tokens SET revoked_at=GREATEST($2,created_at) WHERE service_account_id=$1 AND revoked_at IS NULL`, account.ID, now); err != nil {
 			return false, err
 		}
 		if err = audit(ctx, tx, actor, "service-account.disable", "service-account", account.ID, requestID, map[string]any{"projectId": account.ProjectID, "name": account.Name}); err != nil {
