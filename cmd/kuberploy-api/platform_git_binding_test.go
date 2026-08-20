@@ -23,7 +23,7 @@ func platformBindingRuntime(t *testing.T) gitprojection.RuntimeConfig {
 		gitprojection.ProjectionGitAuthModeEnv:   "github-app",
 		gitprojection.ProjectionGitHubAppIDEnv:   "12345",
 		gitprojection.ProjectionGitHubClientEnv:  "Iv1_KuberployClient",
-		gitprojection.ProjectionChartVersionEnv:  "0.1.0-rc.276",
+		gitprojection.ProjectionChartVersionEnv:  "0.1.0-rc.277",
 		gitprojection.ProjectionPolicyVersionEnv: "runtime-policy-v1",
 	}
 	runtime, err := gitprojection.RuntimeConfigFromLookup(func(name string) (string, bool) {

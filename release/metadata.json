@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC276 advances operator-managed ExternalDNS bundles under a new exact runtime revision so protected Git publication and readiness converge after upgrades.",
+  "summary": "Schema 020. RC277 recovers changed operator-managed ExternalDNS runtime targets by advancing the exact durable integration revision before protected Git republish.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.276"
+  "version": "0.1.0-rc.277"
 }
