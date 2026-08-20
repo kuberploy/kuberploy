@@ -193,10 +193,15 @@ requires:
   declarative scenario. These are live-only inputs; the repository cannot know
   an operator's project/application/deployment IDs or credentials in advance.
 
-`workflow.sourceBuild.push.deliveryId` must be a lowercase canonical UUID. The
-GitHub webhook verifier enforces the provider delivery-ID format, so a readable
-fixture label such as `qualification-delivery-1` is rejected before the
-source-build workflow can run.
+`workflow.sourceBuild.push` and `workflow.sourceBuild.cancellationPush` each
+contain a distinct lowercase canonical `deliveryId` and a 40-character
+lowercase `afterCommit`. The cancellation commit must differ from the initial
+successful push. The workflow cancels that independent source and retries the
+same cancelled attempt for cache-hit, cache-degraded, and push-failure lanes;
+new webhook deliveries for one `(definition, commit, ref)` source are
+coalesced by the product and are not valid retry substitutes. The GitHub
+webhook verifier enforces the delivery-ID format, so a readable fixture label
+such as `qualification-delivery-1` is rejected before source-build mutation.
 
 When `KUBERPLOY_E2E_PUBLIC_PROVIDER_TESTS=true`, the harness runs the
 repository-owned Cloudflare workflow in `public-provider-workflow.sh`. It

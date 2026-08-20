@@ -222,7 +222,7 @@ kp_assert_second_build_cache_hit() {
   local kp_build_id="${1:?build required}" kp_terminal="${2:?terminal evidence required}"
   local kp_logs="${3:?log evidence required}" kp_actual
   jq -e '.state == "succeeded" and (.cacheReference|test("^.+:generation-[1-9][0-9]*$")) and
-    (.warnings | type == "array" and length == 0)' "${kp_terminal}" >/dev/null
+    ((.warnings == null) or (.warnings | type == "array" and length == 0))' "${kp_terminal}" >/dev/null
   kp_actual="$(curl --silent --show-error --output "${kp_logs}" --write-out '%{http_code}' \
     --request GET --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/builds/${kp_build_id}/logs?follow=false&tailLines=2000&limitBytes=5242880")"
@@ -235,7 +235,7 @@ kp_run_source_build_extended_workflow() {
   local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_state_file kp_application kp_definition kp_first
   local kp_project kp_environment kp_deployment kp_service_actor kp_policy kp_cancelled kp_second kp_cold kp_push_failed
   local kp_namespace_value kp_push_name kp_cache_name kp_push_uid kp_cache_uid kp_body kp_operation kp_auto_deployment
-  local kp_cancel_generation
+  local kp_cancel_generation kp_cancel_source kp_commit kp_cancel_commit kp_cancel_delivery
   kp_state_file="${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json"
   kp_application="$(jq -er '.applicationId' "${kp_state_file}")"
   kp_project="$(jq -er '.projectId' "${kp_state_file}")"
@@ -243,6 +243,7 @@ kp_run_source_build_extended_workflow() {
   kp_deployment="$(jq -er '.directDeploymentId' "${kp_state_file}")"
   kp_definition="$(jq -er '.buildDefinitionId' "${kp_state_file}")"
   kp_first="$(jq -er '.successfulBuildId' "${kp_state_file}")"
+  kp_commit="$(jq -er '.workflow.sourceBuild.push.afterCommit' "${kp_scenario}")"
   kp_service_actor="$(jq -er '.serviceAccountId' "${KUBERPLOY_E2E_ARTIFACT_DIR}/20-postgresql-valkey/evidence/access-proof.json")"
   kp_namespace_value="$(jq -er '.workflow.sourceBuild.credentials.namespace' "${kp_scenario}")"
   kp_push_name="$(jq -er '.workflow.sourceBuild.credentials.pushSecretName' "${kp_scenario}")"
@@ -262,21 +263,37 @@ kp_run_source_build_extended_workflow() {
       .environmentId==$environment and .currentRevision==1 and .current.enabled==true) |
       .id | select(test("^[a-f0-9-]{36}$"))' "${kp_dir}/workflow-auto-deploy-policy.json")"
 
-  kp_cancelled="$(kp_retry_source_build "${kp_first}" cancellable-build "${kp_dir}/workflow-cancellable-retry.json")"
-  kp_wait_source_build_cancellable_job "${kp_cancelled}" \
+  # A successful attempt is the promotion source, not a retry source. The
+  # scenario supplies one distinct commit for the cancellation lane. Every
+  # fault lane then retries that same cancelled source; webhook deliveries do
+  # not create duplicate attempts for one (definition, commit, ref) source.
+  kp_cancel_commit="$(jq -er '.workflow.sourceBuild.cancellationPush.afterCommit' "${kp_scenario}")"
+  kp_cancel_delivery="$(jq -er '.workflow.sourceBuild.cancellationPush.deliveryId' "${kp_scenario}")"
+  jq --arg after "${kp_cancel_commit}" '.after = $after' "${kp_dir}/workflow-github-push.json" \
+    >"${kp_dir}/workflow-github-cancellation-push.json"
+  chmod 600 "${kp_dir}/workflow-github-cancellation-push.json"
+  kp_post_github_push valid "${kp_cancel_delivery}" "${kp_dir}/workflow-github-cancellation-push.json" \
+    "${kp_dir}/workflow-github-cancellation-accepted.json"
+  kp_wait_build_for_commit "${kp_application}" "${kp_cancel_commit}" \
+    "${kp_dir}/workflow-builds-after-cancellation-push.json"
+  kp_cancel_source="$(jq -er --arg commit "${kp_cancel_commit}" '
+    [.items[] | select(.commitSha == $commit)] | select(length == 1) | .[0].id
+  ' "${kp_dir}/workflow-builds-after-cancellation-push.json")"
+  kp_cancelled="${kp_cancel_source}"
+  kp_wait_source_build_cancellable_job "${kp_cancel_source}" \
     "${kp_dir}/workflow-cancellable-running.json" "${kp_dir}/workflow-cancellable-live-job.raw.json" \
     "${kp_dir}/workflow-cancellable-live-job.json"
   rm -- "${kp_dir}/workflow-cancellable-live-job.raw.json"
   kp_cancel_generation="$(jq -er '.generation' "${kp_dir}/workflow-cancellable-running.json")"
-  kp_human_post_empty cancel-live-build "/v1/builds/${kp_cancelled}/cancel" 202 \
+  kp_human_post_empty cancel-live-build "/v1/builds/${kp_cancel_source}/cancel" 202 \
     "${kp_dir}/workflow-cancel-accepted.json"
-  jq -e --arg id "${kp_cancelled}" --argjson generation "${kp_cancel_generation}" '
+  jq -e --arg id "${kp_cancel_source}" --argjson generation "${kp_cancel_generation}" '
     .id == $id and .generation == $generation and .state == "cancelling"
   ' "${kp_dir}/workflow-cancel-accepted.json" >/dev/null || kp_die "live build cancellation was not accepted"
-  kp_wait_source_build_cancelled_and_job_deleted "${kp_cancelled}" "${kp_cancel_generation}" \
+  kp_wait_source_build_cancelled_and_job_deleted "${kp_cancel_source}" "${kp_cancel_generation}" \
     "${kp_dir}/workflow-cancel-terminal.json" "${kp_dir}/workflow-cancel-job-deleted.json"
 
-  kp_second="$(kp_retry_source_build "${kp_cancelled}" retry-cancelled-build "${kp_dir}/workflow-cache-hit-retry.json")"
+  kp_second="$(kp_retry_source_build "${kp_cancel_source}" retry-cancelled-build "${kp_dir}/workflow-cache-hit-retry.json")"
   kp_wait_source_build_terminal_state "${kp_second}" succeeded "${kp_dir}/workflow-cache-hit-terminal.json"
   kp_assert_second_build_cache_hit "${kp_second}" "${kp_dir}/workflow-cache-hit-terminal.json" \
     "${kp_dir}/workflow-cache-hit-logs.json"
@@ -290,7 +307,7 @@ kp_run_source_build_extended_workflow() {
 
   kp_patch_source_build_credential_secret "${kp_namespace_value}" "${kp_cache_name}" \
     "${KUBERPLOY_E2E_REGISTRY_CACHE_USERNAME_FILE}" "${KUBERPLOY_E2E_REGISTRY_FAULT_PASSWORD_FILE}" "${kp_cache_uid}"
-  kp_cold="$(kp_retry_source_build "${kp_second}" cache-fault-build "${kp_dir}/workflow-cache-fault-retry.json")"
+  kp_cold="$(kp_retry_source_build "${kp_cancel_source}" cache-fault-build "${kp_dir}/workflow-cache-fault-retry.json")"
   kp_wait_source_build_terminal_state "${kp_cold}" succeeded "${kp_dir}/workflow-cache-fault-terminal.json"
   kp_patch_source_build_credential_secret "${kp_namespace_value}" "${kp_cache_name}" \
     "${KUBERPLOY_E2E_REGISTRY_CACHE_USERNAME_FILE}" "${KUBERPLOY_E2E_REGISTRY_CACHE_PASSWORD_FILE}" "${kp_cache_uid}"
@@ -301,7 +318,7 @@ kp_run_source_build_extended_workflow() {
 
   kp_patch_source_build_credential_secret "${kp_namespace_value}" "${kp_push_name}" \
     "${KUBERPLOY_E2E_REGISTRY_PUSH_USERNAME_FILE}" "${KUBERPLOY_E2E_REGISTRY_FAULT_PASSWORD_FILE}" "${kp_push_uid}"
-  kp_push_failed="$(kp_retry_source_build "${kp_cold}" push-fault-build "${kp_dir}/workflow-push-fault-retry.json")"
+  kp_push_failed="$(kp_retry_source_build "${kp_cancel_source}" push-fault-build "${kp_dir}/workflow-push-fault-retry.json")"
   kp_wait_source_build_terminal_state "${kp_push_failed}" failed "${kp_dir}/workflow-push-fault-terminal.json"
   kp_patch_source_build_credential_secret "${kp_namespace_value}" "${kp_push_name}" \
     "${KUBERPLOY_E2E_REGISTRY_PUSH_USERNAME_FILE}" "${KUBERPLOY_E2E_REGISTRY_PUSH_PASSWORD_FILE}" "${kp_push_uid}"

@@ -282,7 +282,7 @@ kp_qualification_validate_scenario() {
     (.workflow.directDeployment | type == "object") and
     (.workflow.directDeploymentUpdate | type == "object") and
     (.workflow.protectedDeployment | type == "object")
-    and ((.workflow.sourceBuild | keys | sort) == ["builderPool","credentials","definition","github","promotion","push"])
+    and ((.workflow.sourceBuild | keys | sort) == ["builderPool","cancellationPush","credentials","definition","github","promotion","push"])
     and ((.workflow.sourceBuild.credentials | keys | sort) == ["cacheSecretName","namespace","pushSecretName"])
     and all(.workflow.sourceBuild.credentials.namespace,.workflow.sourceBuild.credentials.pushSecretName,
       .workflow.sourceBuild.credentials.cacheSecretName;
@@ -299,6 +299,10 @@ kp_qualification_validate_scenario() {
     and ((.workflow.sourceBuild.push | keys | sort) == ["afterCommit","deliveryId"])
     and (.workflow.sourceBuild.push.afterCommit | type == "string" and test("^[a-f0-9]{40}$"))
     and (.workflow.sourceBuild.push.deliveryId | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+    and ((.workflow.sourceBuild.cancellationPush | keys | sort) == ["afterCommit","deliveryId"])
+    and (.workflow.sourceBuild.cancellationPush.afterCommit | type == "string" and test("^[a-f0-9]{40}$"))
+    and (.workflow.sourceBuild.cancellationPush.deliveryId | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
+    and (.workflow.sourceBuild.cancellationPush.afterCommit != .workflow.sourceBuild.push.afterCommit)
     and ((.workflow.sourceBuild.builderPool | keys) == ["nodeSelector"])
     and (.workflow.sourceBuild.builderPool.nodeSelector | type == "object" and length > 0)
     and (.workflow.sourceBuild.definition | type == "object")

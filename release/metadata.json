@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018. RC255 keeps email-only login, separates proxy clients for auth rate limits, cleans successful installer hook Jobs for rollback recovery, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs before qualification mutation, removes failed source-build auxiliaries, and uses shadcn/Base dialogs.",
+  "summary": "Schema 018. RC256 keeps email-only login, separates proxy clients for auth rate limits, cleans successful installer hook Jobs for rollback recovery, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs before qualification mutation, removes failed source-build auxiliaries, preserves post-terminal builder log reads, and exercises independent source retries from one cancelled commit.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.255"
+  "version": "0.1.0-rc.256"
 }

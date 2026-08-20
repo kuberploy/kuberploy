@@ -161,7 +161,7 @@ func (s *Service) discover(ctx context.Context, authorized AuthorizedAttempt, pr
 	}
 	job, err := builds.VerifyObservedBuildJob(authorized.Attempt, liveJob)
 	if err != nil {
-		return sourceBinding{}, fmt.Errorf("verify build Job: %w", ErrScopeViolation)
+		return sourceBinding{}, fmt.Errorf("verify build Job: %v: %w", err, ErrScopeViolation)
 	}
 	pods, err := s.client.ListBuildJobPods(ctx, JobPodQuery{
 		Namespace: job.Namespace, JobName: job.Name, JobUID: job.UID,
@@ -178,7 +178,7 @@ func (s *Service) discover(ctx context.Context, authorized AuthorizedAttempt, pr
 	}
 	pod, err := builds.VerifyObservedBuildPod(job, pods[0])
 	if err != nil {
-		return sourceBinding{}, fmt.Errorf("verify build Pod: %w", ErrScopeViolation)
+		return sourceBinding{}, fmt.Errorf("verify build Pod: %v: %w", err, ErrScopeViolation)
 	}
 	if previous && pod.AgentRestarts < 1 {
 		return sourceBinding{}, ErrPreviousUnavailable
@@ -207,7 +207,7 @@ func (s *Service) open(ctx context.Context, binding sourceBinding, options LogOp
 	}
 	job, err := builds.VerifyObservedBuildJob(binding.authorized.Attempt, liveJob)
 	if err != nil {
-		return nil, fmt.Errorf("reverify build Job: %w", ErrScopeViolation)
+		return nil, fmt.Errorf("reverify build Job: %v: %w", err, ErrScopeViolation)
 	}
 	if job.UID != binding.job.UID {
 		return nil, ErrGone
@@ -218,7 +218,7 @@ func (s *Service) open(ctx context.Context, binding sourceBinding, options LogOp
 	}
 	pod, err := builds.VerifyObservedBuildPod(job, livePod)
 	if err != nil {
-		return nil, fmt.Errorf("reverify build Pod: %w", ErrScopeViolation)
+		return nil, fmt.Errorf("reverify build Pod: %v: %w", err, ErrScopeViolation)
 	}
 	if pod.UID != binding.pod.UID {
 		return nil, ErrGone

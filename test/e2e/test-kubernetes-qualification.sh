@@ -289,7 +289,7 @@ EOF
 cat >"${kp_tmp}/curl" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
-kp_output="" kp_method="GET" kp_url="" kp_body="" kp_denied="false" kp_revoked="false" kp_invalid_signature="false" kp_dump_header="" kp_cookie_jar=""
+kp_output="" kp_method="GET" kp_url="" kp_body="" kp_denied="false" kp_revoked="false" kp_invalid_signature="false" kp_dump_header="" kp_cookie_jar="" kp_delivery_header=""
 kp_cookie_header="false" kp_csrf_header="false" kp_idempotency_header="false"
 while (($#)); do
   case "$1" in
@@ -305,6 +305,7 @@ while (($#)); do
       [[ "$2" != *BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB* ]] || kp_revoked="true"
       [[ "$2" != *CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC* ]] || kp_denied="true"
       [[ "$2" != 'X-Hub-Signature-256: sha256=0000000000000000000000000000000000000000000000000000000000000000' ]] || kp_invalid_signature="true"
+      [[ "$2" != X-GitHub-Delivery:* ]] || kp_delivery_header="${2#X-GitHub-Delivery: }"
       [[ "$2" != Cookie:* ]] || kp_cookie_header="true"
       [[ "$2" != 'X-CSRF-Token: fixture-csrf' ]] || kp_csrf_header="true"
       [[ "$2" != 'Idempotency-Key: qualification-'*'-40-source-build-cancel-live-build' ]] || kp_idempotency_header="true"
@@ -476,9 +477,23 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/applications/*/build-def
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/webhooks/github && "${kp_invalid_signature}" == "true" ]]; then
   printf '%s\n' '{"status":401,"code":"Unauthenticated"}' >"${kp_output}"; printf '401'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/webhooks/github ]]; then
+  kp_delivery_file="${KP_COMMAND_LOG}.github-deliveries"
+  kp_delivery_record="${kp_delivery_header}|$(printf '%s' "${kp_body}" | jq -r '.after')"
+  touch "${kp_delivery_file}"
+  if ! grep -Fxq "${kp_delivery_record}" "${kp_delivery_file}"; then
+    printf '%s\n' "${kp_delivery_record}" >>"${kp_delivery_file}"
+  fi
   printf '%s\n' '{"accepted":true}' >"${kp_output}"; printf '202'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/applications/*/builds ]]; then
-  printf '%s\n' '{"items":[{"id":"66666666-6666-4666-8666-666666666666","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"running"}]}' >"${kp_output}"; printf '200'
+  printf '%s' '{"items":[' >"${kp_output}"
+  printf '%s' '{"id":"66666666-6666-4666-8666-666666666666","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"running"}' >>"${kp_output}"
+  if grep -Fq '|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' "${KP_COMMAND_LOG}.github-deliveries" 2>/dev/null; then
+    printf '%s' ',{"id":"65656565-6565-4565-8565-656565656565","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","generation":1,"state":"running"}' >>"${kp_output}"
+  fi
+  if [[ -f "${KP_COMMAND_LOG}.build-retry" ]]; then
+    printf '%s' ',{"id":"67676767-6767-4767-8767-676767676767","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":2,"state":"succeeded"}' >>"${kp_output}"
+  fi
+  printf '%s\n' ']}' >>"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/66666666-* ]]; then
   printf '%s\n' '{"id":"66666666-6666-4666-8666-666666666666","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"succeeded","image":{"reference":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/applications/*/auto-deploy-policies ]]; then
@@ -496,11 +511,17 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/65656565-*/cancel
     printf '%s\n' '{"id":"65656565-6565-4565-8565-656565656565","definitionId":"52525252-5252-4252-8252-525252525252","generation":2,"state":"cancelling"}' >"${kp_output}"; printf '202'
   fi
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/65656565-*/retry ]]; then
-  printf '%s\n' '{"id":"67676767-6767-4767-8767-676767676767","state":"queued"}' >"${kp_output}"; printf '202'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/67676767-*/retry ]]; then
-  printf '%s\n' '{"id":"68686868-6868-4868-8868-686868686868","state":"queued"}' >"${kp_output}"; printf '202'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/68686868-*/retry ]]; then
-  printf '%s\n' '{"id":"69696969-6969-4969-8969-696969696969","state":"queued"}' >"${kp_output}"; printf '202'
+  kp_retry_count_file="${KP_COMMAND_LOG}.build-retry-count"; kp_retry_count=0
+  [[ ! -f "${kp_retry_count_file}" ]] || kp_retry_count="$(<"${kp_retry_count_file}")"
+  kp_retry_count=$((kp_retry_count+1)); printf '%s' "${kp_retry_count}" >"${kp_retry_count_file}"
+  : >"${KP_COMMAND_LOG}.build-retry"
+  case "${kp_retry_count}" in
+    1) printf '%s\n' '{"id":"67676767-6767-4767-8767-676767676767","state":"queued"}' >"${kp_output}" ;;
+    2) printf '%s\n' '{"id":"68686868-6868-4868-8868-686868686868","state":"queued"}' >"${kp_output}" ;;
+    3) printf '%s\n' '{"id":"69696969-6969-4969-8969-696969696969","state":"queued"}' >"${kp_output}" ;;
+    *) printf '%s\n' '{"status":409,"code":"RetryLimit"}' >"${kp_output}"; printf '409'; exit 0 ;;
+  esac
+  printf '202'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/67676767-*/logs* ]]; then
   printf '%s\n' '{"source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":true},"lines":[{"type":"line","source":{"id":"build_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ready":true},"message":"#7 CACHED","truncated":false}],"bytes":9,"truncated":false,"observedAt":"2026-08-10T00:00:00Z"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/67676767-* ]]; then
@@ -714,7 +735,7 @@ export KUBERPLOY_E2E_TEARDOWN_PUBLIC_KEY_FILE="${kp_teardown_public}"
 export KUBERPLOY_E2E_SCENARIO_FILE="${kp_tmp}/scenario.json"
 
 source "${kp_root}/scripts/kubernetes/test/e2e/lib.sh"
-kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"9f000000-0000-4000-8000-000000000001","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
+kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"9f000000-0000-4000-8000-000000000001","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"cancellationPush":{"deliveryId":"9f000000-0000-4000-8000-000000000002","afterCommit":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
 kp_scenario="$(jq -c --arg digest "${kp_teardown_key_digest}" \
   '.teardown.publicKeySHA256=$digest |
    .workflow.directDeployment.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |

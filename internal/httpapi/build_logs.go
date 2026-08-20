@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -299,6 +300,7 @@ func writeBuildLogError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, buildlogs.ErrInsecureTransport):
 		writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogTransportRejected", "Build logs unavailable", "The Kubernetes API transport is not verified.")
 	case errors.Is(err, buildlogs.ErrScopeViolation):
+		slog.ErrorContext(r.Context(), "build log Kubernetes scope rejected", "error", err.Error())
 		writeProblem(w, r, http.StatusBadGateway, "BuildLogResponseRejected", "Build log response rejected", "Kubernetes returned an object outside the authorized build scope.")
 	default:
 		writeProblem(w, r, http.StatusServiceUnavailable, "BuildLogRuntimeUnavailable", "Build logs unavailable", "The Kubernetes build log boundary could not be read. Build metadata remains available.")
