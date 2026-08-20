@@ -276,6 +276,101 @@ func TestVariableWriterDurableReservationRecoveryAndStaleConflict(t *testing.T) 
 	}
 }
 
+func TestProjectionWriterKeepsActiveUncommittedReservationRecoverable(t *testing.T) {
+	fixture := seedRepository(t, false)
+	now := time.Now().UTC()
+	binding := readyFixtureBinding(fixture, now)
+	store := gitprojection.NewMemoryStore()
+	if err := store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	command := newCreateCommand(t, binding, operationID, "66666666-6666-4666-8666-666666666666", fixture.config, now)
+	if err := store.PutWriteCommand(t.Context(), command); err != nil {
+		t.Fatal(err)
+	}
+	leaseDuration := 30 * time.Second
+	leaseUntil := now.Add(leaseDuration)
+	reservation := gitprojection.PathReservation{BindingID: binding.ID, TargetRef: binding.TargetRef, Path: command.Path,
+		OperationID: command.OperationID, Owner: "writer-test-owner", BaseRevision: command.Plan.BaseRevision,
+		State: gitprojection.ReservationCandidate, LeaseUntil: &leaseUntil, CreatedAt: now, UpdatedAt: now}
+	if _, replay, err := store.AcquirePath(t.Context(), reservation, now, leaseDuration); err != nil || replay {
+		t.Fatalf("reservation replay=%v err=%v", replay, err)
+	}
+
+	runGit(t, fixture.seed, "commit", "--allow-empty", "-m", "concurrent unrelated write")
+	descendant := runGit(t, fixture.seed, "rev-parse", "HEAD")
+	runGit(t, fixture.seed, "push", "origin", "HEAD:"+binding.TargetRef)
+	observed := now.Add(time.Second)
+	writer := &gitprojection.ProjectionWriter{Store: store, Commands: store, Provider: localHeadVerifier(t, fixture.remote, &observed),
+		Manager: &gitprojection.MirrorManager{Root: t.TempDir(), AllowLocalTests: true, LocalRemote: fixture.remote},
+		Owner:   "writer-test-owner", LeaseDuration: leaseDuration, Now: func() time.Time { return observed.Add(time.Second) }}
+	if _, err := writer.CommitOperation(t.Context(), command.OperationID); err == nil || !errors.Is(err, gitprojection.ErrConflict) {
+		t.Fatalf("active reservation error=%v", err)
+	} else {
+		var pending interface{ ReconcilePending() (string, string) }
+		if !errors.As(err, &pending) {
+			t.Fatalf("active reservation became terminal: %T %v", err, err)
+		}
+	}
+	if _, err := store.PathReservation(t.Context(), binding.ID, binding.TargetRef, command.Path); err != nil {
+		t.Fatalf("active reservation disappeared: %v", err)
+	}
+
+	observed = leaseUntil.Add(time.Second)
+	if _, err := writer.CommitOperation(t.Context(), command.OperationID); !errors.Is(err, gitprojection.ErrConflict) {
+		t.Fatalf("expired reservation error=%v", err)
+	}
+	if _, err := store.PathReservation(t.Context(), binding.ID, binding.TargetRef, command.Path); !errors.Is(err, gitprojection.ErrNotFound) {
+		t.Fatalf("expired reservation was not released: %v", err)
+	}
+	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != descendant {
+		t.Fatalf("recovery changed target: got %s want %s", target, descendant)
+	}
+}
+
+func TestProjectionWriterReclaimsExpiredForeignReservation(t *testing.T) {
+	fixture := seedRepository(t, false)
+	now := time.Now().UTC()
+	binding := readyFixtureBinding(fixture, now)
+	store := gitprojection.NewMemoryStore()
+	if err := store.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	oldCommand := newCreateCommand(t, binding, operationID, "66666666-6666-4666-8666-666666666666", []byte("old candidate\n"), now)
+	newOperation := "77777777-7777-4777-8777-777777777777"
+	newCommand := newCreateCommand(t, binding, newOperation, "66666666-6666-4666-8666-666666666666", fixture.config, now.Add(time.Second))
+	if err := store.PutWriteCommand(t.Context(), oldCommand); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutWriteCommand(t.Context(), newCommand); err != nil {
+		t.Fatal(err)
+	}
+	leaseDuration := 30 * time.Second
+	leaseUntil := now.Add(leaseDuration)
+	reservation := gitprojection.PathReservation{BindingID: binding.ID, TargetRef: binding.TargetRef, Path: oldCommand.Path,
+		OperationID: oldCommand.OperationID, Owner: "writer-test-owner", BaseRevision: oldCommand.Plan.BaseRevision,
+		State: gitprojection.ReservationCandidate, LeaseUntil: &leaseUntil, CreatedAt: now, UpdatedAt: now}
+	if _, replay, err := store.AcquirePath(t.Context(), reservation, now, leaseDuration); err != nil || replay {
+		t.Fatalf("reservation replay=%v err=%v", replay, err)
+	}
+
+	observed := leaseUntil.Add(time.Second)
+	writer := &gitprojection.ProjectionWriter{Store: store, Commands: store, Provider: localHeadVerifier(t, fixture.remote, &observed),
+		Manager: &gitprojection.MirrorManager{Root: t.TempDir(), AllowLocalTests: true, LocalRemote: fixture.remote},
+		Owner:   "writer-test-owner", LeaseDuration: leaseDuration, Now: func() time.Time { return observed.Add(time.Second) }}
+	revision, err := writer.CommitOperation(t.Context(), newOperation)
+	if err != nil || revision == "" {
+		t.Fatalf("replacement revision=%q err=%v", revision, err)
+	}
+	current, err := store.PathReservation(t.Context(), binding.ID, binding.TargetRef, newCommand.Path)
+	if err != nil || current.OperationID != newOperation || current.State != gitprojection.ReservationCommittedPendingIndex {
+		t.Fatalf("replacement reservation=%#v err=%v", current, err)
+	}
+	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != revision {
+		t.Fatalf("replacement target=%s want=%s", target, revision)
+	}
+}
+
 func TestProjectionWriterReservesPushesAndFinalizesVerifiedHead(t *testing.T) {
 	fixture := seedRepository(t, false)
 	now := time.Now().UTC()

@@ -102,10 +102,10 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 	}
 	reservation, reservationErr := w.Store.PathReservation(ctx, binding.ID, binding.TargetRef, command.Path)
 	if reservationErr == nil {
-		if reservation.OperationID != operationID || reservation.BaseRevision != command.Plan.BaseRevision {
+		if reservation.OperationID == operationID && reservation.BaseRevision != command.Plan.BaseRevision {
 			return "", ErrLeaseHeld
 		}
-		if reservation.State == ReservationCommittedPendingIndex {
+		if reservation.OperationID == operationID && reservation.State == ReservationCommittedPendingIndex {
 			committed, markErr := w.Commands.MarkWriteCommandCommitted(ctx, operationID, reservation.CommittedRevision, w.now())
 			if markErr != nil {
 				return "", pendingReconciliation("GitFinalizationPending", "The verified Git commit receipt will be finalized again.", markErr)
@@ -135,6 +135,12 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 		defer cancel()
 		_ = prepared.Close(cleanup)
 	}()
+	if reservationErr == nil && reservation.OperationID != operationID {
+		if err = w.recoverForeignReservation(ctx, binding, reservation, prepared, head); err != nil {
+			return "", err
+		}
+		reservation, reservationErr = PathReservation{}, ErrNotFound
+	}
 
 	mutation := command.Mutation()
 	if head.Commit != command.Plan.BaseRevision {
@@ -179,6 +185,47 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 		return "", pendingReconciliation("GitFinalizationPending", "The verified Git commit receipt will be finalized again.", err)
 	}
 	return revision, nil
+}
+
+// recoverForeignReservation prevents a failed or lost operation from
+// permanently fencing a protected path. An active candidate remains owned by
+// its original operation. After its lease expires, authoritative Git history
+// decides whether to finalize its exact commit or remove the absent candidate
+// before the newer operation may continue.
+func (w *ProjectionWriter) recoverForeignReservation(ctx context.Context, binding Binding, reservation PathReservation, prepared *PreparedRepository, head VerifiedHead) error {
+	if reservation.State == ReservationCommittedPendingIndex {
+		return pendingReconciliation("GitReservationPending", "The committed Git path reservation is waiting for the exact indexed revision.", ErrLeaseHeld)
+	}
+	now := w.now()
+	if reservation.State != ReservationCandidate || reservation.LeaseUntil == nil {
+		return ErrInvalid
+	}
+	if reservation.LeaseUntil.After(now) {
+		return pendingReconciliation("GitReservationPending", "The active Git path reservation will be inspected again after its lease expires.", ErrLeaseHeld)
+	}
+	previous, err := w.Commands.WriteCommand(ctx, reservation.OperationID)
+	if err != nil {
+		return pendingReconciliation("GitReservationLoadPending", "The expired Git path reservation owner will be loaded again.", err)
+	}
+	previousBinding := writeCommandBinding(previous, binding)
+	if previous.Validate(previousBinding) != nil || previous.Plan.BindingID != binding.ID || previous.TargetRef != binding.TargetRef ||
+		previous.Path != reservation.Path || previous.Plan.BaseRevision != reservation.BaseRevision {
+		return ErrInvalid
+	}
+	found, present, err := prepared.FindOperationCommit(ctx, previous.Mutation())
+	if err != nil {
+		return pendingReconciliation("GitRecoveryInspectionPending", "Authoritative Git history will be inspected for the expired path reservation again.", err)
+	}
+	if present {
+		if _, err = w.Store.FinalizeVerifiedPath(ctx, binding.ID, binding.TargetRef, reservation.Path, reservation.OperationID, found, head, now); err != nil {
+			return pendingReconciliation("GitFinalizationPending", "The recovered Git commit receipt will be finalized again.", err)
+		}
+		return pendingReconciliation("GitReservationPending", "The recovered Git path reservation is waiting for the exact indexed revision.", ErrLeaseHeld)
+	}
+	if err = w.Store.RepairExpiredPath(ctx, binding.ID, binding.TargetRef, reservation.Path, false, "", now); err != nil {
+		return pendingReconciliation("GitReservationPending", "The expired Git path reservation will be reconciled again.", err)
+	}
+	return nil
 }
 
 func (w *ProjectionWriter) PublishOperation(ctx context.Context, operationID string) (PublicationResult, error) {
@@ -329,7 +376,10 @@ func (w *ProjectionWriter) recoverCommit(ctx context.Context, binding Binding, c
 		return "", pendingReconciliation("GitRecoveryInspectionPending", "Authoritative Git history will be inspected for the accepted operation again.", err)
 	}
 	if !present {
-		if reservation.LeaseUntil != nil && !reservation.LeaseUntil.After(w.now()) {
+		if reservation.LeaseUntil != nil && reservation.LeaseUntil.After(w.now()) {
+			return "", pendingReconciliation("GitReservationPending", "The active Git path reservation will be inspected again after its lease expires.", ErrConflict)
+		}
+		if reservation.LeaseUntil != nil {
 			if repairErr := w.Store.RepairExpiredPath(ctx, binding.ID, binding.TargetRef, command.Path, false, "", w.now()); repairErr != nil {
 				return "", pendingReconciliation("GitReservationPending", "The expired Git path reservation will be reconciled again.", repairErr)
 			}
