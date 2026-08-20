@@ -154,10 +154,17 @@ type sourceBinding struct {
 	redactions []string
 }
 
+func wrapScopeStage(stage string, err error) error {
+	if errors.Is(err, ErrScopeViolation) {
+		return fmt.Errorf("%s: %w", stage, ErrScopeViolation)
+	}
+	return err
+}
+
 func (s *Service) discover(ctx context.Context, authorized AuthorizedAttempt, previous bool) (sourceBinding, error) {
 	liveJob, err := s.client.GetBuildJob(ctx, authorized.Attempt.JobNamespace, authorized.Attempt.JobName)
 	if err != nil {
-		return sourceBinding{}, err
+		return sourceBinding{}, wrapScopeStage("get build Job", err)
 	}
 	job, err := builds.VerifyObservedBuildJob(authorized.Attempt, liveJob)
 	if err != nil {
@@ -168,7 +175,7 @@ func (s *Service) discover(ctx context.Context, authorized AuthorizedAttempt, pr
 		OperationLabel: job.OperationLabel, GenerationLabel: job.GenerationLabel,
 	})
 	if err != nil {
-		return sourceBinding{}, err
+		return sourceBinding{}, wrapScopeStage("list build Pods", err)
 	}
 	if len(pods) == 0 {
 		return sourceBinding{}, ErrNotFound
@@ -203,7 +210,7 @@ func (s *Service) open(ctx context.Context, binding sourceBinding, options LogOp
 	// second Pod UID read at the subresource boundary as defense in depth.
 	liveJob, err := s.client.GetBuildJob(ctx, binding.job.Namespace, binding.job.Name)
 	if err != nil {
-		return nil, err
+		return nil, wrapScopeStage("reget build Job", err)
 	}
 	job, err := builds.VerifyObservedBuildJob(binding.authorized.Attempt, liveJob)
 	if err != nil {
@@ -214,7 +221,7 @@ func (s *Service) open(ctx context.Context, binding sourceBinding, options LogOp
 	}
 	livePod, err := s.client.GetBuildPod(ctx, binding.pod.Namespace, binding.pod.Name)
 	if err != nil {
-		return nil, err
+		return nil, wrapScopeStage("reget build Pod", err)
 	}
 	pod, err := builds.VerifyObservedBuildPod(job, livePod)
 	if err != nil {
@@ -226,10 +233,14 @@ func (s *Service) open(ctx context.Context, binding sourceBinding, options LogOp
 	if options.Previous && pod.AgentRestarts < 1 {
 		return nil, ErrPreviousUnavailable
 	}
-	return s.client.OpenBuilderAgentLogs(ctx, ExactPodRef{Namespace: pod.Namespace, Name: pod.Name, UID: pod.UID}, PodLogOptions{
+	reader, err := s.client.OpenBuilderAgentLogs(ctx, ExactPodRef{Namespace: pod.Namespace, Name: pod.Name, UID: pod.UID}, PodLogOptions{
 		TailLines: options.TailLines, SinceTime: options.SinceTime, Previous: options.Previous,
 		Timestamps: options.Timestamps, LimitBytes: options.LimitBytes, Follow: options.Follow,
 	})
+	if err != nil {
+		return nil, wrapScopeStage("open builder-agent logs", err)
+	}
+	return reader, nil
 }
 
 func sameBuildIdentity(left, right AuthorizedAttempt) bool {

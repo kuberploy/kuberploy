@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 018. RC256 keeps email-only login, separates auth rate-limit clients, cleans installer hook Jobs, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, and qualifies post-terminal logs plus independent retries from one cancelled commit.",
+  "summary": "Schema 018. RC257 keeps email-only login, separates auth rate-limit clients, cleans installer hook Jobs, retires stale registry-pull artifacts, reconstructs External DNS profiles, follows system theme, purges accepted invites, observes runtime/Argo readiness, retries providers/GHCR, validates GitHub delivery IDs, removes failed build auxiliaries, and qualifies independent retries from one cancelled commit with stage-safe build-log diagnostics.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.256"
+  "version": "0.1.0-rc.257"
 }

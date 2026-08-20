@@ -66,6 +66,16 @@ func TestSnapshotFailsClosedBeforeKubernetesWhenAuthorizationOrAuditFails(t *tes
 	})
 }
 
+func TestSnapshotKeepsScopeSentinelAndRecordsFailingKubernetesStage(t *testing.T) {
+	service, _, _, client := newTestService(t)
+	client.openErr = ErrScopeViolation
+
+	_, err := service.Snapshot(t.Context(), snapshotRequest())
+	if !errors.Is(err, ErrScopeViolation) || !strings.Contains(err.Error(), "open builder-agent logs") {
+		t.Fatalf("scope stage was not preserved: %v", err)
+	}
+}
+
 func TestSnapshotRejectsResolverScopeConfusion(t *testing.T) {
 	service, resolver, auditor, client := newTestService(t)
 	resolver.authorized.ApplicationID = "66666666-6666-4666-8666-666666666666"
