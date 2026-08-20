@@ -306,7 +306,6 @@ def main() -> None:
 
     required_release_controls = (
         "github.ref_protected == true",
-        "environment: release",
         ".immutable == true",
         "kp_source_date_epoch=",
         "Reject an existing GitHub release",
@@ -329,6 +328,8 @@ def main() -> None:
     missing_controls = [control for control in required_release_controls if control not in workflow_text]
     if missing_controls:
         raise SystemExit(f"release workflow is missing fail-closed controls: {', '.join(missing_controls)}")
+    if re.search(r"(?m)^    environment:\s*release\s*$", workflow_text):
+        raise SystemExit("release workflow must not require protected environment approval")
     if "actions/attest" in workflow_text or "attestations: write" in workflow_text:
         raise SystemExit("release workflow must not publish attestations until a public verifier policy exists")
     if "/immutable-releases" in workflow_text:
@@ -412,7 +413,6 @@ def main() -> None:
         raise SystemExit("image index output names must normalize hyphenated component names")
     repair_controls = (
         "inputs.repair_release_tag != ''",
-        "environment: release",
         ".immutable == true",
         ".artifacts.images | length == 6",
         'docker buildx imagetools create',

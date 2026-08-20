@@ -223,6 +223,15 @@ def main() -> None:
                 "repository-administration API",
             ),
             (
+                "protected release environment approval",
+                workflow.replace(
+                    "    timeout-minutes: 10\n    permissions:\n      contents: read\n",
+                    "    timeout-minutes: 10\n    environment: release\n    permissions:\n      contents: read\n",
+                    1,
+                ),
+                "must not require protected environment approval",
+            ),
+            (
                 "unguarded chart reuse",
                 workflow.replace("cmp --silent", "cmp", 1),
                 "missing fail-closed controls",

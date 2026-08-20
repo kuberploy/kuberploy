@@ -21,12 +21,12 @@ moving while making an accidental stable tag unable to publish.
 Repository release immutability is an externally verified prerequisite. Before
 a tag is pushed, a repository administrator must enable immutable releases and
 verify the setting through the repository settings or an administrator-scoped
-API credential. Approval of the protected `release` environment records that
-this verification happened. The workflow's `GITHUB_TOKEN` intentionally has no
+API credential. The workflow's `GITHUB_TOKEN` intentionally has no
 repository Administration permission, so the workflow does not make the
 impossible settings preflight itself. After publication it still requires the
 release API to report `immutable: true`; otherwise the job fails closed. GitHub
-applies the repository setting only to future releases.
+applies the repository setting only to future releases. Release publication
+does not wait for a protected environment approval.
 
 Before the first tag, an administrator must complete and independently verify
 all of these repository prerequisites:
@@ -36,17 +36,16 @@ all of these repository prerequisites:
   repositories;
 - create a ruleset that protects `refs/tags/v*`, restricts creation and update
   to the release maintainers, and forbids deletion and non-fast-forward change;
-- create the protected `release` Actions environment with required reviewers
-  and restrict it to the protected release-tag policy;
 - enable immutable releases before any release object is created; and
 - allow the release workflow's narrowly scoped `GITHUB_TOKEN` to write package
   and release artifacts, without granting repository Administration access.
 
-The workflow requires both the protected-tag signal and approval of the
-`release` environment. A manual `workflow_dispatch` runs validation only and
-cannot publish. Do not push a `v*` tag until the checklist is complete: the
-workflow deliberately cannot repair repository settings, and a draft left
-after publication starts requires explicit administrator review.
+The workflow requires the protected-tag signal and independently verifies
+release immutability. It does not require environment approval. A manual
+`workflow_dispatch` runs validation only and cannot publish. Do not push a
+`v*` tag until the checklist is complete: the workflow deliberately cannot
+repair repository settings, and a draft left after publication starts requires
+explicit administrator review.
 
 The source chart intentionally uses explicit release-candidate tags. Release packaging
 copies it to a temporary directory, enables `global.requireImageDigest`, and
