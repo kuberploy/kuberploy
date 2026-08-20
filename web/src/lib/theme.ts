@@ -37,6 +37,13 @@ export function watchSystemTheme(onChange: (theme: Theme) => void) {
   const query = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
   if (!query) return () => undefined;
   const handleChange = () => onChange(query.matches ? "dark" : "light");
-  query.addEventListener?.("change", handleChange);
-  return () => query.removeEventListener?.("change", handleChange);
+  if (query.addEventListener) {
+    query.addEventListener("change", handleChange);
+    return () => query.removeEventListener?.("change", handleChange);
+  }
+  // Safari versions supported by some self-hosted operators expose the
+  // legacy MediaQueryList listener API only. Keep automatic theme changes
+  // functional there without changing the modern path.
+  query.addListener?.(handleChange);
+  return () => query.removeListener?.(handleChange);
 }

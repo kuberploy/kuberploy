@@ -69,4 +69,27 @@ describe("theme", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     stop();
   });
+
+  it("supports legacy system-theme listeners", () => {
+    let dark = false;
+    let listener: (() => void) | undefined;
+    const removeListener = vi.fn();
+    vi.stubGlobal("matchMedia", () => ({
+      get matches() {
+        return dark;
+      },
+      addListener: (next: () => void) => {
+        listener = next;
+      },
+      removeListener,
+    }));
+
+    const stop = watchSystemTheme(applyTheme);
+    dark = true;
+    listener?.();
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    stop();
+    expect(removeListener).toHaveBeenCalledOnce();
+  });
 });
