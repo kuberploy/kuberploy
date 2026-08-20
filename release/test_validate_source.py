@@ -25,6 +25,7 @@ def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.Comple
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
+    current_version = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))["version"]
     with tempfile.TemporaryDirectory(prefix="kuberploy-installer-lock-validation-") as temporary:
         fixture = Path(temporary)
         installer = fixture / "charts/kuberploy-installer"
@@ -38,12 +39,12 @@ def main() -> None:
             (root / "scripts/helm/prepare-dependencies.sh").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
-        validate_installer_dependency_source(fixture, "0.1.0-rc.255")
+        validate_installer_dependency_source(fixture, current_version)
         lock = installer / "dependencies.lock"
         body = lock.read_text(encoding="utf-8")
         lock.write_text(body.replace("kuberploy-argocd", "other-argocd", 1), encoding="utf-8")
         try:
-            validate_installer_dependency_source(fixture, "0.1.0-rc.255")
+            validate_installer_dependency_source(fixture, current_version)
         except SystemExit as error:
             if "non-canonical" not in str(error):
                 raise
@@ -52,7 +53,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, "0.1.0-rc.255")
+        validate_stable_qualification(qualification_root, current_version)
         try:
             validate_stable_qualification(qualification_root, "0.1.0")
         except SystemExit as error:
@@ -64,8 +65,8 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": "0.1.0-rc.255",
-            "candidateTag": "v0.1.0-rc.255",
+            "candidateVersion": current_version,
+            "candidateTag": f"v{current_version}",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
