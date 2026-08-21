@@ -135,16 +135,16 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   });
 }
 
-function runPrisma(args) {
+function runChild(command, args, label) {
   return new Promise((resolve, reject) => {
-    const child = spawn("./node_modules/.bin/prisma", args, {
+    const child = spawn(command, args, {
       stdio: "inherit",
       env: process.env,
     });
     activeChild = child;
     child.once("error", (error) => {
       activeChild = undefined;
-      reject(new Error(`Unable to start Prisma Migrate: ${error.message}`));
+      reject(new Error(`Unable to start ${label}: ${error.message}`));
     });
     child.once("exit", (code, signal) => {
       activeChild = undefined;
@@ -157,12 +157,24 @@ function runPrisma(args) {
         return;
       }
       if (code !== 0) {
-        reject(new Error(`Prisma Migrate exited with status ${code ?? 1}`));
+        reject(new Error(`${label} exited with status ${code ?? 1}`));
         return;
       }
       resolve();
     });
   });
+}
+
+function runPrisma(args) {
+  return runChild("./node_modules/.bin/prisma", args, "Prisma Migrate");
+}
+
+function runSchemaDriftCheck() {
+  return runChild(
+    process.execPath,
+    ["check-schema-drift.mjs"],
+    "schema drift check",
+  );
 }
 
 async function expectedMigrationChecksums() {
@@ -976,6 +988,7 @@ try {
   `;
   await prepareRC171Recovery(sql);
   await runPrisma(["migrate", "deploy", "--config", "prisma.config.ts"]);
+  await runSchemaDriftCheck();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;

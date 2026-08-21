@@ -63,9 +63,11 @@ The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite
 foreign-key fences. The application does not use Prisma relation emulation;
 the actual PostgreSQL foreign keys remain authoritative native migration SQL.
-The Helm pre-install/pre-upgrade migration Job runs `prisma migrate deploy`;
-API and worker startup only verify the exact completed migration names and
-checksums.
+The Helm pre-install/pre-upgrade migration Job runs `prisma migrate deploy` and
+then compares Prisma's introspected declarative schema with the checked-in
+schema. Unsupported structural drift fails the Job before API or worker
+rollout; API and worker startup also verify the exact completed migration names
+and checksums.
 
 The migration image waits for the configured PostgreSQL TCP endpoint for at
 most 480 seconds before invoking Prisma. This covers blank-cluster dependency

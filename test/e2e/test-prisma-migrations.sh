@@ -127,6 +127,27 @@ docker run --rm --network "${kp_network}" \
   --entrypoint node \
   "${kp_image}" check-schema-drift.mjs >/dev/null
 
+docker exec "${kp_postgres}" psql --username postgres --dbname fresh \
+  --set ON_ERROR_STOP=1 --command \
+  'ALTER TABLE public.users ADD COLUMN unsupported_schema_drift text' >/dev/null
+if kp_drifted_entrypoint="$(docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_fresh_url}" "${kp_image}" 2>&1)"; then
+  kp_drifted_entrypoint_status=0
+else
+  kp_drifted_entrypoint_status=$?
+fi
+if [[ "${kp_drifted_entrypoint_status}" -eq 0 ]]; then
+  printf 'Migration entrypoint accepted unsupported schema drift\n' >&2
+  exit 1
+fi
+grep -q 'prisma/schema.prisma differs from the migrated PostgreSQL schema' \
+  <<<"${kp_drifted_entrypoint}"
+docker exec "${kp_postgres}" psql --username postgres --dbname fresh \
+  --set ON_ERROR_STOP=1 --command \
+  'ALTER TABLE public.users DROP COLUMN unsupported_schema_drift' >/dev/null
+docker run --rm --network "${kp_network}" \
+  --env DATABASE_URL="${kp_fresh_url}" "${kp_image}" >/dev/null
+
 # Exercise the ordered 003 -> 020 production upgrade, not only a fresh apply.
 # Prisma owns the history rows; psql supplies the already-released SQL exactly
 # as it existed before the new image starts.
