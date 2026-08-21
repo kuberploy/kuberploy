@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC292 preserves active lease-fenced Argo desired-state work through the expected temporary root-readiness transition, removing the two-minute reclaim delay from configuration convergence.",
+  "summary": "Schema 020. RC293 keeps the protected Argo desired-state lease active while the exact root Application hard refresh passes through transient stale reads, eliminating avoidable command failure and reclaim.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.292"
+  "version": "0.1.0-rc.293"
 }
