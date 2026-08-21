@@ -213,55 +213,8 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatalf("duplicate materialization created=%v err=%v", created, err)
 	}
 
-	// An environment foundation is useful before the environment owns any
-	// applications or deployments. Its ready, exact empty projection must still
-	// publish the environment-owned AppProject and empty ApplicationSet so Helm-
-	// only Applications never require a dummy Deployment to make their project.
-	foundationNamespace, foundationArgoProject := domain.DeriveEnvironmentDestination(project, "helm-only")
-	foundationEnvironment := domain.Environment{ID: foundationEnvironmentID, ProjectID: projectID, Name: "Helm only",
-		Slug: "helm-only", Namespace: foundationNamespace, ArgoProject: foundationArgoProject, CreatedAt: now}
-	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7)`, foundationEnvironment.ID, projectID, foundationEnvironment.Name,
-		foundationEnvironment.Slug, foundationEnvironment.Namespace, foundationEnvironment.ArgoProject, now); err != nil {
-		t.Fatal(err)
-	}
-	foundationBinding, err := gitprojection.NewGitHubEnvironmentBinding(foundationBindingID, projectID, foundationEnvironmentID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 502, RepositoryID: 602, Owner: "kuberploy", Name: "environment"},
-		"refs/heads/main", activatedAt.Add(2*time.Second))
-	if err != nil {
-		t.Fatal(err)
-	}
-	foundationRevision := strings.Repeat("5", 40)
-	foundationBinding.TargetHeadRevision, foundationBinding.IndexedRevision = foundationRevision, foundationRevision
-	foundationBinding.TargetHeadObservedAt, foundationBinding.IndexedAt = activatedAt.Add(2*time.Second), activatedAt.Add(2*time.Second)
-	foundationBinding.ProjectionGeneration, foundationBinding.State, foundationBinding.UpdatedAt = 1, gitprojection.BindingReady, activatedAt.Add(2*time.Second)
-	if err = projectionStore.PutBinding(ctx, foundationBinding); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
-		VALUES($1,1,$2,$3,'active',$4,$4)`, foundationBinding.ID, foundationRevision, foundationBinding.ParserVersion,
-		activatedAt.Add(2*time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	materializer.newID = func() string { return "8e333333-3333-4333-8333-333333333333" }
-	created, err = materializer.MaterializeDesiredStateOnce(ctx, activatedAt.Add(3*time.Second))
-	if err != nil || !created {
-		t.Fatalf("foundation-only environment was not materialized: created=%v err=%v", created, err)
-	}
-	foundationStatus, err := argoStore.LatestDesiredState(ctx, projectID, foundationEnvironmentID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	foundationCommand, err := argoStore.DesiredStateCommand(ctx, foundationStatus.CommandID)
-	if err != nil || foundationCommand.ArgoProject != foundationArgoProject ||
-		strings.Count(string(foundationCommand.Content), "\nkind: ") != 2 ||
-		!strings.Contains(string(foundationCommand.Content), "kind: AppProject") ||
-		!strings.Contains(string(foundationCommand.Content), "kind: ApplicationSet") ||
-		!strings.Contains(string(foundationCommand.Content), "elements: []") {
-		t.Fatalf("foundation-only desired state is not AppProject plus empty ApplicationSet: command=%#v err=%v", foundationCommand, err)
-	}
 	work, err := argoStore.ClaimDesiredState(ctx, "production-argo-worker", identity.DesiredStateWorkerIdentity,
-		activatedAt.Add(4*time.Second), minimumDesiredStateLease)
+		activatedAt.Add(3*time.Second), minimumDesiredStateLease)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +246,30 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatalf("different projection policy accepted claim: %v", err)
 	}
 
-	receiptAt := activatedAt.Add(4 * time.Second)
+	supersededAt := activatedAt.Add(5 * time.Second)
+	retired, err := argoStore.SupersedeDesiredState(ctx, work.Lease, supersededAt)
+	if err != nil || retired.State != DesiredStateSuperseded || retired.WriteBaseRevision != "" {
+		t.Fatalf("pre-write projection race was not superseded: command=%#v err=%v", retired, err)
+	}
+	materializer.newID = func() string { return "8e555555-5555-4555-8555-555555555555" }
+	if created, err = materializer.MaterializeDesiredStateOnce(ctx, supersededAt.Add(time.Second)); err != nil || !created {
+		t.Fatalf("superseded pre-write command was not rematerialized: created=%v err=%v", created, err)
+	}
+	replacement, err := argoStore.LatestDesiredState(ctx, projectID, environmentID)
+	if err != nil || replacement.CommandID == retired.ID || replacement.Generation != retired.Generation+1 ||
+		replacement.State != DesiredStatePending || replacement.EnvironmentRevision != retired.EnvironmentRevision {
+		t.Fatalf("superseded replacement status=%#v retired=%#v err=%v", replacement, retired.Status(), err)
+	}
+	work, err = argoStore.ClaimDesiredState(ctx, "production-argo-worker", identity.DesiredStateWorkerIdentity,
+		supersededAt.Add(2*time.Second), minimumDesiredStateLease)
+	if err != nil || work.Command.ID != replacement.CommandID || work.Command.ContentSHA256 != retired.ContentSHA256 {
+		t.Fatalf("replacement command work=%#v status=%#v err=%v", work, replacement, err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); err != nil {
+		t.Fatalf("replacement active claim rejected: %v", err)
+	}
+
+	receiptAt := activatedAt.Add(8 * time.Second)
 	bound, err := argoStore.BindDesiredStateWriteBase(ctx, work.Lease, platform.TargetHeadRevision, receiptAt, receiptAt)
 	if err != nil {
 		t.Fatal(err)
@@ -364,22 +340,77 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatalf("verified desired state did not rotate with runtime lock: created=%v err=%v", created, err)
 	}
 	rotated, err := argoStore.LatestDesiredState(ctx, projectID, environmentID)
-	if err != nil || rotated.ChartVersion != rotatedIdentity.Runtime.ChartVersion || rotated.ChartDigest != rotatedIdentity.Runtime.ChartDigest || rotated.RendererImage != rotatedIdentity.Runtime.RendererImage {
+	if err != nil || rotated.ChartVersion != rotatedIdentity.Runtime.ChartVersion || rotated.ChartDigest != rotatedIdentity.Runtime.ChartDigest ||
+		rotated.RendererImage != rotatedIdentity.Runtime.RendererImage {
 		t.Fatalf("rotated runtime lock command=%#v err=%v", rotated, err)
+	}
+	rotatedCommand, err := argoStore.DesiredStateCommand(ctx, rotated.CommandID)
+	if err != nil || rotatedCommand.Runtime.ChartRepository != rotatedIdentity.Runtime.ChartRepository {
+		t.Fatalf("rotated runtime repository command=%#v err=%v", rotatedCommand, err)
 	}
 	if created, err = rotatedMaterializer.MaterializeDesiredStateOnce(ctx, receiptAt.Add(5*time.Second)); err != nil || created {
 		t.Fatalf("duplicate runtime-lock rotation created=%v err=%v", created, err)
 	}
 
+	// An environment foundation is useful before the environment owns any
+	// applications or deployments. Its ready, exact empty projection must still
+	// publish the environment-owned AppProject and empty ApplicationSet so Helm-
+	// only Applications never require a dummy Deployment to make their project.
+	foundationNamespace, foundationArgoProject := domain.DeriveEnvironmentDestination(project, "helm-only")
+	foundationEnvironment := domain.Environment{ID: foundationEnvironmentID, ProjectID: projectID, Name: "Helm only",
+		Slug: "helm-only", Namespace: foundationNamespace, ArgoProject: foundationArgoProject, CreatedAt: now}
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`, foundationEnvironment.ID, projectID, foundationEnvironment.Name,
+		foundationEnvironment.Slug, foundationEnvironment.Namespace, foundationEnvironment.ArgoProject, now); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the independent foundation command logically older than the pending
+	// runtime-lock rotation so the platform scheduler proves FIFO selection.
+	foundationCreatedAt := receiptAt.Add(2 * time.Second)
+	foundationBinding, err := gitprojection.NewGitHubEnvironmentBinding(foundationBindingID, projectID, foundationEnvironmentID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 502, RepositoryID: 602, Owner: "kuberploy", Name: "environment"},
+		"refs/heads/main", foundationCreatedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundationRevision := strings.Repeat("5", 40)
+	foundationBinding.TargetHeadRevision, foundationBinding.IndexedRevision = foundationRevision, foundationRevision
+	foundationBinding.TargetHeadObservedAt, foundationBinding.IndexedAt = foundationCreatedAt, foundationCreatedAt
+	foundationBinding.ProjectionGeneration, foundationBinding.State, foundationBinding.UpdatedAt = 1, gitprojection.BindingReady, foundationCreatedAt
+	if err = projectionStore.PutBinding(ctx, foundationBinding); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,1,$2,$3,'active',$4,$4)`, foundationBinding.ID, foundationRevision, foundationBinding.ParserVersion,
+		foundationCreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	materializer.newID = func() string { return "8e333333-3333-4333-8333-333333333333" }
+	created, err = materializer.MaterializeDesiredStateOnce(ctx, foundationCreatedAt.Add(time.Second))
+	if err != nil || !created {
+		t.Fatalf("foundation-only environment was not materialized: created=%v err=%v", created, err)
+	}
+	foundationStatus, err := argoStore.LatestDesiredState(ctx, projectID, foundationEnvironmentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundationCommand, err := argoStore.DesiredStateCommand(ctx, foundationStatus.CommandID)
+	if err != nil || foundationCommand.ArgoProject != foundationArgoProject ||
+		strings.Count(string(foundationCommand.Content), "\nkind: ") != 2 ||
+		!strings.Contains(string(foundationCommand.Content), "kind: AppProject") ||
+		!strings.Contains(string(foundationCommand.Content), "kind: ApplicationSet") ||
+		!strings.Contains(string(foundationCommand.Content), "elements: []") {
+		t.Fatalf("foundation-only desired state is not AppProject plus empty ApplicationSet: command=%#v err=%v", foundationCommand, err)
+	}
 	foundationWork, err := argoStore.ClaimDesiredState(ctx, "foundation-argo-worker", identity.DesiredStateWorkerIdentity,
-		receiptAt.Add(6*time.Second), minimumDesiredStateLease)
+		foundationCreatedAt.Add(2*time.Second), minimumDesiredStateLease)
 	if err != nil || foundationWork.Command.EnvironmentID != foundationEnvironmentID {
 		t.Fatalf("foundation-only command was not independently claimable: work=%#v err=%v", foundationWork, err)
 	}
 	if err = gate.ValidateDesiredStateClaim(ctx, foundationWork.Command, DesiredStateClaimActive); err != nil {
 		t.Fatalf("foundation-only active claim rejected: %v", err)
 	}
-	foundationReceiptAt := receiptAt.Add(7 * time.Second)
+	foundationReceiptAt := foundationCreatedAt.Add(3 * time.Second)
 	foundationBound, err := argoStore.BindDesiredStateWriteBase(ctx, foundationWork.Lease,
 		platform.TargetHeadRevision, foundationReceiptAt, foundationReceiptAt)
 	if err != nil {
@@ -401,6 +432,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		foundationCommit, foundationReceiptAt.Add(2*time.Second)); completeErr != nil || completed.State != DesiredStateVerified {
 		t.Fatalf("foundation-only command not verifiable: command=%#v err=%v", completed, completeErr)
 	}
+
 	var verifiedReceiptCommand string
 	if err = pool.QueryRow(ctx, `SELECT desired_state_command_id::text
 		FROM argo_desired_state_materialization_receipts
