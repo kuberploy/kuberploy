@@ -63,6 +63,18 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	cloned, err := store.Clone(ctx, pgCommand(actor, "pg-clone-profile", now.Add(time.Second)), profiles.Ref{ProfileID: created.Profile.ID, Revision: created.Revision.Revision}, "api-limit-clone", []profiles.Assignment{{Scope: profiles.ApplicationScope, ID: application}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCloneSource := profiles.Ref{ProfileID: created.Profile.ID, Revision: created.Revision.Revision, SpecDigest: created.Revision.SpecDigest, AssignmentsDigest: created.Revision.AssignmentsDigest}
+	if cloned.Revision.ClonedFrom == nil || *cloned.Revision.ClonedFrom != wantCloneSource {
+		t.Fatalf("clone source = %#v, want %#v", cloned.Revision.ClonedFrom, wantCloneSource)
+	}
+	_, loadedClone, err := store.Current(ctx, cloned.Profile.ID)
+	if err != nil || loadedClone.ClonedFrom == nil || *loadedClone.ClonedFrom != wantCloneSource {
+		t.Fatalf("reloaded clone source = %#v, want %#v, err=%v", loadedClone.ClonedFrom, wantCloneSource, err)
+	}
 	if _, err = store.Create(ctx, pgCommand(actor, "pg-create-same-name", now.Add(time.Second)), "api-limit", spec, []profiles.Assignment{{Scope: profiles.ApplicationScope, ID: application}}); err != nil {
 		t.Fatalf("same logical name in another scope should be allowed: %v", err)
 	}

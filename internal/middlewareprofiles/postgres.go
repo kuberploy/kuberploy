@@ -85,13 +85,32 @@ type qrow interface {
 func loadRevision(ctx context.Context, q qrow, ref Ref) (Profile, Revision, error) {
 	var p Profile
 	var v Revision
+	var cloned Ref
 	var raw []byte
-	e := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.spec,r.spec_digest,r.assignments_digest,r.created_by::text,r.created_at FROM configuration_profiles p JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=$2 WHERE p.id=$1 AND p.kind='middleware' FOR SHARE OF p,r`, ref.ProfileID, ref.Revision).Scan(&p.ID, &p.Name, &p.Lifecycle, &p.CurrentRevision, &p.CreatedBy, &p.CreatedAt, &p.DeactivatedBy, &p.DeactivatedAt, &raw, &v.SpecDigest, &v.AssignmentsDigest, &v.CreatedBy, &v.CreatedAt)
+	e := q.QueryRow(ctx, `SELECT p.id::text,p.name,p.lifecycle,p.current_revision,p.created_by::text,p.created_at,
+		COALESCE(p.deactivated_by::text,''),p.deactivated_at,r.spec,r.spec_digest,r.assignments_digest,r.created_by::text,r.created_at,
+		COALESCE(r.cloned_from_profile_id::text,''),COALESCE(r.cloned_from_revision,0),COALESCE(source.spec_digest,''),COALESCE(source.assignments_digest,'')
+		FROM configuration_profiles p
+		JOIN configuration_profile_revisions r ON r.profile_id=p.id AND r.revision=$2
+		LEFT JOIN configuration_profile_revisions source ON source.profile_id=r.cloned_from_profile_id AND source.revision=r.cloned_from_revision AND source.profile_kind='middleware'
+		WHERE p.id=$1 AND p.kind='middleware' FOR SHARE OF p,r`, ref.ProfileID, ref.Revision).Scan(
+		&p.ID, &p.Name, &p.Lifecycle, &p.CurrentRevision, &p.CreatedBy, &p.CreatedAt, &p.DeactivatedBy, &p.DeactivatedAt,
+		&raw, &v.SpecDigest, &v.AssignmentsDigest, &v.CreatedBy, &v.CreatedAt,
+		&cloned.ProfileID, &cloned.Revision, &cloned.SpecDigest, &cloned.AssignmentsDigest,
+	)
 	if e != nil {
 		return p, v, pgerr(e)
 	}
 	v.ProfileID = p.ID
 	v.Revision = ref.Revision
+	if cloned.ProfileID != "" {
+		if validateRef(cloned) != nil || cloned.SpecDigest == "" || cloned.AssignmentsDigest == "" {
+			return Profile{}, Revision{}, ErrConflict
+		}
+		v.ClonedFrom = &cloned
+	} else if cloned.Revision != 0 || cloned.SpecDigest != "" || cloned.AssignmentsDigest != "" {
+		return Profile{}, Revision{}, ErrConflict
+	}
 	if json.Unmarshal(raw, &v.Spec) != nil {
 		return p, v, ErrConflict
 	}
