@@ -187,6 +187,24 @@ done
 
 helm template platform-default "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-system > "${kp_tmp}/platform-default.yaml"
+kp_expect_platform_reject "HTTP redirect without TLS" \
+  --set ingress.tls.redirectHttp=true
+kp_expect_platform_reject "HTTP redirect on a non-Traefik IngressClass" \
+  --set ingress.tls.enabled=true \
+  --set ingress.tls.redirectHttp=true \
+  --set-string ingress.tls.secretName=kuberploy-platform-tls
+yq '.ingress.className = "traefik" |
+    .ingress.tls.enabled = true |
+    .ingress.tls.redirectHttp = true |
+    .ingress.tls.secretName = "kuberploy-platform-tls" |
+    .ingress.tls.issuerName = "kuberploy-letsencrypt-production"' \
+  "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/platform-tls-redirect-values.yaml"
+helm template kuberploy "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-system \
+  -f "${kp_tmp}/platform-tls-redirect-values.yaml" > "${kp_tmp}/platform-tls-redirect.yaml"
+[[ "$(yq eval-all '[select(.kind == "Middleware" and .metadata.name == "kuberploy-https" and .spec.redirectScheme.scheme == "https" and .spec.redirectScheme.permanent == true)] | length' "${kp_tmp}/platform-tls-redirect.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy") | [.metadata.annotations."traefik.ingress.kubernetes.io/router.entrypoints",.metadata.annotations."traefik.ingress.kubernetes.io/router.tls"] | join(",")' "${kp_tmp}/platform-tls-redirect.yaml")" == "websecure,true" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy-redirect") | [.metadata.annotations."traefik.ingress.kubernetes.io/router.entrypoints",.metadata.annotations."traefik.ingress.kubernetes.io/router.middlewares"] | join(",")' "${kp_tmp}/platform-tls-redirect.yaml")" == "web,kuberploy-system-kuberploy-https@kubernetescrd" ]]
 kp_external_dns_observer_rbac="$(rg -n -A 32 'component" "external-dns-observer' "${kp_root}/charts/kuberploy/templates/rbac.yaml")"
 [[ "$(grep -c 'resources: \["networkpolicies"\]' <<<"${kp_external_dns_observer_rbac}")" == "1" ]] || {
   printf 'operational ExternalDNS observer Role lacks NetworkPolicy read access\n' >&2

@@ -299,6 +299,9 @@ ingress:
   host: kuberploy.example.com
   tls:
     enabled: false
+    # Traefik-only route redirect. TLS traffic remains bound to websecure even
+    # when this is false; true adds a dedicated port-80 redirect Ingress.
+    redirectHttp: false
     secretName: ""
     # When set, cert-manager issues/renews this Ingress certificate through the
     # exact platform ClusterIssuer. Empty means the Secret is pre-provisioned.

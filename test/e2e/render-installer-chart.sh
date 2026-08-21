@@ -351,6 +351,7 @@ helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f 
 kp_expand_installer_applications "${kp_tmp}/platform-tls.yaml"
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.publicURL' "${kp_tmp}/platform-tls.yaml")" == "https://kuberploy.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.ingress.tls.issuerName' "${kp_tmp}/platform-tls.yaml")" == "kuberploy-letsencrypt-production" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.ingress.tls.redirectHttp' "${kp_tmp}/platform-tls.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-cert-manager") | .spec.sources[0].helm.valuesObject.foundation.issuers.production.email' "${kp_tmp}/platform-tls.yaml")" == "platform@example.com" ]]
 
 yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject' \
@@ -358,6 +359,8 @@ yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-cont
 helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
   -f "${kp_tmp}/platform-tls-control-values.yaml" >"${kp_tmp}/platform-tls-control.yaml"
 [[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy") | .metadata.annotations."cert-manager.io/cluster-issuer"' "${kp_tmp}/platform-tls-control.yaml")" == "kuberploy-letsencrypt-production" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy") | [.metadata.annotations."traefik.ingress.kubernetes.io/router.entrypoints",.metadata.annotations."traefik.ingress.kubernetes.io/router.tls"] | join(",")' "${kp_tmp}/platform-tls-control.yaml")" == "websecure,true" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.name == "kuberploy-redirect") | [.metadata.annotations."traefik.ingress.kubernetes.io/router.entrypoints",.metadata.annotations."traefik.ingress.kubernetes.io/router.middlewares"] | join(",")' "${kp_tmp}/platform-tls-control.yaml")" == "web,kuberploy-system-kuberploy-https@kubernetescrd" ]]
 
 kp_github_args=(
   --set components.builder.enabled=true

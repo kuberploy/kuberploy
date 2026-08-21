@@ -99,8 +99,10 @@ component plus all three non-empty TLS fields: `secretName`,
 `clusterIssuerName`, and `accountEmail`. The email registers the Let's Encrypt
 ACME account; it is configuration metadata, not a provider credential. The
 installer creates the bounded production ClusterIssuer configuration and adds
-the exact issuer annotation to the control-plane Ingress. It rejects partial
-TLS configuration before Helm writes resources.
+the exact issuer annotation to the control-plane Ingress. TLS traffic is bound
+to Traefik's `websecure` entrypoint, while a dedicated port-80 Ingress and
+route-scoped `redirectScheme` Middleware permanently redirect HTTP to HTTPS.
+It rejects partial TLS configuration before Helm writes resources.
 
 The source checkout form `charts/kuberploy-installer` is for development and
 chart tests. Operators should use the public OCI package so the selected chart

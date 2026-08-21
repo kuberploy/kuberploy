@@ -60,7 +60,7 @@
       "enabled" true
       "className" "traefik"
       "host" $public.hostname
-      "tls" (dict "enabled" $public.tls.enabled "secretName" $public.tls.secretName "issuerName" $public.tls.clusterIssuerName)
+      "tls" (dict "enabled" $public.tls.enabled "redirectHttp" $public.tls.enabled "secretName" $public.tls.secretName "issuerName" $public.tls.clusterIssuerName)
     )
   -}}
   {{- $childValues = mergeOverwrite $childValues $endpointValues -}}

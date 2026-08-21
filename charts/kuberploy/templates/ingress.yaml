@@ -1,3 +1,27 @@
+{{- if .Values.ingress.tls.redirectHttp }}
+  {{- if not .Values.ingress.enabled }}
+    {{- fail "ingress.tls.redirectHttp requires ingress.enabled" }}
+  {{- end }}
+  {{- if not .Values.ingress.tls.enabled }}
+    {{- fail "ingress.tls.redirectHttp requires ingress.tls.enabled" }}
+  {{- end }}
+  {{- if ne .Values.ingress.className "traefik" }}
+    {{- fail "ingress.tls.redirectHttp requires the traefik IngressClass" }}
+  {{- end }}
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.tls.redirectHttp }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-https
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+{{- end }}
 {{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -5,10 +29,17 @@ metadata:
   name: {{ include "kuberploy.fullname" . }}
   labels:
     {{- include "kuberploy.labels" . | nindent 4 }}
-  {{- with .Values.ingress.tls.issuerName }}
   annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    {{- if eq .Values.ingress.className "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ ternary "websecure" "web" .Values.ingress.tls.enabled | quote }}
+    {{- if .Values.ingress.tls.enabled }}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- end }}
+    {{- end }}
+    {{- with .Values.ingress.tls.issuerName }}
     cert-manager.io/cluster-issuer: {{ . | quote }}
-  {{- end }}
+    {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}
   {{- if .Values.ingress.tls.enabled }}
@@ -43,6 +74,32 @@ spec:
                 port:
                   name: http
           {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kuberploy.componentName" (dict "root" . "component" "web") }}
+                port:
+                  name: http
+{{- end }}
+{{- if and .Values.ingress.enabled .Values.ingress.tls.redirectHttp }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-redirect
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: "web"
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd" .Release.Namespace (include "kuberploy.fullname" .) | quote }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
           - path: /
             pathType: Prefix
             backend:

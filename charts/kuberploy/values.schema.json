@@ -673,9 +673,10 @@
         "tls": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "secretName", "issuerName"],
+          "required": ["enabled", "redirectHttp", "secretName", "issuerName"],
           "properties": {
             "enabled": { "type": "boolean" },
+            "redirectHttp": { "type": "boolean" },
             "secretName": { "type": "string", "maxLength": 63 },
             "issuerName": { "type": "string", "maxLength": 63, "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$" }
           }
