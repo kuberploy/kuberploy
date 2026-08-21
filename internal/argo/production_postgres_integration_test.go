@@ -278,6 +278,12 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err = gate.ValidateDesiredStateClaim(ctx, tampered, DesiredStateClaimActive); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("tampered approval receipt accepted: %v", err)
 	}
+	tamperedProjection := work.Command
+	tamperedProjection.EnvironmentRevision = strings.Repeat("0", 40)
+	if err = gate.ValidateDesiredStateClaim(ctx, tamperedProjection, DesiredStateClaimActive); !errors.Is(err, ErrInvalid) ||
+		errors.Is(err, ErrDesiredStateProjectionSuperseded) {
+		t.Fatalf("tampered projection receipt was mistaken for supersession: %v", err)
+	}
 	wrongPolicyGate, err := NewPostgreSQLDesiredStateProjectionGate(pool, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, registry,
 		"sha256:"+strings.Repeat("1", 64))
 	if err != nil {
@@ -301,6 +307,9 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		target_head_observed_at=$3,indexed_at=$3,projection_generation=2,updated_at=$3 WHERE id=$1`,
 		binding.ID, advancedRevision, receiptAt.Add(time.Second)); err != nil {
 		t.Fatal(err)
+	}
+	if err = gate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); !errors.Is(err, ErrDesiredStateProjectionSuperseded) {
+		t.Fatalf("stale active projection was not classified as superseded: %v", err)
 	}
 	registry.resolved = false
 	beforeCalls := registry.calls

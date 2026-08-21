@@ -376,6 +376,24 @@ func (s *PostgreSQLStore) RetryDesiredState(ctx context.Context, lease DesiredSt
 	return DesiredStateCommand{}, desiredStateWriteMiss(current, currentErr, lease, now)
 }
 
+func (s *PostgreSQLStore) SupersedeDesiredState(ctx context.Context, lease DesiredStateLease, now time.Time) (DesiredStateCommand, error) {
+	if lease.Validate() != nil || now.IsZero() {
+		return DesiredStateCommand{}, ErrInvalid
+	}
+	command, err := scanDesiredState(s.pool.QueryRow(ctx, `UPDATE argo_desired_state_commands SET
+		state='superseded',consecutive_failures=LEAST(consecutive_failures+1,30),last_failure_code='projection-superseded',
+		completed_at=$6,lease_owner=NULL,lease_until=NULL,worker_contract=NULL,worker_config_digest=NULL,updated_at=$6
+		WHERE id=$1 AND lease_owner=$2 AND lease_epoch=$3 AND worker_contract=$4 AND worker_config_digest=$5
+		AND lease_until>$6 AND state='claimed' AND write_base_revision=''
+		RETURNING `+desiredStateColumns,
+		lease.CommandID, lease.Owner, lease.Epoch, lease.Contract, lease.ConfigDigest, now.UTC()))
+	if err == nil {
+		return command, nil
+	}
+	current, currentErr := s.DesiredStateCommand(ctx, lease.CommandID)
+	return DesiredStateCommand{}, desiredStateWriteMiss(current, currentErr, lease, now)
+}
+
 func (s *PostgreSQLStore) FailDesiredState(ctx context.Context, lease DesiredStateLease, failureCode string, now time.Time) (DesiredStateCommand, error) {
 	if lease.Validate() != nil || !failureCodeRE.MatchString(failureCode) || now.IsZero() {
 		return DesiredStateCommand{}, ErrInvalid

@@ -26,6 +26,10 @@ var (
 	ErrDesiredStateNotReady       = errors.New("matching Argo desired-state worker is not ready")
 	ErrNoDesiredStateChange       = errors.New("Argo desired state did not change")
 	ErrRegistryReferencesNotReady = errors.New("exact registry pull artifacts are not ready")
+	// ErrDesiredStateProjectionSuperseded means a claimed command lost its
+	// exact active projection before any durable Git write-base was recorded.
+	// The command is safe to retire and replace with a freshly materialized one.
+	ErrDesiredStateProjectionSuperseded = errors.New("Argo desired-state projection was superseded")
 	// ErrDesiredStateWriteNotFound means the durable write-base exists, but
 	// the exact operation trailer is absent from provider history. The command
 	// cannot be recovered safely; its environment must be replanned.

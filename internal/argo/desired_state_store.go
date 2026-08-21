@@ -44,5 +44,6 @@ type DesiredStateStore interface {
 	MarkDesiredStateGitCommitted(context.Context, DesiredStateLease, string, time.Time) (DesiredStateCommand, error)
 	CompleteDesiredStateVerified(context.Context, DesiredStateLease, string, time.Time) (DesiredStateCommand, error)
 	RetryDesiredState(context.Context, DesiredStateLease, DesiredStateRetry, time.Time) (DesiredStateCommand, error)
+	SupersedeDesiredState(context.Context, DesiredStateLease, time.Time) (DesiredStateCommand, error)
 	FailDesiredState(context.Context, DesiredStateLease, string, time.Time) (DesiredStateCommand, error)
 }

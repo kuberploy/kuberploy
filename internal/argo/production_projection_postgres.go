@@ -412,6 +412,20 @@ func desiredStateCatalogDigest(policyDigest string, binding gitprojection.Bindin
 }
 
 func (g *PostgreSQLDesiredStateProjectionGate) targetForActiveCommand(ctx context.Context, command DesiredStateCommand) (DesiredStateTarget, error) {
+	var exactCommand bool
+	if err := g.pool.QueryRow(ctx, `SELECT EXISTS(
+		SELECT 1 FROM argo_desired_state_commands
+		WHERE id=$1 AND project_id=$2 AND environment_id=$3 AND platform_binding_id=$4
+		  AND environment_binding_id=$5 AND cluster_id=$6 AND platform_target_ref=$7
+		  AND environment_target_ref=$8 AND environment_revision=$9 AND environment_generation=$10
+	)`, command.ID, command.ProjectID, command.EnvironmentID, command.PlatformBindingID,
+		command.EnvironmentBindingID, command.ClusterID, command.PlatformTargetRef,
+		command.EnvironmentTargetRef, command.EnvironmentRevision, command.EnvironmentGeneration).Scan(&exactCommand); err != nil {
+		return DesiredStateTarget{}, classifyPostgres(err)
+	}
+	if !exactCommand {
+		return DesiredStateTarget{}, ErrInvalid
+	}
 	projectionStore, err := gitprojection.NewPostgreSQLStore(g.pool)
 	if err != nil {
 		return DesiredStateTarget{}, ErrInvalid
@@ -442,11 +456,20 @@ func (g *PostgreSQLDesiredStateProjectionGate) targetForActiveCommand(ctx contex
 	}
 	target := DesiredStateTarget{Environment: EnvironmentTarget{Project: project, Environment: environment,
 		Binding: environmentBinding, ArgoNamespace: command.ArgoNamespace, Runtime: command.Runtime}, PlatformBinding: platformBinding}
-	if target.Validate() != nil || environmentBinding.CredentialMode != gitprojection.CredentialGitHubApp ||
-		environmentBinding.IndexedRevision != command.EnvironmentRevision || environmentBinding.ProjectionGeneration != command.EnvironmentGeneration ||
+	if environmentBinding.CredentialMode != gitprojection.CredentialGitHubApp ||
+		environmentBinding.ProjectID != command.ProjectID || environmentBinding.EnvironmentID != command.EnvironmentID ||
 		platformBinding.ID != command.PlatformBindingID || platformBinding.ClusterID != command.ClusterID ||
 		platformBinding.TargetRef != command.PlatformTargetRef || environmentBinding.TargetRef != command.EnvironmentTargetRef ||
 		command.DestinationNamespace != environment.Namespace || command.ArgoProject != environment.ArgoProject {
+		return DesiredStateTarget{}, ErrInvalid
+	}
+	if environmentBinding.State != gitprojection.BindingReady ||
+		environmentBinding.TargetHeadRevision != environmentBinding.IndexedRevision ||
+		environmentBinding.IndexedRevision != command.EnvironmentRevision ||
+		environmentBinding.ProjectionGeneration != command.EnvironmentGeneration {
+		return DesiredStateTarget{}, ErrDesiredStateProjectionSuperseded
+	}
+	if target.Validate() != nil {
 		return DesiredStateTarget{}, ErrInvalid
 	}
 	return target, nil

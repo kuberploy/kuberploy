@@ -357,7 +357,7 @@ func TestDesiredStateWriterRejectsNewMutationAfterProjectionGenerationChanges(t 
 	fixture := newDesiredStateWriterFixture(t)
 	fixture.advanceEnvironmentHead(t)
 	_, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
-	if !errors.Is(err, argo.ErrInvalid) {
+	if !errors.Is(err, argo.ErrDesiredStateProjectionSuperseded) {
 		t.Fatalf("stale projection generation reached a new Git mutation: %v", err)
 	}
 	if head := runDesiredStateGit(t, fixture.remote, "rev-parse", fixture.target.PlatformBinding.TargetRef); head != fixture.baseHead {
@@ -670,6 +670,38 @@ func TestDesiredStateRuntimeUsesHeartbeatedLeaseForDurableRetry(t *testing.T) {
 	current, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
 	if readErr != nil || current.State != argo.DesiredStatePending || current.Lease != nil || current.ConsecutiveFailures != 2 || current.LastFailureCode != "git-write-transient" {
 		t.Fatalf("provider error was not durably requeued: %#v err=%v", current, readErr)
+	}
+}
+
+func TestDesiredStateRuntimeSupersedesClaimWhenProjectionAdvancesBeforeWriteBase(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	if _, err := fixture.commands.RetryDesiredState(t.Context(), fixture.claim.Lease,
+		argo.DesiredStateRetry{FailureCode: "test-reset", NextAttemptAt: fixture.now}, fixture.now); err != nil {
+		t.Fatal(err)
+	}
+	gate := fixture.claimGate.(staticDesiredStateProjectionGate)
+	gate.err = argo.ErrDesiredStateProjectionSuperseded
+	fixture.claimGate = gate
+	worker := &argo.DesiredStateRuntimeWorker{
+		Store: fixture.commands, Writer: fixture.writer(fixture.provider(t, nil)),
+		LeaseDuration: 2 * time.Minute, PollInterval: 250 * time.Millisecond,
+		Observation: argo.DesiredStateRuntimeWorkerObservation{
+			WorkerID: "argo-runtime-worker-superseded", DesiredStateRuntimeIdentity: fixture.identity,
+			StartedAt: fixture.now, ObservedAt: fixture.now,
+		},
+		Now: func() time.Time { return fixture.now },
+	}
+	processed, err := worker.ProcessOne(t.Context())
+	if err != nil || !processed {
+		t.Fatalf("superseded projection escaped worker: processed=%v err=%v", processed, err)
+	}
+	current, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if readErr != nil || current.State != argo.DesiredStateSuperseded || current.LastFailureCode != "projection-superseded" ||
+		current.WriteBaseRevision != "" || current.Lease != nil || current.CompletedAt == nil {
+		t.Fatalf("stale claimed command was not safely superseded: %#v err=%v", current, readErr)
+	}
+	if head := runDesiredStateGit(t, fixture.remote, "rev-parse", fixture.target.PlatformBinding.TargetRef); head != fixture.baseHead {
+		t.Fatalf("superseded projection mutated Git: got %s want %s", head, fixture.baseHead)
 	}
 }
 

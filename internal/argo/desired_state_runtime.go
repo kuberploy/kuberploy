@@ -85,6 +85,13 @@ func (w *DesiredStateRuntimeWorker) ProcessOne(ctx context.Context) (bool, error
 	if w.ReportError != nil {
 		w.ReportError(work.Command.ID, failureCode, err)
 	}
+	if current.State == DesiredStateClaimed && current.WriteBaseRevision == "" && errors.Is(err, ErrDesiredStateProjectionSuperseded) {
+		_, finishErr := w.Store.SupersedeDesiredState(ctx, lease, now)
+		if finishErr != nil {
+			return true, errors.Join(err, finishErr)
+		}
+		return true, nil
+	}
 	// Once the immutable write-base receipt exists, the Git push may have
 	// succeeded even if its database acknowledgement did not. The writer first
 	// searches provider history for the exact operation trailer. Only an absent
@@ -186,6 +193,8 @@ func sameDesiredStateLeaseFence(left, right DesiredStateLease) bool {
 
 func desiredStateFailureCode(err error) string {
 	switch {
+	case errors.Is(err, ErrDesiredStateProjectionSuperseded):
+		return "projection-superseded"
 	case errors.Is(err, gitprojection.ErrProviderMismatch):
 		return "provider-head-mismatch"
 	case errors.Is(err, gitprojection.ErrMissingRef):

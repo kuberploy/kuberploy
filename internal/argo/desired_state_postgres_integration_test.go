@@ -31,17 +31,18 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 		t.Fatal(err)
 	}
 	const (
-		pgProjectID            = "b2400000-0000-4000-8000-000000000001"
-		pgEnvironmentID        = "b2400000-0000-4000-8000-000000000002"
-		pgEnvironmentBindingID = "b2400000-0000-4000-8000-000000000003"
-		pgPlatformBindingID    = "b2400000-0000-4000-8000-000000000004"
-		pgClusterID            = "b2400000-0000-4000-8000-000000000005"
-		pgApplicationID        = "b2400000-0000-4000-8000-000000000006"
-		pgDeploymentID         = "b2400000-0000-4000-8000-000000000007"
-		pgCommandID            = "b2400000-0000-4000-8000-000000000008"
-		pgSupersededCommandID  = "b2400000-0000-4000-8000-000000000009"
-		pgSecondApplicationID  = "b2400000-0000-4000-8000-000000000010"
-		pgSecondDeploymentID   = "b2400000-0000-4000-8000-000000000011"
+		pgProjectID             = "b2400000-0000-4000-8000-000000000001"
+		pgEnvironmentID         = "b2400000-0000-4000-8000-000000000002"
+		pgEnvironmentBindingID  = "b2400000-0000-4000-8000-000000000003"
+		pgPlatformBindingID     = "b2400000-0000-4000-8000-000000000004"
+		pgClusterID             = "b2400000-0000-4000-8000-000000000005"
+		pgApplicationID         = "b2400000-0000-4000-8000-000000000006"
+		pgDeploymentID          = "b2400000-0000-4000-8000-000000000007"
+		pgCommandID             = "b2400000-0000-4000-8000-000000000008"
+		pgClaimedStaleCommandID = "b2400000-0000-4000-8000-000000000009"
+		pgSecondApplicationID   = "b2400000-0000-4000-8000-000000000010"
+		pgSecondDeploymentID    = "b2400000-0000-4000-8000-000000000011"
+		pgSupersededCommandID   = "b2400000-0000-4000-8000-000000000012"
 	)
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM runtime_readiness WHERE runtime_kind='argo-desired-state' AND platform_binding_id=$1`, pgPlatformBindingID)
@@ -235,7 +236,7 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	superseded, err := planDesiredStateCommand(t, pgSupersededCommandID, target,
+	claimedStale, err := planDesiredStateCommand(t, pgClaimedStaleCommandID, target,
 		[]domain.Application{{ID: pgApplicationID, ProjectID: pgProjectID}, {ID: pgSecondApplicationID, ProjectID: pgProjectID}},
 		[]domain.Deployment{{ID: pgDeploymentID, ApplicationID: pgApplicationID, EnvironmentID: pgEnvironmentID},
 			{ID: pgSecondDeploymentID, ApplicationID: pgSecondApplicationID, EnvironmentID: pgEnvironmentID}},
@@ -243,15 +244,40 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if created, createErr := store.CreateDesiredState(ctx, claimedStale); createErr != nil || !created {
+		t.Fatalf("claimed stale fixture created=%v err=%v", created, createErr)
+	}
+	claimedAt := clock.Add(2 * time.Second)
+	claimedWork, err := store.ClaimDesiredState(ctx, "argo-pg-worker-owner-c", identity.DesiredStateWorkerIdentity, claimedAt, 30*time.Second)
+	if err != nil || claimedWork.Command.ID != claimedStale.ID {
+		t.Fatalf("claimed stale fixture work=%#v err=%v", claimedWork, err)
+	}
+	retired, err := store.SupersedeDesiredState(ctx, claimedWork.Lease, claimedAt.Add(time.Second))
+	if err != nil || retired.State != argo.DesiredStateSuperseded || retired.LastFailureCode != "projection-superseded" || retired.Lease != nil {
+		t.Fatalf("claimed stale fixture was not superseded: %#v err=%v", retired, err)
+	}
+	superseded, err := planDesiredStateCommand(t, pgSupersededCommandID, target,
+		[]domain.Application{{ID: pgApplicationID, ProjectID: pgProjectID}, {ID: pgSecondApplicationID, ProjectID: pgProjectID}},
+		[]domain.Deployment{{ID: pgDeploymentID, ApplicationID: pgApplicationID, EnvironmentID: pgEnvironmentID},
+			{ID: pgSecondDeploymentID, ApplicationID: pgSecondApplicationID, EnvironmentID: pgEnvironmentID}},
+		&verifiedCommand, claimedAt.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	superseded.Generation = retired.Generation + 1
+	superseded.Message = "Reconcile Argo desired state after a superseded claimed generation"
+	if err = superseded.ValidateFor(target); err != nil {
+		t.Fatal(err)
+	}
 	if created, createErr := store.CreateDesiredState(ctx, superseded); createErr != nil || !created {
 		t.Fatalf("stale-claim fixture created=%v err=%v", created, createErr)
 	}
-	advancedAt := clock.Add(2 * time.Second)
+	advancedAt := claimedAt.Add(3 * time.Second)
 	if _, err = pool.Exec(ctx, `UPDATE git_repository_bindings SET state='indexing',target_head_revision=$2,
 		target_head_observed_at=$3,updated_at=$3 WHERE id=$1`, environmentBinding.ID, strings.Repeat("9", 40), advancedAt); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.ClaimDesiredState(ctx, "argo-pg-worker-owner-c", identity.DesiredStateWorkerIdentity, advancedAt, 30*time.Second); !errors.Is(err, argo.ErrNotFound) {
+	if _, err = store.ClaimDesiredState(ctx, "argo-pg-worker-owner-d", identity.DesiredStateWorkerIdentity, advancedAt, 30*time.Second); !errors.Is(err, argo.ErrNotFound) {
 		t.Fatalf("never-attempted stale projection was claimed: %v", err)
 	}
 	staleStatus, err := store.LatestDesiredState(ctx, pgProjectID, pgEnvironmentID)

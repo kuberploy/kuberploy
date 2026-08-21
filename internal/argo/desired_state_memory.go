@@ -253,6 +253,26 @@ func (s *MemoryDesiredStateStore) RetryDesiredState(_ context.Context, lease Des
 	return cloneDesiredStateCommand(command), nil
 }
 
+func (s *MemoryDesiredStateStore) SupersedeDesiredState(_ context.Context, lease DesiredStateLease, now time.Time) (DesiredStateCommand, error) {
+	if lease.Validate() != nil || now.IsZero() {
+		return DesiredStateCommand{}, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	command, exists := s.commands[lease.CommandID]
+	if !exists || !activeDesiredStateLease(command, lease, now) {
+		return DesiredStateCommand{}, ErrLeaseLost
+	}
+	if command.State != DesiredStateClaimed || command.WriteBaseRevision != "" {
+		return DesiredStateCommand{}, ErrConflict
+	}
+	completedAt := now.UTC()
+	command.State, command.ConsecutiveFailures, command.LastFailureCode = DesiredStateSuperseded, saturatingDesiredStateFailures(command.ConsecutiveFailures), "projection-superseded"
+	command.Lease, command.UpdatedAt, command.CompletedAt = nil, completedAt, &completedAt
+	s.commands[command.ID] = command
+	return cloneDesiredStateCommand(command), nil
+}
+
 func (s *MemoryDesiredStateStore) FailDesiredState(_ context.Context, lease DesiredStateLease, failureCode string, now time.Time) (DesiredStateCommand, error) {
 	if lease.Validate() != nil || !failureCodeRE.MatchString(failureCode) || now.IsZero() {
 		return DesiredStateCommand{}, ErrInvalid

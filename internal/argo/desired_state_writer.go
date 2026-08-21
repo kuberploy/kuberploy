@@ -148,10 +148,13 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 	if command.WriteBaseRevision == "" {
 		claimMode = DesiredStateClaimActive
 	}
-	if claimMode == DesiredStateClaimActive && (command.State != DesiredStateClaimed || environment.State != gitprojection.BindingReady ||
+	if claimMode == DesiredStateClaimActive && command.State != DesiredStateClaimed {
+		return DesiredStateCommand{}, guard.Result(ErrInvalid)
+	}
+	if claimMode == DesiredStateClaimActive && (environment.State != gitprojection.BindingReady ||
 		environment.TargetHeadRevision != environment.IndexedRevision || environment.IndexedRevision != command.EnvironmentRevision ||
 		environment.ProjectionGeneration != command.EnvironmentGeneration) {
-		return DesiredStateCommand{}, guard.Result(ErrInvalid)
+		return DesiredStateCommand{}, guard.Result(ErrDesiredStateProjectionSuperseded)
 	}
 	if err = w.ClaimGate.ValidateDesiredStateClaim(workContext, command, claimMode); err != nil {
 		return DesiredStateCommand{}, guard.Result(fmt.Errorf("validate projection claim: %w", err))
