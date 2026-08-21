@@ -671,7 +671,7 @@ func TestReleaseCheckReportsMissingStableRelease(t *testing.T) {
 func newUpgradeAPIWithReleaseError(t *testing.T, releaseErr error) *apiFixture {
 	t.Helper()
 	st := memory.New()
-	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.295", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "0.1.0-rc.296", Releases: staticReleaseService{err: releaseErr}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
 	jar, _ := cookiejar.New(nil)
 	f := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)
