@@ -103,7 +103,12 @@ func (o *ProtectedCascadeObserver) processOneActivated(ctx context.Context) (res
 	if err != nil {
 		return ProtectedApplicationCascadeReceipt{}, err
 	}
-	if now.IsZero() || head.ValidateFor(binding) != nil || head.ObservedAt.After(now) {
+	// Provider resolution is a network operation and stamps the head after the
+	// observation lease was claimed. Use a fresh upper bound for that receipt;
+	// comparing it with the pre-request claim time rejects every real provider
+	// response whose clock is correctly later than the claim.
+	now, err = cascadeObservationUpperBound(o.Now, head.ObservedAt)
+	if err != nil || head.ValidateFor(binding) != nil {
 		return ProtectedApplicationCascadeReceipt{}, ErrInvalid
 	}
 	receiptID := o.NewID()
@@ -182,4 +187,15 @@ func (o *ProtectedCascadeObserver) processOneActivated(ctx context.Context) (res
 		return ProtectedApplicationCascadeReceipt{}, ErrConflict
 	}
 	return o.Store.RecordCascadeObservation(ctx, lease, receipt, now)
+}
+
+func cascadeObservationUpperBound(clock func() time.Time, providerObservedAt time.Time) (time.Time, error) {
+	if clock == nil || providerObservedAt.IsZero() {
+		return time.Time{}, ErrInvalid
+	}
+	now := clock().UTC()
+	if now.IsZero() || providerObservedAt.After(now) {
+		return time.Time{}, ErrInvalid
+	}
+	return now, nil
 }
