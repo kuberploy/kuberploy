@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-21, RC290): the production code paths now
+Current implementation status (2026-08-21, RC291): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary

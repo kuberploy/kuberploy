@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC289 safely rebases direct Git publications when only unrelated descendant commits advance the provider head, while preserving same-path conflict detection.",
+  "summary": "Schema 020. RC291 rejects unsupported post-migration schema drift and forces installer-managed control-plane HTTP traffic through an exact permanent HTTPS redirect.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.290"
+  "version": "0.1.0-rc.291"
 }
