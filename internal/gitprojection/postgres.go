@@ -678,6 +678,21 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		WHERE binding_id=$1 AND state='git-committed' AND committed_revision=$2`, binding.ID, generation.HeadRevision, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
+	// A direct operation records the provider commit provisionally. Indexing is
+	// the first authority that can distinguish that commit from the effective
+	// config revision retained when the exact document bytes did not change.
+	// Converge the deployment to that projected revision so Argo and the API
+	// observe the same immutable content identity.
+	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=doc.config_revision,updated_at=$3
+		FROM git_write_commands c,git_projected_documents doc,operations o
+		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.publication_mode='direct'
+		AND c.state='indexed' AND c.indexed_generation=$2 AND c.deployment_id IS NOT NULL
+		AND doc.binding_id=c.binding_id AND doc.generation=c.indexed_generation AND doc.path=c.path
+		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
+		AND o.id=c.operation_id AND d.id=c.deployment_id AND d.operation_id=c.operation_id AND d.generation=o.generation`,
+		binding.ID, generation.Number, now.UTC()); err != nil {
+		return Binding{}, err
+	}
 	// A protected command becomes desired only after both independent proofs:
 	// the provider receipt verified its merge on the authoritative target ref,
 	// and this activated generation contains the exact accepted path bytes.

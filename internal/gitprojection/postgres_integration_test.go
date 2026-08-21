@@ -253,6 +253,14 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	convergedDocument, err := gitprojection.NewDocument(current, convergedGeneration.Number, pgApplication, laterHead,
+		operationCommit, effectiveDocument.BlobID, command.Content, effectiveDocument.Parsed, nil, testStart.Add(6*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDocuments(ctx, convergedGeneration, []gitprojection.Document{convergedDocument}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.ActivateGeneration(ctx, convergence.Lease, convergedGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, testStart.Add(7*time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -263,6 +271,14 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	if err != nil || storedCommand.State != gitprojection.WriteCommandIndexed || storedCommand.CommittedRevision != operationCommit ||
 		storedCommand.IndexedGeneration != convergedGeneration.Number {
 		t.Fatalf("stored command=%#v err=%v", storedCommand, err)
+	}
+	var deploymentState, desiredRevision string
+	if err = pool.QueryRow(ctx, `SELECT state,desired_revision FROM deployments WHERE id=$1`, pgDeployment).Scan(&deploymentState, &desiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	if deploymentState != "git-committed" || desiredRevision != effectiveDocument.ConfigRevision || desiredRevision == operationCommit {
+		t.Fatalf("no-change direct deployment state=%q desired=%q effective=%q operation=%q",
+			deploymentState, desiredRevision, effectiveDocument.ConfigRevision, operationCommit)
 	}
 }
 
