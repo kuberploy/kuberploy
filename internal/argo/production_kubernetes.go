@@ -23,6 +23,8 @@ const maximumArgoRuntimeResponseBytes = int64(2 << 20)
 const (
 	argoHardRefreshAnnotation           = "argocd.argoproj.io/refresh"
 	argoApplicationSetRefreshAnnotation = "argocd.argoproj.io/application-set-refresh"
+	platformRootRefreshPollInterval     = 250 * time.Millisecond
+	platformRootRefreshTimeout          = 30 * time.Second
 )
 
 // InClusterProductionClient exposes only narrow Kubernetes authority surfaces:
@@ -255,11 +257,12 @@ type protectedApplicationEnvelopeWire struct {
 }
 
 // RefreshPlatformRootApplication performs one closed metadata-only patch and
-// then reads the exact root back. Acceptance requires the immutable root spec,
-// the verified provider revision, and Synced/Healthy status. It cannot select
-// another Application and does not invoke Argo's sync API; the installer-owned
-// automated policy remains the sole reconciliation executor. A stale read is a
-// retryable failure, so the durable command issues another hard refresh.
+// then waits for the exact root acknowledgement. Acceptance requires the
+// immutable root spec, the verified provider revision, and Synced/Healthy
+// status. It cannot select another Application and does not invoke Argo's sync
+// API; the installer-owned automated policy remains the sole reconciliation
+// executor. The expected transient stale reads after the patch stay inside the
+// active lease-fenced command instead of forcing a failure and reclaim.
 func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) error {
 	expectedDigest, digestErr := expectation.expectedSpecDigest()
 	if c == nil || c.http == nil || digestErr != nil || expectedDigest != expectation.SpecDigest || now.IsZero() {
@@ -285,8 +288,29 @@ func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.C
 		metadata.Metadata.ResourceVersion == "" || metadata.Metadata.Annotations[argoHardRefreshAnnotation] != "hard" {
 		return ErrPlatformRootNotReady
 	}
-	_, err = c.ObservePlatformRootApplication(ctx, expectation, now.UTC())
-	return err
+	timeout := time.NewTimer(platformRootRefreshTimeout)
+	defer timeout.Stop()
+	for {
+		observedAt := time.Now().UTC()
+		if observedAt.Before(now) {
+			observedAt = now.UTC()
+		}
+		if _, err = c.ObservePlatformRootApplication(ctx, expectation, observedAt); err == nil {
+			return nil
+		} else if !errors.Is(err, ErrPlatformRootNotReady) {
+			return err
+		}
+		timer := time.NewTimer(platformRootRefreshPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timeout.C:
+			timer.Stop()
+			return ErrPlatformRootNotReady
+		case <-timer.C:
+		}
+	}
 }
 
 func (c *InClusterProductionClient) RefreshEnvironmentApplicationSet(ctx context.Context, expectation EnvironmentApplicationSetExpectation, now time.Time) error {

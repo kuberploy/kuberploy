@@ -376,7 +376,7 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err = os.WriteFile(tokenFile, []byte("service-account-token"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	requests, deleteRequests, refreshRequests := 0, 0, 0
+	requests, deleteRequests, refreshRequests, rootReads := 0, 0, 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests++
 		if request.Header.Get("Authorization") != "Bearer service-account-token" {
@@ -426,8 +426,9 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 			if request.URL.Path != "/apis/argoproj.io/v1alpha1/namespaces/argocd/applications/"+PlatformRootApplicationName {
 				t.Errorf("unsafe root path: %s", request.URL.Path)
 			}
+			rootReads++
 			revision := expectation.ExpectedGitRevision
-			if refreshRequests == 1 {
+			if refreshRequests == 1 && rootReads == 2 {
 				revision = strings.Repeat("f", 40)
 			}
 			writer.Header().Set("Content-Type", "application/json")
@@ -466,11 +467,8 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || root.ObservedRevision != expectation.ExpectedGitRevision || root.SpecDigest != expectation.SpecDigest {
 		t.Fatalf("root=%#v err=%v", root, err)
 	}
-	if err = client.RefreshPlatformRootApplication(t.Context(), expectation, now); !errors.Is(err, ErrPlatformRootNotReady) {
-		t.Fatalf("stale provider head was accepted after refresh: %v", err)
-	}
 	if err = client.RefreshPlatformRootApplication(t.Context(), expectation, now); err != nil {
-		t.Fatalf("refresh root: %v", err)
+		t.Fatalf("refresh root through transient stale read: %v", err)
 	}
 	revocation, err := client.DeleteRepositoryCredential(t.Context(), "argocd", apply.Name, platform.ID, now)
 	if err != nil || revocation.Absent {
@@ -480,8 +478,8 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	if err != nil || !revocation.Absent {
 		t.Fatalf("NotFound did not acknowledge revocation: observation=%#v err=%v", revocation, err)
 	}
-	if requests != 8 || refreshRequests != 2 {
-		t.Fatalf("requests=%d refreshes=%d", requests, refreshRequests)
+	if requests != 7 || refreshRequests != 1 || rootReads != 3 {
+		t.Fatalf("requests=%d refreshes=%d root reads=%d", requests, refreshRequests, rootReads)
 	}
 	if _, err = client.DeleteRepositoryCredential(t.Context(), "argocd", "attacker-secret", platform.ID, now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("arbitrary Secret delete accepted: %v", err)
