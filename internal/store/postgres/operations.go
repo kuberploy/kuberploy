@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	accesspolicy "github.com/kuberploy/kuberploy/internal/access"
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitops"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
@@ -54,9 +55,6 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
-	}
-	if base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
-		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	var sameProject bool
 	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environments e JOIN applications a ON a.project_id=e.project_id WHERE e.id=$1 AND a.id=$2)`, in.EnvironmentID, in.ApplicationID).Scan(&sameProject)
@@ -143,20 +141,28 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
-	if err = validateSchedulingRuntimeTx(ctx, tx, project.ID, environment.ID, application.ID, runtime); err != nil {
-		return base.Result[domain.Deployment]{}, domain.Operation{}, err
-	}
-	d.ConfigRaw, err = gitops.RenderAppConfig(project, environment, application, d)
-	if err != nil {
-		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	if len(in.ConfigRaw) == 0 {
+		d.ConfigRaw, err = gitops.RenderAppConfig(project, environment, application, d)
+		if err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, err
+		}
+	} else {
+		d.ConfigRaw = append([]byte(nil), in.ConfigRaw...)
 	}
 	rawHash := sha256.Sum256(d.ConfigRaw)
-	exactParsed, exactRuntime, _, err := appConfigMaterialFromExactAppConfig(d.ConfigRaw, rawHash[:])
+	exactParsed, exactRuntime, exactImage, err := appConfigMaterialFromExactAppConfig(d.ConfigRaw, rawHash[:])
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
+	if exactImage != d.Image || len(appconfig.ValidateBinding(d.ConfigRaw, project, environment, application, d)) != 0 {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
 	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(exactParsed)
-	if refsErr != nil || (base.AppConfigUsesRuntimeSecrets(exactRuntime) || len(middlewareRefs) != 0) && referencePlan == nil {
+	certificateRefs, certificateRefsErr := appConfigCertificateReferences(exactParsed)
+	usesRuntimeSecrets := base.AppConfigUsesRuntimeSecrets(exactRuntime) || len(middlewareRefs) != 0
+	if refsErr != nil || certificateRefsErr != nil || referencePlan == nil && (usesRuntimeSecrets || len(certificateRefs) != 0) ||
+		referencePlan != nil && (usesRuntimeSecrets != (referencePlan.RuntimeSecretDigest != "") ||
+			(len(certificateRefs) != 0) != (referencePlan.CertificateDigest != "")) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
 	if projection != nil {
@@ -165,6 +171,20 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 			return base.Result[domain.Deployment]{}, domain.Operation{}, resolutionErr
 		}
 		exactRuntime = resolution.Runtime
+	}
+	if err = validateSchedulingRuntimeTx(ctx, tx, project.ID, environment.ID, application.ID, exactRuntime); err != nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	}
+	if len(certificateRefs) != 0 {
+		if _, err = s.validateCertificateReferencesTx(ctx, tx, actor, referencePlan, project.ID, environment.ID, application.ID, certificateRefs, now); err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, err
+		}
+	}
+	if projection != nil && usesRuntimeSecrets {
+		if _, err = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, project.ID, environment.ID,
+			application.ID, exactRuntime, middlewareRefs); err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, err
+		}
 	}
 	d.Runtime = exactRuntime
 	d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
@@ -187,16 +207,6 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	}
 	if err = insertGitWriteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "deploy("+in.ApplicationID+"): accept immutable release", now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
-	}
-	// API acceptance validates the immutable candidate and its authorization,
-	// but it is not proof that Git contains the candidate. Keep the currently
-	// indexed AppConfig's deletion guards until exact projection activation
-	// reconciles them in the same transaction as the new active generation.
-	if projection != nil && (base.AppConfigUsesRuntimeSecrets(d.Runtime) || len(middlewareRefs) != 0) {
-		if _, err = validateRuntimeSecretReferencesTx(ctx, tx, actor, referencePlan, projectID, in.EnvironmentID,
-			in.ApplicationID, d.Runtime, middlewareRefs); err != nil {
-			return base.Result[domain.Deployment]{}, domain.Operation{}, err
-		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO deployment_operation_inputs(operation_id,deployment_id,image,replicas,port,environment,route,runtime,config_raw,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, op.ID, d.ID, d.Image, d.Replicas, d.Port, envJSON, routeJSON, runtimeJSON, d.ConfigRaw, now)
 	if err != nil {

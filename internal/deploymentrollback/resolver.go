@@ -112,7 +112,7 @@ func (r *Resolver) ResolveAuthorized(ctx context.Context, request Request) (Sour
 	source := Source{Deployment: cloneDeployment(snapshot), SourceOperation: op, ProtectedMergeVerified: protectedMergeVerified,
 		Create: domain.CreateDeployment{EnvironmentID: snapshot.EnvironmentID, ApplicationID: snapshot.ApplicationID,
 			Image: snapshot.Image, Replicas: replicas, Port: port, Environment: ordinary,
-			Route: cloneRoute(snapshot.Route), Runtime: runtime}}
+			Route: cloneRoute(snapshot.Route), Runtime: runtime, ConfigRaw: append([]byte(nil), snapshot.ConfigRaw...)}}
 	if source.Validate() != nil {
 		return Source{}, ErrConflict
 	}

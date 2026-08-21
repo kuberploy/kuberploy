@@ -416,10 +416,7 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 		return base.Result[domain.Deployment]{Value: d, Replay: true}, s.operations[opID], nil
 	}
 	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
-	if err != nil || base.AppConfigUsesRuntimeSecrets(in.Runtime) && referencePlan == nil {
-		if err == nil {
-			err = base.ErrPreconditionFailed
-		}
+	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	e, eok := s.environments[in.EnvironmentID]
@@ -466,10 +463,21 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 	runtime := domain.RuntimeForCreateDeployment(in)
 	replicas, port, ordinary := domain.LegacyWorkloadFields(runtime)
 	d := domain.Deployment{ID: dID, EnvironmentID: in.EnvironmentID, ApplicationID: in.ApplicationID, Image: in.Image, Replicas: replicas, Port: port, Environment: ordinary, Route: cloneRoute(in.Route), Runtime: cloneRuntime(runtime), RegistryPull: cloneRegistryPull(in.RegistryPull), State: "pending-git", OperationID: opID, Generation: generation, CreatedAt: created, UpdatedAt: now}
-	configRaw, err := gitops.RenderAppConfig(project, e, a, d)
-	if err != nil {
-		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	var configRaw []byte
+	if len(in.ConfigRaw) == 0 {
+		configRaw, err = gitops.RenderAppConfig(project, e, a, d)
+		if err != nil {
+			return base.Result[domain.Deployment]{}, domain.Operation{}, err
+		}
+	} else {
+		configRaw = append([]byte(nil), in.ConfigRaw...)
 	}
+	parsedConfig, exactRuntime, configDiagnostics := appconfig.ParseAndValidate(configRaw)
+	exactImage, imageOK := appconfig.MaterializedImage(parsedConfig)
+	if len(configDiagnostics) != 0 || !imageOK || exactImage != d.Image || len(appconfig.ValidateBinding(configRaw, project, e, a, d)) != 0 {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
+	}
+	runtime = exactRuntime
 	if projection != nil {
 		resolution, resolutionErr := s.resolveProjectedVariablesLocked(projectionBinding, runtime)
 		if resolutionErr != nil {
@@ -477,13 +485,19 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 		}
 		d.Runtime = resolution.Runtime
 		d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
+	} else {
+		d.Runtime = cloneRuntime(runtime)
+		d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
 	}
-	parsedConfig, _, configDiagnostics := appconfig.ParseAndValidate(configRaw)
 	middlewareRefs, refsErr := middlewareprofiles.AppConfigSecretReferences(parsedConfig)
-	if len(configDiagnostics) != 0 || refsErr != nil || (base.AppConfigUsesRuntimeSecrets(d.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
+	certificateRefs, certificateRefsErr := appconfig.CertificateReferences(parsedConfig)
+	usesRuntimeSecrets := base.AppConfigUsesRuntimeSecrets(d.Runtime) || len(middlewareRefs) != 0
+	if refsErr != nil || certificateRefsErr != nil || referencePlan == nil && (usesRuntimeSecrets || len(certificateRefs) != 0) ||
+		referencePlan != nil && (usesRuntimeSecrets != (referencePlan.RuntimeSecretDigest != "") ||
+			(len(certificateRefs) != 0) != (referencePlan.CertificateDigest != "")) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrPreconditionFailed
 	}
-	d.ConfigRaw, d.ConfigVersion = configRaw, configVersion
+	d.ConfigRaw, d.ConfigVersion = append([]byte(nil), configRaw...), configVersion
 	if err = s.putGitWriteCommandLocked(actor, opID, dID, projection, configRaw, "deploy("+in.ApplicationID+"): accept immutable release", now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}

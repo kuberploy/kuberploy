@@ -301,6 +301,11 @@ type CreateDeployment struct {
 	Route         *Route
 	Runtime       WorkloadRuntime
 	RegistryPull  *RegistryPullReference
+	// ConfigRaw is an internal, server-owned exact AppConfig snapshot. Public
+	// deployment requests never populate it; rollback uses it so configuration
+	// that is not representable by legacy runtime fields is not regenerated or
+	// lost.
+	ConfigRaw []byte
 }
 
 // RegistryPullReference is safe, locked AppConfig metadata. It never contains

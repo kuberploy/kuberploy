@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -400,6 +402,29 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 		mappedImageResolutionError(w, r, imageresolution.ErrConflict)
 		return
 	}
+	var exactConfigParsed map[string]any
+	if len(create.ConfigRaw) != 0 {
+		parsed, runtime, diagnostics := appconfig.ParseAndValidate(create.ConfigRaw)
+		exactImage, imageOK := appconfig.MaterializedImage(parsed)
+		if len(diagnostics) != 0 || !imageOK || exactImage != create.Image {
+			writeProblem(w, r, http.StatusServiceUnavailable, "DeploymentRollbackHistoryMismatch", "Rollback history unavailable", "The retained AppConfig snapshot is invalid or does not match the selected immutable release.")
+			return
+		}
+		hash := sha256.Sum256(create.ConfigRaw)
+		candidate := appconfig.Candidate{Raw: append([]byte(nil), create.ConfigRaw...), Parsed: parsed, Runtime: runtime, Hash: hash[:]}
+		candidate = s.materializeMiddlewareCandidate(r.Context(), actor, domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, create.ConfigRaw, candidate)
+		candidate.Diagnostics = append(candidate.Diagnostics, s.externalDNSRouteDiagnostics(r.Context(), actor,
+			domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, candidate)...)
+		sslipDiagnostics, _ := s.sslipRouteDiagnostics(r.Context(), actor,
+			domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, candidate)
+		candidate.Diagnostics = append(candidate.Diagnostics, sslipDiagnostics...)
+		if len(candidate.Diagnostics) != 0 {
+			writeProblem(w, r, http.StatusConflict, "DeploymentRollbackDependencyUnavailable", "Rollback dependency unavailable", "The retained AppConfig no longer matches a current middleware, DNS, route, or edge dependency.")
+			return
+		}
+		create.Runtime = candidate.Runtime
+		exactConfigParsed = candidate.Parsed
+	}
 	resolvedRuntime, schedulingErr := s.resolveSchedulingRuntime(r.Context(), actor, domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, create.Runtime, true)
 	if schedulingErr != nil {
 		mappedSchedulingRuntimeError(w, r, schedulingErr)
@@ -482,7 +507,7 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 	}
 	references, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), actor, domain.Deployment{
 		EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID,
-	}, create.Runtime, nil)
+	}, create.Runtime, exactConfigParsed)
 	if referenceErr != nil {
 		if runtimeSecretReferenceUnavailable(referenceErr) {
 			mappedSecretError(w, r, referenceErr)

@@ -105,14 +105,19 @@ func TestResolverReconstructsOnlyExactPriorServerSnapshot(t *testing.T) {
 	}
 	if source.Create.EnvironmentID != environmentID || source.Create.ApplicationID != applicationID ||
 		source.Create.Image != h.snapshot.Image || source.Create.Route == h.current.Route ||
+		string(source.Create.ConfigRaw) != string(h.snapshot.ConfigRaw) ||
 		registry.applicationID != applicationID || registry.image != h.snapshot.Image || !source.ManagedReleaseVerified {
 		t.Fatalf("source=%#v registry=%#v", source, registry)
 	}
 	// Returned history must not share caller-mutable nested state.
 	changed := "changed"
 	source.Create.Runtime.Env[0].Value = &changed
+	source.Create.ConfigRaw[0] = 'X'
 	if h.snapshot.Runtime.Env[0].Value == nil || *h.snapshot.Runtime.Env[0].Value != "prior" {
 		t.Fatal("resolver shared mutable runtime history")
+	}
+	if string(h.snapshot.ConfigRaw) != "immutable-server-appconfig" {
+		t.Fatal("resolver shared mutable AppConfig history")
 	}
 }
 

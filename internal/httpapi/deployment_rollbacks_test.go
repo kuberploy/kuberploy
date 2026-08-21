@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/deploymentrollback"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
@@ -22,7 +23,7 @@ func newDeploymentRollbackAPI(t *testing.T) *apiFixture {
 	st := memory.New()
 	resolver := &deploymentrollback.Resolver{History: st, Artifacts: st, Publications: st}
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, DeploymentRollbacks: resolver,
-		BootstrapToken: "one-time-secret", Version: "test", HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
+		BootstrapToken: "one-time-secret", Version: "test", AppConfigRenderedPreviews: staticAppConfigRenderer{}, HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000)}))
 	jar, _ := cookiejar.New(nil)
 	fixture := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)
@@ -97,6 +98,49 @@ func TestDeploymentRollbackCatalogAndMutationUseOnlyExactSourceOperation(t *test
 	replay := decode[domain.Operation](t, response)
 	if response.StatusCode != http.StatusAccepted || response.Header.Get("Idempotent-Replay") != "true" || replay.ID != rollback.ID {
 		t.Fatalf("replay=%#v status=%d", replay, response.StatusCode)
+	}
+}
+
+func TestDeploymentRollbackRestoresExactRetainedAppConfig(t *testing.T) {
+	fixture := newDeploymentRollbackAPI(t)
+	_, _, environment, application := rollbackResources(t, fixture, "exact-config")
+	initial := submitRollbackFixtureDeployment(t, fixture, environment.ID, application.ID, "deployment-exact-initial", "a")
+	completeRollbackSource(t, fixture, initial)
+
+	path := "/v1/deployments/" + initial.TargetID + "/config"
+	response := fixture.request(http.MethodGet, path, "", nil)
+	bundle := decode[configBundleWire](t, response)
+	change := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{
+		{Op: "add", Path: "/spec/runtime/env", Value: []any{map[string]any{"name": "ROLLBACK_EXACT", "value": "retained"}}},
+		{Op: "add", Path: "/spec/middlewares", Value: []any{map[string]any{"name": "force-https", "spec": map[string]any{"redirectScheme": map[string]any{"scheme": "https", "permanent": true}}}}},
+	}}
+	response = configRequest(t, fixture, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": bundle.ETag})
+	preview := decode[previewWire](t, response)
+	if response.StatusCode != http.StatusOK || preview.PreviewToken == "" {
+		t.Fatalf("preview status=%d body=%#v", response.StatusCode, preview)
+	}
+	response = configRequest(t, fixture, http.MethodPut, path, "save-exact-rollback-source", change,
+		map[string]string{"If-Match": bundle.ETag, "Preview-Token": preview.PreviewToken})
+	source := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("save source status=%d operation=%#v", response.StatusCode, source)
+	}
+	completeRollbackSource(t, fixture, source)
+	sourceSnapshot, err := fixture.store.GetDeploymentForOperation(t.Context(), source.ID)
+	if err != nil || !bytes.Contains(sourceSnapshot.ConfigRaw, []byte("ROLLBACK_EXACT")) || !bytes.Contains(sourceSnapshot.ConfigRaw, []byte("force-https")) {
+		t.Fatalf("source snapshot incomplete: err=%v raw=%s", err, sourceSnapshot.ConfigRaw)
+	}
+
+	current := submitRollbackFixtureDeployment(t, fixture, environment.ID, application.ID, "deployment-exact-current", "b")
+	response = fixture.request(http.MethodPost, "/v1/deployments/"+current.TargetID+"/rollback", "rollback-exact-config",
+		map[string]string{"sourceOperationId": source.ID})
+	rollback := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || rollback.Generation != current.Generation+1 {
+		t.Fatalf("rollback status=%d operation=%#v", response.StatusCode, rollback)
+	}
+	restored, err := fixture.store.GetDeploymentForOperation(t.Context(), rollback.ID)
+	if err != nil || !bytes.Equal(restored.ConfigRaw, sourceSnapshot.ConfigRaw) || restored.Image != sourceSnapshot.Image {
+		t.Fatalf("rollback regenerated source snapshot: err=%v image=%q raw=%s", err, restored.Image, restored.ConfigRaw)
 	}
 }
 
