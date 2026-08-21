@@ -27,7 +27,7 @@ func TestPostgreSQLDeploymentRollbackArtifactVerification(t *testing.T) {
 	targetID, applicationID := id.New(), id.New()
 	repository := "rollback/" + applicationID
 	target, err := st.PutRegistryTarget(t.Context(), domain.RegistryTarget{ID: targetID, Name: "rollback-" + targetID,
-		Mode: domain.RegistryTargetManaged, Endpoint: "registry.rollback.test", RepositoryPrefix: "rollback", CreatedAt: now, UpdatedAt: now})
+		Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.rollback.test", RepositoryPrefix: "rollback", CreatedAt: now, UpdatedAt: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestPostgreSQLDeploymentRollbackArtifactVerification(t *testing.T) {
 	if _, _, err = st.PutRegistryRelease(t.Context(), release); err != nil {
 		t.Fatal(err)
 	}
-	image := target.Endpoint + "/" + repository + "@" + digest
+	image := "registry.rollback.test/" + repository + "@" + digest
 	managed, err := st.VerifyRetainedDeploymentImage(t.Context(), applicationID, image)
 	if err != nil || !managed {
 		t.Fatalf("present release managed=%v err=%v", managed, err)
