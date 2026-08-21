@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC285 matches canonical HTTP(S) registry target origins to scheme-free OCI image references so retained managed releases remain eligible for exact rollback.",
+  "summary": "Schema 020. RC286 durably wakes deployment observation after verified Argo root refreshes so status no longer waits for the repair poll.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.285"
+  "version": "0.1.0-rc.286"
 }
