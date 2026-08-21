@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC282 restores certificate-issuer idempotent replays during publisher staleness and enables continuously observed custom certificates in AppConfig previews.",
+  "summary": "Schema 020. RC283 restores byte-exact retained AppConfig snapshots through deployment rollback while revalidating current runtime dependencies.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.282"
+  "version": "0.1.0-rc.283"
 }
