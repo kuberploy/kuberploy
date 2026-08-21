@@ -289,6 +289,13 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 	if r.StatusCode != http.StatusConflict || problem.Code != "IdempotencyConflict" {
 		t.Fatalf("stale Argo masked config idempotency conflict status=%d problem=%#v", r.StatusCode, problem)
 	}
+	backend.bundle.ETag = "\"sha256:" + strings.Repeat("f", 64) + "\""
+	r = configRequest(t, f, http.MethodPut, configPath, "stale-etag-while-argo-stale", change, map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
+	problem = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusPreconditionFailed || problem.Code != "PreconditionFailed" {
+		t.Fatalf("stale Argo masked config precondition status=%d problem=%#v", r.StatusCode, problem)
+	}
+	backend.bundle.ETag = etag
 	r = configRequest(t, f, http.MethodPut, configPath, "stale-argo-config-save", change, map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
 	problem = decode[httpapi.Problem](t, r)
 	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "ArgoDesiredStateRuntimeUnavailable" {

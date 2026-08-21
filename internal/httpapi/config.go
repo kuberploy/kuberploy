@@ -410,23 +410,6 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 		DeploymentID, BaseETag, TokenHash string
 		Change                            appconfig.Change
 	}{r.PathValue("id"), baseETag, hex.EncodeToString(tokenHash[:]), change})
-	if runtimeProblem := s.deploymentMutationRuntimeProblem(r.Context()); runtimeProblem != "" {
-		invalidPlan := &gitprojection.WritePlan{}
-		result, operation, replayErr := s.store.SaveDeploymentConfig(r.Context(), currentUser(r.Context()).ID, key, fp, requestID(r.Context()), domain.SaveDeploymentConfig{
-			DeploymentID: r.PathValue("id"), BaseETag: baseETag, TokenHash: tokenHash[:],
-		}, invalidPlan)
-		if replayErr == nil && result.Replay {
-			w.Header().Set("Idempotent-Replay", "true")
-			writeJSON(w, 202, operation)
-			return
-		}
-		if errors.Is(replayErr, store.ErrIdempotencyConflict) || errors.Is(replayErr, store.ErrForbidden) || errors.Is(replayErr, store.ErrNotFound) {
-			mappedError(w, r, replayErr)
-			return
-		}
-		writeDeploymentMutationRuntimeProblem(w, r, runtimeProblem)
-		return
-	}
 	deployment, config, bundle, err := s.currentConfig(r, "", 0)
 	if err != nil {
 		mappedGitProjectionError(w, r, err)
@@ -446,6 +429,21 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Idempotent-Replay", "true")
 		}
 		writeJSON(w, 202, operation)
+		return
+	}
+	if runtimeProblem := s.deploymentMutationRuntimeProblem(r.Context()); runtimeProblem != "" {
+		invalidPlan := &gitprojection.WritePlan{}
+		result, operation, replayErr := s.store.SaveDeploymentConfig(r.Context(), currentUser(r.Context()).ID, key, fp, requestID(r.Context()), input, invalidPlan)
+		if replayErr == nil && result.Replay {
+			w.Header().Set("Idempotent-Replay", "true")
+			writeJSON(w, 202, operation)
+			return
+		}
+		if errors.Is(replayErr, store.ErrIdempotencyConflict) || errors.Is(replayErr, store.ErrForbidden) || errors.Is(replayErr, store.ErrNotFound) {
+			mappedError(w, r, replayErr)
+			return
+		}
+		writeDeploymentMutationRuntimeProblem(w, r, runtimeProblem)
 		return
 	}
 	candidate := appconfig.Apply(config.RawYAML, change)
