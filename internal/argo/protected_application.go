@@ -92,6 +92,13 @@ func protectedApplicationAnnotations(e ProtectedApplicationExpectation) map[stri
 		"argocd.argoproj.io/manifest-generate-paths": e.PayloadPath}
 }
 
+func protectedApplicationLiveAnnotations(e ProtectedApplicationExpectation) map[string]string {
+	annotations := protectedApplicationAnnotations(e)
+	annotations["argocd.argoproj.io/tracking-id"] = PlatformRootApplicationName +
+		":argoproj.io/Application:" + e.Namespace + "/" + protectedApplicationName(e)
+	return annotations
+}
+
 type protectedApplicationDirectory struct {
 	Recurse bool   `json:"recurse"`
 	Include string `json:"include"`
@@ -167,7 +174,7 @@ func protectedApplicationWireMatches(w protectedApplicationEnvelopeWire, e Prote
 	if w.Metadata.Name != protectedApplicationName(e) || w.Metadata.Namespace != e.Namespace || w.Metadata.DeletionTimestamp != nil ||
 		!reflect.DeepEqual(w.Metadata.Finalizers, []string{ProtectedApplicationResourcesFinalizer}) ||
 		!reflect.DeepEqual(w.Metadata.Labels, protectedApplicationLabels(e)) ||
-		!reflect.DeepEqual(w.Metadata.Annotations, protectedApplicationAnnotations(e)) {
+		!reflect.DeepEqual(w.Metadata.Annotations, protectedApplicationLiveAnnotations(e)) {
 		return false
 	}
 	return true

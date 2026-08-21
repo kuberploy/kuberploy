@@ -581,6 +581,16 @@ func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T
 		if requests == 3 {
 			labels["unexpected.example/label"] = "not-authorized"
 		}
+		annotations := protectedApplicationLiveAnnotations(expectation)
+		if requests == 4 {
+			annotations = protectedApplicationAnnotations(expectation)
+		}
+		if requests == 5 {
+			annotations["argocd.argoproj.io/tracking-id"] = "attacker-root:argoproj.io/Application:argocd/attacker"
+		}
+		if requests == 6 {
+			annotations["unexpected.example/annotation"] = "not-authorized"
+		}
 		finalizers := []string{ProtectedApplicationResourcesFinalizer}
 		if requests == 2 {
 			finalizers = nil
@@ -591,7 +601,7 @@ func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T
 			"metadata": map[string]any{"name": protectedApplicationName(expectation), "namespace": expectation.Namespace,
 				"uid": "66666666-6666-4666-8666-666666666666", "resourceVersion": "101",
 				"generation": 9, "managedFields": []any{}, "finalizers": finalizers,
-				"labels": labels, "annotations": protectedApplicationAnnotations(expectation)},
+				"labels": labels, "annotations": annotations},
 			"spec": expectedProtectedApplicationSpec(expectation),
 		})
 	}))
@@ -608,6 +618,15 @@ func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T
 	}
 	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
 		t.Fatalf("extra authority label was accepted: %v", err)
+	}
+	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
+		t.Fatalf("missing Argo tracking annotation was accepted: %v", err)
+	}
+	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
+		t.Fatalf("wrong Argo tracking annotation was accepted: %v", err)
+	}
+	if _, err = client.ObserveProtectedApplication(t.Context(), expectation, now); !errors.Is(err, ErrProtectedApplicationNotReady) {
+		t.Fatalf("extra authority annotation was accepted: %v", err)
 	}
 }
 
