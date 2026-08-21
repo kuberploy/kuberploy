@@ -245,7 +245,11 @@ func (s *PostgreSQLStore) ActiveCertificateReady(ctx context.Context, bindingID,
 	if s == nil || s.pool == nil {
 		return ErrObservationUnavailable
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	// ActiveCertificateReadyTx takes FOR SHARE locks so the observation and
+	// active binding cannot change between readiness validation and target
+	// digest verification. PostgreSQL rejects row locks in read-only
+	// transactions, even though this path does not mutate application data.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		return ErrObservationUnavailable
 	}

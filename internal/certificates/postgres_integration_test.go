@@ -198,6 +198,17 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err = certificateStore.ActiveCertificateReady(ctx, created.Binding.ID, created.Version.ID, identity,
+		readyAt.Add(time.Second), observationConfig.MaximumObservationAge); err != nil {
+		t.Fatalf("standalone active certificate readiness: %v", err)
+	}
+	plan, err := referenceResolver.ResolveCertificateReferences(ctx, scope, []ReferenceSelection{{
+		Host: "api.example.test", Reference: ref,
+	}}, readyAt.Add(time.Second))
+	if err != nil || plan.Validate() != nil || len(plan.Uses) != 1 ||
+		plan.Uses[0].Resolved.TargetSecretName != secrets.TargetSecretName(created.Binding, created.Version.Number) {
+		t.Fatalf("standalone reference plan=%#v err=%v", plan, err)
+	}
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal(err)

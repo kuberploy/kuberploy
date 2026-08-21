@@ -86,8 +86,18 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	if err != nil || len(identities) != 1 || identities[0].Name != created.Profile.Name {
 		t.Fatalf("identities=%v err=%v", identities, err)
 	}
-	if _, err = store.Deactivate(ctx, Command{ActorID: admin, IdempotencyKey: "admin-deactivate-" + admin, RequestID: "request-admin-deactivate", Now: now.Add(2 * time.Second)}, Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
+	deactivateCommand := Command{ActorID: admin, IdempotencyKey: "admin-deactivate-" + admin, RequestID: "request-admin-deactivate", Now: now.Add(2 * time.Second)}
+	deactivateRef := Ref{ProfileID: created.Profile.ID, Revision: 1}
+	if _, err = store.Deactivate(ctx, deactivateCommand, deactivateRef); err != nil {
 		t.Fatal(err)
+	}
+	if replay, found, replayErr := store.ReplayDeactivate(ctx, deactivateCommand, deactivateRef); replayErr != nil || !found || !replay.Replay || replay.Profile.Lifecycle != Deactivated {
+		t.Fatalf("deactivation replay=%+v found=%t err=%v", replay, found, replayErr)
+	}
+	missCommand := deactivateCommand
+	missCommand.IdempotencyKey = "admin-deactivate-miss-" + admin
+	if replay, found, replayErr := store.ReplayDeactivate(ctx, missCommand, deactivateRef); replayErr != nil || found || replay.Profile.ID != "" || replay.Replay {
+		t.Fatalf("deactivation replay miss=%+v found=%t err=%v", replay, found, replayErr)
 	}
 	if err = storepostgres.VerifySchema(ctx, pool); err != nil {
 		t.Fatalf("verify Prisma migration history: %v", err)

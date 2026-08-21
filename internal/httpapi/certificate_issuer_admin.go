@@ -14,6 +14,9 @@ type CertificateIssuerAdminBackend interface {
 	Create(context.Context, certissuers.Command, string, certissuers.Spec) (certissuers.MutationResult, error)
 	Revise(context.Context, certissuers.Command, certissuers.Ref, certissuers.Spec) (certissuers.MutationResult, error)
 	Deactivate(context.Context, certissuers.Command, certissuers.Ref) (certissuers.MutationResult, error)
+	ReplayCreate(context.Context, certissuers.Command, string, certissuers.Spec) (certissuers.MutationResult, bool, error)
+	ReplayRevise(context.Context, certissuers.Command, certissuers.Ref, certissuers.Spec) (certissuers.MutationResult, bool, error)
+	ReplayDeactivate(context.Context, certissuers.Command, certissuers.Ref) (certissuers.MutationResult, bool, error)
 	List(context.Context, int) ([]certissuers.Entry, error)
 	Observation(context.Context, string, int64) (certissuers.Observation, error)
 }
@@ -119,10 +122,6 @@ func (s *Server) platformCertificateIssuers(w http.ResponseWriter, r *http.Reque
 		collection(w, items)
 		return
 	}
-	if !s.certificateIssuerMutationsReady(r.Context()) {
-		certificateIssuerAdminUnavailable(w, r)
-		return
-	}
 	key, ok := idemKey(w, r)
 	if !ok {
 		return
@@ -140,7 +139,20 @@ func (s *Server) platformCertificateIssuers(w http.ResponseWriter, r *http.Reque
 		mappedCertificateIssuerAdminError(w, r, err)
 		return
 	}
-	result, err := s.certificateIssuerAdmin.Create(r.Context(), certificateIssuerCommand(r, key), strings.TrimSpace(input.Name), spec)
+	command := certificateIssuerCommand(r, key)
+	name := strings.TrimSpace(input.Name)
+	result, found, err := s.certificateIssuerAdmin.ReplayCreate(r.Context(), command, name, spec)
+	if err != nil {
+		mappedCertificateIssuerAdminError(w, r, err)
+		return
+	}
+	if !found {
+		if !s.certificateIssuerMutationsReady(r.Context()) {
+			certificateIssuerAdminUnavailable(w, r)
+			return
+		}
+		result, err = s.certificateIssuerAdmin.Create(r.Context(), command, name, spec)
+	}
 	if err != nil {
 		mappedCertificateIssuerAdminError(w, r, err)
 		return
@@ -158,7 +170,7 @@ func (s *Server) platformCertificateIssuers(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) platformCertificateIssuer(w http.ResponseWriter, r *http.Request) {
-	if s.certificateIssuerAdmin == nil || !s.certificateIssuerMutationsReady(r.Context()) {
+	if s.certificateIssuerAdmin == nil {
 		certificateIssuerAdminUnavailable(w, r)
 		return
 	}
@@ -179,8 +191,20 @@ func (s *Server) platformCertificateIssuer(w http.ResponseWriter, r *http.Reques
 		mappedCertificateIssuerAdminError(w, r, err)
 		return
 	}
-	result, err := s.certificateIssuerAdmin.Revise(r.Context(), certificateIssuerCommand(r, key),
-		certissuers.Ref{ProfileID: strings.TrimSpace(r.PathValue("id")), Revision: input.BaseRevision}, spec)
+	command := certificateIssuerCommand(r, key)
+	ref := certissuers.Ref{ProfileID: strings.TrimSpace(r.PathValue("id")), Revision: input.BaseRevision}
+	result, found, err := s.certificateIssuerAdmin.ReplayRevise(r.Context(), command, ref, spec)
+	if err != nil {
+		mappedCertificateIssuerAdminError(w, r, err)
+		return
+	}
+	if !found {
+		if !s.certificateIssuerMutationsReady(r.Context()) {
+			certificateIssuerAdminUnavailable(w, r)
+			return
+		}
+		result, err = s.certificateIssuerAdmin.Revise(r.Context(), command, ref, spec)
+	}
 	if err != nil {
 		mappedCertificateIssuerAdminError(w, r, err)
 		return
@@ -197,7 +221,7 @@ func (s *Server) platformCertificateIssuer(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) deactivatePlatformCertificateIssuer(w http.ResponseWriter, r *http.Request) {
-	if s.certificateIssuerAdmin == nil || !s.certificateIssuerMutationsReady(r.Context()) {
+	if s.certificateIssuerAdmin == nil {
 		certificateIssuerAdminUnavailable(w, r)
 		return
 	}
@@ -209,8 +233,20 @@ func (s *Server) deactivatePlatformCertificateIssuer(w http.ResponseWriter, r *h
 	if !decode(w, r, &input) {
 		return
 	}
-	result, err := s.certificateIssuerAdmin.Deactivate(r.Context(), certificateIssuerCommand(r, key),
-		certissuers.Ref{ProfileID: strings.TrimSpace(r.PathValue("id")), Revision: input.Revision})
+	command := certificateIssuerCommand(r, key)
+	ref := certissuers.Ref{ProfileID: strings.TrimSpace(r.PathValue("id")), Revision: input.Revision}
+	result, found, err := s.certificateIssuerAdmin.ReplayDeactivate(r.Context(), command, ref)
+	if err != nil {
+		mappedCertificateIssuerAdminError(w, r, err)
+		return
+	}
+	if !found {
+		if !s.certificateIssuerMutationsReady(r.Context()) {
+			certificateIssuerAdminUnavailable(w, r)
+			return
+		}
+		result, err = s.certificateIssuerAdmin.Deactivate(r.Context(), command, ref)
+	}
 	if err != nil {
 		mappedCertificateIssuerAdminError(w, r, err)
 		return

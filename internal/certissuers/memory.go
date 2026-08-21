@@ -124,6 +124,51 @@ func (s *MemoryStore) Deactivate(_ context.Context, c Command, ref Ref) (Mutatio
 	s.commands[key] = memoryCommand{d, out}
 	return out, nil
 }
+
+func (s *MemoryStore) replayOnly(c Command, digest string) (MutationResult, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, found := s.commands[c.ActorID+"\x00"+c.IdempotencyKey]
+	if !found {
+		return MutationResult{}, false, nil
+	}
+	if old.digest != digest {
+		return MutationResult{}, true, ErrConflict
+	}
+	out := old.result
+	out.Replay = true
+	return out, true, nil
+}
+
+func (s *MemoryStore) ReplayCreate(_ context.Context, c Command, name string, spec Spec) (MutationResult, bool, error) {
+	if !validateCommand(c) || !dnsLabelRE.MatchString(name) {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest, err := commandDigest("create", "", name, 0, spec)
+	if err != nil {
+		return MutationResult{}, false, err
+	}
+	return s.replayOnly(c, digest)
+}
+
+func (s *MemoryStore) ReplayRevise(_ context.Context, c Command, ref Ref, spec Spec) (MutationResult, bool, error) {
+	if !validateCommand(c) || !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest, err := commandDigest("revise", ref.ProfileID, "", ref.Revision, spec)
+	if err != nil {
+		return MutationResult{}, false, err
+	}
+	return s.replayOnly(c, digest)
+}
+
+func (s *MemoryStore) ReplayDeactivate(_ context.Context, c Command, ref Ref) (MutationResult, bool, error) {
+	if !validateCommand(c) || !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest := digestText(fmt.Sprintf("%s\x00deactivate\x00%s\x00%d", Contract, ref.ProfileID, ref.Revision))
+	return s.replayOnly(c, digest)
+}
 func digestText(v string) string { sum := sha256Sum([]byte(v)); return "sha256:" + sum }
 func sha256Sum(v []byte) string {
 	h := sha256.New()

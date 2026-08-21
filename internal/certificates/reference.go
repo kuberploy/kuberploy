@@ -153,7 +153,10 @@ func (r *PostgreSQLReferenceResolver) ResolveCertificateReferences(
 	if r == nil || r.Store == nil || r.Store.pool == nil || ctx == nil {
 		return ReferencePlan{}, ErrInvalid
 	}
-	tx, err := r.Store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly})
+	// Reference resolution uses FOR SHARE to fence binding, version, and
+	// observation identity. PostgreSQL requires a read-write transaction for
+	// those row locks even though successful resolution performs no writes.
+	tx, err := r.Store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return ReferencePlan{}, ErrUnavailable
 	}

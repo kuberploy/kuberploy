@@ -81,6 +81,55 @@ func (s *PostgresStore) replay(ctx context.Context, tx pgx.Tx, c Command, d stri
 	return MutationResult{e.Profile, e.Revision, true}, true, mapError(err)
 }
 
+func (s *PostgresStore) replayOnly(ctx context.Context, c Command, digest string) (MutationResult, bool, error) {
+	if s == nil || s.pool == nil {
+		return MutationResult{}, false, ErrObservationUnavailable
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return MutationResult{}, false, err
+	}
+	defer tx.Rollback(context.Background()) //nolint:errcheck
+	result, found, err := s.replay(ctx, tx, c, digest)
+	if err != nil || !found {
+		return result, found, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return MutationResult{}, true, mapError(err)
+	}
+	return result, true, nil
+}
+
+func (s *PostgresStore) ReplayCreate(ctx context.Context, c Command, name string, spec Spec) (MutationResult, bool, error) {
+	if !validateCommand(c) || !dnsLabelRE.MatchString(name) {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest, err := commandDigest("create", "", name, 0, spec)
+	if err != nil {
+		return MutationResult{}, false, err
+	}
+	return s.replayOnly(ctx, c, digest)
+}
+
+func (s *PostgresStore) ReplayRevise(ctx context.Context, c Command, ref Ref, spec Spec) (MutationResult, bool, error) {
+	if !validateCommand(c) || !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest, err := commandDigest("revise", ref.ProfileID, "", ref.Revision, spec)
+	if err != nil {
+		return MutationResult{}, false, err
+	}
+	return s.replayOnly(ctx, c, digest)
+}
+
+func (s *PostgresStore) ReplayDeactivate(ctx context.Context, c Command, ref Ref) (MutationResult, bool, error) {
+	if !validateCommand(c) || !uuidRE.MatchString(ref.ProfileID) || ref.Revision < 1 {
+		return MutationResult{}, false, ErrInvalid
+	}
+	digest := digestText(fmt.Sprintf("%s\x00deactivate\x00%s\x00%d", Contract, ref.ProfileID, ref.Revision))
+	return s.replayOnly(ctx, c, digest)
+}
+
 type rowQuerier interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }

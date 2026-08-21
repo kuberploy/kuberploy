@@ -35,7 +35,8 @@ func newCertificateIssuerAdminAPI(t *testing.T, readiness *certificateIssuerAdmi
 }
 
 func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *testing.T) {
-	fixture, issuers := newCertificateIssuerAdminAPI(t, &certificateIssuerAdminReadiness{})
+	readiness := &certificateIssuerAdminReadiness{}
+	fixture, issuers := newCertificateIssuerAdminAPI(t, readiness)
 	fixture.bootstrap()
 
 	create := map[string]any{
@@ -76,6 +77,18 @@ func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *te
 		t.Fatalf("replay status=%d replay=%q", replay.StatusCode, replay.Header.Get("Idempotent-Replay"))
 	}
 	replay.Body.Close()
+	readiness.err = errors.New("stale protected publisher")
+	replay = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers", "create-tenant-production", create)
+	if replay.StatusCode != http.StatusCreated || replay.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("stale-runtime create replay status=%d replay=%q", replay.StatusCode, replay.Header.Get("Idempotent-Replay"))
+	}
+	replay.Body.Close()
+	blocked := fixture.request(http.MethodPost, "/v1/platform/certificate-issuers", "blocked-create", create)
+	blockedProblem := decode[httpapi.Problem](t, blocked)
+	if blocked.StatusCode != http.StatusServiceUnavailable || blockedProblem.Code != "CertificateIssuerManagementUnavailable" {
+		t.Fatalf("stale-runtime new create status=%d problem=%#v", blocked.StatusCode, blockedProblem)
+	}
+	readiness.err = nil
 
 	revise := map[string]any{
 		"baseRevision":                1,
@@ -103,6 +116,18 @@ func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *te
 	if err != nil || stored.Revision.Spec.ACME.Server != certissuers.LetsEncryptStaging || stored.Revision.Spec.Cloudflare == nil {
 		t.Fatalf("server did not derive the closed staging DNS-01 spec: entry=%#v err=%v", stored, err)
 	}
+	readiness.err = errors.New("stale protected publisher")
+	replay = fixture.request(http.MethodPut, "/v1/platform/certificate-issuers/"+created.ID, "revise-tenant-production", revise)
+	if replay.StatusCode != http.StatusOK || replay.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("stale-runtime revise replay status=%d replay=%q", replay.StatusCode, replay.Header.Get("Idempotent-Replay"))
+	}
+	replay.Body.Close()
+	blocked = fixture.request(http.MethodPut, "/v1/platform/certificate-issuers/"+created.ID, "blocked-revise", revise)
+	blockedProblem = decode[httpapi.Problem](t, blocked)
+	if blocked.StatusCode != http.StatusServiceUnavailable || blockedProblem.Code != "CertificateIssuerManagementUnavailable" {
+		t.Fatalf("stale-runtime new revise status=%d problem=%#v", blocked.StatusCode, blockedProblem)
+	}
+	readiness.err = nil
 
 	response = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "deactivate-tenant-production", map[string]any{"revision": 2})
 	deactivated := decode[struct {
@@ -110,6 +135,17 @@ func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *te
 	}](t, response)
 	if response.StatusCode != http.StatusOK || deactivated.Lifecycle != "deactivated" {
 		t.Fatalf("unexpected deactivate status=%d body=%#v", response.StatusCode, deactivated)
+	}
+	readiness.err = errors.New("stale protected publisher")
+	replay = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "deactivate-tenant-production", map[string]any{"revision": 2})
+	if replay.StatusCode != http.StatusOK || replay.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("stale-runtime deactivate replay status=%d replay=%q", replay.StatusCode, replay.Header.Get("Idempotent-Replay"))
+	}
+	replay.Body.Close()
+	blocked = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "blocked-deactivate", map[string]any{"revision": 2})
+	blockedProblem = decode[httpapi.Problem](t, blocked)
+	if blocked.StatusCode != http.StatusServiceUnavailable || blockedProblem.Code != "CertificateIssuerManagementUnavailable" {
+		t.Fatalf("stale-runtime new deactivate status=%d problem=%#v", blocked.StatusCode, blockedProblem)
 	}
 }
 
@@ -124,15 +160,21 @@ func TestCertificateIssuerAdminFailsClosedWithoutRuntimeAndRejectsAuthorityInjec
 	if capabilities.Features["certificateIssuerManagement"] {
 		t.Fatal("stale protected issuer runtime was advertised")
 	}
+	staleInput := map[string]any{
+		"name": "unsafe", "environment": "production", "email": "admin@example.com",
+		"accountPrivateKeySecretName": "acme-account",
+		"solver":                      map[string]any{"type": "http01"},
+	}
+	response := fixture.request(http.MethodPost, "/v1/platform/certificate-issuers", "stale-runtime", staleInput)
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "CertificateIssuerManagementUnavailable" {
+		t.Fatalf("stale runtime status=%d problem=%#v", response.StatusCode, problem)
+	}
+
 	input := map[string]any{
 		"name": "unsafe", "environment": "production", "email": "admin@example.com",
 		"accountPrivateKeySecretName": "acme-account", "server": certissuers.LetsEncryptStaging,
 		"solver": map[string]any{"type": "http01"},
-	}
-	response := fixture.request(http.MethodPost, "/v1/platform/certificate-issuers", "stale-runtime", input)
-	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusServiceUnavailable || problem.Code != "CertificateIssuerManagementUnavailable" {
-		t.Fatalf("stale runtime status=%d problem=%#v", response.StatusCode, problem)
 	}
 
 	readiness.err = nil

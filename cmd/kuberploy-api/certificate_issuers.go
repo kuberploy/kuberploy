@@ -43,6 +43,27 @@ func (s *certificateIssuerAdminStore) Deactivate(ctx context.Context, command ce
 	}
 	return s.store.Deactivate(ctx, command, ref)
 }
+func (s *certificateIssuerAdminStore) ReplayCreate(ctx context.Context, command certissuers.Command, name string, spec certissuers.Spec) (certissuers.MutationResult, bool, error) {
+	if s == nil || s.store == nil {
+		return certissuers.MutationResult{}, false, certissuers.ErrObservationUnavailable
+	}
+	if _, reserved := s.reserved[name]; reserved {
+		return certissuers.MutationResult{}, false, certissuers.ErrConflict
+	}
+	return s.store.ReplayCreate(ctx, command, name, spec)
+}
+func (s *certificateIssuerAdminStore) ReplayRevise(ctx context.Context, command certissuers.Command, ref certissuers.Ref, spec certissuers.Spec) (certissuers.MutationResult, bool, error) {
+	if s == nil || s.store == nil {
+		return certissuers.MutationResult{}, false, certissuers.ErrObservationUnavailable
+	}
+	return s.store.ReplayRevise(ctx, command, ref, spec)
+}
+func (s *certificateIssuerAdminStore) ReplayDeactivate(ctx context.Context, command certissuers.Command, ref certissuers.Ref) (certissuers.MutationResult, bool, error) {
+	if s == nil || s.store == nil {
+		return certissuers.MutationResult{}, false, certissuers.ErrObservationUnavailable
+	}
+	return s.store.ReplayDeactivate(ctx, command, ref)
+}
 func (s *certificateIssuerAdminStore) List(ctx context.Context, limit int) ([]certissuers.Entry, error) {
 	if s == nil || s.store == nil {
 		return nil, certissuers.ErrObservationUnavailable
