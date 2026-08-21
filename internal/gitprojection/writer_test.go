@@ -415,12 +415,35 @@ func TestProjectionWriterKeepsActiveUncommittedReservationRecoverable(t *testing
 	observed = leaseUntil.Add(time.Second)
 	if _, err := writer.CommitOperation(t.Context(), command.OperationID); !errors.Is(err, gitprojection.ErrConflict) {
 		t.Fatalf("expired reservation error=%v", err)
+	} else {
+		var pending interface{ ReconcilePending() (string, string) }
+		if !errors.As(err, &pending) {
+			t.Fatalf("expired reservation became terminal: %T %v", err, err)
+		}
+		code, _ := pending.ReconcilePending()
+		if code != "GitWriteBaseRefreshPending" {
+			t.Fatalf("expired reservation pending code=%q", code)
+		}
 	}
 	if _, err := store.PathReservation(t.Context(), binding.ID, binding.TargetRef, command.Path); !errors.Is(err, gitprojection.ErrNotFound) {
 		t.Fatalf("expired reservation was not released: %v", err)
 	}
-	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != descendant {
-		t.Fatalf("recovery changed target: got %s want %s", target, descendant)
+	indexedBinding := binding
+	indexedBinding.TargetHeadRevision, indexedBinding.IndexedRevision = descendant, descendant
+	indexedBinding.ProjectionGeneration++
+	indexedBinding.TargetHeadObservedAt, indexedBinding.IndexedAt = observed, observed
+	indexedBinding.UpdatedAt = observed
+	retryStore := &indexedHeadStore{MemoryStore: store, binding: indexedBinding}
+	writer.Store = retryStore
+	revision, err := writer.CommitOperation(t.Context(), command.OperationID)
+	if err != nil {
+		t.Fatalf("safe unrelated-head retry: %v", err)
+	}
+	if revision == descendant {
+		t.Fatalf("retry did not create the accepted operation commit")
+	}
+	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != revision {
+		t.Fatalf("retry target: got %s want %s", target, revision)
 	}
 }
 

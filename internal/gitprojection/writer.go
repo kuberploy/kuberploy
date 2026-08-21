@@ -391,7 +391,13 @@ func (w *ProjectionWriter) recoverCommit(ctx context.Context, binding Binding, c
 				return "", pendingReconciliation("GitReservationPending", "The expired Git path reservation will be reconciled again.", repairErr)
 			}
 		}
-		return "", ErrConflict
+		// The failed candidate never reached Git, so removing its expired
+		// reservation is not a semantic conflict. Requeue once so the next
+		// attempt verifies the command's exact path and dependency blobs against
+		// the current provider head before rebasing. A real same-path change is
+		// still rejected by VerifyMutationUnchangedSince; an unrelated commit
+		// must not terminalize an otherwise valid accepted operation.
+		return "", pendingReconciliation("GitWriteBaseRefreshPending", "The verified Git head advanced during the push; the unchanged path will be safely rebased.", ErrConflict)
 	}
 	if _, err = w.Store.FinalizeVerifiedPath(ctx, binding.ID, binding.TargetRef, command.Path, command.OperationID, found, head, w.now()); err != nil {
 		return "", pendingReconciliation("GitFinalizationPending", "The recovered Git commit receipt will be finalized again.", err)
