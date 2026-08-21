@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Schema 020. RC289 safely rebases direct Git publications when only unrelated descendant commits advance the provider head, while preserving same-path conflict detection.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.289"
+  "version": "0.1.0-rc.290"
 }
