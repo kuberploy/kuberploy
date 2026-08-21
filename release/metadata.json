@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC283 restores byte-exact retained AppConfig snapshots through deployment rollback while revalidating current runtime dependencies.",
+  "summary": "Schema 020. RC284 converges direct no-change deployment commits to their effective projected config revision so rollout status remains exact.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.283"
+  "version": "0.1.0-rc.284"
 }
