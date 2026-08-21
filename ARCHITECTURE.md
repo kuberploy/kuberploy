@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-21, RC293): the production code paths now
+Current implementation status (2026-08-21, RC294): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary
@@ -2200,7 +2200,9 @@ build-log scope diagnostics that retain the safe Kubernetes verification stage
 without exposing provider details; and Helm OCI no-change publication that
 reuses immutable verified desired-state commands while retaining current
 materialization policy authority; and worker delivery recovery that
-acknowledges only stale queue references after durable operation cleanup. The
+acknowledges only stale queue references after durable operation cleanup; and
+deterministic rendered previews that accept both supported Deployment and
+StatefulSet runtime kinds. The
 migration entrypoint also rejects unsupported schema drift after applying the
 ordered migration history. Those paths are default-off where applicable
 and remain capability-gated by their exact configuration and fresh runtime

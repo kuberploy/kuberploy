@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC293 keeps the protected Argo desired-state lease active while the exact root Application hard refresh passes through transient stale reads, eliminating avoidable command failure and reclaim.",
+  "summary": "Schema 020. RC294 allows deterministic rendered previews to accept the supported StatefulSet runtime kind, so StatefulSet-specific OnDelete and pod management controls can complete the public AppConfig flow.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.293"
+  "version": "0.1.0-rc.294"
 }
