@@ -79,6 +79,10 @@ func (productionRuntimeRefresherStub) RefreshPlatformRootApplication(context.Con
 	return nil
 }
 
+func (productionRuntimeRefresherStub) RefreshEnvironmentApplicationSet(context.Context, EnvironmentApplicationSetExpectation, time.Time) error {
+	return nil
+}
+
 type transientPrerequisiteMaterializer struct {
 	calls     atomic.Int64
 	recovered chan struct{}
@@ -110,7 +114,7 @@ func productionRuntimeFixture(t *testing.T, now time.Time) (*ProductionDesiredSt
 	store := NewMemoryDesiredStateStore()
 	writer := &DesiredStateWriter{Store: store, Bindings: productionRuntimeBindingStoreStub{}, ClaimGate: productionRuntimeClaimGateStub{},
 		Provider: productionRuntimeHeadVerifierStub{}, Manager: &gitprojection.MirrorManager{}, RootRefresher: productionRuntimeRefresherStub{},
-		ObservationWaker: NewMemoryObservationStore(), Identity: identity}
+		ApplicationSets: productionRuntimeRefresherStub{}, ObservationWaker: NewMemoryObservationStore(), Identity: identity}
 	worker := &DesiredStateRuntimeWorker{Store: store, Writer: writer, PollInterval: 250 * time.Millisecond,
 		Observation: DesiredStateRuntimeWorkerObservation{WorkerID: "argo-production-runtime-test", DesiredStateRuntimeIdentity: identity,
 			StartedAt: now, ObservedAt: now}, Now: func() time.Time { return now }}

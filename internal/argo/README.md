@@ -45,13 +45,17 @@ protected platform GitHub App binding and path. After a provider-verified
 platform commit it performs a metadata-only hard-refresh patch on the exact
 installer-owned root Application; narrow RBAC and a fail-closed admission
 policy reject a spec, label, owner, finalizer, unrelated-annotation, namespace,
-or name change. After that exact refresh succeeds, the writer durably advances
-the fenced Application observer so deployment status does not wait for its
-repair poll. A wake that races an active observer lease is preserved for the
-next claim. The durable command is completed only after an exact read-back
-proves that root observed the verified provider head and is Synced/Healthy. A
-stale provider read or transient Kubernetes/Argo failure retains the Git
-receipt and retries the same bounded hard refresh. After an
+or name change. After the root proves the exact provider revision is
+Synced/Healthy, the writer adds Argo's one-shot
+`argocd.argoproj.io/application-set-refresh: "true"` annotation to the exact
+server-derived environment ApplicationSet. A second admission policy permits
+only that annotation change and the worker waits for the ApplicationSet
+controller to remove it after regenerating child Applications. The writer then
+durably advances the fenced Application observer so deployment status does not
+wait for its repair poll. A wake that races an active observer lease is
+preserved for the next claim. A stale provider read or transient
+Kubernetes/Argo failure retains the Git receipt and retries the same bounded
+metadata refresh sequence. After an
 ambiguous push it locates the exact operation-trailer commit, verifies that it
 is an ancestor of the provider head, verifies the current protected path's
 exact bytes, and records the operation commit rather than a later descendant.
@@ -103,7 +107,9 @@ The isolated production core now implements the strict prerequisite chain:
   stale catalog blocks readiness without destructively deleting credentials;
 - `InClusterProductionClient` observes the fixed root Application by exact
   name, UID, closed spec, provider-verified synced revision, and
-  Synced/Healthy status. It exposes no Argo mutation or sync operation;
+  Synced/Healthy status. Its only additional Argo resource mutation is the
+  admission-fenced, server-derived environment ApplicationSet refresh
+  annotation; it exposes no Argo API token or imperative sync operation;
 - `PostgreSQLDesiredStateProjectionGate` reconstructs the exact active indexed
   generation in a serializable transaction and invokes the same composite
   AppConfig policy used by projection activation. This revalidates edge,
@@ -120,7 +126,7 @@ The isolated production core now implements the strict prerequisite chain:
 
 The production wiring now includes the exact GitHub branch/ruleset protection
 observer, fixed recursive root Application, deterministic repository
-credentials, exact-name Argo RBAC plus fail-closed credential admission, and
+Secret materialization, fail-closed root/ApplicationSet refresh admission, and
 default-off API/worker construction using the production readiness probe. Argo
 and dependent capabilities remain false when any configured identity,
 protection proof, root observation, credential observation, policy receipt, or

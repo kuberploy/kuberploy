@@ -28,6 +28,12 @@ func (f desiredStateRefresherFunc) RefreshPlatformRootApplication(ctx context.Co
 	return f(ctx, expectation, now)
 }
 
+type desiredStateApplicationSetRefresherFunc func(context.Context, argo.EnvironmentApplicationSetExpectation, time.Time) error
+
+func (f desiredStateApplicationSetRefresherFunc) RefreshEnvironmentApplicationSet(ctx context.Context, expectation argo.EnvironmentApplicationSetExpectation, now time.Time) error {
+	return f(ctx, expectation, now)
+}
+
 type observationWakerFunc func(context.Context, string, time.Time) error
 
 func (f observationWakerFunc) WakeObservation(ctx context.Context, namespace string, now time.Time) error {
@@ -170,6 +176,12 @@ func (f *desiredStateWriterFixture) writer(provider gitprojection.HeadVerifier) 
 		RootRefresher: desiredStateRefresherFunc(func(_ context.Context, expectation argo.PlatformRootApplicationExpectation, _ time.Time) error {
 			if expectation.Namespace != f.identity.ArgoNamespace || expectation.Name != f.identity.RootApplicationName ||
 				expectation.ExpectedGitRevision == "" {
+				return argo.ErrInvalid
+			}
+			return nil
+		}), ApplicationSets: desiredStateApplicationSetRefresherFunc(func(_ context.Context, expectation argo.EnvironmentApplicationSetExpectation, _ time.Time) error {
+			if expectation.Validate() != nil || expectation.Namespace != f.identity.ArgoNamespace ||
+				expectation.ProjectID != f.target.Environment.Project.ID {
 				return argo.ErrInvalid
 			}
 			return nil
@@ -429,6 +441,37 @@ func TestDesiredStateWriterRetriesObserverWakeAfterVerifiedRootRefresh(t *testin
 	verified, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
 	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != committed.CommittedRevision {
 		t.Fatalf("wake replay did not converge: command=%#v err=%v", verified, err)
+	}
+}
+
+func TestDesiredStateWriterRetriesApplicationSetRefreshBeforeObserverWake(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	writer := fixture.writer(fixture.provider(t, nil))
+	refreshCalls := 0
+	wakeCalls := 0
+	writer.ApplicationSets = desiredStateApplicationSetRefresherFunc(func(_ context.Context, expectation argo.EnvironmentApplicationSetExpectation, _ time.Time) error {
+		refreshCalls++
+		if expectation.Name != argo.ApplicationSetName(fixture.target.Environment.Environment.ID) {
+			return argo.ErrInvalid
+		}
+		return errors.New("transient ApplicationSet controller failure")
+	})
+	writer.ObservationWaker = observationWakerFunc(func(context.Context, string, time.Time) error {
+		wakeCalls++
+		return nil
+	})
+	_, err := writer.CommitClaim(t.Context(), fixture.claim.Lease)
+	if err == nil || refreshCalls != 1 || wakeCalls != 0 {
+		t.Fatalf("ApplicationSet refresh failure was not durable: refreshes=%d wakes=%d err=%v", refreshCalls, wakeCalls, err)
+	}
+	committed, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if readErr != nil || committed.State != argo.DesiredStateGitCommitted || committed.CommittedRevision == "" || committed.CompletedAt != nil {
+		t.Fatalf("ApplicationSet refresh failure lost Git receipt: command=%#v err=%v", committed, readErr)
+	}
+	fixture.now = fixture.now.Add(time.Second)
+	verified, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != committed.CommittedRevision {
+		t.Fatalf("ApplicationSet refresh replay did not converge: command=%#v err=%v", verified, err)
 	}
 }
 

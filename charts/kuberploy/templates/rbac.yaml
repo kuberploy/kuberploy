@@ -403,6 +403,11 @@ rules:
     resources: ["applications"]
     resourceNames: ["kuberploy-platform-root"]
     verbs: ["get", "patch"]
+  # Admission confines this dynamic resource family to exact Kuberploy
+  # environment ApplicationSets and metadata-only refresh requests.
+  - apiGroups: ["argoproj.io"]
+    resources: ["applicationsets"]
+    verbs: ["get", "patch"]
   # Server-Side Apply is authorized as create for an absent object and patch
   # for an existing object. Admission below confines all three mutation verbs
   # to the deterministic repository-credential family; no Secret read exists.

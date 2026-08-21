@@ -20,11 +20,15 @@ import (
 
 const maximumArgoRuntimeResponseBytes = int64(2 << 20)
 
-const argoHardRefreshAnnotation = "argocd.argoproj.io/refresh"
+const (
+	argoHardRefreshAnnotation           = "argocd.argoproj.io/refresh"
+	argoApplicationSetRefreshAnnotation = "argocd.argoproj.io/application-set-refresh"
+)
 
-// InClusterProductionClient exposes only two Kubernetes authority surfaces:
+// InClusterProductionClient exposes only narrow Kubernetes authority surfaces:
 // server-side apply/delete for the deterministic Argo repository credential
-// Secret family and exact-name GET for the installer-owned root Application.
+// Secret family, metadata refresh for the installer-owned root Application,
+// and metadata refresh for a server-derived environment ApplicationSet.
 // It has no Secret get/list/watch, generic resource, proxy, exec, log, or Argo
 // mutation/sync API.
 type InClusterProductionClient struct {
@@ -283,6 +287,83 @@ func (c *InClusterProductionClient) RefreshPlatformRootApplication(ctx context.C
 	}
 	_, err = c.ObservePlatformRootApplication(ctx, expectation, now.UTC())
 	return err
+}
+
+func (c *InClusterProductionClient) RefreshEnvironmentApplicationSet(ctx context.Context, expectation EnvironmentApplicationSetExpectation, now time.Time) error {
+	if c == nil || c.http == nil || expectation.Validate() != nil || now.IsZero() {
+		return ErrInvalid
+	}
+	requestPath := "/apis/argoproj.io/v1alpha1/namespaces/" + url.PathEscape(expectation.Namespace) +
+		"/applicationsets/" + url.PathEscape(expectation.Name)
+	body := []byte(`{"metadata":{"annotations":{"argocd.argoproj.io/application-set-refresh":"true"}}}`)
+	response, err := c.request(ctx, http.MethodPatch, requestPath, body, "application/merge-patch+json",
+		"application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1")
+	if err != nil {
+		return err
+	}
+	if response.StatusCode != http.StatusOK {
+		response.Body.Close()
+		return fmt.Errorf("Kubernetes environment ApplicationSet refresh returned HTTP %d", response.StatusCode)
+	}
+	var patched partialObjectMetadataWire
+	err = decodeBoundedJSON(response.Body, maximumArgoRuntimeResponseBytes, &patched, false)
+	response.Body.Close()
+	if err != nil {
+		return err
+	}
+	if validateEnvironmentApplicationSetMetadata(patched, expectation) != nil ||
+		patched.Metadata.Annotations[argoApplicationSetRefreshAnnotation] != "true" {
+		return ErrApplicationSetNotReady
+	}
+
+	for {
+		observed, observeErr := c.observeEnvironmentApplicationSetMetadata(ctx, requestPath, expectation)
+		if observeErr != nil {
+			return observeErr
+		}
+		_, refreshPending := observed.Metadata.Annotations[argoApplicationSetRefreshAnnotation]
+		if observed.Metadata.UID == patched.Metadata.UID && observed.Metadata.ResourceVersion != patched.Metadata.ResourceVersion && !refreshPending {
+			return nil
+		}
+		timer := time.NewTimer(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (c *InClusterProductionClient) observeEnvironmentApplicationSetMetadata(ctx context.Context, requestPath string, expectation EnvironmentApplicationSetExpectation) (partialObjectMetadataWire, error) {
+	response, err := c.request(ctx, http.MethodGet, requestPath, nil, "",
+		"application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1")
+	if err != nil {
+		return partialObjectMetadataWire{}, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return partialObjectMetadataWire{}, fmt.Errorf("Kubernetes environment ApplicationSet observation returned HTTP %d", response.StatusCode)
+	}
+	var metadata partialObjectMetadataWire
+	if err = decodeBoundedJSON(response.Body, maximumArgoRuntimeResponseBytes, &metadata, false); err != nil {
+		return partialObjectMetadataWire{}, err
+	}
+	if err = validateEnvironmentApplicationSetMetadata(metadata, expectation); err != nil {
+		return partialObjectMetadataWire{}, err
+	}
+	return metadata, nil
+}
+
+func validateEnvironmentApplicationSetMetadata(metadata partialObjectMetadataWire, expectation EnvironmentApplicationSetExpectation) error {
+	if expectation.Validate() != nil || metadata.Metadata.Namespace != expectation.Namespace || metadata.Metadata.Name != expectation.Name ||
+		!uuidRE.MatchString(metadata.Metadata.UID) || metadata.Metadata.ResourceVersion == "" || len(metadata.Metadata.ResourceVersion) > 128 ||
+		stringsContainsControl(metadata.Metadata.ResourceVersion) || metadata.Metadata.Labels["app.kubernetes.io/managed-by"] != "kuberploy" ||
+		metadata.Metadata.Labels["kuberploy.io/project-id"] != expectation.ProjectID ||
+		metadata.Metadata.Labels["kuberploy.io/environment-id"] != expectation.EnvironmentID {
+		return ErrApplicationSetNotReady
+	}
+	return nil
 }
 
 func (c *InClusterProductionClient) ObservePlatformRootApplication(ctx context.Context, expectation PlatformRootApplicationExpectation, now time.Time) (PlatformRootApplicationObservation, error) {

@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	ErrInvalid   = errors.New("invalid Argo reconciliation input")
-	ErrNotFound  = errors.New("Argo observation not found")
-	ErrConflict  = errors.New("Argo observation conflict")
-	ErrLeaseHeld = errors.New("Argo observation lease is held")
-	ErrLeaseLost = errors.New("Argo observation lease was lost")
+	ErrInvalid                = errors.New("invalid Argo reconciliation input")
+	ErrNotFound               = errors.New("Argo observation not found")
+	ErrConflict               = errors.New("Argo observation conflict")
+	ErrLeaseHeld              = errors.New("Argo observation lease is held")
+	ErrLeaseLost              = errors.New("Argo observation lease was lost")
+	ErrApplicationSetNotReady = errors.New("Argo ApplicationSet refresh is not ready")
 
 	uuidRE    = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	digestRE  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -85,6 +86,10 @@ func ProjectName(projectID string) string {
 
 func ApplicationName(deploymentID string) string {
 	return "kp-d-" + strings.ReplaceAll(strings.ToLower(deploymentID), "-", "")
+}
+
+func ApplicationSetName(environmentID string) string {
+	return "kp-e-" + strings.ReplaceAll(strings.ToLower(environmentID), "-", "")
 }
 
 type SyncStatus string

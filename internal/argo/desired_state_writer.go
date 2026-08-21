@@ -24,10 +24,42 @@ type PlatformRootRefresher interface {
 	RefreshPlatformRootApplication(context.Context, PlatformRootApplicationExpectation, time.Time) error
 }
 
+type EnvironmentApplicationSetExpectation struct {
+	Namespace     string
+	Name          string
+	ProjectID     string
+	EnvironmentID string
+}
+
+func NewEnvironmentApplicationSetExpectation(command DesiredStateCommand) (EnvironmentApplicationSetExpectation, error) {
+	expectation := EnvironmentApplicationSetExpectation{Namespace: command.ArgoNamespace, Name: ApplicationSetName(command.EnvironmentID),
+		ProjectID: command.ProjectID, EnvironmentID: command.EnvironmentID}
+	if command.Validate() != nil || expectation.Validate() != nil {
+		return EnvironmentApplicationSetExpectation{}, ErrInvalid
+	}
+	return expectation, nil
+}
+
+func (e EnvironmentApplicationSetExpectation) Validate() error {
+	if !kubeRE.MatchString(e.Namespace) || !uuidRE.MatchString(e.ProjectID) || !uuidRE.MatchString(e.EnvironmentID) ||
+		e.Name != ApplicationSetName(e.EnvironmentID) || !kubeRE.MatchString(e.Name) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+// EnvironmentApplicationSetRefresher asks Argo's ApplicationSet controller to
+// regenerate exact child Applications after the verified root revision lands.
+// It never invokes Argo's imperative sync API.
+type EnvironmentApplicationSetRefresher interface {
+	RefreshEnvironmentApplicationSet(context.Context, EnvironmentApplicationSetExpectation, time.Time) error
+}
+
 // DesiredStateWriter is the sole runtime mutation path for protected Argo
 // manifests. It commits immutable server-derived bytes through the hardened
-// Git mirror/token broker, then requests only an exact root-Application
-// metadata refresh; Argo's automated policy remains the sole sync executor.
+// Git mirror/token broker, then requests exact root-Application and environment
+// ApplicationSet metadata refreshes; Argo's automated policy remains the sole
+// sync executor.
 type DesiredStateWriter struct {
 	Store             DesiredStateStore
 	Bindings          DesiredStateBindingStore
@@ -35,6 +67,7 @@ type DesiredStateWriter struct {
 	Provider          gitprojection.HeadVerifier
 	Manager           *gitprojection.MirrorManager
 	RootRefresher     PlatformRootRefresher
+	ApplicationSets   EnvironmentApplicationSetRefresher
 	ObservationWaker  ObservationWaker
 	Identity          DesiredStateRuntimeIdentity
 	Now               func() time.Time
@@ -44,7 +77,7 @@ type DesiredStateWriter struct {
 
 func (w *DesiredStateWriter) validate() error {
 	if w == nil || w.Store == nil || w.Bindings == nil || w.ClaimGate == nil || w.Provider == nil || w.Manager == nil ||
-		w.RootRefresher == nil || w.ObservationWaker == nil || w.Identity.Validate() != nil {
+		w.RootRefresher == nil || w.ApplicationSets == nil || w.ObservationWaker == nil || w.Identity.Validate() != nil {
 		return ErrInvalid
 	}
 	leaseDuration, heartbeat := w.leaseSettings()
@@ -192,8 +225,8 @@ func (w *DesiredStateWriter) CommitClaim(ctx context.Context, lease DesiredState
 	if verified.ValidateFor(platform) != nil || verified.Commit != revision {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
 	}
-	if err = w.refreshPlatformRoot(workContext, platform, verified); err != nil {
-		return DesiredStateCommand{}, guard.Result(fmt.Errorf("refresh platform root Application: %w", err))
+	if err = w.refreshArgoDesiredState(workContext, committed, platform, verified); err != nil {
+		return DesiredStateCommand{}, guard.Result(fmt.Errorf("refresh Argo desired state: %w", err))
 	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {
@@ -264,8 +297,8 @@ func (w *DesiredStateWriter) recoverUnacknowledged(ctx context.Context, command 
 	if verified.ValidateFor(platform) != nil || verified.Commit != providerHead {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
 	}
-	if err = w.refreshPlatformRoot(ctx, platform, verified); err != nil {
-		return DesiredStateCommand{}, fmt.Errorf("refresh platform root Application: %w", err)
+	if err = w.refreshArgoDesiredState(ctx, committed, platform, verified); err != nil {
+		return DesiredStateCommand{}, fmt.Errorf("refresh Argo desired state: %w", err)
 	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {
@@ -294,8 +327,8 @@ func (w *DesiredStateWriter) recoverAcknowledged(ctx context.Context, command De
 	if verified.ValidateFor(platform) != nil || verified.Commit != providerHead {
 		return DesiredStateCommand{}, gitprojection.ErrProviderMismatch
 	}
-	if err = w.refreshPlatformRoot(ctx, platform, verified); err != nil {
-		return DesiredStateCommand{}, fmt.Errorf("refresh platform root Application: %w", err)
+	if err = w.refreshArgoDesiredState(ctx, command, platform, verified); err != nil {
+		return DesiredStateCommand{}, fmt.Errorf("refresh Argo desired state: %w", err)
 	}
 	var completed DesiredStateCommand
 	err = guard.Finish(func(current DesiredStateLease) error {
@@ -306,13 +339,20 @@ func (w *DesiredStateWriter) recoverAcknowledged(ctx context.Context, command De
 	return completed, err
 }
 
-func (w *DesiredStateWriter) refreshPlatformRoot(ctx context.Context, platform gitprojection.Binding, head gitprojection.VerifiedHead) error {
+func (w *DesiredStateWriter) refreshArgoDesiredState(ctx context.Context, command DesiredStateCommand, platform gitprojection.Binding, head gitprojection.VerifiedHead) error {
 	expectation, err := NewPlatformRootApplicationExpectation(w.Identity, platform, head)
 	if err != nil {
 		return err
 	}
 	refreshedAt := w.notBefore(head.ObservedAt)
 	if err = w.RootRefresher.RefreshPlatformRootApplication(ctx, expectation, refreshedAt); err != nil {
+		return err
+	}
+	applicationSet, err := NewEnvironmentApplicationSetExpectation(command)
+	if err != nil {
+		return err
+	}
+	if err = w.ApplicationSets.RefreshEnvironmentApplicationSet(ctx, applicationSet, w.notBefore(refreshedAt)); err != nil {
 		return err
 	}
 	return w.ObservationWaker.WakeObservation(ctx, w.Identity.ArgoNamespace, w.notBefore(refreshedAt))

@@ -275,7 +275,7 @@ func RenderApplicationSet(target EnvironmentTarget, applications []domain.Applic
 	if err != nil {
 		return nil, err
 	}
-	manifest := applicationSetManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "ApplicationSet"}, Metadata: objectMeta{Name: "kp-e-" + strings.ReplaceAll(target.Environment.ID, "-", ""), Namespace: target.ArgoNamespace, Labels: baseLabels(target),
+	manifest := applicationSetManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "ApplicationSet"}, Metadata: objectMeta{Name: ApplicationSetName(target.Environment.ID), Namespace: target.ArgoNamespace, Labels: baseLabels(target),
 		Annotations: map[string]string{"argocd.argoproj.io/sync-wave": "0", "kuberploy.io/git-binding-id": target.Binding.ID, "kuberploy.io/runtime-chart-digest": target.Runtime.ChartDigest}}}
 	manifest.Spec.GoTemplate = true
 	manifest.Spec.GoTemplateOptions = []string{"missingkey=error"}

@@ -493,6 +493,67 @@ func TestInClusterProductionClientUsesClosedSecretAndRootApplicationRequests(t *
 	}
 }
 
+func TestInClusterProductionClientRefreshesExactEnvironmentApplicationSet(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	expectation := EnvironmentApplicationSetExpectation{Namespace: "argocd", Name: ApplicationSetName(productionEnvironmentID),
+		ProjectID: productionProjectID, EnvironmentID: productionEnvironmentID}
+	if expectation.Validate() != nil {
+		t.Fatal("valid ApplicationSet expectation rejected")
+	}
+	tokenFile := t.TempDir() + "/token"
+	if err := os.WriteFile(tokenFile, []byte("service-account-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		if request.URL.Path != "/apis/argoproj.io/v1alpha1/namespaces/argocd/applicationsets/"+expectation.Name ||
+			request.Header.Get("Authorization") != "Bearer service-account-token" {
+			t.Errorf("unsafe ApplicationSet request: method=%s path=%s", request.Method, request.URL.Path)
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
+		annotations := map[string]string{}
+		resourceVersion := "11"
+		switch request.Method {
+		case http.MethodPatch:
+			if request.Header.Get("Content-Type") != "application/merge-patch+json" {
+				t.Errorf("unexpected patch content type: %s", request.Header.Get("Content-Type"))
+			}
+			body, readErr := io.ReadAll(request.Body)
+			if readErr != nil || !bytes.Contains(body, []byte(`"argocd.argoproj.io/application-set-refresh":"true"`)) {
+				t.Errorf("invalid ApplicationSet refresh body: err=%v", readErr)
+			}
+			annotations[argoApplicationSetRefreshAnnotation] = "true"
+			resourceVersion = "10"
+		case http.MethodGet:
+		default:
+			writer.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(writer).Encode(map[string]any{"apiVersion": "meta.k8s.io/v1", "kind": "PartialObjectMetadata",
+			"metadata": map[string]any{"name": expectation.Name, "namespace": expectation.Namespace,
+				"uid": "75222222-2222-4222-8222-222222222222", "resourceVersion": resourceVersion,
+				"labels": map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/project-id": expectation.ProjectID,
+					"kuberploy.io/environment-id": expectation.EnvironmentID}, "annotations": annotations}})
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	client := &InClusterProductionClient{baseURL: parsed.String(), http: server.Client(), tokenPath: tokenFile}
+	if err := client.RefreshEnvironmentApplicationSet(t.Context(), expectation, now); err != nil {
+		t.Fatalf("refresh ApplicationSet: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("ApplicationSet requests=%d", requests)
+	}
+	invalid := expectation
+	invalid.Name = "attacker-appset"
+	if err := client.RefreshEnvironmentApplicationSet(t.Context(), invalid, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("arbitrary ApplicationSet refresh accepted: %v", err)
+	}
+}
+
 func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	expectation, err := NewProtectedApplicationExpectation("argocd", "kp-project",

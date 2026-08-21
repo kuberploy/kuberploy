@@ -344,6 +344,14 @@ always the chart's exact worker image and cannot be configured independently.
 The API and worker receive the same closed production identity, while only the
 worker receives Kubernetes mutation authority.
 
+Protected publication uses Kubernetes metadata refreshes, not an Argo API
+account or token. The worker hard-refreshes only the fixed platform root, then
+requests one reconciliation of the exact `kp-e-<environment UUID>`
+ApplicationSet and waits for its controller-owned refresh annotation to be
+removed. Namespaced RBAC is paired with fail-closed admission that rejects any
+spec, identity, label, owner, finalizer, unrelated annotation, namespace, or
+name mutation.
+
 `config.helmApplications.enabled` is the final default-off approved external
 Helm/OCI runtime. It can be enabled only after Git projection, GitHub App,
 environment foundations, and protected Argo desired state are enabled. The
