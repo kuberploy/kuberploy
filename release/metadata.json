@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC299 safely retries a direct Git projection when an unrelated branch commit wins the remote ref race, while preserving terminal conflicts for changed paths or dependency blobs.",
+  "summary": "Schema 020. RC300 returns stale AppConfig ETag failures before transient Argo readiness failures and keeps automatic appearance synchronized with operating-system changes on pre-authentication surfaces.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.299"
+  "version": "0.1.0-rc.300"
 }

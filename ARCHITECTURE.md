@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-22, RC299): the production code paths now
+Current implementation status (2026-08-22, RC300): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary
@@ -2216,9 +2216,15 @@ requeues after proving an expired candidate absent, then revalidates the exact
 path and dependency blobs against the newly indexed head so an unrelated
 remote-ref race cannot terminalize an otherwise safe write. The
 migration entrypoint also rejects unsupported schema drift after applying the
-ordered migration history. Those paths are default-off where applicable
-and remain capability-gated by their exact configuration and fresh runtime
-observations; they are not the unwired blockers described in earlier drafts.
+ordered migration history. AppConfig mutation admission resolves stale ETags
+and exact idempotent replays against current indexed Git authority before
+consulting transient Argo readiness, while still requiring fresh Argo authority
+for every new current-ETag mutation. Automatic appearance uses one app-lifetime
+persisted-preference guard, so login, invitation, bootstrap, and authenticated
+surfaces all follow operating-system theme changes without overriding explicit
+light or dark choices. Those paths are default-off where applicable and remain
+capability-gated by their exact configuration and fresh runtime observations;
+they are not the unwired blockers described in earlier drafts.
 
 The remaining external proof is a full enabled-stack run on an explicitly
 selected, non-production conforming cluster. It requires operator-supplied
