@@ -21,6 +21,67 @@ type pullRequestProviderStub struct {
 
 type protectionVerifierStub struct{ err error }
 
+// indexedHeadStore exposes a newer fully indexed binding while retaining the
+// immutable command accepted against an older head. It isolates direct-writer
+// safe-rebase behavior from the projection indexer tested elsewhere.
+type indexedHeadStore struct {
+	*gitprojection.MemoryStore
+	binding     gitprojection.Binding
+	reservation *gitprojection.PathReservation
+}
+
+func (s *indexedHeadStore) Binding(_ context.Context, id string) (gitprojection.Binding, error) {
+	if id != s.binding.ID {
+		return gitprojection.Binding{}, gitprojection.ErrNotFound
+	}
+	return s.binding, nil
+}
+
+func (s *indexedHeadStore) PathReservation(_ context.Context, bindingID, targetRef, path string) (gitprojection.PathReservation, error) {
+	if s.reservation == nil || s.reservation.BindingID != bindingID || s.reservation.TargetRef != targetRef || s.reservation.Path != path {
+		return gitprojection.PathReservation{}, gitprojection.ErrNotFound
+	}
+	return *s.reservation, nil
+}
+
+func (s *indexedHeadStore) AcquirePath(_ context.Context, candidate gitprojection.PathReservation, now time.Time, lease time.Duration) (gitprojection.PathReservation, bool, error) {
+	if candidate.Validate(s.binding) != nil || s.binding.State != gitprojection.BindingReady ||
+		s.binding.TargetHeadRevision != s.binding.IndexedRevision || candidate.BaseRevision != s.binding.TargetHeadRevision ||
+		candidate.LeaseUntil == nil || !candidate.LeaseUntil.Equal(now.Add(lease)) {
+		return gitprojection.PathReservation{}, false, gitprojection.ErrStale
+	}
+	if s.reservation != nil {
+		return gitprojection.PathReservation{}, false, gitprojection.ErrLeaseHeld
+	}
+	s.reservation = &candidate
+	return candidate, false, nil
+}
+
+func (s *indexedHeadStore) FinalizeVerifiedPath(_ context.Context, bindingID, targetRef, path, operationID, revision string, head gitprojection.VerifiedHead, now time.Time) (gitprojection.PathReservation, error) {
+	if s.reservation == nil || s.reservation.BindingID != bindingID || s.reservation.TargetRef != targetRef ||
+		s.reservation.Path != path || s.reservation.OperationID != operationID || head.Commit != revision {
+		return gitprojection.PathReservation{}, gitprojection.ErrConflict
+	}
+	receipt := *s.reservation
+	receipt.State = gitprojection.ReservationCommittedPendingIndex
+	receipt.CommittedRevision = revision
+	receipt.LeaseUntil = nil
+	receipt.UpdatedAt = now
+	s.reservation = &receipt
+	if _, err := s.MemoryStore.MarkWriteCommandCommitted(context.Background(), operationID, revision, now); err != nil {
+		return gitprojection.PathReservation{}, err
+	}
+	return receipt, nil
+}
+
+func (s *indexedHeadStore) RepairExpiredPath(_ context.Context, bindingID, targetRef, path string, _ bool, _ string, _ time.Time) error {
+	if s.reservation == nil || s.reservation.BindingID != bindingID || s.reservation.TargetRef != targetRef || s.reservation.Path != path {
+		return gitprojection.ErrNotFound
+	}
+	s.reservation = nil
+	return nil
+}
+
 func (v protectionVerifierStub) VerifyRepositoryProtection(_ context.Context, binding gitprojection.Binding, head gitprojection.VerifiedHead, now time.Time) (gitprojection.RepositoryProtectionObservation, error) {
 	if v.err != nil {
 		return gitprojection.RepositoryProtectionObservation{}, v.err
@@ -153,7 +214,7 @@ func newVariableCreateCommand(t *testing.T, binding gitprojection.Binding, opera
 	return command
 }
 
-func TestVariableWriterDurableReservationRecoveryAndStaleConflict(t *testing.T) {
+func TestVariableWriterDurableReservationRecoveryAndSafeRebase(t *testing.T) {
 	fixture := seedRepository(t, false)
 	dependencyPaths, err := gitprojection.DependencyPaths(fixture.binding)
 	if err != nil {
@@ -252,15 +313,50 @@ func TestVariableWriterDurableReservationRecoveryAndStaleConflict(t *testing.T) 
 		t.Fatalf("recovered command=%#v err=%v", stored, err)
 	}
 
-	// A separately accepted old-head mutation has no reservation/commit receipt.
-	// It must return an explicit conflict and leave the authoritative ref intact.
-	staleWriter := &gitprojection.ProjectionWriter{Store: staleStore, Commands: staleStore, Provider: localHeadVerifier(t, fixture.remote, &observed),
+	// A separately accepted old-head mutation can safely rebase because only an
+	// unrelated path advanced. Its immutable authorization base remains intact;
+	// the durable reservation records the verified descendant write base.
+	descendantBinding := binding
+	descendantBinding.TargetHeadRevision, descendantBinding.IndexedRevision = descendant, descendant
+	descendantBinding.ProjectionGeneration++
+	descendantBinding.TargetHeadObservedAt, descendantBinding.IndexedAt = observed, observed
+	descendantBinding.UpdatedAt = observed
+	rebaseStore := &indexedHeadStore{MemoryStore: staleStore, binding: descendantBinding}
+	staleWriter := &gitprojection.ProjectionWriter{Store: rebaseStore, Commands: staleStore, Provider: localHeadVerifier(t, fixture.remote, &observed),
 		Manager: manager, Owner: "writer-test-owner", LeaseDuration: leaseDuration, Now: func() time.Time { return observed.Add(time.Second) }}
-	if _, err = staleWriter.CommitOperation(t.Context(), environmentOperation); !errors.Is(err, gitprojection.ErrConflict) {
-		t.Fatalf("stale unrelated variable mutation error=%v", err)
+	rebased, err := staleWriter.CommitOperation(t.Context(), environmentOperation)
+	if err != nil || rebased == "" || rebased == descendant {
+		t.Fatalf("rebased=%q descendant=%q err=%v", rebased, descendant, err)
 	}
-	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != descendant {
-		t.Fatalf("stale variable command mutated target: got %s want %s", target, descendant)
+	if parent := runGit(t, fixture.remote, "rev-parse", rebased+"^"); parent != descendant {
+		t.Fatalf("rebased parent=%s want verified descendant=%s", parent, descendant)
+	}
+	if stored, readErr := staleStore.WriteCommand(t.Context(), environmentOperation); readErr != nil ||
+		stored.State != gitprojection.WriteCommandGitCommitted || stored.CommittedRevision != rebased {
+		t.Fatalf("rebased command=%#v err=%v", stored, readErr)
+	}
+
+	// A second command accepted at the old head targets the now-created same
+	// path. Create-if-absent must still fail before any new push.
+	conflictOperation := "88888888-8888-4888-8888-888888888888"
+	conflictCommand := newVariableCreateCommand(t, binding, conflictOperation, "environment", []byte("variables:\n  LOG_LEVEL: warn\n"), now)
+	conflictCommands := gitprojection.NewMemoryStore()
+	if err = conflictCommands.PutBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	if err = conflictCommands.PutWriteCommand(t.Context(), conflictCommand); err != nil {
+		t.Fatal(err)
+	}
+	currentBinding := descendantBinding
+	currentBinding.TargetHeadRevision, currentBinding.IndexedRevision = rebased, rebased
+	conflictStore := &indexedHeadStore{MemoryStore: conflictCommands, binding: currentBinding}
+	conflictWriter := &gitprojection.ProjectionWriter{Store: conflictStore, Commands: conflictCommands, Provider: localHeadVerifier(t, fixture.remote, &observed),
+		Manager: manager, Owner: "writer-test-owner", LeaseDuration: leaseDuration, Now: func() time.Time { return observed.Add(time.Second) }}
+	if _, err = conflictWriter.CommitOperation(t.Context(), conflictOperation); !errors.Is(err, gitprojection.ErrConflict) {
+		t.Fatalf("same-path descendant error=%v", err)
+	}
+	if target := runGit(t, fixture.remote, "rev-parse", binding.TargetRef); target != rebased {
+		t.Fatalf("same-path conflict changed target: got %s want %s", target, rebased)
 	}
 
 	// An expired candidate reservation with no matching pushed operation is

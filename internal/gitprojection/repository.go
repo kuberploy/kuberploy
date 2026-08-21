@@ -596,18 +596,30 @@ func (p *PreparedRepository) VerifyAncestor(ctx context.Context, ancestor string
 // provider-pinned head. The planned base must be an ancestor and the single
 // protected path must have the same before-image (or remain absent).
 func (p *PreparedRepository) VerifyMutationUnchangedSince(ctx context.Context, mutation Mutation) error {
+	return p.VerifyMutationUnchangedAt(ctx, mutation, p.Head.Commit)
+}
+
+// VerifyMutationUnchangedAt validates a durable direct-publication write-base
+// receipt. The accepted authorization-time base and the receipt must both be
+// ancestors of the provider-pinned prepared head, and the protected path must
+// have the same before-image at both revisions. This permits unrelated commits
+// without weakening exact-path compare-and-swap protection.
+func (p *PreparedRepository) VerifyMutationUnchangedAt(ctx context.Context, mutation Mutation, writeBase string) error {
 	if ctx == nil || p == nil || p.manager == nil || mutation.Validate(p.Binding) != nil || mutation.Authority != "" && mutation.Authority != MutationAuthorityVariables ||
-		p.Head.ValidateFor(p.Binding) != nil {
+		p.Head.ValidateFor(p.Binding) != nil || !commitRE.MatchString(writeBase) {
 		return ErrInvalid
 	}
-	if err := p.VerifyAncestor(ctx, mutation.BaseRevision); err != nil {
+	if err := p.verifyAncestor(ctx, mutation.BaseRevision, writeBase); err != nil {
+		return err
+	}
+	if err := p.verifyAncestor(ctx, writeBase, p.Head.Commit); err != nil {
 		return err
 	}
 	basePresent, err := p.pathExists(ctx, mutation.BaseRevision, mutation.Path)
 	if err != nil {
 		return err
 	}
-	headPresent, err := p.pathExists(ctx, p.Head.Commit, mutation.Path)
+	headPresent, err := p.pathExists(ctx, writeBase, mutation.Path)
 	if err != nil {
 		return err
 	}
@@ -622,7 +634,7 @@ func (p *PreparedRepository) VerifyMutationUnchangedSince(ctx context.Context, m
 			return fmt.Errorf("%w: protected path presence changed before publication", ErrConflict)
 		}
 		baseBlob, baseErr := p.manager.git(ctx, p.MirrorPath, "rev-parse", mutation.BaseRevision+":"+mutation.Path)
-		headBlob, headErr := p.manager.git(ctx, p.MirrorPath, "rev-parse", p.Head.Commit+":"+mutation.Path)
+		headBlob, headErr := p.manager.git(ctx, p.MirrorPath, "rev-parse", writeBase+":"+mutation.Path)
 		baseBlob, headBlob = strings.TrimSpace(baseBlob), strings.TrimSpace(headBlob)
 		if baseErr != nil || headErr != nil || baseBlob != headBlob || !blobRE.MatchString(baseBlob) {
 			return fmt.Errorf("%w: protected path changed before publication", ErrConflict)
@@ -631,6 +643,19 @@ func (p *PreparedRepository) VerifyMutationUnchangedSince(ctx context.Context, m
 	default:
 		return ErrInvalid
 	}
+}
+
+func (p *PreparedRepository) verifyAncestor(ctx context.Context, ancestor, descendant string) error {
+	if ctx == nil || p == nil || p.manager == nil || !commitRE.MatchString(ancestor) || !commitRE.MatchString(descendant) {
+		return ErrInvalid
+	}
+	if _, err := p.manager.git(ctx, p.MirrorPath, "merge-base", "--is-ancestor", ancestor, descendant); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("%w: accepted Git base is not an ancestor of the write base", ErrConflict)
+	}
+	return nil
 }
 
 // VerifyPathAbsent proves absence only at the exact provider-pinned prepared

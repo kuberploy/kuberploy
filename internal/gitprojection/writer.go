@@ -102,9 +102,6 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 	}
 	reservation, reservationErr := w.Store.PathReservation(ctx, binding.ID, binding.TargetRef, command.Path)
 	if reservationErr == nil {
-		if reservation.OperationID == operationID && reservation.BaseRevision != command.Plan.BaseRevision {
-			return "", ErrLeaseHeld
-		}
 		if reservation.OperationID == operationID && reservation.State == ReservationCommittedPendingIndex {
 			committed, markErr := w.Commands.MarkWriteCommandCommitted(ctx, operationID, reservation.CommittedRevision, w.now())
 			if markErr != nil {
@@ -143,11 +140,19 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 	}
 
 	mutation := command.Mutation()
-	if head.Commit != command.Plan.BaseRevision {
-		return w.recoverCommit(ctx, binding, command, reservation, reservationErr, prepared, head)
-	}
-	if command.Plan.Validate(commandBinding) != nil {
-		return "", ErrStale
+	if reservationErr == nil && reservation.OperationID == operationID {
+		if err = prepared.VerifyMutationUnchangedAt(ctx, mutation, reservation.BaseRevision); err != nil {
+			return "", err
+		}
+		mutation.BaseRevision = reservation.BaseRevision
+		if head.Commit != reservation.BaseRevision {
+			return w.recoverCommit(ctx, binding, command, mutation, reservation, prepared, head)
+		}
+	} else if head.Commit != command.Plan.BaseRevision {
+		if err = prepared.VerifyMutationUnchangedSince(ctx, mutation); err != nil {
+			return "", err
+		}
+		mutation.BaseRevision = head.Commit
 	}
 	duration := w.LeaseDuration
 	if duration == 0 {
@@ -156,11 +161,14 @@ func (w *ProjectionWriter) CommitOperation(ctx context.Context, operationID stri
 	now := w.now()
 	until := now.Add(duration)
 	candidate := PathReservation{BindingID: binding.ID, TargetRef: binding.TargetRef, Path: command.Path, OperationID: operationID,
-		Owner: w.Owner, BaseRevision: command.Plan.BaseRevision, State: ReservationCandidate, LeaseUntil: &until, CreatedAt: now, UpdatedAt: now}
+		Owner: w.Owner, BaseRevision: mutation.BaseRevision, State: ReservationCandidate, LeaseUntil: &until, CreatedAt: now, UpdatedAt: now}
 	reservation, _, err = w.Store.AcquirePath(ctx, candidate, now, duration)
 	if err != nil {
-		if errors.Is(err, ErrInvalid) || errors.Is(err, ErrStale) {
+		if errors.Is(err, ErrInvalid) {
 			return "", err
+		}
+		if errors.Is(err, ErrStale) {
+			return "", pendingReconciliation("GitWriteBaseRefreshPending", "The verified Git head advanced before the exact path reservation; the safe write base will be refreshed.", err)
 		}
 		return "", pendingReconciliation("GitReservationPending", "The Git path reservation will be acquired again.", err)
 	}
@@ -209,10 +217,15 @@ func (w *ProjectionWriter) recoverForeignReservation(ctx context.Context, bindin
 	}
 	previousBinding := writeCommandBinding(previous, binding)
 	if previous.Validate(previousBinding) != nil || previous.Plan.BindingID != binding.ID || previous.TargetRef != binding.TargetRef ||
-		previous.Path != reservation.Path || previous.Plan.BaseRevision != reservation.BaseRevision {
+		previous.Path != reservation.Path {
 		return ErrInvalid
 	}
-	found, present, err := prepared.FindOperationCommit(ctx, previous.Mutation())
+	mutation := previous.Mutation()
+	if err = prepared.VerifyMutationUnchangedAt(ctx, mutation, reservation.BaseRevision); err != nil {
+		return err
+	}
+	mutation.BaseRevision = reservation.BaseRevision
+	found, present, err := prepared.FindOperationCommit(ctx, mutation)
 	if err != nil {
 		return pendingReconciliation("GitRecoveryInspectionPending", "Authoritative Git history will be inspected for the expired path reservation again.", err)
 	}
@@ -364,14 +377,8 @@ func publicationMatchesCommand(publication gitpublication.Publication, command W
 		publication.TargetRef == command.TargetRef && publication.BaseRevision == command.Plan.BaseRevision
 }
 
-func (w *ProjectionWriter) recoverCommit(ctx context.Context, binding Binding, command WriteCommand, reservation PathReservation, reservationErr error, prepared *PreparedRepository, head VerifiedHead) (string, error) {
-	if errors.Is(reservationErr, ErrNotFound) {
-		return "", ErrConflict
-	}
-	if reservationErr != nil {
-		return "", reservationErr
-	}
-	found, present, err := prepared.FindOperationCommit(ctx, command.Mutation())
+func (w *ProjectionWriter) recoverCommit(ctx context.Context, binding Binding, command WriteCommand, mutation Mutation, reservation PathReservation, prepared *PreparedRepository, head VerifiedHead) (string, error) {
+	found, present, err := prepared.FindOperationCommit(ctx, mutation)
 	if err != nil {
 		return "", pendingReconciliation("GitRecoveryInspectionPending", "Authoritative Git history will be inspected for the accepted operation again.", err)
 	}
