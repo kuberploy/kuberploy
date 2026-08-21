@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -31,7 +32,12 @@ def main() -> None:
         installer = fixture / "charts/kuberploy-installer"
         installer.mkdir(parents=True)
         (fixture / "scripts/helm").mkdir(parents=True)
-        for name in ("dependencies.lock", "dependencies.source-date-epoch"):
+        for name in (
+            "Chart.yaml",
+            "Chart.lock",
+            "dependencies.lock",
+            "dependencies.source-date-epoch",
+        ):
             (installer / name).write_bytes(
                 (root / "charts/kuberploy-installer" / name).read_bytes()
             )
@@ -40,6 +46,25 @@ def main() -> None:
             encoding="utf-8",
         )
         validate_installer_dependency_source(fixture, current_version)
+        chart_lock = installer / "Chart.lock"
+        chart_lock_body = chart_lock.read_text(encoding="utf-8")
+        chart_lock_digest = re.search(r"(?m)^digest: sha256:([a-f0-9]{64})$", chart_lock_body)
+        if chart_lock_digest is None:
+            raise SystemExit("baseline installer Chart.lock lacks a canonical digest")
+        digest = chart_lock_digest.group(1)
+        stale_digest = ("0" if digest[0] != "0" else "1") + digest[1:]
+        chart_lock.write_text(
+            chart_lock_body.replace(digest, stale_digest, 1),
+            encoding="utf-8",
+        )
+        try:
+            validate_installer_dependency_source(fixture, current_version)
+        except SystemExit as error:
+            if "digest" not in str(error):
+                raise
+        else:
+            raise SystemExit("validator accepted a stale installer Chart.lock digest")
+        chart_lock.write_text(chart_lock_body, encoding="utf-8")
         lock = installer / "dependencies.lock"
         body = lock.read_text(encoding="utf-8")
         lock.write_text(body.replace("kuberploy-argocd", "other-argocd", 1), encoding="utf-8")

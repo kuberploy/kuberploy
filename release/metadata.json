@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC286 durably wakes deployment observation after verified Argo root refreshes so status no longer waits for the repair poll.",
+  "summary": "Schema 020. RC287 triggers an admission-fenced environment ApplicationSet refresh after the verified root revision so generated deployment Applications do not wait for Argo's periodic resync.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.286"
+  "version": "0.1.0-rc.287"
 }

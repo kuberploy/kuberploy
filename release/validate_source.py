@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from datetime import datetime
 from pathlib import Path
 
+from chart_oci_digest import compact_json, parse_chart
 from validate_semantics import yaml_scalar
 
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
@@ -34,6 +36,56 @@ RELEASE_COMPONENT_CHARTS = (
 
 def validate_installer_dependency_source(root: Path, version: str) -> None:
     installer = root / "charts/kuberploy-installer"
+    metadata, _ = parse_chart(installer / "Chart.yaml")
+    requirements = metadata.get("dependencies")
+    if not isinstance(requirements, list) or len(requirements) != 2:
+        raise SystemExit("installer Chart.yaml must declare exactly two dependencies")
+
+    lock_lines = (installer / "Chart.lock").read_text(encoding="utf-8").splitlines()
+    locked: list[dict[str, str]] = []
+    index = 0
+    if not lock_lines or lock_lines[index] != "dependencies:":
+        raise SystemExit("installer Chart.lock has a non-canonical dependency list")
+    index += 1
+    while index < len(lock_lines) and lock_lines[index].startswith("- name: "):
+        if index + 2 >= len(lock_lines):
+            raise SystemExit("installer Chart.lock has a truncated dependency")
+        name = lock_lines[index].removeprefix("- name: ")
+        repository_match = re.fullmatch(r"  repository: (\S+)", lock_lines[index + 1])
+        version_match = re.fullmatch(r"  version: (\S+)", lock_lines[index + 2])
+        if not name or repository_match is None or version_match is None:
+            raise SystemExit("installer Chart.lock has a non-canonical dependency")
+        locked.append(
+            {
+                "name": name,
+                "version": version_match.group(1),
+                "repository": repository_match.group(1),
+            }
+        )
+        index += 3
+    if index + 2 != len(lock_lines):
+        raise SystemExit("installer Chart.lock has unexpected or missing fields")
+    digest_match = re.fullmatch(r"digest: (sha256:[a-f0-9]{64})", lock_lines[index])
+    generated_match = re.fullmatch(r'generated: "[^"\n]+"', lock_lines[index + 1])
+    if digest_match is None or generated_match is None:
+        raise SystemExit("installer Chart.lock has invalid digest or generation metadata")
+
+    expected_locked = [
+        {
+            "name": dependency["name"],
+            "version": dependency["version"],
+            "repository": dependency["repository"],
+        }
+        for dependency in requirements
+    ]
+    if locked != expected_locked:
+        raise SystemExit("installer Chart.lock dependencies do not match Chart.yaml")
+    expected_digest = "sha256:" + hashlib.sha256(
+        compact_json([requirements, locked])
+    ).hexdigest()
+    if digest_match.group(1) != expected_digest:
+        raise SystemExit("installer Chart.lock digest does not match Chart.yaml")
+
     epoch = (installer / "dependencies.source-date-epoch").read_text(encoding="utf-8")
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\n", epoch) or int(epoch) > 4_102_444_800:
         raise SystemExit("installer dependency source-date epoch must be one supported canonical integer line")
