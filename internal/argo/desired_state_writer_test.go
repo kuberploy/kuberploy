@@ -28,6 +28,12 @@ func (f desiredStateRefresherFunc) RefreshPlatformRootApplication(ctx context.Co
 	return f(ctx, expectation, now)
 }
 
+type observationWakerFunc func(context.Context, string, time.Time) error
+
+func (f observationWakerFunc) WakeObservation(ctx context.Context, namespace string, now time.Time) error {
+	return f(ctx, namespace, now)
+}
+
 type failingDesiredStateHeartbeatStore struct {
 	argo.DesiredStateStore
 	heartbeat chan struct{}
@@ -167,7 +173,7 @@ func (f *desiredStateWriterFixture) writer(provider gitprojection.HeadVerifier) 
 				return argo.ErrInvalid
 			}
 			return nil
-		}), Identity: f.identity, Now: func() time.Time { return f.now }}
+		}), ObservationWaker: argo.NewMemoryObservationStore(), Identity: f.identity, Now: func() time.Time { return f.now }}
 }
 
 func (f *desiredStateWriterFixture) advancePlatform(t *testing.T, mutate func(string) error) string {
@@ -397,6 +403,32 @@ func TestDesiredStateWriterRetriesRootRefreshBeforeTerminalSuccess(t *testing.T)
 	verified, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
 	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != committed.CommittedRevision {
 		t.Fatalf("refresh replay did not converge: command=%#v err=%v", verified, err)
+	}
+}
+
+func TestDesiredStateWriterRetriesObserverWakeAfterVerifiedRootRefresh(t *testing.T) {
+	fixture := newDesiredStateWriterFixture(t)
+	writer := fixture.writer(fixture.provider(t, nil))
+	wakeCalls := 0
+	writer.ObservationWaker = observationWakerFunc(func(_ context.Context, namespace string, _ time.Time) error {
+		wakeCalls++
+		if namespace != fixture.identity.ArgoNamespace {
+			return argo.ErrInvalid
+		}
+		return errors.New("transient observation wake failure")
+	})
+	_, err := writer.CommitClaim(t.Context(), fixture.claim.Lease)
+	if err == nil || wakeCalls != 1 {
+		t.Fatalf("observer wake failure was not surfaced: calls=%d err=%v", wakeCalls, err)
+	}
+	committed, readErr := fixture.commands.DesiredStateCommand(t.Context(), fixture.command.ID)
+	if readErr != nil || committed.State != argo.DesiredStateGitCommitted || committed.CommittedRevision == "" || committed.CompletedAt != nil {
+		t.Fatalf("wake failure lost durable Git receipt: command=%#v err=%v", committed, readErr)
+	}
+	fixture.now = fixture.now.Add(time.Second)
+	verified, err := fixture.writer(fixture.provider(t, nil)).CommitClaim(t.Context(), fixture.claim.Lease)
+	if err != nil || verified.State != argo.DesiredStateVerified || verified.CommittedRevision != committed.CommittedRevision {
+		t.Fatalf("wake replay did not converge: command=%#v err=%v", verified, err)
 	}
 }
 

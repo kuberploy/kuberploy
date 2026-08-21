@@ -88,13 +88,16 @@ func (s *MemoryObservationStore) ClaimObservation(_ context.Context, namespace, 
 	if !exists {
 		state.nextPollAt, state.updatedAt = now.UTC(), now.UTC()
 	}
-	if state.nextPollAt.After(now) {
-		return ObservationWork{}, ErrNotFound
-	}
 	if state.lease.Owner != "" && state.lease.Until.After(now) {
 		return ObservationWork{}, ErrLeaseHeld
 	}
+	if state.nextPollAt.After(now) {
+		return ObservationWork{}, ErrNotFound
+	}
 	state.lease = ObservationLease{Namespace: namespace, Owner: owner, Epoch: state.lease.Epoch + 1, Until: now.UTC().Add(leaseDuration)}
+	// While work is active, nextPollAt tracks the lease boundary. A concurrent
+	// wake moves it back to now; FinishObservation preserves that wake.
+	state.nextPollAt = state.lease.Until
 	state.updatedAt = now.UTC()
 	s.runtimes[namespace] = state
 	return ObservationWork{Lease: state.lease, ConsecutiveFailures: state.consecutiveFailures}, nil
@@ -110,7 +113,11 @@ func (s *MemoryObservationStore) HeartbeatObservation(_ context.Context, lease O
 	if !exists || !sameActiveObservationLease(state.lease, lease, now) {
 		return ObservationLease{}, ErrLeaseLost
 	}
+	previousUntil := state.lease.Until
 	state.lease.Until = now.UTC().Add(leaseDuration)
+	if state.nextPollAt.Equal(previousUntil) {
+		state.nextPollAt = state.lease.Until
+	}
 	state.updatedAt = now.UTC()
 	s.runtimes[lease.Namespace] = state
 	return state.lease, nil
@@ -139,14 +146,35 @@ func (s *MemoryObservationStore) FinishObservation(_ context.Context, lease Obse
 	if !exists || !sameActiveObservationLease(state.lease, lease, now) {
 		return ErrLeaseLost
 	}
+	nextPollAt := outcome.NextPollAt.UTC()
+	if !state.nextPollAt.After(now) {
+		nextPollAt = now.UTC()
+	}
 	state.lease.Owner, state.lease.Until = "", time.Time{}
 	if outcome.ConsecutiveFailures == 0 {
 		state.snapshotVersion = outcome.SnapshotVersion
 		state.lastCompletedAt = now.UTC()
 	}
 	state.consecutiveFailures, state.failureCode = outcome.ConsecutiveFailures, outcome.FailureCode
-	state.nextPollAt, state.updatedAt = outcome.NextPollAt.UTC(), now.UTC()
+	state.nextPollAt, state.updatedAt = nextPollAt, now.UTC()
 	s.runtimes[lease.Namespace] = state
+	return nil
+}
+
+func (s *MemoryObservationStore) WakeObservation(_ context.Context, namespace string, now time.Time) error {
+	if !kubeRE.MatchString(namespace) || now.IsZero() {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	state, exists := s.runtimes[namespace]
+	if !exists {
+		state.nextPollAt = now.UTC()
+	} else if state.nextPollAt.After(now) {
+		state.nextPollAt = now.UTC()
+	}
+	state.updatedAt = now.UTC()
+	s.runtimes[namespace] = state
 	return nil
 }
 

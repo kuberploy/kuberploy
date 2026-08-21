@@ -139,6 +139,22 @@ func TestPostgreSQLArgoObservationAndRollbackContract(t *testing.T) {
 	if err = store.FinishObservation(ctx, second.Lease, argo.ObservationOutcome{SnapshotVersion: "900", NextPollAt: now.Add(time.Minute)}, now.Add(35*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	if err = store.WakeObservation(ctx, runtimeNamespace, now.Add(36*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	third, err := store.ClaimObservation(ctx, runtimeNamespace, "integration-observer-a", now.Add(36*time.Second), 30*time.Second)
+	if err != nil || third.Lease.Epoch != 3 {
+		t.Fatalf("durable idle wake work=%#v err=%v", third, err)
+	}
+	if err = store.WakeObservation(ctx, runtimeNamespace, now.Add(37*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishObservation(ctx, third.Lease, argo.ObservationOutcome{SnapshotVersion: "901", NextPollAt: now.Add(2 * time.Minute)}, now.Add(38*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ClaimObservation(ctx, runtimeNamespace, "integration-observer-b", now.Add(38*time.Second), 30*time.Second); err != nil {
+		t.Fatalf("durable active-lease wake was lost: %v", err)
+	}
 	path, err := gitprojection.ApplicationPath(binding, pgApplication)
 	if err != nil {
 		t.Fatal(err)

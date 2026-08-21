@@ -169,7 +169,9 @@ config:
     serviceAccount: ""
     pollIntervalSeconds: 5
   # Read-only, deployment-scoped Argo Application observation. Enabling it
-  # requires the exact same namespace in rbac.argoNamespace.
+  # requires the exact same namespace in rbac.argoNamespace. Verified desired
+  # state refreshes wake this observer immediately; this interval is the
+  # durable repair fallback after restarts, disconnects, or missed events.
   argoObservation:
     enabled: false
     namespace: ""

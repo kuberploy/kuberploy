@@ -45,7 +45,10 @@ protected platform GitHub App binding and path. After a provider-verified
 platform commit it performs a metadata-only hard-refresh patch on the exact
 installer-owned root Application; narrow RBAC and a fail-closed admission
 policy reject a spec, label, owner, finalizer, unrelated-annotation, namespace,
-or name change. The durable command is completed only after an exact read-back
+or name change. After that exact refresh succeeds, the writer durably advances
+the fenced Application observer so deployment status does not wait for its
+repair poll. A wake that races an active observer lease is preserved for the
+next claim. The durable command is completed only after an exact read-back
 proves that root observed the verified provider head and is Synced/Healthy. A
 stale provider read or transient Kubernetes/Argo failure retains the Git
 receipt and retries the same bounded hard refresh. After an
@@ -128,4 +131,5 @@ Ordinary rollback remains a separate Git command. It selects an eligible prior
 immutable deployment input and submits a new desired-state change through the
 same authorization, environment publication policy, and Argo readiness path.
 Argo observations themselves remain read-only and never issue an imperative
-sync, patch, or rollback.
+sync, patch, or rollback. Their normal interval is a crash/reconnect repair
+fallback; verified desired-state publication uses the durable wake path.

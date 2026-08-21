@@ -361,7 +361,7 @@ func run() error {
 	if foundationRuntime != nil {
 		foundationReadiness = foundationRuntime.readiness
 	}
-	argoDesiredState, err := newArgoDesiredStateRuntime(ctx, databaseURL, host, argoDesiredStateConfig, runtimeRegistryPullConfig, gitProjection, foundationReadiness)
+	argoDesiredState, err := newArgoDesiredStateRuntime(ctx, databaseURL, host, argoDesiredStateConfig, runtimeRegistryPullConfig, gitProjection, foundationReadiness, argoObservation)
 	if err != nil {
 		if foundationRuntime != nil {
 			foundationRuntime.Close()

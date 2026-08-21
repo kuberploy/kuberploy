@@ -48,14 +48,14 @@ func (s *PostgreSQLStore) ClaimObservation(ctx context.Context, namespace, owner
 	if err != nil {
 		return ObservationWork{}, err
 	}
-	if state.nextPollAt.After(now) {
-		return ObservationWork{}, ErrNotFound
-	}
 	if state.owner != "" && state.until != nil && state.until.After(now) {
 		return ObservationWork{}, ErrLeaseHeld
 	}
+	if state.nextPollAt.After(now) {
+		return ObservationWork{}, ErrNotFound
+	}
 	lease := ObservationLease{Namespace: namespace, Owner: owner, Epoch: state.epoch + 1, Until: now.UTC().Add(leaseDuration)}
-	if _, err = tx.Exec(ctx, `UPDATE argo_observation_runtime SET lease_owner=$2,lease_epoch=$3,lease_until=$4,updated_at=$5 WHERE argo_namespace=$1`,
+	if _, err = tx.Exec(ctx, `UPDATE argo_observation_runtime SET lease_owner=$2,lease_epoch=$3,lease_until=$4,next_poll_at=$4,updated_at=$5 WHERE argo_namespace=$1`,
 		namespace, owner, lease.Epoch, lease.Until, now.UTC()); err != nil {
 		return ObservationWork{}, classifyPostgres(err)
 	}
@@ -70,7 +70,7 @@ func (s *PostgreSQLStore) HeartbeatObservation(ctx context.Context, lease Observ
 		return ObservationLease{}, ErrInvalid
 	}
 	until := now.UTC().Add(leaseDuration)
-	result, err := s.pool.Exec(ctx, `UPDATE argo_observation_runtime SET lease_until=$4,updated_at=$3
+	result, err := s.pool.Exec(ctx, `UPDATE argo_observation_runtime SET next_poll_at=CASE WHEN next_poll_at=lease_until THEN $4 ELSE next_poll_at END,lease_until=$4,updated_at=$3
 		WHERE argo_namespace=$1 AND lease_owner=$2 AND lease_epoch=$5 AND lease_until>$3`, lease.Namespace, lease.Owner, now.UTC(), until, lease.Epoch)
 	if err != nil {
 		return ObservationLease{}, classifyPostgres(err)
@@ -129,6 +129,10 @@ func (s *PostgreSQLStore) FinishObservation(ctx context.Context, lease Observati
 	if state.owner != lease.Owner || state.epoch != lease.Epoch || state.until == nil || !state.until.After(now) {
 		return ErrLeaseLost
 	}
+	nextPollAt := outcome.NextPollAt.UTC()
+	if !state.nextPollAt.After(now) {
+		nextPollAt = now.UTC()
+	}
 	snapshot := state.snapshotVersion
 	lastCompleted := state.lastCompletedAt
 	if outcome.ConsecutiveFailures == 0 {
@@ -138,10 +142,22 @@ func (s *PostgreSQLStore) FinishObservation(ctx context.Context, lease Observati
 	}
 	if _, err = tx.Exec(ctx, `UPDATE argo_observation_runtime SET lease_owner='',lease_until=NULL,snapshot_resource_version=$2,
 		consecutive_failures=$3,last_failure_code=$4,next_poll_at=$5,last_completed_at=$6,updated_at=$7 WHERE argo_namespace=$1`,
-		lease.Namespace, snapshot, outcome.ConsecutiveFailures, outcome.FailureCode, outcome.NextPollAt.UTC(), lastCompleted, now.UTC()); err != nil {
+		lease.Namespace, snapshot, outcome.ConsecutiveFailures, outcome.FailureCode, nextPollAt, lastCompleted, now.UTC()); err != nil {
 		return classifyPostgres(err)
 	}
 	if err = tx.Commit(ctx); err != nil {
+		return classifyPostgres(err)
+	}
+	return nil
+}
+
+func (s *PostgreSQLStore) WakeObservation(ctx context.Context, namespace string, now time.Time) error {
+	if s == nil || s.pool == nil || !kubeRE.MatchString(namespace) || now.IsZero() {
+		return ErrInvalid
+	}
+	_, err := s.pool.Exec(ctx, `INSERT INTO argo_observation_runtime(argo_namespace,next_poll_at,updated_at) VALUES($1,$2,$2)
+		ON CONFLICT(argo_namespace) DO UPDATE SET next_poll_at=LEAST(argo_observation_runtime.next_poll_at,excluded.next_poll_at),updated_at=excluded.updated_at`, namespace, now.UTC())
+	if err != nil {
 		return classifyPostgres(err)
 	}
 	return nil

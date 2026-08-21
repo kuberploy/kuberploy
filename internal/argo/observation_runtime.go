@@ -79,10 +79,17 @@ func stringsContainsControl(value string) bool {
 
 type ObservationRuntimeStore interface {
 	ObservationStore
+	WakeObservation(context.Context, string, time.Time) error
 	ClaimObservation(context.Context, string, string, time.Time, time.Duration) (ObservationWork, error)
 	HeartbeatObservation(context.Context, ObservationLease, time.Time, time.Duration) (ObservationLease, error)
 	PutObservationFenced(context.Context, ObservationLease, Observation, time.Time) error
 	FinishObservation(context.Context, ObservationLease, ObservationOutcome, time.Time) error
+}
+
+// ObservationWaker durably advances one namespace observer after a verified
+// Git/Argo refresh. The ordinary poll remains the repair path after restarts.
+type ObservationWaker interface {
+	WakeObservation(context.Context, string, time.Time) error
 }
 
 type ObservationCoordinator struct {

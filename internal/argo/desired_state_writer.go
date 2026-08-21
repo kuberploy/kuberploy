@@ -35,6 +35,7 @@ type DesiredStateWriter struct {
 	Provider          gitprojection.HeadVerifier
 	Manager           *gitprojection.MirrorManager
 	RootRefresher     PlatformRootRefresher
+	ObservationWaker  ObservationWaker
 	Identity          DesiredStateRuntimeIdentity
 	Now               func() time.Time
 	LeaseDuration     time.Duration
@@ -43,7 +44,7 @@ type DesiredStateWriter struct {
 
 func (w *DesiredStateWriter) validate() error {
 	if w == nil || w.Store == nil || w.Bindings == nil || w.ClaimGate == nil || w.Provider == nil || w.Manager == nil ||
-		w.RootRefresher == nil || w.Identity.Validate() != nil {
+		w.RootRefresher == nil || w.ObservationWaker == nil || w.Identity.Validate() != nil {
 		return ErrInvalid
 	}
 	leaseDuration, heartbeat := w.leaseSettings()
@@ -310,7 +311,11 @@ func (w *DesiredStateWriter) refreshPlatformRoot(ctx context.Context, platform g
 	if err != nil {
 		return err
 	}
-	return w.RootRefresher.RefreshPlatformRootApplication(ctx, expectation, w.notBefore(head.ObservedAt))
+	refreshedAt := w.notBefore(head.ObservedAt)
+	if err = w.RootRefresher.RefreshPlatformRootApplication(ctx, expectation, refreshedAt); err != nil {
+		return err
+	}
+	return w.ObservationWaker.WakeObservation(ctx, w.Identity.ArgoNamespace, w.notBefore(refreshedAt))
 }
 
 type desiredStateLeaseGuard struct {

@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewArgoDesiredStateRuntimeIsStrictlyDefaultOff(t *testing.T) {
-	runtime, err := newArgoDesiredStateRuntime(t.Context(), "not-a-database-url", "worker", argo.ProductionRuntimeConfig{}, imagepull.RuntimeConfig{}, nil, nil)
+	runtime, err := newArgoDesiredStateRuntime(t.Context(), "not-a-database-url", "worker", argo.ProductionRuntimeConfig{}, imagepull.RuntimeConfig{}, nil, nil, nil)
 	if err != nil || runtime != nil {
 		t.Fatalf("runtime=%v err=%v", runtime, err)
 	}
@@ -21,7 +21,7 @@ func TestArgoDesiredStateRuntimeRejectsMissingProjectionBeforeExternalIO(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = newArgoDesiredStateRuntime(context.Background(), "not-a-database-url", "worker", config, imagepull.RuntimeConfig{}, nil, nil); err == nil {
+	if _, err = newArgoDesiredStateRuntime(context.Background(), "not-a-database-url", "worker", config, imagepull.RuntimeConfig{}, nil, nil, nil); err == nil {
 		t.Fatal("enabled runtime without projection was accepted")
 	}
 }

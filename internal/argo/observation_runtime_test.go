@@ -55,6 +55,34 @@ func TestMemoryObservationRuntimeFencesReclaimedWorkers(t *testing.T) {
 	}
 }
 
+func TestObservationWakeAdvancesIdlePollAndSurvivesActiveLease(t *testing.T) {
+	store := NewMemoryObservationStore()
+	base := time.Date(2026, 8, 21, 8, 0, 0, 0, time.UTC)
+	first, err := store.ClaimObservation(t.Context(), "argocd", "observer-owner-a", base, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishObservation(t.Context(), first.Lease, ObservationOutcome{SnapshotVersion: "100", NextPollAt: base.Add(time.Minute)}, base.Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.WakeObservation(t.Context(), "argocd", base.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.ClaimObservation(t.Context(), "argocd", "observer-owner-b", base.Add(2*time.Second), 30*time.Second)
+	if err != nil {
+		t.Fatalf("idle wake did not advance poll: %v", err)
+	}
+	if err = store.WakeObservation(t.Context(), "argocd", base.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishObservation(t.Context(), second.Lease, ObservationOutcome{SnapshotVersion: "101", NextPollAt: base.Add(2 * time.Minute)}, base.Add(4*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ClaimObservation(t.Context(), "argocd", "observer-owner-a", base.Add(4*time.Second), 30*time.Second); err != nil {
+		t.Fatalf("active-lease wake was lost: %v", err)
+	}
+}
+
 func runtimeObservation(at time.Time) Observation {
 	target := observerTarget()
 	return Observation{DeploymentID: target.DeploymentID, ApplicationID: target.ApplicationID, ProjectID: target.ProjectID, EnvironmentID: target.EnvironmentID,
