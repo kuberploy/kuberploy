@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC294 allows deterministic rendered previews to accept the supported StatefulSet runtime kind, so StatefulSet-specific OnDelete and pod management controls can complete the public AppConfig flow.",
+  "summary": "Schema 020. RC295 safely retires a claimed Argo desired-state command when its exact projection advances before any Git write, allowing fresh materialization instead of a terminal invalid-command failure.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.294"
+  "version": "0.1.0-rc.295"
 }

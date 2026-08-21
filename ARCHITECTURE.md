@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-21, RC294): the production code paths now
+Current implementation status (2026-08-21, RC295): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary
@@ -2202,7 +2202,10 @@ reuses immutable verified desired-state commands while retaining current
 materialization policy authority; and worker delivery recovery that
 acknowledges only stale queue references after durable operation cleanup; and
 deterministic rendered previews that accept both supported Deployment and
-StatefulSet runtime kinds. The
+StatefulSet runtime kinds; and projection-race recovery that retires a claimed
+desired-state command as superseded when its exact active generation advances
+before a durable Git write-base exists, while retaining immutable write-base
+recovery once Git may have been mutated. The
 migration entrypoint also rejects unsupported schema drift after applying the
 ordered migration history. Those paths are default-off where applicable
 and remain capability-gated by their exact configuration and fresh runtime
