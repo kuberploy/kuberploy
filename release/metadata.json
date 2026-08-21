@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC284 converges direct no-change deployment commits to their effective projected config revision so rollout status remains exact.",
+  "summary": "Schema 020. RC285 matches canonical HTTP(S) registry target origins to scheme-free OCI image references so retained managed releases remain eligible for exact rollback.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.284"
+  "version": "0.1.0-rc.285"
 }
