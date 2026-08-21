@@ -10,11 +10,9 @@ import { hasPotentialBuildAccess } from "../lib/buildAccess";
 import { hasHelmApprovalManagementAccess } from "../lib/helmApprovalAccess";
 import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 import {
-  applyTheme,
   applyThemePreference,
   persistThemePreference,
   resolveThemePreference,
-  watchSystemTheme,
   type ThemePreference,
 } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
@@ -63,8 +61,6 @@ export function AppShell({ user }: { user: Principal }) {
 
   useEffect(() => {
     applyThemePreference(themePreference);
-    if (themePreference !== "system") return;
-    return watchSystemTheme(applyTheme);
   }, [themePreference]);
 
   const pageName = pathname.match(/^\/projects\/[^/]+$/)

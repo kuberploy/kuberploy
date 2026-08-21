@@ -5,6 +5,7 @@ import {
   persistThemePreference,
   resolveSystemTheme,
   resolveThemePreference,
+  watchPersistedSystemTheme,
   watchSystemTheme,
 } from "./theme";
 
@@ -91,5 +92,31 @@ describe("theme", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
     stop();
     expect(removeListener).toHaveBeenCalledOnce();
+  });
+
+  it("keeps automatic theme live before authentication without overriding an explicit preference", () => {
+    let dark = false;
+    let listener: (() => void) | undefined;
+    vi.stubGlobal("matchMedia", () => ({
+      get matches() {
+        return dark;
+      },
+      addEventListener: (_event: string, next: () => void) => {
+        listener = next;
+      },
+      removeEventListener: vi.fn(),
+    }));
+
+    persistThemePreference("system");
+    const stop = watchPersistedSystemTheme();
+    dark = true;
+    listener?.();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    persistThemePreference("light");
+    dark = false;
+    listener?.();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    stop();
   });
 });

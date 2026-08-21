@@ -4,10 +4,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import "@fontsource-variable/roboto";
 import { router } from "./router";
-import { applyThemePreference, resolveThemePreference } from "./lib/theme";
+import {
+  applyThemePreference,
+  resolveThemePreference,
+  watchPersistedSystemTheme,
+} from "./lib/theme";
 import "./styles.css";
 
 applyThemePreference(resolveThemePreference());
+watchPersistedSystemTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {

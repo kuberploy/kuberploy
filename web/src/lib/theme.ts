@@ -47,3 +47,13 @@ export function watchSystemTheme(onChange: (theme: Theme) => void) {
   query.addListener?.(handleChange);
   return () => query.removeListener?.(handleChange);
 }
+
+// The authentication, invitation, and bootstrap surfaces render before the
+// authenticated AppShell exists. Keep automatic mode live for the whole app,
+// but never let a later operating-system event override an explicit saved
+// light or dark preference.
+export function watchPersistedSystemTheme() {
+  return watchSystemTheme((theme) => {
+    if (resolveThemePreference() === "system") applyTheme(theme);
+  });
+}
