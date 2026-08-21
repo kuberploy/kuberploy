@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC297 accepts provider receipts created after a protected Helm observation lease is claimed, allowing real private OCI application disable and cascade cleanup to complete.",
+  "summary": "Schema 020. RC298 admits Argo's exact controller-derived tracking annotation when observing a protected Helm child, allowing private OCI application disable and cascade cleanup to complete without accepting arbitrary live metadata.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.297"
+  "version": "0.1.0-rc.298"
 }
