@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC281 preserves the exact immutable source provenance when PostgreSQL reloads a cloned reusable middleware profile revision.",
+  "summary": "Schema 020. RC282 restores certificate-issuer idempotent replays during publisher staleness and enables continuously observed custom certificates in AppConfig previews.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.281"
+  "version": "0.1.0-rc.282"
 }
