@@ -514,7 +514,10 @@ func TestInClusterProductionClientRefreshesExactEnvironmentApplicationSet(t *tes
 			return
 		}
 		annotations := map[string]string{}
-		resourceVersion := "11"
+		// Annotation removal is the completion signal. The API server may expose
+		// the consumed metadata with the same projected resourceVersion returned
+		// by PATCH, so requiring another version advance can wedge the worker.
+		resourceVersion := "10"
 		switch request.Method {
 		case http.MethodPatch:
 			if request.Header.Get("Content-Type") != "application/merge-patch+json" {
@@ -525,7 +528,6 @@ func TestInClusterProductionClientRefreshesExactEnvironmentApplicationSet(t *tes
 				t.Errorf("invalid ApplicationSet refresh body: err=%v", readErr)
 			}
 			annotations[argoApplicationSetRefreshAnnotation] = "true"
-			resourceVersion = "10"
 		case http.MethodGet:
 		default:
 			writer.WriteHeader(http.StatusMethodNotAllowed)

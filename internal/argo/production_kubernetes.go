@@ -322,7 +322,10 @@ func (c *InClusterProductionClient) RefreshEnvironmentApplicationSet(ctx context
 			return observeErr
 		}
 		_, refreshPending := observed.Metadata.Annotations[argoApplicationSetRefreshAnnotation]
-		if observed.Metadata.UID == patched.Metadata.UID && observed.Metadata.ResourceVersion != patched.Metadata.ResourceVersion && !refreshPending {
+		// PATCH already proved this exact UID carried the true annotation. Its
+		// later absence is the controller receipt; projected metadata can expose
+		// that transition without a further resourceVersion change.
+		if observed.Metadata.UID == patched.Metadata.UID && !refreshPending {
 			return nil
 		}
 		timer := time.NewTimer(250 * time.Millisecond)
