@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC280 prevents failed direct Git writes from permanently reserving an AppConfig path by reconciling active and expired leases against authoritative history.",
+  "summary": "Schema 020. RC281 preserves the exact immutable source provenance when PostgreSQL reloads a cloned reusable middleware profile revision.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.280"
+  "version": "0.1.0-rc.281"
 }
