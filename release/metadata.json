@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC300 returns stale AppConfig ETag failures before transient Argo readiness failures and keeps automatic appearance synchronized with operating-system changes on pre-authentication surfaces.",
+  "summary": "Schema 020. RC301 prevents auto-deploy policy revisions from combining a current deployment generation with a stale indexed AppConfig snapshot during Git projection convergence.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.300"
+  "version": "0.1.0-rc.301"
 }
