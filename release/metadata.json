@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC291 rejects unsupported post-migration schema drift and forces installer-managed control-plane HTTP traffic through an exact permanent HTTPS redirect.",
+  "summary": "Schema 020. RC292 preserves active lease-fenced Argo desired-state work through the expected temporary root-readiness transition, removing the two-minute reclaim delay from configuration convergence.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.291"
+  "version": "0.1.0-rc.292"
 }

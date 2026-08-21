@@ -2,8 +2,8 @@ apiVersion: v2
 name: kuberploy-edge
 description: Independently managed or adopted Traefik edge release for Kuberploy
 type: application
-version: 0.1.0-rc.291
-appVersion: "0.1.0-rc.291"
+version: 0.1.0-rc.292
+appVersion: "0.1.0-rc.292"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
 annotations:
   kuberploy.io/traefik-chart-sha256: 42cf5c2a30a3630adb7cefa1ec5b84dfef0105599cd217c7574bd77c6ad369ee
