@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC279 keeps SSLIP available when managed ExternalDNS changes the worker runtime by binding readiness to the exact current Traefik observation and admitted runtime identity.",
+  "summary": "Schema 020. RC280 prevents failed direct Git writes from permanently reserving an AppConfig path by reconciling active and expired leases against authoritative history.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.279"
+  "version": "0.1.0-rc.280"
 }
