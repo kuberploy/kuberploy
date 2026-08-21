@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC296 safely retires a claimed Argo desired-state command when its exact projection advances before any Git write and rematerializes the unchanged active projection for automatic recovery.",
+  "summary": "Schema 020. RC297 accepts provider receipts created after a protected Helm observation lease is claimed, allowing real private OCI application disable and cascade cleanup to complete.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.296"
+  "version": "0.1.0-rc.297"
 }

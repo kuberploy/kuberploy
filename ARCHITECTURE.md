@@ -2185,7 +2185,7 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-21, RC296): the production code paths now
+Current implementation status (2026-08-22, RC297): the production code paths now
 include protected Argo desired-state publication with exact GitHub
 branch/ruleset attestation, deterministic repository credentials and root
 Application observation; two-phase protected Helm publication; ordinary
@@ -2207,7 +2207,9 @@ desired-state command as superseded when its exact active generation advances
 before a durable Git write-base exists, while retaining immutable write-base
 recovery once Git may have been mutated; and exact same-projection
 rematerialization after a pre-write supersession so transient claim races do
-not strand otherwise Ready desired state. The
+not strand otherwise Ready desired state. Protected Helm cascade observation
+also validates provider receipt time against a post-resolution clock bound, so
+normal network latency cannot invalidate a freshly resolved private OCI head. The
 migration entrypoint also rejects unsupported schema drift after applying the
 ordered migration history. Those paths are default-off where applicable
 and remain capability-gated by their exact configuration and fresh runtime
