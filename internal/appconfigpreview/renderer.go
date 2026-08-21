@@ -212,7 +212,7 @@ func (s *Service) renderDeterministic(parent context.Context, request Request, v
 
 var allowedKinds = map[string]bool{
 	"v1/ConfigMap": true, "v1/Service": true, "v1/ServiceAccount": true,
-	"apps/v1/Deployment": true, "networking.k8s.io/v1/Ingress": true,
+	"apps/v1/Deployment": true, "apps/v1/StatefulSet": true, "networking.k8s.io/v1/Ingress": true,
 	"networking.k8s.io/v1/NetworkPolicy": true,
 	"traefik.io/v1alpha1/Middleware":     true,
 }

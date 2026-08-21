@@ -129,3 +129,36 @@ func TestRepositoryRuntimeChartPassesProductionRenderBoundary(t *testing.T) {
 		t.Fatalf("runtime diff omitted replica change: %s", result.RenderedDiff)
 	}
 }
+
+func TestRepositoryRuntimeChartStatefulSetPassesProductionRenderBoundary(t *testing.T) {
+	helm, err := exec.LookPath("helm")
+	if err != nil {
+		t.Skip("helm is unavailable")
+	}
+	chart, err := filepath.Abs(filepath.Join("..", "..", "charts", "kuberploy-runtime"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := os.ReadFile(filepath.Join(chart, "values.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	values = []byte(strings.Replace(string(values), "kuberployExpectedIdentity:\n  projectId: 00000000-0000-4000-8000-000000000002\n  environmentId: 00000000-0000-4000-8000-000000000003\n  applicationId: 00000000-0000-4000-8000-000000000001\n", "", 1))
+	candidate := []byte(strings.Replace(string(values), "  runtime:\n    replicas: 1", "  runtime:\n    workloadType: StatefulSet\n    strategy:\n      type: OnDelete\n    podManagementPolicy: Parallel\n    replicas: 1", 1))
+	renderer, err := newService(testIdentity(), helm, chart, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := Request{Namespace: "kp-preview", ReleaseName: "kp-preview-123456789012",
+		ProjectID: "00000000-0000-4000-8000-000000000002", EnvironmentID: "00000000-0000-4000-8000-000000000003",
+		ApplicationID: "00000000-0000-4000-8000-000000000001", CurrentValues: values, CandidateValues: candidate}
+	result, err := renderer.Render(t.Context(), request)
+	if err != nil {
+		t.Fatalf("StatefulSet runtime chart failed production preview boundary: %v", err)
+	}
+	for _, expected := range []string{"kind: StatefulSet", "type: OnDelete", "podManagementPolicy: Parallel"} {
+		if !strings.Contains(result.RenderedDiff, expected) {
+			t.Fatalf("runtime diff omitted %q: %s", expected, result.RenderedDiff)
+		}
+	}
+}
