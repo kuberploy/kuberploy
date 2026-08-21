@@ -245,7 +245,7 @@ func getDeployment(ctx context.Context, q interface {
 }, id string) (domain.Deployment, error) {
 	var d domain.Deployment
 	var envJSON, routeJSON, runtimeJSON []byte
-	err := q.QueryRow(ctx, `SELECT id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,desired_revision,observed_revision,created_at,updated_at FROM deployments WHERE id=$1`, id).Scan(&d.ID, &d.EnvironmentID, &d.ApplicationID, &d.Image, &d.Replicas, &d.Port, &envJSON, &routeJSON, &runtimeJSON, &d.State, &d.OperationID, &d.Generation, &d.DesiredRevision, &d.ObservedRevision, &d.CreatedAt, &d.UpdatedAt)
+	err := q.QueryRow(ctx, `SELECT id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,desired_revision,observed_revision,config_raw,created_at,updated_at FROM deployments WHERE id=$1`, id).Scan(&d.ID, &d.EnvironmentID, &d.ApplicationID, &d.Image, &d.Replicas, &d.Port, &envJSON, &routeJSON, &runtimeJSON, &d.State, &d.OperationID, &d.Generation, &d.DesiredRevision, &d.ObservedRevision, &d.ConfigRaw, &d.CreatedAt, &d.UpdatedAt)
 	if err == nil {
 		err = json.Unmarshal(envJSON, &d.Environment)
 	}

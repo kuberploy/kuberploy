@@ -93,6 +93,7 @@ func TestPolicyCreationBindsExactResourcesAndStoresOnlyReusableInputs(t *testing
 		Generation: 4, Image: "registry.example/app@sha256:" + repeat("1", 64), Runtime: testRuntime(),
 		RegistryPull: &domain.RegistryPullReference{TargetID: policyID, ProfileName: "private", ProfileRevision: 1},
 		Route:        &domain.Route{Hostname: "10-0-0-1.sslip.io", PathPrefix: "/", TLSMode: "httpOnly", DNSMode: "sslip"}}
+	deployment.ConfigRaw = renderConfig(t, deployment)
 	catalog := policyCatalog{
 		definition:  BuildDefinitionIdentity{ID: definitionID, ProjectID: projectID, ApplicationID: applicationID},
 		application: domain.Application{ID: applicationID, ProjectID: projectID},
@@ -101,7 +102,7 @@ func TestPolicyCreationBindsExactResourcesAndStoresOnlyReusableInputs(t *testing
 		account:     domain.ServiceAccount{ID: serviceActor, ProjectID: projectID},
 	}
 	store := &policyRecorder{}
-	service := &PolicyService{Catalog: catalog, Projection: policyProjection{bundle: projectedPolicyBundle(renderConfig(t, deployment))}, Store: store, NewID: func() (string, error) { return policyID, nil }, Now: func() time.Time { return fixedNow }}
+	service := &PolicyService{Catalog: catalog, Projection: policyProjection{bundle: projectedPolicyBundle(deployment.ConfigRaw)}, Store: store, NewID: func() (string, error) { return policyID, nil }, Now: func() time.Time { return fixedNow }}
 	policy, revision, replay, err := service.Create(t.Context(), creatorID, CreatePolicyInput{BuildDefinitionID: definitionID,
 		ExpectedApplicationID: applicationID,
 		EnvironmentID:         environmentID, TemplateDeploymentID: deploymentID, ServiceActorID: serviceActor,
@@ -129,13 +130,42 @@ func TestPolicyCreationBindsExactResourcesAndStoresOnlyReusableInputs(t *testing
 	}
 }
 
+func TestPolicyCreationRejectsStaleProjectedDeploymentConfig(t *testing.T) {
+	deployment := domain.Deployment{ID: deploymentID, ApplicationID: applicationID, EnvironmentID: environmentID,
+		Generation: 5, Image: "registry.example/app@sha256:" + repeat("1", 64), Runtime: testRuntime()}
+	deployment.ConfigRaw = renderConfig(t, deployment)
+	stale := deployment
+	stale.Runtime.Replicas = 1
+	stale.Replicas = 1
+	catalog := policyCatalog{
+		definition:  BuildDefinitionIdentity{ID: definitionID, ProjectID: projectID, ApplicationID: applicationID},
+		application: domain.Application{ID: applicationID, ProjectID: projectID},
+		environment: domain.Environment{ID: environmentID, ProjectID: projectID},
+		deployment:  deployment,
+		account:     domain.ServiceAccount{ID: serviceActor, ProjectID: projectID},
+	}
+	store := &policyRecorder{}
+	service := &PolicyService{Catalog: catalog, Projection: policyProjection{bundle: projectedPolicyBundle(renderConfig(t, stale))},
+		Store: store, NewID: func() (string, error) { return policyID, nil }, Now: func() time.Time { return fixedNow }}
+	_, _, _, err := service.Create(t.Context(), creatorID, CreatePolicyInput{BuildDefinitionID: definitionID,
+		ExpectedApplicationID: applicationID, EnvironmentID: environmentID, TemplateDeploymentID: deploymentID,
+		ServiceActorID: serviceActor, Enabled: true, IdempotencyKey: "create-stale", RequestDigest: "sha256:" + repeat("c", 64), RequestID: "request-create-stale"})
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale projected AppConfig error=%v", err)
+	}
+	if store.policy.ID != "" || store.revision.PolicyID != "" {
+		t.Fatalf("stale projected AppConfig persisted policy=%#v revision=%#v", store.policy, store.revision)
+	}
+}
+
 func TestPolicyCreationRejectsCrossProjectAndDisabledServiceActor(t *testing.T) {
 	base := policyCatalog{definition: BuildDefinitionIdentity{ID: definitionID, ProjectID: projectID, ApplicationID: applicationID},
 		application: domain.Application{ID: applicationID, ProjectID: projectID}, environment: domain.Environment{ID: environmentID, ProjectID: projectID},
 		deployment: domain.Deployment{ID: deploymentID, ApplicationID: applicationID, EnvironmentID: environmentID, Generation: 1,
 			Image: "registry.example/app@sha256:" + repeat("1", 64), Runtime: testRuntime()},
 		account: domain.ServiceAccount{ID: serviceActor, ProjectID: projectID}}
-	service := &PolicyService{Catalog: base, Projection: policyProjection{bundle: projectedPolicyBundle(renderConfig(t, base.deployment))}, Store: &policyRecorder{}, NewID: func() (string, error) { return policyID, nil }, Now: func() time.Time { return fixedNow }}
+	base.deployment.ConfigRaw = renderConfig(t, base.deployment)
+	service := &PolicyService{Catalog: base, Projection: policyProjection{bundle: projectedPolicyBundle(base.deployment.ConfigRaw)}, Store: &policyRecorder{}, NewID: func() (string, error) { return policyID, nil }, Now: func() time.Time { return fixedNow }}
 	input := CreatePolicyInput{ExpectedApplicationID: applicationID, BuildDefinitionID: definitionID, EnvironmentID: environmentID, TemplateDeploymentID: deploymentID,
 		ServiceActorID: serviceActor, Enabled: true, IdempotencyKey: "create-1", RequestDigest: "sha256:" + repeat("c", 64), RequestID: "request-create-1"}
 	wrongPath := base

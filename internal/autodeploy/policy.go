@@ -1,6 +1,7 @@
 package autodeploy
 
 import (
+	"bytes"
 	"context"
 	"time"
 
@@ -190,7 +191,11 @@ func (s *PolicyService) resolveTemplate(ctx context.Context, definition BuildDef
 		return domain.Environment{}, domain.Application{}, Template{}, ErrConflict
 	}
 	applicationDocument, found := autoDeployApplicationDocument(bundle, deployment.ApplicationID)
-	if !found || !applicationDocument.Valid {
+	// GetDeployment returns the exact latest accepted AppConfig snapshot. Do
+	// not combine its generation with an older indexed Git document while the
+	// projection worker is still converging after a save.
+	if !found || !applicationDocument.Valid || len(deployment.ConfigRaw) == 0 ||
+		!bytes.Equal(applicationDocument.Raw, deployment.ConfigRaw) {
 		return domain.Environment{}, domain.Application{}, Template{}, ErrConflict
 	}
 	dependencies, _, err := variablecompiler.CanonicalDependencyIntent(bundle.Dependencies, bundle.Documents)

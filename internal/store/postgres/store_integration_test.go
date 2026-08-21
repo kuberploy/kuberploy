@@ -444,6 +444,10 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if string(configState.RawYAML) != string(initialOperationInput.ConfigRaw) {
 		t.Fatalf("current config differs from accepted operation snapshot")
 	}
+	catalogDeployment, err := st.GetDeployment(ctx, deployment.Value.ID)
+	if err != nil || string(catalogDeployment.ConfigRaw) != string(configState.RawYAML) {
+		t.Fatalf("canonical deployment omitted exact config snapshot: raw=%q err=%v", catalogDeployment.ConfigRaw, err)
+	}
 	intent, intentDigest, intentDiagnostics := appconfig.AutoDeployIntentTemplate(configState.RawYAML)
 	if len(intentDiagnostics) != 0 {
 		t.Fatalf("intent diagnostics=%#v", intentDiagnostics)
