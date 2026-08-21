@@ -27,6 +27,9 @@ type ProductionDesiredStateRuntime struct {
 	Materializer  ProductionDesiredStateMaterializer
 	PollInterval  time.Duration
 	Now           func() time.Time
+	// readinessHeartbeatInterval is overridden only by focused package tests.
+	// Production uses DesiredStateHeartbeatInterval.
+	readinessHeartbeatInterval time.Duration
 	// ReportPrerequisiteError receives the exact reason a composite readiness
 	// proof was withheld. Production callers use it for operator diagnostics;
 	// readiness remains fail-closed when the callback is nil.
@@ -67,7 +70,21 @@ func (r *ProductionDesiredStateRuntime) validate() error {
 	if poll < 250*time.Millisecond || poll > time.Minute {
 		return ErrInvalid
 	}
+	heartbeat := r.readinessHeartbeatInterval
+	if heartbeat == 0 {
+		heartbeat = DesiredStateHeartbeatInterval
+	}
+	if heartbeat < 5*time.Millisecond || heartbeat >= DesiredStateReadinessLease/2 {
+		return ErrInvalid
+	}
 	return nil
+}
+
+func (r *ProductionDesiredStateRuntime) heartbeatInterval() time.Duration {
+	if r.readinessHeartbeatInterval != 0 {
+		return r.readinessHeartbeatInterval
+	}
+	return DesiredStateHeartbeatInterval
 }
 
 func (r *ProductionDesiredStateRuntime) now() time.Time {
@@ -179,7 +196,7 @@ func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error
 	heartbeatDone := make(chan struct{})
 	go func(current DesiredStateRuntimeLease) {
 		defer close(heartbeatDone)
-		ticker := time.NewTicker(DesiredStateHeartbeatInterval)
+		ticker := time.NewTicker(r.heartbeatInterval())
 		defer ticker.Stop()
 		for {
 			select {
@@ -200,7 +217,11 @@ func (r *ProductionDesiredStateRuntime) runReadyCycle(ctx context.Context) error
 					case heartbeatErrors <- errors.Join(ErrArgoRuntimePrerequisiteNotReady, prerequisiteErr):
 					default:
 					}
-					cancel()
+					// A protected write intentionally makes the root Application
+					// transiently unready while it advances the exact desired-state
+					// revision. Stop extending API readiness, but let the separately
+					// lease-fenced command finish. Cancelling it here strands the
+					// command lease until expiry and adds a full reclaim delay.
 					return
 				}
 				updated, heartbeatErr := r.Worker.Store.HeartbeatDesiredStateReadiness(runContext, current, observedAt, DesiredStateReadinessLease)

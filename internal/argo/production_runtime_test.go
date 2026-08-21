@@ -88,6 +88,47 @@ type transientPrerequisiteMaterializer struct {
 	recovered chan struct{}
 }
 
+type activeWorkPrerequisiteTransition struct {
+	proof      ProductionPrerequisiteProof
+	workActive <-chan struct{}
+	lost       chan struct{}
+}
+
+func (s *activeWorkPrerequisiteTransition) ObserveProductionPrerequisites(context.Context, time.Time) (ProductionPrerequisiteProof, error) {
+	select {
+	case <-s.workActive:
+		select {
+		case s.lost <- struct{}{}:
+		default:
+		}
+		return ProductionPrerequisiteProof{}, ErrPlatformRootNotReady
+	default:
+		return s.proof, nil
+	}
+}
+
+type activeWorkMaterializer struct {
+	started      chan struct{}
+	prerequisite <-chan struct{}
+	completed    chan error
+}
+
+func (s *activeWorkMaterializer) MaterializeDesiredStateOnce(ctx context.Context, _ time.Time) (bool, error) {
+	select {
+	case <-s.started:
+	default:
+		close(s.started)
+	}
+	select {
+	case <-s.prerequisite:
+		s.completed <- ctx.Err()
+		return false, nil
+	case <-ctx.Done():
+		s.completed <- ctx.Err()
+		return false, ctx.Err()
+	}
+}
+
 func (s *transientPrerequisiteMaterializer) MaterializeDesiredStateOnce(context.Context, time.Time) (bool, error) {
 	if s.calls.Add(1) == 1 {
 		return false, ErrArgoRuntimePrerequisiteNotReady
@@ -253,5 +294,35 @@ func TestProductionDesiredStateRuntimeReacquiresAfterTransientPrerequisiteLoss(t
 	}
 	if materializer.calls.Load() < 2 {
 		t.Fatal("runtime did not enter a fresh readiness cycle")
+	}
+}
+
+func TestProductionDesiredStateRuntimeDoesNotCancelFencedWorkForExpectedPrerequisiteTransition(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	runtime, _ := productionRuntimeFixture(t, now)
+	started := make(chan struct{})
+	lost := make(chan struct{}, 1)
+	completed := make(chan error, 1)
+	base := runtime.Prerequisites.(productionRuntimePrerequisiteStub)
+	runtime.Prerequisites = &activeWorkPrerequisiteTransition{proof: base.proof, workActive: started, lost: lost}
+	runtime.Materializer = &activeWorkMaterializer{started: started, prerequisite: lost, completed: completed}
+	runtime.readinessHeartbeatInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- runtime.Run(ctx) }()
+	select {
+	case err := <-completed:
+		if err != nil {
+			cancel()
+			t.Fatalf("expected prerequisite transition cancelled fenced work: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("fenced work did not finish after readiness prerequisite loss")
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("runtime did not stop with its context: %v", err)
 	}
 }
