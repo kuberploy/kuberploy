@@ -355,6 +355,21 @@ def main() -> None:
                 ),
                 "out of order",
             ),
+            (
+                "fresh K3s qualification removed",
+                workflow.replace("  fresh-k3s-install:\n", "  missing-fresh-k3s-install:\n", 1),
+                "missing the 'fresh-k3s-install' job",
+            ),
+            (
+                "fresh K3s qualification uses the wrong context",
+                workflow.replace("kubectl --context default get nodes", "kubectl --context wrong-context get nodes"),
+                "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
+            ),
+            (
+                "fresh K3s qualification omits login proof",
+                workflow.replace("/v1/auth/login", "/v1/auth/missing-login", 1),
+                "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
+            ),
         )
         for description, mutated, expected in cases:
             result = run_validator(root, fixture, mutated)

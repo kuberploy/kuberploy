@@ -268,10 +268,12 @@ describe("guided External DNS catalog", () => {
         externalDNSRuntimeEnabled={false}
       />,
     );
-    expect(screen.getByLabelText(/^DNS integration/)).toHaveValue(
-      "removed-profile",
-    );
-    expect(screen.getByText("removed-profile (unavailable)")).toBeVisible();
+    const integration = screen.getByLabelText(/^DNS integration/);
+    expect(integration).toHaveValue("removed-profile");
+    expect(integration).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: "removed-profile (unavailable)" }),
+    ).toBeDisabled();
     expect(
       screen.getByText("The authorized catalog could not be loaded."),
     ).toBeVisible();

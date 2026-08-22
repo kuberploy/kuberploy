@@ -956,7 +956,7 @@ kp_run_upgrade_workflow() {
   "${KUBERPLOY_E2E_HELM}" upgrade kuberploy-qualification \
     "$(kp_repo_root)/charts/kuberploy-installer" --namespace kuberploy-system \
     --values "${KUBERPLOY_E2E_INSTALLER_VALUES_FILE}" --server-side=false \
-    --wait --wait-for-jobs --timeout 20m
+    --wait --wait-for-jobs --timeout 65m
   "${KUBERPLOY_E2E_HELM}" history kuberploy-qualification --namespace kuberploy-system -o json \
     >"${kp_dir}/workflow-target-helm-history.json"
   kp_target_revision="$(jq -er 'last.revision' "${kp_dir}/workflow-target-helm-history.json")"
@@ -977,7 +977,7 @@ kp_run_upgrade_workflow() {
   openssl dgst -sha256 "${kp_dir}/workflow-target-installer-manifest.yaml" \
     >"${kp_dir}/workflow-target-installer-manifest.sha256"
   "${KUBERPLOY_E2E_HELM}" rollback kuberploy-qualification "${kp_source_revision}" \
-    --namespace kuberploy-system --wait --wait-for-jobs --timeout 20m
+    --namespace kuberploy-system --wait --wait-for-jobs --timeout 65m
   "${KUBERPLOY_E2E_HELM}" history kuberploy-qualification --namespace kuberploy-system -o json \
     >"${kp_dir}/workflow-rollback-helm-history.json"
   kp_rollback_revision="$(jq -er 'last.revision' "${kp_dir}/workflow-rollback-helm-history.json")"

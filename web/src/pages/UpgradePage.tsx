@@ -13,6 +13,10 @@ import {
 import { formatDate, shortId, titleCase } from "../lib/format";
 import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 
+// Installer health hooks can run for 60 minutes at the supported maximum.
+// Keep the operator client alive beyond that server-side deadline.
+const operatorHelmTimeout = "65m";
+
 export function UpgradePage() {
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -54,7 +58,7 @@ export function UpgradePage() {
     : "";
   const helmCommand =
     release && canUpgrade
-      ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout 20m`
+      ? `helm upgrade "$RELEASE_NAME" ${helmChart} --version ${release.version} --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout ${operatorHelmTimeout}`
       : "";
 
   return (

@@ -739,6 +739,225 @@ jobs:
             exit 1
           }
 
+  fresh-k3s-install:
+    name: Fresh remote K3s installer qualification
+    needs: [release-gate, publish]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v4.2.3
+      - name: Install and qualify the immutable release on fresh K3s
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release-gate.outputs.version }}
+        run: |
+          set -Eeuo pipefail
+          kp_k3s_pid=""
+          kp_port_forward_pid=""
+          kp_cleanup() {
+            kp_status=$?
+            trap - EXIT
+            set +e
+            if [[ -n "${kp_port_forward_pid}" ]]; then
+              kill "${kp_port_forward_pid}" 2>/dev/null
+              wait "${kp_port_forward_pid}" 2>/dev/null
+            fi
+            if [[ -n "${kp_k3s_pid}" ]]; then
+              sudo kill "${kp_k3s_pid}" 2>/dev/null
+              for _ in {1..30}; do
+                sudo kill -0 "${kp_k3s_pid}" 2>/dev/null || break
+                sleep 1
+              done
+              sudo kill -KILL "${kp_k3s_pid}" 2>/dev/null
+              wait "${kp_k3s_pid}" 2>/dev/null
+            fi
+            exit "${kp_status}"
+          }
+          trap kp_cleanup EXIT
+
+          kp_k3s_tag='v1.36.3+k3s1'
+          kp_k3s_url_tag="${kp_k3s_tag/+/%2B}"
+          curl --fail --silent --show-error --location \
+            --output "${RUNNER_TEMP}/k3s" \
+            "https://github.com/k3s-io/k3s/releases/download/${kp_k3s_url_tag}/k3s"
+          curl --fail --silent --show-error --location \
+            --output "${RUNNER_TEMP}/sha256sum-amd64.txt" \
+            "https://github.com/k3s-io/k3s/releases/download/${kp_k3s_url_tag}/sha256sum-amd64.txt"
+          chmod 0755 "${RUNNER_TEMP}/k3s"
+          grep -E '  k3s$' "${RUNNER_TEMP}/sha256sum-amd64.txt" \
+            | (cd "${RUNNER_TEMP}" && sha256sum --check /dev/stdin)
+
+          kp_kubeconfig="${RUNNER_TEMP}/kubeconfig-kuberploy-fresh"
+          sudo "${RUNNER_TEMP}/k3s" server \
+            --disable traefik \
+            --data-dir "${RUNNER_TEMP}/k3s-data" \
+            --write-kubeconfig "${kp_kubeconfig}" \
+            --write-kubeconfig-mode 600 \
+            >"${RUNNER_TEMP}/k3s.log" 2>&1 &
+          kp_k3s_pid=$!
+          export KUBECONFIG="${kp_kubeconfig}"
+          for _ in {1..180}; do
+            if sudo test -s "${kp_kubeconfig}"; then
+              sudo chown "$(id -u):$(id -g)" "${kp_kubeconfig}"
+              chmod 0600 "${kp_kubeconfig}"
+              if kubectl --context default get nodes -o json 2>/dev/null \
+                | jq -e '(.items | length) == 1 and all(.items[]; .status.conditions | any(.type == "Ready" and .status == "True"))' >/dev/null; then
+                break
+              fi
+            fi
+            sleep 2
+          done
+          [[ "$(kubectl config current-context)" == default ]]
+          [[ -n "$(kubectl --context default config view --minify -o jsonpath='{.clusters[0].cluster.server}')" ]]
+          kubectl --context default get nodes -o json \
+            | jq -e '(.items | length) == 1 and all(.items[]; .status.conditions | any(.type == "Ready" and .status == "True"))' >/dev/null
+          if kubectl --context default get namespace kuberploy-system >/dev/null 2>&1; then
+            echo 'Fresh K3s unexpectedly contains kuberploy-system.' >&2
+            exit 1
+          fi
+
+          mkdir -m 0700 "${RUNNER_TEMP}/release-evidence"
+          gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern release-manifest.json --dir "${RUNNER_TEMP}/release-evidence"
+          gh api "/repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            | jq -e --arg tag "${GITHUB_REF_NAME}" \
+              '.tag_name == $tag and .draft == false and .immutable == true' >/dev/null
+          kp_manifest="${RUNNER_TEMP}/release-evidence/release-manifest.json"
+          kp_installer_digest="$(jq -er \
+            '.artifacts.componentCharts[] | select(.name == "kuberploy-installer") | .ociDigest' \
+            "${kp_manifest}")"
+          [[ "${kp_installer_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
+          kp_pull_output="$(helm pull oci://ghcr.io/kuberploy/charts/kuberploy-installer \
+            --version "${VERSION}" --destination "${RUNNER_TEMP}/release-evidence" 2>&1)"
+          [[ "$(sed -n 's/^Digest: //p' <<<"${kp_pull_output}" | tail -n 1)" == "${kp_installer_digest}" ]]
+
+          helm upgrade --install kuberploy-installer \
+            oci://ghcr.io/kuberploy/charts/kuberploy-installer \
+            --version "${VERSION}" \
+            --namespace kuberploy-system \
+            --create-namespace \
+            --kube-context default \
+            --reset-values \
+            --server-side=false \
+            --wait \
+            --wait-for-jobs \
+            --timeout 65m \
+            --values examples/installer/managed-platform-values.yaml \
+            --set bootstrap.applicationHealthTimeoutSeconds=3540
+
+          [[ "$(kubectl --context default config current-context)" == default ]]
+          [[ -n "$(kubectl --context default config view --minify -o jsonpath='{.clusters[0].cluster.server}')" ]]
+          kubectl --context default get nodes -o json \
+            | jq -e '(.items | length) == 1 and all(.items[]; .status.conditions | any(.type == "Ready" and .status == "True"))' >/dev/null
+          kubectl --context default get namespace kuberploy-system -o name >/dev/null
+          [[ "$(helm status kuberploy-installer --namespace kuberploy-system --kube-context default -o json | jq -r .info.status)" == deployed ]]
+          kubectl --context default --namespace argocd get applications.argoproj.io \
+            --selector app.kubernetes.io/instance=kuberploy-installer -o json \
+            | jq -e '
+                ([.items[].metadata.name] | sort) == ([
+                  "kuberploy-cert-manager",
+                  "kuberploy-control-plane",
+                  "kuberploy-edge",
+                  "kuberploy-monitoring",
+                  "kuberploy-postgresql",
+                  "kuberploy-sealed-secrets",
+                  "kuberploy-valkey"
+                ] | sort) and
+                all(.items[]; .status.sync.status == "Synced" and .status.health.status == "Healthy")
+              ' >/dev/null
+          kubectl --context default get pods --all-namespaces \
+            --selector app.kubernetes.io/part-of=kuberploy -o json \
+            | jq -e '
+                (.items | length) > 0 and
+                all(.items[];
+                  .status.phase == "Succeeded" or
+                  (.status.phase == "Running" and
+                   ([.status.containerStatuses[]? | .ready] | length) > 0 and
+                   all(.status.containerStatuses[]?; .ready == true))) and
+                ([.items[].status.containerStatuses[]?.restartCount] | add // 0) == 0
+              ' >/dev/null
+          if kubectl --context default get jobs --all-namespaces -o json \
+            | jq -e 'any(.items[]; (.status.failed // 0) > 0)' >/dev/null; then
+            echo 'Fresh K3s contains a failed Job.' >&2
+            exit 1
+          fi
+
+          kubectl --context default --namespace kuberploy-system port-forward \
+            service/kuberploy-api 18080:8080 >"${RUNNER_TEMP}/api-port-forward.log" 2>&1 &
+          kp_port_forward_pid=$!
+          for _ in {1..60}; do
+            curl --fail --silent --show-error http://127.0.0.1:18080/healthz >/dev/null 2>&1 && break
+            sleep 1
+          done
+          [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/healthz)" == 200 ]]
+          [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/readyz)" == 200 ]]
+          curl --fail --silent --show-error http://127.0.0.1:18080/v1/meta \
+            | jq -e --arg version "${VERSION}" '.version == $version' >/dev/null
+
+          kp_bootstrap_job="$(kubectl --context default --namespace kuberploy-system get jobs.batch \
+            --selector app.kubernetes.io/component=bootstrap-token -o json \
+            | jq -er 'select((.items | length) == 1) | .items[0].metadata.name')"
+          kp_bootstrap_token="$(kubectl --context default --namespace kuberploy-system logs "job/${kp_bootstrap_job}" \
+            | sed -nE 's/^KUBERPLOY_BOOTSTRAP_TOKEN=(kp_bootstrap_[A-Za-z0-9_-]{43})$/\1/p')"
+          [[ "${kp_bootstrap_token}" =~ ^kp_bootstrap_[A-Za-z0-9_-]{43}$ ]]
+          kp_admin_email="qualification-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@example.test"
+          kp_admin_password="$(openssl rand -base64 32 | tr -d '\n')Aa1!"
+          kp_request="${RUNNER_TEMP}/bootstrap-request.json"
+          kp_response="${RUNNER_TEMP}/bootstrap-response.json"
+          kp_headers="${RUNNER_TEMP}/bootstrap-headers"
+          kp_cookie_jar="${RUNNER_TEMP}/bootstrap-cookies"
+          touch "${kp_request}" "${kp_response}" "${kp_headers}" "${kp_cookie_jar}"
+          jq -n \
+            --arg token "${kp_bootstrap_token}" \
+            --arg email "${kp_admin_email}" \
+            --arg password "${kp_admin_password}" \
+            '{token:$token,email:$email,displayName:"Qualification Admin",password:$password}' \
+            >"${kp_request}"
+          chmod 0600 "${kp_request}" "${kp_response}" "${kp_headers}" "${kp_cookie_jar}"
+          [[ "$(curl --silent --show-error --cookie-jar "${kp_cookie_jar}" --dump-header "${kp_headers}" \
+            --output "${kp_response}" --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
+            http://127.0.0.1:18080/v1/auth/bootstrap)" == 201 ]]
+          jq -e --arg email "${kp_admin_email}" \
+            '.email == $email and .displayName == "Qualification Admin" and .role == "platform-admin" and (has("username") | not)' \
+            "${kp_response}" >/dev/null
+          kp_csrf="$(awk 'tolower($1)=="x-csrf-token:" {gsub("\r",""); sub(/^[^:]+:[[:space:]]*/,""); print; exit}' "${kp_headers}")"
+          [[ -n "${kp_csrf}" ]]
+          [[ "$(curl --silent --show-error --output "${kp_response}" --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
+            http://127.0.0.1:18080/v1/auth/bootstrap)" == 409 ]]
+          jq -e '.code == "BootstrapConsumed"' "${kp_response}" >/dev/null
+          curl --fail --silent --show-error --cookie "${kp_cookie_jar}" \
+            http://127.0.0.1:18080/v1/me \
+            | jq -e --arg email "${kp_admin_email}" \
+              '.email == $email and .displayName == "Qualification Admin" and .authentication.kind == "session" and (has("username") | not)' >/dev/null
+          [[ "$(curl --silent --show-error --cookie "${kp_cookie_jar}" --cookie-jar "${kp_cookie_jar}" \
+            --output /dev/null --write-out '%{http_code}' --request POST \
+            --header "X-CSRF-Token: ${kp_csrf}" http://127.0.0.1:18080/v1/auth/logout)" == 204 ]]
+          [[ "$(curl --silent --show-error --cookie "${kp_cookie_jar}" \
+            --output /dev/null --write-out '%{http_code}' http://127.0.0.1:18080/v1/me)" == 401 ]]
+          jq -n --arg email "${kp_admin_email}" --arg password "${kp_admin_password}" \
+            '{email:$email,password:$password}' >"${kp_request}"
+          [[ "$(curl --silent --show-error --cookie-jar "${kp_cookie_jar}" \
+            --output "${kp_response}" --write-out '%{http_code}' \
+            --header 'Content-Type: application/json' --data-binary "@${kp_request}" \
+            http://127.0.0.1:18080/v1/auth/login)" == 200 ]]
+          jq -e --arg email "${kp_admin_email}" \
+            '.email == $email and .displayName == "Qualification Admin" and (has("username") | not)' \
+            "${kp_response}" >/dev/null
+          echo "Fresh remote K3s installer qualification passed for ${VERSION}."
+
   repair-image-tags:
     name: Repair readable image tags
     needs: release-contract

@@ -259,7 +259,7 @@ if [[ " $* " == *' template '* ]]; then
     printf '%s\n' '---' 'apiVersion: argoproj.io/v1alpha1' 'kind: Application' \
       "metadata:" "  name: kuberploy-${kp_name}" \
       '  annotations:' \
-      '    kuberploy.io/expected-package-version: "0.1.0-rc.305"' \
+      '    kuberploy.io/expected-package-version: "0.1.0-rc.306"' \
       'spec:' '  source:' \
       '    targetRevision: "0123456789abcdef0123456789abcdef01234567"'
   done
@@ -837,9 +837,9 @@ export KUBERPLOY_E2E_ARTIFACT_DIR="${kp_tmp}/kuberploy-qualification-success1"
 
 grep -F "helm|upgrade --install kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_UPGRADE_FROM_VALUES_FILE} --server-side=false" \
   "${KP_COMMAND_LOG}" >/dev/null
-grep -F "helm|upgrade kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_INSTALLER_VALUES_FILE} --server-side=false --wait --wait-for-jobs --timeout 20m" \
+grep -F "helm|upgrade kuberploy-qualification ${kp_root}/charts/kuberploy-installer --namespace kuberploy-system --values ${KUBERPLOY_E2E_INSTALLER_VALUES_FILE} --server-side=false --wait --wait-for-jobs --timeout 65m" \
   "${KP_COMMAND_LOG}" >/dev/null
-grep -F 'helm|rollback kuberploy-qualification 1 --namespace kuberploy-system --wait --wait-for-jobs --timeout 20m' \
+grep -F 'helm|rollback kuberploy-qualification 1 --namespace kuberploy-system --wait --wait-for-jobs --timeout 65m' \
   "${KP_COMMAND_LOG}" >/dev/null
 for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/projects' \

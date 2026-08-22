@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC305 aligns 30-minute child bootstrap and parent Application health deadlines for slow cold-node image pulls.",
+  "summary": "Schema 020. RC306 gives operator upgrades full health-check headroom and automatically qualifies the immutable installer on fresh remote K3s.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.305"
+  "version": "0.1.0-rc.306"
 }

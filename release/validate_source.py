@@ -408,6 +408,7 @@ def main() -> None:
     build_job = workflow_job("build-images")
     assembly_job = workflow_job("assemble-images")
     publish_job = workflow_job("publish")
+    fresh_k3s_job = workflow_job("fresh-k3s-install")
     repair_job = workflow_job("repair-image-tags")
 
     if "runs-on: ubuntu-26.04" not in contract_job:
@@ -417,6 +418,31 @@ def main() -> None:
             raise SystemExit(f"lightweight {name} job must fit the ubuntu-slim 15-minute limit")
     if "runs-on: ubuntu-slim" in assembly_job or "runs-on: ubuntu-slim" in publish_job:
         raise SystemExit("Docker index assembly and full release publication require full Ubuntu VMs")
+    fresh_k3s_controls = (
+        "needs: [release-gate, publish]",
+        "runs-on: ubuntu-26.04",
+        "kp_k3s_tag='v1.36.3+k3s1'",
+        "sha256sum --check",
+        "kubectl --context default get nodes",
+        "Fresh K3s unexpectedly contains kuberploy-system",
+        "oci://ghcr.io/kuberploy/charts/kuberploy-installer",
+        "--values examples/installer/managed-platform-values.yaml",
+        "--timeout 65m",
+        ".immutable == true",
+        'select(.name == "kuberploy-installer") | .ociDigest',
+        'all(.items[]; .status.sync.status == "Synced" and .status.health.status == "Healthy")',
+        "/v1/auth/bootstrap",
+        'has("username") | not',
+        'BootstrapConsumed',
+        "/v1/auth/login",
+        "trap kp_cleanup EXIT",
+    )
+    missing_fresh_k3s = [control for control in fresh_k3s_controls if control not in fresh_k3s_job]
+    if missing_fresh_k3s:
+        raise SystemExit(
+            "fresh K3s release qualification lacks exact install, identity, or cleanup controls: "
+            + ", ".join(missing_fresh_k3s)
+        )
 
     if "runs-on: ${{ matrix.runner }}" not in build_job:
         raise SystemExit("native image builds must select the runner from the platform matrix")
