@@ -633,10 +633,11 @@
         "bootstrapSecret": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["name", "tokenKey", "generate"],
+          "required": ["name", "tokenKey", "activeDeadlineSeconds", "generate"],
           "properties": {
             "name": { "$ref": "#/$defs/dnsLabel" },
             "tokenKey": { "$ref": "#/$defs/secretKey" },
+            "activeDeadlineSeconds": { "type": "integer", "minimum": 300, "maximum": 3600 },
             "generate": { "type": "boolean" }
           }
         }

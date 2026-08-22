@@ -1468,6 +1468,7 @@ helm template bootstrap-token "${kp_root}/charts/kuberploy" \
   --namespace kuberploy-e2e-render -f "${kp_tmp}/bootstrap-token-values.yaml" \
   > "${kp_tmp}/bootstrap-token.yaml"
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "bootstrap-token-bootstrap-token") | .spec.template.spec.containers[0].command | join(" ")' "${kp_tmp}/bootstrap-token.yaml")" == "/kuberploy-bootstrap-token" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "bootstrap-token-bootstrap-token") | .spec.activeDeadlineSeconds' "${kp_tmp}/bootstrap-token.yaml")" == "600" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "bootstrap-token-bootstrap-token") | .spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation' "${kp_tmp}/bootstrap-token.yaml")" == "false" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "bootstrap-token-bootstrap-token") | .spec.template.spec.containers[0].securityContext.capabilities.drop | join(",")' "${kp_tmp}/bootstrap-token.yaml")" == "ALL" ]]
 [[ "$(yq eval-all 'select(.kind == "Role" and .metadata.name == "bootstrap-token-bootstrap-token") | .rules[0].verbs | join(",")' "${kp_tmp}/bootstrap-token.yaml")" == "create" ]]

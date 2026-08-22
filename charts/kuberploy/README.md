@@ -11,6 +11,9 @@ command. It creates only the configured Opaque Secret and prints one strict
 the token is never a Helm value or rendered manifest field. Extract only the
 token value before the Job's 24-hour TTL expires:
 
+`config.bootstrapSecret.activeDeadlineSeconds` defaults to 600 seconds and
+includes both a cold-node API image pull and generator execution.
+
 ```sh
 kubectl -n <release-namespace> logs job/<release-name>-bootstrap-token \
   | sed -nE 's/^KUBERPLOY_BOOTSTRAP_TOKEN=(kp_bootstrap_[A-Za-z0-9_-]{43})$/\1/p'

@@ -248,6 +248,9 @@ config:
   bootstrapSecret:
     name: kuberploy-bootstrap
     tokenKey: token
+    # Includes image pulling and generator execution. Keep enough time for a
+    # cold node to pull the API image before Kubernetes starts the command.
+    activeDeadlineSeconds: 600
     # Enable for first install. An existing operator-created Secret always wins
     # without redisclosure; empty API CIDRs use the basic public API fallback.
     generate: false
