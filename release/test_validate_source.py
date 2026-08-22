@@ -375,6 +375,11 @@ def main() -> None:
                 workflow.replace("job/kuberploy-installer-application-health --all-containers=true", "job/missing-health-diagnostics --all-containers=true", 1),
                 "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
             ),
+            (
+                "fresh K3s qualification does not await steady Argo health",
+                workflow.replace("for _ in {1..120}; do", "for _ in {1..1}; do", 1),
+                "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
+            ),
         )
         for description, mutated, expected in cases:
             result = run_validator(root, fixture, mutated)

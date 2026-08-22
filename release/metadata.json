@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC307 renders operator-selected Application health timeouts correctly and retains automatic fresh remote K3s qualification diagnostics.",
+  "summary": "Schema 020. RC308 waits for steady Argo health during automatic fresh remote K3s qualification.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.307"
+  "version": "0.1.0-rc.308"
 }

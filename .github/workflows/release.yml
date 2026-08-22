@@ -874,19 +874,27 @@ jobs:
             | jq -e '(.items | length) == 1 and all(.items[]; .status.conditions | any(.type == "Ready" and .status == "True"))' >/dev/null
           kubectl --context default get namespace kuberploy-system -o name >/dev/null
           [[ "$(helm status kuberploy-installer --namespace kuberploy-system --kube-context default -o json | jq -r .info.status)" == deployed ]]
-          kubectl --context default --namespace argocd get applications.argoproj.io \
-            --selector app.kubernetes.io/instance=kuberploy-installer -o json \
-            | jq -e '
-                ([.items[].metadata.name] | sort) == ([
-                  "kuberploy-cert-manager",
-                  "kuberploy-control-plane",
-                  "kuberploy-edge",
-                  "kuberploy-monitoring",
-                  "kuberploy-postgresql",
-                  "kuberploy-sealed-secrets"
-                ] | sort) and
-                all(.items[]; .status.sync.status == "Synced" and .status.health.status == "Healthy")
-              ' >/dev/null
+          kp_applications_ready=false
+          for _ in {1..120}; do
+            if kubectl --context default --namespace argocd get applications.argoproj.io \
+              --selector app.kubernetes.io/instance=kuberploy-installer -o json \
+              | jq -e '
+                  ([.items[].metadata.name] | sort) == ([
+                    "kuberploy-cert-manager",
+                    "kuberploy-control-plane",
+                    "kuberploy-edge",
+                    "kuberploy-monitoring",
+                    "kuberploy-postgresql",
+                    "kuberploy-sealed-secrets"
+                  ] | sort) and
+                  all(.items[]; .status.sync.status == "Synced" and .status.health.status == "Healthy")
+                ' >/dev/null; then
+              kp_applications_ready=true
+              break
+            fi
+            sleep 5
+          done
+          [[ "${kp_applications_ready}" == true ]]
           kubectl --context default get pods --all-namespaces \
             --selector app.kubernetes.io/part-of=kuberploy -o json \
             | jq -e '
