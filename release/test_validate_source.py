@@ -142,6 +142,20 @@ def main() -> None:
             encoding="utf-8",
         )
         os.symlink(root / "release/metadata.json", fixture / "release/metadata.json")
+        if "-" not in current_version:
+            qualification = (
+                root / "release/qualifications" / f"{current_version}.json"
+            )
+            if not qualification.is_file():
+                raise SystemExit(
+                    "stable mutation tests require the source qualification receipt"
+                )
+            fixture_qualifications = fixture / "release/qualifications"
+            fixture_qualifications.mkdir()
+            os.symlink(
+                qualification,
+                fixture_qualifications / qualification.name,
+            )
 
         baseline = run_validator(root, fixture, workflow)
         if baseline.returncode != 0:
