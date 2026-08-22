@@ -27,6 +27,10 @@ def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.Comple
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
     current_version = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))["version"]
+    stable_version = current_version.split("-", 1)[0]
+    candidate_version = (
+        current_version if "-" in current_version else f"{stable_version}-rc.1"
+    )
     with tempfile.TemporaryDirectory(prefix="kuberploy-installer-lock-validation-") as temporary:
         fixture = Path(temporary)
         installer = fixture / "charts/kuberploy-installer"
@@ -78,9 +82,9 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="kuberploy-stable-qualification-") as temporary:
         qualification_root = Path(temporary)
-        validate_stable_qualification(qualification_root, current_version)
+        validate_stable_qualification(qualification_root, candidate_version)
         try:
-            validate_stable_qualification(qualification_root, "0.1.0")
+            validate_stable_qualification(qualification_root, stable_version)
         except SystemExit as error:
             if "requires a reviewed final-RC" not in str(error):
                 raise
@@ -90,21 +94,23 @@ def main() -> None:
         receipt_directory = qualification_root / "release/qualifications"
         receipt_directory.mkdir(parents=True)
         valid_receipt = {
-            "candidateVersion": current_version,
-            "candidateTag": f"v{current_version}",
+            "candidateVersion": candidate_version,
+            "candidateTag": f"v{candidate_version}",
             "candidateCommit": "a" * 40,
             "qualificationReportSHA256": f"sha256:{'b' * 64}",
             "qualificationCompletedAt": "2026-08-12T03:00:00Z",
             "status": "passed",
             "teardownStatus": "passed",
         }
-        receipt_path = receipt_directory / "0.1.0.json"
+        receipt_path = receipt_directory / f"{stable_version}.json"
         receipt_path.write_text(json.dumps(valid_receipt), encoding="utf-8")
-        validate_stable_qualification(qualification_root, "0.1.0")
-        invalid_receipt = valid_receipt | {"candidateVersion": "0.2.0-rc.1"}
+        validate_stable_qualification(qualification_root, stable_version)
+        invalid_receipt = valid_receipt | {
+            "candidateVersion": f"{int(stable_version.split('.', 1)[0]) + 1}.0.0-rc.1"
+        }
         receipt_path.write_text(json.dumps(invalid_receipt), encoding="utf-8")
         try:
-            validate_stable_qualification(qualification_root, "0.1.0")
+            validate_stable_qualification(qualification_root, stable_version)
         except SystemExit as error:
             if "final RC of this version" not in str(error):
                 raise
