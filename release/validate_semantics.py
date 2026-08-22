@@ -150,6 +150,7 @@ def main() -> None:
     tag = manifest["release"]["tag"]
     version = manifest["release"]["version"]
     commit = manifest["source"]["commit"]
+    require(manifest["schemaVersion"] == "2.0.0", "new release manifests must use schemaVersion 2.0.0")
     require(tag == f"v{version}", "release tag/version mismatch")
     if args.expected_tag:
         require(tag == args.expected_tag, "manifest tag does not match the requested tag")
@@ -205,7 +206,7 @@ def main() -> None:
     require(database["migrationSetSha256"] == migrations_digest, "migration set digest mismatch")
     require(manifest["dependencyLock"]["sha256"] == sha256(args.root / "DEPENDENCIES.md"), "dependency lock digest mismatch")
 
-    components = ("api", "worker", "web", "migration", "upgrader", "builder-agent")
+    components = ("api", "worker", "web", "migration", "builder-agent")
     expected_references = {component: f"ghcr.io/kuberploy/kuberploy-{component}" for component in components}
     images = manifest["artifacts"]["images"]
     require([image["component"] for image in images] == list(components), "image order/components mismatch")
@@ -241,10 +242,6 @@ def main() -> None:
     require(yaml_scalar(builder_chart, ("appVersion",)) == version, "embedded builder appVersion mismatch")
     require(yaml_scalar(builder_values, ("enabled",)) == "false", "embedded builder chart is enabled by default")
     for image in images:
-        if image["component"] == "upgrader":
-            # Immutable schema-v1 manifests retain this historical artifact for
-            # compatibility. It must never be injected into the chart.
-            continue
         if image["component"] == "builder-agent":
             packaged_reference = yaml_scalar(packaged_values, ("builder", "builderAgentImage"))
             embedded_reference = yaml_scalar(builder_values, ("builderAgentImage",))

@@ -155,7 +155,7 @@ type ManifestVersions struct {
 	Worker       string `json:"worker"`
 	Web          string `json:"web"`
 	Migration    string `json:"migration"`
-	Upgrader     string `json:"upgrader"`
+	Upgrader     string `json:"upgrader,omitempty"`
 	BuilderAgent string `json:"builderAgent"`
 	Chart        string `json:"chart"`
 }

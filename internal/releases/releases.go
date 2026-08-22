@@ -220,8 +220,8 @@ func SchemaInWindow(installed, minimum, maximum string) (bool, error) {
 }
 
 func ValidateManifest(m domain.ReleaseManifest) error {
-	if m.SchemaVersion != "1.0.0" {
-		return errors.New("manifest schemaVersion must be 1.0.0")
+	if m.SchemaVersion != "1.0.0" && m.SchemaVersion != "2.0.0" {
+		return errors.New("manifest schemaVersion must be 1.0.0 or 2.0.0")
 	}
 	if !ValidReleaseVersion(m.Release.Version) || m.Release.Tag != "v"+m.Release.Version || m.Release.CreatedAt.IsZero() {
 		return errors.New("manifest version must be a stable or explicit RC semantic version")
@@ -238,7 +238,13 @@ func ValidateManifest(m domain.ReleaseManifest) error {
 	if len(m.Release.Summary) < 1 || len(m.Release.Summary) > 500 {
 		return errors.New("manifest summary must contain 1 to 500 bytes")
 	}
-	for name, version := range map[string]string{"kuberploy": m.Versions.Kuberploy, "api": m.Versions.API, "worker": m.Versions.Worker, "web": m.Versions.Web, "migration": m.Versions.Migration, "upgrader": m.Versions.Upgrader, "builderAgent": m.Versions.BuilderAgent, "chart": m.Versions.Chart} {
+	versions := map[string]string{"kuberploy": m.Versions.Kuberploy, "api": m.Versions.API, "worker": m.Versions.Worker, "web": m.Versions.Web, "migration": m.Versions.Migration, "builderAgent": m.Versions.BuilderAgent, "chart": m.Versions.Chart}
+	if m.SchemaVersion == "1.0.0" {
+		versions["upgrader"] = m.Versions.Upgrader
+	} else if m.Versions.Upgrader != "" {
+		return errors.New("schema-v2 manifest must not contain an upgrader version")
+	}
+	for name, version := range versions {
 		if version != m.Release.Version {
 			return fmt.Errorf("manifest %s version does not match release version", name)
 		}
@@ -253,9 +259,12 @@ func ValidateManifest(m domain.ReleaseManifest) error {
 	if database.Engine != "postgresql" || !schemaNameRE.MatchString(database.CurrentSchema) || !schemaNameRE.MatchString(database.MinimumUpgradeableSchema) || database.MinimumUpgradeableSchema > database.CurrentSchema || !sha256RE.MatchString(database.MigrationSetSHA256) || database.Strategy != "prisma-migrate-deploy-with-advisory-lock" || len(database.RollbackPolicy) < 20 || len(database.RollbackPolicy) > 512 {
 		return errors.New("manifest database compatibility is invalid")
 	}
-	wantedComponents := []string{"api", "worker", "web", "migration", "upgrader", "builder-agent"}
+	wantedComponents := []string{"api", "worker", "web", "migration", "builder-agent"}
+	if m.SchemaVersion == "1.0.0" {
+		wantedComponents = []string{"api", "worker", "web", "migration", "upgrader", "builder-agent"}
+	}
 	if len(m.Artifacts.Images) != len(wantedComponents) {
-		return errors.New("manifest must contain exactly six component images")
+		return fmt.Errorf("manifest schema %s must contain exactly %d component images", m.SchemaVersion, len(wantedComponents))
 	}
 	for i, image := range m.Artifacts.Images {
 		component := wantedComponents[i]

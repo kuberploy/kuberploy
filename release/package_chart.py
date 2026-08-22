@@ -124,14 +124,14 @@ def main() -> None:
     parser.add_argument("--builder-chart", required=True, type=Path)
     parser.add_argument("--destination", required=True, type=Path)
     parser.add_argument("--version", required=True)
-    for component in ("api", "worker", "web", "migration", "upgrader"):
+    for component in ("api", "worker", "web", "migration"):
         parser.add_argument(f"--{component}-image", required=True)
     parser.add_argument("--builder-agent-image", required=True)
     args = parser.parse_args()
 
     if not SEMVER.fullmatch(args.version):
         raise SystemExit(f"release version is not semantic version text: {args.version}")
-    images = {name: getattr(args, f"{name}_image") for name in ("api", "worker", "web", "migration", "upgrader")}
+    images = {name: getattr(args, f"{name}_image") for name in ("api", "worker", "web", "migration")}
     images["builder-agent"] = args.builder_agent_image
     for name, reference in images.items():
         if not DIGEST_REF.fullmatch(reference):
@@ -188,10 +188,6 @@ def main() -> None:
     }
     for name, reference in images.items():
         if name == "builder-agent":
-            continue
-        if name == "upgrader":
-            # Release-manifest v1 compatibility only. The chart no longer
-            # deploys an in-app platform upgrader.
             continue
         replacements[("components", name, "image", "reference")] = json.dumps(reference)
     values_path.write_text(

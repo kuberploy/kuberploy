@@ -203,7 +203,7 @@ function releaseFixture(): LatestPlatformRelease {
       manifest: {
         $schema:
           "https://raw.githubusercontent.com/kuberploy/kuberploy/main/release/release-manifest.schema.json",
-        schemaVersion: "1.0.0",
+        schemaVersion: "2.0.0",
         release: {
           tag: "v0.1.0-rc.312",
           version: "0.1.0-rc.312",
@@ -220,7 +220,6 @@ function releaseFixture(): LatestPlatformRelease {
           worker: "0.1.0-rc.312",
           web: "0.1.0-rc.312",
           migration: "0.1.0-rc.312",
-          upgrader: "0.1.0-rc.312",
           builderAgent: "0.1.0-rc.312",
           chart: "0.1.0-rc.312",
         },

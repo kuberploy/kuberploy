@@ -923,7 +923,7 @@ export type ReleaseChart = {
 
 export type PlatformReleaseManifest = {
   $schema: string;
-  schemaVersion: "1.0.0";
+  schemaVersion: "1.0.0" | "2.0.0";
   release: {
     tag: string;
     version: string;
@@ -942,7 +942,7 @@ export type PlatformReleaseManifest = {
     worker: string;
     web: string;
     migration: string;
-    upgrader: string;
+    upgrader?: string;
     builderAgent: string;
     chart: string;
   };

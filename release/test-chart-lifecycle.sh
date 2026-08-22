@@ -22,7 +22,6 @@ kp_stage_chart() {
     --worker-image "ghcr.io/kuberploy/kuberploy-worker@${digest}"
     --web-image "ghcr.io/kuberploy/kuberploy-web@${digest}"
     --migration-image "ghcr.io/kuberploy/kuberploy-migration@${digest}"
-    --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${digest}"
     --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${digest}"
   )
   python3 "${kp_root}/release/package_chart.py" "${chart_args[@]}" >/dev/null
@@ -65,8 +64,6 @@ diff -u "${kp_tmp}/install.yaml" "${kp_tmp}/rollback.yaml" >/dev/null
 [[ "$(grep -Ec 'image: ".+@sha256:[a-f0-9]{64}"' "${kp_tmp}/install.yaml")" -eq 4 ]]
 grep -q 'ghcr.io/kuberploy/kuberploy-migration@sha256:' "${kp_tmp}/install.yaml"
 grep -q 'helm.sh/hook: pre-install,pre-upgrade' "${kp_tmp}/install.yaml"
-! grep -q 'KUBERPLOY_UPGRADER' "${kp_tmp}/install.yaml"
-! grep -q 'kuberploy-upgrader' "${kp_tmp}/install.yaml"
 ! grep -q 'name: kuberploy-upgrade' "${kp_tmp}/install.yaml"
 ! grep -q 'app.kubernetes.io/component: upgrade' "${kp_tmp}/install.yaml"
 

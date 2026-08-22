@@ -16,7 +16,6 @@ kp_api_digest="sha256:$(printf '1%.0s' {1..64})"
 kp_worker_digest="sha256:$(printf '2%.0s' {1..64})"
 kp_web_digest="sha256:$(printf '3%.0s' {1..64})"
 kp_migration_digest="sha256:$(printf '4%.0s' {1..64})"
-kp_upgrader_digest="sha256:$(printf '5%.0s' {1..64})"
 kp_builder_agent_digest="sha256:$(printf '6%.0s' {1..64})"
 kp_chart_digest="sha256:$(printf '7%.0s' {1..64})"
 kp_summary="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["summary"])' "${kp_root}/release/metadata.json")"
@@ -32,7 +31,6 @@ kp_package_args=(
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
   --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
-  --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )
 python3 "${kp_root}/release/package_chart.py" "${kp_package_args[@]}" >/dev/null
@@ -140,8 +138,6 @@ kp_manifest_args=(
   --web-digest "${kp_web_digest}"
   --migration-reference ghcr.io/kuberploy/kuberploy-migration
   --migration-digest "${kp_migration_digest}"
-  --upgrader-reference ghcr.io/kuberploy/kuberploy-upgrader
-  --upgrader-digest "${kp_upgrader_digest}"
   --builder-agent-reference ghcr.io/kuberploy/kuberploy-builder-agent
   --builder-agent-digest "${kp_builder_agent_digest}"
   --chart-oci-reference "ghcr.io/kuberploy/charts/kuberploy:${kp_version}"
@@ -234,7 +230,6 @@ kp_mutable_args=(
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
   --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
-  --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )
 if python3 "${kp_root}/release/package_chart.py" "${kp_mutable_args[@]}" >/dev/null 2>&1; then
@@ -251,7 +246,6 @@ kp_mutable_builder_args=(
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
   --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
-  --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image ghcr.io/kuberploy/kuberploy-builder-agent:latest
 )
 if python3 "${kp_root}/release/package_chart.py" "${kp_mutable_builder_args[@]}" >/dev/null 2>&1; then
@@ -280,7 +274,6 @@ kp_enabled_source_args=(
   --worker-image "ghcr.io/kuberploy/kuberploy-worker@${kp_worker_digest}"
   --web-image "ghcr.io/kuberploy/kuberploy-web@${kp_web_digest}"
   --migration-image "ghcr.io/kuberploy/kuberploy-migration@${kp_migration_digest}"
-  --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${kp_upgrader_digest}"
   --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${kp_builder_agent_digest}"
 )
 if python3 "${kp_root}/release/package_chart.py" "${kp_enabled_source_args[@]}" >/dev/null 2>&1; then

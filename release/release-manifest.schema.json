@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://kuberploy.io/schemas/release-manifest-v1.json",
+  "$id": "https://kuberploy.io/schemas/release-manifest-v2.json",
   "title": "Kuberploy release manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "schemaVersion", "release", "source", "versions", "compatibility", "artifacts", "dependencyLock"],
   "properties": {
     "$schema": { "type": "string", "format": "uri" },
-    "schemaVersion": { "const": "1.0.0" },
+    "schemaVersion": { "enum": ["1.0.0", "2.0.0"] },
     "release": {
       "type": "object",
       "additionalProperties": false,
@@ -33,7 +33,7 @@
     "versions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kuberploy", "api", "worker", "web", "migration", "upgrader", "builderAgent", "chart"],
+      "required": ["kuberploy", "api", "worker", "web", "migration", "builderAgent", "chart"],
       "properties": {
         "kuberploy": { "$ref": "#/$defs/version" },
         "api": { "$ref": "#/$defs/version" },
@@ -85,7 +85,7 @@
       "properties": {
         "images": {
           "type": "array",
-          "minItems": 6,
+          "minItems": 5,
           "maxItems": 6,
           "items": { "$ref": "#/$defs/image" }
         },
@@ -135,6 +135,54 @@
       }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "schemaVersion": { "const": "1.0.0" } },
+        "required": ["schemaVersion"]
+      },
+      "then": {
+        "properties": {
+          "versions": {
+            "required": ["kuberploy", "api", "worker", "web", "migration", "upgrader", "builderAgent", "chart"]
+          },
+          "artifacts": {
+            "properties": {
+              "images": {
+                "minItems": 6,
+                "maxItems": 6,
+                "contains": {
+                  "type": "object",
+                  "properties": { "component": { "const": "upgrader" } },
+                  "required": ["component"]
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "versions": { "not": { "required": ["upgrader"] } },
+          "artifacts": {
+            "properties": {
+              "images": {
+                "minItems": 5,
+                "maxItems": 5,
+                "not": {
+                  "contains": {
+                    "type": "object",
+                    "properties": { "component": { "const": "upgrader" } },
+                    "required": ["component"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "version": {
       "type": "string",

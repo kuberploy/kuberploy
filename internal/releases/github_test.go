@@ -78,6 +78,14 @@ func validManifest() domain.ReleaseManifest {
 	}
 }
 
+func validManifestV2() domain.ReleaseManifest {
+	manifest := validManifest()
+	manifest.SchemaVersion = "2.0.0"
+	manifest.Versions.Upgrader = ""
+	manifest.Artifacts.Images = append(manifest.Artifacts.Images[:4], manifest.Artifacts.Images[5:]...)
+	return manifest
+}
+
 func githubPayload(t *testing.T, manifest []byte, mutate func(map[string]any)) string {
 	t.Helper()
 	sum := sha256.Sum256(manifest)
@@ -339,5 +347,20 @@ func TestExplicitRCManifestAndOrderingAreAcceptedWithoutWeakeningStableRanges(t 
 		if ValidReleaseVersion(invalid) {
 			t.Fatalf("unsupported release version %q accepted", invalid)
 		}
+	}
+}
+
+func TestSchemaV2ManifestOmitsHistoricalUpgrader(t *testing.T) {
+	manifest := validManifestV2()
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("upgrader")) {
+		t.Fatal("schema-v2 manifest serialized the historical upgrader")
+	}
+	sum := sha256.Sum256(raw)
+	if _, err = ParseExactManifest(raw, "sha256:"+hex.EncodeToString(sum[:])); err != nil {
+		t.Fatalf("schema-v2 manifest rejected: %v", err)
 	}
 }

@@ -49,7 +49,7 @@ def main() -> None:
     parser.add_argument("--created-at", required=True)
     parser.add_argument("--notes-url", required=True)
     parser.add_argument("--kubernetes-constraint", required=True)
-    for component in ("api", "worker", "web", "migration", "upgrader", "builder-agent"):
+    for component in ("api", "worker", "web", "migration", "builder-agent"):
         parser.add_argument(f"--{component}-reference", required=True)
         parser.add_argument(f"--{component}-digest", required=True)
     parser.add_argument("--summary", required=True)
@@ -97,7 +97,6 @@ def main() -> None:
         ("worker", "worker"),
         ("web", "web"),
         ("migration", "migration"),
-        ("upgrader", "upgrader"),
         ("builder_agent", "builder-agent"),
     )
     for argument_name, component in components:
@@ -155,7 +154,7 @@ def main() -> None:
     dependency_lock = args.root / "DEPENDENCIES.md"
     manifest = {
         "$schema": f"https://raw.githubusercontent.com/{args.repository}/{args.commit}/release/release-manifest.schema.json",
-        "schemaVersion": "1.0.0",
+        "schemaVersion": "2.0.0",
         "release": {
             "tag": args.tag,
             "version": version,
@@ -167,7 +166,7 @@ def main() -> None:
         "source": {"repository": args.repository, "commit": args.commit},
         "versions": {
             name: version
-            for name in ("kuberploy", "api", "worker", "web", "migration", "upgrader", "builderAgent", "chart")
+            for name in ("kuberploy", "api", "worker", "web", "migration", "builderAgent", "chart")
         },
         "compatibility": {
             "supportedUpgradeFrom": args.supported_upgrade_from,

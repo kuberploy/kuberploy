@@ -217,18 +217,6 @@ jobs:
             architecture: arm64
             context: .
             dockerfile: build/package/migration.Dockerfile
-          - component: upgrader
-            runner: ubuntu-26.04
-            platform: linux/amd64
-            architecture: amd64
-            context: .
-            dockerfile: build/package/upgrader.Dockerfile
-          - component: upgrader
-            runner: ubuntu-26.04-arm
-            platform: linux/arm64
-            architecture: arm64
-            context: .
-            dockerfile: build/package/upgrader.Dockerfile
           - component: builder-agent
             runner: ubuntu-26.04
             platform: linux/amd64
@@ -338,7 +326,6 @@ jobs:
       worker_digest: ${{ steps.assemble.outputs.worker_digest }}
       web_digest: ${{ steps.assemble.outputs.web_digest }}
       migration_digest: ${{ steps.assemble.outputs.migration_digest }}
-      upgrader_digest: ${{ steps.assemble.outputs.upgrader_digest }}
       builder_agent_digest: ${{ steps.assemble.outputs.builder_agent_digest }}
     steps:
       - name: Download platform digests
@@ -359,7 +346,7 @@ jobs:
         id: assemble
         run: |
           mkdir -p "${RUNNER_TEMP}/image-indexes"
-          for kp_component in api worker web migration upgrader builder-agent; do
+          for kp_component in api worker web migration builder-agent; do
             kp_image="ghcr.io/kuberploy/kuberploy-${kp_component}"
             kp_sources=()
             kp_amd64_digest=""
@@ -476,11 +463,10 @@ jobs:
           WORKER_DIGEST: ${{ needs.assemble-images.outputs.worker_digest }}
           WEB_DIGEST: ${{ needs.assemble-images.outputs.web_digest }}
           MIGRATION_DIGEST: ${{ needs.assemble-images.outputs.migration_digest }}
-          UPGRADER_DIGEST: ${{ needs.assemble-images.outputs.upgrader_digest }}
           BUILDER_AGENT_DIGEST: ${{ needs.assemble-images.outputs.builder_agent_digest }}
         run: |
           mkdir release-dist
-          for kp_digest in "${API_DIGEST}" "${WORKER_DIGEST}" "${WEB_DIGEST}" "${MIGRATION_DIGEST}" "${UPGRADER_DIGEST}" "${BUILDER_AGENT_DIGEST}"; do
+          for kp_digest in "${API_DIGEST}" "${WORKER_DIGEST}" "${WEB_DIGEST}" "${MIGRATION_DIGEST}" "${BUILDER_AGENT_DIGEST}"; do
             [[ "${kp_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]
           done
           kp_chart_args=(
@@ -492,7 +478,6 @@ jobs:
             --worker-image "ghcr.io/kuberploy/kuberploy-worker@${WORKER_DIGEST}"
             --web-image "ghcr.io/kuberploy/kuberploy-web@${WEB_DIGEST}"
             --migration-image "ghcr.io/kuberploy/kuberploy-migration@${MIGRATION_DIGEST}"
-            --upgrader-image "ghcr.io/kuberploy/kuberploy-upgrader@${UPGRADER_DIGEST}"
             --builder-agent-image "ghcr.io/kuberploy/kuberploy-builder-agent@${BUILDER_AGENT_DIGEST}"
           )
           python3 release/package_chart.py "${kp_chart_args[@]}"
@@ -593,8 +578,6 @@ jobs:
             --web-digest "${WEB_DIGEST}"
             --migration-reference ghcr.io/kuberploy/kuberploy-migration
             --migration-digest "${MIGRATION_DIGEST}"
-            --upgrader-reference ghcr.io/kuberploy/kuberploy-upgrader
-            --upgrader-digest "${UPGRADER_DIGEST}"
             --builder-agent-reference ghcr.io/kuberploy/kuberploy-builder-agent
             --builder-agent-digest "${BUILDER_AGENT_DIGEST}"
             --chart-oci-reference "ghcr.io/kuberploy/charts/kuberploy:${VERSION}"
@@ -624,7 +607,6 @@ jobs:
           WORKER_DIGEST: ${{ needs.assemble-images.outputs.worker_digest }}
           WEB_DIGEST: ${{ needs.assemble-images.outputs.web_digest }}
           MIGRATION_DIGEST: ${{ needs.assemble-images.outputs.migration_digest }}
-          UPGRADER_DIGEST: ${{ needs.assemble-images.outputs.upgrader_digest }}
           BUILDER_AGENT_DIGEST: ${{ needs.assemble-images.outputs.builder_agent_digest }}
         run: |
           for kp_record in \
@@ -632,7 +614,6 @@ jobs:
             "worker:${WORKER_DIGEST}" \
             "web:${WEB_DIGEST}" \
             "migration:${MIGRATION_DIGEST}" \
-            "upgrader:${UPGRADER_DIGEST}" \
             "builder-agent:${BUILDER_AGENT_DIGEST}"; do
             kp_component="${kp_record%%:*}"
             kp_digest="${kp_record#*:}"
@@ -1023,10 +1004,10 @@ jobs:
           jq -e \
             --arg tag "${RELEASE_TAG}" \
             --arg commit "${kp_tag_commit}" \
-            '.schemaVersion == "1.0.0" and
+            '(.schemaVersion == "1.0.0" or .schemaVersion == "2.0.0") and
              .release.tag == $tag and
              .source.commit == $commit and
-             (.artifacts.images | length == 6)' \
+             (.artifacts.images | length == (if .schemaVersion == "1.0.0" then 6 else 5 end))' \
             release-repair/release-manifest.json >/dev/null
           while IFS= read -r kp_record; do
             kp_component="$(jq -er .component <<<"${kp_record}")"

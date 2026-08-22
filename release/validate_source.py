@@ -16,7 +16,7 @@ from validate_semantics import yaml_scalar
 SEMVER = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$")
 ACTION = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)(?:\s+#\s*(\S+))?\s*$")
 ALLOWED_ACTION_OWNERS = {"actions", "azure", "docker", "pnpm"}
-RELEASE_COMPONENTS = ("api", "worker", "web", "migration", "upgrader", "builder-agent")
+RELEASE_COMPONENTS = ("api", "worker", "web", "migration", "builder-agent")
 RELEASE_COMPONENT_CHARTS = (
     "kuberploy-argocd",
     "kuberploy-installer",
@@ -462,9 +462,10 @@ def main() -> None:
 
     if "runs-on: ${{ matrix.runner }}" not in build_job:
         raise SystemExit("native image builds must select the runner from the platform matrix")
-    if build_job.count("runner: ubuntu-26.04\n") != 6 or build_job.count("runner: ubuntu-26.04-arm\n") != 6:
-        raise SystemExit("native image matrix must contain six amd64 and six arm64 GitHub-hosted runners")
-    if build_job.count("platform: linux/amd64") != 6 or build_job.count("platform: linux/arm64") != 6:
+    component_count = len(RELEASE_COMPONENTS)
+    if build_job.count("runner: ubuntu-26.04\n") != component_count or build_job.count("runner: ubuntu-26.04-arm\n") != component_count:
+        raise SystemExit("native image matrix must contain one amd64 and one arm64 GitHub-hosted runner per release component")
+    if build_job.count("platform: linux/amd64") != component_count or build_job.count("platform: linux/arm64") != component_count:
         raise SystemExit("native image matrix must build every component for amd64 and arm64")
     for component in RELEASE_COMPONENTS:
         if build_job.count(f"component: {component}\n") != 2:
@@ -512,7 +513,7 @@ def main() -> None:
     repair_controls = (
         "inputs.repair_release_tag != ''",
         ".immutable == true",
-        ".artifacts.images | length == 6",
+        '.artifacts.images | length == (if .schemaVersion == "1.0.0" then 6 else 5 end)',
         'docker buildx imagetools create',
         '"${kp_reference}:${kp_version}"',
         '"${kp_reference}@${kp_digest}"',
@@ -592,7 +593,6 @@ def main() -> None:
         args.root / "build/package/api.Dockerfile",
         args.root / "build/package/worker.Dockerfile",
         args.root / "build/package/migration.Dockerfile",
-        args.root / "build/package/upgrader.Dockerfile",
         args.root / "build/package/builder-agent.Dockerfile",
         args.root / "build/package/rfc2136-test-provider.Dockerfile",
         args.root / "web/Dockerfile",

@@ -60,10 +60,10 @@ injects the API, worker, web, migration, and builder-agent `image@sha256`
 references. The published OCI chart and `.tgz` therefore render the same
 immutable images.
 
-Release-manifest schema v1 still carries the historical `upgrader` image field
-so already-published immutable manifests remain structurally verifiable. The control-plane
-chart does not deploy or invoke that artifact; platform changes are performed
-only by a cluster administrator upgrading the installer Helm release.
+Release-manifest schema v2 removes the historical `upgrader` image. Readers
+continue accepting immutable schema-v1 manifests, but new releases publish only
+the images that the platform deploys. Platform changes are performed only by a
+cluster administrator upgrading the installer Helm release.
 
 The migration image contains Prisma CLI 7.9.1 and the reviewed native SQL
 history. Its mandatory pre-install/pre-upgrade Job is the only production
