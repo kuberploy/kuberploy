@@ -204,6 +204,10 @@ def main() -> None:
         raise SystemExit("release metadata version must match chart version")
     if not isinstance(metadata["summary"], str) or not 1 <= len(metadata["summary"]) <= 500 or "\n" in metadata["summary"]:
         raise SystemExit("release metadata summary must be a single line of 1 to 500 characters")
+    current_rc = re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+-rc\.([0-9]+)", version)
+    summary_rcs = re.findall(r"\bRC([0-9]+)\b", metadata["summary"], re.IGNORECASE)
+    if current_rc and any(reference != current_rc.group(1) for reference in summary_rcs):
+        raise SystemExit("release metadata summary references a different release candidate")
     if not isinstance(metadata["breakingChanges"], bool):
         raise SystemExit("release metadata breakingChanges must be boolean")
     semver_part = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?"
@@ -265,6 +269,14 @@ def main() -> None:
     )
     if not migrations or len({path.name[:3] for path in migrations}) != len(migrations):
         raise SystemExit("database migrations must have unique ordered three-digit prefixes")
+    known_migration_names = {value for path in migrations for value in (path.name, path.name[:3])}
+    summary_schemas = re.findall(
+        r"\bSchema\s+([0-9]{3}(?:_[a-z0-9_]+)?)\b",
+        metadata["summary"],
+        re.IGNORECASE,
+    )
+    if any(reference not in known_migration_names for reference in summary_schemas):
+        raise SystemExit("release metadata summary references a migration schema that is not shipped")
     migration_package = json.loads((args.root / "migrations/package.json").read_text(encoding="utf-8"))
     if migration_package.get("dependencies") != {
         "postgres": "3.4.7",

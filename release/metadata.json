@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC308 waits for steady Argo health during automatic fresh remote K3s qualification.",
+  "summary": "Final 0.1.0 RC baseline ships one fresh-only 001_initial migration and proves stable promotion source equivalence.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.309"
+  "version": "0.1.0-rc.310"
 }
