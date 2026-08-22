@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Application, Capability, Project } from "../api/types";
 import {
   buildReadableApplications,
+  canonicalBuildRepository,
+  compatibleBuildRegistryTargets,
   hasBuildApplicationCapability,
   hasPotentialBuildAccess,
 } from "./buildAccess";
@@ -96,5 +98,55 @@ describe("source-build access", () => {
         project,
       ),
     ).toBe(true);
+  });
+
+  it("offers only policies bound to the canonical build repository", () => {
+    const target = {
+      id: "target-managed",
+      name: "Managed",
+      mode: "managed" as const,
+      endpoint: "https://registry.example.test",
+      repositoryPrefix: "tenant",
+      createdAt: "2026-08-09T00:00:00Z",
+      updatedAt: "2026-08-09T00:00:00Z",
+    };
+    const repository = canonicalBuildRepository(
+      target,
+      project.id,
+      application.id,
+    );
+    const item = {
+      target,
+      policy: {
+        registryTargetId: target.id,
+        serviceId: application.id,
+        repository,
+        keepLastSuccessful: 10,
+        minimumSafetyAgeSeconds: 86_400,
+        cacheKeepGenerations: 2,
+        cacheUnusedExpirySeconds: 604_800,
+        cacheByteQuota: 10_737_418_240,
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      },
+      catalogObservations: [],
+      catalogTruncated: false,
+      releases: [],
+      releasesTruncated: false,
+      cacheGenerations: [],
+      cacheGenerationsTruncated: false,
+      observedAt: "2026-08-09T00:00:00Z",
+    };
+
+    expect(
+      compatibleBuildRegistryTargets([item], project.id, application.id),
+    ).toEqual([target]);
+    expect(
+      compatibleBuildRegistryTargets(
+        [{ ...item, policy: { ...item.policy, repository: "tenant/other" } }],
+        project.id,
+        application.id,
+      ),
+    ).toEqual([]);
   });
 });

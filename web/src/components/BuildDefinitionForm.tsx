@@ -237,6 +237,7 @@ export function BuildDefinitionForm({
           ? `refs/tags/${enteredRef}`
           : canonicalBranchRef(enteredRef);
       const input: CreateBuildDefinition = {
+        sourceKind: "github",
         installationId: value.installationId,
         repositoryId: value.repositoryId,
         registryTargetId: value.registryTargetId,

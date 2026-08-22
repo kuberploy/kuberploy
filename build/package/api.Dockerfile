@@ -41,7 +41,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM docker.io/library/alpine:3.24
 
-RUN apk add --no-cache ca-certificates=20260611-r0
+RUN apk add --no-cache \
+      ca-certificates=20260611-r0 \
+      git=2.54.0-r0
 
 ARG VERSION=dev
 ARG REVISION=unknown

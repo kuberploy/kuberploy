@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { ApplicationOverviewPage } from "./ApplicationOverviewPage";
 
-const routeParams = vi.hoisted(() => ({ applicationId: "application-1" }));
+const routeParams = vi.hoisted(
+  (): {
+    applicationId: string;
+    projectId?: string;
+    environmentId?: string;
+  } => ({ applicationId: "application-1" }),
+);
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -19,6 +25,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useParams: () => routeParams,
+  useSearch: () => ({}),
 }));
 
 function wrapper() {
@@ -52,6 +59,21 @@ beforeEach(() => {
       },
     ],
   });
+  vi.spyOn(api, "environmentApps").mockResolvedValue({
+    items: [
+      {
+        projectId: "project-1",
+        environmentId: "environment-1",
+        applicationId: "application-1",
+        applicationName: "Payments API",
+        applicationSlug: "payments-api",
+        state: "draft",
+        desiredState: "stopped",
+        createdAt: "2026-08-23T00:00:00Z",
+        updatedAt: "2026-08-23T00:00:00Z",
+      },
+    ],
+  });
   vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
   vi.spyOn(api, "buildDefinitions").mockResolvedValue({
     items: [],
@@ -72,11 +94,13 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   routeParams.applicationId = "application-1";
+  delete routeParams.projectId;
+  delete routeParams.environmentId;
   vi.restoreAllMocks();
 });
 
 describe("application source overview", () => {
-  it("offers build, image, and Helm as peer first-use choices", async () => {
+  it("offers GitHub, Git SSH, image, and Helm as peer source choices", async () => {
     const user = userEvent.setup();
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
 
@@ -96,9 +120,10 @@ describe("application source overview", () => {
     expect(
       screen.getByRole("tab", { name: "Existing image" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Helm / OCI" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Git SSH" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Helm chart" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Helm / OCI" }));
+    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     expect(
       screen.getByRole("combobox", { name: /Environment/ }),
     ).toBeInTheDocument();
@@ -114,7 +139,7 @@ describe("application source overview", () => {
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.click(screen.getByRole("tab", { name: "Helm / OCI" }));
+    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     const environment = await screen.findByRole("combobox", {
       name: /Environment/,
     });
@@ -126,6 +151,66 @@ describe("application source overview", () => {
     await waitFor(() => expect(environment).toHaveValue(""));
   });
 
+  it("offers Helm only in Environments where the App is actually placed", async () => {
+    vi.mocked(api.environments).mockResolvedValue({
+      items: [
+        {
+          id: "environment-1",
+          projectId: "project-1",
+          name: "Test",
+          namespace: "test",
+        },
+        {
+          id: "environment-2",
+          projectId: "project-1",
+          name: "Production",
+          namespace: "production",
+        },
+      ],
+    });
+    vi.mocked(api.environmentApps).mockImplementation(async (environmentId) =>
+      environmentId === "environment-1"
+        ? {
+            items: [
+              {
+                projectId: "project-1",
+                environmentId,
+                applicationId: "application-1",
+                applicationName: "Payments API",
+                applicationSlug: "payments-api",
+                state: "draft",
+                desiredState: "stopped",
+                createdAt: "2026-08-23T00:00:00Z",
+                updatedAt: "2026-08-23T00:00:00Z",
+              },
+            ],
+          }
+        : { items: [] },
+    );
+    const user = userEvent.setup();
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    await screen.findByRole("heading", { name: "Payments API" });
+    await user.click(screen.getByRole("button", { name: "Source & build" }));
+    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
+
+    const environment = screen.getByRole("combobox", { name: /Environment/ });
+    expect(environment).toHaveTextContent("Test");
+    expect(environment).not.toHaveTextContent("Production");
+  });
+
+  it("rejects an environment-scoped URL when the App is not placed there", async () => {
+    routeParams.projectId = "project-1";
+    routeParams.environmentId = "environment-1";
+    vi.mocked(api.environmentApps).mockResolvedValue({ items: [] });
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(
+      await screen.findByText("Environment App unavailable"),
+    ).toBeVisible();
+  });
+
   it("resets workspace state when navigating to another application", async () => {
     const user = userEvent.setup();
     const { Wrapper } = wrapper();
@@ -133,7 +218,7 @@ describe("application source overview", () => {
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.click(screen.getByRole("tab", { name: "Helm / OCI" }));
+    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     await user.selectOptions(
       await screen.findByRole("combobox", { name: /Environment/ }),
       "environment-1",
@@ -171,6 +256,7 @@ describe("application source overview", () => {
           id: "definition-1",
           projectId: "project-1",
           applicationId: "application-1",
+          sourceKind: "github",
           installationId: "installation-1",
           repositoryId: "repository-1",
           triggerRef: "refs/heads/main",
@@ -231,6 +317,7 @@ describe("application source overview", () => {
           id: "definition-1",
           projectId: "project-1",
           applicationId: "application-1",
+          sourceKind: "github",
           installationId: "installation-1",
           repositoryId: "repository-1",
           triggerRef: "refs/tags/v1.2.3",

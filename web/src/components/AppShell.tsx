@@ -20,14 +20,13 @@ import { Button } from "./ui";
 import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
 import { Monitor, Moon, Sun } from "lucide-react";
 
-const navigation: Array<{
-  to: "/" | "/projects" | "/teams";
+const settingsNavigation: Array<{
+  to: "/" | "/teams";
   label: string;
   icon: IconName;
 }> = [
-  { to: "/", label: "Overview", icon: "grid" },
-  { to: "/projects", label: "Projects", icon: "layers" },
-  { to: "/teams", label: "Teams & GitHub", icon: "user" },
+  { to: "/", label: "Dashboard", icon: "grid" },
+  { to: "/teams", label: "Teams", icon: "user" },
 ];
 
 export function AppShell({ user }: { user: Principal }) {
@@ -65,13 +64,34 @@ export function AppShell({ user }: { user: Principal }) {
   const pageName = pathname.match(/^\/projects\/[^/]+$/)
     ? "Project"
     : pathname.match(/^\/applications\/[^/]+\/deployments\/[^/]+$/)
-      ? "Deployment"
+      ? "App"
       : pathname.match(/^\/applications\/[^/]+$/)
-        ? "Service"
-        : pathname === "/"
-          ? "Overview"
-          : (pathname.split("/").filter(Boolean).at(-1)?.replace(/-/g, " ") ??
-            "Overview");
+        ? "App"
+        : pathname === "/deploy"
+          ? "Add App"
+          : pathname === "/"
+            ? "Dashboard"
+            : (pathname.split("/").filter(Boolean).at(-1)?.replace(/-/g, " ") ??
+              "Dashboard");
+
+  const registryNavigationVisible =
+    capabilities.data?.features?.registry === true &&
+    hasRegistryPlatformCapability(
+      capabilities.data?.capabilities ?? [],
+      "registry-targets:read",
+    );
+  const gitProviderNavigationVisible =
+    capabilities.data?.features?.githubAppSetup === true ||
+    (capabilities.data?.features?.builds === true &&
+      hasPotentialBuildAccess(capabilities.data?.capabilities ?? []));
+  const settingsActive =
+    pathname === "/" ||
+    pathname === "/teams" ||
+    pathname === "/monitoring" ||
+    pathname === "/audit" ||
+    pathname === "/external-dns" ||
+    pathname === "/setup" ||
+    pathname.startsWith("/settings/");
 
   return (
     <div className="app-shell">
@@ -96,162 +116,174 @@ export function AppShell({ user }: { user: Principal }) {
         </button>
         <nav aria-label="Main navigation">
           <div className="nav-section-label">Workspace</div>
-          {navigation.map((item) => (
+          <div role="group" aria-label="Primary navigation">
             <Link
-              key={item.to}
-              to={item.to}
-              activeOptions={{ exact: item.to === "/" }}
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name={item.icon} />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-          {hasMonitoringNavigationAccess(
-            capabilities.data?.capabilities ?? [],
-          ) ? (
-            <Link
-              to="/monitoring"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="metrics" />
-              <span>Monitoring</span>
-            </Link>
-          ) : null}
-          {capabilities.data?.features?.githubAppSetup === true ||
-          (capabilities.data?.features?.builds === true &&
-            hasPotentialBuildAccess(capabilities.data?.capabilities ?? [])) ? (
-            <Link
-              to="/builds"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="terminal" />
-              <span>Source builds</span>
-            </Link>
-          ) : null}
-          {capabilities.data?.features?.registry === true &&
-          hasRegistryPlatformCapability(
-            capabilities.data?.capabilities ?? [],
-            "registry-targets:read",
-          ) ? (
-            <Link
-              to="/registry"
+              to="/projects"
               activeProps={{ className: "nav-link nav-link--active" }}
               inactiveProps={{ className: "nav-link" }}
               onClick={() => setMobileOpen(false)}
             >
               <Icon name="layers" />
-              <span>Registry</span>
+              <span>Projects</span>
             </Link>
-          ) : null}
-          {capabilities.data?.features?.externalDNSConfiguration === true &&
-          hasExternalDNSPlatformCapability(
-            capabilities.data?.capabilities ?? [],
-            "external-dns-integrations:read",
-          ) ? (
+            {registryNavigationVisible ? (
+              <Link
+                to="/registry"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="layers" />
+                <span>Registries</span>
+              </Link>
+            ) : null}
+            {gitProviderNavigationVisible ? (
+              <Link
+                to="/builds"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="terminal" />
+                <span>Git Providers</span>
+              </Link>
+            ) : null}
             <Link
-              to="/external-dns"
+              to="/setup"
               activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
+              inactiveProps={{
+                className: settingsActive
+                  ? "nav-link nav-link--active"
+                  : "nav-link",
+              }}
               onClick={() => setMobileOpen(false)}
             >
-              <Icon name="route" />
-              <span>External DNS</span>
+              <Icon name="settings" />
+              <span>Settings</span>
             </Link>
-          ) : null}
-          <div className="nav-section-label nav-section-label--spaced">
-            Platform
           </div>
-          <Link
-            to="/audit"
-            activeProps={{ className: "nav-link nav-link--active" }}
-            inactiveProps={{ className: "nav-link" }}
-            onClick={() => setMobileOpen(false)}
-          >
-            <Icon name="logs" />
-            <span>Audit timeline</span>
-          </Link>
-          <Link
-            to="/setup"
-            activeProps={{ className: "nav-link nav-link--active" }}
-            inactiveProps={{ className: "nav-link" }}
-            onClick={() => setMobileOpen(false)}
-          >
-            <Icon name="settings" />
-            <span>Setup & health</span>
-          </Link>
-          {user.authentication.kind === "session" &&
-          hasPlatformReleaseCapability(
-            capabilities.data?.capabilities ?? [],
-            "platform-releases:read",
-          ) ? (
+          <div className="nav-section-label nav-section-label--spaced">
+            Settings pages
+          </div>
+          <div role="group" aria-label="Settings navigation">
+            {settingsNavigation.map((item) => (
+              <Link
+                key={item.to}
+                to={item.to}
+                activeOptions={{ exact: item.to === "/" }}
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name={item.icon} />
+                <span>{item.label}</span>
+              </Link>
+            ))}
+            {hasMonitoringNavigationAccess(
+              capabilities.data?.capabilities ?? [],
+            ) ? (
+              <Link
+                to="/monitoring"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="metrics" />
+                <span>Monitoring</span>
+              </Link>
+            ) : null}
             <Link
-              to="/settings/releases"
+              to="/audit"
               activeProps={{ className: "nav-link nav-link--active" }}
               inactiveProps={{ className: "nav-link" }}
               onClick={() => setMobileOpen(false)}
             >
-              <Icon name="refresh" />
-              <span>Platform releases</span>
+              <Icon name="logs" />
+              <span>Audit timeline</span>
             </Link>
-          ) : null}
-          {user.role === "platform-admin" ? (
-            <Link
-              to="/settings/argo-git"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="route" />
-              <span>Argo Git authority</span>
-            </Link>
-          ) : null}
-          {hasHelmApprovalManagementAccess(
-            user,
-            capabilities.data?.features,
-            capabilities.data?.capabilities ?? [],
-          ) ? (
-            <Link
-              to="/settings/helm-approvals"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="layers" />
-              <span>Helm approvals</span>
-            </Link>
-          ) : null}
-          {user.authentication.kind === "session" &&
-          capabilities.data?.features?.middlewareProfiles === true ? (
-            <Link
-              to="/settings/middleware-profiles"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="route" />
-              <span>Middleware profiles</span>
-            </Link>
-          ) : null}
-          {user.role === "platform-admin" &&
-          user.authentication.kind === "session" &&
-          capabilities.data?.features?.certificateIssuerManagement === true ? (
-            <Link
-              to="/settings/certificate-issuers"
-              activeProps={{ className: "nav-link nav-link--active" }}
-              inactiveProps={{ className: "nav-link" }}
-              onClick={() => setMobileOpen(false)}
-            >
-              <Icon name="route" />
-              <span>Certificate issuers</span>
-            </Link>
-          ) : null}
+            {capabilities.data?.features?.externalDNSConfiguration === true &&
+            hasExternalDNSPlatformCapability(
+              capabilities.data?.capabilities ?? [],
+              "external-dns-integrations:read",
+            ) ? (
+              <Link
+                to="/external-dns"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="route" />
+                <span>External DNS</span>
+              </Link>
+            ) : null}
+            {user.authentication.kind === "session" &&
+            hasPlatformReleaseCapability(
+              capabilities.data?.capabilities ?? [],
+              "platform-releases:read",
+            ) ? (
+              <Link
+                to="/settings/releases"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="refresh" />
+                <span>Platform releases</span>
+              </Link>
+            ) : null}
+            {user.role === "platform-admin" ? (
+              <Link
+                to="/settings/argo-git"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="route" />
+                <span>Argo Git authority</span>
+              </Link>
+            ) : null}
+            {hasHelmApprovalManagementAccess(
+              user,
+              capabilities.data?.features,
+              capabilities.data?.capabilities ?? [],
+            ) ? (
+              <Link
+                to="/settings/helm-approvals"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="layers" />
+                <span>Helm approvals</span>
+              </Link>
+            ) : null}
+            {user.authentication.kind === "session" &&
+            capabilities.data?.features?.middlewareProfiles === true ? (
+              <Link
+                to="/settings/middleware-profiles"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="route" />
+                <span>Middleware profiles</span>
+              </Link>
+            ) : null}
+            {user.role === "platform-admin" &&
+            user.authentication.kind === "session" &&
+            capabilities.data?.features?.certificateIssuerManagement ===
+              true ? (
+              <Link
+                to="/settings/certificate-issuers"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="route" />
+                <span>Certificate issuers</span>
+              </Link>
+            ) : null}
+          </div>
         </nav>
         <div className="sidebar__footer">
           <div className="cluster-chip">
@@ -325,9 +357,7 @@ export function AppShell({ user }: { user: Principal }) {
               ))}
             </ToggleGroup>
             <span className="user-menu__avatar">
-              {(user.displayName || "A")
-                .slice(0, 1)
-                .toUpperCase()}
+              {(user.displayName || "A").slice(0, 1).toUpperCase()}
             </span>
             <span className="user-menu__copy">
               <strong>{user.displayName}</strong>

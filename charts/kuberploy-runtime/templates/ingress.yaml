@@ -56,6 +56,8 @@ metadata:
     {{- end }}
     {{- if eq $route.tls.mode "letsencrypt" }}
     cert-manager.io/cluster-issuer: {{ $route.tls.issuerRef | quote }}
+    cert-manager.io/private-key-algorithm: "ECDSA"
+    cert-manager.io/private-key-size: "256"
     {{- end }}
     {{- if eq $dnsMode "externalDns" }}
     external-dns.alpha.kubernetes.io/hostname: {{ $route.host | quote }}

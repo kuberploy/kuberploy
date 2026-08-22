@@ -9,6 +9,7 @@ import (
 
 const (
 	APICommandDefinitionCreate = "definition.create"
+	APICommandDefinitionBuild  = "definition.build"
 	APICommandAttemptCancel    = "attempt.cancel"
 	APICommandAttemptRetry     = "attempt.retry"
 )
@@ -29,6 +30,7 @@ type APIStore interface {
 	AttemptsForService(context.Context, string, int) ([]BuildAttempt, error)
 	ClaimAPICommand(context.Context, string, string, string, string, string, string, time.Time) (string, bool, error)
 	RetryAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
+	EnqueueManualAttempt(context.Context, string, string, string, ExecutionSettings, time.Time) (BuildAttempt, bool, error)
 }
 
 func APICommandClaimKey(actorID, operation, scopeID, idempotencyKey string) string {
@@ -40,8 +42,12 @@ func RetryAttemptID(claimKey, definitionID string) string {
 	return deterministicUUID("build-attempt-v1", claimKey, definitionID)
 }
 
+func ManualAttemptID(claimKey, definitionID string) string {
+	return deterministicUUID("build-attempt-v1", claimKey, definitionID)
+}
+
 func validAPICommand(operation, actorID, scopeID, key, fingerprint, resourceID string, now time.Time) bool {
-	return (operation == APICommandDefinitionCreate || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry) &&
+	return (operation == APICommandDefinitionCreate || operation == APICommandDefinitionBuild || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry) &&
 		uuidRE.MatchString(actorID) && uuidRE.MatchString(scopeID) && setupIdempotencyRE.MatchString(key) && setupFingerprintRE.MatchString(fingerprint) &&
 		uuidRE.MatchString(resourceID) && !now.IsZero()
 }

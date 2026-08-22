@@ -13,6 +13,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 const definition: BuildDefinition = {
+  sourceKind: "github",
   id: "definition-safe",
   projectId: "project-safe",
   applicationId: "application-safe",

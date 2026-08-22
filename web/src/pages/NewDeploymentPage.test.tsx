@@ -11,6 +11,7 @@ const router = vi.hoisted(() => ({
   search: {
     projectId: undefined as string | undefined,
     environmentId: undefined as string | undefined,
+    applicationId: undefined as string | undefined,
   },
 }));
 
@@ -65,6 +66,7 @@ beforeEach(() => {
   router.navigate.mockReset();
   router.search.projectId = undefined;
   router.search.environmentId = undefined;
+  router.search.applicationId = undefined;
 });
 
 afterEach(() => {
@@ -73,14 +75,14 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
-  it("starts in the exact project environment selected by Add service", async () => {
+  it("starts in the exact project environment selected by Add App", async () => {
     router.search.projectId = "project-1";
     router.search.environmentId = "environment-1";
 
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
     expect(
-      await screen.findByRole("heading", { name: "Add service" }),
+      await screen.findByRole("heading", { name: "Add App from OCI image" }),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByRole("combobox", { name: "Project" })).toHaveValue(
@@ -486,7 +488,9 @@ describe("new deployment runtime controls", () => {
     expect(
       screen.getByRole("button", { name: /commit & deploy/i }),
     ).toBeDisabled();
-    expect(screen.queryByText(/Immutable image resolved/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Immutable image resolved/),
+    ).not.toBeInTheDocument();
   });
 
   it("hides a tag-resolution error after the image changes", async () => {

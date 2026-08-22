@@ -96,7 +96,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"getCurrentUser": "none", "getCapabilities": "none", "getMonitoringStatus": "none", "getAppConfigSchema": "none",
 		"listAuditEvents":  "app.read",
 		"queryMetricRange": "app.read", "listProjects": "app.read", "getProject": "app.read",
-		"listEnvironments": "app.read", "getEnvironment": "app.read", "listApplications": "app.read", "getApplication": "app.read",
+		"listEnvironments": "app.read", "getEnvironment": "app.read", "listEnvironmentApps": "app.read", "listApplications": "app.read", "getApplication": "app.read",
 		"listAssignedMiddlewareProfiles":  "app.read",
 		"previewApplicationSSLIPHostname": "app.read",
 		"listApprovedCertificateIssuers":  "app.read",
@@ -114,11 +114,11 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"getBuildAttemptLogs":             "logs.read",
 		"getApplicationRegistryInventory": "app.read", "getRegistryCleanupPlan": "app.read",
 		"getWorkloadLogSnapshot": "logs.read", "getWorkloadEvents": "logs.read",
-		"createEnvironment": "app.edit", "createApplication": "app.edit", "createImageDeployment": "app.edit", "previewImageResolution": "app.edit",
+		"createEnvironment": "app.edit", "cloneEnvironment": "app.edit", "createApplication": "app.edit", "createImageDeployment": "app.edit", "previewImageResolution": "app.edit",
 		"upsertDesiredHelmRelease": "app.edit", "retryDesiredHelmRelease": "app.edit",
 		"disableDesiredHelmRelease": "app.edit", "rollbackDesiredHelmRelease": "app.edit",
 		"previewDeploymentConfig": "app.edit", "saveDeploymentConfig": "app.edit",
-		"createApplicationBuildDefinition": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create",
+		"createApplicationBuildDefinition": "build.create", "createManualBuildAttempt": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create",
 	}
 	if len(operationScopes) != len(expectedScopes) {
 		t.Fatalf("agent operation set drifted: got=%d expected=%d", len(operationScopes), len(expectedScopes))

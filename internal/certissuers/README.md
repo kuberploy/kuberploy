@@ -54,6 +54,7 @@ observer runtime configuration with `ProtectedGitConfigForObserver` so the
 binding, cluster, namespace, and ServiceAccount cannot drift between runtimes.
 
 HTTP-01 rendering always selects Traefik and sets
+`external-dns.alpha.kubernetes.io/exclude: "true"` plus
 `external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only` on
 the temporary solver Ingress. DNS-01 rendering is limited to Cloudflare and
 the exact sorted zone/Secret references stored in the catalog. Deletion is not

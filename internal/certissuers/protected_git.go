@@ -352,7 +352,7 @@ func RenderClusterIssuer(desired Desired) ([]byte, error) {
 	fmt.Fprintf(&out, "  annotations:\n    kuberploy.io/certificate-issuer-spec-digest: %s\n    kuberploy.io/certificate-issuer-revision: %s\n", q(desired.SpecDigest), q(fmt.Sprintf("%d", desired.Revision)))
 	fmt.Fprintf(&out, "spec:\n  acme:\n    email: %s\n    server: %s\n    privateKeySecretRef:\n      name: %s\n    solvers:\n", q(clean.ACME.Email), q(clean.ACME.Server), q(clean.ACME.AccountPrivateKeySecretName))
 	if solver == HTTP01 {
-		fmt.Fprintf(&out, "      - http01:\n          ingress:\n            ingressClassName: %s\n            ingressTemplate:\n              metadata:\n                annotations:\n                  external-dns.alpha.kubernetes.io/ingress-hostname-source: %s\n", q("traefik"), q("annotation-only"))
+		fmt.Fprintf(&out, "      - http01:\n          ingress:\n            ingressClassName: %s\n            ingressTemplate:\n              metadata:\n                annotations:\n                  external-dns.alpha.kubernetes.io/exclude: %s\n                  external-dns.alpha.kubernetes.io/ingress-hostname-source: %s\n", q("traefik"), q("true"), q("annotation-only"))
 	} else {
 		fmt.Fprint(&out, "      - selector:\n          dnsZones:\n")
 		for _, zone := range clean.Cloudflare.DNSZones {

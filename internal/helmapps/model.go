@@ -82,6 +82,7 @@ func (k ApprovalKey) Validate() error {
 // contain no username, token, credential reference, floating tag, or range.
 type Approval struct {
 	ApprovalKey
+	Source             ChartSource
 	OCIRepository      string
 	ChartVersion       string
 	ManifestDigest     string
@@ -96,7 +97,12 @@ type Approval struct {
 }
 
 func (a Approval) Validate() error {
-	if a.ApprovalKey.Validate() != nil || !canonicalOCIRepository(a.OCIRepository) || !semverRE.MatchString(a.ChartVersion) ||
+	source, sourceErr := a.CanonicalSource()
+	chartName, chartVersion, identityErr := source.ChartIdentity()
+	if a.ApprovalKey.Validate() != nil || sourceErr != nil || identityErr != nil ||
+		!canonicalOCIRepository(a.OCIRepository) || !semverRE.MatchString(a.ChartVersion) ||
+		chartVersion != a.ChartVersion || !approvalRepositoryMatchesSource(a.OCIRepository, chartName, source) ||
+		(source.Kind == ChartSourceKindOCI && source.OCI.Digest != "" && source.OCI.Digest != a.ManifestDigest) ||
 		!validDigest(a.ManifestDigest) || !validDigest(a.PackageDigest) || !validDigest(a.ValuesSchemaDigest) ||
 		a.RendererImage != RendererImage || a.RendererVersion != HelmVersion || a.PolicyVersion != PolicyVersion ||
 		!uuidRE.MatchString(a.CreatedBy) || !idempotencyRE.MatchString(a.IdempotencyKey) || a.CreatedAt.IsZero() {
@@ -109,20 +115,22 @@ func (a Approval) IdentityDigest() (string, error) {
 	if a.Validate() != nil {
 		return "", ErrInvalid
 	}
+	source, _ := a.CanonicalSource()
 	return digestJSON(struct {
-		Contract           string `json:"contract"`
-		ID                 string `json:"id"`
-		Revision           int64  `json:"revision"`
-		Repository         string `json:"repository"`
-		Version            string `json:"version"`
-		ManifestDigest     string `json:"manifestDigest"`
-		PackageDigest      string `json:"packageDigest"`
-		ValuesSchemaDigest string `json:"valuesSchemaDigest"`
-		RendererImage      string `json:"rendererImage"`
-		RendererVersion    string `json:"rendererVersion"`
-		PolicyVersion      string `json:"policyVersion"`
+		Contract           string      `json:"contract"`
+		ID                 string      `json:"id"`
+		Revision           int64       `json:"revision"`
+		Repository         string      `json:"repository"`
+		Version            string      `json:"version"`
+		ManifestDigest     string      `json:"manifestDigest"`
+		PackageDigest      string      `json:"packageDigest"`
+		ValuesSchemaDigest string      `json:"valuesSchemaDigest"`
+		RendererImage      string      `json:"rendererImage"`
+		RendererVersion    string      `json:"rendererVersion"`
+		PolicyVersion      string      `json:"policyVersion"`
+		Source             ChartSource `json:"source"`
 	}{"helm-approval.v1", a.ID, a.Revision, a.OCIRepository, a.ChartVersion, a.ManifestDigest,
-		a.PackageDigest, a.ValuesSchemaDigest, a.RendererImage, a.RendererVersion, a.PolicyVersion})
+		a.PackageDigest, a.ValuesSchemaDigest, a.RendererImage, a.RendererVersion, a.PolicyVersion, source})
 }
 
 func (a Approval) replayEqual(other Approval) bool {
@@ -151,6 +159,7 @@ func (d DestinationIdentity) Validate() error {
 // decoder for caller input by design: callers edit only values.yaml.
 type Descriptor struct {
 	Approval           ApprovalKey
+	Source             ChartSource
 	Repository         string
 	Version            string
 	ManifestDigest     string
@@ -167,8 +176,10 @@ func NewDescriptor(approval Approval, destination DestinationIdentity) (Descript
 	if approval.Validate() != nil || destination.Validate() != nil {
 		return Descriptor{}, ErrInvalid
 	}
+	source, _ := approval.CanonicalSource()
 	descriptor := Descriptor{
 		Approval: approval.ApprovalKey, Repository: approval.OCIRepository, Version: approval.ChartVersion,
+		Source:         source,
 		ManifestDigest: approval.ManifestDigest, PackageDigest: approval.PackageDigest,
 		ValuesSchemaDigest: approval.ValuesSchemaDigest, RendererImage: approval.RendererImage,
 		RendererVersion: approval.RendererVersion, PolicyVersion: approval.PolicyVersion,
@@ -181,8 +192,10 @@ func NewDescriptor(approval Approval, destination DestinationIdentity) (Descript
 }
 
 func (d Descriptor) Validate() error {
+	chartName, chartVersion, sourceErr := d.Source.ChartIdentity()
 	if d.Approval.Validate() != nil || d.Destination.Validate() != nil || d.ReleaseName != d.Destination.ApplicationSlug ||
 		!canonicalOCIRepository(d.Repository) || !semverRE.MatchString(d.Version) || !validDigest(d.ManifestDigest) ||
+		sourceErr != nil || chartVersion != d.Version || !approvalRepositoryMatchesSource(d.Repository, chartName, d.Source) ||
 		!validDigest(d.PackageDigest) || !validDigest(d.ValuesSchemaDigest) || d.RendererImage != RendererImage ||
 		d.RendererVersion != HelmVersion || d.PolicyVersion != PolicyVersion {
 		return ErrInvalid
@@ -195,19 +208,20 @@ func (d Descriptor) approvalIdentityDigest() (string, error) {
 		return "", ErrInvalid
 	}
 	return digestJSON(struct {
-		Contract           string `json:"contract"`
-		ID                 string `json:"id"`
-		Revision           int64  `json:"revision"`
-		Repository         string `json:"repository"`
-		Version            string `json:"version"`
-		ManifestDigest     string `json:"manifestDigest"`
-		PackageDigest      string `json:"packageDigest"`
-		ValuesSchemaDigest string `json:"valuesSchemaDigest"`
-		RendererImage      string `json:"rendererImage"`
-		RendererVersion    string `json:"rendererVersion"`
-		PolicyVersion      string `json:"policyVersion"`
+		Contract           string      `json:"contract"`
+		ID                 string      `json:"id"`
+		Revision           int64       `json:"revision"`
+		Repository         string      `json:"repository"`
+		Version            string      `json:"version"`
+		ManifestDigest     string      `json:"manifestDigest"`
+		PackageDigest      string      `json:"packageDigest"`
+		ValuesSchemaDigest string      `json:"valuesSchemaDigest"`
+		RendererImage      string      `json:"rendererImage"`
+		RendererVersion    string      `json:"rendererVersion"`
+		PolicyVersion      string      `json:"policyVersion"`
+		Source             ChartSource `json:"source"`
 	}{"helm-approval.v1", d.Approval.ID, d.Approval.Revision, d.Repository, d.Version, d.ManifestDigest,
-		d.PackageDigest, d.ValuesSchemaDigest, d.RendererImage, d.RendererVersion, d.PolicyVersion})
+		d.PackageDigest, d.ValuesSchemaDigest, d.RendererImage, d.RendererVersion, d.PolicyVersion, d.Source})
 }
 
 func (d Descriptor) RequiredLabels() map[string]string {
@@ -234,8 +248,12 @@ func (d Descriptor) YAML() ([]byte, error) {
 	type source struct {
 		ApprovalID         string `yaml:"approvalId"`
 		ApprovalRevision   int64  `yaml:"approvalRevision"`
+		Kind               string `yaml:"kind"`
 		Repository         string `yaml:"repository"`
+		ChartName          string `yaml:"chartName"`
 		Version            string `yaml:"version"`
+		Revision           string `yaml:"revision,omitempty"`
+		ChartPath          string `yaml:"chartPath,omitempty"`
 		ManifestDigest     string `yaml:"manifestDigest"`
 		PackageDigest      string `yaml:"packageDigest"`
 		ValuesSchemaDigest string `yaml:"valuesSchemaDigest"`
@@ -259,6 +277,12 @@ func (d Descriptor) YAML() ([]byte, error) {
 		Destination    destination       `yaml:"destination"`
 		IdentityLabels map[string]string `yaml:"identityLabels"`
 	}
+	chartName, _, _ := d.Source.ChartIdentity()
+	displayRepository := d.Source.DisplayRepository()
+	revision, chartPath := "", ""
+	if d.Source.Kind == ChartSourceKindGit {
+		revision, chartPath = d.Source.Git.Revision, d.Source.Git.ChartPath
+	}
 	document := struct {
 		APIVersion string   `yaml:"apiVersion"`
 		Kind       string   `yaml:"kind"`
@@ -270,7 +294,8 @@ func (d Descriptor) YAML() ([]byte, error) {
 		Spec: spec{
 			ProjectID: d.Destination.ProjectID, EnvironmentID: d.Destination.EnvironmentID,
 			ApplicationID: d.Destination.ApplicationID,
-			Source: source{d.Approval.ID, d.Approval.Revision, d.Repository, d.Version, d.ManifestDigest,
+			Source: source{d.Approval.ID, d.Approval.Revision, string(d.Source.Kind), displayRepository,
+				chartName, d.Version, revision, chartPath, d.ManifestDigest,
 				d.PackageDigest, d.ValuesSchemaDigest, ValuesDocument},
 			Renderer:    renderer{d.RendererImage, d.RendererVersion, d.PolicyVersion},
 			Destination: destination{d.Destination.Namespace, d.ReleaseName}, IdentityLabels: d.RequiredLabels(),

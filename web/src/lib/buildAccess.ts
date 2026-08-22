@@ -1,4 +1,10 @@
-import type { Application, Capability, Project } from "../api/types";
+import type {
+  Application,
+  ApplicationRegistryTarget,
+  Capability,
+  Project,
+  RegistryTarget,
+} from "../api/types";
 
 export type BuildApplicationAction =
   | "build-definitions:read"
@@ -78,4 +84,26 @@ export function buildReadableApplications(
       )
     );
   });
+}
+
+export function canonicalBuildRepository(
+  target: Pick<RegistryTarget, "repositoryPrefix">,
+  projectId: string,
+  applicationId: string,
+) {
+  return `${target.repositoryPrefix}/projects/${projectId}/services/${applicationId}/image`;
+}
+
+export function compatibleBuildRegistryTargets(
+  items: ApplicationRegistryTarget[],
+  projectId: string,
+  applicationId: string,
+) {
+  return items
+    .filter(
+      (item) =>
+        item.policy.repository ===
+        canonicalBuildRepository(item.target, projectId, applicationId),
+    )
+    .map((item) => item.target);
 }

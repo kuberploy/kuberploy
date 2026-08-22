@@ -39,6 +39,8 @@ metadata:
     {{- end }}
     {{- with .Values.ingress.tls.issuerName }}
     cert-manager.io/cluster-issuer: {{ . | quote }}
+    cert-manager.io/private-key-algorithm: "ECDSA"
+    cert-manager.io/private-key-size: "256"
     {{- end }}
 spec:
   ingressClassName: {{ .Values.ingress.className }}

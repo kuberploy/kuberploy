@@ -12,6 +12,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
+	"github.com/kuberploy/kuberploy/internal/gitssh"
 )
 
 type WorkloadState string
@@ -30,6 +31,8 @@ type BuildWorkload struct {
 	InputDigest      string
 	SourceUsername   string
 	SourceCredential githubapp.Credential
+	SSHPrivateKey    []byte
+	SSHKnownHosts    []byte
 }
 
 // WorkloadObservation must include the live Job and NetworkPolicy for exact
@@ -52,8 +55,12 @@ type KubernetesBuildAPI interface {
 }
 
 type BuildController struct {
-	Store         Store
-	Provider      GitHubProvider
+	Store    Store
+	Provider GitHubProvider
+	GitSSH   interface {
+		Active(context.Context, gitssh.Scope, string) (gitssh.KeyMetadata, error)
+		PrivateKey(context.Context, gitssh.Scope, string) ([]byte, error)
+	}
 	Kubernetes    KubernetesBuildAPI
 	Owner         string
 	LeaseDuration time.Duration
@@ -67,7 +74,7 @@ type ReconcileResult struct {
 }
 
 func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, error) {
-	if c == nil || c.Store == nil || c.Provider == nil || c.Kubernetes == nil || !validOwnerLease(c.Owner, c.LeaseDuration) {
+	if c == nil || c.Store == nil || c.Kubernetes == nil || !validOwnerLease(c.Owner, c.LeaseDuration) {
 		return ReconcileResult{}, ErrInvalid
 	}
 	now := c.now()
@@ -89,21 +96,10 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		result.State = AttemptCancelled
 		return result, nil
 	}
-	installation, repository, err := c.Store.AttemptAuthorization(ctx, attempt.ID)
-	if err != nil {
-		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
-		return result, err
-	}
-	if err = c.Store.HeartbeatAttempt(ctx, attempt.ID, c.Owner, c.now(), c.LeaseDuration); err != nil {
-		return result, err
-	}
-	required := githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead}
-	if _, err = c.Provider.VerifyInstallation(ctx, installation.GitHubInstallationID, installation.Account, required); err != nil {
-		if _, retryable := providerRetryAt(err, c.now()); retryable {
-			return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
-		}
-		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
-		return result, err
+	definition, err := c.Store.Definition(ctx, attempt.DefinitionID)
+	if err != nil || !definition.Enabled || definition.DefinitionDigest != attempt.DefinitionDigest {
+		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "source-authorization-revoked", c.now())
+		return result, ErrUnauthorized
 	}
 	if err = c.Store.HeartbeatAttempt(ctx, attempt.ID, c.Owner, c.now(), c.LeaseDuration); err != nil {
 		return result, err
@@ -113,26 +109,62 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "persisted-plan-invalid", c.now())
 		return result, err
 	}
-	// Mint only after the durable lease is refreshed so the scoped source
-	// credential can flow immediately into the Kubernetes adapter.
-	token, err := c.Provider.MintInstallationToken(ctx, githubapp.TokenRequest{
-		InstallationID: installation.GitHubInstallationID, Account: installation.Account,
-		Repositories: []githubapp.RepositoryIdentity{repository.Identity}, Permissions: required,
-	})
-	if err != nil {
-		if _, retryable := providerRetryAt(err, c.now()); retryable {
-			return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
+	workload := BuildWorkload{Attempt: attempt, Plan: plan, CheckoutRequest: attempt.CheckoutRequest, InputDigest: attempt.InputDigest}
+	if definition.SourceKind == SourceGitHub {
+		if c.Provider == nil {
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-provider-unavailable", c.now())
+			return result, ErrInfrastructure
 		}
-		_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
-		return result, err
+		installation, repository, authorizationErr := c.Store.AttemptAuthorization(ctx, attempt.ID)
+		if authorizationErr != nil {
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
+			return result, authorizationErr
+		}
+		required := githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead}
+		if _, err = c.Provider.VerifyInstallation(ctx, installation.GitHubInstallationID, installation.Account, required); err != nil {
+			if _, retryable := providerRetryAt(err, c.now()); retryable {
+				return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
+			}
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
+			return result, err
+		}
+		if err = c.Store.HeartbeatAttempt(ctx, attempt.ID, c.Owner, c.now(), c.LeaseDuration); err != nil {
+			return result, err
+		}
+		token, tokenErr := c.Provider.MintInstallationToken(ctx, githubapp.TokenRequest{
+			InstallationID: installation.GitHubInstallationID, Account: installation.Account,
+			Repositories: []githubapp.RepositoryIdentity{repository.Identity}, Permissions: required,
+		})
+		if tokenErr != nil {
+			if _, retryable := providerRetryAt(tokenErr, c.now()); retryable {
+				return c.deferInfrastructure(ctx, attempt, "github-provider-retry", ErrProviderRetry)
+			}
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "github-authorization-revoked", c.now())
+			return result, tokenErr
+		}
+		workload.SourceUsername, workload.SourceCredential = "x-access-token", token.Authorization()
+	} else {
+		if c.GitSSH == nil || definition.GitSSH == nil {
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "git-ssh-credential-unavailable", c.now())
+			return result, ErrInfrastructure
+		}
+		scope := gitssh.Scope(definition.GitSSH.KeyScope)
+		metadata, metadataErr := c.GitSSH.Active(ctx, scope, definition.GitSSH.KeyOwnerID)
+		if metadataErr != nil || metadata.Revision != definition.GitSSH.KeyRevision || metadata.Status != gitssh.StatusActive {
+			_ = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "git-ssh-key-revoked", c.now())
+			return result, ErrUnauthorized
+		}
+		workload.SSHPrivateKey, err = c.GitSSH.PrivateKey(ctx, scope, definition.GitSSH.KeyOwnerID)
+		if err != nil {
+			return c.retryInfrastructure(ctx, attempt, "git-ssh-key-decrypt-failed", err)
+		}
+		defer clear(workload.SSHPrivateKey)
+		workload.SSHKnownHosts = []byte(definition.GitSSH.KnownHosts)
 	}
 	if err = c.Store.HeartbeatAttempt(ctx, attempt.ID, c.Owner, c.now(), c.LeaseDuration); err != nil {
 		return result, err
 	}
-	observation, err := c.Kubernetes.Ensure(ctx, BuildWorkload{
-		Attempt: attempt, Plan: plan, CheckoutRequest: attempt.CheckoutRequest, InputDigest: attempt.InputDigest,
-		SourceUsername: "x-access-token", SourceCredential: token.Authorization(),
-	})
+	observation, err := c.Kubernetes.Ensure(ctx, workload)
 	if err != nil {
 		return c.retryInfrastructure(ctx, attempt, "kubernetes-ensure-failed", err)
 	}

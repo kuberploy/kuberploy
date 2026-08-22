@@ -109,6 +109,8 @@ type buildHTTPBackend struct {
 	gitBindErr     error
 	gitBindCalls   int
 	profileCatalog builds.BuildSecretProfileCatalog
+	buildCommit    string
+	buildCalls     int
 }
 
 func (b *buildHTTPBackend) ResolveGitBindingRepository(_ context.Context, _, _ string) (httpapi.GitBindingRepositoryResolution, error) {
@@ -134,7 +136,8 @@ func (b *buildHTTPBackend) CreateDefinition(_ context.Context, mutation httpapi.
 	b.creates++
 	b.mutation = mutation
 	definition := b.definition
-	definition.ProjectID, definition.ServiceID, definition.InstallationID, definition.RepositoryID = mutation.ProjectID, mutation.ApplicationID, mutation.InstallationID, mutation.RepositoryID
+	definition.ProjectID, definition.ServiceID, definition.SourceKind = mutation.ProjectID, mutation.ApplicationID, mutation.SourceKind
+	definition.InstallationID, definition.RepositoryID = mutation.InstallationID, mutation.RepositoryID
 	return definition, false, nil
 }
 func (b *buildHTTPBackend) Definition(context.Context, string) (builds.BuildDefinition, error) {
@@ -163,6 +166,72 @@ func (b *buildHTTPBackend) Retry(_ context.Context, _, _, _, _ string) (builds.B
 	result.Generation++
 	result.State = builds.AttemptQueued
 	return result, false, nil
+}
+func (b *buildHTTPBackend) Build(_ context.Context, _, _, commitSHA, _, _ string) (builds.BuildAttempt, bool, error) {
+	b.mu.Lock()
+	b.buildCommit = commitSHA
+	b.buildCalls++
+	b.mu.Unlock()
+	result := b.attempt
+	result.CommitSHA = commitSHA
+	result.State = builds.AttemptQueued
+	return result, false, nil
+}
+
+func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
+	backend := &buildHTTPBackend{definition: builds.BuildDefinition{ID: "55555555-5555-4555-8555-555555555555", SourceKind: builds.SourceGitSSH},
+		attempt: builds.BuildAttempt{ID: "66666666-6666-4666-8666-666666666666", DefinitionID: "55555555-5555-4555-8555-555555555555", Generation: 1, MaxAttempts: 3}}
+	f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
+	f.bootstrap()
+	response := f.request(http.MethodPost, "/v1/projects", "git-ssh-http-project", map[string]string{"name": "Git SSH"})
+	project := decode[domain.Project](t, response)
+	response = f.request(http.MethodPost, "/v1/applications", "git-ssh-http-app", map[string]string{"projectId": project.ID, "name": "App"})
+	application := decode[domain.Application](t, response)
+	backend.definition.ProjectID, backend.definition.ServiceID = project.ID, application.ID
+	backend.attempt.ProjectID, backend.attempt.ServiceID = project.ID, application.ID
+
+	create := map[string]any{
+		"sourceKind": "git_ssh", "repositoryUrl": "ssh://git@git.example.test/team/repository.git", "gitSSHKeyScope": "app", "gitSSHKeyRevision": 1,
+		"hostKeyPins":      []map[string]string{{"endpoint": "git.example.test:22", "publicKey": "ssh-ed25519 AAAAFixture"}},
+		"registryTargetId": "44444444-4444-4444-8444-444444444444", "triggerRef": "refs/heads/main", "contextPath": ".", "dockerfilePath": "Dockerfile",
+		"platforms": []string{"linux/amd64"}, "cacheTrustLane": "protected", "cacheImports": 2,
+		"profile": map[string]any{"resource": "standard", "timeoutSeconds": 900, "egress": "registry-and-source"}, "maxAttempts": 3,
+	}
+	response = f.request(http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions", "git-ssh-definition-http", create)
+	if response.StatusCode != http.StatusCreated {
+		problem := decode[httpapi.Problem](t, response)
+		t.Fatalf("definition status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response.Body.Close()
+	backend.mu.Lock()
+	mutation := backend.mutation
+	backend.mu.Unlock()
+	if mutation.SourceKind != builds.SourceGitSSH || mutation.GitSSHKeyScope != "app" || mutation.GitSSHKeyRevision != 1 || len(mutation.HostKeyPins) != 1 {
+		t.Fatalf("Git SSH mutation=%#v", mutation)
+	}
+
+	commit := strings.Repeat("a", 40)
+	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-build", map[string]string{"commitSha": commit})
+	if response.StatusCode != http.StatusAccepted {
+		problem := decode[httpapi.Problem](t, response)
+		t.Fatalf("build status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response.Body.Close()
+	backend.mu.Lock()
+	buildCommit, buildCalls := backend.buildCommit, backend.buildCalls
+	backend.mu.Unlock()
+	if buildCommit != commit || buildCalls != 1 {
+		t.Fatalf("manual build commit=%q calls=%d", buildCommit, buildCalls)
+	}
+
+	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-bad", map[string]string{"commitSha": "main"})
+	problem := decode[httpapi.Problem](t, response)
+	backend.mu.Lock()
+	buildCalls = backend.buildCalls
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || buildCalls != 1 {
+		t.Fatalf("invalid commit status=%d problem=%#v calls=%d", response.StatusCode, problem, buildCalls)
+	}
 }
 
 func newGitHubBuildHTTP(t *testing.T, setup httpapi.GitHubSetupBackend, webhook httpapi.GitHubWebhookBackend, build httpapi.BuildBackend, limiter ratelimit.Limiter) *apiFixture {

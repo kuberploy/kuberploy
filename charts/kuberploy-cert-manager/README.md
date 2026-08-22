@@ -10,11 +10,12 @@ custom certificate Secrets remain namespace-local runtime resources.
 Each enabled issuer requires its exact Let's Encrypt directory URL, account
 email, and account-key Secret name. HTTP-01 is always the final fallback and is
 locked to the configured IngressClass. Temporary solver Ingresses carry
-`external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only` and
-no ExternalDNS hostname annotation. This is ExternalDNS's
+`external-dns.alpha.kubernetes.io/exclude: "true"` and
+`external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only`,
+with no ExternalDNS hostname annotation. The hostname-source setting is ExternalDNS's
 [documented mechanism](https://kubernetes-sigs.github.io/external-dns/latest/docs/annotations/annotations/#external-dnsalphakubernetesioingress-hostname-source)
 for suppressing host extraction from `Ingress.spec.rules` and `spec.tls`; the
-unofficial `external-dns.alpha.kubernetes.io/exclude` convention is not used.
+explicit exclusion adds defense in depth for compatible controllers.
 cert-manager's supported
 [`ingressTemplate`](https://cert-manager.io/docs/configuration/acme/http01/#ingresstemplate)
 copies this metadata to each temporary solver Ingress.

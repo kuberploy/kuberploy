@@ -6647,6 +6647,70 @@ CREATE TABLE public.applications (
 
 
 --
+-- Name: environment_app_placements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.environment_app_placements (
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    state text DEFAULT 'draft'::text NOT NULL,
+    desired_state text DEFAULT 'stopped'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT environment_app_placements_state_check CHECK ((((state = 'draft'::text) AND (desired_state = 'stopped'::text)) OR ((state = 'active'::text) AND (desired_state = 'running'::text))))
+);
+
+
+--
+-- Name: git_ssh_key_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.git_ssh_key_revisions (
+    id uuid NOT NULL,
+    scope text NOT NULL,
+    owner_id uuid NOT NULL,
+    revision bigint NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    public_key text NOT NULL,
+    fingerprint text NOT NULL,
+    encryption_key_version text NOT NULL,
+    private_key_ciphertext bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    CONSTRAINT git_ssh_key_revisions_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text]))),
+    CONSTRAINT git_ssh_key_revisions_revision_check CHECK ((revision > 0)),
+    CONSTRAINT git_ssh_key_revisions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
+    CONSTRAINT git_ssh_key_revisions_revoked_at_check CHECK ((((status = 'active'::text) AND (revoked_at IS NULL)) OR ((status = 'revoked'::text) AND (revoked_at IS NOT NULL)))),
+    CONSTRAINT git_ssh_key_revisions_public_key_check CHECK (((length(public_key) >= 80) AND (length(public_key) <= 1024) AND (public_key ~ '^ssh-ed25519 [A-Za-z0-9+/=]+$'::text))),
+    CONSTRAINT git_ssh_key_revisions_fingerprint_check CHECK (((length(fingerprint) >= 50) AND (length(fingerprint) <= 80) AND (fingerprint ~ '^SHA256:[A-Za-z0-9+/]+$'::text))),
+    CONSTRAINT git_ssh_key_revisions_key_version_check CHECK (((length(encryption_key_version) >= 1) AND (length(encryption_key_version) <= 64))),
+    CONSTRAINT git_ssh_key_revisions_ciphertext_check CHECK (((octet_length(private_key_ciphertext) >= 32) AND (octet_length(private_key_ciphertext) <= 65536)))
+);
+
+
+--
+-- Name: git_ssh_key_mutation_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.git_ssh_key_mutation_receipts (
+    actor_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    operation text NOT NULL,
+    request_fingerprint text NOT NULL,
+    scope text NOT NULL,
+    owner_id uuid NOT NULL,
+    key_revision bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT git_ssh_key_mutation_receipts_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 128))),
+    CONSTRAINT git_ssh_key_mutation_receipts_operation_check CHECK ((operation = ANY (ARRAY['create'::text, 'rotate'::text, 'revoke'::text]))),
+    CONSTRAINT git_ssh_key_mutation_receipts_fingerprint_check CHECK ((request_fingerprint ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT git_ssh_key_mutation_receipts_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text]))),
+    CONSTRAINT git_ssh_key_mutation_receipts_revision_check CHECK ((key_revision > 0))
+);
+
+
+--
 -- Name: argo_application_observations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7010,7 +7074,9 @@ CREATE TABLE public.bootstrap_state (
 CREATE TABLE public.build_attempts (
     id uuid NOT NULL,
     definition_id uuid NOT NULL,
-    delivery_claim_key text NOT NULL,
+    delivery_claim_key text,
+    trigger_kind text DEFAULT 'github_push'::text NOT NULL,
+    trigger_key text NOT NULL,
     project_id uuid NOT NULL,
     service_id uuid NOT NULL,
     commit_sha text NOT NULL,
@@ -7050,7 +7116,9 @@ CREATE TABLE public.build_attempts (
     CONSTRAINT build_attempts_input_digest_check CHECK ((input_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT build_attempts_max_attempts_check CHECK (((max_attempts >= 1) AND (max_attempts <= 5))),
     CONSTRAINT build_attempts_registry_mode_check CHECK ((registry_mode = ANY (ARRAY['managed'::text, 'external'::text]))),
-    CONSTRAINT build_attempts_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text])))
+    CONSTRAINT build_attempts_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text]))),
+    CONSTRAINT build_attempts_trigger_check CHECK ((((trigger_kind = 'github_push'::text) AND (delivery_claim_key IS NOT NULL) AND (trigger_key = delivery_claim_key)) OR ((trigger_kind = ANY (ARRAY['manual'::text, 'retry'::text])) AND (trigger_key <> ''::text)))),
+    CONSTRAINT build_attempts_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['github_push'::text, 'manual'::text, 'retry'::text])))
 );
 
 
@@ -7062,8 +7130,10 @@ CREATE TABLE public.build_definitions (
     id uuid NOT NULL,
     project_id uuid NOT NULL,
     service_id uuid NOT NULL,
-    installation_id uuid NOT NULL,
-    repository_id uuid NOT NULL,
+    source_kind text DEFAULT 'github'::text NOT NULL,
+    installation_id uuid,
+    repository_id uuid,
+    git_ssh_source jsonb,
     registry_target_id uuid NOT NULL,
     trigger_ref text NOT NULL,
     spec jsonb NOT NULL,
@@ -7072,6 +7142,8 @@ CREATE TABLE public.build_definitions (
     enabled boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT build_definitions_source_check CHECK ((((source_kind = 'github'::text) AND (installation_id IS NOT NULL) AND (repository_id IS NOT NULL) AND (git_ssh_source IS NULL)) OR ((source_kind = 'git_ssh'::text) AND (installation_id IS NULL) AND (repository_id IS NULL) AND (jsonb_typeof(git_ssh_source) = 'object'::text)))),
+    CONSTRAINT build_definitions_source_kind_check CHECK ((source_kind = ANY (ARRAY['github'::text, 'git_ssh'::text]))),
     CONSTRAINT build_definitions_definition_digest_check CHECK ((definition_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT build_definitions_generation_check CHECK ((generation > 0)),
     CONSTRAINT build_definitions_spec_check CHECK ((jsonb_typeof(spec) = 'object'::text))
@@ -8477,11 +8549,13 @@ CREATE TABLE public.helm_chart_approval_documents (
     approval_revision bigint NOT NULL,
     values_schema_json bytea NOT NULL,
     default_values_yaml bytea NOT NULL,
+    package_bytes bytea NOT NULL,
     values_schema_digest text NOT NULL,
     documents_digest text NOT NULL,
     created_at timestamp with time zone NOT NULL,
     CONSTRAINT helm_chart_approval_documents_default_values_yaml_check CHECK (((octet_length(default_values_yaml) >= 1) AND (octet_length(default_values_yaml) <= 262144))),
     CONSTRAINT helm_chart_approval_documents_documents_digest_check CHECK ((documents_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_chart_approval_documents_package_bytes_check CHECK (((octet_length(package_bytes) >= 1) AND (octet_length(package_bytes) <= 8388608))),
     CONSTRAINT helm_chart_approval_documents_values_schema_digest_check CHECK ((values_schema_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_chart_approval_documents_values_schema_json_check CHECK (((octet_length(values_schema_json) >= 2) AND (octet_length(values_schema_json) <= 524288)))
 );
@@ -8494,6 +8568,9 @@ CREATE TABLE public.helm_chart_approval_documents (
 CREATE TABLE public.helm_chart_approvals (
     approval_id uuid NOT NULL,
     revision bigint NOT NULL,
+    source_kind text NOT NULL,
+    source_json jsonb NOT NULL,
+    chart_name text NOT NULL,
     oci_repository text NOT NULL,
     chart_version text NOT NULL,
     manifest_digest text NOT NULL,
@@ -8507,6 +8584,7 @@ CREATE TABLE public.helm_chart_approvals (
     idempotency_key text NOT NULL,
     created_at timestamp with time zone NOT NULL,
     CONSTRAINT helm_chart_approvals_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 128) AND (chart_version ~ '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
+    CONSTRAINT helm_chart_approvals_chart_name_check CHECK (((length(chart_name) >= 1) AND (length(chart_name) <= 253) AND (chart_name ~ '^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$'::text))),
     CONSTRAINT helm_chart_approvals_idempotency_key_check CHECK (((length(idempotency_key) >= 16) AND (length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
     CONSTRAINT helm_chart_approvals_identity_digest_check CHECK ((identity_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_chart_approvals_manifest_digest_check CHECK ((manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
@@ -8516,6 +8594,7 @@ CREATE TABLE public.helm_chart_approvals (
     CONSTRAINT helm_chart_approvals_renderer_image_check CHECK ((renderer_image = 'docker.io/alpine/helm:4.2.3'::text)),
     CONSTRAINT helm_chart_approvals_renderer_version_check CHECK ((renderer_version = '4.2.3'::text)),
     CONSTRAINT helm_chart_approvals_revision_check CHECK ((revision > 0)),
+    CONSTRAINT helm_chart_approvals_source_check CHECK ((source_kind = ANY (ARRAY['oci'::text, 'helm-repository'::text, 'git'::text]) AND jsonb_typeof(source_json) = 'object'::text AND octet_length(source_json::text) <= 8192)),
     CONSTRAINT helm_chart_approvals_values_schema_digest_check CHECK ((values_schema_digest ~ '^sha256:[0-9a-f]{64}$'::text))
 );
 
@@ -10046,6 +10125,46 @@ ALTER TABLE ONLY public.applications
 
 
 --
+-- Name: environment_app_placements environment_app_placements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_pkey PRIMARY KEY (environment_id, application_id);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_fingerprint_key UNIQUE (fingerprint);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_scope_owner_id_revision_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_scope_owner_id_revision_key UNIQUE (scope, owner_id, revision);
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_pkey PRIMARY KEY (actor_id, idempotency_key);
+
+
+--
 -- Name: argo_application_observations argo_application_observations_application_environment_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10171,6 +10290,14 @@ ALTER TABLE ONLY public.bootstrap_state
 
 ALTER TABLE ONLY public.build_attempts
     ADD CONSTRAINT build_attempts_delivery_claim_key_definition_id_key UNIQUE (delivery_claim_key, definition_id);
+
+
+--
+-- Name: build_attempts build_attempts_trigger_kind_trigger_key_definition_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.build_attempts
+    ADD CONSTRAINT build_attempts_trigger_kind_trigger_key_definition_id_key UNIQUE (trigger_kind, trigger_key, definition_id);
 
 
 --
@@ -11585,14 +11712,21 @@ CREATE INDEX build_attempts_work_idx ON public.build_attempts USING btree (state
 -- Name: build_definitions_active_ref_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE (enabled = true);
+CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
+
+
+--
+-- Name: build_definitions_active_git_ssh_ref_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX build_definitions_active_git_ssh_ref_idx ON public.build_definitions USING btree (project_id, service_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'git_ssh'::text));
 
 
 --
 -- Name: build_definitions_push_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX build_definitions_push_idx ON public.build_definitions USING btree (installation_id, repository_id, trigger_ref) WHERE (enabled = true);
+CREATE INDEX build_definitions_push_idx ON public.build_definitions USING btree (installation_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
 
 
 --
@@ -11642,6 +11776,34 @@ CREATE INDEX deployment_operation_inputs_deployment_idx ON public.deployment_ope
 --
 
 CREATE UNIQUE INDEX deployments_environment_application_unique ON public.deployments USING btree (environment_id, application_id);
+
+
+--
+-- Name: environment_app_placements_project_application_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX environment_app_placements_project_application_idx ON public.environment_app_placements USING btree (project_id, application_id);
+
+
+--
+-- Name: git_ssh_key_revisions_active_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX git_ssh_key_revisions_active_key ON public.git_ssh_key_revisions USING btree (scope, owner_id) WHERE (status = 'active'::text);
+
+
+--
+-- Name: git_ssh_key_revisions_owner_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX git_ssh_key_revisions_owner_history_idx ON public.git_ssh_key_revisions USING btree (scope, owner_id, revision DESC);
+
+
+--
+-- Name: git_ssh_key_mutation_receipts_revision_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX git_ssh_key_mutation_receipts_revision_idx ON public.git_ssh_key_mutation_receipts USING btree (scope, owner_id, key_revision);
 
 
 --
@@ -13112,6 +13274,38 @@ ALTER TABLE ONLY public.application_registry_pull_selections
 
 ALTER TABLE ONLY public.applications
     ADD CONSTRAINT applications_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: environment_app_placements environment_app_placements_application_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_application_id_project_id_fkey FOREIGN KEY (application_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE CASCADE;
+
+
+--
+-- Name: environment_app_placements environment_app_placements_environment_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_environment_id_project_id_fkey FOREIGN KEY (environment_id, project_id) REFERENCES public.environments(id, project_id) ON DELETE CASCADE;
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_key_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_key_revision_fkey FOREIGN KEY (scope, owner_id, key_revision) REFERENCES public.git_ssh_key_revisions(scope, owner_id, revision) ON DELETE RESTRICT;
 
 
 --

@@ -7,6 +7,9 @@ metadata:
     {{- include "kuberploy-registry.labels" . | nindent 4 }}
 spec:
   secretName: {{ .Values.exposure.secretName }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
   issuerRef:
     group: cert-manager.io
     kind: ClusterIssuer

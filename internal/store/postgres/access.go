@@ -951,6 +951,13 @@ func (s *Store) GetEnvironmentForActor(ctx context.Context, actor, environmentID
 	return getEnvironment(ctx, s.pool, environmentID)
 }
 
+func (s *Store) ListEnvironmentAppPlacementsForActor(ctx context.Context, actor, environmentID string) ([]domain.EnvironmentAppPlacement, error) {
+	if err := authorizeWith(ctx, s.pool, actor, domain.PermissionResourcesRead, domain.AccessTarget{Type: "environment", ID: environmentID}); err != nil {
+		return nil, err
+	}
+	return listEnvironmentAppPlacements(ctx, s.pool, environmentID)
+}
+
 func (s *Store) ListApplicationsForActor(ctx context.Context, actor string) ([]domain.Application, error) {
 	bindings, err := effectiveBindings(ctx, s.pool, actor)
 	if err != nil {

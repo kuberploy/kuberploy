@@ -46,7 +46,10 @@
     {{- $apiCIDRs = $token.kubeAPIServerCIDRs -}}
   {{- end -}}
   {{- $bootstrapValues := dict
-    "config" (dict "bootstrapSecret" (dict "generate" (eq $token.mode "generated")))
+    "config" (dict
+      "bootstrapSecret" (dict "generate" (eq $token.mode "generated"))
+      "gitSSH" (dict "enabled" true "encryptionKeyVersion" "v1" "secretRef" (dict "name" "kuberploy-git-ssh" "key" "encryption-key"))
+    )
     "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $apiCIDRs)
   -}}
   {{- $childValues = mergeOverwrite $childValues $bootstrapValues -}}

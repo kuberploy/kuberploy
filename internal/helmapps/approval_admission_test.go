@@ -86,3 +86,34 @@ func TestApprovalAdmissionRejectsArtifactSubstitutionWithoutPersistence(t *testi
 		t.Fatalf("failed admission persisted state: %v", err)
 	}
 }
+
+func TestApprovalAdmissionResolvesClassicRepositoryAndStoresExactPackage(t *testing.T) {
+	fixture := newHelmRepositoryFixture(t)
+	files := testChartFiles()
+	fixture.packageBytes = packageChart(t, files)
+	fixture.setIndex("sample-1.2.3.tgz", digestBytes(fixture.packageBytes), "1.2.3")
+	store := NewMemoryStore()
+	service := ApprovalAdmissionService{
+		Store:    store,
+		Packages: UniversalChartPackageSource{HTTP: fixture.server.Client()},
+		Now:      func() time.Time { return testTime },
+		NewID:    func() string { return testApprovalID },
+	}
+	request := ApprovalAdmissionRequest{
+		ActorID: testAdminID, IdempotencyKey: "classic-admission-0001",
+		Source: ChartSource{Kind: ChartSourceKindHelmRepository,
+			HelmRepository: &HelmRepositoryChartSource{RepositoryURL: fixture.server.URL + "/stable",
+				ChartName: "sample", Version: "1.2.3"}},
+	}
+	document, replay, err := service.Admit(t.Context(), request)
+	if err != nil || replay || document.Validate() != nil {
+		t.Fatalf("classic repository admission: replay=%v document=%#v err=%v", replay, document, err)
+	}
+	if document.Approval.Source.Kind != ChartSourceKindHelmRepository ||
+		document.Approval.ManifestDigest != digestBytes([]byte(fixture.indexYAML)) ||
+		document.Approval.PackageDigest != digestBytes(fixture.packageBytes) ||
+		document.Approval.ValuesSchemaDigest != digestBytes(files["values.schema.json"]) ||
+		!equalBytes(document.PackageBytes, fixture.packageBytes) {
+		t.Fatalf("classic repository identity mismatch: %#v", document)
+	}
+}

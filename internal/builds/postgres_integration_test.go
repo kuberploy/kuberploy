@@ -1,6 +1,7 @@
 package builds
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/buildpromotion"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
+	"github.com/kuberploy/kuberploy/internal/gitssh"
 	"github.com/kuberploy/kuberploy/internal/id"
 	platformstore "github.com/kuberploy/kuberploy/internal/store"
 	platformpostgres "github.com/kuberploy/kuberploy/internal/store/postgres"
@@ -407,6 +409,64 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	}
 	if replayedRetry, replay, retryErr := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, definition.Spec.Execution, cancelRetryAt.Add(2*time.Minute)); retryErr != nil || !replay || replayedRetry.ID != manualRetry.ID || replayedRetry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage {
 		t.Fatalf("manual retry replay=%#v replay=%v err=%v", replayedRetry, replay, retryErr)
+	}
+
+	gitSSHRepository, err := gitssh.NewPostgresRepository(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSSHEncryption, err := gitssh.NewAESGCMEncryption("test-v1", bytes.Repeat([]byte{0x42}, gitssh.AES256KeyBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSSHService, err := gitssh.NewService(gitSSHRepository, gitSSHEncryption)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSSHKey, err := gitSSHService.Create(ctx, gitssh.CreateRequest{Scope: gitssh.ScopeApp, OwnerID: serviceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSSHDefinition := definition
+	gitSSHDefinition.ID, gitSSHDefinition.SourceKind = id.New(), SourceGitSSH
+	gitSSHDefinition.InstallationID, gitSSHDefinition.RepositoryID = "", ""
+	gitSSHDefinition.GitSSH = &GitSSHSource{RepositoryURL: "ssh://git@git.example.test/team/repository.git", ApprovedHost: "git.example.test",
+		KeyScope: "app", KeyOwnerID: serviceID, KeyRevision: gitSSHKey.Revision,
+		KnownHosts: "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixture"}
+	for index := range gitSSHDefinition.Spec.Execution.Egress {
+		gitSSHDefinition.Spec.Execution.Egress[index].Ports = append(gitSSHDefinition.Spec.Execution.Egress[index].Ports, 22)
+	}
+	gitSSHDefinition, err = PrepareDefinition(gitSSHDefinition, cancelRetryAt.Add(3*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDefinition(ctx, gitSSHDefinition); err != nil {
+		t.Fatal(err)
+	}
+	gitSSHClaim := APICommandClaimKey(userID, APICommandDefinitionBuild, gitSSHDefinition.ID, "postgres-git-ssh-build-01")
+	gitSSHAttempt, replay, err := store.EnqueueManualAttempt(ctx, gitSSHDefinition.ID, strings.Repeat("e", 40), gitSSHClaim, gitSSHDefinition.Spec.Execution, cancelRetryAt.Add(4*time.Minute))
+	if err != nil || replay || gitSSHAttempt.DeliveryClaimKey != "" || gitSSHAttempt.TriggerKind != "manual" || gitSSHAttempt.CheckoutRequest.SSHPrivateKeyFile != builder.SourceSSHPrivateKeyFile {
+		t.Fatalf("Git SSH attempt=%#v replay=%v err=%v", gitSSHAttempt, replay, err)
+	}
+	var syntheticReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM github_webhook_receipts WHERE claim_key=$1`, gitSSHClaim).Scan(&syntheticReceipts); err != nil || syntheticReceipts != 0 {
+		t.Fatalf("Git SSH synthetic GitHub receipts=%d err=%v", syntheticReceipts, err)
+	}
+	failedAt := cancelRetryAt.Add(5 * time.Minute)
+	if _, err = pool.Exec(ctx, `UPDATE build_attempts SET state='failed',failure_code='fixture-failure',completed_at=$2,updated_at=$2 WHERE id=$1`, gitSSHAttempt.ID, failedAt); err != nil {
+		t.Fatal(err)
+	}
+	gitSSHRetryClaim := APICommandClaimKey(userID, APICommandAttemptRetry, gitSSHAttempt.ID, "postgres-git-ssh-retry-01")
+	gitSSHRetryID := RetryAttemptID(gitSSHRetryClaim, gitSSHDefinition.ID)
+	gitSSHRetry, replay, err := store.RetryAttempt(ctx, gitSSHAttempt.ID, gitSSHRetryID, gitSSHRetryClaim, gitSSHDefinition.Spec.Execution, failedAt.Add(time.Minute))
+	if err != nil || replay || gitSSHRetry.TriggerKind != "retry" || gitSSHRetry.DeliveryClaimKey != "" {
+		t.Fatalf("Git SSH retry=%#v replay=%v err=%v", gitSSHRetry, replay, err)
+	}
+	if _, err = gitSSHService.Revoke(ctx, gitssh.ScopeApp, serviceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = store.EnqueueManualAttempt(ctx, gitSSHDefinition.ID, strings.Repeat("f", 40), strings.Repeat("6", 64), gitSSHDefinition.Spec.Execution, failedAt.Add(2*time.Minute)); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("revoked Git SSH key accepted: %v", err)
 	}
 
 	// External targets persist and plan through the identical closed builder

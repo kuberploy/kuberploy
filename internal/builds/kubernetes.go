@@ -1,6 +1,7 @@
 package builds
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -426,16 +427,23 @@ func (a *KubernetesAdapter) desiredWorkload(workload BuildWorkload, rawSourceCre
 	if err != nil || !reflect.DeepEqual(workload.Plan, expectedPlan) {
 		return desiredKubernetesWorkload{}, ErrInvalid
 	}
-	if workload.SourceUsername != "x-access-token" {
-		return desiredKubernetesWorkload{}, ErrInvalid
+	if workload.CheckoutRequest.SSHPrivateKeyFile != "" {
+		if workload.SourceUsername != "" || rawSourceCredential != "" || len(workload.SSHPrivateKey) == 0 || len(workload.SSHKnownHosts) == 0 {
+			return desiredKubernetesWorkload{}, ErrInvalid
+		}
+		desired.sourceSecret, err = desiredSSHSourceSecret(workload.Attempt.PlanRequest, workload.InputDigest, workload.SSHPrivateKey, workload.SSHKnownHosts)
+	} else {
+		if workload.SourceUsername != "x-access-token" || len(workload.SSHPrivateKey) != 0 || len(workload.SSHKnownHosts) != 0 {
+			return desiredKubernetesWorkload{}, ErrInvalid
+		}
+		raw := rawSourceCredential
+		if len(raw) < 20 || len(raw) > maximumSourceTokenBytes || !sourceTokenRE.MatchString(raw) {
+			return desiredKubernetesWorkload{}, ErrInvalid
+		}
+		token := []byte(raw)
+		defer clear(token)
+		desired.sourceSecret, err = desiredSourceSecret(workload.Attempt.PlanRequest, workload.InputDigest, []byte(workload.SourceUsername), token)
 	}
-	raw := rawSourceCredential
-	if len(raw) < 20 || len(raw) > maximumSourceTokenBytes || !sourceTokenRE.MatchString(raw) {
-		return desiredKubernetesWorkload{}, ErrInvalid
-	}
-	token := []byte(raw)
-	defer clear(token)
-	desired.sourceSecret, err = desiredSourceSecret(workload.Attempt.PlanRequest, workload.InputDigest, []byte(workload.SourceUsername), token)
 	return desired, err
 }
 
@@ -498,6 +506,19 @@ func desiredSourceSecret(plan builder.JobPlanRequest, inputDigest string, userna
 	secret["data"] = map[string]any{
 		"username": base64.StdEncoding.EncodeToString(username),
 		"token":    base64.StdEncoding.EncodeToString(token),
+	}
+	return secret, nil
+}
+
+func desiredSSHSourceSecret(plan builder.JobPlanRequest, inputDigest string, privateKey, knownHosts []byte) (map[string]any, error) {
+	if plan.SourceCredentialSecret == "" || len(privateKey) == 0 || len(privateKey) > 64<<10 || len(knownHosts) == 0 || len(knownHosts) > 64<<10 ||
+		bytes.IndexByte(privateKey, 0) >= 0 || bytes.IndexByte(knownHosts, 0) >= 0 {
+		return nil, ErrInvalid
+	}
+	secret := sourceSecretSkeleton(plan, inputDigest)
+	secret["data"] = map[string]any{
+		"ssh-private-key": base64.StdEncoding.EncodeToString(privateKey),
+		"known_hosts":     base64.StdEncoding.EncodeToString(knownHosts),
 	}
 	return secret, nil
 }

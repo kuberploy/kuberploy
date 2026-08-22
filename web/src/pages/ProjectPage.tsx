@@ -20,7 +20,7 @@ import {
 } from "../components/ui";
 import { projectOwnershipLabel } from "./ProjectsPage";
 
-type ProjectTab = "services" | "environments" | "settings";
+type ProjectTab = "environments" | "settings";
 type EnvironmentForm = {
   name: string;
   protectionPolicy: "development" | "protected";
@@ -29,7 +29,7 @@ type EnvironmentForm = {
 export function ProjectPage() {
   const { projectId } = useParams({ from: "/projects/$projectId" });
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<ProjectTab>("services");
+  const [tab, setTab] = useState<ProjectTab>("environments");
   const [creatingEnvironment, setCreatingEnvironment] = useState(false);
   const [gitEnvironmentId, setGitEnvironmentId] = useState<string | null>(null);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
@@ -148,7 +148,7 @@ export function ProjectPage() {
     createEnvironment.mutate({ input, idempotencyKey });
   };
   useEffect(() => {
-    setTab("services");
+    setTab("environments");
     form.reset({ name: "", protectionPolicy: "protected" });
     environmentAttempt.current = null;
     createEnvironment.reset();
@@ -204,7 +204,7 @@ export function ProjectPage() {
         title={project.name}
         description={
           project.description ??
-          `${projectApplications.length} service${projectApplications.length === 1 ? "" : "s"} · ${projectEnvironments.length} environment${projectEnvironments.length === 1 ? "" : "s"}`
+          `${projectEnvironments.length} environment${projectEnvironments.length === 1 ? "" : "s"} · ${projectApplications.length} app${projectApplications.length === 1 ? "" : "s"}`
         }
         actions={
           tab === "environments" && canCreateEnvironment ? (
@@ -219,75 +219,19 @@ export function ProjectPage() {
         className="page-tabs project-workspace-tabs"
         aria-label="Project sections"
       >
-        {(["services", "environments", "settings"] as const).map((item) => (
+        {(["environments", "settings"] as const).map((item) => (
           <button
             key={item}
             className={tab === item ? "active" : ""}
             aria-current={tab === item ? "page" : undefined}
             onClick={() => setTab(item)}
           >
-            {item === "services"
-              ? `Services (${projectApplications.length})`
-              : item === "environments"
-                ? `Environments (${projectEnvironments.length})`
-                : "Access & automation"}
+            {item === "environments"
+              ? `Environments (${projectEnvironments.length})`
+              : "Access & automation"}
           </button>
         ))}
       </nav>
-
-      {tab === "services" ? (
-        projectApplications.length ? (
-          <div className="service-card-grid">
-            {projectApplications.map((application) => {
-              const appDeployments = projectDeployments.filter(
-                (deployment) => deployment.applicationId === application.id,
-              );
-              return (
-                <Link
-                  key={application.id}
-                  to="/applications/$applicationId"
-                  params={{ applicationId: application.id }}
-                  className="service-card"
-                >
-                  <div className="service-card__topline">
-                    <span className="service-card__icon">
-                      {application.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <StatusPill
-                      value={appDeployments.length ? "active" : "pending"}
-                      label={
-                        appDeployments.length ? "Deployed" : "Not deployed"
-                      }
-                    />
-                  </div>
-                  <div>
-                    <h2>{application.name}</h2>
-                    <p>
-                      {application.description ??
-                        `${appDeployments.length} deployment${appDeployments.length === 1 ? "" : "s"}`}
-                    </p>
-                  </div>
-                  <div className="service-card__footer">
-                    <span>
-                      {appDeployments.length} deployment
-                      {appDeployments.length === 1 ? "" : "s"}
-                    </span>
-                    <span>
-                      Open service <Icon name="arrow" />
-                    </span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        ) : (
-          <EmptyState
-            icon="deploy"
-            title="No services yet"
-            description="Open Environments and choose where to add the first service."
-          />
-        )
-      ) : null}
 
       {tab === "environments" ? (
         <div className="page-stack">
@@ -336,8 +280,13 @@ export function ProjectPage() {
                     <span className="scope-row__icon">
                       <Icon name="layers" />
                     </span>
-                    <div>
-                      <strong>{environment.name}</strong>
+                    <div className="environment-list__identity">
+                      <Link
+                        to="/projects/$projectId/environments/$environmentId"
+                        params={{ projectId, environmentId: environment.id }}
+                      >
+                        <strong>{environment.name}</strong>
+                      </Link>
                       <small>
                         {environment.protectionPolicy === "development"
                           ? "Direct Git publication"
@@ -346,22 +295,21 @@ export function ProjectPage() {
                     </div>
                     <code>{environment.namespace}</code>
                     <StatusPill value={environment.status ?? "active"} />
-                    {hasActionAtEnvironment(
-                      "applications:create",
-                      environment.id,
-                    ) &&
-                    hasActionAtEnvironment(
-                      "deployments:create",
-                      environment.id,
-                    ) ? (
-                      <Link
-                        to="/deploy"
-                        search={{ projectId, environmentId: environment.id }}
-                        className="button button--primary"
-                      >
-                        <Icon name="plus" /> Add service
-                      </Link>
-                    ) : null}
+                    {(() => {
+                      const appCount = new Set(
+                        projectDeployments
+                          .filter(
+                            (deployment) =>
+                              deployment.environmentId === environment.id,
+                          )
+                          .map((deployment) => deployment.applicationId),
+                      ).size;
+                      return (
+                        <span className="environment-list__apps">
+                          {appCount} App{appCount === 1 ? "" : "s"}
+                        </span>
+                      );
+                    })()}
                     {capabilities.data?.features?.variableSets === true &&
                     hasActionAtEnvironment(
                       "deployment-config:read",
@@ -390,6 +338,13 @@ export function ProjectPage() {
                         Git
                       </Button>
                     ) : null}
+                    <Link
+                      to="/projects/$projectId/environments/$environmentId"
+                      params={{ projectId, environmentId: environment.id }}
+                      className="button button--secondary"
+                    >
+                      Open <Icon name="arrow" />
+                    </Link>
                   </div>
                 ))}
               </div>
@@ -397,7 +352,7 @@ export function ProjectPage() {
               <EmptyState
                 compact
                 title="No environments"
-                description="Create development, staging, or production before deploying a service."
+                description="Create development, staging, or production before adding an App."
               />
             )}
           </Card>
@@ -433,7 +388,7 @@ export function ProjectPage() {
               environments={projectEnvironments}
               applications={projectApplications}
               capabilities={effectiveCapabilities}
-              onClose={() => setTab("services")}
+              onClose={() => setTab("environments")}
             />
           ) : null}
           {showAutomation ? (
@@ -441,7 +396,7 @@ export function ProjectPage() {
               key={project.id}
               project={project}
               capabilities={effectiveCapabilities}
-              onClose={() => setTab("services")}
+              onClose={() => setTab("environments")}
             />
           ) : null}
           {!canManageAccess && !showAutomation ? (

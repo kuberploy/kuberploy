@@ -205,6 +205,13 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
 	}
+	_, err = tx.Exec(ctx, `INSERT INTO environment_app_placements(project_id,environment_id,application_id,state,desired_state,created_at,updated_at)
+		VALUES($1,$2,$3,'active','running',$4,$4)
+		ON CONFLICT(environment_id,application_id) DO UPDATE SET state='active',desired_state='running',updated_at=EXCLUDED.updated_at`,
+		project.ID, environment.ID, application.ID, now)
+	if err != nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, classify(err)
+	}
 	if err = insertGitWriteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "deploy("+in.ApplicationID+"): accept immutable release", now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}

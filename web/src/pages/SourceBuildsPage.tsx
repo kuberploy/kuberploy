@@ -19,6 +19,7 @@ import {
 } from "../components/ui";
 import {
   buildReadableApplications,
+  compatibleBuildRegistryTargets,
   hasBuildApplicationCapability,
 } from "../lib/buildAccess";
 import { formatDate, gitRefLabel, shortId } from "../lib/format";
@@ -161,7 +162,13 @@ export function SourceBuildsPage() {
     retry: false,
   });
   const registryTargets =
-    applicationRegistry.data?.items.map((item) => item.target) ?? [];
+    selectedApplication && selectedProject
+      ? compatibleBuildRegistryTargets(
+          applicationRegistry.data?.items ?? [],
+          selectedProject.id,
+          selectedApplication.id,
+        )
+      : [];
   const definitions = useQuery({
     queryKey: ["build-definitions", selectedApplicationId],
     queryFn: () => api.buildDefinitions(selectedApplicationId),

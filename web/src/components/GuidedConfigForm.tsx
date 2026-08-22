@@ -506,6 +506,9 @@ export function GuidedConfigForm({
     dnsIntegrations.some(
       (integration) => integration.runtimeAvailable === true,
     );
+  const selectedDNSIntegrationReady =
+    automaticDNSRuntimeReady &&
+    selectedDNSIntegration?.runtimeAvailable === true;
   const dnsIntegrationError =
     dnsMode !== "externalDns" || externalDNSCatalogPending
       ? undefined
@@ -1213,22 +1216,23 @@ export function GuidedConfigForm({
                 </Field>
                 <div
                   className={`notice ${
-                    automaticDNSRuntimeReady &&
-                    selectedDNSIntegration?.runtimeAvailable !== false
+                    selectedDNSIntegrationReady
                       ? "notice--success"
                       : "notice--warning"
                   }`}
                 >
                   <div>
                     <strong>
-                      {automaticDNSRuntimeReady &&
-                      selectedDNSIntegration?.runtimeAvailable !== false
+                      {!selectedDNSIntegration
+                        ? "Select an External DNS integration"
+                        : selectedDNSIntegrationReady
                         ? "External DNS revision is ready"
                         : "External DNS runtime is not ready"}
                     </strong>
                     <p>
-                      {automaticDNSRuntimeReady &&
-                      selectedDNSIntegration?.runtimeAvailable !== false
+                      {!selectedDNSIntegration
+                        ? "Choose one authorized integration before previewing or saving automatic DNS."
+                        : selectedDNSIntegrationReady
                         ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
                         : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
                     </p>

@@ -24,6 +24,14 @@
 {{- if and .Values.config.githubApp.enabled (not .Values.builder.enabled) -}}
 {{- fail "config.githubApp.enabled requires builder.enabled" -}}
 {{- end -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.gitSSH))) "enabled,encryptionKeyVersion,secretRef" -}}
+{{- fail "config.gitSSH accepts only enabled, encryptionKeyVersion, and secretRef" -}}
+{{- end -}}
+{{- if .Values.config.gitSSH.enabled -}}
+  {{- if or (not .Values.config.gitSSH.secretRef.name) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" .Values.config.gitSSH.secretRef.key)) (not (regexMatch "^[A-Za-z0-9._-]{1,64}$" .Values.config.gitSSH.encryptionKeyVersion)) -}}
+  {{- fail "config.gitSSH requires an existing encryption Secret, valid key, and key version" -}}
+  {{- end -}}
+{{- end -}}
 {{- if .Values.builder.enabled -}}
   {{- if not (regexMatch "^(?:[^[:space:]@]+:v0[.]32[.]2|[^[:space:]@]+@sha256:[0-9a-f]{64})$" .Values.builder.buildKitImage) -}}
   {{- fail "builder.buildKitImage must be v0.32.2 or an immutable sha256 image reference" -}}

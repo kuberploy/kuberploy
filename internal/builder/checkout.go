@@ -82,6 +82,16 @@ func (c *Checkout) Run(ctx context.Context, request CheckoutRequest) (CheckoutRe
 			"KUBERPLOY_SOURCE_APPROVED_HOST="+request.ApprovedHost,
 		)
 	}
+	if request.SSHPrivateKeyFile != "" {
+		privateKey, knownHosts, err := materializeSSHCredentials(home, request.SSHPrivateKeyFile, request.SSHKnownHostsFile)
+		if err != nil {
+			return CheckoutResult{}, err
+		}
+		environment = append(environment,
+			"GIT_SSH_COMMAND=ssh -F /dev/null -i "+privateKey+" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="+knownHosts+" -o GlobalKnownHostsFile=/dev/null",
+			"GIT_SSH_VARIANT=ssh",
+		)
+	}
 	commands := [][]string{
 		{c.GitBinary, "init", "--quiet", c.Workspace},
 		{c.GitBinary, "-C", c.Workspace, "remote", "add", "origin", request.RepositoryURL},
@@ -114,6 +124,58 @@ func (c *Checkout) Run(ctx context.Context, request CheckoutRequest) (CheckoutRe
 		Status:      "Succeeded",
 		Commit:      request.Commit,
 	}, nil
+}
+
+func materializeSSHCredentials(home, privateKeySource, knownHostsSource string) (string, string, error) {
+	privateKey, err := readSSHCredentialFile(privateKeySource)
+	if err != nil {
+		return "", "", errors.New("read SSH private key")
+	}
+	defer zeroBytes(privateKey)
+	knownHosts, err := readSSHCredentialFile(knownHostsSource)
+	if err != nil {
+		return "", "", errors.New("read SSH known-hosts file")
+	}
+	defer zeroBytes(knownHosts)
+	privateKeyPath := filepath.Join(home, "ssh-private-key")
+	knownHostsPath := filepath.Join(home, "known_hosts")
+	if err := writePrivateFile(privateKeyPath, privateKey); err != nil {
+		return "", "", errors.New("secure SSH private key")
+	}
+	if err := writePrivateFile(knownHostsPath, knownHosts); err != nil {
+		_ = os.Remove(privateKeyPath)
+		return "", "", errors.New("secure SSH known-hosts file")
+	}
+	return privateKeyPath, knownHostsPath, nil
+}
+
+func readSSHCredentialFile(path string) ([]byte, error) {
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(value) == 0 || len(value) > 64<<10 || bytes.IndexByte(value, 0) >= 0 {
+		zeroBytes(value)
+		return nil, errors.New("SSH credential file is empty, too large, or contains NUL")
+	}
+	return value, nil
+}
+
+func writePrivateFile(path string, value []byte) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err = file.Write(value); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
+	}
+	if err = file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 // WriteAskpass is called only when Git starts the agent through GIT_ASKPASS.

@@ -115,6 +115,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 		"createApplicationBuildDefinition": "build.create",
 		"listApplicationBuilds":            "app.read",
 		"getBuildDefinition":               "app.read",
+		"createManualBuildAttempt":         "build.create",
 		"getBuildAttempt":                  "app.read",
 		"getBuildAttemptLogs":              "logs.read",
 		"cancelBuildAttempt":               "build.create",
@@ -201,7 +202,7 @@ func TestEveryHighRiskLimitedOperationReferencesStableProblems(t *testing.T) {
 		"registerGitHubInstallationMetadata", "updateGitHubInstallationSharing", "authorizeGitHubAppInstallation", "linkVerifiedGitHubAppInstallation",
 		"createEnvironmentGitBinding", "createPlatformArgoGitBinding",
 		"createProjectAccessGrant", "deleteProjectAccessGrant", "createProjectServiceAccount", "disableServiceAccount", "createServiceAccountToken", "revokeServiceAccountToken",
-		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "createApplicationBuildDefinition", "cancelBuildAttempt", "retryBuildAttempt",
+		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "createApplicationBuildDefinition", "createManualBuildAttempt", "cancelBuildAttempt", "retryBuildAttempt",
 	} {
 		expected[operationID] = false
 	}

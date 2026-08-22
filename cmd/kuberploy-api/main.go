@@ -25,6 +25,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/environmentfoundation"
 	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/gitssh"
 	"github.com/kuberploy/kuberploy/internal/helmapps"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -65,6 +66,22 @@ func run() error {
 		return err
 	}
 	defer db.Close()
+	gitSSHEncryption, err := gitssh.EncryptionFromEnvironment()
+	if err != nil {
+		return err
+	}
+	var gitSSHKeys httpapi.GitSSHKeyBackend
+	if gitSSHEncryption != nil {
+		gitSSHRepository, openErr := gitssh.OpenPostgresRepository(ctx, databaseURL)
+		if openErr != nil {
+			return openErr
+		}
+		defer gitSSHRepository.Close()
+		gitSSHKeys, err = gitssh.NewService(gitSSHRepository, gitSSHEncryption)
+		if err != nil {
+			return err
+		}
+	}
 	middlewareProfiles, err := middlewareprofiles.OpenPostgresStore(ctx, databaseURL, "kuberploy-api-middleware")
 	if err != nil {
 		return err
@@ -412,6 +429,7 @@ func run() error {
 		Registry: managedRegistry.management, RegistryReadiness: managedRegistry.readiness,
 		ExternalDNS: externalDNSManagement, HelmApplications: helmApplicationBackend,
 		HelmApprovals: helmApprovalBackend, HelmRenderedPreviews: helmPreviewBackend,
+		GitSSHKeys:          gitSSHKeys,
 		MiddlewareProfiles:  middlewareProfiles,
 		DeploymentRollbacks: deploymentRollbacks,
 		AutoDeployService:   autoDeployService,

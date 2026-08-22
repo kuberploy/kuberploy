@@ -351,7 +351,8 @@ export function NewDeploymentPage() {
     if (
       initialScopeApplied.current ||
       !projects.isSuccess ||
-      !environments.isSuccess
+      !environments.isSuccess ||
+      (Boolean(search.applicationId) && !applications.isSuccess)
     ) {
       return;
     }
@@ -383,8 +384,24 @@ export function NewDeploymentPage() {
       return;
     }
     form.setValue("environmentId", search.environmentId);
+    if (search.applicationId) {
+      const applicationMatches = applications.data?.items.some(
+        (application) =>
+          application.id === search.applicationId &&
+          application.projectId === search.projectId,
+      );
+      if (!applicationMatches) {
+        initialScopeApplied.current = true;
+        return;
+      }
+      form.setValue("applicationMode", "existing");
+      form.setValue("applicationId", search.applicationId);
+      setReservedApplicationId(search.applicationId);
+    }
     initialScopeApplied.current = true;
   }, [
+    applications.data,
+    applications.isSuccess,
     environments.data,
     environments.isSuccess,
     filteredEnvironments,
@@ -393,6 +410,7 @@ export function NewDeploymentPage() {
     projects.data,
     projects.isSuccess,
     search.environmentId,
+    search.applicationId,
     search.projectId,
   ]);
 
@@ -730,8 +748,8 @@ export function NewDeploymentPage() {
   return (
     <div className="page page--narrow">
       <PageHeader
-        eyebrow="Service"
-        title="Add service"
+        eyebrow="App"
+        title="Add App from OCI image"
         description="Deploy an exact OCI digest, or resolve an authorized existing-image tag. Kuberploy commits only immutable desired state to Git."
       />
 
@@ -824,7 +842,7 @@ export function NewDeploymentPage() {
               <Field
                 label="CPU request"
                 required
-                hint="New services default to 50m."
+                hint="New Apps default to 50m."
               >
                 <input
                   placeholder="50m"
@@ -836,7 +854,7 @@ export function NewDeploymentPage() {
               <Field
                 label="Memory request"
                 required
-                hint="New services default to 100Mi."
+                hint="New Apps default to 100Mi."
               >
                 <input
                   placeholder="100Mi"
@@ -1312,7 +1330,7 @@ export function NewDeploymentPage() {
             <div className="form-card__heading">
               <span>05</span>
               <div>
-                <h2>Scheduling for this service</h2>
+                <h2>Scheduling for this App</h2>
                 <p>
                   Choose placement for this app without changing nodes, taints,
                   or cluster-wide scheduling policy.
@@ -1386,7 +1404,7 @@ export function NewDeploymentPage() {
               <div>
                 <h2>Runtime environment values</h2>
                 <p>
-                  Used only by the deployed service. Visible in Git and rendered
+                  Used only by the deployed App. Visible in Git and rendered
                   through an immutable ConfigMap; never passed to the image
                   builder. Never place secrets here.
                 </p>
@@ -1589,8 +1607,8 @@ export function NewDeploymentPage() {
             <div className="notice notice--info" role="status">
               <strong>Loading current Git configuration</strong>
               <p>
-                Existing applications use the current strong Git bundle ETag
-                for a safe deployment update.
+                Existing applications use the current strong Git bundle ETag for
+                a safe deployment update.
               </p>
             </div>
           ) : null}

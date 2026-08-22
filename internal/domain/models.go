@@ -83,6 +83,37 @@ type Application struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+type EnvironmentAppPlacementState string
+type EnvironmentAppPlacementDesiredState string
+
+const (
+	EnvironmentAppPlacementDraft  EnvironmentAppPlacementState = "draft"
+	EnvironmentAppPlacementActive EnvironmentAppPlacementState = "active"
+
+	EnvironmentAppPlacementStopped EnvironmentAppPlacementDesiredState = "stopped"
+	EnvironmentAppPlacementRunning EnvironmentAppPlacementDesiredState = "running"
+)
+
+// EnvironmentAppPlacement associates one project-owned App identity with an
+// Environment. A clone creates only draft/stopped placements; no placement is
+// deployment authority and no placement contains workload or secret values.
+type EnvironmentAppPlacement struct {
+	ProjectID       string                              `json:"projectId"`
+	EnvironmentID   string                              `json:"environmentId"`
+	ApplicationID   string                              `json:"applicationId"`
+	ApplicationName string                              `json:"applicationName"`
+	ApplicationSlug string                              `json:"applicationSlug"`
+	State           EnvironmentAppPlacementState        `json:"state"`
+	DesiredState    EnvironmentAppPlacementDesiredState `json:"desiredState"`
+	CreatedAt       time.Time                           `json:"createdAt"`
+	UpdatedAt       time.Time                           `json:"updatedAt"`
+}
+
+type EnvironmentCloneResult struct {
+	Environment   Environment               `json:"environment"`
+	AppPlacements []EnvironmentAppPlacement `json:"appPlacements"`
+}
+
 // ProjectRegistryPullCredential is a safe project-scoped catalog entry. It
 // names an operator-owned registry target but never exposes Secret coordinates.
 type ProjectRegistryPullCredential struct {
@@ -290,7 +321,13 @@ type CreateEnvironment struct {
 	ProjectID, Name, Slug, Namespace, ArgoProject string
 	ProtectionPolicy                              EnvironmentProtectionPolicy
 }
-type CreateApplication struct{ ProjectID, Name, Slug string }
+type CloneEnvironment struct {
+	Name, Slug       string
+	ProtectionPolicy EnvironmentProtectionPolicy
+}
+type CreateApplication struct {
+	ProjectID, EnvironmentID, Name, Slug string
+}
 type CreateDeployment struct {
 	EnvironmentID string
 	ApplicationID string

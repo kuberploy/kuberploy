@@ -263,8 +263,9 @@ func TestPostgreSQLVariableSetAuthorityTriggers(t *testing.T) {
 	}
 	assertRejected("preview identity substitution", `UPDATE preview_authorities SET base_revision=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], strings.Repeat("d", 40))
 	assertRejected("preview parser substitution", `UPDATE preview_authorities SET policy_version=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], "variables/v2")
-	consumedAt := time.Now().UTC()
-	if _, err = store.pool.Exec(ctx, `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], consumedAt); err != nil {
+	var consumedAt time.Time
+	if err = store.pool.QueryRow(ctx, `UPDATE preview_authorities SET consumed_at=now()
+		WHERE token_hash=$1 AND preview_kind='variable-set' RETURNING consumed_at`, secondToken[:]).Scan(&consumedAt); err != nil {
 		t.Fatalf("exact preview consumption: %v", err)
 	}
 	assertRejected("preview double consumption", `UPDATE preview_authorities SET consumed_at=$2 WHERE token_hash=$1 AND preview_kind='variable-set'`, secondToken[:], consumedAt.Add(time.Second))

@@ -98,6 +98,25 @@ type RegistryBinding struct {
 	CacheCredentialSecret string       `json:"cacheCredentialSecret"`
 }
 
+type SourceKind string
+
+const (
+	SourceGitHub SourceKind = "github"
+	SourceGitSSH SourceKind = "git_ssh"
+)
+
+// GitSSHSource is the immutable, provider-neutral checkout binding for one
+// build definition. KnownHosts contains public host-key pins; private key
+// material remains encrypted in the Git SSH key store.
+type GitSSHSource struct {
+	RepositoryURL string `json:"repositoryUrl"`
+	ApprovedHost  string `json:"approvedHost"`
+	KeyScope      string `json:"keyScope"`
+	KeyOwnerID    string `json:"keyOwnerId"`
+	KeyRevision   uint64 `json:"keyRevision"`
+	KnownHosts    string `json:"knownHosts"`
+}
+
 // ExecutionSettings are operator-owned settings copied into every immutable
 // attempt. They contain Secret object names and file paths, never secret data.
 type ExecutionSettings struct {
@@ -144,8 +163,10 @@ type BuildDefinition struct {
 	ID                   string
 	ProjectID            string
 	ServiceID            string
+	SourceKind           SourceKind
 	InstallationID       string
 	RepositoryID         string
+	GitSSH               *GitSSHSource
 	TriggerRef           string
 	Spec                 DefinitionSpec
 	DefinitionDigest     string
@@ -210,6 +231,8 @@ type BuildAttempt struct {
 	ID                string
 	DefinitionID      string
 	DeliveryClaimKey  string
+	TriggerKind       string
+	TriggerKey        string
 	ProjectID         string
 	ServiceID         string
 	CommitSHA         string
@@ -366,12 +389,26 @@ func validPushEvent(event githubapp.PushEvent) bool {
 }
 
 func (d BuildDefinition) validate() error {
-	if !uuidRE.MatchString(d.ID) || !uuidRE.MatchString(d.ProjectID) || !uuidRE.MatchString(d.ServiceID) ||
-		!uuidRE.MatchString(d.InstallationID) || !uuidRE.MatchString(d.RepositoryID) || !validGitRef(d.TriggerRef) ||
+	if !uuidRE.MatchString(d.ID) || !uuidRE.MatchString(d.ProjectID) || !uuidRE.MatchString(d.ServiceID) || !validGitRef(d.TriggerRef) ||
 		d.DefinitionGeneration < 1 || d.CreatedAt.IsZero() || d.UpdatedAt.IsZero() {
 		return ErrInvalid
 	}
+	switch d.SourceKind {
+	case SourceGitHub:
+		if !uuidRE.MatchString(d.InstallationID) || !uuidRE.MatchString(d.RepositoryID) || d.GitSSH != nil {
+			return ErrInvalid
+		}
+	case SourceGitSSH:
+		if d.InstallationID != "" || d.RepositoryID != "" || validateGitSSHSource(d.ProjectID, d.ServiceID, d.GitSSH) != nil {
+			return ErrInvalid
+		}
+	default:
+		return ErrInvalid
+	}
 	if d.Spec.Execution.BuildKitImage == "" {
+		if d.SourceKind != SourceGitHub {
+			return ErrInvalid
+		}
 		digest, err := legacyDefinitionDigestWithoutBuildKit(d.Spec)
 		if err != nil || d.DefinitionDigest != digest {
 			return ErrInvalid
@@ -384,11 +421,44 @@ func (d BuildDefinition) validate() error {
 		upgraded.Execution.BuildKitImage = builder.DefaultBuildKitImage
 		return validateDefinitionSpec(d.ProjectID, d.ServiceID, upgraded)
 	}
-	digest, err := definitionDigest(d.Spec)
+	digest, err := definitionDigestForDefinition(d)
 	if err != nil || d.DefinitionDigest != digest {
 		return ErrInvalid
 	}
 	return validateDefinitionSpec(d.ProjectID, d.ServiceID, d.Spec)
+}
+
+func validateGitSSHSource(projectID, serviceID string, source *GitSSHSource) error {
+	if source == nil || source.KeyRevision < 1 || source.KeyRevision > 1_000_000_000 ||
+		(source.KeyScope != "app" && source.KeyScope != "project") || !uuidRE.MatchString(source.KeyOwnerID) ||
+		(source.KeyScope == "app" && source.KeyOwnerID != serviceID) || (source.KeyScope == "project" && source.KeyOwnerID != projectID) ||
+		len(source.RepositoryURL) > 2048 || len(source.KnownHosts) == 0 || len(source.KnownHosts) > 64<<10 || strings.ContainsRune(source.KnownHosts, '\x00') {
+		return ErrInvalid
+	}
+	u, err := url.Parse(source.RepositoryURL)
+	if err != nil || u.Scheme != "ssh" || u.Host == "" || u.Path == "" || u.Path == "/" || u.RawQuery != "" || u.Fragment != "" ||
+		u.User == nil || u.User.Username() == "" || strings.ContainsAny(source.RepositoryURL, "\x00\r\n") {
+		return ErrInvalid
+	}
+	if _, hasPassword := u.User.Password(); hasPassword {
+		return ErrInvalid
+	}
+	if !kubeNameRE.MatchString(strings.ToLower(u.Hostname())) || !strings.EqualFold(u.Host, source.ApprovedHost) {
+		return ErrInvalid
+	}
+	for _, line := range strings.Split(strings.TrimSpace(source.KnownHosts), "\n") {
+		fields := strings.Fields(line)
+		expectedHost := source.ApprovedHost
+		if host, port, found := strings.Cut(source.ApprovedHost, ":"); found && port != "22" {
+			expectedHost = "[" + host + "]:" + port
+		} else if found {
+			expectedHost = host
+		}
+		if len(fields) < 3 || fields[0] != expectedHost || strings.HasPrefix(fields[0], "@") {
+			return ErrInvalid
+		}
+	}
+	return nil
 }
 
 func validateDefinitionSpec(projectID, serviceID string, spec DefinitionSpec) error {
@@ -420,6 +490,23 @@ func validateDefinitionSpec(projectID, serviceID string, spec DefinitionSpec) er
 
 func definitionDigest(spec DefinitionSpec) (string, error) {
 	encoded, err := json.Marshal(spec)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func definitionDigestForDefinition(definition BuildDefinition) (string, error) {
+	if definition.SourceKind == SourceGitHub {
+		return definitionDigest(definition.Spec)
+	}
+	encoded, err := json.Marshal(struct {
+		SourceKind SourceKind     `json:"sourceKind"`
+		GitSSH     *GitSSHSource  `json:"gitSSH"`
+		TriggerRef string         `json:"triggerRef"`
+		Spec       DefinitionSpec `json:"spec"`
+	}{definition.SourceKind, definition.GitSSH, definition.TriggerRef, definition.Spec})
 	if err != nil {
 		return "", err
 	}
@@ -488,6 +575,9 @@ func legacyDefinitionDigestWithoutBuildKit(spec DefinitionSpec) (string, error) 
 }
 
 func PrepareDefinition(definition BuildDefinition, now time.Time) (BuildDefinition, error) {
+	if definition.SourceKind == "" {
+		definition.SourceKind = SourceGitHub
+	}
 	definition.Spec.Platforms = slices.Clone(definition.Spec.Platforms)
 	slices.Sort(definition.Spec.Platforms)
 	definition.Spec.BuildArgs = slices.Clone(definition.Spec.BuildArgs)
@@ -509,7 +599,7 @@ func PrepareDefinition(definition BuildDefinition, now time.Time) (BuildDefiniti
 		definition.CreatedAt = now.UTC()
 	}
 	definition.UpdatedAt = now.UTC()
-	digest, err := definitionDigest(definition.Spec)
+	digest, err := definitionDigestForDefinition(definition)
 	if err != nil {
 		return BuildDefinition{}, err
 	}

@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
@@ -12,6 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import type { Capabilities } from "../api/types";
 import { AppShell } from "./AppShell";
+
+let currentPathname = "/";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -25,10 +28,11 @@ vi.mock("@tanstack/react-router", () => ({
     select,
   }: {
     select: (state: { location: { pathname: string } }) => string;
-  }) => select({ location: { pathname: "/" } }),
+  }) => select({ location: { pathname: currentPathname } }),
 }));
 
 beforeEach(() => {
+  currentPathname = "/";
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", {
     clear: () => values.clear(),
@@ -111,7 +115,9 @@ function renderShell(
   capabilities: Capabilities,
   role: "viewer" | "platform-admin" = "viewer",
   authentication: "session" | "service-account" = "session",
+  pathname = "/",
 ) {
+  currentPathname = pathname;
   vi.spyOn(api, "capabilities").mockResolvedValue(capabilities);
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -194,7 +200,7 @@ describe("platform release navigation", () => {
 });
 
 describe("application scheduling navigation", () => {
-  it("keeps scheduling in each service configuration instead of platform navigation", async () => {
+  it("keeps scheduling in each App configuration instead of platform navigation", async () => {
     renderShell({ features: {} }, "platform-admin", "session");
 
     await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
@@ -293,7 +299,7 @@ describe("registry navigation", () => {
       expect(queryClient.getQueryData(["capabilities"])).toEqual(response),
     );
     expect(
-      screen.queryByRole("link", { name: "Registry" }),
+      screen.queryByRole("link", { name: "Registries" }),
     ).not.toBeInTheDocument();
   });
 
@@ -311,7 +317,7 @@ describe("registry navigation", () => {
     });
 
     expect(
-      await screen.findByRole("link", { name: "Registry" }),
+      await screen.findByRole("link", { name: "Registries" }),
     ).toHaveAttribute("href", "/registry");
   });
 });
@@ -354,7 +360,7 @@ describe("External DNS navigation", () => {
   });
 });
 
-describe("source-build navigation", () => {
+describe("Git provider navigation", () => {
   it("ignores coarse actions and environment-only build grants", async () => {
     const response: Capabilities = {
       actions: ["build-definitions:read", "builds:read"],
@@ -372,7 +378,7 @@ describe("source-build navigation", () => {
       expect(queryClient.getQueryData(["capabilities"])).toEqual(response),
     );
     expect(
-      screen.queryByRole("link", { name: "Source builds" }),
+      screen.queryByRole("link", { name: "Git Providers" }),
     ).not.toBeInTheDocument();
   });
 
@@ -388,7 +394,7 @@ describe("source-build navigation", () => {
       ],
     });
     expect(
-      await screen.findByRole("link", { name: "Source builds" }),
+      await screen.findByRole("link", { name: "Git Providers" }),
     ).toHaveAttribute("href", "/builds");
 
     cleanup();
@@ -397,7 +403,72 @@ describe("source-build navigation", () => {
       capabilities: [],
     });
     expect(
-      await screen.findByRole("link", { name: "Source builds" }),
+      await screen.findByRole("link", { name: "Git Providers" }),
     ).toHaveAttribute("href", "/builds");
+  });
+});
+
+describe("navigation hierarchy", () => {
+  it("uses the exact product-level labels and keeps operational pages secondary", async () => {
+    renderShell({
+      features: {
+        registry: true,
+        githubAppSetup: true,
+        externalDNSConfiguration: true,
+      },
+      capabilities: [
+        {
+          role: "platform-admin",
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["registry-targets:read", "external-dns-integrations:read"],
+        },
+      ],
+    });
+
+    await screen.findByRole("link", { name: "Registries" });
+    await screen.findByRole("link", { name: "Git Providers" });
+    const primary = within(
+      screen.getByRole("group", { name: "Primary navigation" }),
+    );
+    expect(
+      primary.getAllByRole("link").map((link) => link.textContent),
+    ).toEqual(["Projects", "Registries", "Git Providers", "Settings"]);
+
+    const settings = within(
+      screen.getByRole("group", { name: "Settings navigation" }),
+    );
+    expect(settings.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+      "href",
+      "/",
+    );
+    expect(settings.getByRole("link", { name: "Teams" })).toHaveAttribute(
+      "href",
+      "/teams",
+    );
+    expect(
+      settings.getByRole("link", { name: "Audit timeline" }),
+    ).toHaveAttribute("href", "/audit");
+    expect(
+      settings.getByRole("link", { name: "External DNS" }),
+    ).toHaveAttribute("href", "/external-dns");
+    expect(screen.queryByRole("link", { name: "Deploy" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Source builds" })).toBeNull();
+  });
+
+  it("uses App language for creation and application routes", () => {
+    renderShell({}, "viewer", "session", "/deploy");
+    expect(screen.getByText("Add App")).toBeInTheDocument();
+
+    cleanup();
+    renderShell(
+      {},
+      "viewer",
+      "session",
+      "/applications/app-1/deployments/deployment-1",
+    );
+    expect(screen.getByText("App")).toBeInTheDocument();
+    expect(screen.queryByText("Deployment")).toBeNull();
+    expect(screen.queryByText("Service")).toBeNull();
   });
 });

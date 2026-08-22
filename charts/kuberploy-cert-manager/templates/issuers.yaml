@@ -31,6 +31,7 @@ spec:
             ingressTemplate:
               metadata:
                 annotations:
+                  external-dns.alpha.kubernetes.io/exclude: "true"
                   external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only
 {{- end }}
 {{- if and .Values.foundation.enabled .Values.foundation.issuers.staging.enabled }}
@@ -67,5 +68,6 @@ spec:
             ingressTemplate:
               metadata:
                 annotations:
+                  external-dns.alpha.kubernetes.io/exclude: "true"
                   external-dns.alpha.kubernetes.io/ingress-hostname-source: annotation-only
 {{- end }}

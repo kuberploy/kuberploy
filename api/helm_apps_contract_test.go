@@ -79,7 +79,31 @@ func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testin
 	}
 	assertClosedFields("HelmValuesInput", []string{"approvalId", "approvalRevision", "valuesYaml"})
 	assertClosedFields("HelmRollbackInput", []string{"sourceRevisionId"})
-	assertClosedFields("CreateHelmApproval", []string{"repository", "version", "manifestDigest", "packageDigest", "valuesSchemaDigest"})
+	var sourceUnion struct {
+		OneOf []struct {
+			Additional bool                       `json:"additionalProperties"`
+			Properties map[string]json.RawMessage `json:"properties"`
+		} `json:"oneOf"`
+	}
+	if err := json.Unmarshal(document.Components.Schemas["CreateHelmApproval"], &sourceUnion); err != nil || len(sourceUnion.OneOf) != 3 {
+		t.Fatalf("CreateHelmApproval source union: variants=%d err=%v", len(sourceUnion.OneOf), err)
+	}
+	wantSourceFields := [][]string{
+		{"sourceKind", "repository", "version", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
+		{"sourceKind", "repository", "chartName", "version", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
+		{"sourceKind", "repository", "chartName", "version", "sourceRevision", "chartPath", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
+	}
+	for index, variant := range sourceUnion.OneOf {
+		fields := make([]string, 0, len(variant.Properties))
+		for field := range variant.Properties {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		sort.Strings(wantSourceFields[index])
+		if variant.Additional || strings.Join(fields, ",") != strings.Join(wantSourceFields[index], ",") {
+			t.Fatalf("CreateHelmApproval variant %d fields=%#v additional=%t", index, fields, variant.Additional)
+		}
+	}
 	assertClosedFields("HelmRenderedResource", []string{"apiVersion", "kind", "namespace", "name", "sanitizedYaml", "previewOmitted"})
 	assertClosedFields("HelmRenderedManifestPreview", []string{"releaseRevisionId", "generation", "manifestDigest", "inventoryDigest", "resourceCount", "previewBytes", "resources"})
 

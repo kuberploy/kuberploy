@@ -279,13 +279,10 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	if err != nil {
 		return nil, err
 	}
-	client := *dependencies.OCIClient
-	client.Timeout = config.OCIRequestTimeout
-	packages := &CachedChartPackageSource{Upstream: OCIHTTPPackageSource{Client: &client,
-		AllowedRegistryHosts: append([]string(nil), config.OCIRegistryHosts...),
-		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...),
-		AllowedRedirectHosts: append([]string(nil), config.OCIRedirectHosts...), Credentials: dependencies.Credentials},
-		MaxBytes: config.PackageCacheBytes}
+	packages, err := NewPostgresApprovedPackageSource(dependencies.Pool)
+	if err != nil {
+		return nil, err
+	}
 	worker := Worker{Store: store, Packages: packages,
 		Renderer:      KubernetesRenderExecutor{API: dependencies.RendererAPI, Config: config.Renderer},
 		LeaseDuration: config.RenderLeaseDuration, Now: dependencies.Now,

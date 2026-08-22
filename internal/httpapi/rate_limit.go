@@ -36,6 +36,7 @@ var (
 	certificateDeleteLimit   = highRiskPolicy{bucket: "certificate-binding-delete", limit: 20, window: time.Hour}
 	githubSetupLimit         = highRiskPolicy{bucket: "github-setup", limit: 20, window: time.Hour}
 	gitBindingLimit          = highRiskPolicy{bucket: "git-binding", limit: 30, window: time.Hour}
+	gitSSHKeyLimit           = highRiskPolicy{bucket: "git-ssh-key", limit: 30, window: time.Hour}
 	variableSetMutationLimit = highRiskPolicy{bucket: "variable-set-mutation", limit: 120, window: time.Hour}
 	platformGitBindingLimit  = highRiskPolicy{bucket: "argo-platform-git-binding", limit: 10, window: time.Hour}
 	buildDefinitionLimit     = highRiskPolicy{bucket: "build-definition", limit: 30, window: time.Hour}

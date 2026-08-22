@@ -16,7 +16,7 @@
     "config": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["publicURL", "logLevel", "postgresql", "valkey", "monitoring", "git", "githubApp", "buildLogs", "gitProjection", "autoDeploy", "platformGitBinding", "runtimeSecrets", "certificateObservation", "certificateIssuerObserver", "runtimeRegistryPulls", "imageTagResolution", "edgeRuntime", "externalDNSOperational", "argoObservation", "environmentFoundation", "argoDesiredState", "helmApplications", "managedRegistry", "bootstrapSecret"],
+      "required": ["publicURL", "logLevel", "postgresql", "valkey", "monitoring", "git", "gitSSH", "githubApp", "buildLogs", "gitProjection", "autoDeploy", "platformGitBinding", "runtimeSecrets", "certificateObservation", "certificateIssuerObserver", "runtimeRegistryPulls", "imageTagResolution", "edgeRuntime", "externalDNSOperational", "argoObservation", "environmentFoundation", "argoDesiredState", "helmApplications", "managedRegistry", "bootstrapSecret"],
       "properties": {
         "publicURL": { "type": "string", "pattern": "^https?://[^\\s]+$", "maxLength": 2048 },
         "logLevel": { "enum": ["debug", "info", "warn", "error"] },
@@ -145,6 +145,28 @@
               }
             }
           ]
+        },
+        "gitSSH": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "encryptionKeyVersion", "secretRef"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "encryptionKeyVersion": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+            "secretRef": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "key"],
+              "properties": {
+                "name": { "$ref": "#/$defs/optionalDNSLabel" },
+                "key": { "$ref": "#/$defs/secretKey" }
+              }
+            }
+          },
+          "allOf": [{
+            "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+            "then": { "properties": { "secretRef": { "properties": { "name": { "minLength": 1 } } } } }
+          }]
         },
         "githubApp": {
           "type": "object",

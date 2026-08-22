@@ -64,20 +64,30 @@ func jobPlanRequest(request builder.BuildRequest, spec DefinitionSpec, operation
 	}
 }
 
-func checkoutRequest(operationID string, generation int64, commit string, repository Repository) builder.CheckoutRequest {
-	return builder.CheckoutRequest{
+func checkoutRequest(operationID string, generation int64, commit string, definition BuildDefinition, repository Repository) builder.CheckoutRequest {
+	request := builder.CheckoutRequest{
 		APIVersion: builder.ProtocolVersion, OperationID: operationID, Generation: generation,
-		RepositoryURL: "https://github.com/" + repository.Identity.OwnerLogin + "/" + repository.Identity.Name + ".git",
-		ApprovedHost:  "github.com", Commit: commit,
-		UsernameFile: builder.SourceCredentialRoot + "/username", AccessTokenFile: builder.SourceCredentialRoot + "/token",
+		Commit: commit,
 	}
+	if definition.SourceKind == SourceGitSSH {
+		request.RepositoryURL = definition.GitSSH.RepositoryURL
+		request.ApprovedHost = definition.GitSSH.ApprovedHost
+		request.SSHPrivateKeyFile = builder.SourceSSHPrivateKeyFile
+		request.SSHKnownHostsFile = builder.SourceSSHKnownHostsFile
+		return request
+	}
+	request.RepositoryURL = "https://github.com/" + repository.Identity.OwnerLogin + "/" + repository.Identity.Name + ".git"
+	request.ApprovedHost = "github.com"
+	request.UsernameFile = builder.SourceCredentialRoot + "/username"
+	request.AccessTokenFile = builder.SourceCredentialRoot + "/token"
+	return request
 }
 
 func newAttempt(definition BuildDefinition, repository Repository, delivery EnqueuePush, generation int64, imports []string, now time.Time) (BuildAttempt, error) {
 	operationID := deterministicUUID("build-attempt-v1", delivery.ClaimKey, definition.ID)
 	request := generatedBuildRequest(operationID, generation, definition.ProjectID, definition.ServiceID, delivery.CommitSHA, definition.Spec, imports, definition.DefinitionDigest)
 	planRequest := jobPlanRequest(request, definition.Spec, operationID)
-	checkout := checkoutRequest(operationID, generation, delivery.CommitSHA, repository)
+	checkout := checkoutRequest(operationID, generation, delivery.CommitSHA, definition, repository)
 	if err := request.Validate(); err != nil {
 		return BuildAttempt{}, fmt.Errorf("%w: generated build request: %v", ErrInvalid, err)
 	}
@@ -95,6 +105,7 @@ func newAttempt(definition BuildDefinition, repository Repository, delivery Enqu
 	metadata := plan.Job["metadata"].(map[string]any)
 	return BuildAttempt{
 		ID: operationID, DefinitionID: definition.ID, DeliveryClaimKey: delivery.ClaimKey,
+		TriggerKind: "github_push", TriggerKey: delivery.ClaimKey,
 		ProjectID: definition.ProjectID, ServiceID: definition.ServiceID, CommitSHA: delivery.CommitSHA, GitRef: delivery.GitRef,
 		Generation: generation, DefinitionDigest: definition.DefinitionDigest,
 		PlanRequest: planRequest, CheckoutRequest: checkout, InputDigest: inputDigest, RegistryMode: definition.Spec.Registry.Mode,

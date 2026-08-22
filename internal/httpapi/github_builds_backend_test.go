@@ -48,7 +48,7 @@ func (s *retryExecutionStore) ClaimAPICommand(_ context.Context, _, _, _, _, _, 
 
 func (s *retryExecutionStore) RetryAttempt(_ context.Context, _, retryID, claimKey string, execution builds.ExecutionSettings, now time.Time) (builds.BuildAttempt, bool, error) {
 	s.capturedExecution = execution
-	return builds.BuildAttempt{ID: retryID, DefinitionID: s.definition.ID, DeliveryClaimKey: claimKey, State: builds.AttemptQueued, CreatedAt: now}, false, nil
+	return builds.BuildAttempt{ID: retryID, DefinitionID: s.definition.ID, DeliveryClaimKey: claimKey, TriggerKind: "github_push", TriggerKey: claimKey, State: builds.AttemptQueued, CreatedAt: now}, false, nil
 }
 
 type retryExecutionResolver struct {

@@ -30,6 +30,9 @@ func (s *PostgresStore) PutApproval(ctx context.Context, approval Approval) (App
 		return Approval{}, false, ErrInvalid
 	}
 	identity, _ := approval.IdentityDigest()
+	source, _ := approval.CanonicalSource()
+	sourceJSON, _ := marshalChartSource(source)
+	chartName, _, _ := source.ChartIdentity()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return Approval{}, false, err
@@ -49,11 +52,11 @@ func (s *PostgresStore) PutApproval(ctx context.Context, approval Approval) (App
 		return Approval{}, false, classifyPostgres(queryErr)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO helm_chart_approvals(
-		approval_id,revision,oci_repository,chart_version,manifest_digest,package_digest,
+		approval_id,revision,source_kind,source_json,chart_name,oci_repository,chart_version,manifest_digest,package_digest,
 		values_schema_digest,renderer_image,renderer_version,policy_version,identity_digest,
 		created_by,idempotency_key,created_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		approval.ID, approval.Revision, approval.OCIRepository, approval.ChartVersion,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+		approval.ID, approval.Revision, string(source.Kind), sourceJSON, chartName, approval.OCIRepository, approval.ChartVersion,
 		approval.ManifestDigest, approval.PackageDigest, approval.ValuesSchemaDigest,
 		approval.RendererImage, approval.RendererVersion, approval.PolicyVersion, identity,
 		approval.CreatedBy, approval.IdempotencyKey, approval.CreatedAt)
@@ -407,7 +410,7 @@ func (s *PostgresStore) RuntimeReady(ctx context.Context, now time.Time) (bool, 
 	return ready, classifyPostgres(err)
 }
 
-const approvalSelect = `SELECT approval_id::text,revision,oci_repository,chart_version,
+const approvalSelect = `SELECT approval_id::text,revision,source_kind,source_json,chart_name,oci_repository,chart_version,
 	manifest_digest,package_digest,values_schema_digest,renderer_image,renderer_version,
 	policy_version,created_by::text,idempotency_key,created_at,identity_digest FROM helm_chart_approvals`
 
@@ -419,7 +422,7 @@ const commandSelect = `SELECT c.id::text,c.idempotency_scope::text,c.idempotency
 	c.lease_until,COALESCE(c.worker_contract,''),COALESCE(c.worker_renderer_image,''),
 	COALESCE(c.worker_renderer_version,''),COALESCE(c.worker_policy_version,''),
 	COALESCE(c.worker_limits_digest,''),COALESCE(c.worker_operator_config_digest,''),c.created_at,c.updated_at,c.completed_at,
-	a.oci_repository,a.chart_version,a.manifest_digest,a.package_digest,a.values_schema_digest,
+	a.source_kind,a.source_json,a.chart_name,a.oci_repository,a.chart_version,a.manifest_digest,a.package_digest,a.values_schema_digest,
 	a.renderer_image,a.renderer_version,a.policy_version
 	FROM helm_render_commands c JOIN helm_chart_approvals a
 	ON a.approval_id=c.approval_id AND a.revision=c.approval_revision`
@@ -432,12 +435,22 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanApproval(row rowScanner) (Approval, error) {
 	var approval Approval
-	var identityDigest string
-	err := row.Scan(&approval.ID, &approval.Revision, &approval.OCIRepository, &approval.ChartVersion,
+	var identityDigest, sourceKind, chartName string
+	var sourceJSON []byte
+	err := row.Scan(&approval.ID, &approval.Revision, &sourceKind, &sourceJSON, &chartName,
+		&approval.OCIRepository, &approval.ChartVersion,
 		&approval.ManifestDigest, &approval.PackageDigest, &approval.ValuesSchemaDigest,
 		&approval.RendererImage, &approval.RendererVersion, &approval.PolicyVersion,
 		&approval.CreatedBy, &approval.IdempotencyKey, &approval.CreatedAt, &identityDigest)
 	if err == nil {
+		approval.Source, err = unmarshalChartSource(sourceJSON)
+		if err != nil || string(approval.Source.Kind) != sourceKind {
+			return Approval{}, ErrConflict
+		}
+		resolvedChartName, _, identityErr := approval.Source.ChartIdentity()
+		if identityErr != nil || resolvedChartName != chartName {
+			return Approval{}, ErrConflict
+		}
 		expected, identityErr := approval.IdentityDigest()
 		if identityErr != nil || identityDigest != expected {
 			return Approval{}, ErrConflict
@@ -448,7 +461,8 @@ func scanApproval(row rowScanner) (Approval, error) {
 
 func scanCommand(row rowScanner) (RenderCommand, error) {
 	var command RenderCommand
-	var repository, version, manifestDigest, packageDigest, schemaDigest string
+	var sourceKind, chartName, repository, version, manifestDigest, packageDigest, schemaDigest string
+	var sourceJSON []byte
 	err := row.Scan(&command.ID, &command.IdempotencyScope, &command.IdempotencyKey,
 		&command.Approval.ID, &command.Approval.Revision,
 		&command.Descriptor.Destination.ProjectID, &command.Descriptor.Destination.EnvironmentID,
@@ -462,13 +476,18 @@ func scanCommand(row rowScanner) (RenderCommand, error) {
 		&command.WorkerIdentity.RendererVersion, &command.WorkerIdentity.PolicyVersion,
 		&command.WorkerIdentity.LimitsDigest, &command.WorkerIdentity.OperatorConfigDigest,
 		&command.CreatedAt, &command.UpdatedAt,
-		&command.CompletedAt, &repository, &version, &manifestDigest, &packageDigest,
+		&command.CompletedAt, &sourceKind, &sourceJSON, &chartName, &repository, &version, &manifestDigest, &packageDigest,
 		&schemaDigest, &command.Descriptor.RendererImage, &command.Descriptor.RendererVersion,
 		&command.Descriptor.PolicyVersion)
 	if err != nil {
 		return RenderCommand{}, err
 	}
 	command.Descriptor.Approval = command.Approval
+	command.Descriptor.Source, err = unmarshalChartSource(sourceJSON)
+	resolvedChartName, _, sourceErr := command.Descriptor.Source.ChartIdentity()
+	if err != nil || sourceErr != nil || string(command.Descriptor.Source.Kind) != sourceKind || resolvedChartName != chartName {
+		return RenderCommand{}, ErrConflict
+	}
 	command.Descriptor.Repository, command.Descriptor.Version = repository, version
 	command.Descriptor.ManifestDigest, command.Descriptor.PackageDigest = manifestDigest, packageDigest
 	command.Descriptor.ValuesSchemaDigest = schemaDigest

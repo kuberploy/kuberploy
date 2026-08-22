@@ -69,6 +69,7 @@ helm template proxied "${kp_chart}" \
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.secretName' "${kp_auth_render}")" == "registry-tls" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.issuerRef.name' "${kp_auth_render}")" == "kuberploy-letsencrypt-production" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.dnsNames[0]' "${kp_auth_render}")" == "registry.example.com" ]]
+[[ "$(yq eval-all 'select(.kind == "Certificate") | [.spec.privateKey.algorithm,.spec.privateKey.size] | join(",")' "${kp_auth_render}")" == "ECDSA,256" ]]
 
 kp_endpoint_changed_render="${kp_tmp}/endpoint-changed.yaml"
 helm template authenticated "${kp_chart}" \

@@ -69,26 +69,27 @@ type Store struct {
 		revision int64
 		expires  time.Time
 	}
-	projects            map[string]domain.Project
-	environments        map[string]domain.Environment
-	applications        map[string]domain.Application
-	deployments         map[string]domain.Deployment
-	argoObservations    map[string]domain.ArgoRolloutObservation
-	deploymentInputs    map[string]domain.Deployment
-	configPreviews      map[string]domain.ConfigPreviewLease
-	configPreviewGit    map[string]gitprojection.WritePlan
-	variableSetPreviews map[string]variableSetPreviewRecord
-	gitWriteCommands    map[string]gitprojection.WriteCommand
-	gitPublicationModes map[string]gitpublication.Mode
-	gitPublications     map[string]gitpublication.Publication
-	gitDocuments        map[string]gitprojection.Document
-	operations          map[string]domain.Operation
-	idempotency         map[string]idemRecord
-	outbox              map[string]*outboxRecord
-	outboxDatasetID     string
-	audits              int
-	auditEvents         []domain.AuditEvent
-	leases              map[string]struct {
+	projects                 map[string]domain.Project
+	environments             map[string]domain.Environment
+	applications             map[string]domain.Application
+	environmentAppPlacements map[string]map[string]domain.EnvironmentAppPlacement
+	deployments              map[string]domain.Deployment
+	argoObservations         map[string]domain.ArgoRolloutObservation
+	deploymentInputs         map[string]domain.Deployment
+	configPreviews           map[string]domain.ConfigPreviewLease
+	configPreviewGit         map[string]gitprojection.WritePlan
+	variableSetPreviews      map[string]variableSetPreviewRecord
+	gitWriteCommands         map[string]gitprojection.WriteCommand
+	gitPublicationModes      map[string]gitpublication.Mode
+	gitPublications          map[string]gitpublication.Publication
+	gitDocuments             map[string]gitprojection.Document
+	operations               map[string]domain.Operation
+	idempotency              map[string]idemRecord
+	outbox                   map[string]*outboxRecord
+	outboxDatasetID          string
+	audits                   int
+	auditEvents              []domain.AuditEvent
+	leases                   map[string]struct {
 		owner string
 		until time.Time
 	}
@@ -127,7 +128,7 @@ func New() *Store {
 		userID   string
 		revision int64
 		expires  time.Time
-	}{}, invitations: map[string]invitationRecord{}, teams: map[string]domain.Team{}, memberships: map[string]map[string]domain.TeamMember{}, installations: map[string]domain.GitHubInstallation{}, accessGrants: map[string]domain.AccessGrant{}, serviceAccounts: map[string]domain.ServiceAccount{}, serviceAccountTokens: map[string]domain.ServiceAccountToken{}, serviceAccountTokenHashes: map[string]string{}, projects: map[string]domain.Project{}, environments: map[string]domain.Environment{}, applications: map[string]domain.Application{}, deployments: map[string]domain.Deployment{}, argoObservations: map[string]domain.ArgoRolloutObservation{}, deploymentInputs: map[string]domain.Deployment{}, configPreviews: map[string]domain.ConfigPreviewLease{}, configPreviewGit: map[string]gitprojection.WritePlan{}, variableSetPreviews: map[string]variableSetPreviewRecord{}, gitWriteCommands: map[string]gitprojection.WriteCommand{}, gitPublicationModes: map[string]gitpublication.Mode{}, gitPublications: map[string]gitpublication.Publication{}, gitDocuments: map[string]gitprojection.Document{}, operations: map[string]domain.Operation{}, idempotency: map[string]idemRecord{}, outbox: map[string]*outboxRecord{}, leases: map[string]struct {
+	}{}, invitations: map[string]invitationRecord{}, teams: map[string]domain.Team{}, memberships: map[string]map[string]domain.TeamMember{}, installations: map[string]domain.GitHubInstallation{}, accessGrants: map[string]domain.AccessGrant{}, serviceAccounts: map[string]domain.ServiceAccount{}, serviceAccountTokens: map[string]domain.ServiceAccountToken{}, serviceAccountTokenHashes: map[string]string{}, projects: map[string]domain.Project{}, environments: map[string]domain.Environment{}, applications: map[string]domain.Application{}, environmentAppPlacements: map[string]map[string]domain.EnvironmentAppPlacement{}, deployments: map[string]domain.Deployment{}, argoObservations: map[string]domain.ArgoRolloutObservation{}, deploymentInputs: map[string]domain.Deployment{}, configPreviews: map[string]domain.ConfigPreviewLease{}, configPreviewGit: map[string]gitprojection.WritePlan{}, variableSetPreviews: map[string]variableSetPreviewRecord{}, gitWriteCommands: map[string]gitprojection.WriteCommand{}, gitPublicationModes: map[string]gitpublication.Mode{}, gitPublications: map[string]gitpublication.Publication{}, gitDocuments: map[string]gitprojection.Document{}, operations: map[string]domain.Operation{}, idempotency: map[string]idemRecord{}, outbox: map[string]*outboxRecord{}, leases: map[string]struct {
 		owner string
 		until time.Time
 	}{}, registryTargets: map[string]domain.RegistryTarget{}, registryPolicies: map[string]domain.ServiceRegistryPolicy{}, registryInventories: map[string]domain.RegistryInventoryObservation{}, registryCatalogs: map[string]domain.RegistryCatalogSnapshot{}, registryAuthorities: map[string]domain.RegistryProtectionSnapshot{}, registryPins: map[string]domain.RegistryArtifactReference{}, registryReleases: map[string]domain.RegistryRelease{}, registryCaches: map[string]domain.RegistryCacheGeneration{}, registryPlans: map[string]domain.RegistryCleanupPlan{}, registryPlanDigests: map[string]string{}, registryLeases: map[string]registryCleanupLease{}, registryRuntimeReadiness: map[string]registry.RuntimeReadinessLease{}, externalDNSIntegrations: map[string]domain.ExternalDNSIntegration{}, gitBindings: map[string]gitprojection.Binding{}, platformGitBindings: map[string]gitprojection.Binding{}, autoDeployPolicies: map[string]autodeploy.Policy{}, autoDeployRevisions: map[string]map[int64]autodeploy.Revision{}, autoDeployCommands: map[string]autoDeployCommandRecord{}, autoDeployRuns: map[string][]autodeploy.Run{}}
@@ -343,6 +344,101 @@ func (s *Store) ListEnvironments(context.Context) ([]domain.Environment, error) 
 	return out, nil
 }
 
+func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, key, fp string, in domain.CloneEnvironment) (base.Result[domain.EnvironmentCloneResult], error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	source, ok := s.environments[sourceEnvironmentID]
+	if !ok {
+		return base.Result[domain.EnvironmentCloneResult]{}, base.ErrNotFound
+	}
+	project, ok := s.projects[source.ProjectID]
+	if !ok {
+		return base.Result[domain.EnvironmentCloneResult]{}, base.ErrNotFound
+	}
+	// Cloning creates an Environment in the source project. Environment-scoped
+	// write access alone is intentionally insufficient.
+	if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: project.ID}); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+
+	k := ik(actor, "environments.clone", key)
+	cloneFingerprint := sourceEnvironmentID + ":" + fp
+	old, replay := s.idempotency[k]
+	if err := check(old, replay, cloneFingerprint); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	if replay {
+		environment, exists := s.environments[old.resourceID]
+		if !exists || environment.ProjectID != source.ProjectID {
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrNotFound
+		}
+		return base.Result[domain.EnvironmentCloneResult]{Value: domain.EnvironmentCloneResult{
+			Environment: environment, AppPlacements: s.environmentAppPlacementsLocked(environment.ID),
+		}, Replay: true}, nil
+	}
+
+	namespace, argoProject := domain.DeriveEnvironmentDestination(project, in.Slug)
+	if in.ProtectionPolicy == "" {
+		in.ProtectionPolicy = source.ProtectionPolicy
+	}
+	if in.ProtectionPolicy != domain.EnvironmentDevelopment && in.ProtectionPolicy != domain.EnvironmentProtected {
+		return base.Result[domain.EnvironmentCloneResult]{}, base.ErrConflict
+	}
+	for _, environment := range s.environments {
+		if environment.Namespace == namespace || environment.ProjectID == source.ProjectID && environment.Slug == in.Slug {
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrConflict
+		}
+	}
+
+	now := time.Now().UTC()
+	clone := domain.Environment{ID: id.New(), ProjectID: source.ProjectID, Name: in.Name, Slug: in.Slug, Namespace: namespace, ArgoProject: argoProject, ProtectionPolicy: in.ProtectionPolicy, CreatedAt: now}
+	s.environments[clone.ID] = clone
+	s.environmentAppPlacements[clone.ID] = map[string]domain.EnvironmentAppPlacement{}
+	applicationIDs := map[string]struct{}{}
+	for applicationID := range s.environmentAppPlacements[sourceEnvironmentID] {
+		applicationIDs[applicationID] = struct{}{}
+	}
+	// Legacy deployments remain valid source placements even if they predate
+	// the explicit placement table.
+	for _, deployment := range s.deployments {
+		if deployment.EnvironmentID == sourceEnvironmentID {
+			applicationIDs[deployment.ApplicationID] = struct{}{}
+		}
+	}
+	for applicationID := range applicationIDs {
+		application, exists := s.applications[applicationID]
+		if !exists || application.ProjectID != source.ProjectID {
+			continue
+		}
+		s.environmentAppPlacements[clone.ID][applicationID] = domain.EnvironmentAppPlacement{
+			ProjectID: source.ProjectID, EnvironmentID: clone.ID, ApplicationID: application.ID,
+			ApplicationName: application.Name, ApplicationSlug: application.Slug,
+			State: domain.EnvironmentAppPlacementDraft, DesiredState: domain.EnvironmentAppPlacementStopped,
+			CreatedAt: now, UpdatedAt: now,
+		}
+	}
+	s.idempotency[k] = idemRecord{fingerprint: cloneFingerprint, typ: "environment", resourceID: clone.ID}
+	s.audits++
+	return base.Result[domain.EnvironmentCloneResult]{Value: domain.EnvironmentCloneResult{
+		Environment: clone, AppPlacements: s.environmentAppPlacementsLocked(clone.ID),
+	}}, nil
+}
+
+func (s *Store) environmentAppPlacementsLocked(environmentID string) []domain.EnvironmentAppPlacement {
+	placements := make([]domain.EnvironmentAppPlacement, 0, len(s.environmentAppPlacements[environmentID]))
+	for _, placement := range s.environmentAppPlacements[environmentID] {
+		placements = append(placements, placement)
+	}
+	sort.Slice(placements, func(i, j int) bool {
+		if placements[i].ApplicationSlug == placements[j].ApplicationSlug {
+			return placements[i].ApplicationID < placements[j].ApplicationID
+		}
+		return placements[i].ApplicationSlug < placements[j].ApplicationSlug
+	})
+	return placements
+}
+
 func (s *Store) CreateApplication(_ context.Context, actor, key, fp string, in domain.CreateApplication) (base.Result[domain.Application], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -365,13 +461,34 @@ func (s *Store) CreateApplication(_ context.Context, actor, key, fp string, in d
 	if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: project.ID}); err != nil {
 		return base.Result[domain.Application]{}, err
 	}
+	if in.EnvironmentID != "" {
+		environment, exists := s.environments[in.EnvironmentID]
+		if !exists {
+			return base.Result[domain.Application]{}, base.ErrNotFound
+		}
+		if environment.ProjectID != project.ID {
+			return base.Result[domain.Application]{}, base.ErrConflict
+		}
+	}
 	for _, v := range s.applications {
 		if v.ProjectID == in.ProjectID && v.Slug == in.Slug {
 			return base.Result[domain.Application]{}, base.ErrConflict
 		}
 	}
-	v := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, CreatedAt: time.Now().UTC()}
+	now := time.Now().UTC()
+	v := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, CreatedAt: now}
 	s.applications[v.ID] = v
+	if in.EnvironmentID != "" {
+		if s.environmentAppPlacements[in.EnvironmentID] == nil {
+			s.environmentAppPlacements[in.EnvironmentID] = map[string]domain.EnvironmentAppPlacement{}
+		}
+		s.environmentAppPlacements[in.EnvironmentID][v.ID] = domain.EnvironmentAppPlacement{
+			ProjectID: project.ID, EnvironmentID: in.EnvironmentID, ApplicationID: v.ID,
+			ApplicationName: v.Name, ApplicationSlug: v.Slug,
+			State: domain.EnvironmentAppPlacementDraft, DesiredState: domain.EnvironmentAppPlacementStopped,
+			CreatedAt: now, UpdatedAt: now,
+		}
+	}
 	s.idempotency[k] = idemRecord{fp, "application", v.ID, ""}
 	s.audits++
 	return base.Result[domain.Application]{Value: v}, nil
@@ -512,6 +629,19 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 	}
 	s.operations[opID] = op
 	s.deployments[dID] = d
+	if s.environmentAppPlacements[in.EnvironmentID] == nil {
+		s.environmentAppPlacements[in.EnvironmentID] = map[string]domain.EnvironmentAppPlacement{}
+	}
+	placementCreatedAt := now
+	if current, exists := s.environmentAppPlacements[in.EnvironmentID][in.ApplicationID]; exists {
+		placementCreatedAt = current.CreatedAt
+	}
+	s.environmentAppPlacements[in.EnvironmentID][in.ApplicationID] = domain.EnvironmentAppPlacement{
+		ProjectID: project.ID, EnvironmentID: e.ID, ApplicationID: a.ID,
+		ApplicationName: a.Name, ApplicationSlug: a.Slug,
+		State: domain.EnvironmentAppPlacementActive, DesiredState: domain.EnvironmentAppPlacementRunning,
+		CreatedAt: placementCreatedAt, UpdatedAt: now,
+	}
 	s.deploymentInputs[opID] = d
 	s.outbox[opID] = &outboxRecord{message: domain.WorkMessage{OperationID: opID, Kind: op.Kind, ScopeID: in.EnvironmentID, Generation: generation, TraceID: requestID}}
 	s.idempotency[k] = idemRecord{fp, "deployment", dID, opID}

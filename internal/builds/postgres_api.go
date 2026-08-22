@@ -58,7 +58,7 @@ func (s *PostgreSQLStore) DefinitionsForService(ctx context.Context, serviceID s
 	if !uuidRE.MatchString(serviceID) {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,project_id::text,service_id::text,installation_id::text,repository_id::text,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at
+	rows, err := s.pool.Query(ctx, `SELECT id::text,project_id::text,service_id::text,source_kind,COALESCE(installation_id::text,''),COALESCE(repository_id::text,''),git_ssh_source,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at
 		FROM build_definitions WHERE service_id=$1 ORDER BY updated_at DESC,id`, serviceID)
 	if err != nil {
 		return nil, err
@@ -191,7 +191,7 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 		return BuildAttempt{}, false, err
 	}
 	if existing, getErr := attemptByIDQuery(ctx, tx, retryAttemptID, false); getErr == nil {
-		if existing.DeliveryClaimKey != claimKey {
+		if existing.TriggerKey != claimKey {
 			return BuildAttempt{}, false, ErrConflict
 		}
 		return existing, true, tx.Commit(ctx)
@@ -212,16 +212,32 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if !definition.Enabled || definition.DefinitionDigest != source.DefinitionDigest {
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
-	installation, err := installationByIDQuery(ctx, tx, definition.InstallationID)
-	if err != nil {
-		return BuildAttempt{}, false, err
-	}
-	repository, err := repositoryByIDQuery(ctx, tx, definition.RepositoryID)
-	if err != nil {
-		return BuildAttempt{}, false, err
-	}
-	if installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive || repository.InstallationID != installation.ID {
-		return BuildAttempt{}, false, ErrUnauthorized
+	var installation Installation
+	var repository Repository
+	if definition.SourceKind == SourceGitHub {
+		installation, err = installationByIDQuery(ctx, tx, definition.InstallationID)
+		if err != nil {
+			return BuildAttempt{}, false, err
+		}
+		repository, err = repositoryByIDQuery(ctx, tx, definition.RepositoryID)
+		if err != nil {
+			return BuildAttempt{}, false, err
+		}
+		if installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive || repository.InstallationID != installation.ID {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+	} else {
+		var keyStatus string
+		if definition.GitSSH == nil {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+		if err = tx.QueryRow(ctx, `SELECT status FROM git_ssh_key_revisions WHERE scope=$1 AND owner_id=$2 AND revision=$3 FOR SHARE`,
+			definition.GitSSH.KeyScope, definition.GitSSH.KeyOwnerID, definition.GitSSH.KeyRevision).Scan(&keyStatus); err != nil {
+			return BuildAttempt{}, false, classifyPostgres(err)
+		}
+		if keyStatus != "active" {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
 	}
 	var generation int64
 	err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1)
@@ -238,31 +254,112 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil || attempt.ID != retryAttemptID {
 		return BuildAttempt{}, false, ErrInvalid
 	}
-	claimRetainUntil := now.UTC().Add(24 * time.Hour)
-	_, err = tx.Exec(ctx, `INSERT INTO github_one_time_claims(kind,claim_key,retain_until,permanent) VALUES('github-delivery',$1,$2,true)`, claimKey, claimRetainUntil)
-	if err != nil {
-		return BuildAttempt{}, false, classifyPostgres(err)
-	}
-	bodyDigest := sha256.Sum256([]byte("kuberploy-manual-build-retry-v1\x00" + sourceAttemptID))
-	deliveryID := deterministicUUID("build-retry-delivery-v1", claimKey)
-	_, err = tx.Exec(ctx, `INSERT INTO github_webhook_receipts(claim_key,github_app_id,github_installation_id,delivery_id,event,body_sha256,typed_event,repository_id,git_ref,state,available_at,received_at,completed_at,updated_at)
-		VALUES($1,$2,$3,$4,'push',$5,NULL,$6,$7,'enqueued',$8,$8,$8,$8)`, claimKey, installation.AppID, installation.GitHubInstallationID,
-		deliveryID, "sha256:"+hex.EncodeToString(bodyDigest[:]), repository.Identity.ID, source.GitRef, now.UTC())
-	if err != nil {
-		return BuildAttempt{}, false, classifyPostgres(err)
+	if definition.SourceKind == SourceGitHub {
+		claimRetainUntil := now.UTC().Add(24 * time.Hour)
+		_, err = tx.Exec(ctx, `INSERT INTO github_one_time_claims(kind,claim_key,retain_until,permanent) VALUES('github-delivery',$1,$2,true)`, claimKey, claimRetainUntil)
+		if err != nil {
+			return BuildAttempt{}, false, classifyPostgres(err)
+		}
+		bodyDigest := sha256.Sum256([]byte("kuberploy-manual-build-retry-v1\x00" + sourceAttemptID))
+		deliveryID := deterministicUUID("build-retry-delivery-v1", claimKey)
+		_, err = tx.Exec(ctx, `INSERT INTO github_webhook_receipts(claim_key,github_app_id,github_installation_id,delivery_id,event,body_sha256,typed_event,repository_id,git_ref,state,available_at,received_at,completed_at,updated_at)
+			VALUES($1,$2,$3,$4,'push',$5,NULL,$6,$7,'enqueued',$8,$8,$8,$8)`, claimKey, installation.AppID, installation.GitHubInstallationID,
+			deliveryID, "sha256:"+hex.EncodeToString(bodyDigest[:]), repository.Identity.ID, source.GitRef, now.UTC())
+		if err != nil {
+			return BuildAttempt{}, false, classifyPostgres(err)
+		}
+	} else {
+		attempt.DeliveryClaimKey = ""
+		attempt.TriggerKind, attempt.TriggerKey = "retry", claimKey
+		if err = validateStoredAttempt(attempt); err != nil {
+			return BuildAttempt{}, false, err
+		}
 	}
 	planJSON, _ := json.Marshal(attempt.PlanRequest)
 	checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
-	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued',0,$14,$15,$16,$17,$18,$19,$19)`,
-		attempt.ID, attempt.DefinitionID, attempt.DeliveryClaimKey, attempt.ProjectID, attempt.ServiceID, attempt.CommitSHA, attempt.GitRef,
-		attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
+	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued',0,$16,$17,$18,$19,$20,$21,$21)`,
+		attempt.ID, attempt.DefinitionID, nullableUUID(attempt.DeliveryClaimKey), attempt.TriggerKind, attempt.TriggerKey, attempt.ProjectID, attempt.ServiceID,
+		attempt.CommitSHA, attempt.GitRef, attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
 		attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO build_outbox(attempt_id,kind,trace_id,available_at,created_at) VALUES($1,'source-build',$2,$3,$3)`, attempt.ID, claimKey, now.UTC())
 	if err != nil {
+		return BuildAttempt{}, false, classifyPostgres(err)
+	}
+	return attempt, false, tx.Commit(ctx)
+}
+
+func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID, commitSHA, claimKey string, execution ExecutionSettings, now time.Time) (BuildAttempt, bool, error) {
+	if !uuidRE.MatchString(definitionID) || !commitRE.MatchString(commitSHA) || !regexpHex64(claimKey) || now.IsZero() {
+		return BuildAttempt{}, false, ErrInvalid
+	}
+	attemptID := ManualAttemptID(claimKey, definitionID)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return BuildAttempt{}, false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "build-manual|"+attemptID); err != nil {
+		return BuildAttempt{}, false, err
+	}
+	if existing, getErr := attemptByIDQuery(ctx, tx, attemptID, false); getErr == nil {
+		if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID || existing.CommitSHA != commitSHA {
+			return BuildAttempt{}, false, ErrConflict
+		}
+		return existing, true, tx.Commit(ctx)
+	} else if !errors.Is(getErr, ErrNotFound) {
+		return BuildAttempt{}, false, getErr
+	}
+	definition, err := definitionByIDQuery(ctx, tx, definitionID, true)
+	if err != nil {
+		return BuildAttempt{}, false, err
+	}
+	if definition.SourceKind != SourceGitSSH || definition.GitSSH == nil || !definition.Enabled {
+		return BuildAttempt{}, false, ErrUnauthorized
+	}
+	var keyStatus string
+	if err = tx.QueryRow(ctx, `SELECT status FROM git_ssh_key_revisions WHERE scope=$1 AND owner_id=$2 AND revision=$3 FOR SHARE`,
+		definition.GitSSH.KeyScope, definition.GitSSH.KeyOwnerID, definition.GitSSH.KeyRevision).Scan(&keyStatus); err != nil {
+		return BuildAttempt{}, false, classifyPostgres(err)
+	}
+	if keyStatus != "active" {
+		return BuildAttempt{}, false, ErrUnauthorized
+	}
+	var generation int64
+	if err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1)
+		ON CONFLICT(project_id,service_id) DO UPDATE SET last_generation=build_service_generations.last_generation+1 RETURNING last_generation`,
+		definition.ProjectID, definition.ServiceID).Scan(&generation); err != nil {
+		return BuildAttempt{}, false, classifyPostgres(err)
+	}
+	imports, err := cacheImportsQuery(ctx, tx, definition, generation)
+	if err != nil {
+		return BuildAttempt{}, false, err
+	}
+	attempt, err := newAttemptWithExecution(definition, execution, Repository{}, EnqueuePush{
+		ClaimKey: claimKey, CommitSHA: commitSHA, GitRef: definition.TriggerRef, ResolvedAt: now.UTC(),
+	}, generation, imports, now)
+	if err != nil || attempt.ID != attemptID {
+		return BuildAttempt{}, false, ErrInvalid
+	}
+	attempt.DeliveryClaimKey = ""
+	attempt.TriggerKind, attempt.TriggerKey = "manual", claimKey
+	if err = validateStoredAttempt(attempt); err != nil {
+		return BuildAttempt{}, false, err
+	}
+	planJSON, _ := json.Marshal(attempt.PlanRequest)
+	checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
+	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
+		VALUES($1,$2,NULL,'manual',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued',0,$14,$15,$16,$17,$18,$19,$19)`,
+		attempt.ID, attempt.DefinitionID, attempt.TriggerKey, attempt.ProjectID, attempt.ServiceID, attempt.CommitSHA, attempt.GitRef,
+		attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
+		attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
+	if err != nil {
+		return BuildAttempt{}, false, classifyPostgres(err)
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO build_outbox(attempt_id,kind,trace_id,available_at,created_at) VALUES($1,'source-build',$2,$3,$3)`, attempt.ID, claimKey, now.UTC()); err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
 	return attempt, false, tx.Commit(ctx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"os/exec"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -66,10 +67,18 @@ func newHelmApplicationsAPIFromLookup(ctx context.Context, databaseURL string, p
 		return nil, err
 	}
 	client := &http.Client{Timeout: config.OCIRequestTimeout}
-	packages := &helmapps.CachedChartPackageSource{Upstream: helmapps.OCIHTTPPackageSource{
+	ociPackages := &helmapps.CachedChartPackageSource{Upstream: helmapps.OCIHTTPPackageSource{
 		Client: client, AllowedRegistryHosts: append([]string(nil), config.OCIRegistryHosts...),
 		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...),
 		AllowedRedirectHosts: append([]string(nil), config.OCIRedirectHosts...), Credentials: credentials}, MaxBytes: config.PackageCacheBytes}
+	gitPath, gitErr := exec.LookPath("git")
+	helmPath, helmErr := exec.LookPath("helm")
+	if gitErr != nil || helmErr != nil {
+		pool.Close()
+		return nil, helmapps.ErrUnavailable
+	}
+	packages := helmapps.UniversalChartPackageSource{OCI: ociPackages, HTTP: client,
+		GitPath: gitPath, HelmPath: helmPath, Timeout: config.OCIRequestTimeout}
 	approvals := &helmapps.ApprovalAdmissionService{Store: admissionStore, Packages: packages,
 		Now: func() time.Time { return time.Now().UTC() }, NewID: id.New}
 	if approvals.Validate() != nil {

@@ -132,6 +132,7 @@ type ApprovalDocument struct {
 	Approval          Approval  `json:"approval"`
 	ValuesSchemaJSON  []byte    `json:"valuesSchema"`
 	DefaultValuesYAML []byte    `json:"defaultValuesYaml"`
+	PackageBytes      []byte    `json:"-"`
 	DocumentsDigest   string    `json:"documentsDigest"`
 	CreatedAt         time.Time `json:"createdAt"`
 }
@@ -233,7 +234,8 @@ func (d ApprovalDocument) Validate() error {
 	if d.Approval.Validate() != nil || len(d.ValuesSchemaJSON) < 2 ||
 		len(d.ValuesSchemaJSON) > MaximumSchemaSize || len(d.DefaultValuesYAML) < 1 ||
 		len(d.DefaultValuesYAML) > MaximumValuesSize || !validDigest(d.DocumentsDigest) ||
-		d.CreatedAt.IsZero() || digestBytes(d.ValuesSchemaJSON) != d.Approval.ValuesSchemaDigest {
+		d.CreatedAt.IsZero() || digestBytes(d.ValuesSchemaJSON) != d.Approval.ValuesSchemaDigest ||
+		(len(d.PackageBytes) != 0 && (len(d.PackageBytes) > MaximumChartSize || digestBytes(d.PackageBytes) != d.Approval.PackageDigest)) {
 		return ErrInvalid
 	}
 	var schema any

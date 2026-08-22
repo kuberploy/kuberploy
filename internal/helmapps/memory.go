@@ -36,7 +36,8 @@ func NewMemoryStore(operatorConfigDigest ...string) *MemoryStore {
 }
 
 func (s *MemoryStore) AdmitApproval(_ context.Context, document ApprovalDocument) (ApprovalDocument, bool, error) {
-	if document.Validate() != nil {
+	if document.Validate() != nil || len(document.PackageBytes) == 0 ||
+		digestBytes(document.PackageBytes) != document.Approval.PackageDigest {
 		return ApprovalDocument{}, false, ErrInvalid
 	}
 	s.mu.Lock()

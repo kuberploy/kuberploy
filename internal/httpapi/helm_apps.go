@@ -41,8 +41,12 @@ type helmApprovalKeyView struct {
 type helmApprovalView struct {
 	ID                 string          `json:"id"`
 	Revision           int64           `json:"revision"`
+	SourceKind         string          `json:"sourceKind"`
 	Repository         string          `json:"repository"`
+	ChartName          string          `json:"chartName"`
 	Version            string          `json:"version"`
+	SourceRevision     string          `json:"sourceRevision,omitempty"`
+	ChartPath          string          `json:"chartPath,omitempty"`
 	ManifestDigest     string          `json:"manifestDigest"`
 	PackageDigest      string          `json:"packageDigest"`
 	ValuesSchemaDigest string          `json:"valuesSchemaDigest"`
@@ -105,8 +109,15 @@ type helmRenderedManifestPreviewView struct {
 
 func helmApprovalDocumentView(document helmapps.ApprovalDocument) helmApprovalView {
 	approval := document.Approval
+	source, _ := approval.CanonicalSource()
+	chartName, _, _ := source.ChartIdentity()
+	sourceRevision, chartPath := "", ""
+	if source.Kind == helmapps.ChartSourceKindGit {
+		sourceRevision, chartPath = source.Git.Revision, source.Git.ChartPath
+	}
 	return helmApprovalView{ID: approval.ID, Revision: approval.Revision,
-		Repository: approval.OCIRepository, Version: approval.ChartVersion,
+		SourceKind: string(source.Kind), Repository: source.DisplayRepository(), ChartName: chartName,
+		Version: approval.ChartVersion, SourceRevision: sourceRevision, ChartPath: chartPath,
 		ManifestDigest: approval.ManifestDigest, PackageDigest: approval.PackageDigest,
 		ValuesSchemaDigest: approval.ValuesSchemaDigest, RendererImage: approval.RendererImage,
 		RendererVersion: approval.RendererVersion, PolicyVersion: approval.PolicyVersion,
@@ -190,8 +201,12 @@ func (s *Server) platformHelmApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
+		SourceKind         string `json:"sourceKind"`
 		Repository         string `json:"repository"`
+		ChartName          string `json:"chartName"`
 		Version            string `json:"version"`
+		SourceRevision     string `json:"sourceRevision"`
+		ChartPath          string `json:"chartPath"`
 		ManifestDigest     string `json:"manifestDigest"`
 		PackageDigest      string `json:"packageDigest"`
 		ValuesSchemaDigest string `json:"valuesSchemaDigest"`
@@ -199,9 +214,15 @@ func (s *Server) platformHelmApprovals(w http.ResponseWriter, r *http.Request) {
 	if !decodeHelmRequest(w, r, &input) {
 		return
 	}
+	source, sourceErr := helmApprovalSource(input.SourceKind, input.Repository, input.ChartName,
+		input.Version, input.SourceRevision, input.ChartPath, input.ManifestDigest)
+	if sourceErr != nil {
+		writeHelmError(w, r, sourceErr)
+		return
+	}
 	document, replay, err := s.helmApprovals.Admit(r.Context(), helmapps.ApprovalAdmissionRequest{
 		ActorID: currentUser(r.Context()).ID, IdempotencyKey: key,
-		OCIRepository: input.Repository, ChartVersion: input.Version,
+		Source: source, OCIRepository: strings.TrimSpace(input.Repository), ChartVersion: strings.TrimSpace(input.Version),
 		ManifestDigest: input.ManifestDigest, PackageDigest: input.PackageDigest,
 		ValuesSchemaDigest: input.ValuesSchemaDigest})
 	if err != nil {
@@ -213,6 +234,28 @@ func (s *Server) platformHelmApprovals(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	writeJSON(w, http.StatusCreated, helmApprovalDocumentView(document))
+}
+
+func helmApprovalSource(kind, repository, chartName, version, revision, chartPath, digest string) (helmapps.ChartSource, error) {
+	switch helmapps.ChartSourceKind(strings.TrimSpace(kind)) {
+	case "", helmapps.ChartSourceKindOCI:
+		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindOCI, OCI: &helmapps.OCIChartSource{
+			Repository: strings.TrimSpace(repository), Version: strings.TrimSpace(version), Digest: strings.TrimSpace(digest),
+		}}
+		return source, source.Validate()
+	case helmapps.ChartSourceKindHelmRepository:
+		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindHelmRepository,
+			HelmRepository: &helmapps.HelmRepositoryChartSource{RepositoryURL: strings.TrimSpace(repository),
+				ChartName: strings.TrimSpace(chartName), Version: strings.TrimSpace(version)}}
+		return source, source.Validate()
+	case helmapps.ChartSourceKindGit:
+		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindGit,
+			Git: &helmapps.GitChartSource{RepositoryURL: strings.TrimSpace(repository), Revision: strings.TrimSpace(revision),
+				ChartPath: strings.TrimSpace(chartPath), ChartName: strings.TrimSpace(chartName), Version: strings.TrimSpace(version)}}
+		return source, source.Validate()
+	default:
+		return helmapps.ChartSource{}, helmapps.ErrInvalid
+	}
 }
 
 type helmValuesInput struct {

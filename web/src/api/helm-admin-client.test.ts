@@ -6,7 +6,9 @@ afterEach(() => vi.unstubAllGlobals());
 const approval = {
   id: "11111111-1111-4111-8111-111111111111",
   revision: 1,
+  sourceKind: "oci" as const,
   repository: "oci://registry.example.test/charts/payments",
+  chartName: "payments",
   version: "1.2.3",
   manifestDigest: `sha256:${"a".repeat(64)}`,
   packageDigest: `sha256:${"b".repeat(64)}`,
@@ -56,6 +58,7 @@ describe("platform Helm approval and rendered inventory clients", () => {
       );
     vi.stubGlobal("fetch", fetchMock);
     const input = {
+      sourceKind: "oci" as const,
       repository: approval.repository,
       version: approval.version,
       manifestDigest: approval.manifestDigest,

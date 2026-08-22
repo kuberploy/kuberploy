@@ -644,6 +644,49 @@ func (s *Store) GetEnvironmentForActor(_ context.Context, actor, environmentID s
 	return environment, nil
 }
 
+func (s *Store) ListEnvironmentAppPlacementsForActor(_ context.Context, actor, environmentID string) ([]domain.EnvironmentAppPlacement, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	environment, exists := s.environments[environmentID]
+	target, allowedTarget := s.resolveTargetLocked(domain.AccessTarget{Type: "environment", ID: environmentID})
+	if !exists || !allowedTarget || !accesspolicy.HasPermission(s.bindingsLocked(actor), target, domain.PermissionResourcesRead) {
+		return nil, base.ErrNotFound
+	}
+	byApplication := make(map[string]domain.EnvironmentAppPlacement)
+	for applicationID, placement := range s.environmentAppPlacements[environmentID] {
+		byApplication[applicationID] = placement
+	}
+	for _, deployment := range s.deployments {
+		if deployment.EnvironmentID != environmentID {
+			continue
+		}
+		if _, exists = byApplication[deployment.ApplicationID]; exists {
+			continue
+		}
+		application, ok := s.applications[deployment.ApplicationID]
+		if !ok || application.ProjectID != environment.ProjectID {
+			continue
+		}
+		byApplication[application.ID] = domain.EnvironmentAppPlacement{
+			ProjectID: environment.ProjectID, EnvironmentID: environmentID, ApplicationID: application.ID,
+			ApplicationName: application.Name, ApplicationSlug: application.Slug,
+			State: domain.EnvironmentAppPlacementActive, DesiredState: domain.EnvironmentAppPlacementRunning,
+			CreatedAt: deployment.CreatedAt, UpdatedAt: deployment.UpdatedAt,
+		}
+	}
+	items := make([]domain.EnvironmentAppPlacement, 0, len(byApplication))
+	for _, placement := range byApplication {
+		items = append(items, placement)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].ApplicationSlug == items[j].ApplicationSlug {
+			return items[i].ApplicationID < items[j].ApplicationID
+		}
+		return items[i].ApplicationSlug < items[j].ApplicationSlug
+	})
+	return items, nil
+}
+
 func (s *Store) ListApplicationsForActor(_ context.Context, actor string) ([]domain.Application, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

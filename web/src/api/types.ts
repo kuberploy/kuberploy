@@ -183,9 +183,7 @@ export type BuildProfile = {
   egress: string;
 };
 
-export type CreateBuildDefinition = {
-  installationId: string;
-  repositoryId: string;
+type BuildDefinitionBase = {
   registryTargetId: string;
   triggerRef: string;
   contextPath: string;
@@ -200,6 +198,28 @@ export type CreateBuildDefinition = {
   maxAttempts: number;
 };
 
+export type GitSSHHostKeyPin = {
+  endpoint: string;
+  publicKey: string;
+  fingerprint?: string;
+};
+
+export type CreateBuildDefinition = BuildDefinitionBase &
+  (
+    | {
+        sourceKind?: "github";
+        installationId: string;
+        repositoryId: string;
+      }
+    | {
+        sourceKind: "git_ssh";
+        repositoryUrl: string;
+        gitSSHKeyScope: "app" | "project";
+        gitSSHKeyRevision: number;
+        hostKeyPins: GitSSHHostKeyPin[];
+      }
+  );
+
 export type BuildRegistryBinding = {
   targetId: string;
   mode: "managed" | "external";
@@ -211,8 +231,12 @@ export type BuildDefinition = {
   id: string;
   projectId: string;
   applicationId: string;
-  installationId: string;
-  repositoryId: string;
+  sourceKind: "github" | "git_ssh";
+  installationId?: string;
+  repositoryId?: string;
+  repositoryUrl?: string;
+  gitSSHKeyScope?: "app" | "project";
+  gitSSHKeyRevision?: number;
   triggerRef: string;
   contextPath: string;
   dockerfilePath: string;
@@ -430,6 +454,23 @@ export type Environment = ResourceMetadata & {
   status?: string;
 };
 
+export type EnvironmentAppPlacement = {
+  projectId: string;
+  environmentId: string;
+  applicationId: string;
+  applicationName: string;
+  applicationSlug: string;
+  state: "draft" | "active";
+  desiredState: "stopped" | "running";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EnvironmentCloneResult = {
+  environment: Environment;
+  appPlacements: EnvironmentAppPlacement[];
+};
+
 export type Application = ResourceMetadata & {
   id: string;
   projectId: string;
@@ -439,14 +480,27 @@ export type Application = ResourceMetadata & {
   status?: string;
 };
 
+export type GitSSHKey = {
+  scope: "app" | "project";
+  ownerId: string;
+  revision: number;
+  status: "active" | "revoked";
+  publicKey: string;
+  fingerprint: string;
+};
+
 export type HelmApprovalKey = {
   id: string;
   revision: number;
 };
 
 export type HelmApproval = HelmApprovalKey & {
+  sourceKind: "oci" | "helm-repository" | "git";
   repository: string;
+  chartName: string;
   version: string;
+  sourceRevision?: string;
+  chartPath?: string;
   manifestDigest: string;
   packageDigest: string;
   valuesSchemaDigest: string;
@@ -459,13 +513,28 @@ export type HelmApproval = HelmApprovalKey & {
   createdAt: string;
 };
 
-export type CreateHelmApproval = {
+type CreateHelmApprovalCommon = {
   repository: string;
   version: string;
-  manifestDigest: string;
-  packageDigest: string;
-  valuesSchemaDigest: string;
+  manifestDigest?: string;
+  packageDigest?: string;
+  valuesSchemaDigest?: string;
 };
+
+export type CreateHelmApproval =
+  | (CreateHelmApprovalCommon & {
+      sourceKind: "oci";
+    })
+  | (CreateHelmApprovalCommon & {
+      sourceKind: "helm-repository";
+      chartName: string;
+    })
+  | (CreateHelmApprovalCommon & {
+      sourceKind: "git";
+      chartName: string;
+      sourceRevision: string;
+      chartPath: string;
+    });
 
 export type HelmRenderedResource = {
   apiVersion: string;

@@ -200,7 +200,7 @@ describe("guided External DNS catalog", () => {
     ).toBeVisible();
   });
 
-  it("enables a new automatic-DNS selection only for an exactly ready runtime", async () => {
+  it("requires an explicit integration before reporting an exactly ready runtime", async () => {
     const initial = {
       ...guidedConfigFromYaml(defaultConfigYaml({ name: "api" })),
       host: "api.example.com",
@@ -223,6 +223,21 @@ describe("guided External DNS catalog", () => {
     );
 
     expect(screen.getByRole("radio", { name: /Automatic DNS/i })).toBeEnabled();
+    await userEvent.click(
+      screen.getByRole("radio", { name: /Automatic DNS/i }),
+    );
+    expect(
+      screen.getByText("Select an External DNS integration"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("External DNS revision is ready"),
+    ).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      screen.getByLabelText(/^DNS integration/),
+      "public-dns",
+    );
+    expect(screen.getByText("External DNS revision is ready")).toBeVisible();
   });
 
   it("keeps a new automatic-DNS selection disabled when the operational capability is off", () => {

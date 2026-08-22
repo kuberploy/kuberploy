@@ -27,6 +27,7 @@ const target: RegistryTarget = {
   updatedAt: "2026-08-09T00:00:00Z",
 };
 const definition: BuildDefinition = {
+  sourceKind: "github",
   id: "definition-safe",
   projectId: project.id,
   applicationId: application.id,

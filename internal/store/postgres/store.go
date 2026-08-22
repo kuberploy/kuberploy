@@ -395,6 +395,136 @@ func (s *Store) ListEnvironments(ctx context.Context) ([]domain.Environment, err
 	return out, rows.Err()
 }
 
+func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID, key, fingerprint string, in domain.CloneEnvironment) (base.Result[domain.EnvironmentCloneResult], error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, "environments.clone", key)); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	var source domain.Environment
+	if err = tx.QueryRow(ctx, `SELECT id,project_id,name,slug,namespace,argo_project,protection_policy,created_at FROM environments WHERE id=$1 FOR SHARE`, sourceEnvironmentID).
+		Scan(&source.ID, &source.ProjectID, &source.Name, &source.Slug, &source.Namespace, &source.ArgoProject, &source.ProtectionPolicy, &source.CreatedAt); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
+	}
+	// environments:create is evaluated at source project scope. A write grant
+	// scoped only to source Environment cannot create a sibling Environment.
+	if err = authorizeWith(ctx, tx, actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: source.ProjectID}); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	cloneFingerprint := sourceEnvironmentID + ":" + fingerprint
+
+	if old, ok, findErr := findIdem(ctx, tx, actor, "environments.clone", key); findErr != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, findErr
+	} else if ok {
+		if old.fingerprint != cloneFingerprint {
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrIdempotencyConflict
+		}
+		environment, getErr := getEnvironment(ctx, tx, old.resourceID)
+		if getErr != nil || environment.ProjectID != source.ProjectID {
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrNotFound
+		}
+		placements, listErr := listEnvironmentAppPlacements(ctx, tx, environment.ID)
+		if listErr != nil {
+			return base.Result[domain.EnvironmentCloneResult]{}, listErr
+		}
+		return base.Result[domain.EnvironmentCloneResult]{Value: domain.EnvironmentCloneResult{Environment: environment, AppPlacements: placements}, Replay: true}, nil
+	}
+
+	var project domain.Project
+	if err = tx.QueryRow(ctx, `SELECT id,name,slug,COALESCE(team_id::text,''),created_at FROM projects WHERE id=$1`, source.ProjectID).
+		Scan(&project.ID, &project.Name, &project.Slug, &project.TeamID, &project.CreatedAt); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
+	}
+	namespace, argoProject := domain.DeriveEnvironmentDestination(project, in.Slug)
+	if in.ProtectionPolicy == "" {
+		in.ProtectionPolicy = source.ProtectionPolicy
+	}
+	if in.ProtectionPolicy != domain.EnvironmentDevelopment && in.ProtectionPolicy != domain.EnvironmentProtected {
+		return base.Result[domain.EnvironmentCloneResult]{}, base.ErrConflict
+	}
+
+	now := time.Now().UTC()
+	environment := domain.Environment{
+		ID: id.New(), ProjectID: source.ProjectID, Name: in.Name, Slug: in.Slug,
+		Namespace: namespace, ArgoProject: argoProject, ProtectionPolicy: in.ProtectionPolicy, CreatedAt: now,
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,protection_policy,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+		environment.ID, environment.ProjectID, environment.Name, environment.Slug, environment.Namespace, environment.ArgoProject, environment.ProtectionPolicy, environment.CreatedAt); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
+	}
+	// Explicit source placements and legacy deployments share project-owned App
+	// identities. Only metadata is copied into draft/stopped target placements.
+	if _, err = tx.Exec(ctx, `INSERT INTO environment_app_placements(project_id,environment_id,application_id,state,desired_state,created_at,updated_at)
+		SELECT $1,$2,source.application_id,'draft','stopped',$3,$3
+		FROM (
+			SELECT application_id FROM environment_app_placements WHERE environment_id=$4
+			UNION
+			SELECT application_id FROM deployments WHERE environment_id=$4
+		) source
+		JOIN applications a ON a.id=source.application_id AND a.project_id=$1
+		ORDER BY a.slug,a.id`, source.ProjectID, environment.ID, now, source.ID); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
+	}
+	placements, err := listEnvironmentAppPlacements(ctx, tx, environment.ID)
+	if err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	if err = audit(ctx, tx, actor, "environment.clone", "environment", environment.ID, "", map[string]any{
+		"sourceEnvironmentId": source.ID, "appPlacementCount": len(placements),
+	}); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	if err = putIdem(ctx, tx, actor, "environments.clone", key, cloneFingerprint, "environment", environment.ID, nil); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
+	return base.Result[domain.EnvironmentCloneResult]{Value: domain.EnvironmentCloneResult{Environment: environment, AppPlacements: placements}}, nil
+}
+
+func listEnvironmentAppPlacements(ctx context.Context, q interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}, environmentID string) ([]domain.EnvironmentAppPlacement, error) {
+	rows, err := q.Query(ctx, `SELECT project_id,environment_id,application_id,application_name,application_slug,state,desired_state,created_at,updated_at
+		FROM (
+			SELECT p.project_id,p.environment_id,p.application_id,a.name AS application_name,a.slug AS application_slug,
+				p.state,p.desired_state,p.created_at,p.updated_at
+			FROM environment_app_placements p
+			JOIN applications a ON a.id=p.application_id AND a.project_id=p.project_id
+			WHERE p.environment_id=$1
+			UNION ALL
+			SELECT e.project_id,d.environment_id,d.application_id,a.name,a.slug,'active','running',min(d.created_at),max(d.updated_at)
+			FROM deployments d
+			JOIN environments e ON e.id=d.environment_id
+			JOIN applications a ON a.id=d.application_id AND a.project_id=e.project_id
+			WHERE d.environment_id=$1 AND NOT EXISTS (
+				SELECT 1 FROM environment_app_placements p
+				WHERE p.environment_id=d.environment_id AND p.application_id=d.application_id
+			)
+			GROUP BY e.project_id,d.environment_id,d.application_id,a.name,a.slug
+		) placements
+		ORDER BY application_slug,application_id`, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	placements := make([]domain.EnvironmentAppPlacement, 0)
+	for rows.Next() {
+		var placement domain.EnvironmentAppPlacement
+		if err = rows.Scan(&placement.ProjectID, &placement.EnvironmentID, &placement.ApplicationID, &placement.ApplicationName, &placement.ApplicationSlug,
+			&placement.State, &placement.DesiredState, &placement.CreatedAt, &placement.UpdatedAt); err != nil {
+			return nil, err
+		}
+		placements = append(placements, placement)
+	}
+	return placements, rows.Err()
+}
+
 func (s *Store) CreateApplication(ctx context.Context, actor, key, fingerprint string, in domain.CreateApplication) (base.Result[domain.Application], error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -403,6 +533,15 @@ func (s *Store) CreateApplication(ctx context.Context, actor, key, fingerprint s
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if err = authorizeWith(ctx, tx, actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: in.ProjectID}); err != nil {
 		return base.Result[domain.Application]{}, err
+	}
+	if in.EnvironmentID != "" {
+		var environmentProjectID string
+		if err = tx.QueryRow(ctx, `SELECT project_id FROM environments WHERE id=$1`, in.EnvironmentID).Scan(&environmentProjectID); err != nil {
+			return base.Result[domain.Application]{}, classify(err)
+		}
+		if environmentProjectID != in.ProjectID {
+			return base.Result[domain.Application]{}, base.ErrConflict
+		}
 	}
 	if old, ok, err := findIdem(ctx, tx, actor, "applications.create", key); err != nil {
 		return base.Result[domain.Application]{}, err
@@ -417,6 +556,13 @@ func (s *Store) CreateApplication(ctx context.Context, actor, key, fingerprint s
 	_, err = tx.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)VALUES($1,$2,$3,$4,$5)`, a.ID, a.ProjectID, a.Name, a.Slug, a.CreatedAt)
 	if err != nil {
 		return base.Result[domain.Application]{}, classify(err)
+	}
+	if in.EnvironmentID != "" {
+		_, err = tx.Exec(ctx, `INSERT INTO environment_app_placements(project_id,environment_id,application_id,state,desired_state,created_at,updated_at)
+			VALUES($1,$2,$3,'draft','stopped',$4,$4)`, a.ProjectID, in.EnvironmentID, a.ID, a.CreatedAt)
+		if err != nil {
+			return base.Result[domain.Application]{}, classify(err)
+		}
 	}
 	if err = audit(ctx, tx, actor, "application.create", "application", a.ID, "", a); err != nil {
 		return base.Result[domain.Application]{}, err

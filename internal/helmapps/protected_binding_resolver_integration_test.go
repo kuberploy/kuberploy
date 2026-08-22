@@ -199,7 +199,7 @@ func releaseApprovalDocumentFromPGFixture(t *testing.T, fixture helmReleasePGFix
 		ValuesSchemaDigest: fixture.schemaDigest, RendererImage: RendererImage, RendererVersion: HelmVersion,
 		PolicyVersion: PolicyVersion, CreatedBy: fixture.userID, IdempotencyKey: "approval-" + fixture.approvalID,
 		CreatedAt: fixture.now}, ValuesSchemaJSON: fixture.schema, DefaultValuesYAML: fixture.values,
-		DocumentsDigest: fixture.documentsDigest, CreatedAt: fixture.now}
+		PackageBytes: []byte("chart-package"), DocumentsDigest: fixture.documentsDigest, CreatedAt: fixture.now}
 }
 
 func insertSubstitutedApprovalDocument(ctx context.Context, tx pgx.Tx, fixture helmReleasePGFixture) error {
@@ -210,20 +210,23 @@ func insertSubstitutedApprovalDocument(ctx context.Context, tx pgx.Tx, fixture h
 		return err
 	}
 	manifestDigest, packageDigest := helmPGDigest([]byte("other-manifest")), helmPGDigest([]byte("other-package"))
+	repository := "oci://registry.example.com/platform/substituted-" + strings.ReplaceAll(approvalID, "-", "")
+	chartName := "substituted-" + strings.ReplaceAll(approvalID, "-", "")
 	if _, err = tx.Exec(ctx, `INSERT INTO helm_chart_approvals(
-		approval_id,revision,oci_repository,chart_version,manifest_digest,package_digest,
+		approval_id,revision,source_kind,source_json,chart_name,oci_repository,chart_version,manifest_digest,package_digest,
 		values_schema_digest,renderer_image,renderer_version,policy_version,identity_digest,
 		created_by,idempotency_key,created_at
-	) VALUES($1,1,$2,'2.0.0',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, approvalID,
-		"oci://registry.example.com/platform/substituted-"+strings.ReplaceAll(approvalID, "-", ""),
+	) VALUES($1,1,'oci',jsonb_build_object('kind','oci','oci',jsonb_build_object(
+		'repository',$2::text,'version','2.0.0','digest',$4::text)),$3,$2,'2.0.0',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, approvalID,
+		repository, chartName,
 		manifestDigest, packageDigest, fixture.schemaDigest, RendererImage, HelmVersion, PolicyVersion,
 		helmPGDigest([]byte("substituted-identity")), fixture.userID, "approval-"+approvalID, fixture.now); err != nil {
 		return err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO helm_chart_approval_documents(
-		approval_id,approval_revision,values_schema_json,default_values_yaml,
+		approval_id,approval_revision,values_schema_json,default_values_yaml,package_bytes,
 		values_schema_digest,documents_digest,created_at
-	) VALUES($1,1,$2,$3,$4,$5,$6)`, approvalID, fixture.schema, fixture.values,
-		fixture.schemaDigest, documentsDigest, fixture.now)
+	) VALUES($1,1,$2,$3,$4,$5,$6,$7)`, approvalID, fixture.schema, fixture.values,
+		[]byte("other-package"), fixture.schemaDigest, documentsDigest, fixture.now)
 	return err
 }

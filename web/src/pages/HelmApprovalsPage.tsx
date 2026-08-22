@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { CreateHelmApproval } from "../api/types";
@@ -19,6 +19,9 @@ export function HelmApprovalsPage() {
   const client = useQueryClient();
   const form = useRef<HTMLFormElement>(null);
   const replayKey = useRef(crypto.randomUUID());
+  const [sourceKind, setSourceKind] = useState<
+    CreateHelmApproval["sourceKind"]
+  >("oci");
   const principal = useQuery({
     queryKey: ["me"],
     queryFn: api.me,
@@ -49,15 +52,17 @@ export function HelmApprovalsPage() {
       const current = form.current
         ? new FormData(form.current)
         : new FormData();
-      const sameDraft = (
-        [
-          "repository",
-          "version",
-          "manifestDigest",
-          "packageDigest",
-          "valuesSchemaDigest",
-        ] as const
-      ).every((field) => current.get(field) === input.input[field]);
+      const submitted = input.input as unknown as Record<string, string | undefined>;
+      const sameDraft = [
+        "repository",
+        "version",
+        "chartName",
+        "sourceRevision",
+        "chartPath",
+        "manifestDigest",
+        "packageDigest",
+        "valuesSchemaDigest",
+      ].every((field) => String(current.get(field) ?? "") === String(submitted[field] ?? ""));
       if (sameDraft) {
         form.current?.reset();
         replayKey.current = crypto.randomUUID();
@@ -82,8 +87,8 @@ export function HelmApprovalsPage() {
           <span className="eyebrow">Platform settings</span>
           <h1>Helm approvals</h1>
           <p>
-            Publish immutable chart digest approvals. Credentials, chart
-            documents, renderer arguments, and values are never accepted here.
+            Resolve OCI, classic Helm repository, or public Git chart sources
+            into one immutable offline-rendered package.
           </p>
         </div>
       </div>
@@ -92,8 +97,9 @@ export function HelmApprovalsPage() {
           <div>
             <h2>Approve an immutable package</h2>
             <p>
-              All three SHA-256 digests must come from the trusted offline
-              catalog workflow.
+              OCI requires its immutable manifest and package digests. Helm
+              repositories and Git are resolved server-side, then pinned before
+              the approval becomes visible to Apps.
             </p>
           </div>
         </div>
@@ -107,40 +113,115 @@ export function HelmApprovalsPage() {
           onSubmit={(event) => {
             event.preventDefault();
             const data = new FormData(event.currentTarget);
+            const common = {
+              repository: String(data.get("repository") ?? ""),
+              version: String(data.get("version") ?? ""),
+              manifestDigest: String(data.get("manifestDigest") ?? "") || undefined,
+              packageDigest: String(data.get("packageDigest") ?? "") || undefined,
+              valuesSchemaDigest:
+                String(data.get("valuesSchemaDigest") ?? "") || undefined,
+            };
+            const input: CreateHelmApproval =
+              sourceKind === "oci"
+                ? { ...common, sourceKind: "oci" }
+                : sourceKind === "helm-repository"
+                  ? {
+                      ...common,
+                      sourceKind: "helm-repository",
+                      chartName: String(data.get("chartName") ?? ""),
+                    }
+                  : {
+                      ...common,
+                      sourceKind: "git",
+                      chartName: String(data.get("chartName") ?? ""),
+                      sourceRevision: String(data.get("sourceRevision") ?? ""),
+                      chartPath: String(data.get("chartPath") ?? ""),
+                    };
             create.mutate({
               key: replayKey.current,
-              input: {
-                repository: String(data.get("repository") ?? ""),
-                version: String(data.get("version") ?? ""),
-                manifestDigest: String(data.get("manifestDigest") ?? ""),
-                packageDigest: String(data.get("packageDigest") ?? ""),
-                valuesSchemaDigest: String(
-                  data.get("valuesSchemaDigest") ?? "",
-                ),
-              },
+              input,
             });
           }}
         >
-          <Field label="OCI repository" required>
+          <Field label="Chart source" required>
+            <select
+              name="sourceKind"
+              value={sourceKind}
+              onChange={(event) =>
+                setSourceKind(event.target.value as CreateHelmApproval["sourceKind"])
+              }
+            >
+              <option value="oci">OCI registry</option>
+              <option value="helm-repository">Helm repository</option>
+              <option value="git">Public Git repository</option>
+            </select>
+          </Field>
+          <Field
+            label={
+              sourceKind === "oci"
+                ? "OCI repository"
+                : sourceKind === "helm-repository"
+                  ? "Repository URL"
+                  : "Git repository URL"
+            }
+            required
+          >
             <input
               name="repository"
-              maxLength={512}
+              maxLength={2048}
               required
-              placeholder="oci://registry.example.com/charts/service"
+              placeholder={
+                sourceKind === "oci"
+                  ? "oci://registry.example.com/charts/service"
+                  : sourceKind === "helm-repository"
+                    ? "https://charts.example.com/stable"
+                    : "https://git.example.com/team/charts.git"
+              }
             />
           </Field>
+          {sourceKind !== "oci" ? (
+            <Field label="Chart name" required>
+              <input name="chartName" maxLength={253} required />
+            </Field>
+          ) : null}
           <Field label="Chart version" required>
             <input name="version" maxLength={128} required />
           </Field>
+          {sourceKind === "git" ? (
+            <>
+              <Field label="Commit SHA" required>
+                <input
+                  name="sourceRevision"
+                  minLength={40}
+                  maxLength={64}
+                  pattern="[0-9a-f]{40}|[0-9a-f]{64}"
+                  required
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Chart path" required>
+                <input name="chartPath" maxLength={512} required placeholder="charts/service" />
+              </Field>
+            </>
+          ) : null}
           {(
             ["manifestDigest", "packageDigest", "valuesSchemaDigest"] as const
           ).map((name) => (
-            <Field key={name} label={name.replace(/([A-Z])/g, " $1")} required>
+            <Field
+              key={name}
+              label={name.replace(/([A-Z])/g, " $1")}
+              required={sourceKind === "oci" && name !== "valuesSchemaDigest"}
+              hint={
+                sourceKind === "oci" && name !== "valuesSchemaDigest"
+                  ? "Required for OCI admission."
+                  : "Optional expected digest; Kuberploy calculates and pins the actual value."
+              }
+            >
               <input
                 name={name}
                 maxLength={71}
                 pattern={digestPattern}
-                required
+                required={sourceKind === "oci" && name !== "valuesSchemaDigest"}
                 placeholder="sha256:…"
                 spellCheck={false}
               />
@@ -186,10 +267,10 @@ export function HelmApprovalsPage() {
             >
               <div>
                 <strong>
-                  {approval.repository} · {approval.version}
+                  {approval.chartName} · {approval.version}
                 </strong>
                 <small>
-                  Approval {approval.revision} ·{" "}
+                  {approval.sourceKind} · {approval.repository} · Approval {approval.revision} ·{" "}
                   {formatDate(approval.createdAt)}
                 </small>
                 <small>

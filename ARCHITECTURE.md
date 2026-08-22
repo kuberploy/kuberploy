@@ -854,9 +854,11 @@ Repeated pushes may supersede older queued builds. A late older build can create
 
 The API authenticates to the registry, resolves a tag to its manifest digest, validates platform compatibility and pull access, then commits `repository@sha256:...`. A future “track tag” feature must create a new Git commit whenever the resolved digest changes.
 
-### Helm or OCI chart
+### Helm chart
 
-The UI stores the repository, chart, exact revision and values in Git. Before commit, Kuberploy renders the chart, validates its schema and applies resource policies. Argo CD uses Helm to render manifests and owns their lifecycle; this is not ordinary Helm release-state management.
+An administrator approves a chart from OCI, a classic HTTPS Helm repository, or a public HTTPS Git repository at one exact version/revision. Kuberploy resolves the source once, captures and rehashes the immutable package in PostgreSQL, and gives render workers only that captured package. Workers never poll chart providers or receive provider credentials. SSH/private Git chart approval remains unavailable until it has an explicit project/application credential binding; ambient Git credentials are never used.
+
+The App UI exposes one raw `values.yaml` editor. Before publication, Kuberploy validates the values against the captured schema, renders the exact package offline, shows a redacted manifest preview, and applies resource policy. Protected Git stores the server-owned chart descriptor and user-owned values. Argo CD owns reconciliation and lifecycle; this is not ordinary Helm release-state management.
 
 Arbitrary charts are initially admin-approved because they can render CRDs, RBAC, admission webhooks or privileged Pods. AppProject source/destination allowlists, resource allowlists and admission policies enforce the boundary.
 
@@ -1278,7 +1280,7 @@ Every preview runs steps 1-7; a save continues through the Git/Argo steps:
 
 If Git changes after the draft was opened, the save returns a three-way conflict view and never force-pushes. If an environment requires Argo/server validation and that path is unavailable, its PR check remains pending and the protected branch cannot merge. An explicitly unprotected development environment may rely on the full offline suite before direct commit, but the UI never labels that result server-validated.
 
-External Helm/OCI applications follow the same source-of-truth principle but not the runtime Deployment/Service schema. P0 offers one Advanced Helm `values.yaml` document and a read-only rendered-manifests tab. P1 can generate guided controls from a sufficiently complete pinned chart `values.schema.json`; a missing/incomplete schema stays YAML-only. Chart schema validates value shape, not workload safety, so every exact pinned-chart render still passes resource policy. Tenant settings cannot enable schema skipping, credential forwarding, CRDs, unsafe hooks or cluster-scoped resources, and chart approval checks for nondeterministic random output that would cause permanent drift.
+External Helm applications follow the same source-of-truth principle but not the runtime Deployment/Service schema. P0 offers one raw Helm `values.yaml` document and a read-only rendered-manifests tab. P1 can generate guided controls from a sufficiently complete pinned chart `values.schema.json`; raw YAML remains available. Chart schema validates value shape, not workload safety, so every exact pinned-chart render still passes resource policy. Tenant settings cannot enable schema skipping, credential forwarding, CRDs, unsafe hooks or cluster-scoped resources, and chart approval checks for nondeterministic random output that would cause permanent drift.
 
 Fully arbitrary Kubernetes manifests or Kustomize bases are a separate later, administrator-only application source, not a toggle inside the managed runtime editor. They cannot be losslessly round-tripped into opinionated forms and can bypass platform assumptions; they require fixed namespaces, kind allowlists, full resource/admission policy and a read-only resource summary instead of pretending the form owns those manifests.
 
@@ -2312,7 +2314,10 @@ Create project and environment
   a display name and local password, safe
   last-owner enforcement, and private/team sharing of verified GitHub App
   installations.
-- Three application sources: GitHub plus Dockerfile, existing image, and Helm/OCI chart.
+- Four App sources selected inside a Project Environment: existing OCI image,
+  GitHub App Dockerfile build, provider-neutral Git SSH Dockerfile build, and
+  approved Helm chart. Helm approval accepts OCI, classic HTTPS Helm
+  repositories, and public HTTPS Git at exact immutable revisions.
 - GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
 - One ephemeral DinD Job per source build, isolated on a configured builder pool and never mounting the host Docker socket.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.
@@ -2323,7 +2328,8 @@ Create project and environment
 - Supported `/v1` API with bundled OpenAPI 3.2.0 JSON/YAML, self-hosted Swagger UI, a derived agent profile, Arazzo workflows, scoped expiring service-account credentials and CI-enforced compatibility tests.
 - A platform runtime chart for one HTTP web service.
 - Guided Deployment/Service forms plus an Advanced AppConfig YAML editor sharing one draft, validation pipeline and Git diff.
-- Approved external Helm apps receive one Advanced values YAML document and a redacted read-only rendered-manifests preview in P0.
+- Approved external Helm Apps receive one raw values YAML editor with schema
+  diagnostics and a redacted read-only rendered-manifests preview in P0.
 - Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned immutable ConfigMaps, plus container port, replicas, CPU/memory and health probes.
 - Per-service resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
 - Write-only versioned runtime-secret creation/rotation with strict Sealed Secrets, exact binding/application scope, environment/file delivery, readiness-gated rollout and metadata-only UI/API reads; External Secrets remains unavailable until an audited concrete remote material writer exists.

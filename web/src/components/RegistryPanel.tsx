@@ -11,6 +11,7 @@ import type {
   RegistryPolicyInput,
   RegistryTarget,
 } from "../api/types";
+import { canonicalBuildRepository } from "../lib/buildAccess";
 import { formatDate, titleCase } from "../lib/format";
 import {
   hasRegistryApplicationCapability,
@@ -69,8 +70,11 @@ const defaultPolicy: PolicyDraft = {
   cacheByteQuota: 10_737_418_240,
 };
 
-function policyDraft(policy?: RegistryPolicy): PolicyDraft {
-  if (!policy) return { ...defaultPolicy };
+function policyDraft(
+  policy?: RegistryPolicy,
+  defaultRepository = "",
+): PolicyDraft {
+  if (!policy) return { ...defaultPolicy, repository: defaultRepository };
   return {
     repository: policy.repository,
     keepLastSuccessful: policy.keepLastSuccessful,
@@ -115,20 +119,26 @@ function PolicyEditor({
   applicationId,
   target,
   policy,
+  defaultRepository,
   onSaved,
 }: {
   applicationId: string;
   target: RegistryTarget;
   policy?: RegistryPolicy;
+  defaultRepository?: string;
   onSaved?: () => void;
 }) {
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState(() => policyDraft(policy));
+  const [draft, setDraft] = useState(() =>
+    policyDraft(policy, defaultRepository),
+  );
   const [errors, setErrors] = useState<
     Partial<Record<keyof PolicyDraft, string>>
   >({});
   const saveAttempt = useRef<{ signature: string; key: string } | null>(null);
-  const policyBaseline = useRef(JSON.stringify(policyDraft(policy)));
+  const policyBaseline = useRef(
+    JSON.stringify(policyDraft(policy, defaultRepository)),
+  );
   const editorScope = JSON.stringify({
     applicationId,
     targetId: target.id,
@@ -137,7 +147,7 @@ function PolicyEditor({
   const editorScopeRef = useRef(editorScope);
   editorScopeRef.current = editorScope;
   useEffect(() => {
-    const nextDraft = policyDraft(policy);
+    const nextDraft = policyDraft(policy, defaultRepository);
     const nextBaseline = JSON.stringify(nextDraft);
     setDraft((current) => {
       if (JSON.stringify(current) !== policyBaseline.current) return current;
@@ -145,7 +155,7 @@ function PolicyEditor({
       return nextDraft;
     });
     setErrors({});
-  }, [policy]);
+  }, [defaultRepository, policy]);
   const mutation = useMutation({
     mutationFn: ({
       input,
@@ -223,7 +233,12 @@ function PolicyEditor({
   );
   return (
     <form className="registry-policy-form" onSubmit={submit}>
-      <Field label="Release repository" error={errors.repository} required>
+      <Field
+        label="Release repository"
+        hint="Source builds require the canonical per-project and per-App repository shown by default."
+        error={errors.repository}
+        required
+      >
         <input
           value={draft.repository}
           placeholder={`${target.repositoryPrefix}/service`}
@@ -872,6 +887,11 @@ export function RegistryPanel({
                   key={attachTarget.id}
                   applicationId={application.id}
                   target={attachTarget}
+                  defaultRepository={canonicalBuildRepository(
+                    attachTarget,
+                    application.projectId,
+                    application.id,
+                  )}
                   onSaved={() => setAttachTargetID("")}
                 />
               ) : null}

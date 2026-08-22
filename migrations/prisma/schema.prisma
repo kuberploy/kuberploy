@@ -59,6 +59,55 @@ model applications {
   @@unique([project_id, slug])
 }
 
+/// Project-owned App placement metadata. Draft/stopped rows contain no workload
+/// configuration or secret values and do not authorize deployment.
+model environment_app_placements {
+  project_id     String   @db.Uuid
+  environment_id String   @db.Uuid
+  application_id String   @db.Uuid
+  state          String   @default("draft")
+  desired_state  String   @default("stopped")
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([environment_id, application_id])
+  @@index([project_id, application_id], map: "environment_app_placements_project_application_idx")
+}
+
+/// Encrypted Ed25519 deploy-key revisions. Public lifecycle APIs omit the
+/// encryption fields; private bytes are decrypted only at checkout time.
+model git_ssh_key_revisions {
+  id                     String    @id @db.Uuid
+  scope                  String
+  owner_id               String    @db.Uuid
+  revision               BigInt
+  status                 String    @default("active")
+  public_key             String
+  fingerprint            String    @unique
+  encryption_key_version String
+  private_key_ciphertext Bytes
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  revoked_at             DateTime? @db.Timestamptz(6)
+
+  @@unique([scope, owner_id, revision])
+  @@unique([scope, owner_id], map: "git_ssh_key_revisions_active_key", where: raw("(status = 'active'::text)"))
+  @@index([scope, owner_id, revision(sort: Desc)], map: "git_ssh_key_revisions_owner_history_idx")
+}
+
+model git_ssh_key_mutation_receipts {
+  actor_id            String   @db.Uuid
+  idempotency_key     String
+  operation           String
+  request_fingerprint String
+  scope               String
+  owner_id            String   @db.Uuid
+  key_revision        BigInt
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+  @@index([scope, owner_id, key_revision], map: "git_ssh_key_mutation_receipts_revision_idx")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model argo_application_observations {
   application_id        String   @db.Uuid
@@ -293,7 +342,9 @@ model bootstrap_state {
 model build_attempts {
   id                  String    @id @db.Uuid
   definition_id       String    @db.Uuid
-  delivery_claim_key  String
+  delivery_claim_key  String?
+  trigger_kind        String    @default("github_push")
+  trigger_key         String
   project_id          String    @db.Uuid
   service_id          String    @db.Uuid
   commit_sha          String
@@ -324,6 +375,7 @@ model build_attempts {
   updated_at          DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([delivery_claim_key, definition_id])
+  @@unique([trigger_kind, trigger_key, definition_id])
   @@unique([project_id, service_id, generation])
   @@index([project_id, service_id, definition_digest, generation(sort: Desc)], map: "build_attempts_service_cache_idx", where: raw("((state = 'succeeded'::text) AND (cache_reference <> ''::text))"))
   @@index([state, available_at, created_at], map: "build_attempts_work_idx", where: raw("(state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text]))"))
@@ -334,8 +386,10 @@ model build_definitions {
   id                 String   @id @db.Uuid
   project_id         String   @db.Uuid
   service_id         String   @db.Uuid
-  installation_id    String   @db.Uuid
-  repository_id      String   @db.Uuid
+  source_kind        String   @default("github")
+  installation_id    String?  @db.Uuid
+  repository_id      String?  @db.Uuid
+  git_ssh_source     Json?
   registry_target_id String   @db.Uuid
   trigger_ref        String
   spec               Json
@@ -345,8 +399,9 @@ model build_definitions {
   created_at         DateTime @default(now()) @db.Timestamptz(6)
   updated_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  @@unique([project_id, service_id, repository_id, trigger_ref], map: "build_definitions_active_ref_idx", where: raw("(enabled = true)"))
-  @@index([installation_id, repository_id, trigger_ref], map: "build_definitions_push_idx", where: raw("(enabled = true)"))
+  @@unique([project_id, service_id, repository_id, trigger_ref], map: "build_definitions_active_ref_idx", where: raw("((enabled = true) AND (source_kind = 'github'::text))"))
+  @@unique([project_id, service_id, trigger_ref], map: "build_definitions_active_git_ssh_ref_idx", where: raw("((enabled = true) AND (source_kind = 'git_ssh'::text))"))
+  @@index([installation_id, repository_id, trigger_ref], map: "build_definitions_push_idx", where: raw("((enabled = true) AND (source_kind = 'github'::text))"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -988,6 +1043,7 @@ model helm_chart_approval_documents {
   approval_revision    BigInt
   values_schema_json   Bytes
   default_values_yaml  Bytes
+  package_bytes        Bytes
   values_schema_digest String
   documents_digest     String
   created_at           DateTime @db.Timestamptz(6)
@@ -999,6 +1055,9 @@ model helm_chart_approval_documents {
 model helm_chart_approvals {
   approval_id          String   @db.Uuid
   revision             BigInt
+  source_kind          String
+  source_json          Json
+  chart_name           String
   oci_repository       String
   chart_version        String
   manifest_digest      String

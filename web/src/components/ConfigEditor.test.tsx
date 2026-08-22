@@ -467,6 +467,13 @@ spec:
     expect(await screen.findByLabelText(/^DNS integration/)).toHaveTextContent(
       "Public DNS",
     );
+    expect(
+      screen.getByText("Select an External DNS integration"),
+    ).toBeVisible();
+    await user.selectOptions(
+      screen.getByLabelText(/^DNS integration/),
+      "public-dns",
+    );
     expect(screen.getByText(/External DNS revision is ready/i)).toBeVisible();
   });
 

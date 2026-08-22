@@ -78,6 +78,7 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 	now := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
 	attempt := builds.BuildAttempt{
 		ID: testAttemptID, DefinitionID: "77777777-7777-4777-8777-777777777777", DeliveryClaimKey: strings.Repeat("d", 64),
+		TriggerKind: "github_push", TriggerKey: strings.Repeat("d", 64),
 		ProjectID: testProjectID, ServiceID: testApplicationID, CommitSHA: request.Commit, GitRef: "refs/heads/main", Generation: 2,
 		DefinitionDigest: definition, PlanRequest: planRequest, CheckoutRequest: checkout, InputDigest: "sha256:" + hex.EncodeToString(digest[:]),
 		RegistryMode: builds.RegistryManaged, State: builds.AttemptRunning, ExecutionAttempts: 1, MaxAttempts: 2, AvailableAt: now,

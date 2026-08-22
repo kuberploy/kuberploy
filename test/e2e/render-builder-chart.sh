@@ -146,7 +146,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.314'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.315'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \
@@ -162,6 +162,10 @@ for kp_required in \
   "t.ipBlock.except.size() <= 32" \
   "string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4='" \
   "object.data['token'].size() <= 2732" \
+  "'ssh-private-key' in object.data" \
+  "object.data['ssh-private-key'].size() <= 87384" \
+  "'known_hosts' in object.data" \
+  "object.data['known_hosts'].size() <= 87384" \
   "object.metadata.name.startsWith('source-credentials-')" \
   "object.metadata.name == 'default-deny'" \
   "kuberploy.io/static-registry-egress" \

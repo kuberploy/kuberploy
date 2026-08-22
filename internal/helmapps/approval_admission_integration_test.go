@@ -89,7 +89,8 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	document := ApprovalDocument{Approval: approval, ValuesSchemaJSON: files["values.schema.json"],
-		DefaultValuesYAML: files["values.yaml"], DocumentsDigest: documentsDigest, CreatedAt: now}
+		DefaultValuesYAML: files["values.yaml"], PackageBytes: packageBytes,
+		DocumentsDigest: documentsDigest, CreatedAt: now}
 	store, err := NewPostgresApprovalAdmissionStore(pool)
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +126,18 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 	catalog, err := store.ApprovalAdmissionCatalog(ctx, 1)
 	if err != nil || len(catalog) != 1 || catalog[0].Approval.ID != approval.ID {
 		t.Fatalf("catalog=%+v err=%v", catalog, err)
+	}
+	if len(catalog[0].PackageBytes) != 0 {
+		t.Fatal("approval catalog exposed immutable package bytes")
+	}
+	approvedPackages, err := NewPostgresApprovedPackageSource(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := approvedPackages.Fetch(ctx, catalog[0].Approval)
+	if err != nil || artifact.ManifestDigest != approval.ManifestDigest ||
+		artifact.PackageDigest != approval.PackageDigest || !equalBytes(artifact.PackageBytes, packageBytes) {
+		t.Fatalf("approved package=%+v err=%v", artifact, err)
 	}
 	conflict := document
 	conflict.Approval.ID = id.New()

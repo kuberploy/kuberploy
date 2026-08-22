@@ -172,6 +172,49 @@ describe("application registry panel", () => {
     expect(screen.getByText("Unavailable")).toBeInTheDocument();
   });
 
+  it("defaults a newly attached target to the canonical source-build repository", async () => {
+    vi.mocked(api.registryTargets).mockResolvedValue({
+      items: [
+        {
+          id: "target-managed",
+          name: "Managed registry",
+          mode: "managed",
+          endpoint: "https://managed.registry.test",
+          repositoryPrefix: "payments",
+          pullCredentialRef: "credentials/pull",
+          pushCredentialRef: "credentials/push",
+          cacheCredentialRef: "credentials/cache",
+          createdAt: "2026-08-09T00:00:00Z",
+          updatedAt: "2026-08-09T00:05:00Z",
+        },
+      ],
+      truncated: false,
+    });
+    const user = userEvent.setup();
+    renderPanel({
+      capabilities: [
+        grant("registry:read"),
+        grant("registry-policies:write"),
+        {
+          scopeType: "platform",
+          scopeId: "platform",
+          actions: ["registry-targets:read"],
+        },
+      ],
+    });
+
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Registry target" }),
+      "target-managed",
+    );
+    expect(
+      screen.getByRole("textbox", { name: /Release repository/ }),
+    ).toHaveValue("payments/projects/project-a/services/application-a/image");
+    expect(
+      screen.getByText(/Source builds require the canonical/),
+    ).toBeInTheDocument();
+  });
+
   it("preserves a newer retention draft when the earlier save completes", async () => {
     let resolveSave!: (
       value: Awaited<ReturnType<typeof api.putRegistryPolicy>>,

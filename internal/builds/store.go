@@ -15,6 +15,7 @@ type Store interface {
 	PutInstallation(context.Context, Installation) error
 	PutRepository(context.Context, Repository) error
 	PutDefinition(context.Context, BuildDefinition) error
+	Definition(context.Context, string) (BuildDefinition, error)
 	ApplyInstallationEvent(context.Context, int64, githubapp.InstallationEvent, time.Time) error
 	ApplyRepositoryEvent(context.Context, int64, githubapp.InstallationRepositoriesEvent, time.Time) error
 

@@ -355,6 +355,15 @@ spec:
                 secretKeyRef:
                   name: {{ $.Values.config.postgresql.secretRef.name }}
                   key: {{ $.Values.config.postgresql.secretRef.urlKey }}
+            {{- if $.Values.config.gitSSH.enabled }}
+            - name: KUBERPLOY_GIT_SSH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.gitSSH.secretRef.name }}
+                  key: {{ $.Values.config.gitSSH.secretRef.key }}
+            - name: KUBERPLOY_GIT_SSH_ENCRYPTION_KEY_VERSION
+              value: {{ $.Values.config.gitSSH.encryptionKeyVersion | quote }}
+            {{- end }}
             - name: KUBERPLOY_VALKEY_ADDRESSES
               valueFrom:
                 secretKeyRef:
@@ -409,6 +418,15 @@ spec:
                 secretKeyRef:
                   name: {{ $.Values.config.postgresql.secretRef.name }}
                   key: {{ $.Values.config.postgresql.secretRef.urlKey }}
+            {{- if $.Values.config.gitSSH.enabled }}
+            - name: KUBERPLOY_GIT_SSH_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.config.gitSSH.secretRef.name }}
+                  key: {{ $.Values.config.gitSSH.secretRef.key }}
+            - name: KUBERPLOY_GIT_SSH_ENCRYPTION_KEY_VERSION
+              value: {{ $.Values.config.gitSSH.encryptionKeyVersion | quote }}
+            {{- end }}
             - name: KUBERPLOY_VALKEY_ADDRESSES
               valueFrom:
                 secretKeyRef:

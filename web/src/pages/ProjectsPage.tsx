@@ -243,7 +243,7 @@ export function ProjectsPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Projects"
-        description="Choose a project to manage its services and environments."
+        description="Choose a project, then an environment, to manage Apps."
         actions={
           <>
             {environmentProjects.length ? (
@@ -433,7 +433,7 @@ export function ProjectsPage() {
           <input
             type="search"
             aria-label="Filter projects"
-            placeholder="Filter projects or services…"
+            placeholder="Filter projects or Apps…"
             value={projectFilter}
             onChange={(event) => setProjectFilter(event.target.value)}
           />
@@ -469,14 +469,14 @@ export function ProjectsPage() {
                       <h2>{project.name}</h2>
                       <p>
                         {project.description ??
-                          `${projectApplications.length} service${projectApplications.length === 1 ? "" : "s"}`}
+                          `${projectApplications.length} App${projectApplications.length === 1 ? "" : "s"}`}
                       </p>
                     </div>
                     <Icon name="chevron" />
                   </div>
                   <dl className="project-index-card__stats">
                     <div>
-                      <dt>Services</dt>
+                      <dt>Apps</dt>
                       <dd>{projectApplications.length}</dd>
                     </div>
                     <div>
@@ -511,13 +511,13 @@ export function ProjectsPage() {
         <EmptyState
           icon="layers"
           title="No matching project"
-          description="Try another project or service name."
+          description="Try another project or App name."
         />
       ) : (
         <EmptyState
           icon="layers"
           title="Create your first project"
-          description="A project groups applications and the environment namespaces they may use."
+          description="A project groups environments and their Apps."
           action={
             canCreateProject ? (
               <Button onClick={() => setPanel("project")}>

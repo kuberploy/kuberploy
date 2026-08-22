@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "./api/client";
-import { RootComponent } from "./router";
+import { RootComponent, router } from "./router";
 
 vi.mock("./components/AppShell", () => ({
   AppShell: ({ user }: { user: { authentication: { kind: string } } }) => (
@@ -92,10 +92,12 @@ describe("root invitation boundary", () => {
     const inviteURL = new URL(window.location.href);
     inviteURL.hash = "invite=kp_router_cleared_fragment_invite";
     window.history.replaceState(window.history.state, "", "/");
-    window.dispatchEvent(new HashChangeEvent("hashchange", {
-      newURL: inviteURL.toString(),
-      oldURL: window.location.href,
-    }));
+    window.dispatchEvent(
+      new HashChangeEvent("hashchange", {
+        newURL: inviteURL.toString(),
+        oldURL: window.location.href,
+      }),
+    );
 
     expect(
       await screen.findByRole("heading", { name: "Join your Kuberploy team" }),
@@ -249,5 +251,84 @@ describe("root invitation boundary", () => {
       await screen.findByText("Authenticated application session"),
     ).toBeInTheDocument();
     expect(window.location.hash).toBe("");
+  });
+});
+
+describe("app-centric routes", () => {
+  const projectId = "project-payments";
+  const environmentId = "environment-production";
+  const applicationId = "application-api";
+
+  it("matches the canonical environment workspace with exact ancestry params", () => {
+    const match = router
+      .matchRoutes(`/projects/${projectId}/environments/${environmentId}`, {})
+      .at(-1);
+
+    expect(match?.routeId).toBe(
+      "/projects/$projectId/environments/$environmentId",
+    );
+    expect(match?.params).toMatchObject({ projectId, environmentId });
+  });
+
+  it("matches canonical Add App without leaving the Environment", () => {
+    const match = router
+      .matchRoutes(
+        `/projects/${projectId}/environments/${environmentId}/apps/new`,
+        {},
+      )
+      .at(-1);
+
+    expect(match?.routeId).toBe(
+      "/projects/$projectId/environments/$environmentId/apps/new",
+    );
+    expect(match?.params).toMatchObject({ projectId, environmentId });
+  });
+
+  it("keeps the environment App route canonical without redirecting to a top-level workspace", () => {
+    const path = `/projects/${projectId}/environments/${environmentId}/apps/${applicationId}`;
+    const match = router.matchRoutes(path, {}).at(-1);
+
+    expect(match?.routeId).toBe(
+      "/projects/$projectId/environments/$environmentId/apps/$applicationId",
+    );
+    expect(match?.params).toMatchObject({
+      projectId,
+      environmentId,
+      applicationId,
+    });
+    expect(
+      router.routesByPath[
+        "/projects/$projectId/environments/$environmentId/apps/$applicationId"
+      ].options.beforeLoad,
+    ).toBeUndefined();
+  });
+
+  it("keeps legacy creation, application, and deep settings routes compatible", () => {
+    const routes = [
+      ["/deploy", "/deploy"],
+      [`/applications/${applicationId}`, "/applications/$applicationId"],
+      [
+        `/applications/${applicationId}/deployments/deployment-current`,
+        "/applications/$applicationId/deployments/$deploymentId",
+      ],
+      ["/settings/releases", "/settings/releases"],
+      ["/settings/argo-git", "/settings/argo-git"],
+      ["/settings/helm-approvals", "/settings/helm-approvals"],
+      ["/settings/middleware-profiles", "/settings/middleware-profiles"],
+      ["/settings/certificate-issuers", "/settings/certificate-issuers"],
+    ];
+
+    for (const [path, routeId] of routes) {
+      expect(router.matchRoutes(path, {}).at(-1)?.routeId).toBe(routeId);
+    }
+  });
+
+  it("preserves scoped App search on the OCI compatibility route", () => {
+    const match = router
+      .matchRoutes("/deploy", { projectId, environmentId, applicationId })
+      .at(-1);
+
+    expect(match?.routeId).toBe("/deploy");
+    expect(match?.search).toEqual({ projectId, environmentId, applicationId });
   });
 });

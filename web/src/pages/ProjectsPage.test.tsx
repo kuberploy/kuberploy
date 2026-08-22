@@ -409,7 +409,7 @@ describe("project team ownership", () => {
     expect(
       await screen.findByRole("heading", { name: "Payments" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("0 services")).toBeInTheDocument();
+    expect(screen.getByText("0 Apps")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Automation" })).toBeNull();
     expect(screen.getByRole("link", { name: /Payments/ })).toHaveAttribute(
       "href",

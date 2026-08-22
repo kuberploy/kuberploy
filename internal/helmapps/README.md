@@ -1,7 +1,9 @@
-# Approved external Helm/OCI application core
+# Approved external Helm application core
 
-This package is the closed P0 contract for deploying a platform-approved OCI
-Helm chart. The stable schema stores immutable approvals, render work,
+This package is the closed P0 contract for deploying a platform-approved Helm
+chart from OCI, a classic HTTPS Helm repository, or a public HTTPS Git
+repository. The stable schema stores immutable approvals, captured chart
+packages, render work,
 desired-release history, and the two fenced Git publication phases.
 The package intentionally exposes no HTTP route or user-visible capability by
 itself: production must still prove the renderer, protected publisher, Argo,
@@ -11,9 +13,11 @@ credential, and root-application observations ready before advertising Helm.
 
 An administrator approval pins all of the following as one immutable revision:
 
-- a canonical lowercase `oci://` repository with no tag or credential syntax;
-- one exact SemVer chart version;
-- the OCI manifest digest, fetched chart-package digest, and
+- exactly one source: canonical lowercase `oci://`, a classic HTTPS Helm
+  repository plus chart name, or public HTTPS Git plus exact commit and chart
+  path;
+- one exact SemVer chart version and immutable source revision;
+- the resolved source identity, fetched chart-package digest, and
   `values.schema.json` digest, all `sha256`;
 - Helm `4.2.3`, policy `external-helm-p0.v1`, and the logical renderer
   reference `docker.io/alpine/helm:4.2.3`. Kubernetes renderer Jobs execute
@@ -37,9 +41,13 @@ secrets use the platform's separate, application-bound secret contract.
 
 ## Chart admission and render plan
 
-Before execution, the fetched blob must match both approved OCI identities.
+Admission resolves the selected source once and captures its exact package in
+PostgreSQL. OCI resolution is digest-pinned; classic repositories select one
+exact index version; Git fetches one exact 40-character commit in an isolated
+checkout and packages the declared chart path. The package must match the
+resolved approval identities.
 The package inspector then requires one v2 application chart whose root name
-and exact version match the OCI approval. It requires `values.yaml` and a
+and exact version match the approval. It requires `values.yaml` and a
 closed, offline `values.schema.json`, validates defaults and merged overrides,
 and rejects:
 
@@ -49,7 +57,8 @@ and rejects:
   ambiguous YAML/JSON;
 - `lookup`, DNS lookup, time, UUID, and random template functions.
 
-`OCIHTTPPackageSource` is the closed production fetch boundary. It sends only
+`UniversalChartPackageSource` is the admission-time dispatch boundary.
+`OCIHTTPPackageSource` sends only
 HTTPS `GET` requests to exact, sorted registry/auth host allowlists, requests
 the approved manifest by digest (never a tag), rejects redirects, and accepts
 only one OCI manifest containing one Helm chart layer with the exact approved
@@ -59,7 +68,18 @@ identity credentials come only from an operator-owned provider and are used sole
 Bearer-token exchange, and are cleared immediately; they are neither caller
 input nor renderer input. The bounded process-local cache keys immutable
 manifest/package digests, returns isolated byte copies, and clears evicted
-chart bytes.
+chart bytes. The classic-repository source similarly permits only the exact
+repository host, rejects redirects, and verifies the package selected by the
+exact chart/version index entry. The Git source permits public HTTPS only,
+disables ambient Git configuration and credentials, rejects redirects and
+symlinks, checks the exact fetched commit, and packages with the pinned Helm
+binary. SSH/private Git chart approval requires a future explicit credential
+binding and is rejected rather than silently using ambient credentials.
+
+After admission, `PostgresApprovedPackageSource` is the only production worker
+package source. Render workers read and rehash the captured immutable package;
+they never contact OCI, Helm, or Git providers and receive no source
+credentials.
 
 Production private access uses a strict, default-off registry-host profile
 map. The API and worker resolve profiles only from their closed environment
@@ -260,10 +280,11 @@ itself; production runtime wiring and the combined Argo readiness proof remain
 mandatory.
 
 `ApprovalAdmissionService` is the only supported approval ingestion seam. It
-accepts an authenticated platform actor, idempotency key, and exact OCI
-coordinates/digests; fetches through the configured credential boundary;
+accepts an authenticated platform actor, idempotency key, and one closed chart
+source variant; resolves it through the configured admission boundary;
 rehashes and inspects the package; extracts `values.schema.json` and
-`values.yaml`; and atomically persists the approval plus immutable documents.
+`values.yaml`; and atomically persists the approval, package, and immutable
+documents.
 Callers cannot submit document bytes or credentials. Its bounded catalog is
 available independently of renderer and Argo readiness.
 

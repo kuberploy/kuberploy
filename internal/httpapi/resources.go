@@ -156,10 +156,70 @@ func (s *Server) environment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 
+func (s *Server) environmentApps(w http.ResponseWriter, r *http.Request) {
+	items, err := s.store.ListEnvironmentAppPlacementsForActor(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"))
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	collection(w, items)
+}
+
+type environmentCloneRequest struct {
+	Name             string                             `json:"name"`
+	Slug             string                             `json:"slug,omitempty"`
+	ProtectionPolicy domain.EnvironmentProtectionPolicy `json:"protectionPolicy,omitempty"`
+}
+
+func (s *Server) cloneEnvironment(w http.ResponseWriter, r *http.Request) {
+	sourceEnvironmentID := strings.TrimSpace(r.PathValue("id"))
+	if !validUUID(sourceEnvironmentID) {
+		writeProblem(w, r, http.StatusNotFound, "NotFound", "Not found", "The requested resource was not found.")
+		return
+	}
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	var in environmentCloneRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Slug == "" {
+		in.Slug = slugify(in.Name)
+	} else {
+		in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
+	}
+	if in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The cloned environment name or slug is invalid.",
+			FieldError{Pointer: "/slug", Code: "InvalidSlug", Detail: "Use 1-63 lowercase letters, digits, or hyphens."})
+		return
+	}
+	if in.ProtectionPolicy != "" && in.ProtectionPolicy != domain.EnvironmentDevelopment && in.ProtectionPolicy != domain.EnvironmentProtected {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "protectionPolicy must be exactly development or protected.",
+			FieldError{Pointer: "/protectionPolicy", Code: "InvalidEnvironmentProtectionPolicy", Detail: "Omit to inherit the source policy, or choose development or protected."})
+		return
+	}
+	result, err := s.store.CloneEnvironment(r.Context(), currentUser(r.Context()).ID, sourceEnvironmentID, key, fingerprint(in), domain.CloneEnvironment{
+		Name: in.Name, Slug: in.Slug, ProtectionPolicy: in.ProtectionPolicy,
+	})
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if result.Replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.Header().Set("Location", "/v1/environments/"+result.Value.Environment.ID)
+	writeJSON(w, http.StatusCreated, result.Value)
+}
+
 type applicationRequest struct {
-	ProjectID string `json:"projectId"`
-	Name      string `json:"name"`
-	Slug      string `json:"slug,omitempty"`
+	ProjectID     string `json:"projectId"`
+	EnvironmentID string `json:"environmentId,omitempty"`
+	Name          string `json:"name"`
+	Slug          string `json:"slug,omitempty"`
 }
 
 func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
@@ -186,12 +246,15 @@ func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
 	} else {
 		in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
 	}
-	if in.ProjectID == "" || in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) {
+	if in.ProjectID == "" || in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) ||
+		(in.EnvironmentID != "" && !validUUID(in.EnvironmentID)) {
 		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The application project, name, or slug is invalid.")
 		return
 	}
 	u := currentUser(r.Context())
-	result, err := s.store.CreateApplication(r.Context(), u.ID, key, fingerprint(in), domain.CreateApplication{ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug})
+	result, err := s.store.CreateApplication(r.Context(), u.ID, key, fingerprint(in), domain.CreateApplication{
+		ProjectID: in.ProjectID, EnvironmentID: in.EnvironmentID, Name: in.Name, Slug: in.Slug,
+	})
 	if err != nil {
 		mappedError(w, r, err)
 		return

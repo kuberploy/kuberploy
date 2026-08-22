@@ -70,7 +70,9 @@ describe("Helm approvals settings", () => {
       .mockResolvedValueOnce({
         id: "approval",
         revision: 1,
+        sourceKind: "oci",
         repository: "oci://registry/charts/api",
+        chartName: "api",
         version: "1.0.0",
         manifestDigest: `sha256:${"a".repeat(64)}`,
         packageDigest: `sha256:${"b".repeat(64)}`,
@@ -100,6 +102,7 @@ describe("Helm approvals settings", () => {
     await user.click(submit);
     await waitFor(() => expect(created).toHaveBeenCalledTimes(2));
     expect(created.mock.calls[0][0]).toEqual({
+      sourceKind: "oci",
       repository: "oci://registry/charts/api",
       version: "1.0.0",
       manifestDigest: `sha256:${"a".repeat(64)}`,
@@ -146,5 +149,30 @@ describe("Helm approvals settings", () => {
       {} as Awaited<ReturnType<typeof api.createPlatformHelmApproval>>,
     );
     await waitFor(() => expect(input("version")).toHaveValue("2.0.0"));
+  });
+
+  it("submits a classic Helm repository without caller-calculated digests", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    vi.spyOn(api, "capabilities").mockResolvedValue(exact);
+    vi.spyOn(api, "platformHelmApprovals").mockResolvedValue({ items: [] });
+    const create = vi
+      .spyOn(api, "createPlatformHelmApproval")
+      .mockResolvedValue({} as Awaited<ReturnType<typeof api.createPlatformHelmApproval>>);
+    renderPage();
+    await user.selectOptions(await screen.findByLabelText(/^Chart source/), "helm-repository");
+    await user.type(screen.getByLabelText(/^Repository URL/), "https://charts.example.test/stable");
+    await user.type(screen.getByLabelText(/^Chart name/), "sample");
+    await user.type(screen.getByLabelText(/^Chart version/), "1.2.3");
+    expect(screen.getByLabelText(/^manifest Digest/i)).not.toBeRequired();
+    expect(screen.getByLabelText(/^package Digest/i)).not.toBeRequired();
+    await user.click(screen.getByRole("button", { name: "Create immutable approval" }));
+    await waitFor(() => expect(create).toHaveBeenCalledOnce());
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      sourceKind: "helm-repository",
+      repository: "https://charts.example.test/stable",
+      chartName: "sample",
+      version: "1.2.3",
+    });
   });
 });

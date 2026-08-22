@@ -229,8 +229,8 @@ spec:
       message: source credential Secrets must bind one immutable input and no external owner or finalizer
     # Secret data is presented to admission CEL as the API's base64-encoded
     # byte string. Compare the fixed username through that canonical form.
-    - expression: "object.type == 'Opaque' && object.immutable == true && (!has(object.stringData) || object.stringData.size() == 0) && object.data.size() == 2 && string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4=' && object.data['token'].size() >= 20 && object.data['token'].size() <= 2732"
-      message: source credential Secrets may contain only one bounded GitHub checkout username/token pair
+    - expression: "object.type == 'Opaque' && object.immutable == true && (!has(object.stringData) || object.stringData.size() == 0) && object.data.size() == 2 && ((('username' in object.data) && ('token' in object.data) && string(object.data['username']) == 'eC1hY2Nlc3MtdG9rZW4=' && object.data['token'].size() >= 20 && object.data['token'].size() <= 2732) || (('ssh-private-key' in object.data) && ('known_hosts' in object.data) && object.data['ssh-private-key'].size() >= 1 && object.data['ssh-private-key'].size() <= 87384 && object.data['known_hosts'].size() >= 1 && object.data['known_hosts'].size() <= 87384))"
+      message: source credential Secrets must contain exactly one bounded GitHub token or Git SSH key/known-hosts pair
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

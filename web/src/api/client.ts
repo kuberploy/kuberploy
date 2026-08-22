@@ -38,6 +38,8 @@ import type {
   DeploymentRollbackCandidate,
   DeploymentStatus,
   Environment,
+  EnvironmentAppPlacement,
+  EnvironmentCloneResult,
   EnvironmentGitBinding,
   ExternalDNSCatalog,
   ExternalDNSCatalogItem,
@@ -47,6 +49,7 @@ import type {
   EventSnapshot,
   GitHubInstallation,
   GitHubRepository,
+  GitSSHKey,
   HelmApproval,
   CreateHelmApproval,
   HelmMutationResult,
@@ -764,8 +767,18 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
     id: definition.id,
     projectId: definition.projectId,
     applicationId: definition.applicationId,
-    installationId: definition.installationId,
-    repositoryId: definition.repositoryId,
+    sourceKind: definition.sourceKind,
+    ...(definition.installationId
+      ? { installationId: definition.installationId }
+      : {}),
+    ...(definition.repositoryId ? { repositoryId: definition.repositoryId } : {}),
+    ...(definition.repositoryUrl ? { repositoryUrl: definition.repositoryUrl } : {}),
+    ...(definition.gitSSHKeyScope
+      ? { gitSSHKeyScope: definition.gitSSHKeyScope }
+      : {}),
+    ...(definition.gitSSHKeyRevision
+      ? { gitSSHKeyRevision: definition.gitSSHKeyRevision }
+      : {}),
     triggerRef: definition.triggerRef,
     contextPath: definition.contextPath,
     dockerfilePath: definition.dockerfilePath,
@@ -892,9 +905,7 @@ function buildLogQuery(options: BuildLogOptions, follow: boolean): string {
 function safeCreateBuildDefinition(
   input: CreateBuildDefinition,
 ): CreateBuildDefinition {
-  return {
-    installationId: input.installationId,
-    repositoryId: input.repositoryId,
+  const common = {
     registryTargetId: input.registryTargetId,
     triggerRef: input.triggerRef,
     contextPath: input.contextPath,
@@ -908,6 +919,25 @@ function safeCreateBuildDefinition(
     profile: safeBuildProfile(input.profile),
     maxAttempts: input.maxAttempts,
   };
+  return input.sourceKind === "git_ssh"
+    ? {
+        ...common,
+        sourceKind: "git_ssh",
+        repositoryUrl: input.repositoryUrl,
+        gitSSHKeyScope: input.gitSSHKeyScope,
+        gitSSHKeyRevision: input.gitSSHKeyRevision,
+        hostKeyPins: input.hostKeyPins.slice(0, 16).map((pin) => ({
+          endpoint: pin.endpoint,
+          publicKey: pin.publicKey,
+          ...(pin.fingerprint ? { fingerprint: pin.fingerprint } : {}),
+        })),
+      }
+    : {
+        ...common,
+        sourceKind: "github",
+        installationId: input.installationId,
+        repositoryId: input.repositoryId,
+      };
 }
 
 function safeRuntimeSecretDelivery(
@@ -1601,8 +1631,12 @@ function safeHelmApproval(value: HelmApproval): HelmApproval {
   return {
     id: value.id,
     revision: value.revision,
+    sourceKind: value.sourceKind,
     repository: value.repository,
+    chartName: value.chartName,
     version: value.version,
+    sourceRevision: value.sourceRevision,
+    chartPath: value.chartPath,
     manifestDigest: value.manifestDigest,
     packageDigest: value.packageDigest,
     valuesSchemaDigest: value.valuesSchemaDigest,
@@ -1697,12 +1731,24 @@ function safeHelmRenderedPreview(
 }
 
 function safeCreateHelmApproval(value: CreateHelmApproval): CreateHelmApproval {
-  return {
+  const common = {
+    sourceKind: value.sourceKind,
     repository: value.repository,
     version: value.version,
     manifestDigest: value.manifestDigest,
     packageDigest: value.packageDigest,
     valuesSchemaDigest: value.valuesSchemaDigest,
+  };
+  if (value.sourceKind === "oci") return { ...common, sourceKind: "oci" };
+  if (value.sourceKind === "helm-repository") {
+    return { ...common, sourceKind: "helm-repository", chartName: value.chartName };
+  }
+  return {
+    ...common,
+    sourceKind: "git",
+    chartName: value.chartName,
+    sourceRevision: value.sourceRevision,
+    chartPath: value.chartPath,
   };
 }
 
@@ -2212,6 +2258,27 @@ export const api = {
       headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
+  environmentApps: (environmentId: string) =>
+    request<Collection<EnvironmentAppPlacement>>(
+      `/v1/environments/${encodeURIComponent(environmentId)}/apps`,
+    ),
+  cloneEnvironment: (
+    environmentId: string,
+    input: {
+      name: string;
+      slug?: string;
+      protectionPolicy?: "development" | "protected";
+    },
+    idempotencyKey: string,
+  ) =>
+    request<EnvironmentCloneResult>(
+      `/v1/environments/${encodeURIComponent(environmentId)}/clone`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: input,
+      },
+    ),
   applications: () =>
     request<Collection<Application> | Application[]>("/v1/applications").then(
       asCollection,
@@ -2390,6 +2457,19 @@ export const api = {
     request<BuildDefinition>(
       `/v1/build-definitions/${encodeURIComponent(definitionId)}`,
     ).then(safeBuildDefinition),
+  createManualBuildAttempt: (
+    definitionId: string,
+    commitSha: string,
+    idempotencyKey: string,
+  ) =>
+    request<BuildAttempt>(
+      `/v1/build-definitions/${encodeURIComponent(definitionId)}/builds`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: { commitSha },
+      },
+    ).then(safeBuildAttempt),
   buildAttempts: (applicationId: string, requestedLimit = 50) => {
     const limit = boundedRegistryLimit(requestedLimit);
     return request<Collection<BuildAttempt> | BuildAttempt[]>(
@@ -2854,6 +2934,7 @@ export const api = {
   createApplication: (
     input: {
       projectId: string;
+      environmentId?: string;
       name: string;
       slug?: string;
     },
@@ -2866,6 +2947,50 @@ export const api = {
         : idempotencyHeaders(),
       body: input,
     }),
+  projectGitSSHKeys: (projectId: string) =>
+    request<Collection<GitSSHKey>>(
+      `/v1/projects/${encodeURIComponent(projectId)}/git-ssh-keys`,
+    ),
+  applicationGitSSHKeys: (applicationId: string) =>
+    request<Collection<GitSSHKey>>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/git-ssh-keys`,
+    ),
+  createGitSSHKey: (
+    scope: "project" | "app",
+    ownerId: string,
+    idempotencyKey: string,
+  ) =>
+    request<GitSSHKey>(
+      `/v1/${scope === "project" ? "projects" : "applications"}/${encodeURIComponent(ownerId)}/git-ssh-keys`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    ),
+  rotateGitSSHKey: (
+    scope: "project" | "app",
+    ownerId: string,
+    idempotencyKey: string,
+  ) =>
+    request<GitSSHKey>(
+      `/v1/${scope === "project" ? "projects" : "applications"}/${encodeURIComponent(ownerId)}/git-ssh-keys/rotate`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    ),
+  revokeGitSSHKey: (
+    scope: "project" | "app",
+    ownerId: string,
+    idempotencyKey: string,
+  ) =>
+    request<GitSSHKey>(
+      `/v1/${scope === "project" ? "projects" : "applications"}/${encodeURIComponent(ownerId)}/git-ssh-keys/active`,
+      {
+        method: "DELETE",
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    ),
 
   deployments: () =>
     request<Collection<Deployment> | Deployment[]>("/v1/deployments").then(

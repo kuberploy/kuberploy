@@ -230,12 +230,13 @@ yq eval-all 'true' "${kp_tmp}/cert.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.server] | sort | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == 'https://acme-staging-v02.api.letsencrypt.org/directory,https://acme-v02.api.letsencrypt.org/directory' ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressClassName] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "traefik" ]]
 [[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressTemplate.metadata.annotations."external-dns.alpha.kubernetes.io/ingress-hostname-source"] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "annotation-only" ]]
+[[ "$(yq eval-all '[select(.kind == "ClusterIssuer") | .spec.acme.solvers[0].http01.ingress.ingressTemplate.metadata.annotations."external-dns.alpha.kubernetes.io/exclude"] | unique | join(",")' "${kp_tmp}/cert.yaml" | tail -1)" == "true" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "ConfigMap" and .metadata.name == "cert-certificate-profile") | .data' "${kp_tmp}/cert.yaml" | jq -cS .)" == '{"ingressClassName":"traefik","management":"managed","productionDNS01Profiles":"","productionIssuer":"kuberploy-letsencrypt-production","productionServerClass":"letsencrypt-production","productionSolverTypes":"http01","stagingDNS01Profiles":"","stagingIssuer":"kuberploy-letsencrypt-staging","stagingServerClass":"letsencrypt-staging","stagingSolverTypes":"http01"}' ]]
 if yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[].image' "${kp_tmp}/cert.yaml" | rg -v '^(---|quay\.io/jetstack/cert-manager-(controller|webhook|cainjector):v1\.21\.1)$'; then
   printf 'cert-manager rendered an unexpected image\n' >&2
   exit 1
 fi
-if rg -n 'kind: Ingress$|kind: TLSStore|external-dns\.alpha\.kubernetes\.io/exclude|library/traefik|:latest' "${kp_tmp}/cert.yaml"; then
+if rg -n 'kind: Ingress$|kind: TLSStore|library/traefik|:latest' "${kp_tmp}/cert.yaml"; then
   printf 'cert-manager release rendered a route, custom certificate store, or cross-owned workload\n' >&2
   exit 1
 fi
@@ -248,9 +249,10 @@ helm template cert-dns01 "${kp_cert}" --namespace cert-manager -f "${kp_cert_dns
 [[ "$(yq eval-all 'select(.kind == "ClusterIssuer") | [.spec.acme.solvers[0:2][].selector.dnsZones[]] | join(",")' "${kp_tmp}/cert-dns01.yaml")" == "secondary.example.test,example.test" ]]
 [[ "$(yq eval-all 'select(.kind == "ClusterIssuer") | .spec.acme.solvers[2].http01.ingress.ingressClassName' "${kp_tmp}/cert-dns01.yaml")" == "traefik" ]]
 [[ "$(yq eval-all 'select(.kind == "ClusterIssuer") | .spec.acme.solvers[2].http01.ingress.ingressTemplate.metadata.annotations."external-dns.alpha.kubernetes.io/ingress-hostname-source"' "${kp_tmp}/cert-dns01.yaml")" == "annotation-only" ]]
+[[ "$(yq eval-all 'select(.kind == "ClusterIssuer") | .spec.acme.solvers[2].http01.ingress.ingressTemplate.metadata.annotations."external-dns.alpha.kubernetes.io/exclude"' "${kp_tmp}/cert-dns01.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.productionSolverTypes' "${kp_tmp}/cert-dns01.yaml")" == "dns01,http01" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.productionDNS01Profiles' "${kp_tmp}/cert-dns01.yaml")" == "cloudflare-primary,cloudflare-secondary" ]]
-if rg -n 'api-token:|apiToken:|external-dns\.alpha\.kubernetes\.io/exclude|webhook:' "${kp_tmp}/cert-dns01.yaml"; then
+if rg -n 'api-token:|apiToken:|webhook:' "${kp_tmp}/cert-dns01.yaml"; then
   printf 'DNS-01 profile rendered credential material, an unsupported exclusion, or arbitrary webhook provider\n' >&2
   exit 1
 fi

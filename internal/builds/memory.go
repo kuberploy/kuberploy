@@ -147,16 +147,19 @@ func (s *MemoryStore) PutDefinition(_ context.Context, definition BuildDefinitio
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	installation, installationOK := s.installations[definition.InstallationID]
-	repository, repositoryOK := s.repositories[definition.RepositoryID]
-	if !installationOK || !repositoryOK {
-		return ErrNotFound
-	}
-	if repository.InstallationID != installation.ID || installation.Lifecycle == InstallationDeleted || repository.Lifecycle == RepositoryRemoved {
-		return ErrUnauthorized
+	if definition.SourceKind == SourceGitHub {
+		installation, installationOK := s.installations[definition.InstallationID]
+		repository, repositoryOK := s.repositories[definition.RepositoryID]
+		if !installationOK || !repositoryOK {
+			return ErrNotFound
+		}
+		if repository.InstallationID != installation.ID || installation.Lifecycle == InstallationDeleted || repository.Lifecycle == RepositoryRemoved {
+			return ErrUnauthorized
+		}
 	}
 	for id, current := range s.definitions {
-		if id == definition.ID || current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID || current.RepositoryID != definition.RepositoryID || current.TriggerRef != definition.TriggerRef {
+		sameSource := current.SourceKind == definition.SourceKind && (definition.SourceKind == SourceGitSSH || current.RepositoryID == definition.RepositoryID)
+		if id == definition.ID || current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID || !sameSource || current.TriggerRef != definition.TriggerRef {
 			continue
 		}
 		if !current.Enabled {

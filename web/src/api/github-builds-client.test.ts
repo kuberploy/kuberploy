@@ -9,6 +9,7 @@ import type {
 afterEach(() => vi.unstubAllGlobals());
 
 const definition: BuildDefinition = {
+  sourceKind: "github",
   id: "definition-safe",
   projectId: "project-safe",
   applicationId: "application/id",

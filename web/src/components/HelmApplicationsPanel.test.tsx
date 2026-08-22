@@ -40,7 +40,9 @@ const project = {
 const approval = {
   id: "11111111-1111-4111-8111-111111111111",
   revision: 2,
+  sourceKind: "oci" as const,
   repository: "oci://registry.example.test/charts/payments",
+  chartName: "payments",
   version: "1.2.3",
   manifestDigest: `sha256:${"a".repeat(64)}`,
   packageDigest: `sha256:${"b".repeat(64)}`,

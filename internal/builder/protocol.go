@@ -23,6 +23,8 @@ const (
 	BuildSecretRoot         = "/var/run/secrets/kuberploy/build"
 	SSHSecretRoot           = "/var/run/secrets/kuberploy/ssh"
 	SourceCredentialRoot    = "/var/run/secrets/kuberploy/source"
+	SourceSSHPrivateKeyFile = SourceCredentialRoot + "/ssh-private-key"
+	SourceSSHKnownHostsFile = SourceCredentialRoot + "/known_hosts"
 	DefaultBuildKitImage    = "docker.io/moby/buildkit:v0.32.2"
 	DefaultDockerSocket     = "unix:///run/kuberploy/docker/docker.sock"
 	DefaultBuildResult      = "/result/result.json"
@@ -105,14 +107,16 @@ type BuildProfile struct {
 
 // CheckoutRequest is consumed only by the trusted checkout init container.
 type CheckoutRequest struct {
-	APIVersion      string `json:"apiVersion"`
-	OperationID     string `json:"operationId"`
-	Generation      int64  `json:"generation"`
-	RepositoryURL   string `json:"repositoryUrl"`
-	ApprovedHost    string `json:"approvedHost"`
-	Commit          string `json:"commit"`
-	UsernameFile    string `json:"usernameFile,omitempty"`
-	AccessTokenFile string `json:"accessTokenFile,omitempty"`
+	APIVersion        string `json:"apiVersion"`
+	OperationID       string `json:"operationId"`
+	Generation        int64  `json:"generation"`
+	RepositoryURL     string `json:"repositoryUrl"`
+	ApprovedHost      string `json:"approvedHost"`
+	Commit            string `json:"commit"`
+	UsernameFile      string `json:"usernameFile,omitempty"`
+	AccessTokenFile   string `json:"accessTokenFile,omitempty"`
+	SSHPrivateKeyFile string `json:"sshPrivateKeyFile,omitempty"`
+	SSHKnownHostsFile string `json:"sshKnownHostsFile,omitempty"`
 }
 
 func DecodeBuildRequest(r io.Reader) (BuildRequest, error) {
@@ -350,8 +354,20 @@ func (r CheckoutRequest) Validate() error {
 		return errors.New("commit must be an exact lowercase 40-hex Git object ID")
 	}
 	u, err := url.Parse(r.RepositoryURL)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("repositoryUrl must be a credential-free HTTPS URL without query or fragment")
+	if err != nil || (u.Scheme != "https" && u.Scheme != "ssh") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" ||
+		u.Opaque != "" || u.Path == "" || u.Path == "/" {
+		return errors.New("repositoryUrl must be an exact HTTPS or SSH URL without query or fragment")
+	}
+	if u.Scheme == "https" && u.User != nil {
+		return errors.New("HTTPS repositoryUrl must not contain credentials")
+	}
+	if u.Scheme == "ssh" {
+		if u.User == nil || u.User.Username() == "" {
+			return errors.New("SSH repositoryUrl must include an exact username")
+		}
+		if _, hasPassword := u.User.Password(); hasPassword {
+			return errors.New("SSH repositoryUrl must not contain a password")
+		}
 	}
 	if !registryPattern.MatchString(r.ApprovedHost) || !strings.EqualFold(u.Host, r.ApprovedHost) {
 		return errors.New("repositoryUrl host must exactly match the controller-approved host")
@@ -361,6 +377,18 @@ func (r CheckoutRequest) Validate() error {
 	}
 	if (r.UsernameFile == "") != (r.AccessTokenFile == "") {
 		return errors.New("source username and token files must be supplied together")
+	}
+	if (r.SSHPrivateKeyFile == "") != (r.SSHKnownHostsFile == "") {
+		return errors.New("SSH private key and known-hosts files must be supplied together")
+	}
+	if r.SSHPrivateKeyFile != "" && (r.SSHPrivateKeyFile != SourceSSHPrivateKeyFile || r.SSHKnownHostsFile != SourceSSHKnownHostsFile) {
+		return errors.New("SSH credential files must use the fixed source credential paths")
+	}
+	if r.UsernameFile != "" && r.SSHPrivateKeyFile != "" {
+		return errors.New("HTTPS and SSH source credentials are mutually exclusive")
+	}
+	if u.Scheme == "https" && r.SSHPrivateKeyFile != "" || u.Scheme == "ssh" && (r.SSHPrivateKeyFile == "" || r.UsernameFile != "") {
+		return errors.New("source credential mode must match repositoryUrl scheme")
 	}
 	if r.UsernameFile != "" {
 		if err := validateConfinedAbsolute(SourceCredentialRoot, r.UsernameFile); err != nil {

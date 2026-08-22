@@ -3017,6 +3017,14 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 	if err != nil {
 		t.Fatal(err)
 	}
+	approvalSource, err := approval.CanonicalSource()
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalChartName, _, err := approvalSource.ChartIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
 	statements := []struct {
 		query string
 		args  []any
@@ -3029,18 +3037,19 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		{`INSERT INTO applications(id,project_id,name,slug,created_at)
 			VALUES($1,$2,'Sample','sample',$3)`, []any{f.applicationID, f.projectID, f.now}},
 		{`INSERT INTO helm_chart_approvals(
-			approval_id,revision,oci_repository,chart_version,manifest_digest,
+			approval_id,revision,source_kind,source_json,chart_name,oci_repository,chart_version,manifest_digest,
 			package_digest,values_schema_digest,renderer_image,renderer_version,
 			policy_version,identity_digest,created_by,idempotency_key,created_at
-		) VALUES($1,1,$2,'1.2.3',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		) VALUES($1,1,'oci',jsonb_build_object('kind','oci','oci',jsonb_build_object(
+			'repository',$2::text,'version','1.2.3','digest',$3::text)),$13,$2,'1.2.3',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 			[]any{f.approvalID, f.ociRepository, helmPGDigest([]byte("chart-manifest")), helmPGDigest([]byte("chart-package")),
 				f.schemaDigest, RendererImage, HelmVersion, PolicyVersion,
-				approvalIdentity, f.userID, "approval-" + f.approvalID, f.now}},
+				approvalIdentity, f.userID, "approval-" + f.approvalID, f.now, approvalChartName}},
 		{`INSERT INTO helm_chart_approval_documents(
-			approval_id,approval_revision,values_schema_json,default_values_yaml,
+			approval_id,approval_revision,values_schema_json,default_values_yaml,package_bytes,
 			values_schema_digest,documents_digest,created_at
-		) VALUES($1,1,$2,$3,$4,$5,$6)`, []any{f.approvalID, f.schema, f.values,
-			f.schemaDigest, f.documentsDigest, f.now}},
+		) VALUES($1,1,$2,$3,$4,$5,$6,$7)`, []any{f.approvalID, f.schema, f.values,
+			[]byte("chart-package"), f.schemaDigest, f.documentsDigest, f.now}},
 		{`INSERT INTO git_repository_bindings(
 			id,kind,scope_id,cluster_id,provider,installation_id,repository_id,
 			repository_owner,repository_name,target_ref,path_prefix,credential_secret_name,

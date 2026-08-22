@@ -80,6 +80,12 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 		buildsConfigured = s.buildReadiness.Probe(ctx) == nil
 		cancel()
 	}
+	gitSSHBuildsConfigured := false
+	if s.builds != nil && s.gitSSHKeys != nil && s.buildReadiness != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		gitSSHBuildsConfigured = s.buildReadiness.Probe(ctx) == nil
+		cancel()
+	}
 	buildLogsConfigured := false
 	if s.builds != nil && s.buildLogs != nil && s.buildLogReadiness != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -196,6 +202,8 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"registry":   registryConfigured, "managedRegistry": managedRegistryConfigured,
 			"privateRegistryPulls": registryPullsConfigured,
 			"helmApprovals":        s.helmApprovals != nil,
+			"gitSSH":               s.gitSSHKeys != nil,
+			"gitSSHBuilds":         gitSSHBuildsConfigured,
 			"deploymentRollbacks":  deploymentRollbacksConfigured,
 			"imageTagResolution":   imageTagResolutionConfigured,
 			"variableSets":         variableSetsConfigured,
@@ -217,6 +225,7 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"argoCD": featureState(argoEnabled, argoConfigured), "argo": featureState(argoEnabled, argoConfigured),
 			"traefik": featureState(edgeEnabled && s.edgeFeatures.Traefik, traefikConfigured), "edge": featureState(edgeEnabled, edgeConfigured),
 			"builder": featureState(buildEnabled, buildsConfigured), "builds": featureState(buildEnabled, buildsConfigured),
+			"gitSSHBuilds": featureState(s.gitSSHKeys != nil && s.builds != nil && s.buildReadiness != nil, gitSSHBuildsConfigured),
 		},
 		Limits: map[string]any{"deploymentReplicas": 100, "environmentVariables": 256, "workloadPorts": 32, "tolerations": 32, "idempotencyKeyBytes": 128, "serviceAccountTokenMaxTTLSeconds": int64(automation.MaxTokenTTL.Seconds())},
 	})

@@ -26,6 +26,7 @@ const (
 	issuerManagedByLabel          = "app.kubernetes.io/managed-by"
 	issuerProfileLabel            = "kuberploy.io/certificate-issuer-profile"
 	http01ExternalDNSAnnotation   = "external-dns.alpha.kubernetes.io/ingress-hostname-source"
+	http01ExternalDNSExclude      = "external-dns.alpha.kubernetes.io/exclude"
 )
 
 type ClusterIssuerSnapshot struct {
@@ -314,8 +315,9 @@ func normalizeLiveSpec(live liveIssuerSpec) (Spec, SolverType, string, error) {
 	spec := Spec{ACME: ACME{Email: live.ACME.Email, Server: live.ACME.Server, AccountPrivateKeySecretName: live.ACME.PrivateKeySecretRef.Name}}
 	if item.HTTP01 != nil && item.DNS01 == nil {
 		if item.Selector != nil && len(item.Selector.DNSZones) != 0 || item.HTTP01.Ingress.IngressClassName != "traefik" ||
-			len(item.HTTP01.Ingress.IngressTemplate.Metadata.Annotations) != 1 ||
-			item.HTTP01.Ingress.IngressTemplate.Metadata.Annotations[http01ExternalDNSAnnotation] != "annotation-only" {
+			len(item.HTTP01.Ingress.IngressTemplate.Metadata.Annotations) != 2 ||
+			item.HTTP01.Ingress.IngressTemplate.Metadata.Annotations[http01ExternalDNSAnnotation] != "annotation-only" ||
+			item.HTTP01.Ingress.IngressTemplate.Metadata.Annotations[http01ExternalDNSExclude] != "true" {
 			return Spec{}, "", "", ErrObservationUnavailable
 		}
 		spec.HTTP01 = &HTTP01Spec{}

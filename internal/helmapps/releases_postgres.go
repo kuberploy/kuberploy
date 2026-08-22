@@ -375,7 +375,7 @@ const releaseRevisionSelect = `SELECT id::text,generation,project_id::text,
 	actor_id::text,idempotency_key,request_id,created_at FROM helm_release_revisions`
 
 const approvalDocumentSelect = `SELECT
-		a.approval_id::text,a.revision,a.oci_repository,a.chart_version,
+		a.approval_id::text,a.revision,a.source_kind,a.source_json,a.chart_name,a.oci_repository,a.chart_version,
 		a.manifest_digest,a.package_digest,a.values_schema_digest,a.renderer_image,
 		a.renderer_version,a.policy_version,a.created_by::text,a.idempotency_key,
 		a.created_at,a.identity_digest,d.values_schema_json,d.default_values_yaml,
@@ -386,9 +386,10 @@ const approvalDocumentSelect = `SELECT
 
 func scanApprovalDocument(row rowScanner) (ApprovalDocument, error) {
 	var document ApprovalDocument
-	var identityDigest string
+	var identityDigest, sourceKind, chartName string
+	var sourceJSON []byte
 	err := row.Scan(&document.Approval.ID, &document.Approval.Revision,
-		&document.Approval.OCIRepository, &document.Approval.ChartVersion,
+		&sourceKind, &sourceJSON, &chartName, &document.Approval.OCIRepository, &document.Approval.ChartVersion,
 		&document.Approval.ManifestDigest, &document.Approval.PackageDigest,
 		&document.Approval.ValuesSchemaDigest, &document.Approval.RendererImage,
 		&document.Approval.RendererVersion, &document.Approval.PolicyVersion,
@@ -397,6 +398,11 @@ func scanApprovalDocument(row rowScanner) (ApprovalDocument, error) {
 		&document.DefaultValuesYAML, &document.DocumentsDigest, &document.CreatedAt)
 	if err != nil {
 		return ApprovalDocument{}, err
+	}
+	document.Approval.Source, err = unmarshalChartSource(sourceJSON)
+	resolvedChartName, _, sourceErr := document.Approval.Source.ChartIdentity()
+	if err != nil || sourceErr != nil || string(document.Approval.Source.Kind) != sourceKind || resolvedChartName != chartName {
+		return ApprovalDocument{}, ErrConflict
 	}
 	expectedIdentity, identityErr := document.Approval.IdentityDigest()
 	if identityErr != nil || expectedIdentity != identityDigest || document.Validate() != nil {
@@ -611,6 +617,7 @@ func cloneReleaseRevision(value ReleaseRevision) ReleaseRevision {
 func cloneApprovalDocument(value ApprovalDocument) ApprovalDocument {
 	value.ValuesSchemaJSON = append([]byte(nil), value.ValuesSchemaJSON...)
 	value.DefaultValuesYAML = append([]byte(nil), value.DefaultValuesYAML...)
+	value.PackageBytes = append([]byte(nil), value.PackageBytes...)
 	return value
 }
 

@@ -1,12 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useQueries, useQuery } from "@tanstack/react-query";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
+import { GitSSHSourcePanel } from "../components/GitSSHSourcePanel";
 import { Icon } from "../components/Icon";
-import { hasBuildApplicationCapability } from "../lib/buildAccess";
+import {
+  compatibleBuildRegistryTargets,
+  hasBuildApplicationCapability,
+} from "../lib/buildAccess";
 import { gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
@@ -19,7 +23,7 @@ import {
   StatusPill,
 } from "../components/ui";
 
-type SourceKind = "build" | "image" | "helm";
+type SourceKind = "build" | "image" | "ssh" | "helm";
 type WorkspaceTab = "overview" | "source" | "runtime";
 
 function compactImageReference(image?: string) {
@@ -30,9 +34,16 @@ function compactImageReference(image?: string) {
 }
 
 export function ApplicationOverviewPage() {
-  const { applicationId } = useParams({
-    from: "/applications/$applicationId",
-  });
+  const {
+    applicationId = "",
+    projectId: routeProjectId,
+    environmentId: routeEnvironmentId,
+  } = useParams({ strict: false });
+  const search = useSearch({ strict: false }) as {
+    tab?: string;
+    source?: string;
+    environmentId?: string;
+  };
   const [source, setSource] = useState<SourceKind>("build");
   const [tab, setTab] = useState<WorkspaceTab>("overview");
   const [environmentId, setEnvironmentId] = useState("");
@@ -107,18 +118,50 @@ export function ApplicationOverviewPage() {
     retry: false,
   });
 
-  const applicationEnvironments = useMemo(
+  const projectEnvironments = useMemo(
     () =>
       environments.data?.items.filter(
         (item) => item.projectId === application.data?.projectId,
       ) ?? [],
     [application.data?.projectId, environments.data?.items],
   );
+  const placementQueries = useQueries({
+    queries: projectEnvironments.map((environment) => ({
+      queryKey: ["environment-apps", environment.id],
+      queryFn: () => api.environmentApps(environment.id),
+      retry: false,
+    })),
+  });
+  const applicationEnvironments = useMemo(
+    () =>
+      projectEnvironments.filter((_, index) =>
+        placementQueries[index]?.data?.items.some(
+          (placement) => placement.applicationId === applicationId,
+        ),
+      ),
+    [applicationId, placementQueries, projectEnvironments],
+  );
   useEffect(() => {
-    setSource("build");
-    setTab("overview");
-    setEnvironmentId("");
-  }, [applicationId]);
+    const requestedSource: SourceKind =
+      search.source === "oci"
+        ? "image"
+        : search.source === "github"
+          ? "build"
+          : search.source === "git-ssh"
+            ? "ssh"
+            : search.source === "helm"
+              ? "helm"
+              : "build";
+    setSource(requestedSource);
+    setTab(search.tab === "source" ? "source" : "overview");
+    setEnvironmentId(search.environmentId ?? routeEnvironmentId ?? "");
+  }, [
+    applicationId,
+    routeEnvironmentId,
+    search.environmentId,
+    search.source,
+    search.tab,
+  ]);
   useEffect(() => {
     if (!application.data || !environments.data) return;
     if (
@@ -153,12 +196,21 @@ export function ApplicationOverviewPage() {
         )[0],
     [buildDefinitions.data?.items],
   );
-  const loadError = application.error ?? projects.error ?? environments.error;
+  const loadError =
+    application.error ??
+    projects.error ??
+    environments.error ??
+    placementQueries.find((query) => query.error)?.error;
 
   if (loadError) {
     return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
   }
-  if (application.isPending || projects.isPending || environments.isPending) {
+  if (
+    application.isPending ||
+    projects.isPending ||
+    environments.isPending ||
+    placementQueries.some((query) => query.isPending)
+  ) {
     return <Skeleton lines={7} />;
   }
   if (!application.data || !project) {
@@ -169,13 +221,39 @@ export function ApplicationOverviewPage() {
       />
     );
   }
+  if (
+    routeEnvironmentId &&
+    (routeProjectId !== application.data.projectId ||
+      !applicationEnvironments.some(
+        (environment) => environment.id === routeEnvironmentId,
+      ))
+  ) {
+    return (
+      <EmptyState
+        title="Environment App unavailable"
+        description="This App is not placed in the requested Project and Environment, or your access changed."
+        action={
+          <Link
+            to="/projects/$projectId/environments/$environmentId"
+            params={{
+              projectId: routeProjectId ?? "",
+              environmentId: routeEnvironmentId,
+            }}
+            className="button button--secondary"
+          >
+            Back to Environment
+          </Link>
+        }
+      />
+    );
+  }
 
   return (
     <div className="page">
       <PageHeader
         eyebrow={project.name}
         title={application.data.name}
-        description="Manage this service's source, runtime image access, and environment deployments."
+        description="Manage this App's source, runtime image access, and environment deployments."
         actions={
           <Link
             to="/projects/$projectId"
@@ -189,7 +267,7 @@ export function ApplicationOverviewPage() {
 
       <nav
         className="page-tabs service-workspace-tabs"
-        aria-label="Service sections"
+        aria-label="App sections"
       >
         {(["overview", "source", "runtime"] as const).map((item) => (
           <button
@@ -261,8 +339,17 @@ export function ApplicationOverviewPage() {
                   releases, logs, and metrics.
                 </p>
               </div>
-              <Link to="/deploy" className="button button--primary">
-                <Icon name="plus" /> Deploy service
+              <Link
+                to="/deploy"
+                search={{
+                  projectId: project.id,
+                  environmentId:
+                    routeEnvironmentId || applicationEnvironments[0]?.id,
+                  applicationId: application.data.id,
+                }}
+                className="button button--primary"
+              >
+                <Icon name="plus" /> Deploy App
               </Link>
             </div>
             {applicationDeployments.length ? (
@@ -300,7 +387,7 @@ export function ApplicationOverviewPage() {
                 compact
                 icon="deploy"
                 title="No deployment yet"
-                description="Choose a source, then deploy this service to an environment."
+                description="Choose a source, then deploy this App to an environment."
                 action={
                   <button
                     className="button button--secondary"
@@ -319,9 +406,9 @@ export function ApplicationOverviewPage() {
         <Card className="application-source-card">
           <div className="application-source-card__header">
             <div>
-              <span className="eyebrow">Service setup</span>
+              <span className="eyebrow">App setup</span>
               <h2>Deployment source</h2>
-              <p>Choose how Kuberploy should deliver this service.</p>
+              <p>Choose how Kuberploy should deliver this App.</p>
             </div>
           </div>
           <div
@@ -350,11 +437,20 @@ export function ApplicationOverviewPage() {
             <button
               type="button"
               role="tab"
+              aria-selected={source === "ssh"}
+              onClick={() => setSource("ssh")}
+            >
+              <Icon name="terminal" />
+              Git SSH
+            </button>
+            <button
+              type="button"
+              role="tab"
               aria-selected={source === "helm"}
               onClick={() => setSource("helm")}
             >
               <Icon name="layers" />
-              Helm / OCI
+              Helm chart
             </button>
           </div>
         </Card>
@@ -399,9 +495,11 @@ export function ApplicationOverviewPage() {
                   project={project}
                   capabilities={effectiveCapabilities}
                   humanSession={humanSession}
-                  registryTargets={
-                    registry.data?.items.map((item) => item.target) ?? []
-                  }
+                  registryTargets={compatibleBuildRegistryTargets(
+                    registry.data?.items ?? [],
+                    project.id,
+                    application.data.id,
+                  )}
                 />
               </>
             )}
@@ -417,13 +515,47 @@ export function ApplicationOverviewPage() {
               title="Deploy an existing image"
               description="Use a public image or select a project pull credential, then configure its deployment. Image tags are resolved to an immutable digest before saving."
               action={
-                <Link to="/deploy" className="button button--primary">
+                <Link
+                  to="/deploy"
+                  search={{
+                    projectId: project.id,
+                    environmentId:
+                      environmentId || applicationEnvironments[0]?.id,
+                    applicationId: application.data.id,
+                  }}
+                  className="button button--primary"
+                >
                   Configure image deployment <Icon name="arrow" />
                 </Link>
               }
             />
           </Card>
         </div>
+      ) : null}
+
+      {tab === "source" && source === "ssh" ? (
+        <Card className="service-settings-card">
+          <GitSSHSourcePanel
+            application={application.data}
+            project={project}
+            enabled={features?.gitSSH === true}
+            buildEnabled={features?.gitSSHBuilds === true}
+            canManageBuilds={Boolean(
+              humanSession &&
+                hasBuildApplicationCapability(
+                  effectiveCapabilities,
+                  "build-definitions:write",
+                  application.data,
+                  project,
+                )
+            )}
+            registryTargets={compatibleBuildRegistryTargets(
+              registry.data?.items ?? [],
+              project.id,
+              application.data.id,
+            )}
+          />
+        </Card>
       ) : null}
 
       {tab === "source" && source === "helm" ? (

@@ -10,8 +10,11 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +25,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/gitssh"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
@@ -60,27 +64,32 @@ type BuildSecretProfileCatalog interface {
 }
 
 type BuildDefinitionMutation struct {
-	ApplicationID    string
-	ProjectID        string
-	InstallationID   string
-	RepositoryID     string
-	RegistryTargetID string
-	TriggerRef       string
-	ContextPath      string
-	DockerfilePath   string
-	Platforms        []string
-	BuildArgs        []builder.BuildArg
-	SecretFiles      []builder.FileReference
-	SSHFiles         []builder.FileReference
-	SecretProfileIDs []string
-	SSHProfileIDs    []string
-	CacheTrustLane   string
-	CacheImports     int
-	Profile          builder.BuildProfile
-	MaxAttempts      int
-	ActorID          string
-	IdempotencyKey   string
-	Fingerprint      string
+	ApplicationID     string
+	ProjectID         string
+	InstallationID    string
+	RepositoryID      string
+	SourceKind        builds.SourceKind
+	RepositoryURL     string
+	GitSSHKeyScope    gitssh.Scope
+	GitSSHKeyRevision uint64
+	HostKeyPins       []gitssh.HostKeyPin
+	RegistryTargetID  string
+	TriggerRef        string
+	ContextPath       string
+	DockerfilePath    string
+	Platforms         []string
+	BuildArgs         []builder.BuildArg
+	SecretFiles       []builder.FileReference
+	SSHFiles          []builder.FileReference
+	SecretProfileIDs  []string
+	SSHProfileIDs     []string
+	CacheTrustLane    string
+	CacheImports      int
+	Profile           builder.BuildProfile
+	MaxAttempts       int
+	ActorID           string
+	IdempotencyKey    string
+	Fingerprint       string
 }
 
 type BuildBackend interface {
@@ -92,6 +101,7 @@ type BuildBackend interface {
 	Attempts(context.Context, string, int) ([]builds.BuildAttempt, error)
 	Cancel(context.Context, string, string, string, string) (builds.BuildAttempt, bool, error)
 	Retry(context.Context, string, string, string, string) (builds.BuildAttempt, bool, error)
+	Build(context.Context, string, string, string, string, string) (builds.BuildAttempt, bool, error)
 }
 
 type GitBindingRepositoryResolution struct {
@@ -191,19 +201,60 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 		input.SecretFiles, input.SSHFiles = selection.SecretFiles, selection.SSHFiles
 		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
 	}
-	repository, err := b.store.Repository(ctx, input.RepositoryID)
-	if err != nil {
-		return builds.BuildDefinition{}, false, err
+	if input.SourceKind == "" {
+		input.SourceKind = builds.SourceGitHub
 	}
-	installation, err := b.store.Installation(ctx, input.InstallationID)
-	if err != nil {
-		return builds.BuildDefinition{}, false, err
-	}
-	if repository.InstallationID != installation.ID || installation.Lifecycle != builds.InstallationActive || repository.Lifecycle != builds.RepositoryActive {
-		return builds.BuildDefinition{}, false, builds.ErrUnauthorized
+	var gitSSHSource *builds.GitSSHSource
+	if input.SourceKind == builds.SourceGitHub {
+		repository, repositoryErr := b.store.Repository(ctx, input.RepositoryID)
+		if repositoryErr != nil {
+			return builds.BuildDefinition{}, false, repositoryErr
+		}
+		installation, installationErr := b.store.Installation(ctx, input.InstallationID)
+		if installationErr != nil {
+			return builds.BuildDefinition{}, false, installationErr
+		}
+		if repository.InstallationID != installation.ID || installation.Lifecycle != builds.InstallationActive || repository.Lifecycle != builds.RepositoryActive {
+			return builds.BuildDefinition{}, false, builds.ErrUnauthorized
+		}
+	} else if input.SourceKind == builds.SourceGitSSH {
+		u, parseErr := url.Parse(input.RepositoryURL)
+		if parseErr != nil || u.Scheme != "ssh" || u.Hostname() == "" {
+			return builds.BuildDefinition{}, false, builds.ErrInvalid
+		}
+		port := u.Port()
+		if port == "" {
+			port = "22"
+		}
+		portNumber, portErr := strconv.Atoi(port)
+		if portErr != nil || portNumber < 1 || portNumber > 65535 {
+			return builds.BuildDefinition{}, false, builds.ErrInvalid
+		}
+		expectedEndpoint := net.JoinHostPort(u.Hostname(), port)
+		for _, pin := range input.HostKeyPins {
+			if pin.Endpoint != expectedEndpoint {
+				return builds.BuildDefinition{}, false, builds.ErrInvalid
+			}
+		}
+		knownHosts, knownHostsErr := gitssh.KnownHosts(input.HostKeyPins)
+		if knownHostsErr != nil {
+			return builds.BuildDefinition{}, false, builds.ErrInvalid
+		}
+		keyOwnerID := input.ApplicationID
+		if input.GitSSHKeyScope == gitssh.ScopeProject {
+			keyOwnerID = input.ProjectID
+		} else if input.GitSSHKeyScope != gitssh.ScopeApp {
+			return builds.BuildDefinition{}, false, builds.ErrInvalid
+		}
+		gitSSHSource = &builds.GitSSHSource{RepositoryURL: input.RepositoryURL, ApprovedHost: u.Host,
+			KeyScope: string(input.GitSSHKeyScope), KeyOwnerID: keyOwnerID, KeyRevision: input.GitSSHKeyRevision, KnownHosts: string(knownHosts)}
+		resolution.Execution = addSourcePort(resolution.Execution, portNumber)
+		input.InstallationID, input.RepositoryID = "", ""
+	} else {
+		return builds.BuildDefinition{}, false, builds.ErrInvalid
 	}
 	definition, err := builds.PrepareDefinition(builds.BuildDefinition{ID: resourceID, ProjectID: input.ProjectID, ServiceID: input.ApplicationID,
-		InstallationID: input.InstallationID, RepositoryID: input.RepositoryID, TriggerRef: input.TriggerRef, Enabled: true,
+		SourceKind: input.SourceKind, InstallationID: input.InstallationID, RepositoryID: input.RepositoryID, GitSSH: gitSSHSource, TriggerRef: input.TriggerRef, Enabled: true,
 		DefinitionGeneration: 1, Spec: builds.DefinitionSpec{ContextPath: input.ContextPath, DockerfilePath: input.DockerfilePath,
 			Platforms: append([]string(nil), input.Platforms...), Registry: resolution.Registry, BuildArgs: append([]builder.BuildArg(nil), input.BuildArgs...),
 			SecretFiles: append([]builder.FileReference(nil), input.SecretFiles...), SSHFiles: append([]builder.FileReference(nil), input.SSHFiles...),
@@ -269,7 +320,7 @@ func (b *buildBackend) Retry(ctx context.Context, actorID, sourceAttemptID, key,
 	}
 	if commandReplay {
 		if existing, getErr := b.store.Attempt(ctx, retryID); getErr == nil {
-			if existing.DeliveryClaimKey != claimKey || existing.DefinitionID != source.DefinitionID {
+			if existing.TriggerKey != claimKey || existing.DefinitionID != source.DefinitionID {
 				return builds.BuildAttempt{}, false, builds.ErrConflict
 			}
 			return existing, true, nil
@@ -299,8 +350,98 @@ func (b *buildBackend) Retry(ctx context.Context, actorID, sourceAttemptID, key,
 		}
 		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
 	}
+	if definition.SourceKind == builds.SourceGitSSH {
+		resolution.Execution, err = executionForGitSSHSource(resolution.Execution, definition.GitSSH)
+		if err != nil {
+			return builds.BuildAttempt{}, false, err
+		}
+	}
 	attempt, retryReplay, err := b.store.RetryAttempt(ctx, sourceAttemptID, retryID, claimKey, resolution.Execution, now)
 	return attempt, commandReplay || retryReplay, err
+}
+
+func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitSHA, key, fingerprint string) (builds.BuildAttempt, bool, error) {
+	definition, err := b.store.Definition(ctx, definitionID)
+	if err != nil {
+		return builds.BuildAttempt{}, false, err
+	}
+	if definition.SourceKind != builds.SourceGitSSH || definition.GitSSH == nil {
+		return builds.BuildAttempt{}, false, builds.ErrInvalid
+	}
+	claimKey := builds.APICommandClaimKey(actorID, builds.APICommandDefinitionBuild, definitionID, key)
+	attemptID := builds.ManualAttemptID(claimKey, definitionID)
+	now := b.clock()
+	resourceID, commandReplay, err := b.store.ClaimAPICommand(ctx, actorID, builds.APICommandDefinitionBuild, definitionID, key, fingerprint, attemptID, now)
+	if err != nil || resourceID != attemptID {
+		if err == nil {
+			err = builds.ErrConflict
+		}
+		return builds.BuildAttempt{}, false, err
+	}
+	if commandReplay {
+		if existing, getErr := b.store.Attempt(ctx, attemptID); getErr == nil {
+			if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID || existing.CommitSHA != commitSHA {
+				return builds.BuildAttempt{}, false, builds.ErrConflict
+			}
+			return existing, true, nil
+		} else if !errors.Is(getErr, builds.ErrNotFound) {
+			return builds.BuildAttempt{}, false, getErr
+		}
+	}
+	resolution, err := b.resolver.ResolveBuildDefinition(ctx, actorID, definition.ProjectID, definition.ServiceID, definition.Spec.Registry.TargetID)
+	if err != nil || resolution.Registry.TargetID != definition.Spec.Registry.TargetID {
+		if err == nil {
+			err = builds.ErrUnauthorized
+		}
+		return builds.BuildAttempt{}, false, err
+	}
+	if len(definition.Spec.SecretFiles) > 0 || len(definition.Spec.SSHFiles) > 0 {
+		profileResolver, ok := b.resolver.(BuildSecretProfileResolver)
+		if !ok {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		selection, selectionErr := profileResolver.ResolveSecretFiles(definition.ServiceID, definition.Spec.SecretFiles, definition.Spec.SSHFiles)
+		if selectionErr != nil {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
+	}
+	resolution.Execution, err = executionForGitSSHSource(resolution.Execution, definition.GitSSH)
+	if err != nil {
+		return builds.BuildAttempt{}, false, err
+	}
+	attempt, replay, err := b.store.EnqueueManualAttempt(ctx, definitionID, commitSHA, claimKey, resolution.Execution, now)
+	return attempt, commandReplay || replay, err
+}
+
+func executionForGitSSHSource(execution builds.ExecutionSettings, source *builds.GitSSHSource) (builds.ExecutionSettings, error) {
+	if source == nil {
+		return builds.ExecutionSettings{}, builds.ErrInvalid
+	}
+	u, err := url.Parse(source.RepositoryURL)
+	if err != nil {
+		return builds.ExecutionSettings{}, builds.ErrInvalid
+	}
+	port := 22
+	if u.Port() != "" {
+		port, err = strconv.Atoi(u.Port())
+		if err != nil || port < 1 || port > 65535 {
+			return builds.ExecutionSettings{}, builds.ErrInvalid
+		}
+	}
+	return addSourcePort(execution, port), nil
+}
+
+func addSourcePort(execution builds.ExecutionSettings, port int) builds.ExecutionSettings {
+	execution.Egress = append([]builder.EgressEndpoint(nil), execution.Egress...)
+	for index := range execution.Egress {
+		execution.Egress[index].Ports = append([]int(nil), execution.Egress[index].Ports...)
+		if !slices.Contains(execution.Egress[index].Ports, port) {
+			execution.Egress[index].Ports = append(execution.Egress[index].Ports, port)
+			slices.Sort(execution.Egress[index].Ports)
+		}
+	}
+	return execution
 }
 func (b *buildBackend) clock() time.Time {
 	if b.now != nil {
@@ -611,20 +752,29 @@ func (s *Server) receiveGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 type buildDefinitionRequest struct {
-	InstallationID   string               `json:"installationId"`
-	RepositoryID     string               `json:"repositoryId"`
-	RegistryTargetID string               `json:"registryTargetId"`
-	TriggerRef       string               `json:"triggerRef"`
-	ContextPath      string               `json:"contextPath"`
-	DockerfilePath   string               `json:"dockerfilePath"`
-	Platforms        []string             `json:"platforms"`
-	BuildArgs        []builder.BuildArg   `json:"buildArgs,omitempty"`
-	SecretProfileIDs []string             `json:"secretProfileIds,omitempty"`
-	SSHProfileIDs    []string             `json:"sshProfileIds,omitempty"`
-	CacheTrustLane   string               `json:"cacheTrustLane"`
-	CacheImports     int                  `json:"cacheImports"`
-	Profile          builder.BuildProfile `json:"profile"`
-	MaxAttempts      int                  `json:"maxAttempts"`
+	SourceKind        builds.SourceKind    `json:"sourceKind,omitempty"`
+	InstallationID    string               `json:"installationId"`
+	RepositoryID      string               `json:"repositoryId"`
+	RepositoryURL     string               `json:"repositoryUrl,omitempty"`
+	GitSSHKeyScope    gitssh.Scope         `json:"gitSSHKeyScope,omitempty"`
+	GitSSHKeyRevision uint64               `json:"gitSSHKeyRevision,omitempty"`
+	HostKeyPins       []gitssh.HostKeyPin  `json:"hostKeyPins,omitempty"`
+	RegistryTargetID  string               `json:"registryTargetId"`
+	TriggerRef        string               `json:"triggerRef"`
+	ContextPath       string               `json:"contextPath"`
+	DockerfilePath    string               `json:"dockerfilePath"`
+	Platforms         []string             `json:"platforms"`
+	BuildArgs         []builder.BuildArg   `json:"buildArgs,omitempty"`
+	SecretProfileIDs  []string             `json:"secretProfileIds,omitempty"`
+	SSHProfileIDs     []string             `json:"sshProfileIds,omitempty"`
+	CacheTrustLane    string               `json:"cacheTrustLane"`
+	CacheImports      int                  `json:"cacheImports"`
+	Profile           builder.BuildProfile `json:"profile"`
+	MaxAttempts       int                  `json:"maxAttempts"`
+}
+
+type manualBuildRequest struct {
+	CommitSHA string `json:"commitSha"`
 }
 
 type safeRegistryBindingView struct {
@@ -638,8 +788,12 @@ type buildDefinitionView struct {
 	ID                   string                  `json:"id"`
 	ProjectID            string                  `json:"projectId"`
 	ApplicationID        string                  `json:"applicationId"`
-	InstallationID       string                  `json:"installationId"`
-	RepositoryID         string                  `json:"repositoryId"`
+	SourceKind           builds.SourceKind       `json:"sourceKind"`
+	InstallationID       string                  `json:"installationId,omitempty"`
+	RepositoryID         string                  `json:"repositoryId,omitempty"`
+	RepositoryURL        string                  `json:"repositoryUrl,omitempty"`
+	GitSSHKeyScope       string                  `json:"gitSSHKeyScope,omitempty"`
+	GitSSHKeyRevision    uint64                  `json:"gitSSHKeyRevision,omitempty"`
 	TriggerRef           string                  `json:"triggerRef"`
 	ContextPath          string                  `json:"contextPath"`
 	DockerfilePath       string                  `json:"dockerfilePath"`
@@ -730,12 +884,19 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	if !decodeGitHubBuildJSON(w, r, &input) {
 		return
 	}
-	if err := s.store.AuthorizeGitHubInstallationForProject(r.Context(), currentUser(r.Context()).ID, strings.TrimSpace(input.InstallationID), application.ProjectID); err != nil {
-		mappedError(w, r, err)
-		return
+	if input.SourceKind == "" {
+		input.SourceKind = builds.SourceGitHub
+	}
+	if input.SourceKind == builds.SourceGitHub {
+		if err := s.store.AuthorizeGitHubInstallationForProject(r.Context(), currentUser(r.Context()).ID, strings.TrimSpace(input.InstallationID), application.ProjectID); err != nil {
+			mappedError(w, r, err)
+			return
+		}
 	}
 	mutation := BuildDefinitionMutation{ApplicationID: application.ID, ProjectID: application.ProjectID, InstallationID: strings.TrimSpace(input.InstallationID),
-		RepositoryID: strings.TrimSpace(input.RepositoryID), RegistryTargetID: strings.TrimSpace(input.RegistryTargetID), TriggerRef: strings.TrimSpace(input.TriggerRef),
+		RepositoryID: strings.TrimSpace(input.RepositoryID), SourceKind: input.SourceKind, RepositoryURL: strings.TrimSpace(input.RepositoryURL),
+		GitSSHKeyScope: input.GitSSHKeyScope, GitSSHKeyRevision: input.GitSSHKeyRevision, HostKeyPins: append([]gitssh.HostKeyPin(nil), input.HostKeyPins...),
+		RegistryTargetID: strings.TrimSpace(input.RegistryTargetID), TriggerRef: strings.TrimSpace(input.TriggerRef),
 		ContextPath: input.ContextPath, DockerfilePath: input.DockerfilePath, Platforms: input.Platforms, BuildArgs: input.BuildArgs,
 		CacheTrustLane: strings.TrimSpace(input.CacheTrustLane), CacheImports: input.CacheImports,
 		Profile: input.Profile, MaxAttempts: input.MaxAttempts, ActorID: currentUser(r.Context()).ID, IdempotencyKey: key,
@@ -835,6 +996,50 @@ func (s *Server) buildDefinition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, safeBuildDefinition(definition))
+}
+
+func (s *Server) buildDefinitionBuild(w http.ResponseWriter, r *http.Request) {
+	if s.builds == nil {
+		githubBuildUnavailable(w, r, "Source builds are not configured.")
+		return
+	}
+	definition, err := s.builds.Definition(r.Context(), strings.TrimSpace(r.PathValue("id")))
+	if err != nil {
+		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	application, err := s.store.GetApplication(r.Context(), definition.ServiceID)
+	if err != nil || application.ProjectID != definition.ProjectID {
+		mappedError(w, r, store.ErrNotFound)
+		return
+	}
+	if err = s.store.Authorize(r.Context(), currentUser(r.Context()).ID, domain.PermissionBuildsManage, domain.AccessTarget{Type: "application", ID: application.ID}); err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	key, ok := githubBuildIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	var input manualBuildRequest
+	if !decodeGitHubBuildJSON(w, r, &input) {
+		return
+	}
+	input.CommitSHA = strings.TrimSpace(input.CommitSHA)
+	if !manualBuildCommitRE.MatchString(input.CommitSHA) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "commitSha must be an exact lowercase 40-hex Git commit ID.")
+		return
+	}
+	attempt, replay, err := s.builds.Build(r.Context(), currentUser(r.Context()).ID, definition.ID, input.CommitSHA, key, "sha256:"+fingerprint(input))
+	if err != nil {
+		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.Header().Set("Location", "/v1/builds/"+attempt.ID)
+	writeJSON(w, http.StatusAccepted, safeBuildAttempt(attempt))
 }
 
 func (s *Server) applicationBuildHistory(w http.ResponseWriter, r *http.Request) {
@@ -974,7 +1179,8 @@ func (s *Server) actorCanAccessGitHubInstallation(ctx context.Context, actorID, 
 
 func safeBuildDefinition(definition builds.BuildDefinition) buildDefinitionView {
 	return buildDefinitionView{ID: definition.ID, ProjectID: definition.ProjectID, ApplicationID: definition.ServiceID,
-		InstallationID: definition.InstallationID, RepositoryID: definition.RepositoryID, TriggerRef: definition.TriggerRef,
+		SourceKind: definition.SourceKind, InstallationID: definition.InstallationID, RepositoryID: definition.RepositoryID,
+		RepositoryURL: gitSSHRepositoryURL(definition), GitSSHKeyScope: gitSSHKeyScope(definition), GitSSHKeyRevision: gitSSHKeyRevision(definition), TriggerRef: definition.TriggerRef,
 		ContextPath: definition.Spec.ContextPath, DockerfilePath: definition.Spec.DockerfilePath,
 		Platforms: append([]string{}, definition.Spec.Platforms...), Registry: safeRegistryBindingView{TargetID: definition.Spec.Registry.TargetID,
 			Mode: definition.Spec.Registry.Mode, Server: definition.Spec.Registry.Server, RepositoryPrefix: definition.Spec.Registry.RepositoryPrefix},
@@ -983,6 +1189,27 @@ func safeBuildDefinition(definition builds.BuildDefinition) buildDefinitionView 
 		CacheImports: definition.Spec.CacheImports, Profile: definition.Spec.Profile, MaxAttempts: definition.Spec.MaxAttempts,
 		DefinitionDigest: definition.DefinitionDigest, DefinitionGeneration: definition.DefinitionGeneration, Enabled: definition.Enabled,
 		CreatedAt: definition.CreatedAt, UpdatedAt: definition.UpdatedAt}
+}
+
+func gitSSHRepositoryURL(definition builds.BuildDefinition) string {
+	if definition.GitSSH != nil {
+		return definition.GitSSH.RepositoryURL
+	}
+	return ""
+}
+
+func gitSSHKeyScope(definition builds.BuildDefinition) string {
+	if definition.GitSSH != nil {
+		return definition.GitSSH.KeyScope
+	}
+	return ""
+}
+
+func gitSSHKeyRevision(definition builds.BuildDefinition) uint64 {
+	if definition.GitSSH != nil {
+		return definition.GitSSH.KeyRevision
+	}
+	return 0
 }
 
 // Build argument values are caller-provided configuration, not safe metadata.
@@ -1043,6 +1270,7 @@ func githubBuildIdempotencyKey(w http.ResponseWriter, r *http.Request) (string, 
 }
 
 var setupHTTPIdempotencyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
+var manualBuildCommitRE = regexp.MustCompile(`^[a-f0-9]{40}$`)
 
 const maxGitHubBuildRequestBytes = 512 << 10
 

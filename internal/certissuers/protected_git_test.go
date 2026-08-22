@@ -146,13 +146,14 @@ func TestRenderClusterIssuerIsClosedAndDeterministic(t *testing.T) {
 	}
 	for _, required := range []string{
 		"kind: ClusterIssuer", `server: "` + LetsEncryptProduction + `"`, `ingressClassName: "traefik"`,
+		`external-dns.alpha.kubernetes.io/exclude: "true"`,
 		`external-dns.alpha.kubernetes.io/ingress-hostname-source: "annotation-only"`, fixture.desired.SpecDigest,
 	} {
 		if !strings.Contains(string(first), required) {
 			t.Fatalf("render missing %q:\n%s", required, first)
 		}
 	}
-	for _, forbidden := range []string{"external-dns.alpha.kubernetes.io/exclude", "webhook:", "route53:", "ingressClassName: nginx"} {
+	for _, forbidden := range []string{"webhook:", "route53:", "ingressClassName: nginx"} {
 		if strings.Contains(string(first), forbidden) {
 			t.Fatalf("render contains forbidden %q", forbidden)
 		}

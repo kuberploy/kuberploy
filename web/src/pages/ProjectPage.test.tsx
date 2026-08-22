@@ -14,20 +14,25 @@ vi.mock("@tanstack/react-router", () => ({
     to,
     className,
     search,
+    params,
   }: PropsWithChildren<{
     to: string;
     className?: string;
     search?: { projectId?: string; environmentId?: string };
+    params?: Record<string, string>;
   }>) => (
     <a
       href={
         search
           ? `${to}?${new URLSearchParams(
-              Object.entries(search).filter((entry): entry is [string, string] =>
-                Boolean(entry[1]),
+              Object.entries(search).filter(
+                (entry): entry is [string, string] => Boolean(entry[1]),
               ),
             )}`
-          : to
+          : Object.entries(params ?? {}).reduce(
+              (path, [key, value]) => path.replace(`$${key}`, value),
+              to,
+            )
       }
       className={className}
     >
@@ -127,27 +132,22 @@ afterEach(() => {
 });
 
 describe("project workspace", () => {
-  it("keeps services, environments, and administration in focused tabs", async () => {
+  it("makes environments the only path to Apps", async () => {
     const user = userEvent.setup();
     render(<ProjectPage />, { wrapper: wrapper() });
 
     expect(
       await screen.findByRole("heading", { name: "Payments" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Payments API/ }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("1 deployment")).toBeInTheDocument();
-    expect(screen.queryByText(/healthy/)).toBeNull();
-    expect(screen.queryByText("payments-production")).toBeNull();
-    expect(screen.queryByRole("link", { name: "Add service" })).toBeNull();
-
-    await user.click(screen.getByRole("button", { name: "Environments (1)" }));
     expect(screen.getByText("payments-production")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Add service" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Production" })).toHaveAttribute(
       "href",
-      "/deploy?projectId=project_payments&environmentId=environment_production",
+      "/projects/project_payments/environments/environment_production",
     );
+    expect(screen.getByText("1 App")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /add (service|app)/i }),
+    ).toBeNull();
     expect(
       screen.getByRole("button", { name: "Environment" }),
     ).toBeInTheDocument();
@@ -177,9 +177,7 @@ describe("project workspace", () => {
     const user = userEvent.setup();
     render(<ProjectPage />, { wrapper: wrapper() });
 
-    await user.click(
-      await screen.findByRole("button", { name: "Environments (1)" }),
-    );
+    await screen.findByRole("button", { name: "Environments (1)" });
     await user.click(screen.getByRole("button", { name: "Environment" }));
     const name = screen.getByRole("textbox", { name: "Environment name" });
     await user.type(name, "Staging");
@@ -218,9 +216,7 @@ describe("project workspace", () => {
     const user = userEvent.setup();
     render(<ProjectPage />, { wrapper: Wrapper });
 
-    await user.click(
-      await screen.findByRole("button", { name: "Environments (1)" }),
-    );
+    await screen.findByRole("button", { name: "Environments (1)" });
     await user.click(screen.getByRole("button", { name: "Git" }));
     expect(
       await screen.findByLabelText("Production Git authority"),
@@ -247,7 +243,7 @@ describe("project workspace", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Services (0)" }),
+        screen.getByRole("button", { name: "Environments (0)" }),
       ).toHaveAttribute("aria-current", "page"),
     );
     expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument();

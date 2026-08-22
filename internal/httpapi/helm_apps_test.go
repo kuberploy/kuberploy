@@ -226,6 +226,17 @@ func TestPlatformHelmApprovalAdmissionAcceptsOnlyPinnedCoordinates(t *testing.T)
 			t.Fatalf("approval response exposed %q: %#v", forbidden, view)
 		}
 	}
+	response = fixture.request(http.MethodPost, "/v1/platform/helm/approvals", "helm-approval-admit-0003", map[string]any{
+		"sourceKind": "helm-repository", "repository": "https://charts.example.test/stable",
+		"chartName": "demo", "version": "1.2.3",
+	})
+	if response.StatusCode != http.StatusCreated || backend.admitCalls != 2 ||
+		backend.admission.Source.Kind != helmapps.ChartSourceKindHelmRepository ||
+		backend.admission.Source.HelmRepository == nil ||
+		backend.admission.Source.HelmRepository.ChartName != "demo" ||
+		backend.admission.ManifestDigest != "" || backend.admission.PackageDigest != "" {
+		t.Fatalf("classic source status=%d calls=%d admission=%#v", response.StatusCode, backend.admitCalls, backend.admission)
+	}
 
 	response = fixture.request(http.MethodPost, "/v1/platform/helm/approvals", "helm-approval-admit-0002", map[string]any{
 		"repository": "oci://registry.example.test/charts/demo", "version": "1.2.3",
@@ -234,7 +245,7 @@ func TestPlatformHelmApprovalAdmissionAcceptsOnlyPinnedCoordinates(t *testing.T)
 		"valuesSchemaDigest": "sha256:" + string(bytes.Repeat([]byte{'c'}, 64)), "valuesSchema": map[string]any{},
 	})
 	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusBadRequest || problem.Code != "InvalidJSON" || backend.admitCalls != 1 {
+	if response.StatusCode != http.StatusBadRequest || problem.Code != "InvalidJSON" || backend.admitCalls != 2 {
 		t.Fatalf("unknown admission field status=%d problem=%#v calls=%d", response.StatusCode, problem, backend.admitCalls)
 	}
 }

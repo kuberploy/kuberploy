@@ -149,6 +149,7 @@ type Options struct {
 	HelmApplications                   HelmApplicationBackend
 	HelmApprovals                      HelmApprovalAdmissionBackend
 	HelmRenderedPreviews               HelmRenderedManifestPreviewBackend
+	GitSSHKeys                         GitSSHKeyBackend
 	MiddlewareProfiles                 middlewareProfileBackend
 	DeploymentRollbacks                *deploymentrollback.Resolver
 	AutoDeployService                  *autodeploy.PolicyService
@@ -205,6 +206,7 @@ type Server struct {
 	helmApplications                  HelmApplicationBackend
 	helmApprovals                     HelmApprovalAdmissionBackend
 	helmRenderedPreviews              HelmRenderedManifestPreviewBackend
+	gitSSHKeys                        GitSSHKeyBackend
 	middleware                        middlewareProfileBackend
 	deploymentRollbacks               *deploymentrollback.Resolver
 	autoDeployService                 *autodeploy.PolicyService
@@ -215,7 +217,7 @@ type Server struct {
 }
 
 func New(o Options) *Server {
-	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, helmApprovals: o.HelmApprovals, helmRenderedPreviews: o.HelmRenderedPreviews, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
+	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, helmApprovals: o.HelmApprovals, helmRenderedPreviews: o.HelmRenderedPreviews, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
 	s.imageResolutionCatalog, _ = o.Store.(imageresolution.Catalog)
 	if s.gitBindingRepositories == nil {
 		if resolver, ok := o.Builds.(GitBindingRepositoryResolver); ok {
@@ -272,6 +274,10 @@ func New(o Options) *Server {
 	mux.Handle("POST /v1/projects", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.projects))))
 	mux.Handle("GET /v1/projects/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.project))))
 	mux.Handle("GET /v1/projects/{id}/registry-pull-credentials", registryNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.projectRegistryPullCredentials)))))
+	mux.Handle("GET /v1/projects/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.projectGitSSHKeys)))))
+	mux.Handle("POST /v1/projects/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.projectGitSSHKeys))))))
+	mux.Handle("POST /v1/projects/{id}/git-ssh-keys/rotate", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.rotateProjectGitSSHKey))))))
+	mux.Handle("DELETE /v1/projects/{id}/git-ssh-keys/active", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.revokeProjectGitSSHKey))))))
 	mux.Handle("POST /v1/projects/{id}/registry-pull-credentials", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryPolicyLimit, http.HandlerFunc(s.projectRegistryPullCredentials))))))
 	mux.Handle("DELETE /v1/projects/{id}/registry-pull-credentials/{credentialId}", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryPolicyLimit, http.HandlerFunc(s.projectRegistryPullCredential))))))
 	mux.Handle("GET /v1/projects/{id}/grants", s.protect(s.humanOnly(http.HandlerFunc(s.projectAccessGrants))))
@@ -286,6 +292,8 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/environments", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environments))))
 	mux.Handle("POST /v1/environments", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.environments))))
 	mux.Handle("GET /v1/environments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environment))))
+	mux.Handle("GET /v1/environments/{id}/apps", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environmentApps))))
+	mux.Handle("POST /v1/environments/{id}/clone", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.cloneEnvironment))))
 	mux.Handle("GET /v1/environments/{id}/git-binding", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environmentGitBinding)))))
 	mux.Handle("POST /v1/environments/{id}/git-binding", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitBindingLimit, http.HandlerFunc(s.environmentGitBinding))))))
 	mux.Handle("GET /v1/environments/{id}/variable-sets", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.variableSets)))))
@@ -310,6 +318,10 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/applications", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applications))))
 	mux.Handle("POST /v1/applications", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.applications))))
 	mux.Handle("GET /v1/applications/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.application))))
+	mux.Handle("GET /v1/applications/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.applicationGitSSHKeys)))))
+	mux.Handle("POST /v1/applications/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.applicationGitSSHKeys))))))
+	mux.Handle("POST /v1/applications/{id}/git-ssh-keys/rotate", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.rotateApplicationGitSSHKey))))))
+	mux.Handle("DELETE /v1/applications/{id}/git-ssh-keys/active", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.revokeApplicationGitSSHKey))))))
 	mux.Handle("GET /v1/applications/{id}/registry-pull-selection", registryNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.applicationRegistryPullSelection)))))
 	mux.Handle("PUT /v1/applications/{id}/registry-pull-selection", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryPolicyLimit, http.HandlerFunc(s.applicationRegistryPullSelection))))))
 	mux.Handle("GET /v1/applications/{id}/workloads", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationWorkloads))))
@@ -336,6 +348,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/auto-deploy-policies/{id}/runs", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.autoDeployPolicyRuns)))))
 	mux.Handle("GET /v1/applications/{id}/builds", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationBuildHistory)))))
 	mux.Handle("GET /v1/build-definitions/{id}", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.buildDefinition)))))
+	mux.Handle("POST /v1/build-definitions/{id}/builds", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeBuildCreate, s.highRiskActor(buildCommandLimit, http.HandlerFunc(s.buildDefinitionBuild))))))
 	mux.Handle("GET /v1/applications/{id}/registry", registryNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.registry.applicationInventory)))))
 	mux.Handle("PUT /v1/applications/{id}/registry/policies/{targetId}", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryPolicyLimit, http.HandlerFunc(s.registry.putPolicy))))))
 	mux.Handle("POST /v1/applications/{id}/registry/cleanup-previews", registryNoStore(s.protect(s.humanOnly(s.highRiskActor(registryPreviewLimit, http.HandlerFunc(s.registry.previewCleanup))))))

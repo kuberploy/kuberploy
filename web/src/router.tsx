@@ -11,6 +11,8 @@ import { AuthScreen } from "./components/AuthScreen";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ProjectPage } from "./pages/ProjectPage";
+import { EnvironmentPage } from "./pages/EnvironmentPage";
+import { AddAppPage } from "./pages/AddAppPage";
 import { NewDeploymentPage } from "./pages/NewDeploymentPage";
 import { ApplicationPage } from "./pages/ApplicationPage";
 import { ApplicationOverviewPage } from "./pages/ApplicationOverviewPage";
@@ -98,6 +100,21 @@ const projectRoute = createRoute({
   path: "/projects/$projectId",
   component: ProjectPage,
 });
+const environmentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/environments/$environmentId",
+  component: EnvironmentPage,
+});
+const addAppRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/environments/$environmentId/apps/new",
+  component: AddAppPage,
+});
+const environmentAppRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/projects/$projectId/environments/$environmentId/apps/$applicationId",
+  component: ApplicationOverviewPage,
+});
 const variableSetsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/environments/$environmentId/variables",
@@ -111,6 +128,7 @@ const teamsRoute = createRoute({
 type DeploySearch = {
   projectId?: string;
   environmentId?: string;
+  applicationId?: string;
 };
 const deployRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -123,6 +141,10 @@ const deployRoute = createRoute({
     environmentId:
       typeof search.environmentId === "string" && search.environmentId
         ? search.environmentId
+        : undefined,
+    applicationId:
+      typeof search.applicationId === "string" && search.applicationId
+        ? search.applicationId
         : undefined,
   }),
   component: NewDeploymentPage,
@@ -212,6 +234,9 @@ const routeTree = rootRoute.addChildren([
   dashboardRoute,
   projectsRoute,
   projectRoute,
+  environmentRoute,
+  addAppRoute,
+  environmentAppRoute,
   variableSetsRoute,
   teamsRoute,
   deployRoute,
