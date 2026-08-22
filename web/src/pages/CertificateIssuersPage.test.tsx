@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
@@ -129,6 +135,67 @@ describe("certificate issuer administration", () => {
       solver: { type: "http01" },
     });
     expect(create.mock.calls[0]?.[1]).not.toHaveProperty("server");
+  });
+
+  it("creates a Cloudflare DNS-01 profile from zones and an existing Secret reference", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "me").mockResolvedValue(principal);
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      features: { certificateIssuerManagement: true },
+    });
+    vi.spyOn(api, "platformCertificateIssuers").mockResolvedValue({
+      items: [],
+    });
+    const create = vi
+      .spyOn(api, "createPlatformCertificateIssuer")
+      .mockResolvedValue({
+        ...issuer,
+        name: "tenant-dns",
+        revision: {
+          ...issuer.revision,
+          solver: "dns01-cloudflare",
+          dnsZones: ["example.com", "services.example.net"],
+          apiTokenSecretName: "cloudflare-dns01",
+          apiTokenSecretKey: "api-token",
+        },
+      });
+    renderPage();
+
+    await screen.findByText("Create an issuer");
+    await user.type(screen.getByLabelText(/^Issuer name/), "tenant-dns");
+    await user.type(
+      screen.getByLabelText(/^ACME account email/),
+      "admin@example.com",
+    );
+    await user.type(
+      screen.getByLabelText(/^ACME account Secret name/),
+      "tenant-dns-account",
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/^Solver/),
+      "dns01-cloudflare",
+    );
+    fireEvent.change(screen.getByLabelText(/^Authorized DNS zones/), {
+      target: { value: "example.com\nservices.example.net" },
+    });
+    await user.type(
+      screen.getByLabelText(/^Cloudflare API-token Secret name/),
+      "cloudflare-dns01",
+    );
+    await user.click(screen.getByRole("button", { name: "Create issuer" }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]?.[1]).toEqual({
+      environment: "production",
+      email: "admin@example.com",
+      accountPrivateKeySecretName: "tenant-dns-account",
+      solver: {
+        type: "dns01-cloudflare",
+        dnsZones: ["example.com", "services.example.net"],
+        apiTokenSecretName: "cloudflare-dns01",
+        apiTokenSecretKey: "api-token",
+      },
+    });
   });
 
   it("blocks publishing a revision after the catalog advances", async () => {

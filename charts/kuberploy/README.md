@@ -503,8 +503,8 @@ When NetworkPolicy hardening is enabled, `networkPolicy.kubeAPIServerCIDRs` may
 be left empty for the port-scoped dual-stack public fallback or set to
 infrastructure-owned API Service/control-plane CIDRs to narrow it. Explicit
 `0.0.0.0/0` and `::/0` values remain rejected; the empty list is the default.
-The worker
-and generated upgrade Job receive TCP 443/6443 access to the selected routes; the API
+The worker and migration hook Job receive TCP 443/6443 access to the selected
+routes; the API
 receives it when `rbac.observedNamespaces` enables manually managed runtime
 views, when the protected environment foundation dynamically grants its exact
 service account access in each Kuberploy environment, when the strict

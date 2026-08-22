@@ -65,6 +65,62 @@ describe("certificate issuer administration client", () => {
     expect(String(init.body)).not.toContain("server");
   });
 
+  it("submits Cloudflare DNS-01 zones and only the operator Secret reference", async () => {
+    const dnsEntry = {
+      ...entry,
+      name: "tenant-dns",
+      revision: {
+        ...entry.revision,
+        solver: "dns01-cloudflare",
+        dnsZones: ["example.com"],
+        apiTokenSecretName: "cloudflare-dns01",
+        apiTokenSecretKey: "api-token",
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(dnsEntry), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      api.createPlatformCertificateIssuer(
+        "tenant-dns",
+        {
+          environment: "production",
+          email: "admin@example.com",
+          accountPrivateKeySecretName: "tenant-dns-account",
+          solver: {
+            type: "dns01-cloudflare",
+            dnsZones: ["example.com"],
+            apiTokenSecretName: "cloudflare-dns01",
+            apiTokenSecretKey: "api-token",
+          },
+        },
+        "dns01-idempotency-key",
+      ),
+    ).resolves.toEqual(dnsEntry);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.body).toBe(
+      JSON.stringify({
+        name: "tenant-dns",
+        environment: "production",
+        email: "admin@example.com",
+        accountPrivateKeySecretName: "tenant-dns-account",
+        solver: {
+          type: "dns01-cloudflare",
+          dnsZones: ["example.com"],
+          apiTokenSecretName: "cloudflare-dns01",
+          apiTokenSecretKey: "api-token",
+        },
+      }),
+    );
+    expect(String(init.body)).not.toContain('"apiToken":');
+  });
+
   it("rejects unknown credential material from a compromised admin backend", async () => {
     vi.stubGlobal(
       "fetch",

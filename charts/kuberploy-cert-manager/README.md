@@ -48,9 +48,12 @@ CIDR and email. Fetch/verify the dependency and run the full render suite with
 `./test/e2e/render-edge-chart.sh`. This release is not a dependency of the
 Kuberploy control-plane or Traefik releases.
 
-Live adoption/version probes, issuer health observation, route-level Certificate
-creation, and Secret materialization belong to the edge controller/runtime
-integration still to be implemented.
+Installer health hooks perform the live adoption/version checks. The API and
+worker observe exact live ClusterIssuer identity and readiness, while the
+platform-admin issuer catalog writes dynamic profiles only through protected
+platform Git. Application route rendering creates the selected Certificate;
+cert-manager remains the sole owner of ACME processing and the resulting TLS
+Secret materialization.
 
 ClusterIssuers and their account/credential references remain protected
 platform resources reconciled by the bootstrap release. Ordinary workload Git

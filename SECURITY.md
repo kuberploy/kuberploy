@@ -81,8 +81,8 @@ transactional outbox; Kubernetes and Argo CD are authoritative for observed
 runtime state. Valkey and read-model projections are disposable acceleration
 layers, not authorization or desired-state authorities.
 
-The control plane, tenant workloads, release-upgrade Jobs, and any future build
-Jobs are separate trust zones. GitHub installation access must be checked both
+The control plane, tenant workloads, release migration hook Jobs, and any
+future build Jobs are separate trust zones. GitHub installation access must be checked both
 when work is accepted and immediately before a token is minted. Revoking source
 access does not delete or stop an already deployed immutable workload.
 
