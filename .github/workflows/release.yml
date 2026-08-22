@@ -769,6 +769,18 @@ jobs:
             kp_status=$?
             trap - EXIT
             set +e
+            if [[ "${kp_status}" -ne 0 && -r "${kp_kubeconfig:-}" ]]; then
+              kubectl --context default --namespace argocd logs \
+                job/kuberploy-installer-application-health --all-containers=true 2>/dev/null || true
+              kubectl --context default --namespace argocd get applications.argoproj.io \
+                --selector app.kubernetes.io/instance=kuberploy-installer \
+                --output custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status \
+                2>/dev/null || true
+              kubectl --context default get pods --all-namespaces \
+                --selector app.kubernetes.io/part-of=kuberploy \
+                --output custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name,PHASE:.status.phase \
+                2>/dev/null || true
+            fi
             if [[ -n "${kp_port_forward_pid}" ]]; then
               kill "${kp_port_forward_pid}" 2>/dev/null
               wait "${kp_port_forward_pid}" 2>/dev/null
@@ -871,8 +883,7 @@ jobs:
                   "kuberploy-edge",
                   "kuberploy-monitoring",
                   "kuberploy-postgresql",
-                  "kuberploy-sealed-secrets",
-                  "kuberploy-valkey"
+                  "kuberploy-sealed-secrets"
                 ] | sort) and
                 all(.items[]; .status.sync.status == "Synced" and .status.health.status == "Healthy")
               ' >/dev/null

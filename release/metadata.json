@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC306 gives operator upgrades full health-check headroom and automatically qualifies the immutable installer on fresh remote K3s.",
+  "summary": "Schema 020. RC307 renders operator-selected Application health timeouts correctly and retains automatic fresh remote K3s qualification diagnostics.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.306"
+  "version": "0.1.0-rc.307"
 }

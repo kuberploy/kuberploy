@@ -435,6 +435,7 @@ def main() -> None:
         'has("username") | not',
         'BootstrapConsumed',
         "/v1/auth/login",
+        "job/kuberploy-installer-application-health --all-containers=true",
         "trap kp_cleanup EXIT",
     )
     missing_fresh_k3s = [control for control in fresh_k3s_controls if control not in fresh_k3s_job]

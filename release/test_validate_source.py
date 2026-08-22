@@ -370,6 +370,11 @@ def main() -> None:
                 workflow.replace("/v1/auth/login", "/v1/auth/missing-login", 1),
                 "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
             ),
+            (
+                "fresh K3s qualification omits failure diagnostics",
+                workflow.replace("job/kuberploy-installer-application-health --all-containers=true", "job/missing-health-diagnostics --all-containers=true", 1),
+                "fresh K3s release qualification lacks exact install, identity, or cleanup controls",
+            ),
         )
         for description, mutated, expected in cases:
             result = run_validator(root, fixture, mutated)

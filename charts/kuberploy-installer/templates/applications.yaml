@@ -579,7 +579,7 @@ spec:
           args:
             - wait
             - {{ printf "--for=jsonpath={%s}=%s" $check.path $check.expected | quote }}
-            - {{ printf "--timeout=%.0fs" $.Values.bootstrap.applicationHealthTimeoutSeconds | quote }}
+            - {{ printf "--timeout=%ds" (int $.Values.bootstrap.applicationHealthTimeoutSeconds) | quote }}
             - {{ printf "applications.argoproj.io/%s" $application.name | quote }}
           securityContext:
             allowPrivilegeEscalation: false
