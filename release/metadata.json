@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC301 prevents auto-deploy policy revisions from combining a current deployment generation with a stale indexed AppConfig snapshot during Git projection convergence.",
+  "summary": "Schema 020. RC302 rejects direct-Git publication when immutable AppConfig scheduling bytes differ from the independently stored server-validated operation runtime.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.301"
+  "version": "0.1.0-rc.302"
 }
