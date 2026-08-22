@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC302 rejects direct-Git publication when immutable AppConfig scheduling bytes differ from the independently stored server-validated operation runtime.",
+  "summary": "Schema 020. RC303 rejects unapproved or stale Let's Encrypt issuer selections before issuing rendered preview authority and revalidates the exact catalog before save.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.302"
+  "version": "0.1.0-rc.303"
 }

@@ -25,8 +25,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.302",
-      platformVersion: "0.1.0-rc.302",
+      version: "0.1.0-rc.303",
+      platformVersion: "0.1.0-rc.303",
       bootstrapRequired: false,
     });
     vi.spyOn(api, "latestPlatformRelease").mockResolvedValue(releaseFixture());
@@ -43,7 +43,7 @@ describe("platform releases page", () => {
     expect(await screen.findByText("Helm upgrade command")).toBeVisible();
     expect(
       screen.getByText(
-        'helm upgrade "$RELEASE_NAME" oci://ghcr.io/kuberploy/charts/kuberploy-installer --version 0.1.0-rc.302 --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout 20m',
+        'helm upgrade "$RELEASE_NAME" oci://ghcr.io/kuberploy/charts/kuberploy-installer --version 0.1.0-rc.303 --namespace "$NAMESPACE" --values "$VALUES_FILE" --reset-values --server-side=false --wait --timeout 20m',
       ),
     ).toBeVisible();
     expect(screen.getByText(/Do not automatically roll back/)).toBeVisible();
@@ -67,8 +67,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.302",
-      platformVersion: "0.1.0-rc.302",
+      version: "0.1.0-rc.303",
+      platformVersion: "0.1.0-rc.303",
       bootstrapRequired: false,
     });
     const fixture = releaseFixture();
@@ -105,8 +105,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.302",
-      platformVersion: "0.1.0-rc.302",
+      version: "0.1.0-rc.303",
+      platformVersion: "0.1.0-rc.303",
       bootstrapRequired: false,
     });
     const fixture = releaseFixture();
@@ -146,8 +146,8 @@ describe("platform releases page", () => {
       features: {},
     });
     vi.spyOn(api, "meta").mockResolvedValue({
-      version: "0.1.0-rc.302",
-      platformVersion: "0.1.0-rc.302",
+      version: "0.1.0-rc.303",
+      platformVersion: "0.1.0-rc.303",
       bootstrapRequired: false,
     });
     vi.spyOn(api, "latestPlatformRelease").mockRejectedValue(
@@ -180,24 +180,24 @@ function releaseFixture(): LatestPlatformRelease {
   const digest = `sha256:${"a".repeat(64)}`;
   const chart = {
     name: "kuberploy-installer",
-    version: "0.1.0-rc.302",
-    ociReference: "ghcr.io/kuberploy/charts/kuberploy-installer:0.1.0-rc.302",
+    version: "0.1.0-rc.303",
+    ociReference: "ghcr.io/kuberploy/charts/kuberploy-installer:0.1.0-rc.303",
     ociDigest: digest,
-    package: "kuberploy-installer-0.1.0-rc.302.tgz",
+    package: "kuberploy-installer-0.1.0-rc.303.tgz",
     packageSha256: digest,
   };
   return {
-    currentVersion: "0.1.0-rc.302",
+    currentVersion: "0.1.0-rc.303",
     updateAvailable: true,
     compatibility: { status: "compatible", reasons: [] },
     lastCheckedAt: "2026-08-14T00:00:00Z",
     release: {
-      tag: "v0.1.0-rc.302",
-      version: "0.1.0-rc.302",
+      tag: "v0.1.0-rc.303",
+      version: "0.1.0-rc.303",
       manifestDigest: digest,
       publishedAt: "2026-08-14T00:00:00Z",
       notesUrl:
-        "https://github.com/kuberploy/kuberploy/releases/tag/v0.1.0-rc.302",
+        "https://github.com/kuberploy/kuberploy/releases/tag/v0.1.0-rc.303",
       breakingChanges: false,
       chart,
       manifest: {
@@ -205,24 +205,24 @@ function releaseFixture(): LatestPlatformRelease {
           "https://raw.githubusercontent.com/kuberploy/kuberploy/main/release/release-manifest.schema.json",
         schemaVersion: "1.0.0",
         release: {
-          tag: "v0.1.0-rc.302",
-          version: "0.1.0-rc.302",
+          tag: "v0.1.0-rc.303",
+          version: "0.1.0-rc.303",
           createdAt: "2026-08-14T00:00:00Z",
           notesUrl:
-            "https://github.com/kuberploy/kuberploy/releases/tag/v0.1.0-rc.302",
+            "https://github.com/kuberploy/kuberploy/releases/tag/v0.1.0-rc.303",
           summary: "Release",
           breakingChanges: false,
         },
         source: { repository: "kuberploy/kuberploy", commit: "b".repeat(40) },
         versions: {
-          kuberploy: "0.1.0-rc.302",
-          api: "0.1.0-rc.302",
-          worker: "0.1.0-rc.302",
-          web: "0.1.0-rc.302",
-          migration: "0.1.0-rc.302",
-          upgrader: "0.1.0-rc.302",
-          builderAgent: "0.1.0-rc.302",
-          chart: "0.1.0-rc.302",
+          kuberploy: "0.1.0-rc.303",
+          api: "0.1.0-rc.303",
+          worker: "0.1.0-rc.303",
+          web: "0.1.0-rc.303",
+          migration: "0.1.0-rc.303",
+          upgrader: "0.1.0-rc.303",
+          builderAgent: "0.1.0-rc.303",
+          chart: "0.1.0-rc.303",
         },
         compatibility: {
           supportedUpgradeFrom: ">=0.1.0 <0.2.0",
