@@ -217,6 +217,7 @@ func (s *Server) validateDeploymentConfig(w http.ResponseWriter, r *http.Request
 	candidate.Diagnostics = append(candidate.Diagnostics, s.externalDNSRouteDiagnostics(r.Context(), currentUser(r.Context()).ID, deployment, candidate)...)
 	sslipDiagnostics, _ := s.sslipRouteDiagnostics(r.Context(), currentUser(r.Context()).ID, deployment, candidate)
 	candidate.Diagnostics = append(candidate.Diagnostics, sslipDiagnostics...)
+	candidate.Diagnostics = append(candidate.Diagnostics, s.certificateIssuerRouteDiagnostics(r.Context(), candidate)...)
 	if len(candidate.Diagnostics) == 0 {
 		resolution, resolutionErr := resolveBundleVariables(bundle, candidate.Runtime)
 		if resolutionErr != nil {
@@ -261,6 +262,9 @@ func (s *Server) previewDeploymentConfig(w http.ResponseWriter, r *http.Request)
 		diagnostics, used := s.sslipRouteDiagnostics(r.Context(), currentUser(r.Context()).ID, deployment, candidate)
 		candidate.Diagnostics = append(candidate.Diagnostics, diagnostics...)
 		sslipUsed = used
+	}
+	if len(candidate.Diagnostics) == 0 {
+		candidate.Diagnostics = append(candidate.Diagnostics, s.certificateIssuerRouteDiagnostics(r.Context(), candidate)...)
 	}
 	var references *store.AppConfigReferencePlan
 	resolution, resolutionErr := resolveBundleVariables(bundle, candidate.Runtime)
@@ -452,6 +456,7 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 	candidate.Diagnostics = append(candidate.Diagnostics, s.externalDNSRouteDiagnostics(r.Context(), currentUser(r.Context()).ID, deployment, candidate)...)
 	sslipDiagnostics, _ := s.sslipRouteDiagnostics(r.Context(), currentUser(r.Context()).ID, deployment, candidate)
 	candidate.Diagnostics = append(candidate.Diagnostics, sslipDiagnostics...)
+	candidate.Diagnostics = append(candidate.Diagnostics, s.certificateIssuerRouteDiagnostics(r.Context(), candidate)...)
 	if len(candidate.Diagnostics) > 0 {
 		writeJSON(w, 422, configValidationResponse{Valid: false, Diagnostics: candidate.Diagnostics})
 		return

@@ -5,9 +5,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
 
@@ -29,10 +31,6 @@ type CertificateIssuerCatalogItem struct {
 
 func (s *Server) applicationCertificateIssuerCatalog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if s.certificateIssuers == nil || s.edgeReadiness == nil || !s.edgeFeatures.CertManager {
-		certificateIssuerCatalogUnavailable(w, r)
-		return
-	}
 	applicationID := strings.TrimSpace(r.PathValue("id"))
 	environmentID, hostname, ok := certificateIssuerCatalogQuery(w, r)
 	if !ok {
@@ -49,25 +47,67 @@ func (s *Server) applicationCertificateIssuerCatalog(w http.ResponseWriter, r *h
 		mappedError(w, r, err)
 		return
 	}
-	if err = s.edgeReadiness.Probe(r.Context()); err != nil {
+	items, ok := s.approvedCertificateIssuerCatalog(r.Context(), hostname, time.Now().UTC())
+	if !ok {
 		certificateIssuerCatalogUnavailable(w, r)
 		return
-	}
-	items, err := s.certificateIssuers.ApprovedCertificateIssuers(r.Context(), hostname, time.Now().UTC())
-	if err != nil || len(items) == 0 {
-		certificateIssuerCatalogUnavailable(w, r)
-		return
-	}
-	for _, item := range items {
-		if item.Name == "" || item.Environment != "production" && item.Environment != "staging" || len(item.SolverTypes) == 0 ||
-			item.Source != "bootstrap" && item.Source != "managed" || item.Source == "managed" && item.Revision < 1 {
-			certificateIssuerCatalogUnavailable(w, r)
-			return
-		}
 	}
 	writeJSON(w, http.StatusOK, struct {
 		Items []CertificateIssuerCatalogItem `json:"items"`
 	}{Items: items})
+}
+
+func (s *Server) approvedCertificateIssuerCatalog(ctx context.Context, hostname string, now time.Time) ([]CertificateIssuerCatalogItem, bool) {
+	if s.certificateIssuers == nil || s.edgeReadiness == nil || !s.edgeFeatures.CertManager ||
+		!validCertificateIssuerHostname(hostname) || now.IsZero() || s.edgeReadiness.Probe(ctx) != nil {
+		return nil, false
+	}
+	items, err := s.certificateIssuers.ApprovedCertificateIssuers(ctx, hostname, now.UTC())
+	if err != nil || len(items) == 0 {
+		return nil, false
+	}
+	for _, item := range items {
+		if item.Name == "" || item.Environment != "production" && item.Environment != "staging" || len(item.SolverTypes) == 0 ||
+			item.Source != "bootstrap" && item.Source != "managed" || item.Source == "managed" && item.Revision < 1 {
+			return nil, false
+		}
+	}
+	return items, true
+}
+
+func (s *Server) certificateIssuerRouteDiagnostics(ctx context.Context, candidate appconfig.Candidate) []appconfig.Diagnostic {
+	if len(candidate.Diagnostics) != 0 || candidate.Parsed == nil {
+		return nil
+	}
+	spec, _ := candidate.Parsed["spec"].(map[string]any)
+	routes, _ := spec["routes"].([]any)
+	diagnostics := make([]appconfig.Diagnostic, 0)
+	for index, rawRoute := range routes {
+		route, _ := rawRoute.(map[string]any)
+		tls, _ := route["tls"].(map[string]any)
+		if mode, _ := tls["mode"].(string); mode != "letsencrypt" {
+			continue
+		}
+		pointer := "/spec/routes/" + strconv.Itoa(index) + "/tls/issuerRef"
+		hostname, _ := route["host"].(string)
+		items, ok := s.approvedCertificateIssuerCatalog(ctx, hostname, time.Now().UTC())
+		if !ok {
+			diagnostics = append(diagnostics, appconfig.Diagnostic{Code: "CertificateIssuerCatalogUnavailable", Detail: "The exact operator-approved cert-manager issuer catalog is unavailable or not freshly observed.", Pointer: pointer})
+			continue
+		}
+		issuerRef, _ := tls["issuerRef"].(string)
+		approved := false
+		for _, item := range items {
+			if item.Name == issuerRef {
+				approved = true
+				break
+			}
+		}
+		if !approved {
+			diagnostics = append(diagnostics, appconfig.Diagnostic{Code: "CertificateIssuerNotApproved", Detail: "Select a freshly observed issuer from the exact operator-approved catalog for this hostname.", Pointer: pointer})
+		}
+	}
+	return diagnostics
 }
 
 func certificateIssuerCatalogQuery(w http.ResponseWriter, r *http.Request) (string, string, bool) {
