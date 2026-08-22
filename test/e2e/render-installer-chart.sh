@@ -159,6 +159,8 @@ fi
 [[ "$(yq eval-all '[select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health") | .metadata.annotations."helm.sh/hook"' "${kp_tmp}/managed.yaml")" == "post-install,post-upgrade,post-rollback" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health") | .metadata.annotations."helm.sh/hook-weight"' "${kp_tmp}/managed.yaml")" == "30" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health") | .spec.activeDeadlineSeconds' "${kp_tmp}/managed.yaml")" == "1860" ]]
+[[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health") | [.spec.template.spec.containers[].args[2]] | unique | join(",")' "${kp_tmp}/managed.yaml")" == "--timeout=1800s" ]]
 [[ "$(yq eval-all 'select(.kind == "Job" and .metadata.name == "kuberploy-installer-application-health") | .spec.template.spec.serviceAccountName' "${kp_tmp}/managed.yaml")" == "kuberploy-installer-application-health" ]]
 [[ "$(yq eval-all 'select(.kind == "Role" and .metadata.name == "kuberploy-installer-application-health") | .rules[0].apiGroups | join(",")' "${kp_tmp}/managed.yaml")" == "argoproj.io" ]]
 [[ "$(yq eval-all 'select(.kind == "Role" and .metadata.name == "kuberploy-installer-application-health") | .rules[0].resources | join(",")' "${kp_tmp}/managed.yaml")" == "applications" ]]

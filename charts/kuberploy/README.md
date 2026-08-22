@@ -11,7 +11,7 @@ command. It creates only the configured Opaque Secret and prints one strict
 the token is never a Helm value or rendered manifest field. Extract only the
 token value before the Job's 24-hour TTL expires:
 
-`config.bootstrapSecret.activeDeadlineSeconds` defaults to 600 seconds and
+`config.bootstrapSecret.activeDeadlineSeconds` defaults to 1800 seconds and
 includes both a cold-node API image pull and generator execution.
 
 ```sh

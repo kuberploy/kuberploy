@@ -3,6 +3,9 @@ bootstrap:
   # client transaction. This restricted hook applies only the generated Argo
   # Application/AppProject documents after the Argo CRDs are established.
   applicationReconcilerImage: registry.k8s.io/kubectl:v1.36.3
+  # Each health watcher receives this timeout. The Job gets another minute to
+  # start and report, covering cold image pulls in child chart hooks.
+  applicationHealthTimeoutSeconds: 1800
   valkey:
     enabled: false
   argoCD:

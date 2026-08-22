@@ -547,7 +547,7 @@ metadata:
     app.kubernetes.io/component: application-health
 spec:
   backoffLimit: 0
-  activeDeadlineSeconds: 660
+  activeDeadlineSeconds: {{ add .Values.bootstrap.applicationHealthTimeoutSeconds 60 }}
   template:
     metadata:
       labels:
@@ -579,7 +579,7 @@ spec:
           args:
             - wait
             - {{ printf "--for=jsonpath={%s}=%s" $check.path $check.expected | quote }}
-            - --timeout=600s
+            - {{ printf "--timeout=%.0fs" $.Values.bootstrap.applicationHealthTimeoutSeconds | quote }}
             - {{ printf "applications.argoproj.io/%s" $application.name | quote }}
           securityContext:
             allowPrivilegeEscalation: false
