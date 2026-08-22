@@ -167,6 +167,28 @@ func TestWriterRejectsSchemaValidButTamperedOperationBindingsBeforeGit(t *testin
 	}
 }
 
+func TestWriterRejectsSchedulingSubstitutionBeforeGit(t *testing.T) {
+	op, p, e, a, d := fixture()
+	d.Runtime = domain.DefaultWorkloadRuntime(8080, nil)
+	d.Runtime.NodeSelector = map[string]string{"qualification.kuberploy.io/pool": "trusted"}
+	original, err := RenderAppConfig(p, e, a, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := strings.Replace(string(original), "trusted", "substituted", 1)
+	if tampered == string(original) {
+		t.Fatal("scheduling fixture did not locate the node selector value")
+	}
+	d.ConfigRaw = []byte(tampered)
+	root := filepath.Join(t.TempDir(), "must-not-initialize")
+	if _, err = (&Writer{Root: root}).Write(t.Context(), op, p, e, a, d); err == nil || !strings.Contains(err.Error(), "server-validated scheduling state") {
+		t.Fatalf("scheduling substitution reached Git: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".git")); !os.IsNotExist(statErr) {
+		t.Fatalf("scheduling substitution initialized Git: %v", statErr)
+	}
+}
+
 func TestRenderedAppConfigPassesRuntimeChartSchemaWhenHelmAvailable(t *testing.T) {
 	helm, err := exec.LookPath("helm")
 	if err != nil {

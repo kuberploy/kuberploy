@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -270,9 +271,10 @@ func MaterializedImage(parsed map[string]any) (string, bool) {
 
 // ValidateBinding is the final execution-boundary defense for durable
 // operation snapshots. Schema-valid YAML is still rejected unless all
-// platform/release-owned identity and image fields match server-resolved data.
+// platform/release-owned identity, image, and scheduling fields match the
+// independently stored server-validated operation input.
 func ValidateBinding(raw []byte, project domain.Project, environment domain.Environment, application domain.Application, deployment domain.Deployment) []Diagnostic {
-	parsed, _, diagnostics := ParseAndValidate(raw)
+	parsed, runtime, diagnostics := ParseAndValidate(raw)
 	if len(diagnostics) > 0 {
 		return diagnostics
 	}
@@ -299,6 +301,22 @@ func ValidateBinding(raw []byte, project domain.Project, environment domain.Envi
 	}
 	if _, ok := valueAt(parsed, "/spec/delivery/release/sourceRevision"); ok {
 		out = append(out, Diagnostic{Code: "OperationBindingMismatch", Detail: "sourceRevision is release-owned and is not available in this deployment operation model.", Pointer: "/spec/delivery/release/sourceRevision"})
+	}
+	expectedRuntime := domain.NormalizeWorkloadRuntime(deployment.Runtime)
+	scheduling := []struct {
+		pointer      string
+		actual, want any
+	}{
+		{pointer: "/spec/runtime/nodeSelector", actual: runtime.NodeSelector, want: expectedRuntime.NodeSelector},
+		{pointer: "/spec/runtime/affinity", actual: runtime.Affinity, want: expectedRuntime.Affinity},
+		{pointer: "/spec/runtime/topologySpreadConstraints", actual: runtime.TopologySpreadConstraints, want: expectedRuntime.TopologySpreadConstraints},
+		{pointer: "/spec/runtime/tolerations", actual: runtime.Tolerations, want: expectedRuntime.Tolerations},
+		{pointer: "/spec/runtime/priorityClassName", actual: runtime.PriorityClassName, want: expectedRuntime.PriorityClassName},
+	}
+	for _, field := range scheduling {
+		if !reflect.DeepEqual(field.actual, field.want) {
+			out = append(out, Diagnostic{Code: "OperationBindingMismatch", Detail: "The operation snapshot does not match server-validated scheduling state.", Pointer: field.pointer})
+		}
 	}
 	if len(out) > 1 {
 		sortDiagnostics(out)
