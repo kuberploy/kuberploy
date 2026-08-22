@@ -16,6 +16,15 @@ kp_cleanup() {
 trap kp_cleanup EXIT
 kp_chart="${kp_tmp}/kuberploy-installer"
 cp -R "${kp_root}/charts/kuberploy-installer" "${kp_chart}"
+kp_dependencies="${kp_chart}/.installer-dependencies.render/new"
+python3 "${kp_root}/scripts/helm/package-installer-dependencies.py" \
+	--root "${kp_root}" \
+	--destination "${kp_dependencies}" \
+	--lock "${kp_chart}/dependencies.lock" \
+	--source-date-epoch-file "${kp_chart}/dependencies.source-date-epoch"
+python3 "${kp_root}/scripts/helm/replace-installer-dependencies.py" \
+	--installer-root "${kp_chart}" \
+	--staged-charts "${kp_dependencies}"
 kp_managed="${kp_chart}/testdata/managed-values.yaml"
 kp_adopted="${kp_chart}/testdata/adopted-values.yaml"
 kp_expected_runtime_digest="sha256:4444444444444444444444444444444444444444444444444444444444444444"
