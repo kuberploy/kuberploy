@@ -399,7 +399,8 @@ func TestGitHubSetupHTTPIsHumanBoundNoStoreAndRejectsAmbiguity(t *testing.T) {
 		t.Fatalf("duplicate setup query status=%d problem=%#v", response.StatusCode, problem)
 	}
 
-	callback := "/v1/github/installations/callback?state=" + url.QueryEscape("oauth-state") + "&code=" + url.QueryEscape("oauth-code-1234567890")
+	callbackBase := "/v1/github/installations/callback?state=" + url.QueryEscape("oauth-state") + "&code=" + url.QueryEscape("oauth-code-1234567890")
+	callback := callbackBase + "&iss=" + url.QueryEscape("https://github.com/login/oauth")
 	request, _ = http.NewRequest(http.MethodGet, f.server.URL+callback, nil)
 	response, err = http.DefaultClient.Do(request)
 	if err != nil {
@@ -408,6 +409,21 @@ func TestGitHubSetupHTTPIsHumanBoundNoStoreAndRejectsAmbiguity(t *testing.T) {
 	problem = decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusUnauthorized || problem.Code != "Unauthenticated" {
 		t.Fatalf("OAuth callback accepted without dedicated browser flow session: status=%d problem=%#v", response.StatusCode, problem)
+	}
+	for name, invalid := range map[string]string{
+		"foreign issuer":   callbackBase + "&iss=" + url.QueryEscape("https://example.invalid/oauth"),
+		"duplicate issuer": callback + "&iss=" + url.QueryEscape("https://github.com/login/oauth"),
+	} {
+		request, _ = http.NewRequest(http.MethodGet, f.server.URL+invalid, nil)
+		request.AddCookie(oauthFlowCookie)
+		response, err = http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		problem = decode[httpapi.Problem](t, response)
+		if response.StatusCode != http.StatusBadRequest || problem.Code != "InvalidGitHubCallback" {
+			t.Fatalf("%s callback accepted: status=%d problem=%#v", name, response.StatusCode, problem)
+		}
 	}
 	request, _ = http.NewRequest(http.MethodGet, f.server.URL+callback, nil)
 	request.AddCookie(oauthFlowCookie)

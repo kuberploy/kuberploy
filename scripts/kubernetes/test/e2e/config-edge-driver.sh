@@ -21,8 +21,9 @@ kp_config_edge_request() {
 
 kp_config_edge_put() {
   local kp_path="${1:?path}" kp_body="${2:?body}" kp_preview="${3:?preview}" kp_key="${4:?key}" kp_out="${5:?output}"
+  shift 5
   kp_config_edge_request PUT "${kp_path}" "${kp_body}" "${kp_out}" \
-    --header "Preview-Token: ${kp_preview}" --header "Idempotency-Key: ${kp_key}"
+    --header "Preview-Token: ${kp_preview}" --header "Idempotency-Key: ${kp_key}" "$@"
 }
 
 kp_config_edge_variable_set() {
@@ -187,7 +188,7 @@ kp_config_edge_external_dns() {
   [[ "${kp_actual}" == 200 ]]
   jq -e '.warnings|any(contains("freshly observed ready"))' "${kp_dir}/external-dns-route-preview.json" >/dev/null
   kp_preview="$(jq -er '.previewToken' "${kp_dir}/external-dns-route-preview.json")"
-  kp_actual="$(kp_config_edge_put "/v1/deployments/${kp_deployment}/config" "${kp_body}" "${kp_preview}" "qualification-${KUBERPLOY_E2E_RUN_ID}-external-dns-route" "${kp_dir}/external-dns-route-operation.json")"
+  kp_actual="$(kp_config_edge_put "/v1/deployments/${kp_deployment}/config" "${kp_body}" "${kp_preview}" "qualification-${KUBERPLOY_E2E_RUN_ID}-external-dns-route" "${kp_dir}/external-dns-route-operation.json" --header "If-Match: ${kp_etag}")"
   [[ "${kp_actual}" == 202 ]]
   kp_operation="$(jq -er '.id' "${kp_dir}/external-dns-route-operation.json")"
   kp_poll_operation "${kp_operation}" "${kp_dir}/external-dns-route-terminal.json"
@@ -316,7 +317,7 @@ kp_run_config_edge_workflow() {
     ([.documents[]|select(.documentKind=="VariableSet")]|length)==2' "${kp_dir}/config-before.json" >/dev/null
   kp_preview="$(jq -er '.previewToken' "${kp_dir}/yaml-preview.json")"
   kp_actual="$(kp_config_edge_put "/v1/deployments/${kp_deployment}/config" "${kp_body}" "${kp_preview}" \
-    "qualification-${KUBERPLOY_E2E_RUN_ID}-config-edge-save" "${kp_dir}/config-save-operation.json")"
+    "qualification-${KUBERPLOY_E2E_RUN_ID}-config-edge-save" "${kp_dir}/config-save-operation.json" --header "If-Match: ${kp_config_etag}")"
   [[ "${kp_actual}" == 202 ]]
   kp_operation="$(jq -er '.id' "${kp_dir}/config-save-operation.json")"
   kp_poll_operation "${kp_operation}" "${kp_dir}/config-save-terminal.json"
@@ -383,7 +384,7 @@ kp_cleanup_config_edge_workflow() {
     [[ "${kp_actual}" == 200 ]]
     kp_preview="$(jq -er '.previewToken' "${KUBERPLOY_E2E_STAGE_DIR}/evidence/external-dns-cleanup-preview.json")"
     kp_actual="$(kp_config_edge_put "/v1/deployments/${kp_deployment}/config" "${kp_body}" "${kp_preview}" \
-      "qualification-${KUBERPLOY_E2E_RUN_ID}-external-dns-route-remove" "${KUBERPLOY_E2E_STAGE_DIR}/evidence/external-dns-cleanup-operation.json")"
+      "qualification-${KUBERPLOY_E2E_RUN_ID}-external-dns-route-remove" "${KUBERPLOY_E2E_STAGE_DIR}/evidence/external-dns-cleanup-operation.json" --header "If-Match: ${kp_etag}")"
     [[ "${kp_actual}" == 202 ]]
     kp_operation="$(jq -er '.id' "${KUBERPLOY_E2E_STAGE_DIR}/evidence/external-dns-cleanup-operation.json")"
     kp_poll_operation "${kp_operation}" "${KUBERPLOY_E2E_STAGE_DIR}/evidence/external-dns-cleanup-terminal.json"

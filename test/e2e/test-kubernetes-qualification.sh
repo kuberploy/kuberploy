@@ -290,7 +290,7 @@ cat >"${kp_tmp}/curl" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 kp_output="" kp_method="GET" kp_url="" kp_body="" kp_denied="false" kp_revoked="false" kp_invalid_signature="false" kp_dump_header="" kp_cookie_jar="" kp_delivery_header=""
-kp_cookie_header="false" kp_csrf_header="false" kp_idempotency_header="false"
+kp_cookie_header="false" kp_csrf_header="false" kp_idempotency_header="false" kp_any_idempotency="false" kp_if_match=""
 while (($#)); do
   case "$1" in
     --output) kp_output="$2"; shift 2 ;;
@@ -308,6 +308,8 @@ while (($#)); do
       [[ "$2" != X-GitHub-Delivery:* ]] || kp_delivery_header="${2#X-GitHub-Delivery: }"
       [[ "$2" != Cookie:* ]] || kp_cookie_header="true"
       [[ "$2" != 'X-CSRF-Token: fixture-csrf' ]] || kp_csrf_header="true"
+      [[ "$2" != Idempotency-Key:* ]] || kp_any_idempotency="true"
+      [[ "$2" != If-Match:* ]] || kp_if_match="${2#If-Match: }"
       [[ "$2" != 'Idempotency-Key: qualification-'*'-40-source-build-cancel-live-build' ]] || kp_idempotency_header="true"
       shift 2 ;;
     --write-out) shift 2 ;;
@@ -372,7 +374,9 @@ elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/*/members/* ]]; 
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/github/installations ]]; then printf '{"id":"40404040-4040-4040-8040-404040404040"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/github/installations ]]; then printf '{"items":[{"id":"50505050-5050-4050-8050-505050505050","githubInstallationId":12345}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/github/installations/50505050-*/repositories ]]; then printf '{"items":[{"id":"51515151-5151-4151-8151-515151515151","installationId":"50505050-5050-4050-8050-505050505050","githubRepositoryId":67890,"lifecycle":"active"}]}' >"${kp_output}"; printf '200'
-elif [[ "${kp_method}" == "PATCH" && "${kp_url}" == */sharing ]]; then printf '{}' >"${kp_output}"; printf '200'
+elif [[ "${kp_method}" == "PATCH" && "${kp_url}" == */sharing ]]; then
+  [[ "${kp_any_idempotency}" == "true" ]]
+  printf '{}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && ( "${kp_url}" == */openapi.json || "${kp_url}" == */openapi.yaml ) ]]; then printf '{"openapi":"3.2.0","paths":{"/v1/auth/login":{"post":{"operationId":"loginWithLocalPassword"}}}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */openapi-agent.json ]]; then printf '{"operations":[]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */arazzo.yaml ]]; then printf 'sourceDescription: fixture\n' >"${kp_output}"; printf '200'
@@ -389,7 +393,7 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/metrics/query-range* ]]; 
   printf '%s\n' '{"series":[{"values":[[1,1]]}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/capabilities ]]; then
   kp_git=true; [[ "${KP_DISABLE_GIT_CAPABILITY:-false}" != "true" ]] || kp_git=false
-  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","build-definitions:create","helm.read","helm.deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
+  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","build-definitions:write","helm-values:preview","helm-releases:read","helm-releases:deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/audit-events\?targetType=deployment* ]]; then
   printf '%s\n' '{"items":[{"id":"71717171-7171-4171-8171-717171717171","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-1","createdAt":"2026-08-09T10:02:00Z"},{"id":"72727272-7272-4272-8272-727272727272","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-2","createdAt":"2026-08-09T10:00:00Z"}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/meta ]]; then
@@ -418,13 +422,20 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/service-accounts/6262626
   else kp_token='kp_sa_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB'; kp_token_id=63636363-6363-4363-8363-636363636362; fi
   printf '{"token":"%s","tokenRecord":{"id":"%s"}}\n' "${kp_token}" "${kp_token_id}" >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/service-accounts/62626262-*/tokens/63636363-* ]]; then
+  [[ "${kp_any_idempotency}" == "true" ]]
   : >"${kp_output}"; printf '204'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/projects/11111111-* ]]; then
   printf '%s\n' '{"id":"11111111-1111-4111-8111-111111111111","name":"Qualification"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/environments ]]; then
   kp_count_file="${KP_COMMAND_LOG}.environments"; kp_count=0; [[ ! -f "${kp_count_file}" ]] || kp_count="$(<"${kp_count_file}")"
   kp_count=$((kp_count+1)); printf '%s' "${kp_count}" >"${kp_count_file}"
-  if [[ "${kp_count}" -eq 1 ]]; then kp_id=22222222-2222-4222-8222-222222222221; kp_namespace=kuberploy-direct; else kp_id=22222222-2222-4222-8222-222222222222; kp_namespace=kuberploy-protected; fi
+  if [[ "${kp_count}" -eq 1 ]]; then
+    jq -e '.projectId=="11111111-1111-4111-8111-111111111111" and .protectionPolicy=="development"' <<<"${kp_body}" >/dev/null
+    kp_id=22222222-2222-4222-8222-222222222221; kp_namespace=kuberploy-direct
+  else
+    jq -e '.projectId=="11111111-1111-4111-8111-111111111111" and .protectionPolicy=="protected"' <<<"${kp_body}" >/dev/null
+    kp_id=22222222-2222-4222-8222-222222222222; kp_namespace=kuberploy-protected
+  fi
   printf '{"id":"%s","namespace":"%s"}\n' "${kp_id}" "${kp_namespace}" >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/environments/*/variable-sets ]]; then
   printf '%s\n' '{"items":[{"scope":"project","etag":"","present":false},{"scope":"environment","etag":"","present":false}]}' >"${kp_output}"; printf '200'
@@ -585,6 +596,7 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/deployments/27272727-2727
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments/27272727-2727-4272-8272-272727272722/config/preview ]]; then
   printf '%s\n' '{"previewToken":"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ","warnings":["integration freshly observed ready"]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "PUT" && "${kp_url}" == */v1/deployments/27272727-2727-4272-8272-272727272722/config ]]; then
+  [[ "${kp_if_match}" == "cfg-dns" ]]
   if [[ "${kp_body}" == *'"remove"'* ]]; then kp_id=28282828-2828-4282-8282-282828282823; else kp_id=28282828-2828-4282-8282-282828282822; fi
   printf '{"id":"%s","status":"queued"}\n' "${kp_id}" >"${kp_output}"; printf '202'
 elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/external-dns/integrations/29292929-* ]]; then
@@ -599,6 +611,7 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/deployments/99999999-*/co
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments/99999999-*/config/preview ]]; then
   printf '%s\n' '{"previewToken":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","renderIdentityDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","semanticChanges":[{"path":"/spec/runtime/env"}],"gitDiff":"qualification-security-headers custom.fixture.test acme.fixture.test 91919191-9191-4191-8191-919191919191 version 1 2","renderedDiff":"qualification-security-headers custom.fixture.test acme.fixture.test 91919191-9191-4191-8191-919191919191 version 1 2"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "PUT" && "${kp_url}" == */v1/deployments/99999999-*/config ]]; then
+  [[ "${kp_if_match}" == '"cfg-sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' ]]
   kp_count_file="${KP_COMMAND_LOG}.config-saves"; kp_count=0; [[ ! -f "${kp_count_file}" ]] || kp_count="$(<"${kp_count_file}")"
   kp_count=$((kp_count+1)); printf '%s' "${kp_count}" >"${kp_count_file}"
   if [[ "${kp_count}" -eq 1 ]]; then kp_id=fefefefe-fefe-4efe-8efe-fefefefefefe

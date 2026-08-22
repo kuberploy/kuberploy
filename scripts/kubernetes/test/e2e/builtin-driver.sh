@@ -244,6 +244,7 @@ kp_run_installed_auth_and_contract_workflow() {
   kp_installation="$(jq -er '.id' "${kp_dir}/auth-github-installation.json")"
   kp_actual="$(curl -sS -o "${kp_dir}/auth-github-sharing.json" -w '%{http_code}' -X PATCH \
     --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-10-one-chart-install-github-sharing" \
     -H 'Content-Type: application/json' --data-binary "{\"visibility\":\"team\",\"teamId\":\"${kp_team}\"}" \
     "${kp_base}/v1/github/installations/${kp_installation}/sharing")"
   [[ "${kp_actual}" == 200 ]]
@@ -699,6 +700,7 @@ kp_provision_qualification_access() {
   kp_revoke_id="$(jq -er '.tokenRecord.id' "${kp_secret_dir}/revocation-token.json")"
   kp_actual="$(curl -sS -o "${kp_dir}/access-token-revoked.json" -w '%{http_code}' -X DELETE \
     --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-20-postgresql-valkey-revoke-token" \
     "$(jq -r '.apiBaseURL' "${kp_scenario}")/v1/service-accounts/${kp_service_account}/tokens/${kp_revoke_id}")"
   [[ "${kp_actual}" == 204 ]]
   [[ "$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer ${kp_revoke_token}" \
@@ -718,7 +720,7 @@ kp_run_durability_workflow() {
   kp_body="$(jq -c '.workflow.project' "${kp_scenario}")"
   kp_human_post create-project /v1/projects "${kp_body}" 201 "${kp_dir}/workflow-project.json"
   kp_project_id="$(jq -er '.id | select(test("^[a-f0-9-]{36}$"))' "${kp_dir}/workflow-project.json")"
-  kp_body="$(jq -c --arg id "${kp_project_id}" '.workflow.directEnvironment + {projectId:$id,protectionPolicy:"direct"}' "${kp_scenario}")"
+  kp_body="$(jq -c --arg id "${kp_project_id}" '.workflow.directEnvironment + {projectId:$id,protectionPolicy:"development"}' "${kp_scenario}")"
   kp_human_post create-direct-environment /v1/environments "${kp_body}" 201 "${kp_dir}/workflow-direct-environment.json"
   kp_environment_id="$(jq -er '.id' "${kp_dir}/workflow-direct-environment.json")"
   kp_environment_namespace="$(jq -er '.namespace | select(test("^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"))' \
@@ -1314,7 +1316,7 @@ kp_require_stage_capabilities() {
       kp_actions='["environments:create","deployments:create","deployments:update","operations:read"]' ;;
     40-source-build)
       kp_features='["builder","builds","autoDeploy","git","gitops","argo","argoCD","helmDeployments","githubAppSetup"]'
-      kp_actions='["builds:read","builds:cancel","builds:retry","build-definitions:create","deployments:create","operations:read","helm.read","helm.deploy"]' ;;
+      kp_actions='["builds:read","builds:cancel","builds:retry","build-definitions:write","deployments:create","operations:read","helm-values:preview","helm-releases:read","helm-releases:deploy"]' ;;
     50-runtime-edge)
       kp_features='["git","gitops","argo","argoCD","edge","traefik","traefikMiddlewares","middlewareProfiles"]'
       kp_actions='["deployment-config:read","deployment-config:preview","deployment-config:write","operations:read"]' ;;

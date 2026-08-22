@@ -342,6 +342,8 @@ type linkedGitHubSetupView struct {
 	Repositories []githubRepositoryView    `json:"repositories"`
 }
 
+const githubOAuthIssuer = "https://github.com/login/oauth"
+
 func (s *Server) setGitHubSetupSessionCookie(w http.ResponseWriter, r *http.Request, sourceName, targetPath string) bool {
 	cookies := r.CookiesNamed(sourceName)
 	if len(cookies) != 1 {
@@ -506,10 +508,14 @@ func (s *Server) completeGitHubSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	query := r.URL.Query()
 	for key := range query {
-		if key != "state" && key != "code" {
+		if key != "state" && key != "code" && key != "iss" {
 			writeProblem(w, r, http.StatusBadRequest, "InvalidGitHubCallback", "GitHub callback rejected", "The GitHub callback parameters are invalid.")
 			return
 		}
+	}
+	if issuers, exists := query["iss"]; exists && (len(issuers) != 1 || issuers[0] != githubOAuthIssuer) {
+		writeProblem(w, r, http.StatusBadRequest, "InvalidGitHubCallback", "GitHub callback rejected", "The GitHub callback parameters are invalid.")
+		return
 	}
 	state, stateOK := exactlyOneQuery(query, "state")
 	code, codeOK := exactlyOneQuery(query, "code")
