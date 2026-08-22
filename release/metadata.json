@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC303 rejects unapproved or stale Let's Encrypt issuer selections before issuing rendered preview authority and revalidates the exact catalog before save.",
+  "summary": "Schema 020. RC304 gives the generated bootstrap-token hook enough time for cold-node API image pulls while keeping a bounded, configurable deadline.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.303"
+  "version": "0.1.0-rc.304"
 }
