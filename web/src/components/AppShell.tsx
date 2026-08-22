@@ -21,14 +21,13 @@ import { ToggleGroup, ToggleGroupItem } from "./shadcn/toggle-group";
 import { Monitor, Moon, Sun } from "lucide-react";
 
 const navigation: Array<{
-  to: "/" | "/projects" | "/teams" | "/deploy";
+  to: "/" | "/projects" | "/teams";
   label: string;
   icon: IconName;
 }> = [
   { to: "/", label: "Overview", icon: "grid" },
   { to: "/projects", label: "Projects", icon: "layers" },
   { to: "/teams", label: "Teams & GitHub", icon: "user" },
-  { to: "/deploy", label: "Deploy image", icon: "deploy" },
 ];
 
 export function AppShell({ user }: { user: Principal }) {

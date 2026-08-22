@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { ApiError, api, errorMessage } from "../api/client";
@@ -77,10 +77,12 @@ function retryNetworkOnce(failureCount: number, error: unknown) {
 
 export function NewDeploymentPage() {
   const navigate = useNavigate();
+  const search = useSearch({ from: "/deploy" });
   const queryClient = useQueryClient();
   const stableApplicationReservation =
     useRef<StableApplicationReservation | null>(null);
   const stableDeploymentAttempt = useRef<StableDeploymentAttempt | null>(null);
+  const initialScopeApplied = useRef(false);
   const [reservedApplicationId, setReservedApplicationId] = useState("");
   const lastDeploymentProject = useRef("");
   const lastDeploymentScope = useRef("");
@@ -344,6 +346,55 @@ export function NewDeploymentPage() {
       ) ?? [],
     [applications.data, projectId],
   );
+
+  useEffect(() => {
+    if (
+      initialScopeApplied.current ||
+      !projects.isSuccess ||
+      !environments.isSuccess
+    ) {
+      return;
+    }
+    if (!search.projectId || !search.environmentId) {
+      initialScopeApplied.current = true;
+      return;
+    }
+    const projectExists = projects.data.items.some(
+      (project) => project.id === search.projectId,
+    );
+    const environmentMatches = environments.data.items.some(
+      (environment) =>
+        environment.id === search.environmentId &&
+        environment.projectId === search.projectId,
+    );
+    if (!projectExists || !environmentMatches) {
+      initialScopeApplied.current = true;
+      return;
+    }
+    if (projectId !== search.projectId) {
+      form.setValue("projectId", search.projectId);
+      return;
+    }
+    if (
+      !filteredEnvironments.some(
+        (environment) => environment.id === search.environmentId,
+      )
+    ) {
+      return;
+    }
+    form.setValue("environmentId", search.environmentId);
+    initialScopeApplied.current = true;
+  }, [
+    environments.data,
+    environments.isSuccess,
+    filteredEnvironments,
+    form,
+    projectId,
+    projects.data,
+    projects.isSuccess,
+    search.environmentId,
+    search.projectId,
+  ]);
 
   useEffect(() => {
     if (
@@ -679,9 +730,9 @@ export function NewDeploymentPage() {
   return (
     <div className="page page--narrow">
       <PageHeader
-        eyebrow="Existing image"
-        title="Create an immutable deployment"
-        description="Use an exact OCI digest, or resolve an authorized existing-image tag before submission. Kuberploy commits only immutable desired state to Git."
+        eyebrow="Service"
+        title="Add service"
+        description="Deploy an exact OCI digest, or resolve an authorized existing-image tag. Kuberploy commits only immutable desired state to Git."
       />
 
       {loadError ? (

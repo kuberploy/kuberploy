@@ -207,11 +207,7 @@ export function ProjectPage() {
           `${projectApplications.length} service${projectApplications.length === 1 ? "" : "s"} · ${projectEnvironments.length} environment${projectEnvironments.length === 1 ? "" : "s"}`
         }
         actions={
-          tab === "services" ? (
-            <Link to="/deploy" className="button button--primary">
-              <Icon name="plus" /> Create service
-            </Link>
-          ) : tab === "environments" && canCreateEnvironment ? (
+          tab === "environments" && canCreateEnvironment ? (
             <Button onClick={() => setCreatingEnvironment((value) => !value)}>
               <Icon name="plus" /> Environment
             </Button>
@@ -287,13 +283,8 @@ export function ProjectPage() {
         ) : (
           <EmptyState
             icon="deploy"
-            title="Create your first service"
-            description="Deploy an existing image, connect a GitHub repository, or publish a Helm application."
-            action={
-              <Link to="/deploy" className="button button--primary">
-                <Icon name="plus" /> Create service
-              </Link>
-            }
+            title="No services yet"
+            description="Open Environments and choose where to add the first service."
           />
         )
       ) : null}
@@ -355,6 +346,22 @@ export function ProjectPage() {
                     </div>
                     <code>{environment.namespace}</code>
                     <StatusPill value={environment.status ?? "active"} />
+                    {hasActionAtEnvironment(
+                      "applications:create",
+                      environment.id,
+                    ) &&
+                    hasActionAtEnvironment(
+                      "deployments:create",
+                      environment.id,
+                    ) ? (
+                      <Link
+                        to="/deploy"
+                        search={{ projectId, environmentId: environment.id }}
+                        className="button button--primary"
+                      >
+                        <Icon name="plus" /> Add service
+                      </Link>
+                    ) : null}
                     {capabilities.data?.features?.variableSets === true &&
                     hasActionAtEnvironment(
                       "deployment-config:read",

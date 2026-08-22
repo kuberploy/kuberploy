@@ -13,8 +13,24 @@ vi.mock("@tanstack/react-router", () => ({
     children,
     to,
     className,
-  }: PropsWithChildren<{ to: string; className?: string }>) => (
-    <a href={to} className={className}>
+    search,
+  }: PropsWithChildren<{
+    to: string;
+    className?: string;
+    search?: { projectId?: string; environmentId?: string };
+  }>) => (
+    <a
+      href={
+        search
+          ? `${to}?${new URLSearchParams(
+              Object.entries(search).filter((entry): entry is [string, string] =>
+                Boolean(entry[1]),
+              ),
+            )}`
+          : to
+      }
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -46,6 +62,8 @@ beforeEach(() => {
         scopeId: "project_payments",
         actions: [
           "environments:create",
+          "applications:create",
+          "deployments:create",
           "access-grants:read",
           "access-grants:create",
           "deployment-config:read",
@@ -122,9 +140,14 @@ describe("project workspace", () => {
     expect(screen.getByText("1 deployment")).toBeInTheDocument();
     expect(screen.queryByText(/healthy/)).toBeNull();
     expect(screen.queryByText("payments-production")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Add service" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Environments (1)" }));
     expect(screen.getByText("payments-production")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add service" })).toHaveAttribute(
+      "href",
+      "/deploy?projectId=project_payments&environmentId=environment_production",
+    );
     expect(
       screen.getByRole("button", { name: "Environment" }),
     ).toBeInTheDocument();

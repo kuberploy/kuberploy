@@ -60,11 +60,6 @@ export function DashboardPage() {
       <PageHeader
         title="Overview"
         description="Projects, workloads, and delivery activity for this control plane."
-        actions={
-          <Link to="/deploy" className="button button--primary">
-            <Icon name="plus" /> Deploy image
-          </Link>
-        }
       />
 
       {error && !loading ? (
@@ -211,12 +206,7 @@ export function DashboardPage() {
             <EmptyState
               icon="deploy"
               title="No deployments yet"
-              description="Deploy an immutable image digest to create the first Git-backed release."
-              action={
-                <Link to="/deploy" className="button button--secondary">
-                  Deploy image
-                </Link>
-              }
+              description="Open a project environment to add its first service."
               compact
             />
           )}

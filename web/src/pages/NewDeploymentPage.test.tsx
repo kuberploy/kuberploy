@@ -6,7 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import { NewDeploymentPage } from "./NewDeploymentPage";
 
-const router = vi.hoisted(() => ({ navigate: vi.fn() }));
+const router = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  search: {
+    projectId: undefined as string | undefined,
+    environmentId: undefined as string | undefined,
+  },
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -19,6 +25,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useNavigate: () => router.navigate,
+  useSearch: () => router.search,
 }));
 
 function wrapper(
@@ -56,6 +63,8 @@ beforeEach(() => {
     capabilities: [],
   });
   router.navigate.mockReset();
+  router.search.projectId = undefined;
+  router.search.environmentId = undefined;
 });
 
 afterEach(() => {
@@ -64,6 +73,25 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
+  it("starts in the exact project environment selected by Add service", async () => {
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByRole("heading", { name: "Add service" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: "Project" })).toHaveValue(
+        "project-1",
+      );
+      expect(
+        screen.getByRole("combobox", { name: /^Environment/ }),
+      ).toHaveValue("environment-1");
+    });
+  });
+
   it("loads the current Git bundle ETag before updating an existing deployment", async () => {
     const user = userEvent.setup();
     const etag = `"sha256:${"a".repeat(64)}"`;

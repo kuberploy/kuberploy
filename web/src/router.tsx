@@ -108,9 +108,23 @@ const teamsRoute = createRoute({
   path: "/teams",
   component: TeamsPage,
 });
+type DeploySearch = {
+  projectId?: string;
+  environmentId?: string;
+};
 const deployRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/deploy",
+  validateSearch: (search: Record<string, unknown>): DeploySearch => ({
+    projectId:
+      typeof search.projectId === "string" && search.projectId
+        ? search.projectId
+        : undefined,
+    environmentId:
+      typeof search.environmentId === "string" && search.environmentId
+        ? search.environmentId
+        : undefined,
+  }),
   component: NewDeploymentPage,
 });
 const monitoringRoute = createRoute({
