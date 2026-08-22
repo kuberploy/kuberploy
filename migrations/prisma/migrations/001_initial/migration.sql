@@ -6039,7 +6039,7 @@ BEGIN
         RAISE EXCEPTION 'mutation receipt identifier is invalid' USING ERRCODE='23514';
     END IF;
     IF NEW.receipt_kind='build-api' AND
-       (NEW.namespace NOT IN ('definition.create','attempt.cancel','attempt.retry') OR
+       (NEW.namespace NOT IN ('definition.create','definition.build','attempt.cancel','attempt.retry') OR
         length(NEW.idempotency_key) NOT BETWEEN 16 AND 128) THEN
         RAISE EXCEPTION 'build API mutation receipt is invalid' USING ERRCODE='23514';
     END IF;

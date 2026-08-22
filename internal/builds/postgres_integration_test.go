@@ -443,7 +443,14 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.PutDefinition(ctx, gitSSHDefinition); err != nil {
 		t.Fatal(err)
 	}
-	gitSSHClaim := APICommandClaimKey(userID, APICommandDefinitionBuild, gitSSHDefinition.ID, "postgres-git-ssh-build-01")
+	gitSSHIdempotencyKey := "postgres-git-ssh-build-01"
+	gitSSHClaim := APICommandClaimKey(userID, APICommandDefinitionBuild, gitSSHDefinition.ID, gitSSHIdempotencyKey)
+	gitSSHAttemptID := ManualAttemptID(gitSSHClaim, gitSSHDefinition.ID)
+	claimedAttemptID, claimReplay, err := store.ClaimAPICommand(ctx, userID, APICommandDefinitionBuild, gitSSHDefinition.ID,
+		gitSSHIdempotencyKey, "sha256:"+strings.Repeat("5", 64), gitSSHAttemptID, cancelRetryAt.Add(4*time.Minute))
+	if err != nil || claimReplay || claimedAttemptID != gitSSHAttemptID {
+		t.Fatalf("Git SSH build API claim id=%q replay=%v err=%v", claimedAttemptID, claimReplay, err)
+	}
 	gitSSHAttempt, replay, err := store.EnqueueManualAttempt(ctx, gitSSHDefinition.ID, strings.Repeat("e", 40), gitSSHClaim, gitSSHDefinition.Spec.Execution, cancelRetryAt.Add(4*time.Minute))
 	if err != nil || replay || gitSSHAttempt.DeliveryClaimKey != "" || gitSSHAttempt.TriggerKind != "manual" || gitSSHAttempt.CheckoutRequest.SSHPrivateKeyFile != builder.SourceSSHPrivateKeyFile {
 		t.Fatalf("Git SSH attempt=%#v replay=%v err=%v", gitSSHAttempt, replay, err)
