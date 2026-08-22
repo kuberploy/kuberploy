@@ -216,13 +216,14 @@ def main() -> None:
         raise SystemExit("release metadata supportedUpgradeFrom has an empty range")
     readme = (args.root / "README.md").read_text(encoding="utf-8")
     upgrade_truth = (
-        "The dedicated Prisma migration Job automatically upgrades supported\n"
-        "> Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma\n"
-        "> schema histories require a fresh database."
+        "The final `0.1.0` migration baseline intentionally requires a fresh database\n"
+        "> when replacing any older release-candidate schema history. Existing RC data\n"
+        "> must be exported and restored through an operator-reviewed process; it is not\n"
+        "> upgraded in place."
     )
     if upgrade_truth not in readme:
         raise SystemExit(
-            "README must state the supported Prisma-backed upgrade and unsupported pre-Prisma boundary"
+            "README must state the final baseline fresh-database boundary for older release candidates"
         )
     if "--reset-values" not in readme or "--reuse-values" not in readme:
         raise SystemExit(
@@ -366,6 +367,7 @@ def main() -> None:
         "kp_source_date_epoch=",
         "Reject an existing GitHub release",
         "Verify qualified immutable release candidate",
+        "python3 release/validate_promotion.py",
         "release/qualifications/${kp_version}.json",
         '${kp_candidate_state}" == "${CANDIDATE_TAG},false,true,true',
         "Build and push native image by digest",

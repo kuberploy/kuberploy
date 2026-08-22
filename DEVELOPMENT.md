@@ -108,17 +108,16 @@ make a local fixture pass.
 
 ## Database schema changes
 
-`migrations/prisma/migrations/001_initial/migration.sql` is the immutable
-pre-stable baseline, regenerated after RC86. Do not edit an applied checkpoint
-during RC testing: add the next ordered native SQL migration, exercise the real upgrade,
-review the print-only `npm --prefix migrations run pull` output against the
-migrated disposable database, and bump `migrations.CurrentSchema` in the same
-change. Once the complete RC qualification passes, review and squash all
-pre-stable increments into the final `0.1.0` baseline and recreate RC databases.
-After the first stable release, never rewrite that history. Prisma is used only
-as the migration engine: PostgreSQL functions, triggers, deferred constraints,
-expression indexes, and checks remain authoritative native SQL; Kuberploy does
-not use Prisma Client.
+`migrations/prisma/migrations/001_initial/migration.sql` is the reviewed final
+`0.1.0` baseline. It contains every pre-stable schema increment and therefore
+requires a fresh database when replacing any older release-candidate history.
+Do not edit this baseline after the first stable release. Every later schema
+change must add the next ordered native SQL migration, exercise the real
+upgrade, review the print-only `npm --prefix migrations run pull` output
+against the migrated disposable database, and bump `migrations.CurrentSchema`
+in the same change. Prisma is used only as the migration engine: PostgreSQL
+functions, triggers, deferred constraints, expression indexes, and checks
+remain authoritative native SQL; Kuberploy does not use Prisma Client.
 
 The dedicated `kuberploy-migration` Helm hook runs `prisma migrate deploy`
 before install or upgrade. API and worker startup only verify the exact Prisma
@@ -138,5 +137,11 @@ the source, builds native architecture images, packages charts deterministically
 publishes artifacts, and creates the GitHub prerelease or release. GitHub Actions
 are referenced by major version so Dependabot can update supported action majors
 without embedding commit identifiers in workflow files.
+
+Stable publication compares the tagged tree with the final RC commit named by
+the qualification receipt. Promotion may only replace the exact version,
+regenerate validated installer dependency digests, and add that receipt. Put
+all schema squashing, code, chart, documentation, and workflow changes in a new
+RC and qualify it before creating the stable promotion commit.
 
 See [`release/README.md`](release/README.md) for the complete release contract.

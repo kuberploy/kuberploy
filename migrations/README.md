@@ -26,38 +26,17 @@ For a schema change:
 6. Run `npm run format`, `npm run validate`, `npm run check:drift`,
    `make prisma-migration-test`, and the normal Go, chart, and release gates.
 
-`001_initial` is the final pre-stable `0.1.0` baseline. It includes every
+`001_initial` is the reviewed final `0.1.0` baseline. It includes every
 release-candidate schema correction and therefore intentionally requires a
 fresh database for installations created from an older RC migration history.
 After `0.1.0` is stable, this checksum and history are immutable and every
 schema change must use a new ordered migration.
 
-Migration `017_email_identity` separates presentation `display_name` from
-local-auth `email`. Fresh installs ask for an administrator email and display
-name separately; invitation records bind an email, while invitees choose their
-own display name. This release intentionally supports local email/password
-authentication only; SSO/OIDC is future scope. Older RC users whose credentials
-were created from display names need the documented
-[offline recovery](../docs/legacy-email-recovery.md) or a fresh pre-stable
-database; the API does not accept display names as login identifiers.
-
-Migration `018_build_definition_replacement` keeps source-build definitions
-immutable while allowing a new definition for the same application/ref to
-replace the active one. The prior definition is retained as disabled history;
-matching pushes authorize only the active definition.
-
-Migration `019_helm_no_change_policy_materialization` lets a no-change Helm
-materialization reuse an older verified desired-state command when the current
-policy digest changed. The materialization receipt remains authoritative for
-current policy, runtime, bytes, route, and projection freshness; the referenced
-command's policy digest is immutable origin metadata and is not required to
-match it.
-
-Migration `020_external_dns_runtime_republish` lets the trusted managed
-ExternalDNS reconciler advance one exact runtime revision when a release
-changes the protected runtime bundle without changing operator input. The
-advance is accepted only while resetting an exact materialized receipt to
-pending; stale publication and edge-observation revisions remain fenced.
+The baseline separates presentation `display_name` from local-auth `email`.
+Fresh installs ask for an administrator email and display name separately;
+invitation records bind an email, while invitees choose their own display
+name. This release supports local email/password authentication only; SSO/OIDC
+is future scope. The API does not accept display names as login identifiers.
 
 The schema uses `relationMode = "prisma"` only to prevent introspection from
 inventing invalid one-to-one relations for Kuberploy's overlapping composite

@@ -139,6 +139,9 @@ jobs:
             "/repos/${GITHUB_REPOSITORY}/releases/tags/${CANDIDATE_TAG}" \
             --jq '[.tag_name, (.draft | tostring), (.prerelease | tostring), (.immutable | tostring)] | join(",")')"
           [[ "${kp_candidate_state}" == "${CANDIDATE_TAG},false,true,true" ]]
+          python3 release/validate_promotion.py \
+            --root . \
+            --candidate "${CANDIDATE_COMMIT}"
       - name: Reject an existing GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

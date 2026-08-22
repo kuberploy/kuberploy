@@ -18,6 +18,13 @@ still resolves to that commit and that its GitHub prerelease is immutable.
 Release candidates do not require this receipt. This keeps ordinary RC work
 moving while making an accidental stable tag unable to publish.
 
+The stable workflow also compares the tagged source tree with the receipt's
+exact candidate commit. Every ordinary tracked file must differ only by the
+mechanical candidate-version to stable-version replacement. The qualification
+receipt is the only new file; deterministic installer lock digests may change
+only in their validated fields. Any unrelated source, mode, metadata, or file
+set change rejects the promotion before images or charts are built.
+
 Repository release immutability is an externally verified prerequisite. Before
 a tag is pushed, a repository administrator must enable immutable releases and
 verify the setting through the repository settings or an administrator-scoped

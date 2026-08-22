@@ -13,7 +13,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 	"github.com/kuberploy/kuberploy/internal/id"
-	"github.com/kuberploy/kuberploy/migrations"
 )
 
 func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublication(t *testing.T) {
@@ -461,8 +460,8 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 		t.Fatalf("provider-before deployment revision state=%q desired=%q", state, desiredRevision)
 	}
 
-	// The ordered repair migration must use the command's historical indexed
-	// generation after the binding has advanced, and must be idempotent.
+	// Baseline authority must use the command's historical indexed generation
+	// after the binding has advanced.
 	historicalGeneration := updateCommand.IndexedGeneration
 	advancedGeneration := historicalGeneration + 1
 	advancedHead := strings.Repeat("a", 40)
@@ -478,17 +477,8 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	if _, err = st.pool.Exec(ctx, `UPDATE deployments SET desired_revision=$2 WHERE id=$1`, updateOperation.TargetID, updateTarget); err != nil {
 		t.Fatal(err)
 	}
-	repairSQL, err := migrations.FS.ReadFile("prisma/migrations/003_repair_protected_desired_revisions/migration.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if _, err = st.pool.Exec(ctx, string(repairSQL)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Simulate the last old-RC writer racing after the migration repair. The
-	// persistent database authority must correct its descendant target tip.
+	// Simulate an old writer racing after the binding advance. Persistent
+	// database authority must correct its descendant target tip.
 	if _, err = st.pool.Exec(ctx, `UPDATE deployments SET desired_revision=$2 WHERE id=$1`, updateOperation.TargetID, updateTarget); err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +502,7 @@ func TestPostgreSQLProtectedEnvironmentAtomicallyCreatesFencedPullRequestPublica
 	}
 	rendered, err := argo.RenderApplication(argo.EnvironmentTarget{Project: project.Value, Environment: environment.Value, Binding: advancedBinding,
 		ArgoNamespace: "argocd", Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime",
-			ChartVersion: "0.1.0-rc.308", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
+			ChartVersion: "0.1.0-rc.309", ChartDigest: "sha256:" + strings.Repeat("7", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("8", 64)}},
 		application.Value, domain.Deployment{ID: updateOperation.TargetID, EnvironmentID: environment.Value.ID, ApplicationID: application.Value.ID,
 			DesiredRevision: desiredRevision})
 	if err != nil || !strings.Contains(string(rendered), `targetRevision: "`+mergeContentRevision+`"`) || strings.Contains(string(rendered), `targetRevision: "`+updateTarget+`"`) {

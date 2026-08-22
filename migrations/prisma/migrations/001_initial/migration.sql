@@ -18,8 +18,8 @@ $kuberploy_baseline$;
 --
 
 
--- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
--- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
+-- Dumped from database version 18.6 (Debian 18.6-1.pgdg13+2)
+-- Dumped by pg_dump version 18.6 (Debian 18.6-1.pgdg13+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -31,6 +31,386 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: activate_helm_application_cascade_observer(uuid, text, text, text, text, bigint, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.activate_helm_application_cascade_observer(binding_id uuid, publisher_contract text, publisher_policy text, publisher_config text, publisher_worker text, publisher_epoch bigint, argo_contract text, argo_config text, argo_worker text, argo_epoch bigint) RETURNS bigint
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    existing_epoch bigint;
+    active_epoch bigint;
+    created_epoch bigint;
+    db_now timestamptz := pg_catalog.clock_timestamp();
+BEGIN
+    PERFORM 1 FROM public.git_repository_bindings AS binding
+    WHERE binding.id=binding_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade observer activation binding is absent' USING ERRCODE='23514';
+    END IF;
+    SELECT activation.activation_epoch INTO existing_epoch
+    FROM public.helm_application_cascade_observer_activations AS activation
+    WHERE activation.platform_binding_id=binding_id
+      AND activation.publisher_worker_id=publisher_worker
+      AND activation.publisher_worker_epoch=publisher_epoch
+      AND activation.argo_worker_id=argo_worker
+      AND activation.argo_worker_epoch=argo_epoch;
+    SELECT MAX(activation.activation_epoch) INTO active_epoch
+    FROM public.helm_application_cascade_observer_activations AS activation
+    WHERE activation.platform_binding_id=binding_id;
+    IF existing_epoch IS NOT NULL THEN
+        IF existing_epoch IS DISTINCT FROM active_epoch OR
+           NOT public.helm_application_cascade_active_observer_is_exact(
+               binding_id,publisher_worker,publisher_epoch,publisher_contract,publisher_policy,
+               publisher_config,argo_worker,argo_epoch,argo_contract,argo_config,db_now) THEN
+            RAISE EXCEPTION 'cascade observer process is no longer active' USING ERRCODE='23514';
+        END IF;
+        RETURN existing_epoch;
+    END IF;
+    INSERT INTO public.helm_application_cascade_observer_activations(
+        platform_binding_id,activation_epoch,publisher_contract,publisher_policy_version,
+        publisher_config_digest,publisher_worker_id,publisher_worker_epoch,
+        publisher_started_at,publisher_readiness_observed_at,publisher_readiness_lease_until,
+        argo_contract,argo_config_digest,argo_worker_id,argo_worker_epoch,argo_identity,
+        argo_started_at,argo_readiness_observed_at,argo_readiness_lease_until,activated_at
+    ) VALUES (
+        binding_id,1,publisher_contract,publisher_policy,publisher_config,publisher_worker,
+        publisher_epoch,db_now,db_now,db_now+interval '1 second',argo_contract,argo_config,
+        argo_worker,argo_epoch,'{}'::jsonb,db_now,db_now,db_now+interval '1 second',db_now
+    ) RETURNING activation_epoch INTO created_epoch;
+    RETURN created_epoch;
+END;
+$$;
+
+
+--
+-- Name: adopt_helm_application_cascade_preflight(uuid, text, bigint, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.adopt_helm_application_cascade_preflight(receipt_id uuid, adopting_worker text, adopting_worker_epoch bigint, adopting_publisher_contract text, adopting_policy_version text, adopting_config_digest text, lease_milliseconds bigint) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    candidate public.helm_application_cascade_preflights%ROWTYPE;
+    affected bigint;
+BEGIN
+    IF receipt_id IS NULL OR
+       adopting_worker !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$' OR
+       length(adopting_worker) NOT BETWEEN 16 AND 128 OR adopting_worker_epoch<1 OR
+       adopting_publisher_contract<>'helm-protected-publisher.v1' OR
+       adopting_policy_version<>'helm-protected-git.v1' OR
+       adopting_config_digest !~ '^sha256:[0-9a-f]{64}$' OR
+       lease_milliseconds<15000 OR lease_milliseconds>300000 THEN
+        RAISE EXCEPTION 'invalid cascade publisher adoption request' USING ERRCODE='23514';
+    END IF;
+
+    SELECT preflight.* INTO candidate
+    FROM public.helm_application_cascade_preflights AS preflight
+    WHERE preflight.state IN ('pending','claimed','git-committed')
+      AND preflight.next_attempt_at<=db_now AND preflight.updated_at<=db_now
+      AND (preflight.attempts<30 OR preflight.lease_epoch>0)
+      AND (preflight.lease_owner IS NULL OR preflight.lease_until<=db_now)
+      AND preflight.publisher_contract=adopting_publisher_contract
+      AND preflight.publisher_config_digest<>adopting_config_digest
+      AND (preflight.lease_epoch>0 OR
+           public.helm_application_cascade_preflight_is_fresh(preflight.id))
+      AND EXISTS (
+          SELECT 1 FROM public.runtime_readiness AS readiness
+          WHERE readiness.runtime_kind='helm-protected-publisher'
+            AND readiness.scope_key='global' AND readiness.worker_id=adopting_worker
+            AND readiness.worker_epoch=adopting_worker_epoch
+            AND readiness.contract_version=adopting_publisher_contract
+            AND readiness.config_digest=adopting_config_digest
+            AND readiness.identity=pg_catalog.jsonb_build_object('policyVersion',adopting_policy_version)
+            AND readiness.updated_at=readiness.observed_at
+            AND readiness.observed_at<=db_now AND readiness.observed_at>=db_now-interval '5 minutes'
+            AND readiness.lease_until>db_now
+            AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+            AND readiness.lease_until<=db_now+interval '5 minutes'
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM public.helm_protected_payload_intents AS held
+          WHERE held.platform_binding_id=preflight.platform_binding_id
+            AND held.lease_owner IS NOT NULL AND held.lease_until>db_now)
+      AND NOT EXISTS (
+          SELECT 1 FROM public.helm_protected_application_intents AS held
+          WHERE held.platform_binding_id=preflight.platform_binding_id
+            AND held.lease_owner IS NOT NULL AND held.lease_until>db_now)
+      AND NOT EXISTS (
+          SELECT 1 FROM public.helm_application_cascade_preflights AS held
+          WHERE held.platform_binding_id=preflight.platform_binding_id AND held.id<>preflight.id
+            AND held.lease_owner IS NOT NULL AND held.lease_until>db_now)
+    ORDER BY preflight.next_attempt_at,preflight.created_at,preflight.id
+    FOR UPDATE OF preflight SKIP LOCKED
+    LIMIT 1;
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(candidate.platform_binding_id::text,704215997));
+    INSERT INTO public.helm_application_cascade_adoption_receipts(
+        id,cascade_preflight_id,adoption_epoch,publisher_contract,policy_version,
+        original_config_digest,previous_config_digest,adopted_config_digest,
+        intent_digest,source_content_digest,adopted_content_digest,application_path,
+        precondition,expected_etag,commit_trailer,recovery_state,write_base_revision,
+        committed_revision,committed_parent_revision,previous_lease_epoch,
+        adopted_lease_epoch,adopted_by_worker,adopted_worker_epoch,created_at
+    ) VALUES (
+        receipt_id,candidate.id,candidate.publisher_adoption_epoch+1,
+        candidate.publisher_contract,candidate.publisher_policy_version,
+        candidate.original_publisher_config_digest,candidate.publisher_config_digest,
+        adopting_config_digest,candidate.intent_digest,candidate.source_content_digest,
+        candidate.adopted_content_digest,candidate.application_path,candidate.precondition,
+        candidate.expected_etag,candidate.commit_trailer,candidate.state,
+        candidate.write_base_revision,candidate.committed_revision,
+        candidate.committed_parent_revision,candidate.lease_epoch,candidate.lease_epoch+1,
+        adopting_worker,adopting_worker_epoch,db_now
+    );
+
+    UPDATE public.helm_application_cascade_preflights AS preflight
+       SET publisher_config_digest=adopting_config_digest,
+           publisher_adoption_epoch=preflight.publisher_adoption_epoch+1,
+           state=CASE WHEN preflight.state='pending' THEN 'claimed' ELSE preflight.state END,
+           lease_owner=adopting_worker,lease_epoch=preflight.lease_epoch+1,
+           lease_until=db_now+(lease_milliseconds*interval '1 millisecond'),
+           attempts=LEAST(preflight.attempts+1,30),updated_at=db_now,
+           prerequisite_epoch=preflight.prerequisite_epoch+1
+     WHERE preflight.id=candidate.id
+       AND preflight.publisher_config_digest=candidate.publisher_config_digest
+       AND preflight.publisher_adoption_epoch=candidate.publisher_adoption_epoch
+       AND preflight.lease_epoch=candidate.lease_epoch
+       AND (preflight.lease_owner IS NULL OR preflight.lease_until<=db_now)
+       AND preflight.state=candidate.state;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN
+        RAISE EXCEPTION 'cascade publisher adoption lost exact lock' USING ERRCODE='40001';
+    END IF;
+    RETURN candidate.id;
+END;
+$_$;
+
+
+--
+-- Name: adopt_helm_protected_application_intent(uuid, text, bigint, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.adopt_helm_protected_application_intent(receipt_id uuid, adopting_worker text, adopting_worker_epoch bigint, adopting_publisher_contract text, adopting_policy_version text, adopting_config_digest text, lease_milliseconds bigint) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    candidate public.helm_protected_application_intents%ROWTYPE;
+    affected bigint;
+BEGIN
+    IF receipt_id IS NULL OR adopting_worker !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$' OR
+       adopting_worker_epoch<1 OR adopting_publisher_contract<>'helm-protected-publisher.v1' OR
+       adopting_policy_version<>'helm-protected-git.v1' OR
+       adopting_config_digest !~ '^sha256:[0-9a-f]{64}$' OR
+       lease_milliseconds<15000 OR lease_milliseconds>300000 THEN
+        RAISE EXCEPTION 'invalid protected Application publisher adoption request' USING ERRCODE='23514';
+    END IF;
+    SELECT intent.* INTO candidate
+    FROM public.helm_protected_application_intents intent
+    WHERE intent.state IN ('pending','claimed','git-committed')
+      AND intent.next_attempt_at<=db_now AND intent.updated_at<=db_now
+      AND (intent.lease_owner IS NULL OR intent.lease_until<=db_now)
+      AND intent.publisher_contract=adopting_publisher_contract
+      AND intent.publisher_config_digest<>adopting_config_digest
+      AND intent.prerequisite_receipt_id=intent.release_revision_id
+      AND intent.prerequisite_contract='helm-publication-prerequisite.v1'
+      AND (intent.lease_epoch>0 OR
+        (intent.continuation_required AND public.helm_application_continuation_is_exact(intent.id)) OR
+        (NOT intent.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
+          intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+          intent.project_id,intent.environment_id,intent.platform_target_ref,
+          intent.environment_target_ref,intent.environment_revision,intent.environment_generation)))
+      AND EXISTS(SELECT 1 FROM public.runtime_readiness readiness
+        WHERE readiness.runtime_kind='helm-protected-publisher' AND readiness.scope_key='global'
+          AND readiness.worker_id=adopting_worker AND readiness.worker_epoch=adopting_worker_epoch
+          AND readiness.contract_version=adopting_publisher_contract
+          AND readiness.identity=pg_catalog.jsonb_build_object('policyVersion',adopting_policy_version)
+          AND readiness.config_digest=adopting_config_digest
+          AND readiness.updated_at=readiness.observed_at AND readiness.observed_at<=db_now
+          AND readiness.observed_at>=db_now-interval '5 minutes' AND readiness.lease_until>db_now
+          AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+          AND readiness.lease_until<=db_now+interval '5 minutes')
+      AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
+        WHERE held.platform_binding_id=intent.platform_binding_id
+          AND held.lease_owner IS NOT NULL AND held.lease_until>db_now)
+      AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
+        WHERE held.platform_binding_id=intent.platform_binding_id AND held.id<>intent.id
+          AND held.lease_owner IS NOT NULL AND held.lease_until>db_now)
+    ORDER BY intent.next_attempt_at,intent.created_at,intent.id
+    FOR UPDATE OF intent SKIP LOCKED LIMIT 1;
+    IF NOT FOUND THEN RETURN NULL; END IF;
+
+    INSERT INTO public.helm_protected_publisher_adoption_receipts(
+        id,intent_kind,payload_intent_id,application_intent_id,adoption_epoch,
+        publisher_contract,original_config_digest,previous_config_digest,adopted_config_digest,
+        policy_version,intent_digest,content_digest,protected_path,precondition,expected_etag,
+        commit_trailer,prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,
+        recovery_state,write_base_revision,committed_revision,committed_parent_revision,
+        previous_lease_epoch,adopted_lease_epoch,adopted_by_worker,adopted_worker_epoch,created_at
+    ) VALUES(
+        receipt_id,'application',NULL,candidate.id,candidate.publisher_adoption_epoch+1,
+        candidate.publisher_contract,candidate.original_publisher_config_digest,
+        candidate.publisher_config_digest,adopting_config_digest,adopting_policy_version,
+        candidate.intent_digest,candidate.content_digest,candidate.application_path,
+        candidate.precondition,candidate.expected_etag,candidate.commit_trailer,
+        candidate.prerequisite_receipt_id,candidate.prerequisite_contract,candidate.prerequisite_epoch,
+        candidate.state,candidate.write_base_revision,candidate.committed_revision,
+        candidate.committed_parent_revision,candidate.lease_epoch,candidate.lease_epoch+1,
+        adopting_worker,adopting_worker_epoch,db_now
+    );
+    UPDATE public.helm_protected_application_intents intent SET
+        publisher_config_digest=adopting_config_digest,
+        publisher_adoption_epoch=intent.publisher_adoption_epoch+1,
+        state=CASE WHEN intent.state='pending' THEN 'claimed' ELSE intent.state END,
+        lease_owner=adopting_worker,lease_epoch=intent.lease_epoch+1,
+        lease_until=db_now+(lease_milliseconds*interval '1 millisecond'),
+        attempts=LEAST(intent.attempts+1,30),updated_at=db_now,
+        prerequisite_epoch=intent.prerequisite_epoch+1
+    WHERE intent.id=candidate.id
+      AND intent.publisher_config_digest=candidate.publisher_config_digest
+      AND intent.publisher_adoption_epoch=candidate.publisher_adoption_epoch
+      AND intent.lease_epoch=candidate.lease_epoch
+      AND (intent.lease_owner IS NULL OR intent.lease_until<=db_now)
+      AND intent.state=candidate.state;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN
+        RAISE EXCEPTION 'protected Application publisher adoption lost its exact lock' USING ERRCODE='40001';
+    END IF;
+    RETURN candidate.id;
+END;
+$_$;
+
+
+--
+-- Name: adopt_helm_protected_payload_intent(uuid, text, bigint, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.adopt_helm_protected_payload_intent(receipt_id uuid, adopting_worker text, adopting_worker_epoch bigint, adopting_publisher_contract text, adopting_policy_version text, adopting_config_digest text, lease_milliseconds bigint) RETURNS uuid
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+DECLARE
+    db_now timestamptz := clock_timestamp();
+    candidate public.helm_protected_payload_intents%ROWTYPE;
+    affected bigint;
+BEGIN
+    IF receipt_id IS NULL OR
+       adopting_worker !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$' OR
+       adopting_worker_epoch<1 OR
+       adopting_publisher_contract<>'helm-protected-publisher.v1' OR
+       adopting_policy_version<>'helm-protected-git.v1' OR
+       adopting_config_digest !~ '^sha256:[0-9a-f]{64}$' OR
+       lease_milliseconds<15000 OR lease_milliseconds>300000 THEN
+        RAISE EXCEPTION 'invalid protected payload publisher adoption request'
+            USING ERRCODE='23514';
+    END IF;
+
+    SELECT intent.* INTO candidate
+    FROM public.helm_protected_payload_intents intent
+    WHERE intent.state IN ('pending','claimed','git-committed')
+      AND intent.next_attempt_at<=db_now
+      AND intent.updated_at<=db_now
+      AND (intent.lease_owner IS NULL OR intent.lease_until<=db_now)
+      AND intent.publisher_contract=adopting_publisher_contract
+      AND intent.publisher_config_digest<>adopting_config_digest
+      AND intent.prerequisite_receipt_id=intent.release_revision_id
+      AND intent.prerequisite_contract='helm-publication-prerequisite.v1'
+      AND (intent.lease_epoch>0 OR public.helm_protected_adoption_projection_is_fresh(
+          intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+          intent.project_id,intent.environment_id,intent.platform_target_ref,
+          intent.environment_target_ref,intent.environment_revision,
+          intent.environment_generation
+      ))
+      AND EXISTS(
+          SELECT 1 FROM public.runtime_readiness readiness
+          WHERE readiness.runtime_kind='helm-protected-publisher'
+            AND readiness.scope_key='global'
+            AND readiness.worker_id=adopting_worker
+            AND readiness.worker_epoch=adopting_worker_epoch
+            AND readiness.contract_version=adopting_publisher_contract
+            AND readiness.identity=jsonb_build_object('policyVersion',adopting_policy_version)
+            AND readiness.config_digest=adopting_config_digest
+            AND readiness.updated_at=readiness.observed_at
+            AND readiness.observed_at<=db_now
+            AND readiness.observed_at>=db_now-interval '5 minutes'
+            AND readiness.lease_until>db_now
+            AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+            AND readiness.lease_until<=db_now+interval '5 minutes'
+      )
+      AND NOT EXISTS(
+          SELECT 1 FROM public.helm_protected_payload_intents held
+          WHERE held.platform_binding_id=intent.platform_binding_id
+            AND held.id<>intent.id
+            AND held.lease_owner IS NOT NULL AND held.lease_until>db_now
+      )
+      AND NOT EXISTS(
+          SELECT 1 FROM public.helm_protected_application_intents held
+          WHERE held.platform_binding_id=intent.platform_binding_id
+            AND held.lease_owner IS NOT NULL AND held.lease_until>db_now
+      )
+    ORDER BY intent.next_attempt_at,intent.created_at,intent.id
+    FOR UPDATE OF intent SKIP LOCKED LIMIT 1;
+
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    INSERT INTO public.helm_protected_publisher_adoption_receipts(
+        id,intent_kind,payload_intent_id,application_intent_id,adoption_epoch,
+        publisher_contract,original_config_digest,previous_config_digest,
+        adopted_config_digest,policy_version,intent_digest,content_digest,
+        protected_path,precondition,expected_etag,commit_trailer,
+        prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,
+        recovery_state,write_base_revision,committed_revision,
+        committed_parent_revision,previous_lease_epoch,adopted_lease_epoch,
+        adopted_by_worker,adopted_worker_epoch,created_at
+    ) VALUES(
+        receipt_id,'payload',candidate.id,NULL,candidate.publisher_adoption_epoch+1,
+        candidate.publisher_contract,candidate.original_publisher_config_digest,
+        candidate.publisher_config_digest,adopting_config_digest,adopting_policy_version,
+        candidate.intent_digest,candidate.content_digest,candidate.path,
+        candidate.precondition,candidate.expected_etag,candidate.commit_trailer,
+        candidate.prerequisite_receipt_id,candidate.prerequisite_contract,
+        candidate.prerequisite_epoch,candidate.state,candidate.write_base_revision,
+        candidate.committed_revision,candidate.committed_parent_revision,
+        candidate.lease_epoch,candidate.lease_epoch+1,adopting_worker,
+        adopting_worker_epoch,db_now
+    );
+
+    UPDATE public.helm_protected_payload_intents intent SET
+        publisher_config_digest=adopting_config_digest,
+        publisher_adoption_epoch=intent.publisher_adoption_epoch+1,
+        state=CASE WHEN intent.state='pending' THEN 'claimed' ELSE intent.state END,
+        lease_owner=adopting_worker,lease_epoch=intent.lease_epoch+1,
+        lease_until=db_now+(lease_milliseconds*interval '1 millisecond'),
+        attempts=LEAST(intent.attempts+1,30),updated_at=db_now,
+        prerequisite_epoch=intent.prerequisite_epoch+1
+    WHERE intent.id=candidate.id
+      AND intent.publisher_config_digest=candidate.publisher_config_digest
+      AND intent.publisher_adoption_epoch=candidate.publisher_adoption_epoch
+      AND intent.lease_epoch=candidate.lease_epoch
+      AND (intent.lease_owner IS NULL OR intent.lease_until<=db_now)
+      AND intent.state=candidate.state;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN
+        RAISE EXCEPTION 'protected payload publisher adoption lost its exact lock'
+            USING ERRCODE='40001';
+    END IF;
+    RETURN candidate.id;
+END;
+$_$;
+
 
 --
 -- Name: enforce_application_registry_pull_selection_scope(); Type: FUNCTION; Schema: public; Owner: -
@@ -71,6 +451,51 @@ BEGIN
         RAISE EXCEPTION 'registry target has no pull credential' USING ERRCODE='23514';
     END IF;
     RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: enforce_protected_deployment_desired_revision(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.enforce_protected_deployment_desired_revision() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  authoritative_revision text;
+BEGIN
+  IF NEW.state = 'git-committed' AND NEW.operation_id IS NOT NULL THEN
+    SELECT document.config_revision
+      INTO authoritative_revision
+    FROM git_write_commands AS command
+    JOIN git_pull_request_publications AS publication
+      ON publication.operation_id = command.operation_id
+     AND publication.binding_id = command.binding_id
+     AND publication.target_ref = command.target_ref
+     AND publication.state = 'merge-verified'
+    JOIN git_projected_documents AS document
+      ON document.binding_id = command.binding_id
+     AND document.generation = command.indexed_generation
+     AND document.path = command.path
+     AND document.valid
+     AND document.content_sha256 = command.content_sha256
+     AND document.raw = command.content
+    JOIN operations AS operation
+      ON operation.id = command.operation_id
+    WHERE command.command_kind = 'deployment'
+      AND command.publication_mode = 'pull-request'
+      AND command.state = 'indexed'
+      AND command.indexed_generation > 0
+      AND command.deployment_id = NEW.id
+      AND NEW.operation_id = command.operation_id
+      AND NEW.generation = operation.generation;
+
+    IF authoritative_revision IS NOT NULL THEN
+      NEW.desired_revision := authoritative_revision;
+    END IF;
+  END IF;
+  RETURN NEW;
 END;
 $$;
 
@@ -202,6 +627,800 @@ BEGIN
     );
 END;
 $_$;
+
+
+--
+-- Name: fence_legacy_argo_desired_state_recovery(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fence_legacy_argo_desired_state_recovery() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.policy_digest IS DISTINCT FROM OLD.policy_digest THEN
+        RAISE EXCEPTION 'Argo desired-state policy digest is immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF OLD.policy_digest IS NULL AND OLD.write_base_revision<>'' AND
+       OLD.state IN ('pending','claimed','git-committed') THEN
+        IF NEW.write_base_revision='' OR
+           NEW.write_base_revision IS DISTINCT FROM OLD.write_base_revision OR
+           NEW.write_base_observed_at IS DISTINCT FROM OLD.write_base_observed_at OR
+           (OLD.state='pending' AND NEW.state NOT IN ('pending','claimed','failed')) OR
+           (OLD.state='claimed' AND NEW.state NOT IN ('pending','claimed','git-committed','failed')) OR
+           (OLD.state='git-committed' AND NEW.state NOT IN ('git-committed','verified')) THEN
+            RAISE EXCEPTION 'legacy Argo desired-state recovery cannot regress publication authority'
+                USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: helm_application_active_publisher_is_exact(uuid, text, text, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_active_publisher_is_exact(binding_id uuid, publisher_worker text, publisher_contract text, publisher_config text, authority_time timestamp with time zone) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT COALESCE((
+    SELECT public.helm_application_cascade_active_observer_is_exact(
+        activation.platform_binding_id,activation.publisher_worker_id,
+        activation.publisher_worker_epoch,activation.publisher_contract,
+        activation.publisher_policy_version,activation.publisher_config_digest,
+        activation.argo_worker_id,activation.argo_worker_epoch,activation.argo_contract,
+        activation.argo_config_digest,authority_time)
+    FROM public.helm_application_cascade_observer_activations AS activation
+    WHERE activation.platform_binding_id=binding_id
+      AND activation.activation_epoch=(
+          SELECT MAX(current.activation_epoch)
+          FROM public.helm_application_cascade_observer_activations AS current
+          WHERE current.platform_binding_id=binding_id)
+      AND activation.publisher_worker_id=publisher_worker
+      AND activation.publisher_contract=publisher_contract
+      AND activation.publisher_config_digest=publisher_config
+),false);
+$$;
+
+
+--
+-- Name: helm_application_cascade_absence_receipt_is_exact(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_absence_receipt_is_exact(candidate_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_application_cascade_preflights AS preflight
+    JOIN public.helm_application_cascade_absence_receipts AS receipt
+      ON receipt.cascade_preflight_id=preflight.id
+     AND receipt.release_revision_id=preflight.release_revision_id
+     AND receipt.payload_intent_id=preflight.payload_intent_id
+     AND receipt.base_application_intent_id=preflight.base_application_intent_id
+     AND receipt.release_generation=preflight.release_generation
+     AND receipt.platform_binding_id=preflight.platform_binding_id
+     AND receipt.application_path=preflight.application_path
+     AND receipt.source_content_digest=preflight.source_content_digest
+     AND receipt.adopted_content_digest=preflight.adopted_content_digest
+     AND receipt.expected_etag=preflight.expected_etag
+     AND receipt.publisher_contract=preflight.publisher_contract
+     AND receipt.publisher_policy_version=preflight.publisher_policy_version
+     AND receipt.publisher_config_digest=preflight.publisher_config_digest
+     AND receipt.lease_epoch=preflight.lease_epoch
+     AND receipt.recorded_at=preflight.updated_at
+    JOIN public.helm_release_heads AS head
+      ON head.environment_id=preflight.environment_id
+     AND head.application_id=preflight.application_id
+     AND head.revision_id=preflight.release_revision_id
+     AND head.generation=preflight.release_generation
+    JOIN public.helm_release_revisions AS release
+      ON release.id=head.revision_id
+     AND release.generation=head.generation
+     AND release.project_id=preflight.project_id
+     AND release.environment_id=preflight.environment_id
+     AND release.application_id=preflight.application_id
+     AND release.action='disable' AND NOT release.desired_enabled
+     AND release.base_intent_id=preflight.base_application_intent_id
+    JOIN public.helm_protected_payload_intents AS payload
+      ON payload.id=preflight.payload_intent_id
+     AND payload.release_revision_id=preflight.release_revision_id
+     AND payload.release_generation=preflight.release_generation
+     AND payload.project_id=preflight.project_id
+     AND payload.environment_id=preflight.environment_id
+     AND payload.application_id=preflight.application_id
+     AND payload.platform_binding_id=preflight.platform_binding_id
+     AND payload.environment_binding_id=preflight.environment_binding_id
+     AND payload.cluster_id=preflight.cluster_id
+     AND payload.state='verified' AND payload.action='disable-receipt'
+     AND payload.committed_revision=preflight.payload_revision
+    JOIN public.helm_protected_application_intents AS base
+      ON base.id=preflight.base_application_intent_id
+     AND base.state='verified' AND base.action='publish'
+     AND base.project_id=preflight.project_id
+     AND base.environment_id=preflight.environment_id
+     AND base.application_id=preflight.application_id
+     AND base.platform_binding_id=preflight.platform_binding_id
+     AND base.cluster_id=preflight.cluster_id
+     AND base.application_path=preflight.application_path
+     AND base.content=preflight.source_content
+     AND base.content_digest=preflight.source_content_digest
+    JOIN public.git_repository_bindings AS binding
+      ON binding.id=preflight.platform_binding_id
+     AND binding.kind='platform' AND binding.credential_mode='github-app'
+     AND binding.cluster_id=preflight.cluster_id
+     AND binding.target_ref=preflight.platform_target_ref
+     AND binding.path_prefix='clusters/'||preflight.cluster_id::text
+     AND binding.state=receipt.platform_binding_state
+     AND COALESCE(binding.indexed_revision,'')=receipt.platform_indexed_revision
+     AND binding.target_head_revision=receipt.provider_head
+    WHERE preflight.id=candidate_id
+      AND preflight.state='failed'
+      AND preflight.operation='update'
+      AND preflight.last_failure_code='cascade-path-absent-recovery-required'
+      AND preflight.committed_revision=''
+      AND preflight.committed_parent_revision=''
+      AND preflight.committed_at IS NULL
+      AND preflight.verified_at IS NULL
+      AND preflight.verified_path_digest=''
+      AND preflight.provider_request=''
+      AND preflight.lease_owner IS NULL
+      AND preflight.lease_until IS NULL
+      AND preflight.completed_at=receipt.recorded_at
+      AND receipt.operation_commit_absent
+);
+$$;
+
+
+--
+-- Name: helm_application_cascade_active_observer_is_exact(uuid, text, bigint, text, text, text, text, bigint, text, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_active_observer_is_exact(binding_id uuid, publisher_worker text, publisher_epoch bigint, publisher_contract text, publisher_policy text, publisher_config text, argo_worker text, argo_epoch bigint, argo_contract text, argo_config text, authority_time timestamp with time zone) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_application_cascade_observer_activations AS activation
+    JOIN public.runtime_readiness AS publisher
+      ON publisher.runtime_kind='helm-protected-publisher' AND publisher.scope_key='global'
+     AND publisher.worker_id=activation.publisher_worker_id
+     AND publisher.worker_epoch=activation.publisher_worker_epoch
+     AND publisher.contract_version=activation.publisher_contract
+     AND publisher.config_digest=activation.publisher_config_digest
+     AND publisher.identity=pg_catalog.jsonb_build_object(
+         'policyVersion',activation.publisher_policy_version)
+     AND publisher.started_at=activation.publisher_started_at
+     AND publisher.updated_at=publisher.observed_at
+     AND publisher.observed_at>=activation.publisher_readiness_observed_at
+     AND publisher.lease_until>=activation.publisher_readiness_lease_until
+     AND publisher.observed_at<=authority_time
+     AND publisher.observed_at>=authority_time-interval '5 minutes'
+     AND publisher.lease_until>authority_time
+     AND publisher.lease_until<=publisher.observed_at+interval '5 minutes'
+     AND publisher.lease_until<=authority_time+interval '5 minutes'
+    JOIN public.runtime_readiness AS argo
+      ON argo.runtime_kind='argo-desired-state' AND argo.scope_key='global'
+     AND argo.platform_binding_id=activation.platform_binding_id
+     AND argo.worker_id=activation.argo_worker_id
+     AND argo.worker_epoch=activation.argo_worker_epoch
+     AND argo.contract_version=activation.argo_contract
+     AND argo.config_digest=activation.argo_config_digest
+     AND argo.identity=activation.argo_identity
+     AND argo.started_at=activation.argo_started_at
+     AND argo.updated_at=argo.observed_at
+     AND argo.observed_at>=activation.argo_readiness_observed_at
+     AND argo.lease_until>=activation.argo_readiness_lease_until
+     AND argo.observed_at<=authority_time
+     AND argo.observed_at>=authority_time-interval '5 minutes'
+     AND argo.lease_until>authority_time
+     AND argo.lease_until<=argo.observed_at+interval '5 minutes'
+     AND argo.lease_until<=authority_time+interval '5 minutes'
+    WHERE activation.platform_binding_id=binding_id
+      AND activation.activation_epoch=(
+          SELECT MAX(current.activation_epoch)
+          FROM public.helm_application_cascade_observer_activations AS current
+          WHERE current.platform_binding_id=binding_id)
+      AND activation.publisher_worker_id=publisher_worker
+      AND activation.publisher_worker_epoch=publisher_epoch
+      AND activation.publisher_contract=publisher_contract
+      AND activation.publisher_policy_version=publisher_policy
+      AND activation.publisher_config_digest=publisher_config
+      AND activation.argo_worker_id=argo_worker
+      AND activation.argo_worker_epoch=argo_epoch
+      AND activation.argo_contract=argo_contract
+      AND activation.argo_config_digest=argo_config
+);
+$$;
+
+
+--
+-- Name: helm_application_cascade_expected_child_spec_digest(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_expected_child_spec_digest(candidate_id uuid) RETURNS text
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT 'sha256:'||pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+    '{"Project":'||pg_catalog.to_json(foundation.argo_project)::text||
+    ',"Source":{"RepoURL":'||pg_catalog.to_json(
+        'https://github.com/'||platform.repository_owner||'/'||platform.repository_name||'.git')::text||
+    ',"TargetRevision":'||pg_catalog.to_json(base.payload_revision)::text||
+    ',"Path":'||pg_catalog.to_json(
+        'clusters/'||preflight.cluster_id::text||'/helm-manifests/environments/'||
+        preflight.environment_id::text||'/applications/'||preflight.application_id::text||
+        '/revisions/'||base.release_revision_id::text)::text||
+    ',"Directory":{"recurse":false,"include":"release.yaml"}},' ||
+    '"Destination":{"Server":"https://kubernetes.default.svc","Namespace":'||
+        pg_catalog.to_json(foundation.namespace)::text||'},' ||
+    '"SyncPolicy":{"Automated":{"Prune":true,"SelfHeal":true,"AllowEmpty":false},' ||
+        '"SyncOptions":["CreateNamespace=false","ServerSideApply=true"]}}',
+    'UTF8')),'hex')
+FROM public.helm_application_cascade_preflights AS preflight
+JOIN public.helm_protected_application_intents AS base
+  ON base.id=preflight.base_application_intent_id
+LEFT JOIN public.helm_application_continuation_receipts AS continuation
+  ON base.continuation_required
+ AND continuation.application_intent_id=base.id
+ AND continuation.release_revision_id=base.release_revision_id
+ AND continuation.payload_intent_id=base.payload_intent_id
+ AND continuation.project_id=base.project_id
+ AND continuation.environment_id=base.environment_id
+ AND continuation.application_id=base.application_id
+ AND continuation.platform_binding_id=base.platform_binding_id
+ AND continuation.environment_binding_id=base.environment_binding_id
+ AND continuation.cluster_id=base.cluster_id
+ AND continuation.source_environment_revision=base.environment_revision
+ AND continuation.source_environment_generation=base.environment_generation
+ AND continuation.planned_base_revision=base.planned_base_revision
+ AND continuation.application_content_digest=base.content_digest
+ AND continuation.application_intent_digest=base.intent_digest
+LEFT JOIN public.helm_publication_prerequisite_receipts AS prerequisite
+  ON NOT base.continuation_required
+ AND prerequisite.release_revision_id=base.prerequisite_receipt_id
+ AND prerequisite.release_revision_id=base.release_revision_id
+ AND prerequisite.project_id=base.project_id
+ AND prerequisite.environment_id=base.environment_id
+ AND prerequisite.application_id=base.application_id
+ AND prerequisite.platform_binding_id=base.platform_binding_id
+ AND prerequisite.environment_binding_id=base.environment_binding_id
+ AND prerequisite.cluster_id=base.cluster_id
+ AND prerequisite.environment_revision=base.environment_revision
+ AND prerequisite.environment_generation=base.environment_generation
+JOIN public.environment_foundation_intents AS foundation
+  ON foundation.id=CASE WHEN base.continuation_required
+       THEN continuation.current_foundation_intent_id
+       ELSE prerequisite.foundation_intent_id END
+ AND foundation.project_id=base.project_id
+ AND foundation.environment_id=base.environment_id
+ AND foundation.platform_binding_id=base.platform_binding_id
+ AND foundation.cluster_id=base.cluster_id
+ AND foundation.target_ref=base.platform_target_ref
+JOIN public.git_repository_bindings AS platform
+  ON platform.id=preflight.platform_binding_id
+WHERE preflight.id=candidate_id;
+$$;
+
+
+--
+-- Name: helm_application_cascade_expected_root_spec_digest(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_expected_root_spec_digest(candidate_id uuid) RETURNS text
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT 'sha256:'||pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+    '{"project":"kuberploy-platform-bootstrap",' ||
+    '"source":{"repoURL":'||pg_catalog.to_json(
+        'https://github.com/'||platform.repository_owner||'/'||platform.repository_name||'.git')::text||
+    ',"targetRevision":'||pg_catalog.to_json(platform.target_ref)::text||
+    ',"path":'||pg_catalog.to_json(platform.path_prefix||'/argocd')::text||
+    ',"directory":{"recurse":true}},' ||
+    '"destination":{"server":"https://kubernetes.default.svc","namespace":'||
+        pg_catalog.to_json(preflight.argo_namespace)::text||'},' ||
+    '"syncPolicy":{"automated":{"allowEmpty":false,"prune":true,"selfHeal":true},' ||
+        '"syncOptions":["CreateNamespace=false","PrunePropagationPolicy=foreground",' ||
+        '"RespectIgnoreDifferences=true","ServerSideApply=true"]}}',
+    'UTF8')),'hex')
+FROM public.helm_application_cascade_preflights AS preflight
+JOIN public.git_repository_bindings AS platform
+  ON platform.id=preflight.platform_binding_id
+WHERE preflight.id=candidate_id;
+$$;
+
+
+--
+-- Name: helm_application_cascade_is_exact(uuid, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_is_exact(candidate_id uuid, observer_config_digest text, authority_time timestamp with time zone) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_protected_application_intents AS intent
+    JOIN public.helm_application_cascade_preflights AS preflight
+      ON preflight.id=intent.cascade_receipt_id
+     AND preflight.release_revision_id=intent.release_revision_id
+     AND preflight.payload_intent_id=intent.payload_intent_id
+     AND preflight.release_generation=intent.release_generation
+     AND preflight.project_id=intent.project_id
+     AND preflight.environment_id=intent.environment_id
+     AND preflight.application_id=intent.application_id
+     AND preflight.platform_binding_id=intent.platform_binding_id
+     AND preflight.environment_binding_id=intent.environment_binding_id
+     AND preflight.cluster_id=intent.cluster_id
+     AND preflight.platform_target_ref=intent.platform_target_ref
+     AND preflight.application_path=intent.application_path
+     AND intent.expected_etag='"'||preflight.adopted_content_digest||'"'
+    JOIN LATERAL (
+        SELECT receipt.publisher_config_digest
+        FROM public.helm_application_cascade_receipts AS receipt
+        WHERE receipt.cascade_preflight_id=preflight.id
+        ORDER BY receipt.observation_epoch DESC
+        LIMIT 1
+    ) AS latest ON true
+    WHERE intent.id=candidate_id
+      AND intent.action='delete' AND intent.cascade_required
+      AND intent.cascade_contract='helm-application-cascade-preflight.v1'
+      AND latest.publisher_config_digest=observer_config_digest
+      AND public.helm_application_cascade_observation_is_exact(
+          preflight.id,observer_config_digest,authority_time)
+);
+$$;
+
+
+--
+-- Name: helm_application_cascade_observation_is_exact(uuid, text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_observation_is_exact(candidate_id uuid, observer_config_digest text, authority_time timestamp with time zone) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_application_cascade_preflights AS preflight
+    JOIN public.helm_application_cascade_observer_activations AS activation
+      ON activation.platform_binding_id=preflight.platform_binding_id
+     AND activation.activation_epoch=(
+         SELECT MAX(current.activation_epoch)
+         FROM public.helm_application_cascade_observer_activations AS current
+         WHERE current.platform_binding_id=preflight.platform_binding_id)
+     AND activation.publisher_config_digest=observer_config_digest
+    JOIN public.helm_application_cascade_observation_jobs AS job
+      ON job.cascade_preflight_id=preflight.id
+     AND job.platform_binding_id=activation.platform_binding_id
+     AND job.activation_epoch=activation.activation_epoch
+     AND job.publisher_contract=activation.publisher_contract
+     AND job.publisher_policy_version=activation.publisher_policy_version
+     AND job.publisher_config_digest=activation.publisher_config_digest
+     AND job.state='verified' AND job.superseded_at IS NULL
+    JOIN LATERAL (
+        SELECT value.*
+        FROM public.helm_application_cascade_receipts AS value
+        WHERE value.cascade_preflight_id=preflight.id
+        ORDER BY value.observation_epoch DESC
+        LIMIT 1
+    ) AS receipt ON true
+    JOIN public.helm_protected_application_intents AS base
+      ON base.id=preflight.base_application_intent_id
+     AND base.state='verified' AND base.action='publish'
+    JOIN public.helm_protected_payload_intents AS child_payload
+      ON child_payload.id=base.payload_intent_id
+     AND child_payload.state='verified' AND child_payload.action='publish'
+    JOIN public.git_repository_bindings AS platform
+      ON platform.id=preflight.platform_binding_id
+     AND platform.kind='platform' AND platform.credential_mode='github-app'
+     AND platform.cluster_id=preflight.cluster_id
+     AND platform.target_ref=preflight.platform_target_ref
+     AND platform.target_head_revision=receipt.provider_head
+    JOIN public.runtime_readiness AS publisher
+      ON publisher.runtime_kind='helm-protected-publisher' AND publisher.scope_key='global'
+     AND publisher.worker_id=activation.publisher_worker_id
+     AND publisher.worker_epoch=activation.publisher_worker_epoch
+     AND publisher.contract_version=activation.publisher_contract
+     AND publisher.config_digest=activation.publisher_config_digest
+     AND publisher.identity=pg_catalog.jsonb_build_object(
+         'policyVersion',activation.publisher_policy_version)
+     AND publisher.started_at=activation.publisher_started_at
+     AND publisher.updated_at=publisher.observed_at
+     AND publisher.observed_at>=activation.publisher_readiness_observed_at
+     AND publisher.lease_until>=activation.publisher_readiness_lease_until
+     AND publisher.observed_at<=authority_time
+     AND publisher.observed_at>=authority_time-interval '5 minutes'
+     AND publisher.lease_until>authority_time
+     AND publisher.lease_until<=publisher.observed_at+interval '5 minutes'
+     AND publisher.lease_until<=authority_time+interval '5 minutes'
+    JOIN public.runtime_readiness AS argo
+      ON argo.runtime_kind='argo-desired-state' AND argo.scope_key='global'
+     AND argo.platform_binding_id=activation.platform_binding_id
+     AND argo.worker_id=receipt.argo_worker_id
+     AND argo.worker_epoch=receipt.argo_worker_epoch
+     AND argo.contract_version=receipt.argo_contract
+     AND argo.config_digest=receipt.argo_config_digest
+     AND argo.identity=activation.argo_identity
+     AND argo.started_at=receipt.argo_started_at
+     AND argo.updated_at=argo.observed_at
+     AND argo.observed_at>=receipt.argo_readiness_observed_at
+     AND argo.lease_until>=receipt.argo_readiness_lease_until
+     AND argo.observed_at<=authority_time
+     AND argo.observed_at>=authority_time-interval '5 minutes'
+     AND argo.lease_until>authority_time
+     AND argo.lease_until<=argo.observed_at+interval '5 minutes'
+     AND argo.lease_until<=authority_time+interval '5 minutes'
+    WHERE preflight.id=candidate_id
+      AND preflight.state='verified'
+      AND preflight.verified_path_digest=preflight.adopted_content_digest
+      AND public.helm_application_cascade_preflight_is_fresh(preflight.id)
+      AND receipt.observer_activation_epoch=activation.activation_epoch
+      AND receipt.publisher_contract=activation.publisher_contract
+      AND receipt.publisher_policy_version=activation.publisher_policy_version
+      AND receipt.publisher_config_digest=activation.publisher_config_digest
+      AND receipt.worker_id=activation.publisher_worker_id
+      AND receipt.worker_epoch=activation.publisher_worker_epoch
+      AND receipt.argo_contract=activation.argo_contract
+      AND receipt.argo_config_digest=activation.argo_config_digest
+      AND receipt.argo_worker_id=activation.argo_worker_id
+      AND receipt.argo_worker_epoch=activation.argo_worker_epoch
+      AND receipt.argo_started_at=activation.argo_started_at
+      AND activation.argo_identity->>'clusterId'=preflight.cluster_id::text
+      AND activation.argo_identity->>'argoNamespace'=preflight.argo_namespace
+      AND activation.argo_identity->>'rootApplicationName'='kuberploy-platform-root'
+      AND receipt.delete_intent_id=preflight.delete_intent_id
+      AND receipt.release_revision_id=preflight.release_revision_id
+      AND receipt.payload_intent_id=preflight.payload_intent_id
+      AND receipt.base_application_intent_id=preflight.base_application_intent_id
+      AND receipt.project_id=preflight.project_id
+      AND receipt.environment_id=preflight.environment_id
+      AND receipt.application_id=preflight.application_id
+      AND receipt.cluster_id=preflight.cluster_id
+      AND receipt.application_path=preflight.application_path
+      AND receipt.source_content_digest=preflight.source_content_digest
+      AND receipt.adopted_content_digest=preflight.adopted_content_digest
+      AND receipt.adoption_revision=CASE WHEN preflight.operation='update'
+          THEN preflight.committed_revision ELSE preflight.write_base_revision END
+      AND receipt.adoption_parent_revision=CASE WHEN preflight.operation='update'
+          THEN preflight.committed_parent_revision ELSE preflight.write_base_revision END
+      AND receipt.root_observed_revision=receipt.provider_head
+      AND receipt.root_sync_status='Synced'
+      AND receipt.root_spec_digest=
+          public.helm_application_cascade_expected_root_spec_digest(preflight.id)
+      AND receipt.child_spec_digest=
+          public.helm_application_cascade_expected_child_spec_digest(preflight.id)
+      AND receipt.child_release_revision_id=base.release_revision_id
+      AND receipt.child_release_revision_id=child_payload.release_revision_id
+      AND receipt.child_payload_revision=base.payload_revision
+      AND receipt.child_payload_revision=child_payload.committed_revision
+      AND receipt.child_payload_path=base.payload_path
+      AND receipt.child_payload_path=child_payload.path
+      AND receipt.child_payload_digest=child_payload.content_digest
+      AND receipt.finalizer_digest=
+          'sha256:4a33b93a0b2d591421d38cedd7660abbfffcb3fc10be2cbbe9e4d8525ce17f48'
+      AND receipt.observed_at>=preflight.verified_at
+      AND receipt.observed_at<=authority_time
+      AND receipt.observed_at>=authority_time-interval '5 minutes'
+);
+$$;
+
+
+--
+-- Name: helm_application_cascade_preflight_is_fresh(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_preflight_is_fresh(candidate_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_application_cascade_preflights AS preflight
+    JOIN public.helm_release_heads AS head
+      ON head.environment_id=preflight.environment_id
+     AND head.application_id=preflight.application_id
+     AND head.revision_id=preflight.release_revision_id
+     AND head.generation=preflight.release_generation
+    JOIN public.helm_release_revisions AS release
+      ON release.id=preflight.release_revision_id
+     AND release.generation=preflight.release_generation
+     AND release.project_id=preflight.project_id
+     AND release.environment_id=preflight.environment_id
+     AND release.application_id=preflight.application_id
+     AND release.action='disable' AND NOT release.desired_enabled
+     AND release.base_intent_id=preflight.base_application_intent_id
+    JOIN public.helm_protected_payload_intents AS payload
+      ON payload.id=preflight.payload_intent_id
+     AND payload.release_revision_id=preflight.release_revision_id
+     AND payload.release_generation=preflight.release_generation
+     AND payload.project_id=preflight.project_id
+     AND payload.environment_id=preflight.environment_id
+     AND payload.application_id=preflight.application_id
+     AND payload.platform_binding_id=preflight.platform_binding_id
+     AND payload.environment_binding_id=preflight.environment_binding_id
+     AND payload.cluster_id=preflight.cluster_id
+     AND payload.platform_target_ref=preflight.platform_target_ref
+     AND payload.environment_target_ref=preflight.environment_target_ref
+     AND payload.environment_revision=preflight.environment_revision
+     AND payload.environment_generation=preflight.environment_generation
+     AND payload.catalog_digest=preflight.catalog_digest
+     AND payload.state='verified' AND payload.action='disable-receipt'
+     AND payload.committed_revision=preflight.payload_revision
+    JOIN public.helm_protected_application_intents AS base
+      ON base.id=preflight.base_application_intent_id
+     AND base.state='verified' AND base.action='publish'
+     AND base.project_id=preflight.project_id
+     AND base.environment_id=preflight.environment_id
+     AND base.application_id=preflight.application_id
+     AND base.platform_binding_id=preflight.platform_binding_id
+     AND base.cluster_id=preflight.cluster_id
+     AND base.application_path=preflight.application_path
+     AND base.content=preflight.source_content
+     AND base.content_digest=preflight.source_content_digest
+    JOIN public.git_repository_bindings AS platform
+      ON platform.id=preflight.platform_binding_id
+     AND platform.kind='platform' AND platform.credential_mode='github-app'
+     AND platform.cluster_id=preflight.cluster_id
+     AND platform.target_ref=preflight.platform_target_ref
+     AND platform.path_prefix='clusters/'||preflight.cluster_id::text
+     AND platform.state IN ('ready','indexing')
+     AND platform.target_head_revision IS NOT NULL
+    WHERE preflight.id=candidate_id
+      AND preflight.state<>'superseded'
+);
+$$;
+
+
+--
+-- Name: helm_application_cascade_recovery_create_is_authorized(uuid, uuid, text); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_cascade_recovery_create_is_authorized(candidate_release_id uuid, candidate_base_intent_id uuid, candidate_application_path text) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+SELECT EXISTS (
+    SELECT 1
+    FROM public.helm_release_heads AS head
+    JOIN public.helm_release_revisions AS release
+      ON release.id=head.revision_id
+     AND release.id=candidate_release_id
+     AND release.generation=head.generation
+     AND release.desired_enabled
+     AND release.action IN ('update','rollback')
+     AND release.base_intent_id=candidate_base_intent_id
+    JOIN public.helm_release_revisions AS disabled
+      ON disabled.id=release.parent_revision_id
+     AND disabled.action='disable' AND NOT disabled.desired_enabled
+    JOIN public.helm_application_cascade_preflights AS preflight
+      ON preflight.release_revision_id=disabled.id
+     AND preflight.base_application_intent_id=candidate_base_intent_id
+     AND preflight.application_path=candidate_application_path
+     AND preflight.state='failed'
+     AND preflight.operation='update'
+     AND preflight.last_failure_code='cascade-path-absent-recovery-required'
+     AND preflight.committed_revision=''
+     AND preflight.committed_parent_revision=''
+     AND preflight.committed_at IS NULL
+     AND preflight.verified_at IS NULL
+     AND preflight.verified_path_digest=''
+     AND preflight.provider_request=''
+     AND preflight.lease_owner IS NULL
+     AND preflight.lease_until IS NULL
+    JOIN public.helm_application_cascade_absence_receipts AS receipt
+      ON receipt.cascade_preflight_id=preflight.id
+     AND receipt.release_revision_id=preflight.release_revision_id
+     AND receipt.payload_intent_id=preflight.payload_intent_id
+     AND receipt.base_application_intent_id=preflight.base_application_intent_id
+     AND receipt.release_generation=preflight.release_generation
+     AND receipt.platform_binding_id=preflight.platform_binding_id
+     AND receipt.application_path=preflight.application_path
+     AND receipt.source_content_digest=preflight.source_content_digest
+     AND receipt.adopted_content_digest=preflight.adopted_content_digest
+     AND receipt.expected_etag=preflight.expected_etag
+     AND receipt.publisher_contract=preflight.publisher_contract
+     AND receipt.publisher_policy_version=preflight.publisher_policy_version
+     AND receipt.publisher_config_digest=preflight.publisher_config_digest
+     AND receipt.lease_epoch=preflight.lease_epoch
+     AND receipt.recorded_at=preflight.updated_at
+     AND receipt.recorded_at=preflight.completed_at
+     AND receipt.operation_commit_absent
+    JOIN public.helm_protected_payload_intents AS disabled_payload
+      ON disabled_payload.id=preflight.payload_intent_id
+     AND disabled_payload.release_revision_id=disabled.id
+     AND disabled_payload.state='verified'
+     AND disabled_payload.action='disable-receipt'
+     AND disabled_payload.committed_revision=preflight.payload_revision
+    JOIN public.helm_protected_application_intents AS base
+      ON base.id=preflight.base_application_intent_id
+     AND base.id=candidate_base_intent_id
+     AND base.state='verified' AND base.action='publish'
+     AND base.application_path=preflight.application_path
+     AND base.content=preflight.source_content
+     AND base.content_digest=preflight.source_content_digest
+    WHERE head.environment_id=release.environment_id
+      AND head.application_id=release.application_id
+      AND disabled.project_id=release.project_id
+      AND disabled.environment_id=release.environment_id
+      AND disabled.application_id=release.application_id
+      AND preflight.project_id=release.project_id
+      AND preflight.environment_id=release.environment_id
+      AND preflight.application_id=release.application_id
+);
+$$;
+
+
+--
+-- Name: helm_application_continuation_is_exact(uuid); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_application_continuation_is_exact(candidate_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+    SELECT EXISTS(
+        SELECT 1
+        FROM public.helm_protected_application_intents intent
+        JOIN public.helm_application_continuation_receipts receipt
+          ON receipt.application_intent_id=intent.id
+         AND receipt.release_revision_id=intent.release_revision_id
+         AND receipt.payload_intent_id=intent.payload_intent_id
+         AND receipt.application_content_digest=intent.content_digest
+         AND receipt.application_intent_digest=intent.intent_digest
+         AND receipt.planned_base_revision=intent.planned_base_revision
+        JOIN public.helm_release_heads head
+          ON head.revision_id=intent.release_revision_id AND head.generation=intent.release_generation
+        JOIN public.helm_protected_payload_intents payload
+          ON payload.id=intent.payload_intent_id AND payload.state='verified'
+         AND payload.release_revision_id=intent.release_revision_id
+         AND payload.committed_revision=intent.payload_revision AND payload.path=intent.payload_path
+        JOIN public.argo_desired_state_commands source_command
+          ON source_command.id=receipt.source_desired_state_command_id
+         AND source_command.state='verified'
+         AND source_command.committed_revision=receipt.source_desired_state_revision
+         AND source_command.content_sha256=receipt.source_desired_state_content_digest
+        JOIN public.argo_desired_state_materialization_receipts materialization
+          ON materialization.id=receipt.current_materialization_receipt_id
+         AND materialization.environment_binding_id=receipt.environment_binding_id
+         AND materialization.environment_revision=receipt.current_environment_revision
+         AND materialization.environment_generation=receipt.current_environment_generation
+         AND materialization.desired_state_command_id=receipt.current_desired_state_command_id
+         AND materialization.desired_state_revision=receipt.current_desired_state_revision
+         AND materialization.desired_state_content_sha256=receipt.current_desired_state_content_digest
+         AND materialization.policy_digest=receipt.current_policy_digest
+         AND materialization.chart_repository=receipt.current_chart_repository
+         AND materialization.chart_name=receipt.current_chart_name
+         AND materialization.chart_version=receipt.current_chart_version
+         AND materialization.chart_digest=receipt.current_chart_digest
+         AND materialization.renderer_image=receipt.current_renderer_image
+         AND materialization.chart_digest_enforcement=receipt.current_chart_digest_enforcement
+         AND materialization.app_project_content=receipt.current_app_project_content
+        JOIN public.git_repository_bindings current_environment_binding
+          ON current_environment_binding.id=receipt.environment_binding_id
+         AND current_environment_binding.kind='environment'
+         AND current_environment_binding.credential_mode='github-app'
+         AND current_environment_binding.state='ready'
+         AND current_environment_binding.project_id=intent.project_id
+         AND current_environment_binding.environment_id=intent.environment_id
+         AND current_environment_binding.target_ref=intent.environment_target_ref
+         AND current_environment_binding.target_head_revision=receipt.current_environment_revision
+         AND current_environment_binding.indexed_revision=receipt.current_environment_revision
+         AND current_environment_binding.projection_generation=receipt.current_environment_generation
+        JOIN public.git_projection_generations current_generation
+          ON current_generation.binding_id=current_environment_binding.id
+         AND current_generation.generation=receipt.current_environment_generation
+         AND current_generation.head_revision=receipt.current_environment_revision
+         AND current_generation.state='active'
+        JOIN public.environments desired_environment
+          ON desired_environment.id=intent.environment_id AND desired_environment.project_id=intent.project_id
+        JOIN public.argo_desired_state_commands current_command
+          ON current_command.id=receipt.current_desired_state_command_id
+         AND current_command.project_id=intent.project_id
+         AND current_command.environment_id=intent.environment_id
+         AND current_command.platform_binding_id=intent.platform_binding_id
+         AND current_command.environment_binding_id=intent.environment_binding_id
+         AND current_command.cluster_id=intent.cluster_id
+         AND current_command.platform_target_ref=intent.platform_target_ref
+         AND current_command.environment_target_ref=intent.environment_target_ref
+
+
+         AND current_command.state='verified'
+         AND current_command.committed_revision=receipt.current_desired_state_revision
+         AND current_command.content_sha256=receipt.current_desired_state_content_digest
+
+         AND current_command.chart_repository=receipt.current_chart_repository
+         AND current_command.chart_name=receipt.current_chart_name
+         AND current_command.chart_version=receipt.current_chart_version
+         AND current_command.chart_digest=receipt.current_chart_digest
+         AND current_command.renderer_image=receipt.current_renderer_image
+         AND current_command.chart_digest_enforcement=receipt.current_chart_digest_enforcement
+         AND current_command.app_project_content=receipt.current_app_project_content
+         AND current_command.argo_project=desired_environment.argo_project
+         AND current_command.destination_namespace=desired_environment.namespace
+        JOIN public.environment_foundation_intents foundation
+          ON foundation.id=receipt.current_foundation_intent_id
+         AND foundation.environment_id=intent.environment_id AND foundation.project_id=intent.project_id
+         AND foundation.platform_binding_id=intent.platform_binding_id
+         AND foundation.cluster_id=intent.cluster_id AND foundation.target_ref=intent.platform_target_ref
+         AND foundation.namespace=desired_environment.namespace
+         AND foundation.argo_project=desired_environment.argo_project
+         AND foundation.committed_revision=receipt.current_foundation_revision
+         AND foundation.state IN ('ready','superseded')
+         AND foundation.published_at IS NOT NULL AND foundation.completed_at=foundation.published_at
+        WHERE intent.id=candidate_id AND intent.continuation_required
+          AND intent.continuation_receipt_id=receipt.application_intent_id
+          AND intent.continuation_contract='helm-application-continuation.v1'
+          AND NOT EXISTS(SELECT 1 FROM public.git_projected_documents invalid
+            WHERE invalid.binding_id=receipt.environment_binding_id
+              AND invalid.generation=receipt.current_environment_generation
+              AND NOT invalid.valid)
+          AND NOT EXISTS(
+            SELECT 1
+            FROM public.argo_desired_state_materialization_receipts newer_materialization
+            JOIN public.argo_desired_state_commands newer_command
+              ON newer_command.id=newer_materialization.desired_state_command_id
+             AND newer_command.state='verified'
+             AND newer_command.committed_revision=newer_materialization.desired_state_revision
+             AND newer_command.content_sha256=newer_materialization.desired_state_content_sha256
+            WHERE newer_materialization.environment_binding_id=receipt.environment_binding_id
+              AND newer_materialization.environment_revision=receipt.current_environment_revision
+              AND newer_materialization.environment_generation=receipt.current_environment_generation
+              AND (newer_materialization.desired_state_generation,
+                   newer_materialization.created_at,newer_materialization.id)>
+                  (materialization.desired_state_generation,
+                   materialization.created_at,materialization.id)
+          )
+    )
+$$;
+
+
+--
+-- Name: helm_protected_adoption_projection_is_fresh(uuid, uuid, uuid, uuid, uuid, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.helm_protected_adoption_projection_is_fresh(candidate_platform_binding_id uuid, candidate_environment_binding_id uuid, candidate_cluster_id uuid, candidate_project_id uuid, candidate_environment_id uuid, candidate_platform_target_ref text, candidate_environment_target_ref text, candidate_environment_revision text, candidate_environment_generation bigint) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+    SELECT EXISTS(
+        SELECT 1 FROM public.git_repository_bindings platform
+        JOIN public.git_repository_bindings environment
+          ON environment.id=candidate_environment_binding_id
+        JOIN public.git_projection_generations generation
+          ON generation.binding_id=environment.id
+         AND generation.generation=candidate_environment_generation
+        WHERE platform.id=candidate_platform_binding_id
+          AND platform.kind='platform'
+          AND platform.credential_mode='github-app'
+          AND platform.cluster_id=candidate_cluster_id
+          AND platform.target_ref=candidate_platform_target_ref
+          AND platform.target_head_revision IS NOT NULL
+          AND platform.state IN ('ready','indexing')
+          AND environment.kind='environment'
+          AND environment.project_id=candidate_project_id
+          AND environment.environment_id=candidate_environment_id
+          AND environment.target_ref=candidate_environment_target_ref
+          AND environment.target_head_revision=candidate_environment_revision
+          AND environment.indexed_revision=candidate_environment_revision
+          AND environment.projection_generation=candidate_environment_generation
+          AND environment.state='ready'
+          AND generation.head_revision=candidate_environment_revision
+          AND generation.state='active'
+          AND NOT EXISTS(
+              SELECT 1 FROM public.git_projected_documents invalid
+              WHERE invalid.binding_id=environment.id
+                AND invalid.generation=candidate_environment_generation
+                AND NOT invalid.valid
+          )
+    )
+$$;
 
 
 --
@@ -462,9 +1681,11 @@ $$;
 
 CREATE FUNCTION public.protect_external_dns_integration_identity() RETURNS trigger
     LANGUAGE plpgsql
-    AS $$
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
 DECLARE
     desired_changed boolean;
+    runtime_republish boolean;
 BEGIN
     IF ROW(NEW.id,NEW.slug,NEW.txt_owner_id,NEW.created_by,NEW.created_at)
        IS DISTINCT FROM
@@ -482,13 +1703,19 @@ BEGIN
       IS DISTINCT FROM ROW(OLD.name,OLD.mode,OLD.provider_kind,OLD.allowed_domain_suffixes,
         OLD.sync_policy,OLD.destructive_sync_confirmed,OLD.credential_secret_ref,
         OLD.provider_config_ref,OLD.egress_config_ref,OLD.operator_profile_ref);
-    IF desired_changed AND NEW.runtime_revision <> OLD.runtime_revision + 1 OR
-       NOT desired_changed AND NEW.runtime_revision <> OLD.runtime_revision THEN
+    runtime_republish := NOT desired_changed AND OLD.lifecycle='active' AND NEW.lifecycle='active' AND
+        OLD.protected_git_state='materialized' AND OLD.protected_git_revision=OLD.runtime_revision AND
+        OLD.protected_git_content_digest ~ '^sha256:[0-9a-f]{64}$' AND OLD.protected_git_commit<>'' AND
+        OLD.protected_git_observed_at IS NOT NULL AND NEW.protected_git_state='pending' AND
+        NEW.protected_git_revision IS NULL AND NEW.protected_git_content_digest='' AND
+        NEW.protected_git_commit='' AND NEW.protected_git_observed_at IS NULL;
+    IF (desired_changed OR runtime_republish) AND NEW.runtime_revision <> OLD.runtime_revision + 1 OR
+       NOT (desired_changed OR runtime_republish) AND NEW.runtime_revision <> OLD.runtime_revision THEN
         RAISE EXCEPTION 'external-dns runtime revision is not an exact desired-state revision' USING ERRCODE='23514';
     END IF;
     RETURN NEW;
 END;
-$$;
+$_$;
 
 
 --
@@ -1133,6 +2360,50 @@ $$;
 
 
 --
+-- Name: record_verified_argo_desired_state_materialization(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.record_verified_argo_desired_state_materialization() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NEW.state='verified' AND NEW.policy_digest IS NOT NULL AND
+       NEW.app_project_content IS NOT NULL AND
+       (TG_OP='INSERT' OR OLD.state<>'verified') THEN
+        INSERT INTO public.argo_desired_state_materialization_receipts(
+            id,environment_binding_id,environment_revision,environment_generation,
+            project_id,environment_id,platform_binding_id,cluster_id,
+            platform_target_ref,environment_target_ref,desired_state_command_id,
+            desired_state_generation,desired_state_revision,desired_state_content_sha256,
+            catalog_digest,policy_digest,chart_repository,chart_name,chart_version,chart_digest,
+            renderer_image,chart_digest_enforcement,app_project_content,created_at
+        )
+        SELECT NEW.id,NEW.environment_binding_id,NEW.environment_revision,
+               NEW.environment_generation,NEW.project_id,NEW.environment_id,
+               NEW.platform_binding_id,NEW.cluster_id,NEW.platform_target_ref,
+               NEW.environment_target_ref,NEW.id,NEW.generation,
+               NEW.committed_revision,NEW.content_sha256,NEW.catalog_digest,NEW.policy_digest,
+               NEW.chart_repository,NEW.chart_name,NEW.chart_version,
+               NEW.chart_digest,NEW.renderer_image,NEW.chart_digest_enforcement,
+               NEW.app_project_content,NEW.verified_at
+        FROM public.git_repository_bindings binding
+        JOIN public.git_projection_generations generation
+          ON generation.binding_id=binding.id
+         AND generation.generation=NEW.environment_generation
+        WHERE binding.id=NEW.environment_binding_id
+          AND binding.target_head_revision=NEW.environment_revision
+          AND binding.indexed_revision=NEW.environment_revision
+          AND binding.projection_generation=NEW.environment_generation
+          AND binding.state='ready' AND generation.state='active'
+          AND generation.head_revision=NEW.environment_revision;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: reject_auto_deploy_immutable_change(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1231,6 +2502,23 @@ $$;
 
 
 --
+-- Name: require_argo_desired_state_policy_digest(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.require_argo_desired_state_policy_digest() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.policy_digest IS NULL THEN
+        RAISE EXCEPTION 'new Argo desired-state commands require an exact policy digest'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: require_closed_git_publication_command(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1240,6 +2528,84 @@ CREATE FUNCTION public.require_closed_git_publication_command() RETURNS trigger
 BEGIN
     IF (SELECT count(*) FROM git_write_commands WHERE operation_id=NEW.operation_id) <> 1 THEN
         RAISE EXCEPTION 'Git publication must reference exactly one closed command' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: require_helm_publication_prerequisite_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.require_helm_publication_prerequisite_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.helm_publication_prerequisite_receipts receipt
+        WHERE receipt.release_revision_id=NEW.release_revision_id
+          AND receipt.project_id=NEW.project_id
+          AND receipt.environment_id=NEW.environment_id
+          AND receipt.application_id=NEW.application_id
+          AND receipt.platform_binding_id=NEW.platform_binding_id
+          AND receipt.environment_binding_id=NEW.environment_binding_id
+          AND receipt.cluster_id=NEW.cluster_id
+          AND receipt.environment_revision=NEW.environment_revision
+          AND receipt.environment_generation=NEW.environment_generation
+    ) THEN
+        RAISE EXCEPTION 'Helm protected publication requires an exact prerequisite receipt'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.prerequisite_receipt_id<>NEW.release_revision_id OR
+       NEW.prerequisite_contract<>'helm-publication-prerequisite.v1' THEN
+        RAISE EXCEPTION 'Helm protected publication prerequisite adoption is invalid'
+            USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='INSERT' THEN
+        IF NEW.prerequisite_epoch<>0 THEN
+            RAISE EXCEPTION 'Helm protected publication prerequisite epoch must start at zero'
+                USING ERRCODE='23514';
+        END IF;
+    ELSIF OLD.state IN ('pending','claimed','git-committed') THEN
+        IF OLD.prerequisite_receipt_id<>OLD.release_revision_id OR
+           OLD.prerequisite_contract<>'helm-publication-prerequisite.v1' OR
+           NEW.prerequisite_receipt_id IS DISTINCT FROM OLD.prerequisite_receipt_id OR
+           NEW.prerequisite_contract IS DISTINCT FROM OLD.prerequisite_contract OR
+           NEW.prerequisite_epoch<>OLD.prerequisite_epoch+1 THEN
+            RAISE EXCEPTION 'Helm protected publication update lacks v004 prerequisite fencing'
+                USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_argo_desired_state_app_project_content(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_argo_desired_state_app_project_content() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='INSERT' AND (NEW.app_project_content IS NULL OR
+       pg_catalog.octet_length(NEW.app_project_content)=0) THEN
+        RAISE EXCEPTION 'new Argo desired state requires canonical AppProject bytes'
+            USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='UPDATE' AND NEW.app_project_content IS DISTINCT FROM OLD.app_project_content THEN
+        RAISE EXCEPTION 'Argo desired-state AppProject bytes are immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.app_project_content IS NOT NULL AND
+       NEW.content<>NEW.app_project_content||pg_catalog.convert_to(E'---\n','UTF8')||
+          pg_catalog.substr(NEW.content,pg_catalog.octet_length(NEW.app_project_content)+5) THEN
+        RAISE EXCEPTION 'Argo desired-state AppProject bytes do not frame the command bundle'
+            USING ERRCODE='23514';
     END IF;
     RETURN NEW;
 END;
@@ -1436,6 +2802,106 @@ BEGIN
             RAISE EXCEPTION 'Argo desired-state command time cannot regress'
                 USING ERRCODE='23514';
         END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_argo_desired_state_materialization_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_argo_desired_state_materialization_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'Argo desired-state materialization receipts are immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.policy_digest IS NULL OR NOT EXISTS (
+        SELECT 1
+        FROM public.git_repository_bindings environment_binding
+        JOIN public.git_projection_generations generation
+          ON generation.binding_id=environment_binding.id
+         AND generation.generation=NEW.environment_generation
+        JOIN public.git_repository_bindings platform ON platform.id=NEW.platform_binding_id
+        WHERE environment_binding.id=NEW.environment_binding_id
+          AND environment_binding.kind='environment'
+          AND environment_binding.credential_mode='github-app'
+          AND environment_binding.state='ready'
+          AND environment_binding.project_id=NEW.project_id
+          AND environment_binding.environment_id=NEW.environment_id
+          AND environment_binding.target_ref=NEW.environment_target_ref
+          AND environment_binding.target_head_revision=NEW.environment_revision
+          AND environment_binding.indexed_revision=NEW.environment_revision
+          AND environment_binding.projection_generation=NEW.environment_generation
+          AND generation.head_revision=NEW.environment_revision AND generation.state='active'
+          AND platform.kind='platform' AND platform.credential_mode='github-app'
+          AND platform.cluster_id=NEW.cluster_id AND platform.target_ref=NEW.platform_target_ref
+          AND platform.state IN ('ready','indexing')
+          AND NOT EXISTS(SELECT 1 FROM public.git_projected_documents document
+            WHERE document.binding_id=NEW.environment_binding_id
+              AND document.generation=NEW.environment_generation AND NOT document.valid)
+    ) THEN
+        RAISE EXCEPTION 'Argo materialization receipt requires exact current projection authority'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.argo_desired_state_commands command
+        WHERE command.id=NEW.desired_state_command_id
+          AND command.generation=NEW.desired_state_generation
+          AND command.project_id=NEW.project_id AND command.environment_id=NEW.environment_id
+          AND command.platform_binding_id=NEW.platform_binding_id
+          AND command.environment_binding_id=NEW.environment_binding_id
+          AND command.cluster_id=NEW.cluster_id
+          AND command.platform_target_ref=NEW.platform_target_ref
+          AND command.environment_target_ref=NEW.environment_target_ref
+          AND command.state='verified' AND command.committed_revision=NEW.desired_state_revision
+          AND command.content_sha256=NEW.desired_state_content_sha256
+          AND command.app_project_content=NEW.app_project_content
+          AND command.write_base_revision<>'' AND command.verified_at IS NOT NULL
+          AND command.completed_at=command.verified_at
+    ) THEN
+        RAISE EXCEPTION 'Argo materialization receipt requires exact verified desired state'
+            USING ERRCODE='23514';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.argo_desired_state_commands later
+        WHERE later.project_id=NEW.project_id AND later.environment_id=NEW.environment_id
+          AND later.generation>NEW.desired_state_generation
+          AND (later.state NOT IN ('failed','superseded') OR later.completed_at IS NULL OR
+               later.completed_at>=NEW.created_at)
+    ) THEN
+        RAISE EXCEPTION 'Argo materialization receipt is behind newer desired-state authority'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_argo_materialization_app_project_content(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_argo_materialization_app_project_content() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='DELETE' OR TG_OP='UPDATE' THEN
+        RAISE EXCEPTION 'Argo materialization AppProject authority is immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.app_project_content IS NULL OR pg_catalog.octet_length(NEW.app_project_content)=0 OR
+       NOT EXISTS(SELECT 1 FROM public.argo_desired_state_commands command
+         WHERE command.id=NEW.desired_state_command_id
+           AND command.app_project_content=NEW.app_project_content) THEN
+        RAISE EXCEPTION 'Argo materialization lacks canonical AppProject authority'
+            USING ERRCODE='23514';
     END IF;
     RETURN NEW;
 END;
@@ -1679,6 +3145,1478 @@ $$;
 
 
 --
+-- Name: validate_helm_application_active_publisher_claim(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_active_publisher_claim() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='UPDATE' AND NEW.lease_epoch=OLD.lease_epoch+1 AND
+       NEW.lease_owner IS NOT NULL AND NEW.lease_until>NEW.updated_at THEN
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997));
+        IF NOT public.helm_application_active_publisher_is_exact(
+            NEW.platform_binding_id,NEW.lease_owner,NEW.publisher_contract,
+            NEW.publisher_config_digest,NEW.updated_at) THEN
+            RAISE EXCEPTION 'protected Helm claim lacks active monotonic publisher authority'
+                USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_absence_failure_postimage(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_absence_failure_postimage() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NOT public.helm_application_cascade_absence_receipt_is_exact(NEW.id) THEN
+        RAISE EXCEPTION 'cascade path-absence failure postimage is not exact'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_absence_postimage(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_absence_postimage() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NOT public.helm_application_cascade_absence_receipt_is_exact(NEW.cascade_preflight_id) THEN
+        RAISE EXCEPTION 'cascade path-absence receipt postimage is not exact'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_absence_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_absence_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $_$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    candidate public.helm_application_cascade_preflights%ROWTYPE;
+    active_worker_epoch bigint;
+    binding_state text;
+    binding_indexed_revision text;
+    authority_found boolean := false;
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'cascade path-absence receipts are immutable' USING ERRCODE='23514';
+    END IF;
+    SELECT preflight.* INTO candidate
+    FROM public.helm_application_cascade_preflights AS preflight
+    WHERE preflight.id=NEW.cascade_preflight_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade path-absence preflight is absent' USING ERRCODE='23514';
+    END IF;
+    SELECT binding.state,COALESCE(binding.indexed_revision,'')
+      INTO binding_state,binding_indexed_revision
+    FROM public.helm_release_heads AS head
+    JOIN public.helm_release_revisions AS release
+      ON release.id=head.revision_id
+    JOIN public.helm_protected_payload_intents AS payload
+      ON payload.id=candidate.payload_intent_id
+    JOIN public.helm_protected_application_intents AS base
+      ON base.id=candidate.base_application_intent_id
+    JOIN public.git_repository_bindings AS binding
+      ON binding.id=candidate.platform_binding_id
+    WHERE head.environment_id=candidate.environment_id
+      AND head.application_id=candidate.application_id
+      AND head.revision_id=candidate.release_revision_id
+      AND head.generation=candidate.release_generation
+      AND release.generation=candidate.release_generation
+      AND release.project_id=candidate.project_id
+      AND release.environment_id=candidate.environment_id
+      AND release.application_id=candidate.application_id
+      AND release.action='disable' AND NOT release.desired_enabled
+      AND release.base_intent_id=candidate.base_application_intent_id
+      AND payload.release_revision_id=candidate.release_revision_id
+      AND payload.release_generation=candidate.release_generation
+      AND payload.project_id=candidate.project_id
+      AND payload.environment_id=candidate.environment_id
+      AND payload.application_id=candidate.application_id
+      AND payload.platform_binding_id=candidate.platform_binding_id
+      AND payload.environment_binding_id=candidate.environment_binding_id
+      AND payload.cluster_id=candidate.cluster_id
+      AND payload.state='verified' AND payload.action='disable-receipt'
+      AND payload.committed_revision=candidate.payload_revision
+      AND base.state='verified' AND base.action='publish'
+      AND base.project_id=candidate.project_id
+      AND base.environment_id=candidate.environment_id
+      AND base.application_id=candidate.application_id
+      AND base.platform_binding_id=candidate.platform_binding_id
+      AND base.cluster_id=candidate.cluster_id
+      AND base.application_path=candidate.application_path
+      AND base.content=candidate.source_content
+      AND base.content_digest=candidate.source_content_digest
+      AND binding.kind='platform' AND binding.credential_mode='github-app'
+      AND binding.cluster_id=candidate.cluster_id
+      AND binding.target_ref=candidate.platform_target_ref
+      AND binding.path_prefix='clusters/'||candidate.cluster_id::text
+      AND binding.state IN ('ready','indexing')
+      AND binding.target_head_revision=NEW.provider_head
+    FOR UPDATE OF head,binding FOR KEY SHARE OF release,payload,base;
+    authority_found := FOUND;
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(candidate.platform_binding_id::text,704215997));
+    SELECT preflight.* INTO candidate
+    FROM public.helm_application_cascade_preflights AS preflight
+    WHERE preflight.id=NEW.cascade_preflight_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade path-absence preflight is absent' USING ERRCODE='23514';
+    END IF;
+    SELECT activation.publisher_worker_epoch INTO active_worker_epoch
+    FROM public.helm_application_cascade_observer_activations AS activation
+    WHERE activation.platform_binding_id=candidate.platform_binding_id
+      AND activation.activation_epoch=(
+          SELECT MAX(current.activation_epoch)
+          FROM public.helm_application_cascade_observer_activations AS current
+          WHERE current.platform_binding_id=candidate.platform_binding_id)
+      AND activation.publisher_worker_id=candidate.lease_owner
+      AND activation.publisher_contract=candidate.publisher_contract
+      AND activation.publisher_policy_version=candidate.publisher_policy_version
+      AND activation.publisher_config_digest=candidate.publisher_config_digest;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade path-absence receipt lacks active publisher activation'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT authority_found OR candidate.state<>'claimed' OR candidate.operation<>'update' OR
+       candidate.lease_owner IS NULL OR candidate.lease_until<=db_now OR
+       candidate.committed_revision<>'' OR candidate.committed_parent_revision<>'' OR
+       candidate.committed_at IS NOT NULL OR candidate.verified_at IS NOT NULL OR
+       candidate.verified_path_digest<>'' OR candidate.provider_request<>'' OR
+       NEW.provider_head IS NULL OR NEW.provider_request IS NULL OR
+       NEW.provider_observed_at IS NULL OR NOT NEW.operation_commit_absent OR
+       NEW.provider_head !~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$' OR
+       length(NEW.provider_request) NOT BETWEEN 1 AND 256 OR
+       NEW.provider_request ~ '[[:cntrl:]]' OR
+       NEW.provider_observed_at>db_now OR
+       NEW.provider_observed_at<db_now-interval '5 minutes' OR
+       candidate.updated_at>db_now OR
+       NOT public.helm_application_active_publisher_is_exact(
+           candidate.platform_binding_id,candidate.lease_owner,
+           candidate.publisher_contract,candidate.publisher_config_digest,db_now) THEN
+        RAISE EXCEPTION 'cascade path-absence receipt lacks exact no-effect authority'
+            USING ERRCODE='23514';
+    END IF;
+    NEW.release_revision_id := candidate.release_revision_id;
+    NEW.payload_intent_id := candidate.payload_intent_id;
+    NEW.base_application_intent_id := candidate.base_application_intent_id;
+    NEW.release_generation := candidate.release_generation;
+    NEW.platform_binding_id := candidate.platform_binding_id;
+    NEW.platform_binding_state := binding_state;
+    NEW.platform_indexed_revision := binding_indexed_revision;
+    NEW.application_path := candidate.application_path;
+    NEW.source_content_digest := candidate.source_content_digest;
+    NEW.adopted_content_digest := candidate.adopted_content_digest;
+    NEW.expected_etag := candidate.expected_etag;
+    NEW.publisher_contract := candidate.publisher_contract;
+    NEW.publisher_policy_version := candidate.publisher_policy_version;
+    NEW.publisher_config_digest := candidate.publisher_config_digest;
+    NEW.publisher_worker_id := candidate.lease_owner;
+    NEW.publisher_worker_epoch := active_worker_epoch;
+    NEW.lease_epoch := candidate.lease_epoch;
+    NEW.recorded_at := db_now;
+    RETURN NEW;
+END;
+$_$;
+
+
+--
+-- Name: validate_helm_application_cascade_absence_transition(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_absence_transition() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='UPDATE' AND NEW.state='failed' AND
+       NEW.last_failure_code='cascade-path-absent-recovery-required' AND
+       NOT EXISTS (
+           SELECT 1
+           FROM public.helm_application_cascade_absence_receipts AS receipt
+           WHERE receipt.cascade_preflight_id=NEW.id
+             AND receipt.release_revision_id=NEW.release_revision_id
+             AND receipt.payload_intent_id=NEW.payload_intent_id
+             AND receipt.base_application_intent_id=NEW.base_application_intent_id
+             AND receipt.release_generation=NEW.release_generation
+             AND receipt.platform_binding_id=NEW.platform_binding_id
+             AND receipt.application_path=NEW.application_path
+             AND receipt.source_content_digest=NEW.source_content_digest
+             AND receipt.adopted_content_digest=NEW.adopted_content_digest
+             AND receipt.expected_etag=NEW.expected_etag
+             AND receipt.publisher_contract=NEW.publisher_contract
+             AND receipt.publisher_policy_version=NEW.publisher_policy_version
+             AND receipt.publisher_config_digest=NEW.publisher_config_digest
+             AND receipt.publisher_worker_id=OLD.lease_owner
+             AND receipt.lease_epoch=NEW.lease_epoch
+             AND receipt.recorded_at=NEW.updated_at
+             AND receipt.operation_commit_absent
+       ) THEN
+        RAISE EXCEPTION 'cascade path-absence failure lacks its exact receipt'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_adoption_postimage(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_adoption_postimage() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.helm_application_cascade_preflights AS preflight
+        WHERE preflight.id=NEW.cascade_preflight_id
+          AND preflight.publisher_contract=NEW.publisher_contract
+          AND preflight.publisher_policy_version=NEW.policy_version
+          AND preflight.original_publisher_config_digest=NEW.original_config_digest
+          AND preflight.publisher_config_digest=NEW.adopted_config_digest
+          AND preflight.publisher_adoption_epoch=NEW.adoption_epoch
+          AND preflight.intent_digest=NEW.intent_digest
+          AND preflight.source_content_digest=NEW.source_content_digest
+          AND preflight.adopted_content_digest=NEW.adopted_content_digest
+          AND preflight.application_path=NEW.application_path
+          AND preflight.precondition=NEW.precondition
+          AND preflight.expected_etag=NEW.expected_etag
+          AND preflight.commit_trailer=NEW.commit_trailer
+          AND preflight.state=CASE WHEN NEW.recovery_state='pending' THEN 'claimed' ELSE NEW.recovery_state END
+          AND preflight.write_base_revision=NEW.write_base_revision
+          AND preflight.committed_revision=NEW.committed_revision
+          AND preflight.committed_parent_revision=NEW.committed_parent_revision
+          AND preflight.lease_owner=NEW.adopted_by_worker
+          AND preflight.lease_epoch=NEW.adopted_lease_epoch
+          AND preflight.updated_at=NEW.created_at
+    ) THEN
+        RAISE EXCEPTION 'cascade adoption postimage is not exact' USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_adoption_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_adoption_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    candidate public.helm_application_cascade_preflights%ROWTYPE;
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'cascade adoption receipts are immutable' USING ERRCODE='23514';
+    END IF;
+    SELECT preflight.* INTO candidate
+    FROM public.helm_application_cascade_preflights AS preflight
+    WHERE preflight.id=NEW.cascade_preflight_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade adoption preflight is absent' USING ERRCODE='23514';
+    END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(candidate.platform_binding_id::text,704215997));
+    IF NEW.created_at>db_now OR NEW.created_at<db_now-interval '30 seconds' OR
+       candidate.state NOT IN ('pending','claimed','git-committed') OR
+       (candidate.attempts>=30 AND candidate.lease_epoch=0) OR
+       candidate.next_attempt_at>NEW.created_at OR candidate.updated_at>NEW.created_at OR
+       (candidate.lease_owner IS NOT NULL AND candidate.lease_until>NEW.created_at) OR
+       candidate.publisher_contract<>NEW.publisher_contract OR
+       candidate.publisher_policy_version<>NEW.policy_version OR
+       candidate.original_publisher_config_digest<>NEW.original_config_digest OR
+       candidate.publisher_config_digest<>NEW.previous_config_digest OR
+       candidate.publisher_adoption_epoch+1<>NEW.adoption_epoch OR
+       candidate.intent_digest<>NEW.intent_digest OR
+       candidate.source_content_digest<>NEW.source_content_digest OR
+       candidate.adopted_content_digest<>NEW.adopted_content_digest OR
+       candidate.application_path<>NEW.application_path OR
+       candidate.precondition<>NEW.precondition OR candidate.expected_etag<>NEW.expected_etag OR
+       candidate.commit_trailer<>NEW.commit_trailer OR candidate.state<>NEW.recovery_state OR
+       candidate.write_base_revision<>NEW.write_base_revision OR
+       candidate.committed_revision<>NEW.committed_revision OR
+       candidate.committed_parent_revision<>NEW.committed_parent_revision OR
+       candidate.lease_epoch<>NEW.previous_lease_epoch OR
+       NEW.adopted_lease_epoch<>candidate.lease_epoch+1 OR
+       (candidate.lease_epoch=0 AND
+        NOT public.helm_application_cascade_preflight_is_fresh(candidate.id)) OR
+       NOT EXISTS (
+           SELECT 1 FROM public.runtime_readiness AS readiness
+           WHERE readiness.runtime_kind='helm-protected-publisher'
+             AND readiness.scope_key='global' AND readiness.worker_id=NEW.adopted_by_worker
+             AND readiness.worker_epoch=NEW.adopted_worker_epoch
+             AND readiness.contract_version=NEW.publisher_contract
+             AND readiness.config_digest=NEW.adopted_config_digest
+             AND readiness.identity=pg_catalog.jsonb_build_object('policyVersion',NEW.policy_version)
+             AND readiness.updated_at=readiness.observed_at
+             AND readiness.observed_at<=NEW.created_at
+             AND readiness.observed_at>=NEW.created_at-interval '5 minutes'
+             AND readiness.lease_until>NEW.created_at
+             AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+             AND readiness.lease_until<=NEW.created_at+interval '5 minutes'
+       ) OR
+       EXISTS (
+           SELECT 1 FROM public.helm_protected_payload_intents AS held
+           WHERE held.platform_binding_id=candidate.platform_binding_id
+             AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at
+       ) OR
+       EXISTS (
+           SELECT 1 FROM public.helm_protected_application_intents AS held
+           WHERE held.platform_binding_id=candidate.platform_binding_id
+             AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at
+       ) OR
+       EXISTS (
+           SELECT 1 FROM public.helm_application_cascade_preflights AS held
+           WHERE held.platform_binding_id=candidate.platform_binding_id AND held.id<>candidate.id
+             AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at
+       ) THEN
+        RAISE EXCEPTION 'cascade adoption receipt lacks exact recoverable authority' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_exact_gate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_exact_gate() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NEW.action='delete' AND (
+        TG_OP='INSERT' OR (OLD.lease_epoch=0 AND NEW.lease_epoch=1)
+    ) AND NOT public.helm_application_cascade_is_exact(
+        NEW.id,NEW.publisher_config_digest,pg_catalog.clock_timestamp()) THEN
+        RAISE EXCEPTION 'delete cascade observation is absent or stale' USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_gate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_gate() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='UPDATE' AND
+       ROW(NEW.cascade_required,NEW.cascade_receipt_id,NEW.cascade_contract)
+       IS DISTINCT FROM
+       ROW(OLD.cascade_required,OLD.cascade_receipt_id,OLD.cascade_contract) THEN
+        RAISE EXCEPTION 'cascade delete authority is immutable' USING ERRCODE='23514';
+    END IF;
+    IF NEW.action='publish' THEN
+        IF NEW.cascade_required OR NEW.cascade_receipt_id IS NOT NULL OR NEW.cascade_contract<>'' THEN
+            RAISE EXCEPTION 'publish cannot carry cascade delete authority' USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF NOT NEW.cascade_required OR NEW.cascade_receipt_id IS NULL OR
+       NEW.cascade_contract<>'helm-application-cascade-preflight.v1' OR
+       NOT EXISTS (
+           SELECT 1
+           FROM public.helm_application_cascade_preflights AS preflight
+           WHERE preflight.id=NEW.cascade_receipt_id
+             AND preflight.release_revision_id=NEW.release_revision_id
+             AND preflight.payload_intent_id=NEW.payload_intent_id
+             AND preflight.release_generation=NEW.release_generation
+             AND preflight.project_id=NEW.project_id
+             AND preflight.environment_id=NEW.environment_id
+             AND preflight.application_id=NEW.application_id
+             AND preflight.platform_binding_id=NEW.platform_binding_id
+             AND preflight.environment_binding_id=NEW.environment_binding_id
+             AND preflight.cluster_id=NEW.cluster_id
+             AND preflight.platform_target_ref=NEW.platform_target_ref
+             AND preflight.application_path=NEW.application_path
+             AND NEW.expected_etag='"'||preflight.adopted_content_digest||'"'
+             AND preflight.state='verified'
+       ) THEN
+        RAISE EXCEPTION 'delete lacks stable cascade preflight authority' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_observation_job(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_observation_job() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    activation public.helm_application_cascade_observer_activations%ROWTYPE;
+BEGIN
+    IF TG_OP='DELETE' THEN
+        RAISE EXCEPTION 'cascade observation jobs are durable' USING ERRCODE='23514';
+    END IF;
+    PERFORM 1
+    FROM public.helm_application_cascade_preflights AS preflight
+    WHERE preflight.id=NEW.cascade_preflight_id
+      AND preflight.platform_binding_id=NEW.platform_binding_id
+    FOR UPDATE;
+    IF NOT FOUND OR NOT public.helm_application_cascade_preflight_is_fresh(NEW.cascade_preflight_id) OR
+       NOT EXISTS (
+           SELECT 1 FROM public.helm_application_cascade_preflights AS preflight
+           WHERE preflight.id=NEW.cascade_preflight_id AND preflight.state='verified'
+             AND preflight.verified_path_digest=preflight.adopted_content_digest
+       ) THEN
+        RAISE EXCEPTION 'cascade observation job lacks current verified preflight' USING ERRCODE='23514';
+    END IF;
+    SELECT value.* INTO activation
+    FROM public.helm_application_cascade_observer_activations AS value
+    WHERE value.platform_binding_id=NEW.platform_binding_id
+      AND value.activation_epoch=NEW.activation_epoch;
+    IF NOT FOUND OR NEW.publisher_contract<>activation.publisher_contract OR
+       NEW.publisher_policy_version<>activation.publisher_policy_version OR
+       NEW.publisher_config_digest<>activation.publisher_config_digest THEN
+        RAISE EXCEPTION 'cascade observation job lacks exact observer activation'
+            USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='INSERT' THEN
+        IF NEW.state<>'pending' OR NEW.next_attempt_at<>NEW.created_at OR
+           NEW.updated_at<>NEW.created_at OR NEW.attempts<>0 OR
+           NEW.consecutive_failures<>0 OR NEW.last_failure_code<>'' OR
+           NEW.lease_owner IS NOT NULL OR NEW.worker_epoch IS NOT NULL OR NEW.lease_epoch<>0 OR
+           NEW.lease_until IS NOT NULL OR NEW.completed_at IS NOT NULL OR
+           NEW.superseded_at IS NOT NULL OR
+           NEW.created_at>db_now+interval '30 seconds' OR NEW.created_at<db_now-interval '30 seconds' THEN
+            RAISE EXCEPTION 'cascade observation job must start pristine' USING ERRCODE='23514';
+        END IF;
+        IF activation.activation_epoch<>(
+               SELECT MAX(current.activation_epoch)
+               FROM public.helm_application_cascade_observer_activations AS current
+               WHERE current.platform_binding_id=NEW.platform_binding_id) OR
+           NOT public.helm_application_cascade_active_observer_is_exact(
+               activation.platform_binding_id,activation.publisher_worker_id,
+               activation.publisher_worker_epoch,activation.publisher_contract,
+               activation.publisher_policy_version,activation.publisher_config_digest,
+               activation.argo_worker_id,activation.argo_worker_epoch,
+               activation.argo_contract,activation.argo_config_digest,db_now) THEN
+            RAISE EXCEPTION 'cascade observation job activation is not current'
+                USING ERRCODE='23514';
+        END IF;
+        UPDATE public.helm_application_cascade_observation_jobs AS older
+           SET state='superseded',lease_owner=NULL,worker_epoch=NULL,lease_until=NULL,
+               consecutive_failures=GREATEST(older.consecutive_failures,1),
+               last_failure_code='observer-activation-superseded',
+               completed_at=COALESCE(older.completed_at,db_now),superseded_at=db_now,
+               updated_at=db_now
+         WHERE older.cascade_preflight_id=NEW.cascade_preflight_id
+           AND older.activation_epoch<NEW.activation_epoch
+           AND older.state<>'superseded';
+    ELSE
+        IF ROW(NEW.cascade_preflight_id,NEW.platform_binding_id,NEW.activation_epoch,
+               NEW.publisher_config_digest,NEW.publisher_contract,
+               NEW.publisher_policy_version,NEW.created_at)
+           IS DISTINCT FROM
+           ROW(OLD.cascade_preflight_id,OLD.platform_binding_id,OLD.activation_epoch,
+               OLD.publisher_config_digest,OLD.publisher_contract,
+               OLD.publisher_policy_version,OLD.created_at) OR
+           OLD.state='superseded' OR NEW.updated_at<OLD.updated_at OR
+           NEW.updated_at>db_now+interval '30 seconds' THEN
+            RAISE EXCEPTION 'cascade observation job transition invalid' USING ERRCODE='23514';
+        END IF;
+        IF NEW.state='superseded' THEN
+            IF pg_catalog.pg_trigger_depth()<=1 OR NEW.activation_epoch>=
+                   (SELECT MAX(current.activation_epoch)
+                    FROM public.helm_application_cascade_observer_activations AS current
+                    WHERE current.platform_binding_id=NEW.platform_binding_id) OR
+               NEW.attempts<>OLD.attempts OR NEW.lease_epoch<>OLD.lease_epoch OR
+               NEW.superseded_at IS NULL OR NEW.superseded_at<>NEW.updated_at OR
+               NEW.lease_owner IS NOT NULL OR NEW.worker_epoch IS NOT NULL OR
+               NEW.lease_until IS NOT NULL OR NEW.completed_at IS NULL OR
+               NEW.last_failure_code<>'observer-activation-superseded' OR
+               NEW.consecutive_failures<>GREATEST(OLD.consecutive_failures,1) THEN
+                RAISE EXCEPTION 'cascade observer activation supersede is not internal and exact'
+                    USING ERRCODE='23514';
+            END IF;
+            RETURN NEW;
+        END IF;
+        IF activation.activation_epoch<>(
+               SELECT MAX(current.activation_epoch)
+               FROM public.helm_application_cascade_observer_activations AS current
+               WHERE current.platform_binding_id=NEW.platform_binding_id) OR
+           NOT public.helm_application_cascade_active_observer_is_exact(
+               activation.platform_binding_id,activation.publisher_worker_id,
+               activation.publisher_worker_epoch,activation.publisher_contract,
+               activation.publisher_policy_version,activation.publisher_config_digest,
+               activation.argo_worker_id,activation.argo_worker_epoch,
+               activation.argo_contract,activation.argo_config_digest,db_now) THEN
+            RAISE EXCEPTION 'cascade observation job lost active observer authority'
+                USING ERRCODE='23514';
+        END IF;
+        IF OLD.state='pending' AND NEW.state='claimed' THEN
+            IF NEW.attempts<>OLD.attempts+1 OR NEW.lease_epoch<>OLD.lease_epoch+1 OR
+               NEW.lease_owner<>activation.publisher_worker_id OR
+               NEW.worker_epoch<>activation.publisher_worker_epoch OR
+               NEW.lease_until<=NEW.updated_at OR
+               NEW.lease_until>NEW.updated_at+interval '5 minutes' OR
+               NEW.consecutive_failures<>OLD.consecutive_failures OR
+               NEW.last_failure_code<>OLD.last_failure_code OR NEW.completed_at IS NOT NULL THEN
+                RAISE EXCEPTION 'cascade observation initial claim is not exact' USING ERRCODE='23514';
+            END IF;
+        ELSIF OLD.state='claimed' AND NEW.state='claimed' THEN
+            IF OLD.lease_until>NEW.updated_at OR NEW.attempts<>OLD.attempts+1 OR
+               NEW.lease_epoch<>OLD.lease_epoch+1 OR
+               NEW.lease_owner<>activation.publisher_worker_id OR
+               NEW.worker_epoch<>activation.publisher_worker_epoch OR
+               NEW.lease_until<=NEW.updated_at OR
+               NEW.lease_until>NEW.updated_at+interval '5 minutes' OR
+               NEW.consecutive_failures<>OLD.consecutive_failures OR
+               NEW.last_failure_code<>OLD.last_failure_code OR NEW.completed_at IS NOT NULL THEN
+                RAISE EXCEPTION 'cascade observation recovery claim is not exact' USING ERRCODE='23514';
+            END IF;
+        ELSIF OLD.state='claimed' AND NEW.state IN ('pending','failed') THEN
+            IF NEW.attempts<>OLD.attempts OR NEW.lease_epoch<>OLD.lease_epoch OR
+               NEW.consecutive_failures<>OLD.consecutive_failures+1 OR
+               NEW.last_failure_code='' OR NEW.lease_owner IS NOT NULL OR
+               NEW.worker_epoch IS NOT NULL OR NEW.lease_until IS NOT NULL OR
+               ((NEW.state='pending')<>(NEW.completed_at IS NULL)) THEN
+                RAISE EXCEPTION 'cascade observation retry is not exact' USING ERRCODE='23514';
+            END IF;
+        ELSIF OLD.state='claimed' AND NEW.state='verified' THEN
+            IF NEW.attempts<>OLD.attempts OR NEW.lease_epoch<>OLD.lease_epoch OR
+               NEW.consecutive_failures<>0 OR NEW.last_failure_code<>'' OR
+               NEW.lease_owner IS NOT NULL OR NEW.worker_epoch IS NOT NULL OR
+               NEW.lease_until IS NOT NULL OR NEW.completed_at IS NULL THEN
+                RAISE EXCEPTION 'cascade observation completion is not exact' USING ERRCODE='23514';
+            END IF;
+        ELSIF OLD.state='verified' AND NEW.state='pending' THEN
+            IF NEW.attempts<>0 OR NEW.lease_epoch<>OLD.lease_epoch OR
+               NEW.consecutive_failures<>0 OR NEW.last_failure_code<>'' OR
+               NEW.lease_owner IS NOT NULL OR NEW.worker_epoch IS NOT NULL OR
+               NEW.lease_until IS NOT NULL OR NEW.completed_at IS NOT NULL OR
+               public.helm_application_cascade_observation_is_exact(
+                   NEW.cascade_preflight_id,NEW.publisher_config_digest,NEW.updated_at) THEN
+                RAISE EXCEPTION 'cascade observation refresh is not exact' USING ERRCODE='23514';
+            END IF;
+        ELSE
+            RAISE EXCEPTION 'cascade observation job transition is not permitted' USING ERRCODE='23514';
+        END IF;
+    END IF;
+    IF NOT (
+        (NEW.state='pending' AND NEW.lease_owner IS NULL AND NEW.worker_epoch IS NULL AND
+         NEW.completed_at IS NULL) OR
+        (NEW.state='claimed' AND NEW.lease_owner IS NOT NULL AND NEW.worker_epoch>0 AND
+         NEW.lease_epoch>0 AND NEW.attempts>0 AND NEW.lease_until>NEW.updated_at AND
+         NEW.lease_until<=NEW.updated_at+interval '5 minutes' AND NEW.completed_at IS NULL) OR
+        (NEW.state IN ('verified','failed','superseded') AND NEW.lease_owner IS NULL AND
+         NEW.worker_epoch IS NULL AND NEW.completed_at IS NOT NULL)
+    ) THEN
+        RAISE EXCEPTION 'cascade observation job runtime shape invalid' USING ERRCODE='23514';
+    END IF;
+    IF NEW.state='claimed' AND public.helm_application_cascade_observation_is_exact(
+           NEW.cascade_preflight_id,NEW.publisher_config_digest,NEW.updated_at) THEN
+            RAISE EXCEPTION 'cascade observation claim lacks current publisher authority' USING ERRCODE='23514';
+    END IF;
+    IF TG_OP='UPDATE' AND OLD.state='claimed' AND NEW.state='verified' AND
+       NOT EXISTS (
+           SELECT 1 FROM public.helm_application_cascade_receipts AS receipt
+           WHERE receipt.cascade_preflight_id=NEW.cascade_preflight_id
+             AND receipt.publisher_config_digest=NEW.publisher_config_digest
+             AND receipt.observer_activation_epoch=NEW.activation_epoch
+             AND receipt.publisher_contract=NEW.publisher_contract
+             AND receipt.publisher_policy_version=NEW.publisher_policy_version
+             AND receipt.worker_id=OLD.lease_owner
+             AND receipt.worker_epoch=OLD.worker_epoch
+             AND receipt.observation_lease_epoch=OLD.lease_epoch
+             AND receipt.observed_at=NEW.completed_at
+       ) THEN
+        RAISE EXCEPTION 'cascade observation completion lacks exact receipt' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_observer_activation(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_observer_activation() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    publisher_readiness public.runtime_readiness%ROWTYPE;
+    argo_readiness public.runtime_readiness%ROWTYPE;
+    current_activation public.helm_application_cascade_observer_activations%ROWTYPE;
+    publisher_same boolean := false;
+    publisher_advanced boolean := false;
+    argo_same boolean := false;
+    argo_advanced boolean := false;
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'cascade observer activations are immutable' USING ERRCODE='23514';
+    END IF;
+    PERFORM 1 FROM public.git_repository_bindings AS binding
+    WHERE binding.id=NEW.platform_binding_id AND binding.kind='platform'
+      AND binding.credential_mode='github-app'
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade observer activation lacks protected platform binding'
+            USING ERRCODE='23514';
+    END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997));
+
+    SELECT readiness.* INTO publisher_readiness
+    FROM public.runtime_readiness AS readiness
+    WHERE readiness.runtime_kind='helm-protected-publisher' AND readiness.scope_key='global'
+      AND readiness.worker_id=NEW.publisher_worker_id
+      AND readiness.worker_epoch=NEW.publisher_worker_epoch
+      AND readiness.contract_version=NEW.publisher_contract
+      AND readiness.config_digest=NEW.publisher_config_digest
+      AND readiness.identity=pg_catalog.jsonb_build_object(
+          'policyVersion',NEW.publisher_policy_version)
+      AND readiness.updated_at=readiness.observed_at
+      AND readiness.observed_at<=db_now AND readiness.observed_at>=db_now-interval '5 minutes'
+      AND readiness.lease_until>db_now
+      AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+      AND readiness.lease_until<=db_now+interval '5 minutes'
+    FOR KEY SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade observer activation lacks current publisher readiness'
+            USING ERRCODE='23514';
+    END IF;
+
+    SELECT readiness.* INTO argo_readiness
+    FROM public.runtime_readiness AS readiness
+    WHERE readiness.runtime_kind='argo-desired-state' AND readiness.scope_key='global'
+      AND readiness.platform_binding_id=NEW.platform_binding_id
+      AND readiness.worker_id=NEW.argo_worker_id
+      AND readiness.worker_epoch=NEW.argo_worker_epoch
+      AND readiness.contract_version=NEW.argo_contract
+      AND readiness.config_digest=NEW.argo_config_digest
+      AND readiness.updated_at=readiness.observed_at
+      AND readiness.observed_at<=db_now AND readiness.observed_at>=db_now-interval '5 minutes'
+      AND readiness.lease_until>db_now
+      AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+      AND readiness.lease_until<=db_now+interval '5 minutes'
+    FOR KEY SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade observer activation lacks current Argo readiness'
+            USING ERRCODE='23514';
+    END IF;
+    IF EXISTS (
+           SELECT 1 FROM public.helm_protected_payload_intents AS intent
+           WHERE intent.platform_binding_id=NEW.platform_binding_id
+             AND intent.lease_owner IS NOT NULL AND intent.lease_until>db_now
+       ) OR EXISTS (
+           SELECT 1 FROM public.helm_protected_application_intents AS intent
+           WHERE intent.platform_binding_id=NEW.platform_binding_id
+             AND intent.lease_owner IS NOT NULL AND intent.lease_until>db_now
+       ) OR EXISTS (
+           SELECT 1 FROM public.helm_application_cascade_preflights AS intent
+           WHERE intent.platform_binding_id=NEW.platform_binding_id
+             AND intent.lease_owner IS NOT NULL AND intent.lease_until>db_now
+       ) THEN
+        RAISE EXCEPTION 'cascade observer activation cannot replace a live protected Git lease'
+            USING ERRCODE='23514';
+    END IF;
+
+    SELECT activation.* INTO current_activation
+    FROM public.helm_application_cascade_observer_activations AS activation
+    WHERE activation.platform_binding_id=NEW.platform_binding_id
+    ORDER BY activation.activation_epoch DESC
+    LIMIT 1
+    FOR UPDATE;
+    IF FOUND THEN
+        publisher_same :=
+            NEW.publisher_worker_id=current_activation.publisher_worker_id AND
+            NEW.publisher_worker_epoch=current_activation.publisher_worker_epoch AND
+            NEW.publisher_contract=current_activation.publisher_contract AND
+            NEW.publisher_policy_version=current_activation.publisher_policy_version AND
+            NEW.publisher_config_digest=current_activation.publisher_config_digest AND
+            publisher_readiness.started_at=current_activation.publisher_started_at;
+        publisher_advanced := (
+            NEW.publisher_worker_id=current_activation.publisher_worker_id AND
+            NEW.publisher_worker_epoch>current_activation.publisher_worker_epoch AND
+            NEW.publisher_contract=current_activation.publisher_contract AND
+            NEW.publisher_policy_version=current_activation.publisher_policy_version AND
+            NEW.publisher_config_digest=current_activation.publisher_config_digest AND
+            publisher_readiness.started_at=current_activation.publisher_started_at
+        ) OR (
+            publisher_readiness.started_at>current_activation.publisher_started_at AND
+            (NEW.publisher_worker_id<>current_activation.publisher_worker_id OR
+             NEW.publisher_worker_epoch>current_activation.publisher_worker_epoch)
+        );
+
+        argo_same :=
+            NEW.argo_worker_id=current_activation.argo_worker_id AND
+            NEW.argo_worker_epoch=current_activation.argo_worker_epoch AND
+            NEW.argo_contract=current_activation.argo_contract AND
+            NEW.argo_config_digest=current_activation.argo_config_digest AND
+            argo_readiness.identity=current_activation.argo_identity AND
+            argo_readiness.started_at=current_activation.argo_started_at;
+        argo_advanced := (
+            NEW.argo_worker_id=current_activation.argo_worker_id AND
+            NEW.argo_worker_epoch>current_activation.argo_worker_epoch AND
+            NEW.argo_contract=current_activation.argo_contract AND
+            NEW.argo_config_digest=current_activation.argo_config_digest AND
+            argo_readiness.identity=current_activation.argo_identity AND
+            argo_readiness.started_at=current_activation.argo_started_at
+        ) OR (
+            argo_readiness.started_at>current_activation.argo_started_at AND
+            (NEW.argo_worker_id<>current_activation.argo_worker_id OR
+             NEW.argo_worker_epoch>current_activation.argo_worker_epoch)
+        );
+
+        IF NOT (publisher_same OR publisher_advanced) OR
+           NOT (argo_same OR argo_advanced) OR
+           NOT (publisher_advanced OR argo_advanced) THEN
+            RAISE EXCEPTION 'cascade observer activation authority did not advance monotonically'
+                USING ERRCODE='23514';
+        END IF;
+        NEW.activation_epoch := current_activation.activation_epoch+1;
+    ELSE
+        -- Bootstrap is deterministic across every currently-live publisher.
+        -- A delayed old process cannot win merely because it inserts first.
+        IF EXISTS (
+            SELECT 1 FROM public.runtime_readiness AS newer
+            WHERE newer.runtime_kind='helm-protected-publisher' AND newer.scope_key='global'
+              AND newer.contract_version='helm-protected-publisher.v1'
+              AND newer.identity=pg_catalog.jsonb_build_object(
+                  'policyVersion','helm-protected-git.v1')
+              AND newer.updated_at=newer.observed_at
+              AND newer.observed_at<=db_now AND newer.observed_at>=db_now-interval '5 minutes'
+              AND newer.lease_until>db_now
+              AND newer.lease_until<=newer.observed_at+interval '5 minutes'
+              AND newer.lease_until<=db_now+interval '5 minutes'
+              AND (newer.started_at,newer.worker_id)>
+                  (publisher_readiness.started_at,publisher_readiness.worker_id)
+        ) THEN
+            RAISE EXCEPTION 'cascade observer activation is not newest live publisher bootstrap'
+                USING ERRCODE='23514';
+        END IF;
+        NEW.activation_epoch := 1;
+    END IF;
+
+    NEW.publisher_started_at := publisher_readiness.started_at;
+    NEW.publisher_readiness_observed_at := publisher_readiness.observed_at;
+    NEW.publisher_readiness_lease_until := publisher_readiness.lease_until;
+    NEW.argo_identity := argo_readiness.identity;
+    NEW.argo_started_at := argo_readiness.started_at;
+    NEW.argo_readiness_observed_at := argo_readiness.observed_at;
+    NEW.argo_readiness_lease_until := argo_readiness.lease_until;
+    NEW.activated_at := db_now;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_preflight(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_preflight() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    source_text text;
+    adopted_text text;
+    namespace_line text;
+    finalizer_block text := E'    finalizers:\n        - resources-finalizer.argocd.argoproj.io\n';
+    namespace_position integer;
+    replacement public.helm_application_cascade_preflights%ROWTYPE;
+BEGIN
+    IF TG_OP='DELETE' THEN
+        RAISE EXCEPTION 'cascade preflights are immutable history' USING ERRCODE='23514';
+    END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997));
+
+    IF TG_OP='UPDATE' THEN
+        IF OLD.state IN ('verified','failed','superseded') THEN
+            RAISE EXCEPTION 'terminal cascade preflight is immutable' USING ERRCODE='23514';
+        END IF;
+        IF ROW(NEW.id,NEW.delete_intent_id,NEW.release_revision_id,NEW.payload_intent_id,
+               NEW.base_application_intent_id,NEW.release_generation,NEW.payload_revision,
+               NEW.project_id,NEW.environment_id,NEW.application_id,NEW.platform_binding_id,
+               NEW.environment_binding_id,NEW.cluster_id,NEW.platform_target_ref,
+               NEW.environment_target_ref,NEW.environment_revision,NEW.environment_generation,
+               NEW.catalog_digest,NEW.planned_base_revision,NEW.argo_namespace,
+               NEW.application_path,NEW.source_content,NEW.source_content_digest,
+               NEW.adopted_content,NEW.adopted_content_digest,NEW.operation,NEW.precondition,
+               NEW.expected_etag,NEW.intent_digest,NEW.commit_trailer,NEW.contract,
+               NEW.publisher_contract,NEW.publisher_policy_version,
+               NEW.original_publisher_config_digest,NEW.created_at)
+           IS DISTINCT FROM
+           ROW(OLD.id,OLD.delete_intent_id,OLD.release_revision_id,OLD.payload_intent_id,
+               OLD.base_application_intent_id,OLD.release_generation,OLD.payload_revision,
+               OLD.project_id,OLD.environment_id,OLD.application_id,OLD.platform_binding_id,
+               OLD.environment_binding_id,OLD.cluster_id,OLD.platform_target_ref,
+               OLD.environment_target_ref,OLD.environment_revision,OLD.environment_generation,
+               OLD.catalog_digest,OLD.planned_base_revision,OLD.argo_namespace,
+               OLD.application_path,OLD.source_content,OLD.source_content_digest,
+               OLD.adopted_content,OLD.adopted_content_digest,OLD.operation,OLD.precondition,
+               OLD.expected_etag,OLD.intent_digest,OLD.commit_trailer,OLD.contract,
+               OLD.publisher_contract,OLD.publisher_policy_version,
+               OLD.original_publisher_config_digest,OLD.created_at) THEN
+            RAISE EXCEPTION 'cascade preflight immutable identity changed' USING ERRCODE='23514';
+        END IF;
+        IF NEW.updated_at<OLD.updated_at OR NEW.updated_at>db_now+interval '30 seconds' OR
+           NEW.next_attempt_at<NEW.created_at OR NEW.attempts<OLD.attempts OR
+           NEW.attempts>OLD.attempts+1 OR NEW.lease_epoch<OLD.lease_epoch OR
+           NEW.lease_epoch>OLD.lease_epoch+1 OR
+           NEW.consecutive_failures<OLD.consecutive_failures OR
+           NEW.consecutive_failures>OLD.consecutive_failures+1 OR
+           NEW.prerequisite_epoch<>OLD.prerequisite_epoch+1 OR
+           (NEW.lease_epoch=OLD.lease_epoch+1 AND
+            NEW.attempts<>LEAST(OLD.attempts+1,30)) OR
+           (NEW.lease_epoch=OLD.lease_epoch AND NEW.attempts<>OLD.attempts) THEN
+            RAISE EXCEPTION 'cascade preflight fencing or time regressed' USING ERRCODE='23514';
+        END IF;
+        IF OLD.committed_revision<>'' AND
+           ROW(NEW.committed_revision,NEW.committed_parent_revision,NEW.committed_at)
+           IS DISTINCT FROM ROW(OLD.committed_revision,OLD.committed_parent_revision,OLD.committed_at) THEN
+            RAISE EXCEPTION 'cascade preflight commit receipt is immutable' USING ERRCODE='23514';
+        END IF;
+        IF OLD.verified_at IS NOT NULL AND
+           ROW(NEW.verified_at,NEW.verified_path_digest,NEW.provider_request)
+           IS DISTINCT FROM ROW(OLD.verified_at,OLD.verified_path_digest,OLD.provider_request) THEN
+            RAISE EXCEPTION 'cascade preflight verification is immutable' USING ERRCODE='23514';
+        END IF;
+        IF NOT (
+            (OLD.state='pending' AND NEW.state IN ('pending','claimed','failed','superseded')) OR
+            (OLD.state='claimed' AND NEW.state IN ('pending','claimed','git-committed','verified','failed','superseded')) OR
+            (OLD.state='git-committed' AND NEW.state IN ('git-committed','verified'))
+        ) THEN
+            RAISE EXCEPTION 'cascade preflight state transition invalid' USING ERRCODE='23514';
+        END IF;
+        IF NEW.publisher_config_digest=OLD.publisher_config_digest THEN
+            IF NEW.publisher_adoption_epoch<>OLD.publisher_adoption_epoch THEN
+                RAISE EXCEPTION 'cascade publisher epoch changed without authority transfer' USING ERRCODE='23514';
+            END IF;
+        ELSIF NEW.publisher_adoption_epoch<>OLD.publisher_adoption_epoch+1 OR
+              NOT EXISTS (
+                  SELECT 1
+                  FROM public.helm_application_cascade_adoption_receipts AS receipt
+                  WHERE receipt.cascade_preflight_id=OLD.id
+                    AND receipt.adoption_epoch=NEW.publisher_adoption_epoch
+                    AND receipt.original_config_digest=OLD.original_publisher_config_digest
+                    AND receipt.previous_config_digest=OLD.publisher_config_digest
+                    AND receipt.adopted_config_digest=NEW.publisher_config_digest
+                    AND receipt.previous_lease_epoch=OLD.lease_epoch
+                    AND receipt.adopted_lease_epoch=NEW.lease_epoch
+                    AND receipt.adopted_by_worker=NEW.lease_owner
+                    AND receipt.created_at=NEW.updated_at
+              ) THEN
+            RAISE EXCEPTION 'cascade publisher adoption lacks exact receipt' USING ERRCODE='23514';
+        END IF;
+        IF OLD.lease_owner IS NOT NULL AND NEW.lease_owner IS NOT NULL AND
+           NEW.lease_epoch=OLD.lease_epoch AND NEW.lease_owner<>OLD.lease_owner THEN
+            RAISE EXCEPTION 'cascade lease owner changed without new epoch' USING ERRCODE='23514';
+        END IF;
+    ELSE
+        IF NEW.state<>'pending' OR NEW.next_attempt_at<>NEW.created_at OR
+           NEW.updated_at<>NEW.created_at OR NEW.attempts<>0 OR
+           NEW.consecutive_failures<>0 OR NEW.last_failure_code<>'' OR
+           NEW.lease_owner IS NOT NULL OR NEW.lease_epoch<>0 OR NEW.lease_until IS NOT NULL OR
+           NEW.write_base_revision<>'' OR NEW.write_base_observed_at IS NOT NULL OR
+           NEW.committed_revision<>'' OR NEW.committed_parent_revision<>'' OR
+           NEW.committed_at IS NOT NULL OR NEW.verified_at IS NOT NULL OR
+           NEW.verified_path_digest<>'' OR NEW.provider_request<>'' OR NEW.completed_at IS NOT NULL OR
+           NEW.publisher_adoption_epoch<>0 OR NEW.prerequisite_epoch<>0 OR
+           NEW.publisher_config_digest<>NEW.original_publisher_config_digest OR
+           NEW.created_at>db_now+interval '30 seconds' OR NEW.created_at<db_now-interval '30 seconds' THEN
+            RAISE EXCEPTION 'cascade preflight must start pristine' USING ERRCODE='23514';
+        END IF;
+
+        SELECT prior.* INTO replacement
+        FROM public.helm_application_cascade_preflights AS prior
+        WHERE prior.payload_intent_id=NEW.payload_intent_id
+        ORDER BY prior.created_at DESC,prior.id DESC
+        LIMIT 1
+        FOR KEY SHARE;
+        IF FOUND AND NOT (
+            replacement.state='superseded' AND
+            replacement.last_failure_code='cascade-projection-superseded' AND
+            replacement.lease_epoch=0 AND replacement.attempts=0 AND
+            replacement.lease_owner IS NULL AND replacement.lease_until IS NULL AND
+            replacement.write_base_revision='' AND replacement.write_base_observed_at IS NULL AND
+            replacement.committed_revision='' AND replacement.committed_parent_revision='' AND
+            replacement.committed_at IS NULL AND replacement.verified_at IS NULL AND
+            replacement.verified_path_digest='' AND replacement.provider_request='' AND
+            replacement.completed_at IS NOT NULL
+        ) THEN
+            RAISE EXCEPTION 'cascade preflight replacement is not pristine' USING ERRCODE='23514';
+        END IF;
+
+        IF NOT public.helm_application_cascade_preflight_is_fresh(NEW.id) THEN
+            -- INSERT row is not yet visible through the SQL helper.  Validate its
+            -- exact durable tuple directly without environment projection state.
+            IF NOT EXISTS (
+                SELECT 1
+                FROM public.helm_release_heads AS head
+                JOIN public.helm_release_revisions AS release ON release.id=head.revision_id
+                JOIN public.helm_protected_payload_intents AS payload ON payload.id=NEW.payload_intent_id
+                JOIN public.helm_protected_application_intents AS base ON base.id=NEW.base_application_intent_id
+                JOIN public.git_repository_bindings AS platform ON platform.id=NEW.platform_binding_id
+                WHERE head.environment_id=NEW.environment_id AND head.application_id=NEW.application_id
+                  AND head.revision_id=NEW.release_revision_id AND head.generation=NEW.release_generation
+                  AND release.id=NEW.release_revision_id AND release.generation=NEW.release_generation
+                  AND release.project_id=NEW.project_id AND release.environment_id=NEW.environment_id
+                  AND release.application_id=NEW.application_id AND release.action='disable'
+                  AND NOT release.desired_enabled AND release.base_intent_id=NEW.base_application_intent_id
+                  AND payload.release_revision_id=NEW.release_revision_id
+                  AND payload.release_generation=NEW.release_generation
+                  AND payload.project_id=NEW.project_id AND payload.environment_id=NEW.environment_id
+                  AND payload.application_id=NEW.application_id
+                  AND payload.platform_binding_id=NEW.platform_binding_id
+                  AND payload.environment_binding_id=NEW.environment_binding_id
+                  AND payload.cluster_id=NEW.cluster_id
+                  AND payload.platform_target_ref=NEW.platform_target_ref
+                  AND payload.environment_target_ref=NEW.environment_target_ref
+                  AND payload.environment_revision=NEW.environment_revision
+                  AND payload.environment_generation=NEW.environment_generation
+                  AND payload.catalog_digest=NEW.catalog_digest
+                  AND payload.state='verified' AND payload.action='disable-receipt'
+                  AND payload.committed_revision=NEW.payload_revision
+                  AND base.state='verified' AND base.action='publish'
+                  AND base.project_id=NEW.project_id AND base.environment_id=NEW.environment_id
+                  AND base.application_id=NEW.application_id
+                  AND base.platform_binding_id=NEW.platform_binding_id AND base.cluster_id=NEW.cluster_id
+                  AND base.application_path=NEW.application_path
+                  AND base.content=NEW.source_content AND base.content_digest=NEW.source_content_digest
+                  AND platform.kind='platform' AND platform.credential_mode='github-app'
+                  AND platform.cluster_id=NEW.cluster_id AND platform.target_ref=NEW.platform_target_ref
+                  AND platform.path_prefix='clusters/'||NEW.cluster_id::text
+                  AND platform.state IN ('ready','indexing')
+                  AND platform.target_head_revision=NEW.planned_base_revision
+                FOR KEY SHARE OF release,payload,base,platform
+            ) THEN
+                RAISE EXCEPTION 'cascade preflight authority is stale' USING ERRCODE='23514';
+            END IF;
+        END IF;
+
+        source_text := pg_catalog.convert_from(NEW.source_content,'UTF8');
+        adopted_text := pg_catalog.convert_from(NEW.adopted_content,'UTF8');
+        namespace_line := '    namespace: '||NEW.argo_namespace||E'\n';
+        namespace_position := pg_catalog.strpos(source_text,namespace_line);
+        IF NEW.expected_etag<>'"'||NEW.source_content_digest||'"' OR
+           NEW.commit_trailer<>'Kuberploy-Helm-Cascade-Preflight: '||NEW.id::text OR
+           namespace_position=0 OR
+           pg_catalog.strpos(pg_catalog.substr(source_text,namespace_position+1),namespace_line)>0 THEN
+            RAISE EXCEPTION 'cascade preflight framing is invalid' USING ERRCODE='23514';
+        END IF;
+        IF NEW.operation='observe' THEN
+            IF source_text<>adopted_text OR
+               pg_catalog.strpos(source_text,finalizer_block)=0 OR
+               pg_catalog.strpos(pg_catalog.substr(
+                   source_text,pg_catalog.strpos(source_text,finalizer_block)+1),finalizer_block)>0 THEN
+                RAISE EXCEPTION 'cascade observe lacks sole foreground finalizer' USING ERRCODE='23514';
+            END IF;
+        ELSIF NEW.operation='update' THEN
+            IF pg_catalog.strpos(source_text,E'    finalizers:\n')<>0 OR
+               adopted_text<>pg_catalog.substr(source_text,1,
+                   namespace_position+pg_catalog.length(namespace_line)-1)||finalizer_block||
+                   pg_catalog.substr(source_text,namespace_position+pg_catalog.length(namespace_line)) THEN
+                RAISE EXCEPTION 'cascade update changed more than foreground finalizer' USING ERRCODE='23514';
+            END IF;
+        ELSE
+            RAISE EXCEPTION 'cascade operation is invalid' USING ERRCODE='23514';
+        END IF;
+    END IF;
+
+    IF NEW.attempts=0 AND (
+           NEW.lease_epoch<>0 OR NEW.lease_owner IS NOT NULL OR NEW.write_base_revision<>'' OR
+           NEW.committed_revision<>'' OR NEW.verified_at IS NOT NULL) OR
+       NEW.lease_epoch<NEW.attempts OR
+       (NEW.consecutive_failures>NEW.attempts AND NOT (
+          NEW.state='superseded' AND NEW.attempts=0 AND NEW.lease_epoch=0 AND
+          NEW.consecutive_failures=1 AND
+          NEW.last_failure_code='cascade-projection-superseded')) OR
+       (NEW.consecutive_failures=30 AND NEW.state<>'failed') OR
+       (NEW.write_base_observed_at IS NOT NULL AND NEW.write_base_observed_at>NEW.updated_at) OR
+       (NEW.committed_at IS NOT NULL AND NEW.committed_at<NEW.write_base_observed_at) OR
+       (NEW.verified_at IS NOT NULL AND NEW.committed_at IS NOT NULL AND NEW.verified_at<NEW.committed_at) THEN
+        RAISE EXCEPTION 'cascade runtime counters or time invalid' USING ERRCODE='23514';
+    END IF;
+    IF NOT (
+        (NEW.state='pending' AND NEW.lease_owner IS NULL AND NEW.committed_revision='' AND
+         NEW.verified_at IS NULL AND NEW.completed_at IS NULL) OR
+        (NEW.state='claimed' AND NEW.lease_owner IS NOT NULL AND NEW.lease_until>NEW.updated_at AND
+         NEW.attempts>0 AND NEW.committed_revision='' AND NEW.verified_at IS NULL AND NEW.completed_at IS NULL) OR
+        (NEW.state='git-committed' AND NEW.operation='update' AND NEW.lease_owner IS NOT NULL AND
+         NEW.lease_until>NEW.updated_at AND NEW.write_base_revision<>'' AND
+         NEW.committed_revision<>'' AND NEW.committed_parent_revision=NEW.write_base_revision AND
+         NEW.committed_at IS NOT NULL AND NEW.verified_at IS NULL AND NEW.completed_at IS NULL) OR
+        (NEW.state='verified' AND NEW.lease_owner IS NULL AND NEW.write_base_revision<>'' AND
+         NEW.verified_at IS NOT NULL AND NEW.verified_path_digest=NEW.adopted_content_digest AND
+         NEW.provider_request<>'' AND NEW.completed_at=NEW.verified_at AND
+         ((NEW.operation='update' AND NEW.committed_revision<>'' AND
+           NEW.committed_parent_revision=NEW.write_base_revision AND NEW.committed_at IS NOT NULL) OR
+          (NEW.operation='observe' AND NEW.committed_revision='' AND NEW.committed_at IS NULL))) OR
+        (NEW.state IN ('failed','superseded') AND NEW.lease_owner IS NULL AND
+         NEW.committed_revision='' AND NEW.verified_at IS NULL AND NEW.completed_at IS NOT NULL)
+    ) THEN
+        RAISE EXCEPTION 'cascade preflight runtime shape invalid' USING ERRCODE='23514';
+    END IF;
+
+    IF TG_OP='UPDATE' AND NEW.lease_owner IS NOT NULL AND
+       (OLD.lease_owner IS NULL OR OLD.lease_until<=NEW.updated_at OR NEW.lease_epoch>OLD.lease_epoch) THEN
+        IF NEW.lease_until<=NEW.updated_at OR NEW.lease_until>NEW.updated_at+interval '5 minutes' OR
+           NOT EXISTS (
+               SELECT 1 FROM public.runtime_readiness AS readiness
+               WHERE readiness.runtime_kind='helm-protected-publisher'
+                 AND readiness.scope_key='global' AND readiness.worker_id=NEW.lease_owner
+                 AND readiness.contract_version=NEW.publisher_contract
+                 AND readiness.config_digest=NEW.publisher_config_digest
+                 AND readiness.identity=pg_catalog.jsonb_build_object(
+                     'policyVersion',NEW.publisher_policy_version)
+                 AND readiness.updated_at=readiness.observed_at
+                 AND readiness.observed_at<=NEW.updated_at
+                 AND readiness.observed_at>=NEW.updated_at-interval '5 minutes'
+                 AND readiness.lease_until>NEW.updated_at
+                 AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+                 AND readiness.lease_until<=NEW.updated_at+interval '5 minutes'
+           ) OR
+           (OLD.lease_epoch=0 AND NEW.lease_epoch=1 AND
+            NOT public.helm_application_cascade_preflight_is_fresh(NEW.id)) THEN
+            RAISE EXCEPTION 'cascade initial claim lacks current authority' USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_cascade_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_cascade_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    preflight public.helm_application_cascade_preflights%ROWTYPE;
+    activation public.helm_application_cascade_observer_activations%ROWTYPE;
+    expected_epoch bigint;
+    active_activation_epoch bigint;
+    argo_readiness public.runtime_readiness%ROWTYPE;
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'cascade observation receipts are immutable' USING ERRCODE='23514';
+    END IF;
+    SELECT value.* INTO preflight
+    FROM public.helm_application_cascade_preflights AS value
+    WHERE value.id=NEW.cascade_preflight_id
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade receipt preflight is absent' USING ERRCODE='23514';
+    END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(preflight.platform_binding_id::text,704215997));
+    -- Observation authority time is database-owned. Ignore both caller fields;
+    -- the locked preflight serializes an append-only epoch for this cascade.
+    NEW.observed_at := db_now;
+    SELECT COALESCE(MAX(receipt.observation_epoch),0)+1 INTO expected_epoch
+    FROM public.helm_application_cascade_receipts AS receipt
+    WHERE receipt.cascade_preflight_id=preflight.id;
+    NEW.observation_epoch := expected_epoch;
+
+    SELECT job.activation_epoch INTO active_activation_epoch
+    FROM public.helm_application_cascade_observation_jobs AS job
+    WHERE job.cascade_preflight_id=preflight.id
+      AND job.platform_binding_id=preflight.platform_binding_id
+      AND job.publisher_config_digest=NEW.publisher_config_digest
+      AND job.publisher_contract=NEW.publisher_contract
+      AND job.publisher_policy_version=NEW.publisher_policy_version
+      AND job.state='claimed' AND job.lease_owner=NEW.worker_id
+      AND job.worker_epoch=NEW.worker_epoch
+      AND job.lease_epoch=NEW.observation_lease_epoch
+      AND job.superseded_at IS NULL
+      AND job.lease_until>db_now
+    FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade receipt lacks active observer authority' USING ERRCODE='23514';
+    END IF;
+    NEW.observer_activation_epoch := active_activation_epoch;
+    SELECT value.* INTO activation
+    FROM public.helm_application_cascade_observer_activations AS value
+    WHERE value.platform_binding_id=preflight.platform_binding_id
+      AND value.activation_epoch=NEW.observer_activation_epoch;
+    IF NOT FOUND OR activation.activation_epoch<>(
+           SELECT MAX(current.activation_epoch)
+           FROM public.helm_application_cascade_observer_activations AS current
+           WHERE current.platform_binding_id=preflight.platform_binding_id) OR
+       activation.publisher_worker_id<>NEW.worker_id OR
+       activation.publisher_worker_epoch<>NEW.worker_epoch OR
+       activation.publisher_contract<>NEW.publisher_contract OR
+       activation.publisher_policy_version<>NEW.publisher_policy_version OR
+       activation.publisher_config_digest<>NEW.publisher_config_digest OR
+       NOT public.helm_application_cascade_active_observer_is_exact(
+           activation.platform_binding_id,activation.publisher_worker_id,
+           activation.publisher_worker_epoch,activation.publisher_contract,
+           activation.publisher_policy_version,activation.publisher_config_digest,
+           activation.argo_worker_id,activation.argo_worker_epoch,
+           activation.argo_contract,activation.argo_config_digest,db_now) THEN
+        RAISE EXCEPTION 'cascade receipt observer activation is stale' USING ERRCODE='23514';
+    END IF;
+
+    SELECT readiness.* INTO argo_readiness
+    FROM public.runtime_readiness AS readiness
+    WHERE readiness.runtime_kind='argo-desired-state'
+      AND readiness.scope_key='global'
+      AND readiness.platform_binding_id=preflight.platform_binding_id
+      AND readiness.contract_version=activation.argo_contract
+      AND readiness.config_digest=activation.argo_config_digest
+      AND readiness.worker_id=activation.argo_worker_id
+      AND readiness.worker_epoch=activation.argo_worker_epoch
+      AND readiness.identity=activation.argo_identity
+      AND readiness.started_at=activation.argo_started_at
+      AND readiness.updated_at=readiness.observed_at
+      AND readiness.observed_at>=activation.argo_readiness_observed_at
+      AND readiness.lease_until>=activation.argo_readiness_lease_until
+      AND readiness.observed_at<=db_now AND readiness.observed_at>=db_now-interval '5 minutes'
+      AND readiness.lease_until>db_now
+      AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+      AND readiness.lease_until<=db_now+interval '5 minutes'
+    FOR KEY SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'cascade receipt lacks current Argo runtime authority' USING ERRCODE='23514';
+    END IF;
+    NEW.argo_contract := argo_readiness.contract_version;
+    NEW.argo_config_digest := argo_readiness.config_digest;
+    NEW.argo_worker_id := argo_readiness.worker_id;
+    NEW.argo_worker_epoch := argo_readiness.worker_epoch;
+    NEW.argo_started_at := argo_readiness.started_at;
+    NEW.argo_readiness_observed_at := argo_readiness.observed_at;
+    NEW.argo_readiness_lease_until := argo_readiness.lease_until;
+
+    IF preflight.state<>'verified' OR preflight.verified_at IS NULL OR
+       preflight.verified_at>db_now OR preflight.updated_at>db_now OR
+       preflight.verified_path_digest<>preflight.adopted_content_digest OR
+       NOT public.helm_application_cascade_preflight_is_fresh(preflight.id) OR
+       NEW.delete_intent_id<>preflight.delete_intent_id OR
+       NEW.release_revision_id<>preflight.release_revision_id OR
+       NEW.payload_intent_id<>preflight.payload_intent_id OR
+       NEW.base_application_intent_id<>preflight.base_application_intent_id OR
+       NEW.project_id<>preflight.project_id OR NEW.environment_id<>preflight.environment_id OR
+       NEW.application_id<>preflight.application_id OR NEW.cluster_id<>preflight.cluster_id OR
+       NEW.application_path<>preflight.application_path OR
+       NEW.source_content_digest<>preflight.source_content_digest OR
+       NEW.adopted_content_digest<>preflight.adopted_content_digest OR
+       activation.argo_identity->>'clusterId'<>preflight.cluster_id::text OR
+       activation.argo_identity->>'argoNamespace'<>preflight.argo_namespace OR
+       activation.argo_identity->>'rootApplicationName'<>'kuberploy-platform-root' OR
+       NEW.adoption_revision<>(CASE WHEN preflight.operation='update'
+           THEN preflight.committed_revision ELSE preflight.write_base_revision END) OR
+       NEW.adoption_parent_revision<>(CASE WHEN preflight.operation='update'
+           THEN preflight.committed_parent_revision ELSE preflight.write_base_revision END) OR
+       NEW.root_observed_revision<>NEW.provider_head OR NEW.root_sync_status<>'Synced' OR
+       NEW.root_spec_digest IS DISTINCT FROM
+           public.helm_application_cascade_expected_root_spec_digest(preflight.id) OR
+       NEW.child_spec_digest IS DISTINCT FROM
+           public.helm_application_cascade_expected_child_spec_digest(preflight.id) OR
+       NOT EXISTS (
+           SELECT 1 FROM public.git_repository_bindings AS platform
+           WHERE platform.id=preflight.platform_binding_id AND platform.kind='platform'
+             AND platform.credential_mode='github-app' AND platform.cluster_id=preflight.cluster_id
+             AND platform.target_ref=preflight.platform_target_ref
+             AND platform.target_head_revision=NEW.provider_head
+           FOR KEY SHARE
+       ) OR
+       NOT EXISTS (
+           SELECT 1
+           FROM public.helm_protected_application_intents AS base
+           JOIN public.helm_protected_payload_intents AS child_payload
+             ON child_payload.id=base.payload_intent_id
+           WHERE base.id=preflight.base_application_intent_id
+             AND base.state='verified' AND base.action='publish'
+             AND child_payload.state='verified' AND child_payload.action='publish'
+             AND NEW.child_release_revision_id=base.release_revision_id
+             AND NEW.child_release_revision_id=child_payload.release_revision_id
+             AND NEW.child_payload_revision=base.payload_revision
+             AND NEW.child_payload_revision=child_payload.committed_revision
+             AND NEW.child_payload_path=base.payload_path
+             AND NEW.child_payload_path=child_payload.path
+             AND NEW.child_payload_digest=child_payload.content_digest
+       ) OR
+       NOT EXISTS (
+           SELECT 1 FROM public.runtime_readiness AS readiness
+           WHERE readiness.runtime_kind='helm-protected-publisher'
+             AND readiness.scope_key='global' AND readiness.worker_id=NEW.worker_id
+             AND readiness.worker_epoch=NEW.worker_epoch
+             AND readiness.contract_version=NEW.publisher_contract
+             AND readiness.config_digest=NEW.publisher_config_digest
+             AND readiness.identity=pg_catalog.jsonb_build_object(
+                 'policyVersion',NEW.publisher_policy_version)
+             AND readiness.updated_at=readiness.observed_at
+             AND readiness.observed_at<=db_now AND readiness.observed_at>=db_now-interval '5 minutes'
+             AND readiness.lease_until>db_now
+             AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+             AND readiness.lease_until<=db_now+interval '5 minutes'
+       ) THEN
+        RAISE EXCEPTION 'cascade receipt lacks exact current authority' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_continuation_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_continuation_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='DELETE' OR TG_OP='UPDATE' THEN
+        RAISE EXCEPTION 'Helm Application continuation receipts are immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.created_at>pg_catalog.clock_timestamp()+INTERVAL '30 seconds' OR
+       NEW.created_at<pg_catalog.clock_timestamp()-INTERVAL '5 minutes' OR NOT EXISTS (
+        SELECT 1
+        FROM public.helm_release_revisions release
+        JOIN public.helm_release_heads head
+          ON head.revision_id=release.id AND head.generation=release.generation
+        JOIN public.helm_protected_payload_intents payload
+          ON payload.id=NEW.payload_intent_id AND payload.release_revision_id=release.id
+         AND payload.state='verified' AND payload.release_generation=release.generation
+         AND payload.project_id=release.project_id AND payload.environment_id=release.environment_id
+         AND payload.application_id=release.application_id
+         AND payload.platform_binding_id=NEW.platform_binding_id
+         AND payload.environment_binding_id=NEW.environment_binding_id
+         AND payload.cluster_id=NEW.cluster_id
+         AND payload.environment_revision=NEW.source_environment_revision
+         AND payload.environment_generation=NEW.source_environment_generation
+        JOIN public.helm_publication_prerequisite_receipts prerequisite
+          ON prerequisite.release_revision_id=release.id
+         AND prerequisite.project_id=release.project_id
+         AND prerequisite.environment_id=release.environment_id
+         AND prerequisite.application_id=release.application_id
+         AND prerequisite.platform_binding_id=NEW.platform_binding_id
+         AND prerequisite.environment_binding_id=NEW.environment_binding_id
+         AND prerequisite.cluster_id=NEW.cluster_id
+         AND prerequisite.environment_revision=NEW.source_environment_revision
+         AND prerequisite.environment_generation=NEW.source_environment_generation
+         AND prerequisite.foundation_intent_id=NEW.source_foundation_intent_id
+         AND prerequisite.foundation_revision=NEW.source_foundation_revision
+         AND prerequisite.desired_state_command_id=NEW.source_desired_state_command_id
+         AND prerequisite.desired_state_revision=NEW.source_desired_state_revision
+        JOIN public.argo_desired_state_commands source_command
+          ON source_command.id=NEW.source_desired_state_command_id
+         AND source_command.state='verified'
+         AND source_command.committed_revision=NEW.source_desired_state_revision
+         AND source_command.content_sha256=NEW.source_desired_state_content_digest
+        JOIN public.git_repository_bindings platform
+          ON platform.id=NEW.platform_binding_id AND platform.kind='platform'
+         AND platform.credential_mode='github-app' AND platform.cluster_id=NEW.cluster_id
+         AND platform.target_ref=payload.platform_target_ref
+         AND platform.state IN ('ready','indexing')
+         AND platform.target_head_revision=NEW.planned_base_revision
+        JOIN public.git_repository_bindings environment
+          ON environment.id=NEW.environment_binding_id AND environment.kind='environment'
+         AND environment.credential_mode='github-app' AND environment.state='ready'
+         AND environment.project_id=release.project_id AND environment.environment_id=release.environment_id
+         AND environment.target_ref=payload.environment_target_ref
+         AND environment.target_head_revision=NEW.current_environment_revision
+         AND environment.indexed_revision=NEW.current_environment_revision
+         AND environment.projection_generation=NEW.current_environment_generation
+        JOIN public.git_projection_generations generation
+          ON generation.binding_id=environment.id
+         AND generation.generation=NEW.current_environment_generation
+         AND generation.head_revision=NEW.current_environment_revision AND generation.state='active'
+        JOIN public.environments desired_environment
+          ON desired_environment.id=release.environment_id AND desired_environment.project_id=release.project_id
+        JOIN public.environment_foundation_intents foundation
+          ON foundation.id=NEW.current_foundation_intent_id
+         AND foundation.environment_id=release.environment_id AND foundation.project_id=release.project_id
+         AND foundation.active AND foundation.state='ready'
+         AND foundation.platform_binding_id=NEW.platform_binding_id
+         AND foundation.cluster_id=NEW.cluster_id AND foundation.target_ref=payload.platform_target_ref
+         AND foundation.namespace=desired_environment.namespace
+         AND foundation.argo_project=desired_environment.argo_project
+         AND foundation.committed_revision=NEW.current_foundation_revision
+         AND foundation.published_at IS NOT NULL AND foundation.completed_at=foundation.published_at
+        JOIN public.argo_desired_state_materialization_receipts materialization
+          ON materialization.id=NEW.current_materialization_receipt_id
+         AND materialization.environment_binding_id=NEW.environment_binding_id
+         AND materialization.environment_revision=NEW.current_environment_revision
+         AND materialization.environment_generation=NEW.current_environment_generation
+         AND materialization.desired_state_command_id=NEW.current_desired_state_command_id
+         AND materialization.desired_state_revision=NEW.current_desired_state_revision
+         AND materialization.desired_state_content_sha256=NEW.current_desired_state_content_digest
+         AND materialization.policy_digest=NEW.current_policy_digest
+         AND materialization.chart_repository=NEW.current_chart_repository
+         AND materialization.chart_name=NEW.current_chart_name
+         AND materialization.chart_version=NEW.current_chart_version
+         AND materialization.chart_digest=NEW.current_chart_digest
+         AND materialization.renderer_image=NEW.current_renderer_image
+         AND materialization.chart_digest_enforcement=NEW.current_chart_digest_enforcement
+         AND materialization.app_project_content=NEW.current_app_project_content
+        JOIN public.argo_desired_state_commands current_command
+          ON current_command.id=NEW.current_desired_state_command_id
+         AND current_command.project_id=release.project_id
+         AND current_command.environment_id=release.environment_id
+         AND current_command.platform_binding_id=NEW.platform_binding_id
+         AND current_command.environment_binding_id=NEW.environment_binding_id
+         AND current_command.cluster_id=NEW.cluster_id
+         AND current_command.platform_target_ref=payload.platform_target_ref
+         AND current_command.environment_target_ref=payload.environment_target_ref
+
+
+         AND current_command.state='verified'
+         AND current_command.committed_revision=NEW.current_desired_state_revision
+         AND current_command.content_sha256=NEW.current_desired_state_content_digest
+
+         AND current_command.chart_repository=NEW.current_chart_repository
+         AND current_command.chart_name=NEW.current_chart_name
+         AND current_command.chart_version=NEW.current_chart_version
+         AND current_command.chart_digest=NEW.current_chart_digest
+         AND current_command.renderer_image=NEW.current_renderer_image
+         AND current_command.chart_digest_enforcement=NEW.current_chart_digest_enforcement
+         AND current_command.app_project_content=NEW.current_app_project_content
+         AND current_command.argo_project=desired_environment.argo_project
+         AND current_command.destination_namespace=desired_environment.namespace
+        WHERE release.id=NEW.release_revision_id AND release.project_id=NEW.project_id
+          AND release.environment_id=NEW.environment_id AND release.application_id=NEW.application_id
+          AND NOT EXISTS(SELECT 1 FROM public.git_projected_documents invalid
+            WHERE invalid.binding_id=NEW.environment_binding_id
+              AND invalid.generation=NEW.current_environment_generation AND NOT invalid.valid)
+          AND NOT EXISTS(
+            SELECT 1
+            FROM public.argo_desired_state_materialization_receipts newer_materialization
+            JOIN public.argo_desired_state_commands newer_command
+              ON newer_command.id=newer_materialization.desired_state_command_id
+             AND newer_command.state='verified'
+             AND newer_command.committed_revision=newer_materialization.desired_state_revision
+             AND newer_command.content_sha256=newer_materialization.desired_state_content_sha256
+            WHERE newer_materialization.environment_binding_id=NEW.environment_binding_id
+              AND newer_materialization.environment_revision=NEW.current_environment_revision
+              AND newer_materialization.environment_generation=NEW.current_environment_generation
+              AND (newer_materialization.desired_state_generation,
+                   newer_materialization.created_at,newer_materialization.id)>
+                  (materialization.desired_state_generation,
+                   materialization.created_at,materialization.id)
+          )
+    ) THEN
+        RAISE EXCEPTION 'Helm Application continuation receipt lacks exact current authority'
+            USING ERRCODE='23514';
+    END IF;
+    IF EXISTS(SELECT 1 FROM public.helm_protected_application_intents live
+        WHERE live.payload_intent_id=NEW.payload_intent_id AND live.state<>'superseded') OR
+       (EXISTS(SELECT 1 FROM public.helm_protected_application_intents prior
+          WHERE prior.payload_intent_id=NEW.payload_intent_id) AND NOT EXISTS(
+        SELECT 1 FROM public.helm_protected_application_intents prior
+        WHERE prior.payload_intent_id=NEW.payload_intent_id
+          AND prior.state='superseded' AND (
+            prior.last_failure_code='projection-superseded' OR
+            (prior.last_failure_code='cascade-migration-replan-required'
+             AND NOT prior.cascade_required AND prior.cascade_receipt_id IS NULL
+             AND prior.cascade_contract='')
+          )
+          AND prior.lease_epoch=0 AND prior.attempts=0 AND prior.lease_owner IS NULL
+          AND prior.lease_until IS NULL AND prior.write_base_revision=''
+          AND prior.write_base_observed_at IS NULL AND prior.committed_revision=''
+          AND prior.committed_parent_revision='' AND prior.committed_at IS NULL
+          AND prior.verified_at IS NULL AND prior.verified_path_digest=''
+          AND prior.provider_request='' AND prior.completed_at IS NOT NULL
+          AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents newer
+            WHERE newer.payload_intent_id=prior.payload_intent_id AND
+              (newer.created_at,newer.id)>(prior.created_at,prior.id))
+       )) THEN
+        RAISE EXCEPTION 'Helm Application continuation replacement predecessor is not pristine'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_application_continuation_reference(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_application_continuation_reference() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF TG_OP='INSERT' THEN
+        IF NOT NEW.continuation_required OR NEW.continuation_receipt_id<>NEW.id OR
+           NEW.continuation_contract<>'helm-application-continuation.v1' OR NOT EXISTS(
+            SELECT 1 FROM public.helm_application_continuation_receipts receipt
+            WHERE receipt.application_intent_id=NEW.id
+              AND receipt.release_revision_id=NEW.release_revision_id
+              AND receipt.payload_intent_id=NEW.payload_intent_id
+              AND receipt.project_id=NEW.project_id AND receipt.environment_id=NEW.environment_id
+              AND receipt.application_id=NEW.application_id
+              AND receipt.platform_binding_id=NEW.platform_binding_id
+              AND receipt.environment_binding_id=NEW.environment_binding_id
+              AND receipt.cluster_id=NEW.cluster_id
+              AND receipt.source_environment_revision=NEW.environment_revision
+              AND receipt.source_environment_generation=NEW.environment_generation
+              AND receipt.planned_base_revision=NEW.planned_base_revision
+              AND receipt.application_content_digest=NEW.content_digest
+              AND receipt.application_intent_digest=NEW.intent_digest
+        ) THEN
+            RAISE EXCEPTION 'Helm protected Application lacks exact continuation authority'
+                USING ERRCODE='23514';
+        END IF;
+    ELSIF ROW(NEW.continuation_required,NEW.continuation_receipt_id,NEW.continuation_contract)
+        IS DISTINCT FROM ROW(OLD.continuation_required,OLD.continuation_receipt_id,OLD.continuation_contract) THEN
+        RAISE EXCEPTION 'Helm protected Application continuation identity is immutable'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: validate_helm_chart_approval_document_insert(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1707,12 +4645,13 @@ $$;
 
 CREATE FUNCTION public.validate_helm_protected_application_intent() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
-    release_row helm_release_revisions%ROWTYPE;
-    payload_row helm_protected_payload_intents%ROWTYPE;
-    base_row helm_protected_application_intents%ROWTYPE;
-    platform_row git_repository_bindings%ROWTYPE;
+    release_row public.helm_release_revisions%ROWTYPE;
+    payload_row public.helm_protected_payload_intents%ROWTYPE;
+    base_row public.helm_protected_application_intents%ROWTYPE;
+    platform_row public.git_repository_bindings%ROWTYPE;
     expected_application_path text;
     expected_source_directory text;
 BEGIN
@@ -1735,7 +4674,7 @@ BEGIN
             NEW.payload_revision,NEW.payload_path,NEW.source_directory,
             NEW.application_path,NEW.operation,NEW.precondition,NEW.expected_etag,
             NEW.content,NEW.content_digest,NEW.intent_digest,NEW.commit_trailer,
-            NEW.publisher_contract,NEW.publisher_config_digest,NEW.message,
+            NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.continuation_required,NEW.continuation_receipt_id,NEW.continuation_contract,NEW.message,
             NEW.created_at
         ) IS DISTINCT FROM ROW(
             OLD.id,OLD.release_revision_id,OLD.payload_intent_id,
@@ -1747,7 +4686,7 @@ BEGIN
             OLD.payload_revision,OLD.payload_path,OLD.source_directory,
             OLD.application_path,OLD.operation,OLD.precondition,OLD.expected_etag,
             OLD.content,OLD.content_digest,OLD.intent_digest,OLD.commit_trailer,
-            OLD.publisher_contract,OLD.publisher_config_digest,OLD.message,
+            OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.continuation_required,OLD.continuation_receipt_id,OLD.continuation_contract,OLD.message,
             OLD.created_at
         ) THEN
             RAISE EXCEPTION 'Helm protected Application intent identity is immutable'
@@ -1808,11 +4747,11 @@ BEGIN
     END IF;
 
     SELECT * INTO release_row
-      FROM helm_release_revisions
+      FROM public.helm_release_revisions
      WHERE id=NEW.release_revision_id
      FOR KEY SHARE;
     SELECT * INTO payload_row
-      FROM helm_protected_payload_intents
+      FROM public.helm_protected_payload_intents
      WHERE id=NEW.payload_intent_id
      FOR KEY SHARE;
     IF release_row.id IS NULL OR payload_row.id IS NULL OR
@@ -1840,7 +4779,7 @@ BEGIN
             USING ERRCODE='23514';
     END IF;
     IF NOT EXISTS (
-        SELECT 1 FROM helm_release_heads
+        SELECT 1 FROM public.helm_release_heads
          WHERE environment_id=NEW.environment_id
            AND application_id=NEW.application_id
            AND revision_id=NEW.release_revision_id
@@ -1852,7 +4791,7 @@ BEGIN
     END IF;
 
     SELECT * INTO platform_row
-      FROM git_repository_bindings
+      FROM public.git_repository_bindings
      WHERE id=NEW.platform_binding_id
      FOR KEY SHARE;
     IF platform_row.id IS NULL OR platform_row.kind<>'platform' OR
@@ -1880,7 +4819,9 @@ BEGIN
             USING ERRCODE='23514';
     END IF;
 
-    IF release_row.base_intent_id IS NULL THEN
+    IF release_row.base_intent_id IS NULL OR
+       public.helm_application_cascade_recovery_create_is_authorized(
+           NEW.release_revision_id,release_row.base_intent_id,NEW.application_path) THEN
         IF NEW.operation<>'create' OR NEW.precondition<>'create-if-absent' OR
            NEW.expected_etag<>'' THEN
             RAISE EXCEPTION 'Initial Helm Application publication must prove absence'
@@ -1888,14 +4829,21 @@ BEGIN
         END IF;
     ELSE
         SELECT * INTO base_row
-          FROM helm_protected_application_intents
+          FROM public.helm_protected_application_intents
          WHERE id=release_row.base_intent_id
          FOR KEY SHARE;
         IF base_row.id IS NULL OR base_row.state<>'verified' OR
            base_row.action<>'publish' OR
            base_row.application_path<>NEW.application_path OR
            base_row.content_digest='' OR
-           NEW.expected_etag<>'"'||base_row.content_digest||'"' OR
+           ((NEW.action='delete' AND (
+        NOT NEW.cascade_required OR NEW.cascade_receipt_id IS NULL OR
+        NEW.expected_etag<>COALESCE((
+            SELECT '"'||cascade.adopted_content_digest||'"'
+            FROM public.helm_application_cascade_preflights AS cascade
+            WHERE cascade.id=NEW.cascade_receipt_id
+        ),''))) OR (NEW.action<>'delete' AND
+        NEW.expected_etag<>'"'||base_row.content_digest||'"')) OR
            NEW.precondition<>'match-etag' OR
            (NEW.action='publish' AND NEW.operation<>'update') OR
            (NEW.action='delete' AND NEW.operation<>'delete') THEN
@@ -1909,16 +4857,174 @@ $$;
 
 
 --
+-- Name: validate_helm_protected_application_publisher_authority_v009(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_protected_application_publisher_authority_v009() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    exact_receipt boolean;
+BEGIN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997)
+    );
+    IF TG_OP='INSERT' THEN
+        IF NEW.publisher_config_digest<>NEW.original_publisher_config_digest OR
+           NEW.publisher_adoption_epoch<>0 THEN
+            RAISE EXCEPTION 'Helm protected Application publisher authority must start at its immutable origin'
+                USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF NEW.original_publisher_config_digest IS DISTINCT FROM OLD.original_publisher_config_digest THEN
+        RAISE EXCEPTION 'Helm protected Application original publisher authority is immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.lease_owner IS NOT NULL AND NEW.lease_until>NEW.updated_at THEN
+        IF OLD.lease_epoch=0 AND NEW.lease_epoch=1 AND NOT (
+            (NEW.continuation_required AND public.helm_application_continuation_is_exact(NEW.id)) OR
+            (NOT NEW.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
+                NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+                NEW.project_id,NEW.environment_id,NEW.platform_target_ref,
+                NEW.environment_target_ref,NEW.environment_revision,NEW.environment_generation
+            ))
+        ) THEN
+            RAISE EXCEPTION 'Helm protected Application authority claim lacks exact continuation'
+                USING ERRCODE='23514';
+        END IF;
+        IF EXISTS(
+            SELECT 1 FROM public.helm_protected_payload_intents held
+            WHERE held.platform_binding_id=NEW.platform_binding_id
+              AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.updated_at
+        ) OR EXISTS(
+            SELECT 1 FROM public.helm_protected_application_intents held
+            WHERE held.platform_binding_id=NEW.platform_binding_id AND held.id<>NEW.id
+              AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.updated_at
+        ) THEN
+            RAISE EXCEPTION 'Helm protected Application authority lane is already leased'
+                USING ERRCODE='23514';
+        END IF;
+    END IF;
+    IF NEW.publisher_config_digest=OLD.publisher_config_digest AND
+       NEW.publisher_adoption_epoch=OLD.publisher_adoption_epoch THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.publisher_config_digest=OLD.publisher_config_digest OR
+       NEW.publisher_adoption_epoch<>OLD.publisher_adoption_epoch+1 OR
+       OLD.state NOT IN ('pending','claimed','git-committed') OR
+       NEW.state<>(CASE WHEN OLD.state='pending' THEN 'claimed' ELSE OLD.state END) OR
+       NEW.lease_owner IS NULL OR NEW.lease_epoch<>OLD.lease_epoch+1 OR
+       NEW.lease_until IS NULL OR NEW.lease_until<=NEW.updated_at OR
+       NEW.lease_until>NEW.updated_at+interval '5 minutes' OR
+       NEW.attempts<>LEAST(OLD.attempts+1,30) OR
+       NEW.next_attempt_at IS DISTINCT FROM OLD.next_attempt_at OR
+       NEW.consecutive_failures<>OLD.consecutive_failures OR
+       NEW.last_failure_code<>OLD.last_failure_code OR
+       NEW.write_base_revision<>OLD.write_base_revision OR
+       NEW.write_base_observed_at IS DISTINCT FROM OLD.write_base_observed_at OR
+       NEW.committed_revision<>OLD.committed_revision OR
+       NEW.committed_parent_revision<>OLD.committed_parent_revision OR
+       NEW.committed_at IS DISTINCT FROM OLD.committed_at OR
+       NEW.verified_at IS DISTINCT FROM OLD.verified_at OR
+       NEW.verified_path_digest<>OLD.verified_path_digest OR
+       NEW.provider_request<>OLD.provider_request OR
+       NEW.completed_at IS DISTINCT FROM OLD.completed_at OR
+       NEW.prerequisite_epoch<>OLD.prerequisite_epoch+1 THEN
+        RAISE EXCEPTION 'Helm protected Application publisher adoption is not an exact atomic claim'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.runtime_readiness readiness
+        WHERE readiness.runtime_kind='helm-protected-publisher' AND readiness.scope_key='global'
+          AND readiness.worker_id=NEW.lease_owner
+          AND readiness.contract_version=NEW.publisher_contract
+          AND readiness.identity=pg_catalog.jsonb_build_object('policyVersion','helm-protected-git.v1')
+          AND readiness.config_digest=NEW.publisher_config_digest
+          AND readiness.updated_at=readiness.observed_at
+          AND readiness.observed_at<=NEW.updated_at
+          AND readiness.observed_at>=NEW.updated_at-interval '5 minutes'
+          AND readiness.lease_until>NEW.updated_at
+          AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+          AND readiness.lease_until<=NEW.updated_at+interval '5 minutes'
+    ) THEN
+        RAISE EXCEPTION 'Helm protected Application adoption lacks active exact readiness'
+            USING ERRCODE='23514';
+    END IF;
+    SELECT EXISTS(
+        SELECT 1 FROM public.helm_protected_publisher_adoption_receipts receipt
+        WHERE receipt.intent_kind='application' AND receipt.application_intent_id=NEW.id
+          AND receipt.adoption_epoch=NEW.publisher_adoption_epoch
+          AND receipt.publisher_contract=NEW.publisher_contract
+          AND receipt.original_config_digest=NEW.original_publisher_config_digest
+          AND receipt.previous_config_digest=OLD.publisher_config_digest
+          AND receipt.adopted_config_digest=NEW.publisher_config_digest
+          AND receipt.previous_lease_epoch=OLD.lease_epoch
+          AND receipt.adopted_lease_epoch=NEW.lease_epoch
+          AND receipt.adopted_by_worker=NEW.lease_owner
+          AND receipt.created_at=NEW.updated_at
+    ) INTO exact_receipt;
+    IF NOT exact_receipt THEN
+        RAISE EXCEPTION 'Helm protected Application adoption lacks exact immutable receipt'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_protected_cascade_lane(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_protected_cascade_lane() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    authority_time timestamptz := NEW.updated_at;
+BEGIN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997));
+    IF NEW.lease_owner IS NULL OR NEW.lease_until<=authority_time THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.helm_protected_payload_intents AS held
+        WHERE held.platform_binding_id=NEW.platform_binding_id
+          AND NOT (TG_TABLE_NAME='helm_protected_payload_intents' AND held.id=NEW.id)
+          AND held.lease_owner IS NOT NULL AND held.lease_until>authority_time
+    ) OR EXISTS (
+        SELECT 1 FROM public.helm_protected_application_intents AS held
+        WHERE held.platform_binding_id=NEW.platform_binding_id
+          AND NOT (TG_TABLE_NAME='helm_protected_application_intents' AND held.id=NEW.id)
+          AND held.lease_owner IS NOT NULL AND held.lease_until>authority_time
+    ) OR EXISTS (
+        SELECT 1 FROM public.helm_application_cascade_preflights AS held
+        WHERE held.platform_binding_id=NEW.platform_binding_id
+          AND NOT (TG_TABLE_NAME='helm_application_cascade_preflights' AND held.id=NEW.id)
+          AND held.lease_owner IS NOT NULL AND held.lease_until>authority_time
+    ) THEN
+        RAISE EXCEPTION 'protected Git authority lane is already leased' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
 -- Name: validate_helm_protected_payload_intent(); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.validate_helm_protected_payload_intent() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 DECLARE
-    release_row helm_release_revisions%ROWTYPE;
-    platform_row git_repository_bindings%ROWTYPE;
-    environment_row git_repository_bindings%ROWTYPE;
+    release_row public.helm_release_revisions%ROWTYPE;
+    platform_row public.git_repository_bindings%ROWTYPE;
+    environment_row public.git_repository_bindings%ROWTYPE;
     result_manifest bytea;
     result_digest text;
     result_inventory text;
@@ -1945,7 +5051,7 @@ BEGIN
             NEW.planned_base_revision,NEW.path,NEW.precondition,NEW.expected_etag,
             NEW.content,NEW.content_digest,NEW.manifest_inventory_digest,
             NEW.manifest_resource_count,NEW.intent_digest,NEW.commit_trailer,
-            NEW.publisher_contract,NEW.publisher_config_digest,NEW.message,
+            NEW.publisher_contract,NEW.original_publisher_config_digest,NEW.message,
             NEW.created_at
         ) IS DISTINCT FROM ROW(
             OLD.id,OLD.release_revision_id,OLD.release_generation,OLD.project_id,
@@ -1956,7 +5062,7 @@ BEGIN
             OLD.planned_base_revision,OLD.path,OLD.precondition,OLD.expected_etag,
             OLD.content,OLD.content_digest,OLD.manifest_inventory_digest,
             OLD.manifest_resource_count,OLD.intent_digest,OLD.commit_trailer,
-            OLD.publisher_contract,OLD.publisher_config_digest,OLD.message,
+            OLD.publisher_contract,OLD.original_publisher_config_digest,OLD.message,
             OLD.created_at
         ) THEN
             RAISE EXCEPTION 'Helm protected payload intent identity is immutable'
@@ -2017,7 +5123,7 @@ BEGIN
     END IF;
 
     SELECT * INTO release_row
-      FROM helm_release_revisions
+      FROM public.helm_release_revisions
      WHERE id=NEW.release_revision_id
      FOR KEY SHARE;
     IF release_row.id IS NULL OR release_row.generation<>NEW.release_generation OR
@@ -2030,7 +5136,7 @@ BEGIN
             USING ERRCODE='23514';
     END IF;
     IF NOT EXISTS (
-        SELECT 1 FROM helm_release_heads
+        SELECT 1 FROM public.helm_release_heads
          WHERE environment_id=NEW.environment_id
            AND application_id=NEW.application_id
            AND revision_id=NEW.release_revision_id
@@ -2042,11 +5148,11 @@ BEGIN
     END IF;
 
     SELECT * INTO platform_row
-      FROM git_repository_bindings
+      FROM public.git_repository_bindings
      WHERE id=NEW.platform_binding_id
      FOR KEY SHARE;
     SELECT * INTO environment_row
-      FROM git_repository_bindings
+      FROM public.git_repository_bindings
      WHERE id=NEW.environment_binding_id
      FOR KEY SHARE;
     IF platform_row.id IS NULL OR platform_row.kind<>'platform' OR
@@ -2068,13 +5174,13 @@ BEGIN
             USING ERRCODE='23514';
     END IF;
     IF NOT EXISTS (
-        SELECT 1 FROM git_projection_generations generation
+        SELECT 1 FROM public.git_projection_generations generation
          WHERE generation.binding_id=NEW.environment_binding_id
            AND generation.generation=NEW.environment_generation
            AND generation.head_revision=NEW.environment_revision
            AND generation.state='active'
     ) OR EXISTS (
-        SELECT 1 FROM git_projected_documents document
+        SELECT 1 FROM public.git_projected_documents document
          WHERE document.binding_id=NEW.environment_binding_id
            AND document.generation=NEW.environment_generation
            AND NOT document.valid
@@ -2091,8 +5197,8 @@ BEGIN
         SELECT result.rendered_manifests,result.manifest_digest,
                result.inventory_digest,result.resource_count,command.state
           INTO result_manifest,result_digest,result_inventory,result_count,command_state
-          FROM helm_render_results result
-          JOIN helm_render_commands command ON command.id=result.command_id
+          FROM public.helm_render_results result
+          JOIN public.helm_render_commands command ON command.id=result.command_id
          WHERE result.command_id=release_row.render_command_id
          FOR KEY SHARE OF result,command;
         IF command_state IS DISTINCT FROM 'succeeded' OR
@@ -2109,12 +5215,12 @@ BEGIN
             '/applications/'||NEW.application_id::text||'/revisions/'||
             NEW.release_revision_id::text||'/disabled.json';
         BEGIN
-            disabled_receipt := convert_from(NEW.content,'UTF8')::jsonb;
+            disabled_receipt := pg_catalog.convert_from(NEW.content,'UTF8')::jsonb;
         EXCEPTION WHEN OTHERS THEN
             RAISE EXCEPTION 'Helm disabled receipt is not valid UTF-8 JSON'
                 USING ERRCODE='23514';
         END;
-        IF disabled_receipt IS DISTINCT FROM jsonb_build_object(
+        IF disabled_receipt IS DISTINCT FROM pg_catalog.jsonb_build_object(
             'apiVersion','kuberploy.io/v1alpha1',
             'kind','HelmReleaseDisabledReceipt',
             'releaseRevisionId',NEW.release_revision_id::text,
@@ -2129,6 +5235,417 @@ BEGIN
     END IF;
     IF NEW.path<>expected_path THEN
         RAISE EXCEPTION 'Helm protected payload path was not server-derived'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_protected_publisher_adoption_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_protected_publisher_adoption_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    binding_id uuid;
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'Helm protected publisher adoption receipts are immutable' USING ERRCODE='23514';
+    END IF;
+    IF NEW.created_at>db_now OR NEW.created_at<db_now-interval '30 seconds' THEN
+        RAISE EXCEPTION 'Helm publisher adoption receipt is outside bounded database time' USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.runtime_readiness readiness
+        WHERE readiness.runtime_kind='helm-protected-publisher' AND readiness.scope_key='global'
+          AND readiness.worker_id=NEW.adopted_by_worker AND readiness.worker_epoch=NEW.adopted_worker_epoch
+          AND readiness.contract_version=NEW.publisher_contract
+          AND readiness.identity=pg_catalog.jsonb_build_object('policyVersion',NEW.policy_version)
+          AND readiness.config_digest=NEW.adopted_config_digest
+          AND readiness.updated_at=readiness.observed_at AND readiness.observed_at<=NEW.created_at
+          AND readiness.observed_at>=NEW.created_at-interval '5 minutes'
+          AND readiness.lease_until>NEW.created_at
+          AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+          AND readiness.lease_until<=NEW.created_at+interval '5 minutes'
+    ) THEN
+        RAISE EXCEPTION 'Helm publisher adoption lacks exact fresh worker readiness' USING ERRCODE='23514';
+    END IF;
+    IF NEW.intent_kind='payload' THEN
+        SELECT intent.platform_binding_id INTO binding_id
+        FROM public.helm_protected_payload_intents intent WHERE intent.id=NEW.payload_intent_id;
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(binding_id::text,704215997));
+        IF NOT EXISTS (
+            SELECT 1 FROM public.helm_protected_payload_intents intent
+            WHERE intent.id=NEW.payload_intent_id
+              AND intent.publisher_contract=NEW.publisher_contract
+              AND intent.original_publisher_config_digest=NEW.original_config_digest
+              AND intent.publisher_config_digest=NEW.previous_config_digest
+              AND intent.publisher_adoption_epoch+1=NEW.adoption_epoch
+              AND intent.intent_digest=NEW.intent_digest AND intent.content_digest=NEW.content_digest
+              AND intent.path=NEW.protected_path AND intent.precondition=NEW.precondition
+              AND intent.expected_etag=NEW.expected_etag AND intent.commit_trailer=NEW.commit_trailer
+              AND intent.prerequisite_receipt_id=NEW.prerequisite_receipt_id
+              AND intent.prerequisite_contract=NEW.prerequisite_contract
+              AND intent.prerequisite_epoch=NEW.prerequisite_epoch AND intent.state=NEW.recovery_state
+              AND intent.write_base_revision=NEW.write_base_revision
+              AND intent.committed_revision=NEW.committed_revision
+              AND intent.committed_parent_revision=NEW.committed_parent_revision
+              AND intent.lease_epoch=NEW.previous_lease_epoch
+              AND intent.next_attempt_at<=NEW.created_at AND intent.updated_at<=NEW.created_at
+              AND (intent.lease_owner IS NULL OR intent.lease_until<=NEW.created_at)
+              AND (intent.lease_epoch>0 OR public.helm_protected_adoption_projection_is_fresh(
+                  intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+                  intent.project_id,intent.environment_id,intent.platform_target_ref,
+                  intent.environment_target_ref,intent.environment_revision,intent.environment_generation))
+              AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
+                  WHERE held.platform_binding_id=intent.platform_binding_id AND held.id<>intent.id
+                    AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at)
+              AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
+                  WHERE held.platform_binding_id=intent.platform_binding_id
+                    AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at)
+        ) THEN
+            RAISE EXCEPTION 'Helm payload adoption receipt does not match exact recoverable intent'
+                USING ERRCODE='23514';
+        END IF;
+    ELSE
+        SELECT intent.platform_binding_id INTO binding_id
+        FROM public.helm_protected_application_intents intent WHERE intent.id=NEW.application_intent_id;
+        PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(binding_id::text,704215997));
+        IF NOT EXISTS (
+            SELECT 1 FROM public.helm_protected_application_intents intent
+            WHERE intent.id=NEW.application_intent_id
+              AND intent.publisher_contract=NEW.publisher_contract
+              AND intent.original_publisher_config_digest=NEW.original_config_digest
+              AND intent.publisher_config_digest=NEW.previous_config_digest
+              AND intent.publisher_adoption_epoch+1=NEW.adoption_epoch
+              AND intent.intent_digest=NEW.intent_digest AND intent.content_digest=NEW.content_digest
+              AND intent.application_path=NEW.protected_path AND intent.precondition=NEW.precondition
+              AND intent.expected_etag=NEW.expected_etag AND intent.commit_trailer=NEW.commit_trailer
+              AND intent.prerequisite_receipt_id=NEW.prerequisite_receipt_id
+              AND intent.prerequisite_contract=NEW.prerequisite_contract
+              AND intent.prerequisite_epoch=NEW.prerequisite_epoch AND intent.state=NEW.recovery_state
+              AND intent.write_base_revision=NEW.write_base_revision
+              AND intent.committed_revision=NEW.committed_revision
+              AND intent.committed_parent_revision=NEW.committed_parent_revision
+              AND intent.lease_epoch=NEW.previous_lease_epoch
+              AND intent.next_attempt_at<=NEW.created_at AND intent.updated_at<=NEW.created_at
+              AND (intent.lease_owner IS NULL OR intent.lease_until<=NEW.created_at)
+              AND (intent.lease_epoch>0 OR
+                (intent.continuation_required AND public.helm_application_continuation_is_exact(intent.id)) OR
+                (NOT intent.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
+                  intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+                  intent.project_id,intent.environment_id,intent.platform_target_ref,
+                  intent.environment_target_ref,intent.environment_revision,intent.environment_generation)))
+              AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
+                  WHERE held.platform_binding_id=intent.platform_binding_id
+                    AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at)
+              AND NOT EXISTS(SELECT 1 FROM public.helm_protected_application_intents held
+                  WHERE held.platform_binding_id=intent.platform_binding_id AND held.id<>intent.id
+                    AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.created_at)
+        ) THEN
+            RAISE EXCEPTION 'Helm Application adoption receipt does not match exact recoverable intent'
+                USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_protected_publisher_authority(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_protected_publisher_authority() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    exact_receipt boolean;
+BEGIN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(NEW.platform_binding_id::text,704215997)
+    );
+    IF TG_OP='INSERT' THEN
+        IF NEW.publisher_config_digest<>NEW.original_publisher_config_digest OR
+           NEW.publisher_adoption_epoch<>0 THEN
+            RAISE EXCEPTION 'Helm protected publisher authority must start at its immutable origin'
+                USING ERRCODE='23514';
+        END IF;
+        RETURN NEW;
+    END IF;
+    IF NEW.original_publisher_config_digest IS DISTINCT FROM OLD.original_publisher_config_digest THEN
+        RAISE EXCEPTION 'Helm protected original publisher authority is immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NEW.lease_owner IS NOT NULL AND NEW.lease_until>NEW.updated_at THEN
+        IF OLD.lease_epoch=0 AND NEW.lease_epoch=1 AND
+           NOT public.helm_protected_adoption_projection_is_fresh(
+               NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+               NEW.project_id,NEW.environment_id,NEW.platform_target_ref,
+               NEW.environment_target_ref,NEW.environment_revision,
+               NEW.environment_generation
+           ) THEN
+            RAISE EXCEPTION 'Helm protected authority claim has a stale projection'
+                USING ERRCODE='23514';
+        END IF;
+        IF TG_TABLE_NAME='helm_protected_payload_intents' THEN
+            IF EXISTS(
+                SELECT 1 FROM public.helm_protected_payload_intents held
+                WHERE held.platform_binding_id=NEW.platform_binding_id
+                  AND held.id<>NEW.id AND held.lease_owner IS NOT NULL
+                  AND held.lease_until>NEW.updated_at
+            ) OR EXISTS(
+                SELECT 1 FROM public.helm_protected_application_intents held
+                WHERE held.platform_binding_id=NEW.platform_binding_id
+                  AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.updated_at
+            ) THEN
+                RAISE EXCEPTION 'Helm protected payload authority lane is already leased'
+                    USING ERRCODE='23514';
+            END IF;
+        ELSE
+            IF EXISTS(
+                SELECT 1 FROM public.helm_protected_payload_intents held
+                WHERE held.platform_binding_id=NEW.platform_binding_id
+                  AND held.lease_owner IS NOT NULL AND held.lease_until>NEW.updated_at
+            ) OR EXISTS(
+                SELECT 1 FROM public.helm_protected_application_intents held
+                WHERE held.platform_binding_id=NEW.platform_binding_id
+                  AND held.id<>NEW.id AND held.lease_owner IS NOT NULL
+                  AND held.lease_until>NEW.updated_at
+            ) THEN
+                RAISE EXCEPTION 'Helm protected Application authority lane is already leased'
+                    USING ERRCODE='23514';
+            END IF;
+        END IF;
+    END IF;
+    IF NEW.publisher_config_digest=OLD.publisher_config_digest AND
+       NEW.publisher_adoption_epoch=OLD.publisher_adoption_epoch THEN
+        RETURN NEW;
+    END IF;
+    IF NEW.publisher_config_digest=OLD.publisher_config_digest OR
+       NEW.publisher_adoption_epoch<>OLD.publisher_adoption_epoch+1 OR
+       OLD.state NOT IN ('pending','claimed','git-committed') OR
+       NEW.state<>(CASE WHEN OLD.state='pending' THEN 'claimed' ELSE OLD.state END) OR
+       NEW.lease_owner IS NULL OR NEW.lease_epoch<>OLD.lease_epoch+1 OR
+       NEW.lease_until IS NULL OR NEW.lease_until<=NEW.updated_at OR
+       NEW.lease_until>NEW.updated_at+interval '5 minutes' OR
+       NEW.attempts<>LEAST(OLD.attempts+1,30) OR
+       NEW.next_attempt_at IS DISTINCT FROM OLD.next_attempt_at OR
+       NEW.consecutive_failures<>OLD.consecutive_failures OR
+       NEW.last_failure_code<>OLD.last_failure_code OR
+       NEW.write_base_revision<>OLD.write_base_revision OR
+       NEW.write_base_observed_at IS DISTINCT FROM OLD.write_base_observed_at OR
+       NEW.committed_revision<>OLD.committed_revision OR
+       NEW.committed_parent_revision<>OLD.committed_parent_revision OR
+       NEW.committed_at IS DISTINCT FROM OLD.committed_at OR
+       NEW.verified_at IS DISTINCT FROM OLD.verified_at OR
+       NEW.verified_path_digest<>OLD.verified_path_digest OR
+       NEW.provider_request<>OLD.provider_request OR
+       NEW.completed_at IS DISTINCT FROM OLD.completed_at OR
+       NEW.prerequisite_epoch<>OLD.prerequisite_epoch+1 THEN
+        RAISE EXCEPTION 'Helm protected publisher adoption transition is not an exact atomic claim'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM public.runtime_readiness readiness
+        WHERE readiness.runtime_kind='helm-protected-publisher'
+          AND readiness.scope_key='global'
+          AND readiness.worker_id=NEW.lease_owner
+          AND readiness.contract_version=NEW.publisher_contract
+          AND readiness.identity=jsonb_build_object('policyVersion','helm-protected-git.v1')
+          AND readiness.config_digest=NEW.publisher_config_digest
+          AND readiness.updated_at=readiness.observed_at
+          AND readiness.observed_at<=NEW.updated_at
+          AND readiness.observed_at>=NEW.updated_at-interval '5 minutes'
+          AND readiness.lease_until>NEW.updated_at
+          AND readiness.lease_until<=readiness.observed_at+interval '5 minutes'
+          AND readiness.lease_until<=NEW.updated_at+interval '5 minutes'
+    ) THEN
+        RAISE EXCEPTION 'Helm protected publisher adoption claim lacks active exact readiness'
+            USING ERRCODE='23514';
+    END IF;
+    IF TG_TABLE_NAME='helm_protected_payload_intents' THEN
+        SELECT EXISTS(
+            SELECT 1 FROM public.helm_protected_publisher_adoption_receipts receipt
+            WHERE receipt.intent_kind='payload' AND receipt.payload_intent_id=NEW.id
+              AND receipt.adoption_epoch=NEW.publisher_adoption_epoch
+              AND receipt.publisher_contract=NEW.publisher_contract
+              AND receipt.original_config_digest=NEW.original_publisher_config_digest
+              AND receipt.previous_config_digest=OLD.publisher_config_digest
+              AND receipt.adopted_config_digest=NEW.publisher_config_digest
+              AND receipt.previous_lease_epoch=OLD.lease_epoch
+              AND receipt.adopted_lease_epoch=NEW.lease_epoch
+              AND receipt.adopted_by_worker=NEW.lease_owner
+              AND receipt.created_at=NEW.updated_at
+        ) INTO exact_receipt;
+    ELSE
+        SELECT EXISTS(
+            SELECT 1 FROM public.helm_protected_publisher_adoption_receipts receipt
+            WHERE receipt.intent_kind='application' AND receipt.application_intent_id=NEW.id
+              AND receipt.adoption_epoch=NEW.publisher_adoption_epoch
+              AND receipt.publisher_contract=NEW.publisher_contract
+              AND receipt.original_config_digest=NEW.original_publisher_config_digest
+              AND receipt.previous_config_digest=OLD.publisher_config_digest
+              AND receipt.adopted_config_digest=NEW.publisher_config_digest
+              AND receipt.previous_lease_epoch=OLD.lease_epoch
+              AND receipt.adopted_lease_epoch=NEW.lease_epoch
+              AND receipt.adopted_by_worker=NEW.lease_owner
+              AND receipt.created_at=NEW.updated_at
+        ) INTO exact_receipt;
+    END IF;
+    IF NOT exact_receipt THEN
+        RAISE EXCEPTION 'Helm protected publisher adoption lacks its exact immutable receipt'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_protected_publisher_readiness_bounds(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_protected_publisher_readiness_bounds() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    db_now timestamptz := pg_catalog.clock_timestamp();
+    value public.runtime_readiness%ROWTYPE;
+BEGIN
+    value := CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+    IF value.runtime_kind<>'helm-protected-publisher' THEN
+        RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
+    END IF;
+    IF TG_OP='DELETE' THEN
+        RETURN OLD;
+    END IF;
+    IF NEW.updated_at<>NEW.observed_at OR
+       NEW.observed_at<db_now-interval '5 minutes' OR
+       NEW.observed_at>db_now+interval '30 seconds' OR
+       NEW.lease_until>NEW.observed_at+interval '5 minutes' OR
+       NEW.lease_until>db_now+interval '5 minutes 30 seconds' THEN
+        RAISE EXCEPTION 'Helm protected publisher readiness is outside bounded database time'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validate_helm_publication_prerequisite_receipt(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validate_helm_publication_prerequisite_receipt() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF TG_OP<>'INSERT' THEN
+        RAISE EXCEPTION 'Helm publication prerequisite receipts are immutable'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM helm_release_revisions release
+        JOIN git_repository_bindings platform ON platform.id=NEW.platform_binding_id
+        JOIN git_repository_bindings environment_binding ON environment_binding.id=NEW.environment_binding_id
+        JOIN git_projection_generations generation
+          ON generation.binding_id=environment_binding.id
+         AND generation.generation=NEW.environment_generation
+        WHERE release.id=NEW.release_revision_id
+          AND release.project_id=NEW.project_id
+          AND release.environment_id=NEW.environment_id
+          AND release.application_id=NEW.application_id
+          AND platform.kind='platform' AND platform.credential_mode='github-app'
+          AND platform.cluster_id=NEW.cluster_id
+          AND platform.state IN ('ready','indexing')
+          AND platform.target_head_revision=NEW.planned_base_revision
+          AND environment_binding.kind='environment'
+          AND environment_binding.credential_mode='github-app'
+          AND environment_binding.state='ready'
+          AND environment_binding.project_id=NEW.project_id
+          AND environment_binding.environment_id=NEW.environment_id
+          AND environment_binding.target_head_revision=NEW.environment_revision
+          AND environment_binding.indexed_revision=NEW.environment_revision
+          AND environment_binding.projection_generation=NEW.environment_generation
+          AND generation.state='active' AND generation.head_revision=NEW.environment_revision
+          AND NOT EXISTS (
+              SELECT 1 FROM git_projected_documents document
+              WHERE document.binding_id=NEW.environment_binding_id
+                AND document.generation=NEW.environment_generation
+                AND NOT document.valid
+          )
+    ) THEN
+        RAISE EXCEPTION 'Helm publication prerequisite binding is not exact current authority'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM environment_foundation_intents foundation
+        WHERE foundation.id=NEW.foundation_intent_id
+          AND foundation.environment_id=NEW.environment_id
+          AND foundation.project_id=NEW.project_id
+          AND foundation.platform_binding_id=NEW.platform_binding_id
+          AND foundation.cluster_id=NEW.cluster_id
+          AND foundation.state='ready' AND foundation.active
+          AND foundation.committed_revision=NEW.foundation_revision
+          AND foundation.published_at IS NOT NULL
+          AND foundation.completed_at=foundation.published_at
+    ) THEN
+        RAISE EXCEPTION 'Helm publication requires exact ready environment foundation'
+            USING ERRCODE='23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM argo_desired_state_materialization_receipts materialization
+        JOIN argo_desired_state_commands command
+          ON command.id=materialization.desired_state_command_id
+        JOIN environments environment ON environment.id=command.environment_id
+        WHERE materialization.environment_binding_id=NEW.environment_binding_id
+          AND materialization.environment_revision=NEW.environment_revision
+          AND materialization.environment_generation=NEW.environment_generation
+          AND materialization.project_id=NEW.project_id
+          AND materialization.environment_id=NEW.environment_id
+          AND materialization.platform_binding_id=NEW.platform_binding_id
+          AND materialization.cluster_id=NEW.cluster_id
+          AND materialization.desired_state_command_id=NEW.desired_state_command_id
+          AND materialization.desired_state_revision=NEW.desired_state_revision
+          AND materialization.created_at<=NEW.created_at
+          AND materialization.policy_digest IS NOT NULL
+          AND command.project_id=NEW.project_id
+          AND command.environment_id=NEW.environment_id
+          AND command.platform_binding_id=NEW.platform_binding_id
+          AND command.environment_binding_id=NEW.environment_binding_id
+          AND command.cluster_id=NEW.cluster_id
+          AND command.generation=materialization.desired_state_generation
+          AND command.state='verified'
+          AND command.committed_revision=NEW.desired_state_revision
+          AND command.content_sha256=materialization.desired_state_content_sha256
+          AND command.write_base_revision<>''
+          AND command.verified_at IS NOT NULL
+          AND command.completed_at=command.verified_at
+          AND command.argo_project=environment.argo_project
+          AND command.destination_namespace=environment.namespace
+          AND NOT EXISTS (
+              SELECT 1 FROM argo_desired_state_commands later
+              WHERE later.project_id=command.project_id
+                AND later.environment_id=command.environment_id
+                AND later.generation>command.generation
+                AND (
+                  later.state NOT IN ('failed','superseded') OR
+                  later.completed_at IS NULL OR
+                  later.completed_at>=materialization.created_at
+                )
+          )
+    ) THEN
+        RAISE EXCEPTION 'Helm publication requires exact current Argo materialization authority'
             USING ERRCODE='23514';
     END IF;
     RETURN NEW;
@@ -2527,7 +6044,7 @@ BEGIN
         RAISE EXCEPTION 'build API mutation receipt is invalid' USING ERRCODE='23514';
     END IF;
     IF NEW.receipt_kind='secret-binding' AND
-       (NEW.namespace NOT IN ('create','rotate') OR NEW.idempotency_key !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$') THEN
+       (NEW.namespace NOT IN ('create','rotate','delete') OR NEW.idempotency_key !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$') THEN
         RAISE EXCEPTION 'secret binding mutation receipt is invalid' USING ERRCODE='23514';
     END IF;
     RETURN NEW;
@@ -2999,6 +6516,73 @@ END;
 $_$;
 
 
+--
+-- Name: verify_helm_protected_publisher_adoption_postimage(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.verify_helm_protected_publisher_adoption_postimage() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+DECLARE
+    valid_postimage boolean;
+BEGIN
+    IF NEW.intent_kind='payload' THEN
+        SELECT EXISTS(
+            SELECT 1 FROM public.helm_protected_payload_intents intent
+            WHERE intent.id=NEW.payload_intent_id
+              AND intent.publisher_config_digest=NEW.adopted_config_digest
+              AND intent.original_publisher_config_digest=NEW.original_config_digest
+              AND intent.publisher_adoption_epoch=NEW.adoption_epoch
+              AND intent.lease_owner=NEW.adopted_by_worker
+              AND intent.lease_epoch=NEW.adopted_lease_epoch
+              AND intent.lease_until>NEW.created_at
+              AND intent.updated_at=NEW.created_at
+              AND intent.prerequisite_epoch=NEW.prerequisite_epoch+1
+              AND intent.state=CASE WHEN NEW.recovery_state='pending' THEN 'claimed' ELSE NEW.recovery_state END
+              AND intent.intent_digest=NEW.intent_digest
+              AND intent.content_digest=NEW.content_digest
+              AND intent.path=NEW.protected_path
+              AND intent.precondition=NEW.precondition
+              AND intent.expected_etag=NEW.expected_etag
+              AND intent.commit_trailer=NEW.commit_trailer
+              AND intent.write_base_revision=NEW.write_base_revision
+              AND intent.committed_revision=NEW.committed_revision
+              AND intent.committed_parent_revision=NEW.committed_parent_revision
+        ) INTO valid_postimage;
+    ELSE
+        SELECT EXISTS(
+            SELECT 1 FROM public.helm_protected_application_intents intent
+            WHERE intent.id=NEW.application_intent_id
+              AND intent.publisher_config_digest=NEW.adopted_config_digest
+              AND intent.original_publisher_config_digest=NEW.original_config_digest
+              AND intent.publisher_adoption_epoch=NEW.adoption_epoch
+              AND intent.lease_owner=NEW.adopted_by_worker
+              AND intent.lease_epoch=NEW.adopted_lease_epoch
+              AND intent.lease_until>NEW.created_at
+              AND intent.updated_at=NEW.created_at
+              AND intent.prerequisite_epoch=NEW.prerequisite_epoch+1
+              AND intent.state=CASE WHEN NEW.recovery_state='pending' THEN 'claimed' ELSE NEW.recovery_state END
+              AND intent.intent_digest=NEW.intent_digest
+              AND intent.content_digest=NEW.content_digest
+              AND intent.application_path=NEW.protected_path
+              AND intent.precondition=NEW.precondition
+              AND intent.expected_etag=NEW.expected_etag
+              AND intent.commit_trailer=NEW.commit_trailer
+              AND intent.write_base_revision=NEW.write_base_revision
+              AND intent.committed_revision=NEW.committed_revision
+              AND intent.committed_parent_revision=NEW.committed_parent_revision
+        ) INTO valid_postimage;
+    END IF;
+    IF NOT valid_postimage THEN
+        RAISE EXCEPTION 'Helm protected publisher adoption receipt lacks exact committed postimage'
+            USING ERRCODE='23514';
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -3009,7 +6593,7 @@ SET default_table_access_method = heap;
 
 CREATE TABLE public.access_grants (
     id uuid NOT NULL,
-    subject_user_id uuid NOT NULL,
+    subject_user_id uuid,
     role text NOT NULL,
     scope_type text NOT NULL,
     scope_id text NOT NULL,
@@ -3017,12 +6601,14 @@ CREATE TABLE public.access_grants (
     source text DEFAULT 'explicit'::text NOT NULL,
     created_by uuid NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    subject_team_id uuid,
     CONSTRAINT access_grants_check CHECK (((role <> 'organization-admin'::text) OR (scope_type = 'team'::text))),
     CONSTRAINT access_grants_check1 CHECK (((role <> 'project-admin'::text) OR (scope_type = 'project'::text))),
     CONSTRAINT access_grants_check2 CHECK (((role = 'platform-admin'::text) = ((scope_type = 'platform'::text) AND (scope_id = 'platform'::text)))),
     CONSTRAINT access_grants_check3 CHECK (((scope_type <> 'platform'::text) OR ((role = 'platform-admin'::text) AND (scope_id = 'platform'::text)))),
     CONSTRAINT access_grants_check4 CHECK (((source = 'bootstrap'::text) = (role = 'platform-admin'::text))),
     CONSTRAINT access_grants_check5 CHECK ((((scope_type = 'platform'::text) AND (scope_id = 'platform'::text)) OR ((scope_type = 'namespace'::text) AND (scope_id ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'::text)) OR ((scope_type = ANY (ARRAY['team'::text, 'project'::text, 'environment'::text, 'application'::text])) AND (scope_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'::text)))),
+    CONSTRAINT access_grants_exactly_one_subject_check CHECK (((subject_user_id IS NOT NULL) <> (subject_team_id IS NOT NULL))),
     CONSTRAINT access_grants_permissions_check CHECK ((permissions <@ ARRAY['logs.read'::text])),
     CONSTRAINT access_grants_permissions_check1 CHECK ((cardinality(permissions) <= 1)),
     CONSTRAINT access_grants_role_check CHECK ((role = ANY (ARRAY['viewer'::text, 'developer'::text, 'project-admin'::text, 'organization-admin'::text, 'platform-admin'::text]))),
@@ -3147,6 +6733,8 @@ CREATE TABLE public.argo_desired_state_commands (
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
+    policy_digest text,
+    app_project_content bytea,
     CONSTRAINT argo_desired_state_commands_argo_namespace_check CHECK ((argo_namespace ~ '^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$'::text)),
     CONSTRAINT argo_desired_state_commands_argo_project_check CHECK ((argo_project ~ '^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$'::text)),
     CONSTRAINT argo_desired_state_commands_base_revision_check CHECK ((base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
@@ -3176,12 +6764,60 @@ CREATE TABLE public.argo_desired_state_commands (
     CONSTRAINT argo_desired_state_commands_lease_epoch_check CHECK ((lease_epoch >= 0)),
     CONSTRAINT argo_desired_state_commands_lease_owner_check CHECK (((lease_owner IS NULL) OR ((length(lease_owner) >= 16) AND (length(lease_owner) <= 128) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
     CONSTRAINT argo_desired_state_commands_message_check CHECK (((length(message) >= 1) AND (length(message) <= 512) AND (message !~ '[\x00\r]'::text))),
+    CONSTRAINT argo_desired_state_commands_policy_digest_check CHECK (((policy_digest IS NULL) OR (policy_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT argo_desired_state_commands_precondition_check CHECK ((precondition = ANY (ARRAY['match-etag'::text, 'create-if-absent'::text]))),
     CONSTRAINT argo_desired_state_commands_renderer_image_check CHECK (((length(renderer_image) >= 10) AND (length(renderer_image) <= 512) AND (renderer_image ~ '^[^[:space:]@]+@sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT argo_desired_state_commands_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text, 'verified'::text, 'blocked-prerequisite'::text, 'failed'::text, 'superseded'::text]))),
     CONSTRAINT argo_desired_state_commands_worker_config_digest_check CHECK (((worker_config_digest IS NULL) OR (worker_config_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
     CONSTRAINT argo_desired_state_commands_worker_contract_check CHECK (((worker_contract IS NULL) OR ((length(worker_contract) >= 8) AND (length(worker_contract) <= 64) AND (worker_contract ~ '^[a-z][a-z0-9.-]{7,63}$'::text)))),
     CONSTRAINT argo_desired_state_commands_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)))
+);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.argo_desired_state_materialization_receipts (
+    id uuid NOT NULL,
+    environment_binding_id uuid CONSTRAINT argo_desired_state_materializat_environment_binding_id_not_null NOT NULL,
+    environment_revision text CONSTRAINT argo_desired_state_materializatio_environment_revision_not_null NOT NULL,
+    environment_generation bigint CONSTRAINT argo_desired_state_materializat_environment_generation_not_null NOT NULL,
+    project_id uuid NOT NULL,
+    environment_id uuid CONSTRAINT argo_desired_state_materialization_rece_environment_id_not_null NOT NULL,
+    platform_binding_id uuid CONSTRAINT argo_desired_state_materialization_platform_binding_id_not_null NOT NULL,
+    cluster_id uuid NOT NULL,
+    platform_target_ref text CONSTRAINT argo_desired_state_materialization_platform_target_ref_not_null NOT NULL,
+    environment_target_ref text CONSTRAINT argo_desired_state_materializat_environment_target_ref_not_null NOT NULL,
+    desired_state_command_id uuid CONSTRAINT argo_desired_state_materializ_desired_state_command_id_not_null NOT NULL,
+    desired_state_generation bigint CONSTRAINT argo_desired_state_materializ_desired_state_generation_not_null NOT NULL,
+    desired_state_revision text CONSTRAINT argo_desired_state_materializat_desired_state_revision_not_null NOT NULL,
+    desired_state_content_sha256 text CONSTRAINT argo_desired_state_material_desired_state_content_sha2_not_null NOT NULL,
+    catalog_digest text CONSTRAINT argo_desired_state_materialization_rece_catalog_digest_not_null NOT NULL,
+    policy_digest text,
+    chart_repository text CONSTRAINT argo_desired_state_materialization_re_chart_repository_not_null NOT NULL,
+    chart_name text NOT NULL,
+    chart_version text CONSTRAINT argo_desired_state_materialization_recei_chart_version_not_null NOT NULL,
+    chart_digest text CONSTRAINT argo_desired_state_materialization_receip_chart_digest_not_null NOT NULL,
+    renderer_image text CONSTRAINT argo_desired_state_materialization_rece_renderer_image_not_null NOT NULL,
+    chart_digest_enforcement text CONSTRAINT argo_desired_state_materializ_chart_digest_enforcement_not_null NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    app_project_content bytea,
+    CONSTRAINT argo_desired_state_materiali_desired_state_content_sha256_check CHECK ((desired_state_content_sha256 ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT argo_desired_state_materializati_chart_digest_enforcement_check CHECK ((chart_digest_enforcement = 'native-oci-digest-v1'::text)),
+    CONSTRAINT argo_desired_state_materializati_desired_state_generation_check CHECK ((desired_state_generation > 0)),
+    CONSTRAINT argo_desired_state_materialization_desired_state_revision_check CHECK ((desired_state_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT argo_desired_state_materialization_environment_generation_check CHECK ((environment_generation > 0)),
+    CONSTRAINT argo_desired_state_materialization_environment_target_ref_check CHECK ((environment_target_ref ~ '^refs/heads/[A-Za-z0-9._/-]{1,240}$'::text)),
+    CONSTRAINT argo_desired_state_materialization_r_environment_revision_check CHECK ((environment_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT argo_desired_state_materialization_re_platform_target_ref_check CHECK ((platform_target_ref ~ '^refs/heads/[A-Za-z0-9._/-]{1,240}$'::text)),
+    CONSTRAINT argo_desired_state_materialization_recei_chart_repository_check CHECK (((length(chart_repository) >= 7) AND (length(chart_repository) <= 512) AND (chart_repository ~ '^oci://[^/?#@[:space:]]+/[^?#@[:space:]]+$'::text))),
+    CONSTRAINT argo_desired_state_materialization_receipt_catalog_digest_check CHECK ((catalog_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT argo_desired_state_materialization_receipt_renderer_image_check CHECK (((length(renderer_image) >= 10) AND (length(renderer_image) <= 512) AND (renderer_image ~ '^[^[:space:]@]+@sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT argo_desired_state_materialization_receipts_chart_digest_check CHECK ((chart_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT argo_desired_state_materialization_receipts_chart_name_check CHECK ((chart_name = 'kuberploy-runtime'::text)),
+    CONSTRAINT argo_desired_state_materialization_receipts_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 64) AND (chart_version ~ '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
+    CONSTRAINT argo_desired_state_materialization_receipts_policy_digest_check CHECK (((policy_digest IS NULL) OR (policy_digest ~ '^sha256:[0-9a-f]{64}$'::text)))
 );
 
 
@@ -4418,6 +8054,421 @@ CREATE TABLE public.github_webhook_receipts (
 
 
 --
+-- Name: helm_application_cascade_absence_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_absence_receipts (
+    cascade_preflight_id uuid CONSTRAINT helm_application_cascade_absence__cascade_preflight_id_not_null NOT NULL,
+    release_revision_id uuid CONSTRAINT helm_application_cascade_absence_r_release_revision_id_not_null NOT NULL,
+    payload_intent_id uuid CONSTRAINT helm_application_cascade_absence_rec_payload_intent_id_not_null NOT NULL,
+    base_application_intent_id uuid CONSTRAINT helm_application_cascade_ab_base_application_intent_id_not_null NOT NULL,
+    release_generation bigint CONSTRAINT helm_application_cascade_absence_re_release_generation_not_null NOT NULL,
+    platform_binding_id uuid CONSTRAINT helm_application_cascade_absence_r_platform_binding_id_not_null NOT NULL,
+    platform_binding_state text CONSTRAINT helm_application_cascade_absenc_platform_binding_state_not_null NOT NULL,
+    platform_indexed_revision text CONSTRAINT helm_application_cascade_abs_platform_indexed_revision_not_null NOT NULL,
+    application_path text CONSTRAINT helm_application_cascade_absence_rece_application_path_not_null NOT NULL,
+    source_content_digest text CONSTRAINT helm_application_cascade_absence_source_content_digest_not_null NOT NULL,
+    adopted_content_digest text CONSTRAINT helm_application_cascade_absenc_adopted_content_digest_not_null NOT NULL,
+    expected_etag text CONSTRAINT helm_application_cascade_absence_receipt_expected_etag_not_null NOT NULL,
+    provider_head text CONSTRAINT helm_application_cascade_absence_receipt_provider_head_not_null NOT NULL,
+    provider_request text CONSTRAINT helm_application_cascade_absence_rece_provider_request_not_null NOT NULL,
+    provider_observed_at timestamp with time zone CONSTRAINT helm_application_cascade_absence__provider_observed_at_not_null NOT NULL,
+    operation_commit_absent boolean CONSTRAINT helm_application_cascade_absen_operation_commit_absent_not_null NOT NULL,
+    publisher_contract text CONSTRAINT helm_application_cascade_absence_re_publisher_contract_not_null NOT NULL,
+    publisher_policy_version text CONSTRAINT helm_application_cascade_abse_publisher_policy_version_not_null NOT NULL,
+    publisher_config_digest text CONSTRAINT helm_application_cascade_absen_publisher_config_digest_not_null NOT NULL,
+    publisher_worker_id text CONSTRAINT helm_application_cascade_absence_r_publisher_worker_id_not_null NOT NULL,
+    publisher_worker_epoch bigint CONSTRAINT helm_application_cascade_absenc_publisher_worker_epoch_not_null NOT NULL,
+    lease_epoch bigint NOT NULL,
+    recorded_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_application_cascade_absenc_platform_indexed_revision_check CHECK (((platform_indexed_revision = ''::text) OR (platform_indexed_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_application_cascade_absence__operation_commit_absent_check CHECK (operation_commit_absent),
+    CONSTRAINT helm_application_cascade_absence__publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_absence_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_absence_r_adopted_content_digest_check CHECK ((adopted_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_absence_r_platform_binding_state_check CHECK ((platform_binding_state = ANY (ARRAY['ready'::text, 'indexing'::text]))),
+    CONSTRAINT helm_application_cascade_absence_r_publisher_worker_epoch_check CHECK ((publisher_worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_absence_re_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_absence_rece_publisher_worker_id_check CHECK ((((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128)) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
+    CONSTRAINT helm_application_cascade_absence_recei_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_absence_recei_release_generation_check CHECK ((release_generation > 1)),
+    CONSTRAINT helm_application_cascade_absence_receipt_application_path_check CHECK ((((length(application_path) >= 1) AND (length(application_path) <= 1024)) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
+    CONSTRAINT helm_application_cascade_absence_receipt_provider_request_check CHECK ((((length(provider_request) >= 1) AND (length(provider_request) <= 256)) AND (provider_request !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_absence_receipts_expected_etag_check CHECK ((expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text)),
+    CONSTRAINT helm_application_cascade_absence_receipts_lease_epoch_check CHECK ((lease_epoch > 0)),
+    CONSTRAINT helm_application_cascade_absence_receipts_provider_head_check CHECK ((provider_head ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))
+);
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_adoption_receipts (
+    id uuid NOT NULL,
+    cascade_preflight_id uuid CONSTRAINT helm_application_cascade_adoption_cascade_preflight_id_not_null NOT NULL,
+    adoption_epoch bigint CONSTRAINT helm_application_cascade_adoption_recei_adoption_epoch_not_null NOT NULL,
+    publisher_contract text CONSTRAINT helm_application_cascade_adoption_r_publisher_contract_not_null NOT NULL,
+    policy_version text CONSTRAINT helm_application_cascade_adoption_recei_policy_version_not_null NOT NULL,
+    original_config_digest text CONSTRAINT helm_application_cascade_adopti_original_config_digest_not_null NOT NULL,
+    previous_config_digest text CONSTRAINT helm_application_cascade_adopti_previous_config_digest_not_null NOT NULL,
+    adopted_config_digest text CONSTRAINT helm_application_cascade_adoptio_adopted_config_digest_not_null NOT NULL,
+    intent_digest text CONSTRAINT helm_application_cascade_adoption_receip_intent_digest_not_null NOT NULL,
+    source_content_digest text CONSTRAINT helm_application_cascade_adoptio_source_content_digest_not_null NOT NULL,
+    adopted_content_digest text CONSTRAINT helm_application_cascade_adopti_adopted_content_digest_not_null NOT NULL,
+    application_path text CONSTRAINT helm_application_cascade_adoption_rec_application_path_not_null NOT NULL,
+    precondition text CONSTRAINT helm_application_cascade_adoption_receipt_precondition_not_null NOT NULL,
+    expected_etag text CONSTRAINT helm_application_cascade_adoption_receip_expected_etag_not_null NOT NULL,
+    commit_trailer text CONSTRAINT helm_application_cascade_adoption_recei_commit_trailer_not_null NOT NULL,
+    recovery_state text CONSTRAINT helm_application_cascade_adoption_recei_recovery_state_not_null NOT NULL,
+    write_base_revision text CONSTRAINT helm_application_cascade_adoption__write_base_revision_not_null NOT NULL,
+    committed_revision text CONSTRAINT helm_application_cascade_adoption_r_committed_revision_not_null NOT NULL,
+    committed_parent_revision text CONSTRAINT helm_application_cascade_ado_committed_parent_revision_not_null NOT NULL,
+    previous_lease_epoch bigint CONSTRAINT helm_application_cascade_adoption_previous_lease_epoch_not_null NOT NULL,
+    adopted_lease_epoch bigint CONSTRAINT helm_application_cascade_adoption__adopted_lease_epoch_not_null NOT NULL,
+    adopted_by_worker text CONSTRAINT helm_application_cascade_adoption_re_adopted_by_worker_not_null NOT NULL,
+    adopted_worker_epoch bigint CONSTRAINT helm_application_cascade_adoption_adopted_worker_epoch_not_null NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_application_cascade_adoption__adopted_content_digest_check CHECK ((adopted_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption__original_config_digest_check CHECK ((original_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption__previous_config_digest_check CHECK ((previous_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption_r_adopted_config_digest_check CHECK ((adopted_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption_r_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption_re_adopted_worker_epoch_check CHECK ((adopted_worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_adoption_re_previous_lease_epoch_check CHECK ((previous_lease_epoch >= 0)),
+    CONSTRAINT helm_application_cascade_adoption_rece_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_adoption_epoch_check CHECK ((adoption_epoch > 0)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_check CHECK ((adopted_lease_epoch = (previous_lease_epoch + 1))),
+    CONSTRAINT helm_application_cascade_adoption_receipts_check1 CHECK ((previous_config_digest <> adopted_config_digest)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_intent_digest_check CHECK ((intent_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_policy_version_check CHECK ((policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_precondition_check CHECK ((precondition = 'match-etag'::text)),
+    CONSTRAINT helm_application_cascade_adoption_receipts_recovery_state_check CHECK ((recovery_state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text])))
+);
+
+
+--
+-- Name: helm_application_cascade_observation_jobs; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_observation_jobs (
+    cascade_preflight_id uuid CONSTRAINT helm_application_cascade_observat_cascade_preflight_id_not_null NOT NULL,
+    platform_binding_id uuid CONSTRAINT helm_application_cascade_observati_platform_binding_id_not_null NOT NULL,
+    activation_epoch bigint CONSTRAINT helm_application_cascade_observation__activation_epoch_not_null NOT NULL,
+    publisher_config_digest text CONSTRAINT helm_application_cascade_obse_publisher_config_digest_not_null1 NOT NULL,
+    publisher_contract text CONSTRAINT helm_application_cascade_observatio_publisher_contract_not_null NOT NULL,
+    publisher_policy_version text CONSTRAINT helm_application_cascade_obs_publisher_policy_version_not_null1 NOT NULL,
+    state text NOT NULL,
+    next_attempt_at timestamp with time zone CONSTRAINT helm_application_cascade_observation_j_next_attempt_at_not_null NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    consecutive_failures integer DEFAULT 0 CONSTRAINT helm_application_cascade_observat_consecutive_failures_not_null NOT NULL,
+    last_failure_code text DEFAULT ''::text CONSTRAINT helm_application_cascade_observation_last_failure_code_not_null NOT NULL,
+    lease_owner text,
+    worker_epoch bigint,
+    lease_epoch bigint DEFAULT 0 NOT NULL,
+    lease_until timestamp with time zone,
+    superseded_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT helm_application_cascade_observa_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_observat_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_observation_consecutive_failures_check CHECK (((consecutive_failures >= 0) AND (consecutive_failures <= 30))),
+    CONSTRAINT helm_application_cascade_observation_j_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_observation_jo_last_failure_code_check CHECK (((last_failure_code = ''::text) OR (last_failure_code ~ '^[a-z][a-z0-9.-]{0,62}$'::text))),
+    CONSTRAINT helm_application_cascade_observation_job_activation_epoch_check CHECK ((activation_epoch > 0)),
+    CONSTRAINT helm_application_cascade_observation_jobs_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
+    CONSTRAINT helm_application_cascade_observation_jobs_check CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
+    CONSTRAINT helm_application_cascade_observation_jobs_check1 CHECK (((last_failure_code = ''::text) = (consecutive_failures = 0))),
+    CONSTRAINT helm_application_cascade_observation_jobs_check2 CHECK (((lease_owner IS NULL) = (lease_until IS NULL))),
+    CONSTRAINT helm_application_cascade_observation_jobs_check3 CHECK (((state = 'superseded'::text) = (superseded_at IS NOT NULL))),
+    CONSTRAINT helm_application_cascade_observation_jobs_lease_epoch_check CHECK ((lease_epoch >= 0)),
+    CONSTRAINT helm_application_cascade_observation_jobs_lease_owner_check CHECK (((lease_owner IS NULL) OR (((length(lease_owner) >= 16) AND (length(lease_owner) <= 128)) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
+    CONSTRAINT helm_application_cascade_observation_jobs_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'verified'::text, 'failed'::text, 'superseded'::text]))),
+    CONSTRAINT helm_application_cascade_observation_jobs_worker_epoch_check CHECK (((worker_epoch IS NULL) OR (worker_epoch > 0)))
+);
+
+
+--
+-- Name: helm_application_cascade_observer_activations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_observer_activations (
+    platform_binding_id uuid CONSTRAINT helm_application_cascade_observer__platform_binding_id_not_null NOT NULL,
+    activation_epoch bigint CONSTRAINT helm_application_cascade_observer_act_activation_epoch_not_null NOT NULL,
+    publisher_contract text CONSTRAINT helm_application_cascade_observer_a_publisher_contract_not_null NOT NULL,
+    publisher_policy_version text CONSTRAINT helm_application_cascade_obse_publisher_policy_version_not_null NOT NULL,
+    publisher_config_digest text CONSTRAINT helm_application_cascade_obser_publisher_config_digest_not_null NOT NULL,
+    publisher_worker_id text CONSTRAINT helm_application_cascade_observer__publisher_worker_id_not_null NOT NULL,
+    publisher_worker_epoch bigint CONSTRAINT helm_application_cascade_observ_publisher_worker_epoch_not_null NOT NULL,
+    publisher_started_at timestamp with time zone CONSTRAINT helm_application_cascade_observer_publisher_started_at_not_null NOT NULL,
+    publisher_readiness_observed_at timestamp with time zone CONSTRAINT helm_application_cascade_ob_publisher_readiness_observ_not_null NOT NULL,
+    publisher_readiness_lease_until timestamp with time zone CONSTRAINT helm_application_cascade_ob_publisher_readiness_lease__not_null NOT NULL,
+    argo_contract text CONSTRAINT helm_application_cascade_observer_activa_argo_contract_not_null NOT NULL,
+    argo_config_digest text CONSTRAINT helm_application_cascade_observer_a_argo_config_digest_not_null NOT NULL,
+    argo_worker_id text CONSTRAINT helm_application_cascade_observer_activ_argo_worker_id_not_null NOT NULL,
+    argo_worker_epoch bigint CONSTRAINT helm_application_cascade_observer_ac_argo_worker_epoch_not_null NOT NULL,
+    argo_identity jsonb CONSTRAINT helm_application_cascade_observer_activa_argo_identity_not_null NOT NULL,
+    argo_started_at timestamp with time zone CONSTRAINT helm_application_cascade_observer_acti_argo_started_at_not_null NOT NULL,
+    argo_readiness_observed_at timestamp with time zone CONSTRAINT helm_application_cascade_ob_argo_readiness_observed_at_not_null NOT NULL,
+    argo_readiness_lease_until timestamp with time zone CONSTRAINT helm_application_cascade_ob_argo_readiness_lease_until_not_null NOT NULL,
+    activated_at timestamp with time zone CONSTRAINT helm_application_cascade_observer_activat_activated_at_not_null NOT NULL,
+    CONSTRAINT helm_application_cascade_observe_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_observer__publisher_worker_epoch_check CHECK ((publisher_worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_observer_act_publisher_worker_id_check CHECK ((((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128)) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
+    CONSTRAINT helm_application_cascade_observer_acti_argo_config_digest_check CHECK ((argo_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_observer_acti_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_observer_activ_argo_worker_epoch_check CHECK ((argo_worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_observer_activa_activation_epoch_check CHECK ((activation_epoch > 0)),
+    CONSTRAINT helm_application_cascade_observer_activati_argo_worker_id_check CHECK ((((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256)) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
+    CONSTRAINT helm_application_cascade_observer_activatio_argo_contract_check CHECK ((argo_contract = 'argo-desired-state-runtime-v1'::text)),
+    CONSTRAINT helm_application_cascade_observer_activatio_argo_identity_check CHECK (((jsonb_typeof(argo_identity) = 'object'::text) AND (octet_length((argo_identity)::text) <= 8192))),
+    CONSTRAINT helm_application_cascade_observer_activations_check CHECK (((publisher_started_at <= publisher_readiness_observed_at) AND (publisher_readiness_observed_at <= activated_at) AND (publisher_readiness_lease_until > activated_at) AND (publisher_readiness_lease_until <= (publisher_readiness_observed_at + '00:05:00'::interval)) AND (publisher_readiness_lease_until <= (activated_at + '00:05:00'::interval)))),
+    CONSTRAINT helm_application_cascade_observer_activations_check1 CHECK (((argo_started_at <= argo_readiness_observed_at) AND (argo_readiness_observed_at <= activated_at) AND (argo_readiness_lease_until > activated_at) AND (argo_readiness_lease_until <= (argo_readiness_observed_at + '00:05:00'::interval)) AND (argo_readiness_lease_until <= (activated_at + '00:05:00'::interval)))),
+    CONSTRAINT helm_application_cascade_observer_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text))
+);
+
+
+--
+-- Name: helm_application_cascade_preflights; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_preflights (
+    id uuid NOT NULL,
+    delete_intent_id uuid NOT NULL,
+    release_revision_id uuid CONSTRAINT helm_application_cascade_preflight_release_revision_id_not_null NOT NULL,
+    payload_intent_id uuid NOT NULL,
+    base_application_intent_id uuid CONSTRAINT helm_application_cascade_pr_base_application_intent_id_not_null NOT NULL,
+    release_generation bigint NOT NULL,
+    payload_revision text NOT NULL,
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    platform_binding_id uuid CONSTRAINT helm_application_cascade_preflight_platform_binding_id_not_null NOT NULL,
+    environment_binding_id uuid CONSTRAINT helm_application_cascade_prefli_environment_binding_id_not_null NOT NULL,
+    cluster_id uuid NOT NULL,
+    platform_target_ref text CONSTRAINT helm_application_cascade_preflight_platform_target_ref_not_null NOT NULL,
+    environment_target_ref text CONSTRAINT helm_application_cascade_prefli_environment_target_ref_not_null NOT NULL,
+    environment_revision text CONSTRAINT helm_application_cascade_prefligh_environment_revision_not_null NOT NULL,
+    environment_generation bigint CONSTRAINT helm_application_cascade_prefli_environment_generation_not_null NOT NULL,
+    catalog_digest text NOT NULL,
+    planned_base_revision text CONSTRAINT helm_application_cascade_preflig_planned_base_revision_not_null NOT NULL,
+    argo_namespace text NOT NULL,
+    application_path text NOT NULL,
+    source_content bytea NOT NULL,
+    source_content_digest text CONSTRAINT helm_application_cascade_preflig_source_content_digest_not_null NOT NULL,
+    adopted_content bytea NOT NULL,
+    adopted_content_digest text CONSTRAINT helm_application_cascade_prefli_adopted_content_digest_not_null NOT NULL,
+    content_digest text NOT NULL,
+    operation text NOT NULL,
+    precondition text NOT NULL,
+    expected_etag text NOT NULL,
+    intent_digest text NOT NULL,
+    commit_trailer text NOT NULL,
+    contract text NOT NULL,
+    publisher_contract text NOT NULL,
+    publisher_policy_version text CONSTRAINT helm_application_cascade_pref_publisher_policy_version_not_null NOT NULL,
+    publisher_config_digest text CONSTRAINT helm_application_cascade_prefl_publisher_config_digest_not_null NOT NULL,
+    original_publisher_config_digest text CONSTRAINT helm_application_cascade_pr_original_publisher_config__not_null NOT NULL,
+    publisher_adoption_epoch bigint DEFAULT 0 CONSTRAINT helm_application_cascade_pref_publisher_adoption_epoch_not_null NOT NULL,
+    prerequisite_epoch bigint DEFAULT 0 NOT NULL,
+    state text NOT NULL,
+    next_attempt_at timestamp with time zone NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    consecutive_failures integer DEFAULT 0 CONSTRAINT helm_application_cascade_prefligh_consecutive_failures_not_null NOT NULL,
+    last_failure_code text DEFAULT ''::text NOT NULL,
+    lease_owner text,
+    lease_epoch bigint DEFAULT 0 NOT NULL,
+    lease_until timestamp with time zone,
+    write_base_revision text DEFAULT ''::text CONSTRAINT helm_application_cascade_preflight_write_base_revision_not_null NOT NULL,
+    write_base_observed_at timestamp with time zone,
+    committed_revision text DEFAULT ''::text NOT NULL,
+    committed_parent_revision text DEFAULT ''::text CONSTRAINT helm_application_cascade_pre_committed_parent_revision_not_null NOT NULL,
+    committed_at timestamp with time zone,
+    verified_at timestamp with time zone,
+    verified_path_digest text DEFAULT ''::text CONSTRAINT helm_application_cascade_prefligh_verified_path_digest_not_null NOT NULL,
+    provider_request text DEFAULT ''::text NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT helm_application_cascade_pre_original_publisher_config_di_check CHECK ((original_publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_prefli_committed_parent_revision_check CHECK (((committed_parent_revision = ''::text) OR (committed_parent_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_application_cascade_preflig_publisher_adoption_epoch_check CHECK ((publisher_adoption_epoch >= 0)),
+    CONSTRAINT helm_application_cascade_preflig_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_prefligh_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_preflight_adopted_content_digest_check CHECK ((adopted_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_preflight_environment_generation_check CHECK ((environment_generation > 0)),
+    CONSTRAINT helm_application_cascade_preflight_environment_target_ref_check CHECK ((((length(environment_target_ref) >= 1) AND (length(environment_target_ref) <= 255)) AND (environment_target_ref !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_preflights_adopted_content_check CHECK (((octet_length(adopted_content) >= 1) AND (octet_length(adopted_content) <= 32768))),
+    CONSTRAINT helm_application_cascade_preflights_application_path_check CHECK ((((length(application_path) >= 1) AND (length(application_path) <= 1024)) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
+    CONSTRAINT helm_application_cascade_preflights_argo_namespace_check CHECK ((argo_namespace ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
+    CONSTRAINT helm_application_cascade_preflights_catalog_digest_check CHECK ((catalog_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_check CHECK (((content_digest = adopted_content_digest) AND (content_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT helm_application_cascade_preflights_check1 CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
+    CONSTRAINT helm_application_cascade_preflights_check2 CHECK (((last_failure_code = ''::text) = (consecutive_failures = 0))),
+    CONSTRAINT helm_application_cascade_preflights_check3 CHECK (((lease_owner IS NULL) = (lease_until IS NULL))),
+    CONSTRAINT helm_application_cascade_preflights_check4 CHECK (((write_base_revision = ''::text) = (write_base_observed_at IS NULL))),
+    CONSTRAINT helm_application_cascade_preflights_check5 CHECK (((committed_revision = ''::text) = ((committed_parent_revision = ''::text) AND (committed_at IS NULL)))),
+    CONSTRAINT helm_application_cascade_preflights_committed_revision_check CHECK (((committed_revision = ''::text) OR (committed_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_application_cascade_preflights_consecutive_failures_check CHECK (((consecutive_failures >= 0) AND (consecutive_failures <= 30))),
+    CONSTRAINT helm_application_cascade_preflights_contract_check CHECK ((contract = 'helm-application-cascade-preflight.v1'::text)),
+    CONSTRAINT helm_application_cascade_preflights_environment_revision_check CHECK ((environment_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_expected_etag_check CHECK ((expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_intent_digest_check CHECK ((intent_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_last_failure_code_check CHECK (((last_failure_code = ''::text) OR (last_failure_code ~ '^[a-z][a-z0-9.-]{0,62}$'::text))),
+    CONSTRAINT helm_application_cascade_preflights_lease_epoch_check CHECK ((lease_epoch >= 0)),
+    CONSTRAINT helm_application_cascade_preflights_lease_owner_check CHECK (((lease_owner IS NULL) OR (((length(lease_owner) >= 16) AND (length(lease_owner) <= 128)) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
+    CONSTRAINT helm_application_cascade_preflights_operation_check CHECK ((operation = ANY (ARRAY['observe'::text, 'update'::text]))),
+    CONSTRAINT helm_application_cascade_preflights_payload_revision_check CHECK ((payload_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_planned_base_revision_check CHECK ((planned_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_platform_target_ref_check CHECK ((((length(platform_target_ref) >= 1) AND (length(platform_target_ref) <= 255)) AND (platform_target_ref !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_preflights_precondition_check CHECK ((precondition = 'match-etag'::text)),
+    CONSTRAINT helm_application_cascade_preflights_prerequisite_epoch_check CHECK ((prerequisite_epoch >= 0)),
+    CONSTRAINT helm_application_cascade_preflights_provider_request_check CHECK (((length(provider_request) <= 256) AND (provider_request !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_preflights_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_preflights_release_generation_check CHECK ((release_generation > 1)),
+    CONSTRAINT helm_application_cascade_preflights_source_content_check CHECK (((octet_length(source_content) >= 1) AND (octet_length(source_content) <= 32768))),
+    CONSTRAINT helm_application_cascade_preflights_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_preflights_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text, 'verified'::text, 'failed'::text, 'superseded'::text]))),
+    CONSTRAINT helm_application_cascade_preflights_verified_path_digest_check CHECK (((verified_path_digest = ''::text) OR (verified_path_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT helm_application_cascade_preflights_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)))
+);
+
+
+--
+-- Name: helm_application_cascade_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_cascade_receipts (
+    id uuid NOT NULL,
+    delete_intent_id uuid NOT NULL,
+    cascade_preflight_id uuid NOT NULL,
+    observation_epoch bigint NOT NULL,
+    observation_lease_epoch bigint CONSTRAINT helm_application_cascade_recei_observation_lease_epoch_not_null NOT NULL,
+    observer_activation_epoch bigint CONSTRAINT helm_application_cascade_rec_observer_activation_epoch_not_null NOT NULL,
+    release_revision_id uuid NOT NULL,
+    payload_intent_id uuid NOT NULL,
+    base_application_intent_id uuid CONSTRAINT helm_application_cascade_re_base_application_intent_id_not_null NOT NULL,
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    cluster_id uuid NOT NULL,
+    application_path text NOT NULL,
+    source_content_digest text CONSTRAINT helm_application_cascade_receipt_source_content_digest_not_null NOT NULL,
+    adopted_content_digest text CONSTRAINT helm_application_cascade_receip_adopted_content_digest_not_null NOT NULL,
+    adoption_revision text NOT NULL,
+    adoption_parent_revision text CONSTRAINT helm_application_cascade_rece_adoption_parent_revision_not_null NOT NULL,
+    provider_head text NOT NULL,
+    root_observed_revision text CONSTRAINT helm_application_cascade_receip_root_observed_revision_not_null NOT NULL,
+    root_sync_status text NOT NULL,
+    root_uid uuid NOT NULL,
+    root_resource_version text CONSTRAINT helm_application_cascade_receipt_root_resource_version_not_null NOT NULL,
+    root_spec_digest text NOT NULL,
+    child_uid uuid NOT NULL,
+    child_resource_version text CONSTRAINT helm_application_cascade_receip_child_resource_version_not_null NOT NULL,
+    child_spec_digest text NOT NULL,
+    finalizer_digest text NOT NULL,
+    child_release_revision_id uuid CONSTRAINT helm_application_cascade_rec_child_release_revision_id_not_null NOT NULL,
+    child_payload_revision text CONSTRAINT helm_application_cascade_receip_child_payload_revision_not_null NOT NULL,
+    child_payload_path text NOT NULL,
+    child_payload_digest text NOT NULL,
+    publisher_contract text NOT NULL,
+    publisher_policy_version text CONSTRAINT helm_application_cascade_rece_publisher_policy_version_not_null NOT NULL,
+    publisher_config_digest text CONSTRAINT helm_application_cascade_recei_publisher_config_digest_not_null NOT NULL,
+    worker_id text NOT NULL,
+    worker_epoch bigint NOT NULL,
+    argo_contract text NOT NULL,
+    argo_config_digest text NOT NULL,
+    argo_worker_id text NOT NULL,
+    argo_worker_epoch bigint NOT NULL,
+    argo_started_at timestamp with time zone NOT NULL,
+    argo_readiness_observed_at timestamp with time zone CONSTRAINT helm_application_cascade_re_argo_readiness_observed_at_not_null NOT NULL,
+    argo_readiness_lease_until timestamp with time zone CONSTRAINT helm_application_cascade_re_argo_readiness_lease_until_not_null NOT NULL,
+    observed_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_application_cascade_receip_observer_activation_epoch_check CHECK ((observer_activation_epoch > 0)),
+    CONSTRAINT helm_application_cascade_receipt_adoption_parent_revision_check CHECK ((adoption_parent_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_receipt_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_application_cascade_receipts_adopted_content_digest_check CHECK ((adopted_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_adoption_revision_check CHECK ((adoption_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_argo_config_digest_check CHECK ((argo_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_argo_contract_check CHECK ((argo_contract = 'argo-desired-state-runtime-v1'::text)),
+    CONSTRAINT helm_application_cascade_receipts_argo_worker_epoch_check CHECK ((argo_worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_receipts_argo_worker_id_check CHECK ((((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256)) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
+    CONSTRAINT helm_application_cascade_receipts_check CHECK ((root_observed_revision = provider_head)),
+    CONSTRAINT helm_application_cascade_receipts_check1 CHECK (((argo_started_at <= argo_readiness_observed_at) AND (argo_readiness_observed_at <= observed_at) AND (argo_readiness_lease_until > observed_at) AND (argo_readiness_lease_until <= (argo_readiness_observed_at + '00:05:00'::interval)))),
+    CONSTRAINT helm_application_cascade_receipts_child_payload_digest_check CHECK ((child_payload_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_child_payload_revision_check CHECK ((child_payload_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_child_resource_version_check CHECK ((((length(child_resource_version) >= 1) AND (length(child_resource_version) <= 128)) AND (child_resource_version !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_receipts_child_spec_digest_check CHECK ((child_spec_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_finalizer_digest_check CHECK ((finalizer_digest = 'sha256:4a33b93a0b2d591421d38cedd7660abbfffcb3fc10be2cbbe9e4d8525ce17f48'::text)),
+    CONSTRAINT helm_application_cascade_receipts_observation_epoch_check CHECK ((observation_epoch > 0)),
+    CONSTRAINT helm_application_cascade_receipts_observation_lease_epoch_check CHECK ((observation_lease_epoch > 0)),
+    CONSTRAINT helm_application_cascade_receipts_provider_head_check CHECK ((provider_head ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_application_cascade_receipts_root_resource_version_check CHECK ((((length(root_resource_version) >= 1) AND (length(root_resource_version) <= 128)) AND (root_resource_version !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_receipts_root_spec_digest_check CHECK ((root_spec_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_root_sync_status_check CHECK ((root_sync_status = 'Synced'::text)),
+    CONSTRAINT helm_application_cascade_receipts_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_application_cascade_receipts_worker_epoch_check CHECK ((worker_epoch > 0)),
+    CONSTRAINT helm_application_cascade_receipts_worker_id_check CHECK ((((length(worker_id) >= 16) AND (length(worker_id) <= 128)) AND (worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))
+);
+
+
+--
+-- Name: helm_application_continuation_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_application_continuation_receipts (
+    application_intent_id uuid CONSTRAINT helm_application_continuation_re_application_intent_id_not_null NOT NULL,
+    release_revision_id uuid CONSTRAINT helm_application_continuation_rece_release_revision_id_not_null NOT NULL,
+    payload_intent_id uuid CONSTRAINT helm_application_continuation_receip_payload_intent_id_not_null NOT NULL,
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    platform_binding_id uuid CONSTRAINT helm_application_continuation_rece_platform_binding_id_not_null NOT NULL,
+    environment_binding_id uuid CONSTRAINT helm_application_continuation_r_environment_binding_id_not_null NOT NULL,
+    cluster_id uuid NOT NULL,
+    source_environment_revision text CONSTRAINT helm_application_continuati_source_environment_revisio_not_null NOT NULL,
+    source_environment_generation bigint CONSTRAINT helm_application_continuati_source_environment_generat_not_null NOT NULL,
+    source_foundation_intent_id uuid CONSTRAINT helm_application_continuati_source_foundation_intent_i_not_null NOT NULL,
+    source_foundation_revision text CONSTRAINT helm_application_continuati_source_foundation_revision_not_null NOT NULL,
+    source_desired_state_command_id uuid CONSTRAINT helm_application_continuati_source_desired_state_comma_not_null NOT NULL,
+    source_desired_state_revision text CONSTRAINT helm_application_continuati_source_desired_state_revis_not_null NOT NULL,
+    source_desired_state_content_digest text CONSTRAINT helm_application_continuati_source_desired_state_conte_not_null NOT NULL,
+    current_environment_revision text CONSTRAINT helm_application_continuati_current_environment_revisi_not_null NOT NULL,
+    current_environment_generation bigint CONSTRAINT helm_application_continuati_current_environment_genera_not_null NOT NULL,
+    current_foundation_intent_id uuid CONSTRAINT helm_application_continuati_current_foundation_intent__not_null NOT NULL,
+    current_foundation_revision text CONSTRAINT helm_application_continuati_current_foundation_revisio_not_null NOT NULL,
+    current_materialization_receipt_id uuid CONSTRAINT helm_application_continuati_current_materialization_re_not_null NOT NULL,
+    current_desired_state_command_id uuid CONSTRAINT helm_application_continuati_current_desired_state_comm_not_null NOT NULL,
+    current_desired_state_revision text CONSTRAINT helm_application_continuati_current_desired_state_revi_not_null NOT NULL,
+    current_desired_state_content_digest text CONSTRAINT helm_application_continuati_current_desired_state_cont_not_null NOT NULL,
+    planned_base_revision text CONSTRAINT helm_application_continuation_re_planned_base_revision_not_null NOT NULL,
+    current_policy_digest text CONSTRAINT helm_application_continuation_re_current_policy_digest_not_null NOT NULL,
+    current_chart_repository text CONSTRAINT helm_application_continuation_current_chart_repository_not_null NOT NULL,
+    current_chart_name text CONSTRAINT helm_application_continuation_recei_current_chart_name_not_null NOT NULL,
+    current_chart_version text CONSTRAINT helm_application_continuation_re_current_chart_version_not_null NOT NULL,
+    current_chart_digest text CONSTRAINT helm_application_continuation_rec_current_chart_digest_not_null NOT NULL,
+    current_renderer_image text CONSTRAINT helm_application_continuation_r_current_renderer_image_not_null NOT NULL,
+    current_chart_digest_enforcement text CONSTRAINT helm_application_continuati_current_chart_digest_enfor_not_null NOT NULL,
+    current_app_project_content bytea CONSTRAINT helm_application_continuati_current_app_project_conten_not_null NOT NULL,
+    application_content_digest text CONSTRAINT helm_application_continuati_application_content_digest_not_null NOT NULL,
+    application_intent_digest text CONSTRAINT helm_application_continuatio_application_intent_digest_not_null NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_application_continuation_base_check CHECK ((planned_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_continuation_current_revision_check CHECK ((current_environment_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_application_continuation_desired_revisions_check CHECK (((source_desired_state_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text) AND (current_desired_state_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_application_continuation_digest_check CHECK (((source_desired_state_content_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND (current_desired_state_content_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND (current_policy_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND (current_chart_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND ((application_content_digest = ''::text) OR (application_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)) AND (application_intent_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT helm_application_continuation_foundation_revisions_check CHECK (((source_foundation_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text) AND (current_foundation_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_application_continuation_generation_check CHECK (((source_environment_generation > 0) AND (current_environment_generation > 0))),
+    CONSTRAINT helm_application_continuation_runtime_check CHECK (((current_chart_repository <> ''::text) AND (current_chart_name <> ''::text) AND (current_chart_version <> ''::text) AND (current_renderer_image <> ''::text) AND (current_chart_digest_enforcement = 'native-oci-digest-v1'::text) AND (octet_length(current_app_project_content) > 0))),
+    CONSTRAINT helm_application_continuation_source_revision_check CHECK ((source_environment_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))
+);
+
+
+--
 -- Name: helm_chart_approval_documents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4524,6 +8575,19 @@ CREATE TABLE public.helm_protected_application_intents (
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
+    prerequisite_receipt_id uuid,
+    prerequisite_contract text DEFAULT ''::text CONSTRAINT helm_protected_application_inten_prerequisite_contract_not_null NOT NULL,
+    prerequisite_epoch bigint DEFAULT 0 NOT NULL,
+    original_publisher_config_digest text CONSTRAINT helm_protected_application__original_publisher_config__not_null NOT NULL,
+    publisher_adoption_epoch bigint DEFAULT 0 CONSTRAINT helm_protected_application_in_publisher_adoption_epoch_not_null NOT NULL,
+    continuation_required boolean DEFAULT true CONSTRAINT helm_protected_application_inten_continuation_required_not_null NOT NULL,
+    continuation_receipt_id uuid,
+    continuation_contract text DEFAULT ''::text CONSTRAINT helm_protected_application_inten_continuation_contract_not_null NOT NULL,
+    cascade_required boolean DEFAULT false NOT NULL,
+    cascade_receipt_id uuid,
+    cascade_contract text DEFAULT ''::text NOT NULL,
+    CONSTRAINT helm_protected_application_cascade_shape CHECK ((((NOT cascade_required) AND (cascade_receipt_id IS NULL) AND (cascade_contract = ''::text)) OR (cascade_required AND (action = 'delete'::text) AND (cascade_receipt_id IS NOT NULL) AND (cascade_contract = 'helm-application-cascade-preflight.v1'::text)))),
+    CONSTRAINT helm_protected_application_continuation_shape CHECK ((((NOT continuation_required) AND (continuation_receipt_id IS NULL) AND (continuation_contract = ''::text)) OR (continuation_required AND (continuation_receipt_id = id) AND (continuation_contract = 'helm-application-continuation.v1'::text)))),
     CONSTRAINT helm_protected_application_inte_committed_parent_revision_check CHECK (((committed_parent_revision = ''::text) OR (committed_parent_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
     CONSTRAINT helm_protected_application_intent_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_protected_application_intents_action_check CHECK ((action = ANY (ARRAY['publish'::text, 'delete'::text]))),
@@ -4563,7 +8627,11 @@ CREATE TABLE public.helm_protected_application_intents (
     CONSTRAINT helm_protected_application_intents_source_directory_check CHECK (((length(source_directory) <= 1024) AND (source_directory !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
     CONSTRAINT helm_protected_application_intents_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text, 'verified'::text, 'failed'::text, 'superseded'::text]))),
     CONSTRAINT helm_protected_application_intents_verified_path_digest_check CHECK (((verified_path_digest = ''::text) OR (verified_path_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT helm_protected_application_intents_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)))
+    CONSTRAINT helm_protected_application_intents_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_protected_application_original_publisher_digest_check CHECK ((original_publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_application_prerequisite_contract_check CHECK ((prerequisite_contract = ANY (ARRAY[''::text, 'helm-publication-prerequisite.v1'::text]))),
+    CONSTRAINT helm_protected_application_prerequisite_epoch_check CHECK ((prerequisite_epoch >= 0)),
+    CONSTRAINT helm_protected_application_publisher_adoption_epoch_check CHECK ((publisher_adoption_epoch >= 0))
 );
 
 
@@ -4619,6 +8687,11 @@ CREATE TABLE public.helm_protected_payload_intents (
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
+    prerequisite_receipt_id uuid,
+    prerequisite_contract text DEFAULT ''::text NOT NULL,
+    prerequisite_epoch bigint DEFAULT 0 NOT NULL,
+    original_publisher_config_digest text CONSTRAINT helm_protected_payload_inte_original_publisher_config__not_null NOT NULL,
+    publisher_adoption_epoch bigint DEFAULT 0 CONSTRAINT helm_protected_payload_intent_publisher_adoption_epoch_not_null NOT NULL,
     CONSTRAINT helm_protected_payload_intents_action_check CHECK ((action = ANY (ARRAY['publish'::text, 'disable-receipt'::text]))),
     CONSTRAINT helm_protected_payload_intents_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
     CONSTRAINT helm_protected_payload_intents_catalog_digest_check CHECK ((catalog_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
@@ -4655,7 +8728,101 @@ CREATE TABLE public.helm_protected_payload_intents (
     CONSTRAINT helm_protected_payload_intents_release_generation_check CHECK ((release_generation > 0)),
     CONSTRAINT helm_protected_payload_intents_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text, 'verified'::text, 'failed'::text, 'superseded'::text]))),
     CONSTRAINT helm_protected_payload_intents_verified_path_digest_check CHECK (((verified_path_digest = ''::text) OR (verified_path_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
-    CONSTRAINT helm_protected_payload_intents_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)))
+    CONSTRAINT helm_protected_payload_intents_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_protected_payload_original_publisher_digest_check CHECK ((original_publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_payload_prerequisite_contract_check CHECK ((prerequisite_contract = ANY (ARRAY[''::text, 'helm-publication-prerequisite.v1'::text]))),
+    CONSTRAINT helm_protected_payload_prerequisite_epoch_check CHECK ((prerequisite_epoch >= 0)),
+    CONSTRAINT helm_protected_payload_publisher_adoption_epoch_check CHECK ((publisher_adoption_epoch >= 0))
+);
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_protected_publisher_adoption_receipts (
+    id uuid NOT NULL,
+    intent_kind text NOT NULL,
+    payload_intent_id uuid,
+    application_intent_id uuid,
+    adoption_epoch bigint CONSTRAINT helm_protected_publisher_adoption_recei_adoption_epoch_not_null NOT NULL,
+    publisher_contract text CONSTRAINT helm_protected_publisher_adoption_r_publisher_contract_not_null NOT NULL,
+    original_config_digest text CONSTRAINT helm_protected_publisher_adopti_original_config_digest_not_null NOT NULL,
+    previous_config_digest text CONSTRAINT helm_protected_publisher_adopti_previous_config_digest_not_null NOT NULL,
+    adopted_config_digest text CONSTRAINT helm_protected_publisher_adoptio_adopted_config_digest_not_null NOT NULL,
+    policy_version text CONSTRAINT helm_protected_publisher_adoption_recei_policy_version_not_null NOT NULL,
+    intent_digest text CONSTRAINT helm_protected_publisher_adoption_receip_intent_digest_not_null NOT NULL,
+    content_digest text CONSTRAINT helm_protected_publisher_adoption_recei_content_digest_not_null NOT NULL,
+    protected_path text CONSTRAINT helm_protected_publisher_adoption_recei_protected_path_not_null NOT NULL,
+    precondition text CONSTRAINT helm_protected_publisher_adoption_receipt_precondition_not_null NOT NULL,
+    expected_etag text CONSTRAINT helm_protected_publisher_adoption_receip_expected_etag_not_null NOT NULL,
+    commit_trailer text CONSTRAINT helm_protected_publisher_adoption_recei_commit_trailer_not_null NOT NULL,
+    prerequisite_receipt_id uuid CONSTRAINT helm_protected_publisher_adopt_prerequisite_receipt_id_not_null NOT NULL,
+    prerequisite_contract text CONSTRAINT helm_protected_publisher_adoptio_prerequisite_contract_not_null NOT NULL,
+    prerequisite_epoch bigint CONSTRAINT helm_protected_publisher_adoption_r_prerequisite_epoch_not_null NOT NULL,
+    recovery_state text CONSTRAINT helm_protected_publisher_adoption_recei_recovery_state_not_null NOT NULL,
+    write_base_revision text CONSTRAINT helm_protected_publisher_adoption__write_base_revision_not_null NOT NULL,
+    committed_revision text CONSTRAINT helm_protected_publisher_adoption_r_committed_revision_not_null NOT NULL,
+    committed_parent_revision text CONSTRAINT helm_protected_publisher_ado_committed_parent_revision_not_null NOT NULL,
+    previous_lease_epoch bigint CONSTRAINT helm_protected_publisher_adoption_previous_lease_epoch_not_null NOT NULL,
+    adopted_lease_epoch bigint CONSTRAINT helm_protected_publisher_adoption__adopted_lease_epoch_not_null NOT NULL,
+    adopted_by_worker text CONSTRAINT helm_protected_publisher_adoption_re_adopted_by_worker_not_null NOT NULL,
+    adopted_worker_epoch bigint CONSTRAINT helm_protected_publisher_adoption_adopted_worker_epoch_not_null NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_protected_publisher_adopti_committed_parent_revision_check CHECK (((committed_parent_revision = ''::text) OR (committed_parent_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption__original_config_digest_check CHECK ((original_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_publisher_adoption__previous_config_digest_check CHECK ((previous_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_changes_authority CHECK ((previous_config_digest <> adopted_config_digest)),
+    CONSTRAINT helm_protected_publisher_adoption_exact_kind CHECK ((((intent_kind = 'payload'::text) AND (payload_intent_id IS NOT NULL) AND (application_intent_id IS NULL)) OR ((intent_kind = 'application'::text) AND (application_intent_id IS NOT NULL) AND (payload_intent_id IS NULL)))),
+    CONSTRAINT helm_protected_publisher_adoption_lease_epoch_step CHECK ((adopted_lease_epoch = (previous_lease_epoch + 1))),
+    CONSTRAINT helm_protected_publisher_adoption_r_adopted_config_digest_check CHECK ((adopted_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_r_prerequisite_contract_check CHECK ((prerequisite_contract = 'helm-publication-prerequisite.v1'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_re_adopted_worker_epoch_check CHECK ((adopted_worker_epoch > 0)),
+    CONSTRAINT helm_protected_publisher_adoption_re_previous_lease_epoch_check CHECK ((previous_lease_epoch >= 0)),
+    CONSTRAINT helm_protected_publisher_adoption_rec_adopted_lease_epoch_check CHECK ((adopted_lease_epoch > 0)),
+    CONSTRAINT helm_protected_publisher_adoption_rec_write_base_revision_check CHECK (((write_base_revision = ''::text) OR (write_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_rece_committed_revision_check CHECK (((committed_revision = ''::text) OR (committed_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_rece_prerequisite_epoch_check CHECK ((prerequisite_epoch >= 0)),
+    CONSTRAINT helm_protected_publisher_adoption_rece_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_recei_adopted_by_worker_check CHECK (((length(adopted_by_worker) >= 16) AND (length(adopted_by_worker) <= 128) AND (adopted_by_worker ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_adoption_epoch_check CHECK ((adoption_epoch > 0)),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_commit_trailer_check CHECK (((length(commit_trailer) >= 40) AND (length(commit_trailer) <= 128))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_content_digest_check CHECK (((content_digest = ''::text) OR (content_digest ~ '^sha256:[0-9a-f]{64}$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_expected_etag_check CHECK (((expected_etag = ''::text) OR (expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_intent_digest_check CHECK ((intent_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_intent_kind_check CHECK ((intent_kind = ANY (ARRAY['payload'::text, 'application'::text]))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_policy_version_check CHECK ((policy_version = 'helm-protected-git.v1'::text)),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_precondition_check CHECK ((precondition = ANY (ARRAY['create-if-absent'::text, 'match-etag'::text]))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_protected_path_check CHECK (((length(protected_path) >= 1) AND (length(protected_path) <= 1024) AND (protected_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
+    CONSTRAINT helm_protected_publisher_adoption_receipts_recovery_state_check CHECK ((recovery_state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text])))
+);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.helm_publication_prerequisite_receipts (
+    release_revision_id uuid CONSTRAINT helm_publication_prerequisite_rece_release_revision_id_not_null NOT NULL,
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    platform_binding_id uuid CONSTRAINT helm_publication_prerequisite_rece_platform_binding_id_not_null NOT NULL,
+    environment_binding_id uuid CONSTRAINT helm_publication_prerequisite_r_environment_binding_id_not_null NOT NULL,
+    cluster_id uuid NOT NULL,
+    environment_revision text CONSTRAINT helm_publication_prerequisite_rec_environment_revision_not_null NOT NULL,
+    environment_generation bigint CONSTRAINT helm_publication_prerequisite_r_environment_generation_not_null NOT NULL,
+    foundation_intent_id uuid CONSTRAINT helm_publication_prerequisite_rec_foundation_intent_id_not_null NOT NULL,
+    foundation_revision text CONSTRAINT helm_publication_prerequisite_rece_foundation_revision_not_null NOT NULL,
+    desired_state_command_id uuid CONSTRAINT helm_publication_prerequisite_desired_state_command_id_not_null NOT NULL,
+    desired_state_revision text CONSTRAINT helm_publication_prerequisite_r_desired_state_revision_not_null NOT NULL,
+    planned_base_revision text CONSTRAINT helm_publication_prerequisite_re_planned_base_revision_not_null NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT helm_publication_prerequisite_rece_desired_state_revision_check CHECK ((desired_state_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_publication_prerequisite_rece_environment_generation_check CHECK ((environment_generation > 0)),
+    CONSTRAINT helm_publication_prerequisite_recei_planned_base_revision_check CHECK ((planned_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_publication_prerequisite_receip_environment_revision_check CHECK ((environment_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
+    CONSTRAINT helm_publication_prerequisite_receipt_foundation_revision_check CHECK ((foundation_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))
 );
 
 
@@ -4913,26 +9080,6 @@ CREATE TABLE public.outbox_valkey_dataset (
     dataset_id uuid NOT NULL,
     observed_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT outbox_valkey_dataset_singleton_check CHECK (singleton)
-);
-
-
---
--- Name: platform_upgrades; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.platform_upgrades (
-    id uuid NOT NULL,
-    version text NOT NULL,
-    manifest_digest text NOT NULL,
-    manifest jsonb NOT NULL,
-    state text NOT NULL,
-    operation_id uuid NOT NULL,
-    runner_ref text DEFAULT ''::text NOT NULL,
-    result jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    manifest_bytes bytea NOT NULL,
-    CONSTRAINT platform_upgrades_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text])))
 );
 
 
@@ -5815,7 +9962,7 @@ CREATE TABLE public.tls_certificate_versions (
 CREATE TABLE public.user_invitations (
     id uuid NOT NULL,
     token_hash bytea NOT NULL,
-    display_name text NOT NULL,
+    email text CONSTRAINT user_invitations_display_name_not_null NOT NULL,
     created_by uuid NOT NULL,
     expires_at timestamp with time zone NOT NULL,
     accepted_at timestamp with time zone,
@@ -5831,11 +9978,11 @@ CREATE TABLE public.user_invitations (
 
 CREATE TABLE public.user_password_credentials (
     user_id uuid NOT NULL,
-    login_normalized text NOT NULL,
+    email_normalized text CONSTRAINT user_password_credentials_login_normalized_not_null NOT NULL,
     password_hash text NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_password_credentials_login_normalized_check CHECK ((login_normalized = lower(btrim(login_normalized)))),
-    CONSTRAINT user_password_credentials_login_normalized_check1 CHECK (((length(login_normalized) >= 1) AND (length(login_normalized) <= 100))),
+    CONSTRAINT user_password_credentials_email_normalized_check CHECK ((email_normalized = lower(btrim(email_normalized)))),
+    CONSTRAINT user_password_credentials_email_normalized_check1 CHECK (((length(email_normalized) >= 3) AND (length(email_normalized) <= 254))),
     CONSTRAINT user_password_credentials_password_hash_check CHECK (((length(password_hash) >= 64) AND (length(password_hash) <= 512)))
 );
 
@@ -5846,12 +9993,14 @@ CREATE TABLE public.user_password_credentials (
 
 CREATE TABLE public.users (
     id uuid NOT NULL,
-    login text NOT NULL,
+    display_name text CONSTRAINT users_login_not_null NOT NULL,
     role text NOT NULL,
     issuer text NOT NULL,
     subject text NOT NULL,
     grant_revision bigint DEFAULT 1 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    email text,
+    CONSTRAINT users_email_check CHECK (((email IS NULL) OR ((email = lower(btrim(email))) AND ((length(email) >= 3) AND (length(email) <= 254))))),
     CONSTRAINT users_role_check CHECK ((role = ANY (ARRAY['platform-admin'::text, 'developer'::text])))
 );
 
@@ -5862,14 +10011,6 @@ CREATE TABLE public.users (
 
 ALTER TABLE ONLY public.access_grants
     ADD CONSTRAINT access_grants_pkey PRIMARY KEY (id);
-
-
---
--- Name: access_grants access_grants_subject_user_id_role_scope_type_scope_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.access_grants
-    ADD CONSTRAINT access_grants_subject_user_id_role_scope_type_scope_id_key UNIQUE (subject_user_id, role, scope_type, scope_id);
 
 
 --
@@ -5934,6 +10075,14 @@ ALTER TABLE ONLY public.argo_desired_state_commands
 
 ALTER TABLE ONLY public.argo_desired_state_commands
     ADD CONSTRAINT argo_desired_state_commands_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization_receipts_pkey PRIMARY KEY (id);
 
 
 --
@@ -6046,14 +10195,6 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_definitions
     ADD CONSTRAINT build_definitions_pkey PRIMARY KEY (id);
-
-
---
--- Name: build_definitions build_definitions_project_id_service_id_repository_id_trigg_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_project_id_service_id_repository_id_trigg_key UNIQUE (project_id, service_id, repository_id, trigger_ref);
 
 
 --
@@ -6529,6 +10670,94 @@ ALTER TABLE ONLY public.github_webhook_receipts
 
 
 --
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absence_receipts_pkey PRIMARY KEY (cascade_preflight_id);
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts helm_application_cascade_adop_cascade_preflight_id_adoption_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_adoption_receipts
+    ADD CONSTRAINT helm_application_cascade_adop_cascade_preflight_id_adoption_key UNIQUE (cascade_preflight_id, adoption_epoch);
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts helm_application_cascade_adoption_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_adoption_receipts
+    ADD CONSTRAINT helm_application_cascade_adoption_receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: helm_application_cascade_observation_jobs helm_application_cascade_observation_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observation_jobs
+    ADD CONSTRAINT helm_application_cascade_observation_jobs_pkey PRIMARY KEY (cascade_preflight_id, activation_epoch);
+
+
+--
+-- Name: helm_application_cascade_observer_activations helm_application_cascade_observer_activations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observer_activations
+    ADD CONSTRAINT helm_application_cascade_observer_activations_pkey PRIMARY KEY (platform_binding_id, activation_epoch);
+
+
+--
+-- Name: helm_application_cascade_observer_activations helm_application_cascade_observer_process_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observer_activations
+    ADD CONSTRAINT helm_application_cascade_observer_process_key UNIQUE (platform_binding_id, publisher_worker_id, publisher_worker_epoch, argo_worker_id, argo_worker_epoch);
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflights_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_preflights_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: helm_application_cascade_receipts helm_application_cascade_rece_cascade_preflight_id_observat_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_receipts
+    ADD CONSTRAINT helm_application_cascade_rece_cascade_preflight_id_observat_key UNIQUE (cascade_preflight_id, observation_epoch);
+
+
+--
+-- Name: helm_application_cascade_receipts helm_application_cascade_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_receipts
+    ADD CONSTRAINT helm_application_cascade_receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_continuation_receipts
+    ADD CONSTRAINT helm_application_continuation_receipts_pkey PRIMARY KEY (application_intent_id);
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_release_attempt_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_continuation_receipts
+    ADD CONSTRAINT helm_application_continuation_release_attempt_key UNIQUE (release_revision_id, application_intent_id);
+
+
+--
 -- Name: helm_chart_approval_documents helm_chart_approval_documents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -6561,35 +10790,11 @@ ALTER TABLE ONLY public.helm_chart_approvals
 
 
 --
--- Name: helm_protected_application_intents helm_protected_application_in_environment_id_application_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.helm_protected_application_intents
-    ADD CONSTRAINT helm_protected_application_in_environment_id_application_id_key UNIQUE (environment_id, application_id, release_generation);
-
-
---
--- Name: helm_protected_application_intents helm_protected_application_intents_payload_intent_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.helm_protected_application_intents
-    ADD CONSTRAINT helm_protected_application_intents_payload_intent_id_key UNIQUE (payload_intent_id);
-
-
---
 -- Name: helm_protected_application_intents helm_protected_application_intents_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.helm_protected_application_intents
     ADD CONSTRAINT helm_protected_application_intents_pkey PRIMARY KEY (id);
-
-
---
--- Name: helm_protected_application_intents helm_protected_application_intents_release_revision_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.helm_protected_application_intents
-    ADD CONSTRAINT helm_protected_application_intents_release_revision_id_key UNIQUE (release_revision_id);
 
 
 --
@@ -6614,6 +10819,38 @@ ALTER TABLE ONLY public.helm_protected_payload_intents
 
 ALTER TABLE ONLY public.helm_protected_payload_intents
     ADD CONSTRAINT helm_protected_payload_intents_release_revision_id_key UNIQUE (release_revision_id);
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_publisher_adoption_receipts
+    ADD CONSTRAINT helm_protected_publisher_adoption_receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_authority_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_authority_key UNIQUE (release_revision_id, platform_binding_id, environment_binding_id, environment_revision, environment_generation);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_receipts_pkey PRIMARY KEY (release_revision_id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_target_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_target_key UNIQUE (release_revision_id, project_id, environment_id, application_id);
 
 
 --
@@ -6726,22 +10963,6 @@ ALTER TABLE ONLY public.outbox
 
 ALTER TABLE ONLY public.outbox_valkey_dataset
     ADD CONSTRAINT outbox_valkey_dataset_pkey PRIMARY KEY (singleton);
-
-
---
--- Name: platform_upgrades platform_upgrades_operation_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_upgrades
-    ADD CONSTRAINT platform_upgrades_operation_id_key UNIQUE (operation_id);
-
-
---
--- Name: platform_upgrades platform_upgrades_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_upgrades
-    ADD CONSTRAINT platform_upgrades_pkey PRIMARY KEY (id);
 
 
 --
@@ -7209,11 +11430,11 @@ ALTER TABLE ONLY public.user_invitations
 
 
 --
--- Name: user_password_credentials user_password_credentials_login_normalized_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: user_password_credentials user_password_credentials_email_normalized_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.user_password_credentials
-    ADD CONSTRAINT user_password_credentials_login_normalized_key UNIQUE (login_normalized);
+    ADD CONSTRAINT user_password_credentials_email_normalized_key UNIQUE (email_normalized);
 
 
 --
@@ -7222,6 +11443,14 @@ ALTER TABLE ONLY public.user_password_credentials
 
 ALTER TABLE ONLY public.user_password_credentials
     ADD CONSTRAINT user_password_credentials_pkey PRIMARY KEY (user_id);
+
+
+--
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
 
 
 --
@@ -7244,14 +11473,35 @@ ALTER TABLE ONLY public.users
 -- Name: access_grants_scope_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX access_grants_scope_idx ON public.access_grants USING btree (scope_type, scope_id, subject_user_id);
+CREATE INDEX access_grants_scope_idx ON public.access_grants USING btree (scope_type, scope_id, subject_user_id, subject_team_id);
 
 
 --
--- Name: access_grants_subject_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: access_grants_team_subject_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX access_grants_subject_idx ON public.access_grants USING btree (subject_user_id, scope_type, scope_id);
+CREATE INDEX access_grants_team_subject_idx ON public.access_grants USING btree (subject_team_id, scope_type, scope_id) WHERE (subject_team_id IS NOT NULL);
+
+
+--
+-- Name: access_grants_team_subject_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX access_grants_team_subject_unique ON public.access_grants USING btree (subject_team_id, role, scope_type, scope_id) WHERE (subject_team_id IS NOT NULL);
+
+
+--
+-- Name: access_grants_user_subject_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX access_grants_user_subject_idx ON public.access_grants USING btree (subject_user_id, scope_type, scope_id) WHERE (subject_user_id IS NOT NULL);
+
+
+--
+-- Name: access_grants_user_subject_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX access_grants_user_subject_unique ON public.access_grants USING btree (subject_user_id, role, scope_type, scope_id) WHERE (subject_user_id IS NOT NULL);
 
 
 --
@@ -7280,6 +11530,20 @@ CREATE UNIQUE INDEX argo_desired_state_commands_environment_live_idx ON public.a
 --
 
 CREATE INDEX argo_desired_state_commands_status_idx ON public.argo_desired_state_commands USING btree (environment_id, generation DESC);
+
+
+--
+-- Name: argo_desired_state_materialization_command_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX argo_desired_state_materialization_command_idx ON public.argo_desired_state_materialization_receipts USING btree (desired_state_command_id, desired_state_generation, desired_state_revision);
+
+
+--
+-- Name: argo_desired_state_materialization_exact_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX argo_desired_state_materialization_exact_idx ON public.argo_desired_state_materialization_receipts USING btree (environment_binding_id, environment_revision, environment_generation, created_at DESC, id DESC);
 
 
 --
@@ -7315,6 +11579,13 @@ CREATE INDEX build_attempts_service_cache_idx ON public.build_attempts USING btr
 --
 
 CREATE INDEX build_attempts_work_idx ON public.build_attempts USING btree (state, available_at, created_at) WHERE (state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text]));
+
+
+--
+-- Name: build_definitions_active_ref_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE (enabled = true);
 
 
 --
@@ -7577,6 +11848,83 @@ CREATE INDEX github_webhook_receipts_work_idx ON public.github_webhook_receipts 
 
 
 --
+-- Name: helm_application_cascade_observation_jobs_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_application_cascade_observation_jobs_due_idx ON public.helm_application_cascade_observation_jobs USING btree (next_attempt_at, created_at, cascade_preflight_id) WHERE (state = ANY (ARRAY['pending'::text, 'claimed'::text]));
+
+
+--
+-- Name: helm_application_cascade_observer_active_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_application_cascade_observer_active_key ON public.helm_application_cascade_observation_jobs USING btree (cascade_preflight_id) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_application_cascade_preflight_delete_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_application_cascade_preflight_delete_live_key ON public.helm_application_cascade_preflights USING btree (delete_intent_id) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_application_cascade_preflight_generation_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_application_cascade_preflight_generation_live_key ON public.helm_application_cascade_preflights USING btree (environment_id, application_id, release_generation) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_application_cascade_preflight_payload_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_application_cascade_preflight_payload_live_key ON public.helm_application_cascade_preflights USING btree (payload_intent_id) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_application_cascade_preflight_release_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_application_cascade_preflight_release_live_key ON public.helm_application_cascade_preflights USING btree (release_revision_id) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_application_cascade_preflights_due_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_application_cascade_preflights_due_idx ON public.helm_application_cascade_preflights USING btree (next_attempt_at, created_at, id) WHERE (state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]));
+
+
+--
+-- Name: helm_application_cascade_preflights_verified_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_application_cascade_preflights_verified_idx ON public.helm_application_cascade_preflights USING btree (verified_at, id) WHERE (state = 'verified'::text);
+
+
+--
+-- Name: helm_application_cascade_receipts_latest_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_application_cascade_receipts_latest_idx ON public.helm_application_cascade_receipts USING btree (cascade_preflight_id, observation_epoch DESC);
+
+
+--
+-- Name: helm_application_continuation_payload_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_application_continuation_payload_idx ON public.helm_application_continuation_receipts USING btree (payload_intent_id, created_at DESC);
+
+
+--
+-- Name: helm_protected_application_generation_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_protected_application_generation_live_key ON public.helm_protected_application_intents USING btree (environment_id, application_id, release_generation) WHERE (state <> 'superseded'::text);
+
+
+--
 -- Name: helm_protected_application_intents_binding_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7591,6 +11939,20 @@ CREATE INDEX helm_protected_application_intents_due_idx ON public.helm_protected
 
 
 --
+-- Name: helm_protected_application_payload_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_protected_application_payload_live_key ON public.helm_protected_application_intents USING btree (payload_intent_id) WHERE (state <> 'superseded'::text);
+
+
+--
+-- Name: helm_protected_application_release_live_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_protected_application_release_live_key ON public.helm_protected_application_intents USING btree (release_revision_id) WHERE (state <> 'superseded'::text);
+
+
+--
 -- Name: helm_protected_payload_intents_binding_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -7602,6 +11964,27 @@ CREATE INDEX helm_protected_payload_intents_binding_idx ON public.helm_protected
 --
 
 CREATE INDEX helm_protected_payload_intents_due_idx ON public.helm_protected_payload_intents USING btree (next_attempt_at, created_at, id) WHERE (state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]));
+
+
+--
+-- Name: helm_protected_publisher_application_adoption_epoch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_protected_publisher_application_adoption_epoch ON public.helm_protected_publisher_adoption_receipts USING btree (application_intent_id, adoption_epoch) WHERE (application_intent_id IS NOT NULL);
+
+
+--
+-- Name: helm_protected_publisher_payload_adoption_epoch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX helm_protected_publisher_payload_adoption_epoch ON public.helm_protected_publisher_adoption_receipts USING btree (payload_intent_id, adoption_epoch) WHERE (payload_intent_id IS NOT NULL);
+
+
+--
+-- Name: helm_publication_prerequisite_environment_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX helm_publication_prerequisite_environment_idx ON public.helm_publication_prerequisite_receipts USING btree (environment_id, environment_generation, release_revision_id);
 
 
 --
@@ -7665,13 +12048,6 @@ CREATE INDEX operations_status_lease_idx ON public.operations USING btree (statu
 --
 
 CREATE INDEX outbox_pending_idx ON public.outbox USING btree (available_at, created_at) WHERE (published_at IS NULL);
-
-
---
--- Name: platform_upgrades_one_active; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX platform_upgrades_one_active ON public.platform_upgrades USING btree ((true)) WHERE (state = ANY (ARRAY['queued'::text, 'running'::text]));
 
 
 --
@@ -7962,10 +12338,52 @@ CREATE TRIGGER applications_configuration_assignment_restrict BEFORE DELETE ON p
 
 
 --
+-- Name: argo_desired_state_commands argo_desired_state_app_project_content_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_desired_state_app_project_content_validate BEFORE INSERT OR UPDATE ON public.argo_desired_state_commands FOR EACH ROW EXECUTE FUNCTION public.validate_argo_desired_state_app_project_content();
+
+
+--
+-- Name: argo_desired_state_commands argo_desired_state_commands_fence_legacy_recovery; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_desired_state_commands_fence_legacy_recovery BEFORE UPDATE ON public.argo_desired_state_commands FOR EACH ROW EXECUTE FUNCTION public.fence_legacy_argo_desired_state_recovery();
+
+
+--
+-- Name: argo_desired_state_commands argo_desired_state_commands_require_policy_digest; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_desired_state_commands_require_policy_digest BEFORE INSERT ON public.argo_desired_state_commands FOR EACH ROW EXECUTE FUNCTION public.require_argo_desired_state_policy_digest();
+
+
+--
 -- Name: argo_desired_state_commands argo_desired_state_commands_validate; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER argo_desired_state_commands_validate BEFORE INSERT OR UPDATE ON public.argo_desired_state_commands FOR EACH ROW EXECUTE FUNCTION public.validate_argo_desired_state_command();
+
+
+--
+-- Name: argo_desired_state_commands argo_desired_state_materialization_on_verified; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_desired_state_materialization_on_verified AFTER INSERT OR UPDATE OF state ON public.argo_desired_state_commands FOR EACH ROW EXECUTE FUNCTION public.record_verified_argo_desired_state_materialization();
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_receipts_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_desired_state_materialization_receipts_validate BEFORE INSERT OR DELETE OR UPDATE ON public.argo_desired_state_materialization_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_argo_desired_state_materialization_receipt();
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_materialization_app_project_content_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER argo_materialization_app_project_content_validate BEFORE INSERT OR DELETE OR UPDATE ON public.argo_desired_state_materialization_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_argo_materialization_app_project_content();
 
 
 --
@@ -8179,6 +12597,111 @@ CREATE TRIGGER github_one_time_claims_protect BEFORE DELETE OR UPDATE ON public.
 
 
 --
+-- Name: helm_application_cascade_preflights helm_application_cascade_absence_failure_postimage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER helm_application_cascade_absence_failure_postimage AFTER UPDATE ON public.helm_application_cascade_preflights DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.state = 'failed'::text) AND (new.last_failure_code = 'cascade-path-absent-recovery-required'::text))) EXECUTE FUNCTION public.validate_helm_application_cascade_absence_failure_postimage();
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_receipt_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_absence_receipt_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_absence_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_absence_receipt();
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_receipt_postimage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER helm_application_cascade_absence_receipt_postimage AFTER INSERT ON public.helm_application_cascade_absence_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_absence_postimage();
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_absence_transition_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_absence_transition_guard BEFORE UPDATE ON public.helm_application_cascade_preflights FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_absence_transition();
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_active_publisher_claim; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_active_publisher_claim BEFORE UPDATE ON public.helm_application_cascade_preflights FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_active_publisher_claim();
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts helm_application_cascade_adoption_postimage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER helm_application_cascade_adoption_postimage AFTER INSERT ON public.helm_application_cascade_adoption_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_adoption_postimage();
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts helm_application_cascade_adoption_receipt_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_adoption_receipt_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_adoption_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_adoption_receipt();
+
+
+--
+-- Name: helm_protected_application_intents helm_application_cascade_exact_gate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER helm_application_cascade_exact_gate AFTER INSERT OR UPDATE ON public.helm_protected_application_intents DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_exact_gate();
+
+
+--
+-- Name: helm_protected_application_intents helm_application_cascade_gate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_gate BEFORE INSERT OR UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_gate();
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_lane_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_lane_guard BEFORE INSERT OR UPDATE ON public.helm_application_cascade_preflights FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_cascade_lane();
+
+
+--
+-- Name: helm_application_cascade_observation_jobs helm_application_cascade_observation_job_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_observation_job_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_observation_jobs FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_observation_job();
+
+
+--
+-- Name: helm_application_cascade_observer_activations helm_application_cascade_observer_activation_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_observer_activation_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_observer_activations FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_observer_activation();
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflight_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_preflight_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_preflights FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_preflight();
+
+
+--
+-- Name: helm_application_cascade_receipts helm_application_cascade_receipt_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_cascade_receipt_guard BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_cascade_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_cascade_receipt();
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_receipts_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_application_continuation_receipts_validate BEFORE INSERT OR DELETE OR UPDATE ON public.helm_application_continuation_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_continuation_receipt();
+
+
+--
 -- Name: helm_chart_approval_documents helm_chart_approval_documents_immutable; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -8200,6 +12723,27 @@ CREATE TRIGGER helm_chart_approvals_immutable BEFORE UPDATE ON public.helm_chart
 
 
 --
+-- Name: helm_protected_application_intents helm_protected_application_active_publisher_claim; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_application_active_publisher_claim BEFORE UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_active_publisher_claim();
+
+
+--
+-- Name: helm_protected_application_intents helm_protected_application_cascade_lane_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_application_cascade_lane_guard BEFORE INSERT OR UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_cascade_lane();
+
+
+--
+-- Name: helm_protected_application_intents helm_protected_application_continuation_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_application_continuation_validate BEFORE INSERT OR UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_continuation_reference();
+
+
+--
 -- Name: helm_protected_application_intents helm_protected_application_intents_validate; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -8207,10 +12751,73 @@ CREATE TRIGGER helm_protected_application_intents_validate BEFORE INSERT OR DELE
 
 
 --
+-- Name: helm_protected_application_intents helm_protected_application_prerequisite_receipt; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_application_prerequisite_receipt BEFORE INSERT OR UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.require_helm_publication_prerequisite_receipt();
+
+
+--
+-- Name: helm_protected_application_intents helm_protected_application_publisher_authority; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_application_publisher_authority BEFORE INSERT OR UPDATE ON public.helm_protected_application_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_application_publisher_authority_v009();
+
+
+--
+-- Name: helm_protected_payload_intents helm_protected_payload_active_publisher_claim; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_payload_active_publisher_claim BEFORE UPDATE ON public.helm_protected_payload_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_application_active_publisher_claim();
+
+
+--
+-- Name: helm_protected_payload_intents helm_protected_payload_cascade_lane_guard; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_payload_cascade_lane_guard BEFORE INSERT OR UPDATE ON public.helm_protected_payload_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_cascade_lane();
+
+
+--
 -- Name: helm_protected_payload_intents helm_protected_payload_intents_validate; Type: TRIGGER; Schema: public; Owner: -
 --
 
 CREATE TRIGGER helm_protected_payload_intents_validate BEFORE INSERT OR DELETE OR UPDATE ON public.helm_protected_payload_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_payload_intent();
+
+
+--
+-- Name: helm_protected_payload_intents helm_protected_payload_prerequisite_receipt; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_payload_prerequisite_receipt BEFORE INSERT OR UPDATE ON public.helm_protected_payload_intents FOR EACH ROW EXECUTE FUNCTION public.require_helm_publication_prerequisite_receipt();
+
+
+--
+-- Name: helm_protected_payload_intents helm_protected_payload_publisher_authority; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_payload_publisher_authority BEFORE INSERT OR UPDATE ON public.helm_protected_payload_intents FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_publisher_authority();
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption_postimage; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER helm_protected_publisher_adoption_postimage AFTER INSERT ON public.helm_protected_publisher_adoption_receipts DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.verify_helm_protected_publisher_adoption_postimage();
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption_receipts_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_protected_publisher_adoption_receipts_validate BEFORE INSERT OR DELETE OR UPDATE ON public.helm_protected_publisher_adoption_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_publisher_adoption_receipt();
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_receipts_validate; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER helm_publication_prerequisite_receipts_validate BEFORE INSERT OR DELETE OR UPDATE ON public.helm_publication_prerequisite_receipts FOR EACH ROW EXECUTE FUNCTION public.validate_helm_publication_prerequisite_receipt();
 
 
 --
@@ -8284,6 +12891,13 @@ CREATE TRIGGER projects_configuration_assignment_restrict BEFORE DELETE ON publi
 
 
 --
+-- Name: deployments protected_deployment_desired_revision_authority; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER protected_deployment_desired_revision_authority BEFORE INSERT OR UPDATE OF state, desired_revision, operation_id, generation ON public.deployments FOR EACH ROW EXECUTE FUNCTION public.enforce_protected_deployment_desired_revision();
+
+
+--
 -- Name: registry_cleanup_plans registry_cleanup_plans_managed_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -8323,6 +12937,13 @@ CREATE TRIGGER registry_runtime_observation_epoch BEFORE UPDATE ON public.regist
 --
 
 CREATE TRIGGER registry_targets_mode_immutable BEFORE UPDATE OF mode ON public.registry_targets FOR EACH ROW EXECUTE FUNCTION public.reject_registry_target_mode_change();
+
+
+--
+-- Name: runtime_readiness runtime_readiness_helm_publisher_bounds; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER runtime_readiness_helm_publisher_bounds BEFORE INSERT OR DELETE OR UPDATE ON public.runtime_readiness FOR EACH ROW EXECUTE FUNCTION public.validate_helm_protected_publisher_readiness_bounds();
 
 
 --
@@ -8368,13 +12989,6 @@ CREATE TRIGGER secret_binding_references_no_update BEFORE UPDATE ON public.secre
 
 
 --
--- Name: secret_bindings secret_bindings_scope; Type: TRIGGER; Schema: public; Owner: -
---
-
-CREATE TRIGGER secret_bindings_scope BEFORE INSERT OR UPDATE ON public.secret_bindings FOR EACH ROW EXECUTE FUNCTION public.enforce_secret_binding_scope();
-
-
---
 -- Name: secret_binding_runtime_reconciliations secret_binding_runtime_reconcile_validate; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -8407,6 +13021,13 @@ CREATE TRIGGER secret_bindings_identity BEFORE UPDATE ON public.secret_bindings 
 --
 
 CREATE TRIGGER secret_bindings_purpose_protect BEFORE UPDATE ON public.secret_bindings FOR EACH ROW EXECUTE FUNCTION public.protect_secret_binding_purpose();
+
+
+--
+-- Name: secret_bindings secret_bindings_scope; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER secret_bindings_scope BEFORE INSERT OR UPDATE ON public.secret_bindings FOR EACH ROW EXECUTE FUNCTION public.enforce_secret_binding_scope();
 
 
 --
@@ -8443,6 +13064,14 @@ CREATE TRIGGER tls_certificate_versions_validate BEFORE INSERT ON public.tls_cer
 
 ALTER TABLE ONLY public.access_grants
     ADD CONSTRAINT access_grants_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: access_grants access_grants_subject_team_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.access_grants
+    ADD CONSTRAINT access_grants_subject_team_id_fkey FOREIGN KEY (subject_team_id) REFERENCES public.teams(id) ON DELETE CASCADE;
 
 
 --
@@ -8587,6 +13216,54 @@ ALTER TABLE ONLY public.argo_desired_state_commands
 
 ALTER TABLE ONLY public.argo_desired_state_commands
     ADD CONSTRAINT argo_desired_state_commands_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materializatio_desired_state_command_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materializatio_desired_state_command_id_fkey FOREIGN KEY (desired_state_command_id) REFERENCES public.argo_desired_state_commands(id);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization__environment_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization__environment_binding_id_fkey FOREIGN KEY (environment_binding_id) REFERENCES public.git_repository_bindings(id);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_generation_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization_generation_fk FOREIGN KEY (environment_binding_id, environment_generation) REFERENCES public.git_projection_generations(binding_id, generation);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_rec_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization_rec_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_receipts_environment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization_receipts_environment_id_fkey FOREIGN KEY (environment_id) REFERENCES public.environments(id);
+
+
+--
+-- Name: argo_desired_state_materialization_receipts argo_desired_state_materialization_receipts_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
+    ADD CONSTRAINT argo_desired_state_materialization_receipts_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id);
 
 
 --
@@ -9334,6 +14011,150 @@ ALTER TABLE ONLY public.github_webhook_receipts
 
 
 --
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absenc_base_application_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absenc_base_application_intent_id_fkey FOREIGN KEY (base_application_intent_id) REFERENCES public.helm_protected_application_intents(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_rece_cascade_preflight_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absence_rece_cascade_preflight_id_fkey FOREIGN KEY (cascade_preflight_id) REFERENCES public.helm_application_cascade_preflights(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_recei_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absence_recei_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_recei_release_revision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absence_recei_release_revision_id_fkey FOREIGN KEY (release_revision_id) REFERENCES public.helm_release_revisions(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_absence_receipts helm_application_cascade_absence_receipt_payload_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_absence_receipts
+    ADD CONSTRAINT helm_application_cascade_absence_receipt_payload_intent_id_fkey FOREIGN KEY (payload_intent_id) REFERENCES public.helm_protected_payload_intents(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_adoption_receipts helm_application_cascade_adoption_rec_cascade_preflight_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_adoption_receipts
+    ADD CONSTRAINT helm_application_cascade_adoption_rec_cascade_preflight_id_fkey FOREIGN KEY (cascade_preflight_id) REFERENCES public.helm_application_cascade_preflights(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_observation_jobs helm_application_cascade_obse_platform_binding_id_activati_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observation_jobs
+    ADD CONSTRAINT helm_application_cascade_obse_platform_binding_id_activati_fkey FOREIGN KEY (platform_binding_id, activation_epoch) REFERENCES public.helm_application_cascade_observer_activations(platform_binding_id, activation_epoch) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_observation_jobs helm_application_cascade_observation__cascade_preflight_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observation_jobs
+    ADD CONSTRAINT helm_application_cascade_observation__cascade_preflight_id_fkey FOREIGN KEY (cascade_preflight_id) REFERENCES public.helm_application_cascade_preflights(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_observer_activations helm_application_cascade_observer_acti_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_observer_activations
+    ADD CONSTRAINT helm_application_cascade_observer_acti_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_prefli_base_application_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_prefli_base_application_intent_id_fkey FOREIGN KEY (base_application_intent_id) REFERENCES public.helm_protected_application_intents(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflights_environment_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_preflights_environment_binding_id_fkey FOREIGN KEY (environment_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflights_payload_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_preflights_payload_intent_id_fkey FOREIGN KEY (payload_intent_id) REFERENCES public.helm_protected_payload_intents(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflights_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_preflights_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_preflights helm_application_cascade_preflights_release_revision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_preflights
+    ADD CONSTRAINT helm_application_cascade_preflights_release_revision_id_fkey FOREIGN KEY (release_revision_id) REFERENCES public.helm_release_revisions(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_cascade_receipts helm_application_cascade_receipts_cascade_preflight_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_cascade_receipts
+    ADD CONSTRAINT helm_application_cascade_receipts_cascade_preflight_id_fkey FOREIGN KEY (cascade_preflight_id) REFERENCES public.helm_application_cascade_preflights(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_application_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_continuation_receipts
+    ADD CONSTRAINT helm_application_continuation_application_fkey FOREIGN KEY (application_intent_id) REFERENCES public.helm_protected_application_intents(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED;
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_materialization_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_continuation_receipts
+    ADD CONSTRAINT helm_application_continuation_materialization_fkey FOREIGN KEY (current_materialization_receipt_id) REFERENCES public.argo_desired_state_materialization_receipts(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_application_continuation_receipts helm_application_continuation_payload_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_application_continuation_receipts
+    ADD CONSTRAINT helm_application_continuation_payload_fkey FOREIGN KEY (payload_intent_id) REFERENCES public.helm_protected_payload_intents(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: helm_chart_approval_documents helm_chart_approval_documents_approval_id_approval_revisio_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9347,6 +14168,14 @@ ALTER TABLE ONLY public.helm_chart_approval_documents
 
 ALTER TABLE ONLY public.helm_chart_approvals
     ADD CONSTRAINT helm_chart_approvals_created_by_fkey FOREIGN KEY (created_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_protected_application_intents helm_protected_application_cascade_preflight_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_application_intents
+    ADD CONSTRAINT helm_protected_application_cascade_preflight_fk FOREIGN KEY (cascade_receipt_id) REFERENCES public.helm_application_cascade_preflights(id) ON DELETE RESTRICT;
 
 
 --
@@ -9398,6 +14227,14 @@ ALTER TABLE ONLY public.helm_protected_application_intents
 
 
 --
+-- Name: helm_protected_application_intents helm_protected_application_intents_prerequisite_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_application_intents
+    ADD CONSTRAINT helm_protected_application_intents_prerequisite_receipt_id_fkey FOREIGN KEY (prerequisite_receipt_id) REFERENCES public.helm_publication_prerequisite_receipts(release_revision_id);
+
+
+--
 -- Name: helm_protected_payload_intents helm_protected_payload_intent_environment_binding_id_envir_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -9435,6 +14272,78 @@ ALTER TABLE ONLY public.helm_protected_payload_intents
 
 ALTER TABLE ONLY public.helm_protected_payload_intents
     ADD CONSTRAINT helm_protected_payload_intent_release_revision_id_project__fkey FOREIGN KEY (release_revision_id, project_id, environment_id, application_id, release_generation) REFERENCES public.helm_release_revisions(id, project_id, environment_id, application_id, generation) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_protected_payload_intents helm_protected_payload_intents_prerequisite_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_payload_intents
+    ADD CONSTRAINT helm_protected_payload_intents_prerequisite_receipt_id_fkey FOREIGN KEY (prerequisite_receipt_id) REFERENCES public.helm_publication_prerequisite_receipts(release_revision_id);
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption__prerequisite_receipt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_publisher_adoption_receipts
+    ADD CONSTRAINT helm_protected_publisher_adoption__prerequisite_receipt_id_fkey FOREIGN KEY (prerequisite_receipt_id) REFERENCES public.helm_publication_prerequisite_receipts(release_revision_id);
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption_re_application_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_publisher_adoption_receipts
+    ADD CONSTRAINT helm_protected_publisher_adoption_re_application_intent_id_fkey FOREIGN KEY (application_intent_id) REFERENCES public.helm_protected_application_intents(id);
+
+
+--
+-- Name: helm_protected_publisher_adoption_receipts helm_protected_publisher_adoption_receip_payload_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_publisher_adoption_receipts
+    ADD CONSTRAINT helm_protected_publisher_adoption_receip_payload_intent_id_fkey FOREIGN KEY (payload_intent_id) REFERENCES public.helm_protected_payload_intents(id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_rec_desired_state_command_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_rec_desired_state_command_id_fkey FOREIGN KEY (desired_state_command_id) REFERENCES public.argo_desired_state_commands(id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_recei_environment_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_recei_environment_binding_id_fkey FOREIGN KEY (environment_binding_id) REFERENCES public.git_repository_bindings(id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_receipt_foundation_intent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_receipt_foundation_intent_id_fkey FOREIGN KEY (foundation_intent_id) REFERENCES public.environment_foundation_intents(id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_receipts_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_receipts_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id);
+
+
+--
+-- Name: helm_publication_prerequisite_receipts helm_publication_prerequisite_receipts_release_revision_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_publication_prerequisite_receipts
+    ADD CONSTRAINT helm_publication_prerequisite_receipts_release_revision_id_fkey FOREIGN KEY (release_revision_id) REFERENCES public.helm_release_revisions(id);
 
 
 --
@@ -9659,14 +14568,6 @@ ALTER TABLE ONLY public.mutation_receipts
 
 ALTER TABLE ONLY public.outbox
     ADD CONSTRAINT outbox_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES public.operations(id) ON DELETE CASCADE;
-
-
---
--- Name: platform_upgrades platform_upgrades_operation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.platform_upgrades
-    ADD CONSTRAINT platform_upgrades_operation_id_fkey FOREIGN KEY (operation_id) REFERENCES public.operations(id) DEFERRABLE INITIALLY DEFERRED;
 
 
 --
@@ -10166,8 +15067,15 @@ ALTER TABLE ONLY public.user_password_credentials
 
 
 --
+-- Name: helm_application_cascade_absence_receipts; Type: ROW SECURITY; Schema: public; Owner: -
+--
+
+ALTER TABLE public.helm_application_cascade_absence_receipts ENABLE ROW LEVEL SECURITY;
+
+--
 -- PostgreSQL database dump complete
 --
+
 
 
 

@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Schema 020. RC308 waits for steady Argo health during automatic fresh remote K3s qualification.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.308"
+  "version": "0.1.0-rc.309"
 }

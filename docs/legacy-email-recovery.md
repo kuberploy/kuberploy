@@ -1,8 +1,9 @@
-# Legacy local-email recovery
+# Legacy release-candidate local-email recovery
 
-Kuberploy `017_email_identity` does not infer an email address from an older
-RC display name. This prevents a presentation label from silently becoming a
-login identity. Fresh installations and invitations are email-first.
+This operator utility exists only for older release-candidate databases that
+predate email-first local identity. Final `0.1.0` does not upgrade those schema
+histories in place; use this recovery only before an operator-reviewed export
+or rollback. Fresh installations and invitations are email-first.
 
 For a pre-017 installation whose local platform administrator has no `users.email`
 value, use the `kuberploy-admin-recover` utility during a maintenance window.
@@ -40,5 +41,5 @@ disposal procedure.
 
 Do not use a different email to reset an existing user. Do not run the first
 pass against a fresh installation. If the exact legacy administrator cannot be
-identified safely, restore from backup or provision a fresh pre-stable
-database; do not guess an identity.
+identified safely, restore from backup or provision a fresh database; do not
+guess an identity.

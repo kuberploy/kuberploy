@@ -143,19 +143,20 @@ def main() -> None:
 
         (fixture / "README.md").write_text(
             readme.replace(
-                "The dedicated Prisma migration Job automatically upgrades supported\n"
-                "> Prisma-backed RC databases during Helm upgrade. Only unsupported pre-Prisma\n"
-                "> schema histories require a fresh database.",
-                "Every release candidate requires a fresh database.",
+                "The final `0.1.0` migration baseline intentionally requires a fresh database\n"
+                "> when replacing any older release-candidate schema history. Existing RC data\n"
+                "> must be exported and restored through an operator-reviewed process; it is not\n"
+                "> upgraded in place.",
+                "Older release-candidate databases upgrade in place.",
                 1,
             ),
             encoding="utf-8",
         )
         false_upgrade_claim = run_validator(root, fixture, workflow)
-        if false_upgrade_claim.returncode == 0 or "supported Prisma-backed upgrade" not in (
+        if false_upgrade_claim.returncode == 0 or "fresh-database boundary" not in (
             false_upgrade_claim.stdout + false_upgrade_claim.stderr
         ):
-            raise SystemExit("validator accepted a false blanket fresh-database claim")
+            raise SystemExit("validator accepted a false release-candidate upgrade claim")
         (fixture / "README.md").write_text(readme, encoding="utf-8")
 
         (fixture / ".github/workflows/ci.yml").write_text(
@@ -266,6 +267,11 @@ def main() -> None:
                     1,
                 ),
                 "must not require protected environment approval",
+            ),
+            (
+                "stable source comparison removed",
+                workflow.replace("          python3 release/validate_promotion.py \\\n", "", 1),
+                "missing fail-closed controls",
             ),
             (
                 "unguarded chart reuse",

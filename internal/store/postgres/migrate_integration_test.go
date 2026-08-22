@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
-	"github.com/kuberploy/kuberploy/migrations"
 )
 
 func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
@@ -34,114 +33,43 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		t.Fatalf("verify exact Prisma history: %v", err)
 	}
 
-	recoveryHistoryID := id.New()
-	recoveryLogs := strings.Join([]string{
-		"Migration name: 011_helm_application_cascade_preflight",
-		"Database error code: 23514",
-		"Terminal Helm protected Application intents are immutable",
-		"PL/pgSQL function public.validate_helm_protected_application_intent()",
-	}, "\n")
+	rolledBackHistoryID := id.New()
 	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
 		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
-		) SELECT $1,$2,$3::varchar(255),$4,started_at-interval '2 seconds',started_at-interval '1 second',0
-			FROM _prisma_migrations WHERE migration_name=$3::varchar(255) AND finished_at IS NOT NULL`, recoveryHistoryID,
-		migrations.RecoverableRC171Checksum, migrations.RecoverableRC171Migration, recoveryLogs); err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifySchema(ctx, pool); err != nil {
-		t.Fatalf("verify exact RC171 rolled-back evidence: %v", err)
-	}
-	interruptedHistoryID := id.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
-		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
-		) SELECT $1,$2,$3::varchar(255),'',started_at-interval '900 milliseconds',started_at-interval '500 milliseconds',0
-			FROM _prisma_migrations WHERE migration_name=$3::varchar(255) AND finished_at IS NOT NULL`, interruptedHistoryID,
-		migrations.RecoverableRC171Checksum, migrations.RecoverableRC171Migration); err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifySchema(ctx, pool); err != nil {
-		t.Fatalf("verify bounded interrupted RC171 evidence: %v", err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET applied_steps_count=0
-		WHERE migration_name=$1 AND finished_at IS NOT NULL`, migrations.RecoverableRC171Migration); err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifySchema(ctx, pool); err != nil {
-		t.Fatalf("verify crash-attested applied RC171 evidence: %v", err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET applied_steps_count=1
-		WHERE migration_name=$1 AND finished_at IS NOT NULL`, migrations.RecoverableRC171Migration); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations AS interruption
-		SET started_at=failure.started_at-interval '1 second'
-		FROM _prisma_migrations AS failure
-		WHERE interruption.id=$1 AND failure.id=$2`, interruptedHistoryID, recoveryHistoryID); err != nil {
+		) SELECT $1,checksum,'999_unexpected_rollback','failed',started_at-interval '2 seconds',started_at-interval '1 second',0
+			FROM _prisma_migrations WHERE finished_at IS NOT NULL`, rolledBackHistoryID); err != nil {
 		t.Fatal(err)
 	}
 	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
-		t.Fatalf("reversed RC171 recovery chronology err=%v", err)
+		t.Fatalf("unexpected rolled-back migration err=%v", err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations AS interruption
-		SET started_at=applied.started_at-interval '900 milliseconds'
-		FROM _prisma_migrations AS applied
-		WHERE interruption.id=$1 AND applied.migration_name=$2 AND applied.finished_at IS NOT NULL`,
-		interruptedHistoryID, migrations.RecoverableRC171Migration); err != nil {
+	if _, err = pool.Exec(ctx, `DELETE FROM _prisma_migrations WHERE id=$1`, rolledBackHistoryID); err != nil {
 		t.Fatal(err)
 	}
-	history, historyErr := migrations.History()
-	if historyErr != nil {
-		t.Fatal(historyErr)
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET applied_steps_count=0 WHERE finished_at IS NOT NULL`); err != nil {
+		t.Fatal(err)
 	}
-	var cleanupChecksum string
-	for _, migration := range history {
-		if migration.Name == migrations.RecoverableRC171CleanupMigration {
-			cleanupChecksum = migration.Checksum
-			break
-		}
+	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
+		t.Fatalf("zero-step successful migration err=%v", err)
 	}
-	if cleanupChecksum == "" {
-		t.Fatalf("migration history does not contain %q", migrations.RecoverableRC171CleanupMigration)
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET applied_steps_count=1 WHERE finished_at IS NOT NULL`); err != nil {
+		t.Fatal(err)
 	}
-	cleanupHistoryID := id.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
-		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
-		) SELECT $1,$2,$3::varchar(255),'',prior.finished_at+(current_row.started_at-prior.finished_at)/3,
-			prior.finished_at+((current_row.started_at-prior.finished_at)*2)/3,1
-			FROM _prisma_migrations AS current_row
-			JOIN _prisma_migrations AS prior ON prior.migration_name=$4::varchar(255) AND prior.finished_at IS NOT NULL
-			WHERE current_row.migration_name=$3::varchar(255) AND current_row.finished_at IS NOT NULL`, cleanupHistoryID,
-		cleanupChecksum, migrations.RecoverableRC171CleanupMigration, migrations.RecoverableRC171Migration); err != nil {
+	var baselineChecksum string
+	if err = pool.QueryRow(ctx, `SELECT checksum FROM _prisma_migrations WHERE finished_at IS NOT NULL`).Scan(&baselineChecksum); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=repeat('0',64) WHERE finished_at IS NOT NULL`); err != nil {
+		t.Fatal(err)
+	}
+	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
+		t.Fatalf("tampered baseline checksum err=%v", err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET checksum=$1 WHERE finished_at IS NOT NULL`, baselineChecksum); err != nil {
 		t.Fatal(err)
 	}
 	if err = VerifySchema(ctx, pool); err != nil {
-		t.Fatalf("verify interrupted migration cleanup evidence: %v", err)
-	}
-	duplicateCleanupHistoryID := id.New()
-	if _, err = pool.Exec(ctx, `INSERT INTO _prisma_migrations(
-		id,checksum,migration_name,logs,started_at,rolled_back_at,applied_steps_count
-		) SELECT $1,$2,$3::varchar(255),'',prior.finished_at+(current_row.started_at-prior.finished_at)/3,
-			prior.finished_at+((current_row.started_at-prior.finished_at)*2)/3,0
-			FROM _prisma_migrations AS current_row
-			JOIN _prisma_migrations AS prior ON prior.migration_name=$4::varchar(255) AND prior.finished_at IS NOT NULL
-			WHERE current_row.migration_name=$3::varchar(255) AND current_row.finished_at IS NOT NULL`, duplicateCleanupHistoryID,
-		cleanupChecksum, migrations.RecoverableRC171CleanupMigration, migrations.RecoverableRC171Migration); err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
-		t.Fatalf("duplicate interrupted cleanup evidence err=%v", err)
-	}
-	if _, err = pool.Exec(ctx, `DELETE FROM _prisma_migrations WHERE id=$1`, duplicateCleanupHistoryID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = pool.Exec(ctx, `UPDATE _prisma_migrations SET logs='forged' WHERE id=$1`, recoveryHistoryID); err != nil {
-		t.Fatal(err)
-	}
-	if err = VerifySchema(ctx, pool); !errors.Is(err, ErrMigrationMismatch) {
-		t.Fatalf("forged rolled-back evidence err=%v", err)
-	}
-	if _, err = pool.Exec(ctx, `DELETE FROM _prisma_migrations WHERE id IN ($1,$2,$3)`, recoveryHistoryID, interruptedHistoryID, cleanupHistoryID); err != nil {
-		t.Fatal(err)
+		t.Fatalf("verify restored baseline checksum: %v", err)
 	}
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
