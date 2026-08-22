@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Schema 020. RC304 gives the generated bootstrap-token hook enough time for cold-node API image pulls while keeping a bounded, configurable deadline.",
+  "summary": "Schema 020. RC305 aligns 30-minute child bootstrap and parent Application health deadlines for slow cold-node image pulls.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.304"
+  "version": "0.1.0-rc.305"
 }
