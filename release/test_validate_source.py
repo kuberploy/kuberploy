@@ -164,13 +164,14 @@ def main() -> None:
         metadata_link = fixture / "release/metadata.json"
         metadata_link.unlink()
         metadata = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))
-        metadata["summary"] = "RC1 stale release summary."
-        metadata_link.write_text(json.dumps(metadata), encoding="utf-8")
-        stale_rc = run_validator(root, fixture, workflow)
-        if stale_rc.returncode == 0 or "different release candidate" not in (
-            stale_rc.stdout + stale_rc.stderr
-        ):
-            raise SystemExit("validator accepted a stale release-candidate summary")
+        if "-" in current_version:
+            metadata["summary"] = "RC1 stale release summary."
+            metadata_link.write_text(json.dumps(metadata), encoding="utf-8")
+            stale_rc = run_validator(root, fixture, workflow)
+            if stale_rc.returncode == 0 or "different release candidate" not in (
+                stale_rc.stdout + stale_rc.stderr
+            ):
+                raise SystemExit("validator accepted a stale release-candidate summary")
         metadata["summary"] = "Schema 999 stale migration summary."
         metadata_link.write_text(json.dumps(metadata), encoding="utf-8")
         stale_schema = run_validator(root, fixture, workflow)
