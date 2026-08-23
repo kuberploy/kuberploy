@@ -77,7 +77,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.324 \
+  --version 0.1.0-rc.325 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --reset-values \
@@ -180,7 +180,7 @@ repository URL, TLS, redirect, and credential checks remain authoritative.
 `integrations.github` is the Helm-native switch for the complete source-build
 entry path. Enabling it requires the control-plane and builder components plus
 the public HTTPS endpoint. Supply only the GitHub App ID, client ID, slug,
-cluster UUID, and the name of a pre-created `kuberploy-system` Secret. Empty
+platform binding UUID, and the name of a pre-created `kuberploy-system` Secret. Empty
 provider CIDR lists allow dual-stack public HTTPS or the verified registry port
 while excluding the configured Kubernetes API CIDRs. Operators may supply
 canonical bounded CIDRs to narrow those infrastructure rules; no live provider

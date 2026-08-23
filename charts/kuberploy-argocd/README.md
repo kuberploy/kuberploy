@@ -21,7 +21,7 @@ deliver these existing Secrets without putting their contents in Git:
 
 The optional bootstrap boundary creates one retained root `AppProject` and
 `Application`. It is disabled by default and accepts only the verified platform
-binding's cluster UUID, binding UUID, GitHub owner/repository, and fully
+binding UUID, GitHub owner/repository, and fully
 qualified branch ref. The chart—not a caller—derives the canonical
 `https://github.com/<owner>/<repository>.git` remote, the fixed
 `platform/argocd` directory, and the deterministic repository

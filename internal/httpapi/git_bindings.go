@@ -21,8 +21,8 @@ type environmentGitBindingRequest struct {
 
 // PlatformGitBindingConfig is server/operator authority. None of these fields
 // is accepted from the platform-binding request body. Enabled=false is the
-// fail-closed zero value until an operator wires the exact cluster and GitHub
-// App identities.
+// fail-closed zero value until an operator wires the exact platform binding
+// and GitHub App identities.
 type PlatformGitBindingConfig struct {
 	Enabled     bool
 	BindingID   string

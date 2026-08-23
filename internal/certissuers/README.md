@@ -34,7 +34,7 @@ a new revision nor deactivate, preventing mutable-name drift after admission.
 `ProtectedController` is the worker-side mutation seam. Production constructs
 its `ProtectedGitPublisher` with the existing PostgreSQL `gitprojection.Store`,
 the existing authenticated GitHub head verifier, the single hardened
-`MirrorManager`, an exact platform binding/cluster identity, and the exact
+`MirrorManager`, the exact singleton platform binding identity, and the exact
 server-configured observer namespace and ServiceAccount. It renders one closed
 three-document bundle at
 `platform/argocd/platform/certificate-issuers/<name>.yaml`. The

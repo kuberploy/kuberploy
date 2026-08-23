@@ -43,7 +43,7 @@ func (p ShadowProjector) Project(ctx context.Context, lease ReconciliationLease,
 	}
 	prepared, err := p.Manager.Prepare(ctx, binding, head, operationID)
 	if err != nil {
-		return err
+		return fmt.Errorf("prepare projection repository: %w", err)
 	}
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), defaultProjectionCleanup)
@@ -52,10 +52,16 @@ func (p ShadowProjector) Project(ctx context.Context, lease ReconciliationLease,
 	}()
 	if binding.State == BindingDiverged {
 		_, err = p.Indexer.FullReindex(ctx, lease, prepared, now)
-		return err
+		if err != nil {
+			return fmt.Errorf("activate full Git projection: %w", err)
+		}
+		return nil
 	}
 	_, err = p.Indexer.Index(ctx, lease, prepared, now)
-	return err
+	if err != nil {
+		return fmt.Errorf("activate incremental Git projection: %w", err)
+	}
+	return nil
 }
 
 // ProjectionProjector is the bounded shadow-index operation. It exists as a
@@ -208,6 +214,9 @@ func (c *Coordinator) ReconcileNext(ctx context.Context) (bool, error) {
 		return true, heartbeatErr
 	}
 	finishedAt := c.now()
+	if operationErr != nil && c.ReportError != nil {
+		c.ReportError(operationErr)
+	}
 	if ctx.Err() != nil {
 		cleanup, cancel := context.WithTimeout(context.Background(), defaultProjectionCleanup)
 		defer cancel()

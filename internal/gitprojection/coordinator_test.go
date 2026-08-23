@@ -142,6 +142,8 @@ func TestCoordinatorDoesNotAdvertiseIncompleteProjection(t *testing.T) {
 	}}
 	projector := &projectionProjectorStub{store: store, complete: false}
 	coordinator := coordinatorForTest(store, provider, projector, clock)
+	reported := []error{}
+	coordinator.ReportError = func(err error) { reported = append(reported, err) }
 	worked, err := coordinator.ReconcileNext(t.Context())
 	if err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
@@ -153,6 +155,9 @@ func TestCoordinatorDoesNotAdvertiseIncompleteProjection(t *testing.T) {
 	current, _ := store.Binding(t.Context(), binding.ID)
 	if current.State == BindingReady || current.IndexedRevision != "" || current.ProjectionGeneration != 0 {
 		t.Fatalf("incomplete projection advertised: %#v", current)
+	}
+	if len(reported) != 1 || !errors.Is(reported[0], ErrConflict) {
+		t.Fatalf("durably handled projection failure was not reported: %#v", reported)
 	}
 }
 

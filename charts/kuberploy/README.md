@@ -47,7 +47,7 @@ This chart owns only the API, worker, web UI and namespaced control-plane
 support resources. It never templates an Argo `Application`, tenant Namespace,
 or tenant workload, so an in-place Helm upgrade cannot prune application state.
 
-Source defaults use the explicit `0.1.0-rc.324` release-candidate tags. Stable
+Source defaults use the explicit `0.1.0-rc.325` release-candidate tags. Stable
 release packaging must inject immutable `image@sha256` references
 for all five deployed release images (API, worker, web, migration, and builder-agent) and set
 `global.requireImageDigest=true`; rendering then
@@ -195,10 +195,10 @@ heartbeat are fresh.
 
 `config.certificateIssuerObserver.enabled` separately enables the admin-managed
 cert-manager `ClusterIssuer` catalog. It is false by default and ignores
-dormant binding, cluster, and timing values. Enabling it requires Git
+dormant binding and timing values. Enabling it requires Git
 projection, protected Argo desired state, environment foundation, and the
-cert-manager edge profile. Its platform-binding and cluster UUIDs must equal the Argo
-and foundation identities. The chart derives the observer namespace from the
+cert-manager edge profile. Its platform-binding UUID must equal the Argo and
+foundation identity. The chart derives the observer namespace from the
 Helm release namespace and the observer identity from this release's worker
 ServiceAccount; neither is operator-selectable.
 
@@ -313,7 +313,7 @@ the management-only API flag.
 
 `config.environmentFoundation.enabled` and `config.argoDesiredState.enabled`
 are paired, default-off production authorities. Foundation configuration pins
-the same platform-binding and cluster UUIDs, a supported Pod Security version,
+the singleton platform-binding UUID, a supported Pod Security version,
 and a bounded poll interval. The worker publishes the server-owned Namespace,
 quota, limits, default-deny/DNS policies, and observer RBAC beneath the exact
 root path before Argo can advertise desired-state readiness. The API derives
@@ -323,19 +323,18 @@ published.
 
 Fresh installs use two explicit stages. First,
 `config.platformGitBinding.enabled` exposes the admin-only platform Git binding
-workflow with one operator-owned cluster UUID while foundation and protected
+workflow with one operator-owned binding UUID while foundation and protected
 Argo remain disabled; only the API receives that bootstrap identity. After the
-workflow returns the server-generated binding UUID, the operator enables the
-foundation and protected Argo with that exact binding and the same cluster
-UUID. The worker receives the shared cluster identity only in this second
-stage, when a configured runtime actually needs it.
+workflow creates the singleton binding, the operator enables foundation and
+protected Argo with that same binding UUID. The worker receives that binding
+identity only in this second stage, when a configured runtime needs it.
 
 Protected Argo Git materialization can be enabled only with the foundation,
 GitHub App, Git projection, and Argo observation runtimes enabled; Argo observation,
 desired state, and `rbac.argoNamespace` must name the same namespace. The
 operator also supplies one canonical platform-binding UUID, one canonical
-cluster UUID, an OCI chart repository, semantic chart version, exact
-`sha256:` chart digest, and bounded poll/catalog ages. The desired-state chart
+OCI chart repository, semantic chart version, exact `sha256:` chart digest,
+and bounded poll/catalog ages. The desired-state chart
 digest must equal the Git projection renderer digest. All values participate in
 the immutable ConfigMap name; NetworkPolicy hardening is optional.
 

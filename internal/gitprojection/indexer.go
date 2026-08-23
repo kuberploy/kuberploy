@@ -101,20 +101,24 @@ func (i Indexer) indexFull(ctx context.Context, lease ReconciliationLease, repos
 		if timeErr == nil {
 			_ = i.Store.FailGeneration(ctx, lease, generation, failedAt)
 		}
-		return Binding{}, err
+		return Binding{}, fmt.Errorf("read projection documents: %w", err)
 	}
 	if err = i.Store.PutDocuments(ctx, generation, documents); err != nil {
 		failedAt, timeErr := i.currentTime(startedAt)
 		if timeErr == nil {
 			_ = i.Store.FailGeneration(ctx, lease, generation, failedAt)
 		}
-		return Binding{}, err
+		return Binding{}, fmt.Errorf("stage projection documents: %w", err)
 	}
 	activatedAt, err := i.currentTime(startedAt)
 	if err != nil {
 		return Binding{}, err
 	}
-	return i.Store.ActivateGeneration(ctx, lease, generation, i.Policy, activatedAt)
+	activated, err := i.Store.ActivateGeneration(ctx, lease, generation, i.Policy, activatedAt)
+	if err != nil {
+		return Binding{}, fmt.Errorf("activate projection generation: %w", err)
+	}
+	return activated, nil
 }
 
 func (i Indexer) currentTime(fallback time.Time) (time.Time, error) {
