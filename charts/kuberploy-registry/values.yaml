@@ -31,6 +31,9 @@ service:
 
 exposure:
   mode: internal
+  # Disable when secretName is an operator-owned, already issued TLS Secret.
+  # HTTPS remains enabled; Kuberploy only stops managing the Certificate.
+  manageCertificate: true
   # Optional for bounded test images. Cloudflare's proxy upload limits make
   # DNS-only the production-safe default for general OCI workloads.
   cloudflareProxied: false

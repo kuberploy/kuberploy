@@ -80,9 +80,10 @@
     "exposure": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mode", "cloudflareProxied", "endpoint", "ingressClassName", "secretName", "clusterIssuerName", "loadBalancer"],
+      "required": ["mode", "manageCertificate", "cloudflareProxied", "endpoint", "ingressClassName", "secretName", "clusterIssuerName", "loadBalancer"],
       "properties": {
         "mode": { "enum": ["internal", "ingress", "loadBalancer"] },
+        "manageCertificate": { "type": "boolean" },
         "cloudflareProxied": { "type": "boolean" },
         "endpoint": { "type": "string", "maxLength": 253, "pattern": "^(?:|(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)+)$" },
         "ingressClassName": { "$ref": "#/$defs/optionalDnsLabel" },
@@ -168,9 +169,13 @@
       "then": {
         "properties": {
           "auth": { "properties": { "mode": { "const": "htpasswd" } } },
-          "exposure": { "properties": { "endpoint": { "minLength": 1 }, "ingressClassName": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
+          "exposure": { "properties": { "endpoint": { "minLength": 1 }, "ingressClassName": { "minLength": 1 }, "secretName": { "minLength": 1 } } }
         }
       }
+    },
+    {
+      "if": { "properties": { "exposure": { "properties": { "mode": { "enum": ["ingress", "loadBalancer"] }, "manageCertificate": { "const": true } }, "required": ["mode", "manageCertificate"] } }, "required": ["exposure"] },
+      "then": { "properties": { "exposure": { "properties": { "clusterIssuerName": { "minLength": 1 } } } } }
     },
     {
       "if": {

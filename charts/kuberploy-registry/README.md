@@ -28,6 +28,7 @@ auth:
   secretRevision: initial
 exposure:
   mode: ingress
+  manageCertificate: true
   endpoint: registry.example.com
   ingressClassName: traefik
   secretName: registry-tls
@@ -38,6 +39,10 @@ networkPolicy:
     - kuberploy
     - kuberploy-build
 ```
+
+Set `exposure.manageCertificate: false` when `secretName` already contains an
+operator-owned certificate. Registry HTTPS and TLS mounts remain enabled, but
+the chart does not create a cert-manager `Certificate`.
 
 The existing Secret is operator/controller-created and must contain:
 

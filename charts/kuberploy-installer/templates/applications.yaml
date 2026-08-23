@@ -63,7 +63,7 @@
       "enabled" true
       "className" "traefik"
       "host" $public.hostname
-      "tls" (dict "enabled" $public.tls.enabled "redirectHttp" $public.tls.enabled "secretName" $public.tls.secretName "issuerName" $public.tls.clusterIssuerName)
+      "tls" (dict "enabled" $public.tls.enabled "redirectHttp" $public.tls.enabled "secretName" $public.tls.secretName "issuerName" (ternary $public.tls.clusterIssuerName "" $public.tls.manageCertificate))
     )
   -}}
   {{- $childValues = mergeOverwrite $childValues $endpointValues -}}
@@ -73,7 +73,7 @@
   {{- $childValues = mergeOverwrite $childValues (dict "traefik" (dict "metrics" (dict "prometheus" (dict "serviceMonitor" (dict "enabled" $root.Values.components.monitoring.enabled))))) -}}
 {{- else if eq $item.key "certManager" -}}
   {{- $childValues = mergeOverwrite $childValues (dict "foundation" (dict "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs))) -}}
-  {{- if $root.Values.publicEndpoint.tls.enabled -}}
+  {{- if and $root.Values.publicEndpoint.tls.enabled $root.Values.publicEndpoint.tls.manageCertificate -}}
     {{- $issuer := dict
       "enabled" true
       "name" $root.Values.publicEndpoint.tls.clusterIssuerName
@@ -185,7 +185,7 @@
   {{- $registry := $root.Values.integrations.registry -}}
   {{- $registryValues := dict
     "auth" (dict "mode" "htpasswd" "existingSecret" $registry.authSecretName "secretRevision" $registry.secretRevision)
-    "exposure" (dict "mode" $registry.exposureMode "cloudflareProxied" $registry.cloudflareProxied "endpoint" $registry.endpoint "ingressClassName" "traefik" "secretName" $registry.tlsSecretName "clusterIssuerName" $registry.clusterIssuerName "loadBalancer" $registry.loadBalancer)
+    "exposure" (dict "mode" $registry.exposureMode "manageCertificate" $registry.manageCertificate "cloudflareProxied" $registry.cloudflareProxied "endpoint" $registry.endpoint "ingressClassName" "traefik" "secretName" $registry.tlsSecretName "clusterIssuerName" $registry.clusterIssuerName "loadBalancer" $registry.loadBalancer)
     "networkPolicy" (dict "enabled" true "allowedNamespaces" (list "kuberploy-build-dind" "kuberploy-system"))
   -}}
   {{- $childValues = mergeOverwrite $childValues $registryValues -}}

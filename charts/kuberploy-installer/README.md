@@ -77,7 +77,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.330 \
+  --version 0.1.0-rc.331 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --reset-values \
@@ -103,6 +103,12 @@ the exact issuer annotation to the control-plane Ingress. TLS traffic is bound
 to Traefik's `websecure` entrypoint, while a dedicated port-80 Ingress and
 route-scoped `redirectScheme` Middleware permanently redirect HTTP to HTTPS.
 It rejects partial TLS configuration before Helm writes resources.
+
+For an already issued, operator-owned TLS Secret, keep TLS enabled and set
+`publicEndpoint.tls.manageCertificate: false`. Ingress continues serving
+`secretName` without adding cert-manager issuer annotations or creating an ACME
+order. Use `integrations.registry.manageCertificate: false` for an existing
+registry TLS Secret.
 
 The source checkout form `charts/kuberploy-installer` is for development and
 chart tests. Operators should use the public OCI package so the selected chart

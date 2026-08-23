@@ -87,9 +87,10 @@
         "tls": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "secretName", "clusterIssuerName", "accountEmail"],
+          "required": ["enabled", "manageCertificate", "secretName", "clusterIssuerName", "accountEmail"],
           "properties": {
             "enabled": { "type": "boolean" },
+            "manageCertificate": { "type": "boolean" },
             "secretName": {
               "type": "string", "maxLength": 63,
               "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$"
@@ -144,7 +145,7 @@
         "registry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "secretRevision", "exposureMode", "cloudflareProxied", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
+          "required": ["enabled", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "secretRevision", "exposureMode", "manageCertificate", "cloudflareProxied", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
           "properties": {
             "enabled": { "type": "boolean" },
             "targetID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
@@ -163,6 +164,7 @@
               "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._-]{0,127})$"
             },
             "exposureMode": { "enum": ["internal", "ingress", "loadBalancer"] },
+            "manageCertificate": { "type": "boolean" },
             "cloudflareProxied": { "type": "boolean" },
             "endpoint": { "$ref": "#/$defs/optionalDNSSubdomain" },
             "tlsSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
@@ -207,9 +209,12 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 }, "clusterIssuerName": { "minLength": 1 } } }
+              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 } } }
             },
-            {}
+            {
+              "if": { "properties": { "enabled": { "const": true }, "manageCertificate": { "const": true } }, "required": ["enabled", "manageCertificate"] },
+              "then": { "properties": { "clusterIssuerName": { "minLength": 1 } } }
+            }
           ]
         }
       }

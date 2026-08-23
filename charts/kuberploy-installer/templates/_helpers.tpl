@@ -167,8 +167,11 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- if or (not .Values.components.controlPlane.enabled) (not .Values.components.edge.enabled) -}}{{ fail "publicEndpoint requires enabled controlPlane and edge components" }}{{- end -}}
   {{- if empty $public.hostname -}}{{ fail "publicEndpoint requires one exact hostname" }}{{- end -}}
   {{- if $public.tls.enabled -}}
-    {{- if or (empty $public.tls.secretName) (empty $public.tls.clusterIssuerName) (empty $public.tls.accountEmail) -}}{{ fail "publicEndpoint TLS requires exact Secret, ClusterIssuer, and account email values" }}{{- end -}}
-    {{- if or (not .Values.components.certManager.enabled) (ne .Values.components.certManager.mode "managed") -}}{{ fail "publicEndpoint managed TLS requires the managed certManager component" }}{{- end -}}
+    {{- if empty $public.tls.secretName -}}{{ fail "publicEndpoint TLS requires an exact Secret name" }}{{- end -}}
+    {{- if $public.tls.manageCertificate -}}
+      {{- if or (empty $public.tls.clusterIssuerName) (empty $public.tls.accountEmail) -}}{{ fail "publicEndpoint certificate management requires exact ClusterIssuer and account email values" }}{{- end -}}
+      {{- if or (not .Values.components.certManager.enabled) (ne .Values.components.certManager.mode "managed") -}}{{ fail "publicEndpoint certificate management requires the managed certManager component" }}{{- end -}}
+    {{- end -}}
   {{- end -}}
 {{- end -}}
 
@@ -206,8 +209,9 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- range $registry.controlPlaneEgressCIDRs -}}
     {{- if or (has . (list "0.0.0.0/0" "::/0")) (not (regexMatch "(?:/32|/128)$" .)) -}}{{ fail "managed registry control-plane egress accepts only exact /32 or /128 hosts" }}{{- end -}}
   {{- end -}}
-  {{- if or (not (has $registry.exposureMode (list "ingress" "loadBalancer"))) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.authSecretName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" $registry.secretRevision)) (not (regexMatch "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)+)$" $registry.endpoint)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.tlsSecretName)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.clusterIssuerName)) -}}{{ fail "managed registry integration requires exact auth, endpoint, and TLS identities" }}{{- end -}}
-  {{- if ne $registry.clusterIssuerName .Values.publicEndpoint.tls.clusterIssuerName -}}{{ fail "managed registry must use the installer-owned public ClusterIssuer" }}{{- end -}}
+  {{- if or (not (has $registry.exposureMode (list "ingress" "loadBalancer"))) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.authSecretName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" $registry.secretRevision)) (not (regexMatch "^(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?)+)$" $registry.endpoint)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.tlsSecretName)) -}}{{ fail "managed registry integration requires exact auth, endpoint, and TLS identities" }}{{- end -}}
+  {{- if and $registry.manageCertificate (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $registry.clusterIssuerName)) -}}{{ fail "managed registry certificate management requires an exact ClusterIssuer" }}{{- end -}}
+  {{- if and $registry.manageCertificate (ne $registry.clusterIssuerName .Values.publicEndpoint.tls.clusterIssuerName) -}}{{ fail "managed registry must use the installer-owned public ClusterIssuer" }}{{- end -}}
   {{- if eq $registry.exposureMode "loadBalancer" -}}
     {{- if or (hasKey $registry.loadBalancer.annotations "external-dns.alpha.kubernetes.io/cloudflare-proxied") (hasKey $registry.loadBalancer.annotations "external-dns.kubernetes.io/cloudflare-proxied") -}}{{ fail "managed registry Cloudflare proxy policy is controlled only by cloudflareProxied" }}{{- end -}}
   {{- end -}}

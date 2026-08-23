@@ -71,6 +71,15 @@ helm template proxied "${kp_chart}" \
 [[ "$(yq eval-all 'select(.kind == "Certificate") | .spec.dnsNames[0]' "${kp_auth_render}")" == "registry.example.com" ]]
 [[ "$(yq eval-all 'select(.kind == "Certificate") | [.spec.privateKey.algorithm,.spec.privateKey.size] | join(",")' "${kp_auth_render}")" == "ECDSA,256" ]]
 
+kp_existing_certificate_render="${kp_tmp}/existing-certificate.yaml"
+helm template authenticated "${kp_chart}" \
+  --namespace kuberploy-registry \
+  -f "${kp_auth_values}" \
+  --set exposure.manageCertificate=false >"${kp_existing_certificate_render}"
+[[ "$(yq eval-all '[select(.kind == "Certificate")] | length' "${kp_existing_certificate_render}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "Ingress") | .spec.tls[0].secretName' "${kp_existing_certificate_render}")" == "registry-tls" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.volumes[] | select(.name == "tls") | .secret.secretName' "${kp_existing_certificate_render}")" == "registry-tls" ]]
+
 kp_endpoint_changed_render="${kp_tmp}/endpoint-changed.yaml"
 helm template authenticated "${kp_chart}" \
   --namespace kuberploy-registry \

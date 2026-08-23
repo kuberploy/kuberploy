@@ -52,9 +52,11 @@ publicEndpoint:
   hostname: ""
   tls:
     enabled: false
+    # Disable when secretName already contains an operator-owned certificate.
+    manageCertificate: true
     secretName: ""
     clusterIssuerName: ""
-    # Required when TLS is enabled; used for the ACME account registration.
+    # Required when certificate management is enabled; used for ACME registration.
     accountEmail: ""
 
 # Closed, credential-free control-plane integration inputs. Secret bytes are
@@ -95,6 +97,8 @@ integrations:
     authSecretName: ""
     secretRevision: ""
     exposureMode: internal
+    # Disable when tlsSecretName already contains an operator-owned certificate.
+    manageCertificate: true
     # Enable only for bounded images within the Cloudflare upload limit.
     cloudflareProxied: false
     endpoint: ""
