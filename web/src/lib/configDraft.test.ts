@@ -6,6 +6,7 @@ import {
   defaultConfigYaml,
   guidedConfigFromYaml,
   validateGuidedRuntimeProcess,
+  validateGuidedResourceOverrides,
   validateYaml,
   validateGuidedProbes,
   workloadProcessFromGuided,
@@ -695,5 +696,55 @@ describe("shared AppConfig draft", () => {
         ],
       }),
     ).toThrow(/explicit CIDR/i);
+  });
+
+  it("round-trips four separate advanced Kubernetes resource overrides", () => {
+    const draft = defaultConfigYaml({ name: "api" });
+    const guided = guidedConfigFromYaml(draft);
+    const updated = applyGuidedConfig(draft, {
+      ...guided,
+      resourceOverrides: {
+        deploymentYaml:
+          "metadata:\n  annotations:\n    example.com/restarted-at: now\nspec:\n  replicas: 3",
+        serviceYaml: "spec:\n  type: LoadBalancer",
+        ingressYaml:
+          'metadata:\n  annotations:\n    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"',
+        serviceAccountYaml:
+          "metadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app",
+      },
+    });
+    const parsed = parse(updated) as {
+      spec: { overrides: Record<string, Record<string, unknown>> };
+    };
+    expect(parsed.spec.overrides.deployment?.spec).toEqual({ replicas: 3 });
+    expect(parsed.spec.overrides.service?.spec).toEqual({
+      type: "LoadBalancer",
+    });
+    expect(
+      (
+        parsed.spec.overrides.ingress?.metadata as {
+          annotations: Record<string, string>;
+        }
+      ).annotations["external-dns.alpha.kubernetes.io/cloudflare-proxied"],
+    ).toBe("true");
+    expect(guidedConfigFromYaml(updated).resourceOverrides).toEqual({
+      deploymentYaml:
+        "metadata:\n  annotations:\n    example.com/restarted-at: now\nspec:\n  replicas: 3",
+      serviceYaml: "spec:\n  type: LoadBalancer",
+      ingressYaml:
+        'metadata:\n  annotations:\n    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"',
+      serviceAccountYaml:
+        "metadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app",
+    });
+  });
+
+  it("rejects a non-mapping advanced Kubernetes override", () => {
+    const guided = guidedConfigFromYaml(defaultConfigYaml({ name: "api" }));
+    expect(
+      validateGuidedResourceOverrides({
+        ...guided.resourceOverrides,
+        ingressYaml: "- invalid",
+      }),
+    ).toMatch(/Ingress override must be a YAML object/i);
   });
 });

@@ -57,7 +57,7 @@ func (s *protectedPublisherStoreStub) PublicationPrerequisite(_ context.Context,
 	value.ReleaseRevisionID, value.ProjectID = releaseID, target.ProjectID
 	value.EnvironmentID, value.ApplicationID = target.EnvironmentID, target.ApplicationID
 	value.PlatformBindingID, value.EnvironmentBindingID = binding.PlatformBindingID, binding.EnvironmentBindingID
-	value.ClusterID, value.EnvironmentRevision = binding.ClusterID, binding.EnvironmentRevision
+	value.EnvironmentRevision = binding.EnvironmentRevision
 	value.EnvironmentGeneration, value.PlannedBaseRevision = binding.EnvironmentGeneration, binding.PlannedBaseRevision
 	return value, nil
 }
@@ -390,9 +390,8 @@ func newProtectedPublisherFixture(t *testing.T) *protectedPublisherFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	clusterID, bindingID := id.New(), id.New()
-	binding, err := gitprojection.NewGitHubPlatformBinding(bindingID, clusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "platform"},
+	bindingID := id.New()
+	binding, err := gitprojection.NewGitHubPlatformBinding(bindingID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8, Owner: "kuberploy", Name: "platform"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
@@ -414,7 +413,7 @@ func newProtectedPublisherFixture(t *testing.T) *protectedPublisherFixture {
 		ReleaseRevisionID: fixture.store.payload.ReleaseRevisionID,
 		ProjectID:         target.ProjectID, EnvironmentID: target.EnvironmentID, ApplicationID: target.ApplicationID,
 		PlatformBindingID: binding.ID, EnvironmentBindingID: fixture.store.payload.Binding.EnvironmentBindingID,
-		ClusterID: binding.ClusterID, EnvironmentRevision: fixture.store.payload.Binding.EnvironmentRevision,
+		EnvironmentRevision:   fixture.store.payload.Binding.EnvironmentRevision,
 		EnvironmentGeneration: fixture.store.payload.Binding.EnvironmentGeneration,
 		FoundationIntentID:    id.New(), FoundationRevision: base,
 		DesiredStateCommandID: id.New(), DesiredStateRevision: base,
@@ -430,7 +429,7 @@ func (f *protectedPublisherFixture) pendingPayload(releaseID string, content []b
 	}
 	value := ProtectedPayloadIntent{ID: id.New(), ReleaseRevisionID: releaseID, ReleaseGeneration: 1,
 		Target: f.target, Action: action, Binding: ProtectedBindingSnapshot{PlatformBindingID: f.binding.ID,
-			EnvironmentBindingID: id.New(), ClusterID: f.binding.ClusterID, PlatformTargetRef: f.binding.TargetRef,
+			EnvironmentBindingID: id.New(), PlatformTargetRef: f.binding.TargetRef,
 			EnvironmentTargetRef: "refs/heads/main", EnvironmentRevision: strings.Repeat("a", 40), EnvironmentGeneration: 1,
 			CatalogDigest: digestBytes([]byte("catalog")), PlannedBaseRevision: plannedBase},
 		Content: content, ContentDigest: digestBytes(content), IntentDigest: digestBytes([]byte("payload-intent-" + releaseID)),
@@ -440,7 +439,7 @@ func (f *protectedPublisherFixture) pendingPayload(releaseID string, content []b
 	if !disabled {
 		value.InventoryDigest, value.ResourceCount = digestBytes([]byte("inventory")), 1
 	}
-	value.Path = protectedPayloadPath(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID, releaseID, disabled)
+	value.Path = protectedPayloadPath(f.target.EnvironmentID, f.target.ApplicationID, releaseID, disabled)
 	value.CommitTrailer = "Kuberploy-Helm-Payload-Intent: " + value.ID
 	return value
 }
@@ -457,7 +456,7 @@ func (f *protectedPublisherFixture) pendingApplication(payload ProtectedPayloadI
 	value := ProtectedApplicationIntent{ID: id.New(), ReleaseRevisionID: payload.ReleaseRevisionID,
 		PayloadIntentID: payload.ID, ReleaseGeneration: 1, Target: f.target, Action: action, Binding: payload.Binding,
 		PayloadRevision: payload.CommittedRevision, PayloadPath: payload.Path,
-		ApplicationPath: protectedApplicationPath(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID),
+		ApplicationPath: protectedApplicationPath(f.target.EnvironmentID, f.target.ApplicationID),
 		Operation:       operation, Precondition: precondition, ExpectedETag: etag, Content: content,
 		IntentDigest: digestBytes([]byte("application-intent-" + payload.ReleaseRevisionID)), Publisher: f.publisher,
 		OriginalPublisherConfigDigest: f.publisher.ConfigDigest,
@@ -467,7 +466,7 @@ func (f *protectedPublisherFixture) pendingApplication(payload ProtectedPayloadI
 		value.CascadeContract = protectedCascadeContract
 	}
 	if action == ProtectedApplicationPublish {
-		value.SourceDirectory = protectedSourceDirectory(f.binding.ClusterID, f.target.EnvironmentID, f.target.ApplicationID, payload.ReleaseRevisionID)
+		value.SourceDirectory = protectedSourceDirectory(f.target.EnvironmentID, f.target.ApplicationID, payload.ReleaseRevisionID)
 		value.ContentDigest = digestBytes(content)
 	}
 	value.CommitTrailer = "Kuberploy-Helm-Application-Intent: " + value.ID
@@ -645,10 +644,9 @@ func pathAbsentCascadeFixture(t *testing.T, fixture *protectedPublisherFixture) 
 	release.Target = fixture.target
 	payload.Target, payload.ReleaseRevisionID = fixture.target, release.ID
 	payload.Binding.PlatformBindingID = fixture.binding.ID
-	payload.Binding.ClusterID = fixture.binding.ClusterID
 	payload.Binding.PlatformTargetRef = fixture.binding.TargetRef
 	payload.Binding.PlannedBaseRevision = fixture.base
-	payload.Path = protectedPayloadPath(payload.Binding.ClusterID, fixture.target.EnvironmentID,
+	payload.Path = protectedPayloadPath(fixture.target.EnvironmentID,
 		fixture.target.ApplicationID, release.ID, false)
 	payload.WriteBaseRevision, payload.CommittedParentRevision = fixture.base, fixture.base
 	payload.CommittedRevision = fixture.base
@@ -671,9 +669,8 @@ func pathAbsentCascadeFixture(t *testing.T, fixture *protectedPublisherFixture) 
 		ReleaseRevisionID: id.New(), PayloadIntentID: id.New(), BaseApplicationIntentID: id.New(),
 		PayloadRevision: fixture.base, ArgoNamespace: runtime.ArgoNamespace, ReleaseGeneration: 2,
 		Target: fixture.target, Binding: payload.Binding,
-		ApplicationPath: protectedApplicationPath(payload.Binding.ClusterID,
-			fixture.target.EnvironmentID, fixture.target.ApplicationID),
-		SourceContent: source, SourceContentDigest: digestBytes(source), AdoptedContent: adopted,
+		ApplicationPath: protectedApplicationPath(fixture.target.EnvironmentID, fixture.target.ApplicationID),
+		SourceContent:   source, SourceContentDigest: digestBytes(source), AdoptedContent: adopted,
 		AdoptedContentDigest: digestBytes(adopted), Operation: "update", Precondition: "match-etag",
 		Contract: protectedCascadeContract, Publisher: fixture.publisher,
 		OriginalPublisherConfigDigest: fixture.publisher.ConfigDigest,

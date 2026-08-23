@@ -40,7 +40,7 @@ func helmPGArgoObservation(t *testing.T, f helmReleasePGFixture, workerID string
 		t.Fatal(err)
 	}
 	config := argo.DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1,
-		PlatformBindingID: f.platformBindingID, ClusterID: f.clusterID, ArgoNamespace: "argocd",
+		PlatformBindingID: f.platformBindingID, ArgoNamespace: "argocd",
 		RootApplicationName: "kuberploy-platform-root", RepositorySecretName: repositorySecretName,
 		Runtime: helmPGArgoAuthority().Runtime, DigestEnforcement: argo.ChartDigestNativeOCI}
 	identity, err := argo.DesiredStateRuntimeIdentityForConfig(config)
@@ -54,17 +54,17 @@ func helmPGArgoObservation(t *testing.T, f helmReleasePGFixture, workerID string
 }
 
 type helmReleasePGFixture struct {
-	userID, projectID, environmentID, applicationID                string
-	approvalID, platformBindingID, environmentBindingID, clusterID string
-	foundationIntentID, desiredStateCommandID                      string
-	namespace, argoProject                                         string
-	ociRepository                                                  string
-	platformHead, environmentHead, catalogDigest, publisherDigest  string
-	foundationRevision, desiredStateRevision                       string
-	values, schema, manifest                                       []byte
-	valuesDigest, schemaDigest, documentsDigest                    string
-	manifestDigest, inventoryDigest                                string
-	now                                                            time.Time
+	userID, projectID, environmentID, applicationID               string
+	approvalID, platformBindingID, environmentBindingID           string
+	foundationIntentID, desiredStateCommandID                     string
+	namespace, argoProject                                        string
+	ociRepository                                                 string
+	platformHead, environmentHead, catalogDigest, publisherDigest string
+	foundationRevision, desiredStateRevision                      string
+	values, schema, manifest                                      []byte
+	valuesDigest, schemaDigest, documentsDigest                   string
+	manifestDigest, inventoryDigest                               string
+	now                                                           time.Time
 }
 
 func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
@@ -146,7 +146,7 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
-		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main",
+		PlatformTargetRef:    "refs/heads/main",
 		EnvironmentTargetRef: "refs/heads/main", EnvironmentRevision: f.environmentHead,
 		EnvironmentGeneration: 1, CatalogDigest: f.catalogDigest,
 		PlannedBaseRevision: f.platformHead,
@@ -372,19 +372,19 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	}
 	_, err = currentTx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
 		policy_digest,catalog_digest,chart_repository,chart_name,chart_version,chart_digest,
 		renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,
 		message,state,committed_revision,committed_at,verified_at,next_attempt_at,
 		created_at,updated_at,completed_at
-	) VALUES($1,2,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,2,$8,
-		'argocd',$9,$10,$11,$11,$12,'match-etag',$13,$14,$15,$16,'kuberploy-runtime',$17,$18,
-		$19,'native-oci-digest-v1',$20,$21,$22,'current canonical AppProject','verified',$23,
-		$12,$12,$12,$12,$12,$12)`, currentCommandID, f.projectID, f.environmentID,
-		f.platformBindingID, f.environmentBindingID, f.clusterID, currentEnvironmentRevision,
-		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml", f.namespace,
+	) VALUES($1,2,$2,$3,$4,$5,'refs/heads/main','refs/heads/main',$6,2,$7,
+		'argocd',$8,$9,$10,$10,$11,'match-etag',$12,$13,$14,$15,'kuberploy-runtime',$16,$17,
+		$18,'native-oci-digest-v1',$19,$20,$21,'current canonical AppProject','verified',$22,
+		$11,$11,$11,$11,$11,$11)`, currentCommandID, f.projectID, f.environmentID,
+		f.platformBindingID, f.environmentBindingID, currentEnvironmentRevision,
+		"platform/argocd/environments/"+f.environmentID+".yaml", f.namespace,
 		f.argoProject, payloadCommit, observedAt.Add(3*time.Second), `"`+helmPGDigest([]byte("previous"))+`"`,
 		currentAuthority.PolicyDigest, f.catalogDigest, currentAuthority.Runtime.ChartRepository,
 		currentAuthority.Runtime.ChartVersion, currentAuthority.Runtime.ChartDigest,
@@ -1050,8 +1050,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding := ProtectedBindingSnapshot{PlatformBindingID: f.platformBindingID,
-		EnvironmentBindingID: f.environmentBindingID, ClusterID: f.clusterID,
-		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentBindingID: f.environmentBindingID, PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead}
 
@@ -1734,7 +1733,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 			observedPreflight, observationLease, err)
 	}
 	platformBinding, err := scanCascadePlatformBinding(pool.QueryRow(ctx, `SELECT id,kind,scope_id::text,
-		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),COALESCE(cluster_id::text,''),
+		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),
 		provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
 		credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,
 		projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at
@@ -1764,7 +1763,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		ReleaseRevisionID:       preflight.ReleaseRevisionID,
 		PayloadIntentID:         preflight.PayloadIntentID, BaseApplicationIntentID: preflight.BaseApplicationIntentID,
 		ProjectID: f.projectID, EnvironmentID: f.environmentID, ApplicationID: f.applicationID,
-		ClusterID: f.clusterID, ApplicationPath: preflight.ApplicationPath,
+		ApplicationPath:     preflight.ApplicationPath,
 		SourceContentDigest: preflight.SourceContentDigest, AdoptedContentDigest: preflight.AdoptedContentDigest,
 		AdoptionRevision: adoptionRevision, AdoptionParentRevision: adoptionParentRevision,
 		ProviderHead: cascadeCommit, RootObservedRevision: cascadeCommit,
@@ -2025,8 +2024,7 @@ func TestPostgresProtectedPublisherActivationSerializesWithClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 	binding := ProtectedBindingSnapshot{PlatformBindingID: f.platformBindingID,
-		EnvironmentBindingID: f.environmentBindingID, ClusterID: f.clusterID,
-		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentBindingID: f.environmentBindingID, PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead}
 	payload, _, err := store.CreatePayloadForHead(ctx, id.New(), target, binding, oldPublisher,
@@ -2208,7 +2206,7 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	}
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
-		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main",
+		PlatformTargetRef:    "refs/heads/main",
 		EnvironmentTargetRef: "refs/heads/main", EnvironmentRevision: f.environmentHead,
 		EnvironmentGeneration: 1, CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead,
 	}
@@ -2362,7 +2360,6 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	}
 	competing := newHelmReleasePGFixture()
 	competing.platformBindingID = f.platformBindingID
-	competing.clusterID = f.clusterID
 	competing.platformHead = payloadCommit
 	competingSetup, err := pool.Begin(ctx)
 	if err != nil {
@@ -2393,8 +2390,7 @@ func TestPostgresProtectedPublisherCrossReleaseAdoption(t *testing.T) {
 	}
 	competingBinding := ProtectedBindingSnapshot{
 		PlatformBindingID:    competing.platformBindingID,
-		EnvironmentBindingID: competing.environmentBindingID, ClusterID: competing.clusterID,
-		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		EnvironmentBindingID: competing.environmentBindingID, PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 		EnvironmentRevision: competing.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: competing.catalogDigest, PlannedBaseRevision: payloadCommit,
 	}
@@ -2621,7 +2617,7 @@ func TestPostgresHelmPublicationPrerequisiteAdmission(t *testing.T) {
 	completeHelmRender(t, ctx, tx, f, release.RenderCommandID, f.now.Add(2*time.Second))
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
-		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: f.catalogDigest, PlannedBaseRevision: f.platformHead,
 	}
@@ -3012,13 +3008,18 @@ type helmApplicationInsert struct {
 	generation                                                              int64
 }
 
+// A Kuberploy installation has one platform Git authority. Package-wide
+// PostgreSQL tests therefore share its stable fixture identity while every
+// tenant/release fixture remains independently generated.
+const helmReleasePlatformBindingID = "00000000-0000-4000-8000-000000000324"
+
 func newHelmReleasePGFixture() helmReleasePGFixture {
 	values := []byte("{}\n")
 	schema := []byte(`{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false}`)
 	manifest := []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: sample\n")
 	fixture := helmReleasePGFixture{
 		userID: id.New(), projectID: id.New(), environmentID: id.New(), applicationID: id.New(),
-		approvalID: id.New(), platformBindingID: id.New(), environmentBindingID: id.New(), clusterID: id.New(),
+		approvalID: id.New(), platformBindingID: helmReleasePlatformBindingID, environmentBindingID: id.New(),
 		foundationIntentID: id.New(), desiredStateCommandID: id.New(),
 		platformHead: strings.Repeat("a", 40), environmentHead: strings.Repeat("1", 40),
 		foundationRevision: strings.Repeat("8", 40), desiredStateRevision: strings.Repeat("9", 40),
@@ -3091,14 +3092,18 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 		) VALUES($1,1,$2,$3,$4,$5,$6,$7)`, []any{f.approvalID, f.schema, f.values,
 			[]byte("chart-package"), f.schemaDigest, f.documentsDigest, f.now}},
 		{`INSERT INTO git_repository_bindings(
-			id,kind,scope_id,cluster_id,provider,installation_id,repository_id,
+			id,kind,scope_id,provider,installation_id,repository_id,
 			repository_owner,repository_name,target_ref,path_prefix,credential_secret_name,
 			credential_mode,state,target_head_revision,projection_generation,parser_version,
 			target_head_observed_at,created_at,updated_at
-		) VALUES($1,'platform',$2,$2,'github',1,101,'kuberploy','platform',
-			'refs/heads/main',$3,'','github-app','indexing',$4,0,'gitprojection.v1',$5,$5,$5)
-			ON CONFLICT (id) DO NOTHING`,
-			[]any{f.platformBindingID, f.clusterID, "clusters/" + f.clusterID, f.platformHead, f.now}},
+		) VALUES($1,'platform',$1,'github',1,101,'kuberploy','platform',
+			'refs/heads/main','platform','','github-app','indexing',$2,0,'gitprojection.v1',$3,$3,$3)
+			ON CONFLICT (id) DO UPDATE SET
+			state='indexing',target_head_revision=EXCLUDED.target_head_revision,
+			indexed_revision=NULL,projection_generation=0,
+			target_head_observed_at=EXCLUDED.target_head_observed_at,indexed_at=NULL,
+			updated_at=EXCLUDED.updated_at`,
+			[]any{f.platformBindingID, f.platformHead, f.now}},
 		{`INSERT INTO git_repository_bindings(
 			id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,
 			repository_owner,repository_name,target_ref,path_prefix,credential_secret_name,
@@ -3119,19 +3124,19 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 	}
 	foundationManifest := []byte("apiVersion: v1\nkind: Namespace\nmetadata:\n  name: " + f.namespace + "\n")
 	if _, err := tx.Exec(ctx, `INSERT INTO environment_foundation_intents(
-		id,environment_id,project_id,namespace,argo_project,platform_binding_id,cluster_id,
+		id,environment_id,project_id,namespace,argo_project,platform_binding_id,
 		target_ref,planned_head_revision,binding_generation,profile_digest,publisher_config_digest,
 		publisher_contract,publisher_policy,manifest_path,manifest,manifest_digest,intent_digest,
 		commit_trailer,state,active,next_attempt_at,attempts,write_base_revision,
 		write_base_observed_at,committed_revision,committed_parent_revision,provider_request,
 		published_at,completed_at,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,'refs/heads/main',$8,1,$9,$10,
-		'environment-foundation-protected-git.v1','platform-protected-git.v1',$11,$12,$13,$14,$15,
-		'ready',true,$16,1,$8,$16,$17,$8,'foundation-fixture',$16,$16,$16,$16)`,
+	) VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main',$7,1,$8,$9,
+		'environment-foundation-protected-git.v1','platform-protected-git.v1',$10,$11,$12,$13,$14,
+		'ready',true,$15,1,$7,$15,$16,$7,'foundation-fixture',$15,$15,$15,$15)`,
 		f.foundationIntentID, f.environmentID, f.projectID, f.namespace, f.argoProject,
-		f.platformBindingID, f.clusterID, f.platformHead, helmPGDigest([]byte("foundation-profile")),
+		f.platformBindingID, f.platformHead, helmPGDigest([]byte("foundation-profile")),
 		helmPGDigest([]byte("foundation-publisher")),
-		"clusters/"+f.clusterID+"/argocd/foundations/"+f.environmentID+".yaml",
+		"platform/argocd/foundations/"+f.environmentID+".yaml",
 		foundationManifest, helmPGDigest(foundationManifest), helmPGDigest([]byte("foundation-intent-"+f.foundationIntentID)),
 		"Kuberploy-Environment-Foundation-Intent: "+f.foundationIntentID, f.now, f.foundationRevision); err != nil {
 		t.Fatal(err)
@@ -3163,19 +3168,19 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 	if hasAppProjectContent {
 		_, argoErr = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
 		catalog_digest,chart_repository,chart_name,chart_version,chart_digest,renderer_image,
 		chart_digest_enforcement,app_project_content,content,content_sha256,message,state,committed_revision,
 		committed_at,verified_at,next_attempt_at,created_at,updated_at,completed_at
-	) VALUES($1,1,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,1,$8,'argocd',$9,$10,
-		$11,$11,$12,'create-if-absent','',$13,'oci://registry.example.com/kuberploy/runtime',
-		'kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',$16,$17,$18,
-		'reconcile fixture AppProject','verified',$19,$12,$12,$12,$12,$12,$12)`,
+	) VALUES($1,1,$2,$3,$4,$5,'refs/heads/main','refs/heads/main',$6,1,$7,'argocd',$8,$9,
+		$10,$10,$11,'create-if-absent','',$12,'oci://registry.example.com/kuberploy/runtime',
+		'kuberploy-runtime','1.2.3',$13,$14,'native-oci-digest-v1',$15,$16,$17,
+		'reconcile fixture AppProject','verified',$18,$11,$11,$11,$11,$11,$11)`,
 			f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
-			f.environmentBindingID, f.clusterID, f.environmentHead,
-			"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+			f.environmentBindingID, f.environmentHead,
+			"platform/argocd/environments/"+f.environmentID+".yaml",
 			f.namespace, f.argoProject, f.foundationRevision, f.now,
 			helmPGDigest([]byte("argo-desired-state-catalog")),
 			helmPGDigest([]byte("runtime-chart")),
@@ -3184,19 +3189,19 @@ func setupHelmReleasePGFixture(t *testing.T, ctx context.Context, tx pgx.Tx, f h
 	} else {
 		_, argoErr = tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 			id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
-			cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+			platform_target_ref,environment_target_ref,environment_revision,
 			environment_generation,path,argo_namespace,destination_namespace,argo_project,
 			base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
 			catalog_digest,chart_repository,chart_name,chart_version,chart_digest,renderer_image,
 			chart_digest_enforcement,content,content_sha256,message,state,committed_revision,
 			committed_at,verified_at,next_attempt_at,created_at,updated_at,completed_at
-		) VALUES($1,1,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,1,$8,'argocd',$9,$10,
-			$11,$11,$12,'create-if-absent','',$13,'oci://registry.example.com/kuberploy/runtime',
-			'kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',$16,$17,
-			'reconcile fixture AppProject','verified',$18,$12,$12,$12,$12,$12,$12)`,
+	) VALUES($1,1,$2,$3,$4,$5,'refs/heads/main','refs/heads/main',$6,1,$7,'argocd',$8,$9,
+		$10,$10,$11,'create-if-absent','',$12,'oci://registry.example.com/kuberploy/runtime',
+		'kuberploy-runtime','1.2.3',$13,$14,'native-oci-digest-v1',$15,$16,
+		'reconcile fixture AppProject','verified',$17,$11,$11,$11,$11,$11,$11)`,
 			f.desiredStateCommandID, f.projectID, f.environmentID, f.platformBindingID,
-			f.environmentBindingID, f.clusterID, f.environmentHead,
-			"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+			f.environmentBindingID, f.environmentHead,
+			"platform/argocd/environments/"+f.environmentID+".yaml",
 			f.namespace, f.argoProject, f.foundationRevision, f.now,
 			helmPGDigest([]byte("argo-desired-state-catalog")),
 			helmPGDigest([]byte("runtime-chart")),
@@ -3267,13 +3272,13 @@ func insertArgoMaterializationReceipt(t *testing.T, ctx context.Context, tx pgx.
 	}
 	query := `INSERT INTO argo_desired_state_materialization_receipts(
 		id,environment_binding_id,environment_revision,environment_generation,
-		project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+		project_id,environment_id,platform_binding_id,platform_target_ref,
 		environment_target_ref,desired_state_command_id,desired_state_generation,
 		desired_state_revision,desired_state_content_sha256,catalog_digest,policy_digest,
 		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
 		chart_digest_enforcement,app_project_content,created_at
 	) SELECT $2,command.environment_binding_id,$3,$4,command.project_id,
-		command.environment_id,command.platform_binding_id,command.cluster_id,
+		command.environment_id,command.platform_binding_id,
 		command.platform_target_ref,command.environment_target_ref,command.id,
 		command.generation,command.committed_revision,command.content_sha256,command.catalog_digest,$5,
 		command.chart_repository,command.chart_name,command.chart_version,
@@ -3283,13 +3288,13 @@ func insertArgoMaterializationReceipt(t *testing.T, ctx context.Context, tx pgx.
 	if !hasAppProjectContent {
 		query = `INSERT INTO argo_desired_state_materialization_receipts(
 			id,environment_binding_id,environment_revision,environment_generation,
-			project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+			project_id,environment_id,platform_binding_id,platform_target_ref,
 			environment_target_ref,desired_state_command_id,desired_state_generation,
 			desired_state_revision,desired_state_content_sha256,catalog_digest,policy_digest,
 			chart_repository,chart_name,chart_version,chart_digest,renderer_image,
 			chart_digest_enforcement,created_at
 		) SELECT $2,command.environment_binding_id,$3,$4,command.project_id,
-			command.environment_id,command.platform_binding_id,command.cluster_id,
+			command.environment_id,command.platform_binding_id,
 			command.platform_target_ref,command.environment_target_ref,command.id,
 			command.generation,command.committed_revision,command.content_sha256,command.catalog_digest,$5,
 			command.chart_repository,command.chart_name,command.chart_version,
@@ -3377,7 +3382,7 @@ func insertHelmPayload(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture, p
 	}
 	binding := ProtectedBindingSnapshot{
 		PlatformBindingID: f.platformBindingID, EnvironmentBindingID: f.environmentBindingID,
-		ClusterID: f.clusterID, PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
+		PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 		EnvironmentRevision: f.environmentHead, EnvironmentGeneration: 1,
 		CatalogDigest: f.catalogDigest, PlannedBaseRevision: currentPlatformHead(ctx, tx, f.platformBindingID),
 	}
@@ -3395,18 +3400,18 @@ func insertLegacyHelmPayloadRow(ctx context.Context, tx pgx.Tx, f helmReleasePGF
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO helm_protected_payload_intents(
 		id,release_revision_id,release_generation,project_id,environment_id,application_id,
-		action,platform_binding_id,environment_binding_id,cluster_id,platform_target_ref,
+		action,platform_binding_id,environment_binding_id,platform_target_ref,
 		environment_target_ref,environment_revision,environment_generation,catalog_digest,
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
 		publisher_contract,publisher_config_digest,message,state,next_attempt_at,
 		created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
-		$11,1,$12,$13,$14,'create-if-absent','',$15,$16,$17,$18,$19,$20,
-		'helm-protected-publisher.v1',$21,$22,'pending',$23,$23,$23)`,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'refs/heads/main','refs/heads/main',
+		$10,1,$11,$12,$13,'create-if-absent','',$14,$15,$16,$17,$18,$19,
+		'helm-protected-publisher.v1',$20,$21,'pending',$22,$22,$22)`,
 		payload.id, payload.releaseID, payload.generation, f.projectID, f.environmentID,
 		f.applicationID, payload.action, f.platformBindingID, f.environmentBindingID,
-		f.clusterID, f.environmentHead, f.catalogDigest,
+		f.environmentHead, f.catalogDigest,
 		currentPlatformHead(ctx, tx, f.platformBindingID), payload.path,
 		payload.content, payload.contentDigest, inventory, count,
 		helmPGDigest([]byte("payload-"+payload.id)),
@@ -3423,19 +3428,19 @@ func insertHelmPayloadRow(ctx context.Context, tx pgx.Tx, f helmReleasePGFixture
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO helm_protected_payload_intents(
 		id,release_revision_id,release_generation,project_id,environment_id,application_id,
-		action,platform_binding_id,environment_binding_id,cluster_id,platform_target_ref,
+		action,platform_binding_id,environment_binding_id,platform_target_ref,
 		environment_target_ref,environment_revision,environment_generation,catalog_digest,
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
 		publisher_contract,publisher_config_digest,original_publisher_config_digest,
 		publisher_adoption_epoch,message,state,next_attempt_at,
 		prerequisite_receipt_id,prerequisite_contract,prerequisite_epoch,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
-		$11,1,$12,$13,$14,'create-if-absent','',$15,$16,$17,$18,$19,$20,
-		'helm-protected-publisher.v1',$21,$21,0,$22,'pending',$23,$2,$24,0,$23,$23)`,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'refs/heads/main','refs/heads/main',
+		$10,1,$11,$12,$13,'create-if-absent','',$14,$15,$16,$17,$18,$19,
+		'helm-protected-publisher.v1',$20,$20,0,$21,'pending',$22,$2,$23,0,$22,$22)`,
 		payload.id, payload.releaseID, payload.generation, f.projectID, f.environmentID,
 		f.applicationID, payload.action, f.platformBindingID, f.environmentBindingID,
-		f.clusterID, f.environmentHead, f.catalogDigest,
+		f.environmentHead, f.catalogDigest,
 		currentPlatformHead(ctx, tx, f.platformBindingID), payload.path,
 		payload.content, payload.contentDigest, inventory, count,
 		helmPGDigest([]byte("payload-"+payload.id)),
@@ -3460,17 +3465,17 @@ func insertLegacyHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePG
 		_, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
 			id,release_revision_id,payload_intent_id,release_generation,project_id,
 			environment_id,application_id,action,platform_binding_id,environment_binding_id,
-			cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+			platform_target_ref,environment_target_ref,environment_revision,
 			environment_generation,catalog_digest,planned_base_revision,payload_revision,
 			payload_path,source_directory,application_path,operation,precondition,expected_etag,
 			content,content_digest,intent_digest,commit_trailer,publisher_contract,
 			publisher_config_digest,message,state,next_attempt_at,created_at,updated_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
-			$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-			'helm-protected-publisher.v1',$26,$27,'pending',$28,$28,$28)`,
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
+			$11,1,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+			'helm-protected-publisher.v1',$25,$26,'pending',$27,$27,$27)`,
 			application.id, application.releaseID, application.payloadID, application.generation,
 			f.projectID, f.environmentID, f.applicationID, application.action,
-			f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
+			f.platformBindingID, f.environmentBindingID, f.environmentHead,
 			f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
 			application.payloadRevision, application.payloadPath, application.sourceDirectory,
 			application.applicationPath, application.operation, application.precondition,
@@ -3483,7 +3488,7 @@ func insertLegacyHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePG
 	_, err := tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,
 		environment_id,application_id,action,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,catalog_digest,planned_base_revision,payload_revision,
 		payload_path,source_directory,application_path,operation,precondition,expected_etag,
 		content,content_digest,intent_digest,commit_trailer,publisher_contract,
@@ -3491,12 +3496,12 @@ func insertLegacyHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePG
 		continuation_required,continuation_contract,
 		message,state,next_attempt_at,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
-		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		'helm-protected-publisher.v1',$26,$26,0,false,'',$27,'pending',$28,$2,$29,0,$28,$28)`,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
+		$11,1,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+		'helm-protected-publisher.v1',$25,$25,0,false,'',$26,'pending',$27,$2,$28,0,$27,$27)`,
 		application.id, application.releaseID, application.payloadID, application.generation,
 		f.projectID, f.environmentID, f.applicationID, application.action,
-		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
+		f.platformBindingID, f.environmentBindingID, f.environmentHead,
 		f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
 		application.payloadRevision, application.payloadPath, application.sourceDirectory,
 		application.applicationPath, application.operation, application.precondition,
@@ -3559,7 +3564,7 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 	_, err = tx.Exec(ctx, `INSERT INTO helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,
 		environment_id,application_id,action,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,catalog_digest,planned_base_revision,payload_revision,
 		payload_path,source_directory,application_path,operation,precondition,expected_etag,
 		content,content_digest,intent_digest,commit_trailer,publisher_contract,
@@ -3567,12 +3572,12 @@ func insertHelmApplication(ctx context.Context, tx pgx.Tx, f helmReleasePGFixtur
 		continuation_required,continuation_receipt_id,continuation_contract,
 		message,state,next_attempt_at,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'refs/heads/main','refs/heads/main',
-		$12,1,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,
-		'helm-protected-publisher.v1',$26,$26,0,true,$1,$27,$28,'pending',$29,$2,$30,0,$29,$29)`,
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'refs/heads/main','refs/heads/main',
+		$11,1,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+		'helm-protected-publisher.v1',$25,$25,0,true,$1,$26,$27,'pending',$28,$2,$29,0,$28,$28)`,
 		application.id, application.releaseID, application.payloadID, application.generation,
 		f.projectID, f.environmentID, f.applicationID, application.action,
-		f.platformBindingID, f.environmentBindingID, f.clusterID, f.environmentHead,
+		f.platformBindingID, f.environmentBindingID, f.environmentHead,
 		f.catalogDigest, currentPlatformHead(ctx, tx, f.platformBindingID),
 		application.payloadRevision, application.payloadPath, application.sourceDirectory,
 		application.applicationPath, application.operation, application.precondition,
@@ -3688,20 +3693,20 @@ func insertVerifiedArgoDesiredStateCommand(t *testing.T, ctx context.Context, tx
 	}
 	_, insertErr := tx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
 		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
-		cluster_id,platform_target_ref,environment_target_ref,environment_revision,
+		platform_target_ref,environment_target_ref,environment_revision,
 		environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,
 		policy_digest,catalog_digest,chart_repository,chart_name,chart_version,chart_digest,
 		renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,
 		message,state,committed_revision,committed_at,verified_at,next_attempt_at,
 		created_at,updated_at,completed_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,'refs/heads/main','refs/heads/main',$8,$25,$9,
-		'argocd',$10,$11,$12,$12,$13,'match-etag',$14,$15,$16,$17,'kuberploy-runtime',$18,$19,
-		$20,'native-oci-digest-v1',$21,$22,$23,'current canonical AppProject','verified',$24,
-		$13,$13,$13,$13,$13,$13)`, commandID, commandGeneration, f.projectID,
-		f.environmentID, f.platformBindingID, f.environmentBindingID, f.clusterID,
+	) VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,$24,$8,
+		'argocd',$9,$10,$11,$11,$12,'match-etag',$13,$14,$15,$16,'kuberploy-runtime',$17,$18,
+		$19,'native-oci-digest-v1',$20,$21,$22,'current canonical AppProject','verified',$23,
+		$12,$12,$12,$12,$12,$12)`, commandID, commandGeneration, f.projectID,
+		f.environmentID, f.platformBindingID, f.environmentBindingID,
 		environmentRevision,
-		"clusters/"+f.clusterID+"/argocd/environments/"+f.environmentID+".yaml",
+		"platform/argocd/environments/"+f.environmentID+".yaml",
 		f.namespace, f.argoProject, baseRevision, at,
 		`"`+helmPGDigest([]byte("previous"))+`"`, authority.PolicyDigest, f.catalogDigest,
 		authority.Runtime.ChartRepository, authority.Runtime.ChartVersion,
@@ -3722,17 +3727,17 @@ func helmPayloadPath(f helmReleasePGFixture, releaseID string, disabled bool) st
 	if disabled {
 		name = "disabled.json"
 	}
-	return "clusters/" + f.clusterID + "/helm-manifests/environments/" + f.environmentID +
+	return "platform/helm-manifests/environments/" + f.environmentID +
 		"/applications/" + f.applicationID + "/revisions/" + releaseID + "/" + name
 }
 
 func helmSourceDirectory(f helmReleasePGFixture, releaseID string) string {
-	return "clusters/" + f.clusterID + "/helm-manifests/environments/" + f.environmentID +
+	return "platform/helm-manifests/environments/" + f.environmentID +
 		"/applications/" + f.applicationID + "/revisions/" + releaseID
 }
 
 func helmApplicationPath(f helmReleasePGFixture) string {
-	return "clusters/" + f.clusterID + "/argocd/helm-applications/" +
+	return "platform/argocd/helm-applications/" +
 		f.environmentID + "/" + f.applicationID + ".yaml"
 }
 

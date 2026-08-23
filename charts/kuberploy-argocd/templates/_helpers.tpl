@@ -11,7 +11,7 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- end -}}
 
 {{- define "kuberploy-argocd.bootstrapPath" -}}
-{{- printf "clusters/%s/argocd" .Values.argoFoundation.bootstrap.clusterID -}}
+platform/argocd
 {{- end -}}
 
 {{- define "kuberploy-argocd.bootstrapRepositorySecretName" -}}
@@ -44,15 +44,14 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- if ne (index $.Values.argoFoundation.networkPolicy $key) $want -}}{{ fail (printf "Argo CD %s is locked" $key) }}{{- end -}}
 {{- end -}}
 {{- range $key := keys .Values.argoFoundation.bootstrap -}}
-  {{- if not (has $key (list "enabled" "clusterID" "bindingID" "repositoryOwner" "repositoryName" "targetRevision")) -}}{{ fail (printf "unknown root bootstrap authority field %s" $key) }}{{- end -}}
+  {{- if not (has $key (list "enabled" "bindingID" "repositoryOwner" "repositoryName" "targetRevision")) -}}{{ fail (printf "unknown root bootstrap authority field %s" $key) }}{{- end -}}
 {{- end -}}
 {{- if not (kindIs "bool" .Values.argoFoundation.bootstrap.enabled) -}}{{ fail "root bootstrap enabled must be boolean" }}{{- end -}}
-{{- range $key := list "clusterID" "bindingID" "repositoryOwner" "repositoryName" "targetRevision" -}}
+{{- range $key := list "bindingID" "repositoryOwner" "repositoryName" "targetRevision" -}}
   {{- if not (kindIs "string" (index $.Values.argoFoundation.bootstrap $key)) -}}{{ fail (printf "root bootstrap %s must be a string" $key) }}{{- end -}}
 {{- end -}}
 {{- if .Values.argoFoundation.bootstrap.enabled -}}
   {{- $bootstrap := .Values.argoFoundation.bootstrap -}}
-  {{- if not (regexMatch `^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` $bootstrap.clusterID) -}}{{ fail "bootstrap clusterID must be the exact platform binding cluster UUID" }}{{- end -}}
   {{- if not (regexMatch `^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` $bootstrap.bindingID) -}}{{ fail "bootstrap bindingID must be the exact platform binding UUID" }}{{- end -}}
   {{- if not (regexMatch `^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$` $bootstrap.repositoryOwner) -}}{{ fail "bootstrap repositoryOwner must be a canonical GitHub login" }}{{- end -}}
   {{- if or (not (regexMatch `^[A-Za-z0-9_.-]{1,100}$` $bootstrap.repositoryName)) (has $bootstrap.repositoryName (list "." "..")) -}}{{ fail "bootstrap repositoryName must be the provider-verified GitHub repository name" }}{{- end -}}

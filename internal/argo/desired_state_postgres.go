@@ -10,7 +10,7 @@ import (
 )
 
 const desiredStateColumns = `id::text,generation,project_id::text,environment_id::text,
-platform_binding_id::text,environment_binding_id::text,cluster_id::text,
+platform_binding_id::text,environment_binding_id::text,
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
 base_revision,write_base_revision,write_base_observed_at,precondition,expected_etag,COALESCE(policy_digest,''),catalog_digest,chart_repository,chart_name,chart_version,
 chart_digest,renderer_image,chart_digest_enforcement,COALESCE(app_project_content,''::bytea),content,content_sha256,message,state,
@@ -23,7 +23,7 @@ func scanDesiredState(row pgx.Row) (DesiredStateCommand, error) {
 	var leaseUntil *time.Time
 	err := row.Scan(
 		&command.ID, &command.Generation, &command.ProjectID, &command.EnvironmentID,
-		&command.PlatformBindingID, &command.EnvironmentBindingID, &command.ClusterID,
+		&command.PlatformBindingID, &command.EnvironmentBindingID,
 		&command.PlatformTargetRef, &command.EnvironmentTargetRef, &command.EnvironmentRevision, &command.EnvironmentGeneration,
 		&command.Path, &command.ArgoNamespace,
 		&command.DestinationNamespace, &command.ArgoProject, &command.BaseRevision, &command.WriteBaseRevision, &command.WriteBaseObservedAt, &command.Precondition,
@@ -54,15 +54,15 @@ func (s *PostgreSQLStore) CreateDesiredState(ctx context.Context, command Desire
 		return false, ErrInvalid
 	}
 	result, err := s.pool.Exec(ctx, `INSERT INTO argo_desired_state_commands(
-		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,cluster_id,
+		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
 		platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,argo_namespace,destination_namespace,argo_project,
 		base_revision,precondition,expected_etag,policy_digest,catalog_digest,chart_repository,chart_name,chart_version,
 		chart_digest,renderer_image,chart_digest_enforcement,app_project_content,content,content_sha256,message,state,
 		next_attempt_at,consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at,completed_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
 	ON CONFLICT DO NOTHING`,
 		command.ID, command.Generation, command.ProjectID, command.EnvironmentID, command.PlatformBindingID,
-		command.EnvironmentBindingID, command.ClusterID, command.PlatformTargetRef, command.EnvironmentTargetRef,
+		command.EnvironmentBindingID, command.PlatformTargetRef, command.EnvironmentTargetRef,
 		command.EnvironmentRevision, command.EnvironmentGeneration, command.Path, command.ArgoNamespace, command.DestinationNamespace, command.ArgoProject, command.BaseRevision,
 		command.Precondition, command.ExpectedETag, command.PolicyDigest, command.CatalogDigest, command.Runtime.ChartRepository,
 		command.Runtime.ChartName, command.Runtime.ChartVersion, command.Runtime.ChartDigest, command.Runtime.RendererImage,
@@ -103,7 +103,6 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 		current.ProjectID != verified.ProjectID || current.EnvironmentID != verified.EnvironmentID ||
 		current.PlatformBindingID != verified.PlatformBindingID ||
 		current.EnvironmentBindingID != verified.EnvironmentBindingID ||
-		current.ClusterID != verified.ClusterID ||
 		current.PlatformTargetRef != verified.PlatformTargetRef ||
 		current.EnvironmentTargetRef != verified.EnvironmentTargetRef ||
 		current.ContentSHA256 != verified.ContentSHA256 || verified.CommittedRevision == "" {
@@ -111,15 +110,15 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 	}
 	result, err := s.pool.Exec(ctx, `INSERT INTO argo_desired_state_materialization_receipts(
 		id,environment_binding_id,environment_revision,environment_generation,
-		project_id,environment_id,platform_binding_id,cluster_id,platform_target_ref,
+		project_id,environment_id,platform_binding_id,platform_target_ref,
 		environment_target_ref,desired_state_command_id,desired_state_generation,
 		desired_state_revision,desired_state_content_sha256,policy_digest,catalog_digest,
 		chart_repository,chart_name,chart_version,chart_digest,renderer_image,
 		chart_digest_enforcement,app_project_content,created_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 	ON CONFLICT(id) DO NOTHING`, current.ID,
 		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
-		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
+		current.ProjectID, current.EnvironmentID, current.PlatformBindingID,
 		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
 		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
 		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
@@ -135,15 +134,15 @@ func (s *PostgreSQLStore) RecordDesiredStateMaterialization(ctx context.Context,
 	err = s.pool.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM argo_desired_state_materialization_receipts
 		WHERE id=$1 AND environment_binding_id=$2 AND environment_revision=$3 AND environment_generation=$4
-		  AND project_id=$5 AND environment_id=$6 AND platform_binding_id=$7 AND cluster_id=$8
-		  AND platform_target_ref=$9 AND environment_target_ref=$10
-		  AND desired_state_command_id=$11 AND desired_state_generation=$12
-		  AND desired_state_revision=$13 AND desired_state_content_sha256=$14
-		  AND policy_digest=$15 AND catalog_digest=$16 AND chart_repository=$17 AND chart_name=$18
-		  AND chart_version=$19 AND chart_digest=$20 AND renderer_image=$21
-		  AND chart_digest_enforcement=$22 AND app_project_content=$23)`, current.ID,
+		  AND project_id=$5 AND environment_id=$6 AND platform_binding_id=$7
+		  AND platform_target_ref=$8 AND environment_target_ref=$9
+		  AND desired_state_command_id=$10 AND desired_state_generation=$11
+		  AND desired_state_revision=$12 AND desired_state_content_sha256=$13
+		  AND policy_digest=$14 AND catalog_digest=$15 AND chart_repository=$16 AND chart_name=$17
+		  AND chart_version=$18 AND chart_digest=$19 AND renderer_image=$20
+		  AND chart_digest_enforcement=$21 AND app_project_content=$22)`, current.ID,
 		current.EnvironmentBindingID, current.EnvironmentRevision, current.EnvironmentGeneration,
-		current.ProjectID, current.EnvironmentID, current.PlatformBindingID, current.ClusterID,
+		current.ProjectID, current.EnvironmentID, current.PlatformBindingID,
 		current.PlatformTargetRef, current.EnvironmentTargetRef, verified.ID, verified.Generation,
 		verified.CommittedRevision, verified.ContentSHA256, current.PolicyDigest, current.CatalogDigest,
 		current.Runtime.ChartRepository, current.Runtime.ChartName, current.Runtime.ChartVersion,
@@ -430,25 +429,25 @@ func (s *PostgreSQLStore) AcquireDesiredStateReadiness(ctx context.Context, obse
 	err := s.pool.QueryRow(ctx, `INSERT INTO runtime_readiness(runtime_kind,scope_key,worker_id,worker_epoch,
 		contract_version,config_digest,identity,observation,platform_binding_id,started_at,observed_at,lease_until,updated_at
 	) VALUES('argo-desired-state','global',$1,1,$2,$3,jsonb_build_object(
-		'githubAppId',$4::bigint,'clusterId',$6::text,'argoNamespace',$7::text,'rootApplicationName',$8::text,
-		'repositorySecretName',$9::text,'chartRepository',$10::text,'chartName',$11::text,'chartVersion',$12::text,
-		'chartDigest',$13::text,'rendererImage',$14::text,'chartDigestEnforcement',$15::text
-	),'{}'::jsonb,$5,$16,$17,$18,$17)
+		'githubAppId',$4::bigint,'argoNamespace',$6::text,'rootApplicationName',$7::text,
+		'repositorySecretName',$8::text,'chartRepository',$9::text,'chartName',$10::text,'chartVersion',$11::text,
+		'chartDigest',$12::text,'rendererImage',$13::text,'chartDigestEnforcement',$14::text
+	),'{}'::jsonb,$5,$15,$16,$17,$16)
 	ON CONFLICT(runtime_kind,scope_key,worker_id) DO UPDATE SET worker_epoch=runtime_readiness.worker_epoch+1,
 		contract_version=excluded.contract_version,config_digest=excluded.config_digest,identity=excluded.identity,
 		platform_binding_id=excluded.platform_binding_id,started_at=excluded.started_at,
 		observed_at=excluded.observed_at,lease_until=excluded.lease_until,updated_at=excluded.updated_at
 	RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,
-		platform_binding_id::text,identity->>'clusterId',identity->>'argoNamespace',identity->>'rootApplicationName',
+		platform_binding_id::text,identity->>'argoNamespace',identity->>'rootApplicationName',
 		identity->>'repositorySecretName',identity->>'chartRepository',identity->>'chartName',identity->>'chartVersion',
 		identity->>'chartDigest',identity->>'rendererImage',identity->>'chartDigestEnforcement',started_at,observed_at,lease_until`,
 		observation.WorkerID, observation.ContractVersion, observation.ConfigDigest, observation.GitHubAppID,
-		observation.PlatformBindingID, observation.ClusterID, observation.ArgoNamespace, observation.RootApplicationName,
+		observation.PlatformBindingID, observation.ArgoNamespace, observation.RootApplicationName,
 		observation.RepositorySecretName, observation.Runtime.ChartRepository, observation.Runtime.ChartName,
 		observation.Runtime.ChartVersion, observation.Runtime.ChartDigest, observation.Runtime.RendererImage,
 		observation.DigestEnforcement, observation.StartedAt.UTC(), observation.ObservedAt.UTC(), observation.ObservedAt.UTC().Add(duration)).Scan(
 		&lease.WorkerID, &lease.Epoch, &lease.ContractVersion, &lease.ConfigDigest, &lease.GitHubAppID,
-		&lease.PlatformBindingID, &lease.ClusterID, &lease.ArgoNamespace, &lease.RootApplicationName,
+		&lease.PlatformBindingID, &lease.ArgoNamespace, &lease.RootApplicationName,
 		&lease.RepositorySecretName, &lease.Runtime.ChartRepository, &lease.Runtime.ChartName, &lease.Runtime.ChartVersion,
 		&lease.Runtime.ChartDigest, &lease.Runtime.RendererImage, &lease.DigestEnforcement, &lease.StartedAt,
 		&lease.ObservedAt, &lease.Until)
@@ -463,26 +462,26 @@ func (s *PostgreSQLStore) HeartbeatDesiredStateReadiness(ctx context.Context, le
 		return DesiredStateRuntimeLease{}, ErrInvalid
 	}
 	var updated DesiredStateRuntimeLease
-	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET observed_at=$19,lease_until=$20,updated_at=$19
+	err := s.pool.QueryRow(ctx, `UPDATE runtime_readiness SET observed_at=$18,lease_until=$19,updated_at=$18
 		WHERE runtime_kind='argo-desired-state' AND scope_key='global' AND worker_id=$1 AND worker_epoch=$2
 		AND contract_version=$3 AND config_digest=$4 AND (identity->>'githubAppId')::bigint=$5
-		AND platform_binding_id=$6 AND identity->>'clusterId'=$7 AND identity->>'argoNamespace'=$8
-		AND identity->>'rootApplicationName'=$9 AND identity->>'repositorySecretName'=$10
-		AND identity->>'chartRepository'=$11 AND identity->>'chartName'=$12 AND identity->>'chartVersion'=$13
-		AND identity->>'chartDigest'=$14 AND identity->>'rendererImage'=$15
-		AND identity->>'chartDigestEnforcement'=$16 AND started_at=$17
-		AND observed_at=$18 AND lease_until>$19
+		AND platform_binding_id=$6 AND identity->>'argoNamespace'=$7
+		AND identity->>'rootApplicationName'=$8 AND identity->>'repositorySecretName'=$9
+		AND identity->>'chartRepository'=$10 AND identity->>'chartName'=$11 AND identity->>'chartVersion'=$12
+		AND identity->>'chartDigest'=$13 AND identity->>'rendererImage'=$14
+		AND identity->>'chartDigestEnforcement'=$15 AND started_at=$16
+		AND observed_at=$17 AND lease_until>$18
 	RETURNING worker_id,worker_epoch,contract_version,config_digest,(identity->>'githubAppId')::bigint,
-		platform_binding_id::text,identity->>'clusterId',identity->>'argoNamespace',identity->>'rootApplicationName',
+		platform_binding_id::text,identity->>'argoNamespace',identity->>'rootApplicationName',
 		identity->>'repositorySecretName',identity->>'chartRepository',identity->>'chartName',identity->>'chartVersion',
 		identity->>'chartDigest',identity->>'rendererImage',identity->>'chartDigestEnforcement',started_at,observed_at,lease_until`,
 		lease.WorkerID, lease.Epoch, lease.ContractVersion, lease.ConfigDigest, lease.GitHubAppID,
-		lease.PlatformBindingID, lease.ClusterID, lease.ArgoNamespace, lease.RootApplicationName, lease.RepositorySecretName,
+		lease.PlatformBindingID, lease.ArgoNamespace, lease.RootApplicationName, lease.RepositorySecretName,
 		lease.Runtime.ChartRepository, lease.Runtime.ChartName, lease.Runtime.ChartVersion, lease.Runtime.ChartDigest,
 		lease.Runtime.RendererImage, lease.DigestEnforcement, lease.StartedAt, lease.ObservedAt,
 		observedAt.UTC(), observedAt.UTC().Add(duration)).Scan(
 		&updated.WorkerID, &updated.Epoch, &updated.ContractVersion, &updated.ConfigDigest, &updated.GitHubAppID,
-		&updated.PlatformBindingID, &updated.ClusterID, &updated.ArgoNamespace, &updated.RootApplicationName,
+		&updated.PlatformBindingID, &updated.ArgoNamespace, &updated.RootApplicationName,
 		&updated.RepositorySecretName, &updated.Runtime.ChartRepository, &updated.Runtime.ChartName, &updated.Runtime.ChartVersion,
 		&updated.Runtime.ChartDigest, &updated.Runtime.RendererImage, &updated.DigestEnforcement, &updated.StartedAt,
 		&updated.ObservedAt, &updated.Until)
@@ -502,13 +501,13 @@ func (s *PostgreSQLStore) DesiredStateRuntimeReady(ctx context.Context, identity
 	var ready bool
 	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM runtime_readiness
 		WHERE runtime_kind='argo-desired-state' AND scope_key='global' AND contract_version=$1 AND config_digest=$2
-		AND (identity->>'githubAppId')::bigint=$3 AND platform_binding_id=$4 AND identity->>'clusterId'=$5
-		AND identity->>'argoNamespace'=$6 AND identity->>'rootApplicationName'=$7 AND identity->>'repositorySecretName'=$8
-		AND identity->>'chartRepository'=$9 AND identity->>'chartName'=$10 AND identity->>'chartVersion'=$11
-		AND identity->>'chartDigest'=$12 AND identity->>'rendererImage'=$13 AND identity->>'chartDigestEnforcement'=$14
-		AND observed_at>=$15 AND observed_at<=$16
-		AND lease_until>$16)`, identity.ContractVersion, identity.ConfigDigest, identity.GitHubAppID,
-		identity.PlatformBindingID, identity.ClusterID, identity.ArgoNamespace, identity.RootApplicationName,
+		AND (identity->>'githubAppId')::bigint=$3 AND platform_binding_id=$4
+		AND identity->>'argoNamespace'=$5 AND identity->>'rootApplicationName'=$6 AND identity->>'repositorySecretName'=$7
+		AND identity->>'chartRepository'=$8 AND identity->>'chartName'=$9 AND identity->>'chartVersion'=$10
+		AND identity->>'chartDigest'=$11 AND identity->>'rendererImage'=$12 AND identity->>'chartDigestEnforcement'=$13
+		AND observed_at>=$14 AND observed_at<=$15
+		AND lease_until>$15)`, identity.ContractVersion, identity.ConfigDigest, identity.GitHubAppID,
+		identity.PlatformBindingID, identity.ArgoNamespace, identity.RootApplicationName,
 		identity.RepositorySecretName, identity.Runtime.ChartRepository, identity.Runtime.ChartName,
 		identity.Runtime.ChartVersion, identity.Runtime.ChartDigest, identity.Runtime.RendererImage,
 		identity.DigestEnforcement, now.UTC().Add(-maximumAge), now.UTC()).Scan(&ready)

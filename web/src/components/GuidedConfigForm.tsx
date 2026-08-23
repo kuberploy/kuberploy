@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import {
   validateGuidedProbes,
+  validateGuidedResourceOverrides,
   validateGuidedRuntimeProcess,
   type GuidedConfig,
   type GuidedPort,
@@ -464,6 +465,13 @@ export function GuidedConfigForm({
     control: form.control,
     name: "middlewareRefs",
   });
+  const resourceOverrides = useWatch({
+    control: form.control,
+    name: "resourceOverrides",
+  });
+  const resourceOverrideError = validateGuidedResourceOverrides(
+    resourceOverrides ?? initial.resourceOverrides,
+  );
   const commit = () => queueMicrotask(() => onChange(form.getValues()));
   const updateScheduling = (value: SchedulingEditorValue) => {
     form.setValue("nodeSelectorYaml", value.nodeSelectorYaml, {
@@ -1259,6 +1267,88 @@ export function GuidedConfigForm({
           commit();
         }}
       />
+      <details className="service-settings-advanced">
+        <summary>
+          <span>
+            <strong>Advanced Kubernetes YAML overrides</strong>
+            <small>
+              Deployment, Service, Ingress, and ServiceAccount merge patches
+            </small>
+          </span>
+          <Icon name="chevron" />
+        </summary>
+        <div className="service-settings-advanced__content">
+          <div className="notice notice--warning" role="status">
+            <div>
+              <strong>Advanced YAML wins over matching Guided fields</strong>
+              <p>
+                Enter a partial Kubernetes resource object. Kuberploy merges it
+                after Guided configuration, while retaining resource identity,
+                App selectors, the immutable App image, and workload isolation.
+              </p>
+            </div>
+          </div>
+          {resourceOverrideError ? (
+            <div className="yaml-diagnostic" role="alert">
+              {resourceOverrideError}
+            </div>
+          ) : null}
+          <div className="form-grid">
+            <Field
+              label="Deployment override YAML"
+              hint="Partial metadata/spec mapping; use {} for no override."
+            >
+              <textarea
+                aria-label="Deployment override YAML"
+                rows={10}
+                spellCheck={false}
+                {...form.register("resourceOverrides.deploymentYaml", {
+                  onChange: commit,
+                })}
+              />
+            </Field>
+            <Field
+              label="Service override YAML"
+              hint="Partial metadata/spec mapping; use {} for no override."
+            >
+              <textarea
+                aria-label="Service override YAML"
+                rows={10}
+                spellCheck={false}
+                {...form.register("resourceOverrides.serviceYaml", {
+                  onChange: commit,
+                })}
+              />
+            </Field>
+            <Field
+              label="Ingress override YAML"
+              hint="Applied to each generated primary Ingress."
+            >
+              <textarea
+                aria-label="Ingress override YAML"
+                rows={10}
+                spellCheck={false}
+                {...form.register("resourceOverrides.ingressYaml", {
+                  onChange: commit,
+                })}
+              />
+            </Field>
+            <Field
+              label="ServiceAccount override YAML"
+              hint="Supports metadata annotations such as an AWS IAM role ARN."
+            >
+              <textarea
+                aria-label="ServiceAccount override YAML"
+                rows={10}
+                spellCheck={false}
+                {...form.register("resourceOverrides.serviceAccountYaml", {
+                  onChange: commit,
+                })}
+              />
+            </Field>
+          </div>
+        </div>
+      </details>
     </fieldset>
   );
 }

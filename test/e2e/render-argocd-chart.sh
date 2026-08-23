@@ -77,7 +77,7 @@ diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.source | keys | sort | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "directory,path,repoURL,targetRevision" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.repoURL] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "https://github.com/kuberploy/platform-gitops.git" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.targetRevision] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "refs/heads/main" ]]
-[[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.path] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "clusters/71111111-1111-4111-8111-111111111112/argocd" ]]
+[[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.path] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "platform/argocd" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.directory | keys | sort | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "recurse" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.source.directory.recurse] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
 [[ "$(yq eval-all '[select(.kind == "Application") | .spec.destination | keys | sort | join(",")] | .[0]' "${kp_tmp}/managed.yaml" | tail -1)" == "namespace,server" ]]
@@ -128,7 +128,6 @@ kp_reject 'plugin sidecar' --set-string argo-cd.repoServer.extraContainers[0].na
 kp_reject 'inline cache password' --set-string argo-cd.externalRedis.password=plaintext
 kp_reject 'arbitrary resource' --set-string argo-cd.extraObjects[0].kind=Pod
 kp_reject 'unqualified root ref' --set-string argoFoundation.bootstrap.targetRevision=main
-kp_reject 'invalid platform cluster identity' --set-string argoFoundation.bootstrap.clusterID=not-a-uuid
 kp_reject 'invalid platform binding identity' --set-string argoFoundation.bootstrap.bindingID=71111111-1111-0111-8111-111111111111
 kp_reject 'non-canonical GitHub owner' --set-string argoFoundation.bootstrap.repositoryOwner=attacker.invalid/repo
 kp_reject 'ambiguous GitHub repository' --set-string argoFoundation.bootstrap.repositoryName=..
@@ -147,9 +146,8 @@ kp_reject 'broad API egress' --set-string argoFoundation.networkPolicy.kubeAPISe
 # values schema. These deprecated caller-selected fields must not be accepted
 # merely because the fixed template would otherwise ignore them.
 kp_reject 'schema-bypassed caller root URL' --skip-schema-validation --set-string argoFoundation.bootstrap.repositoryURL=https://attacker.invalid/repo.git
-kp_reject 'schema-bypassed caller root path' --skip-schema-validation --set-string argoFoundation.bootstrap.path=clusters/attacker/argocd
+kp_reject 'schema-bypassed caller root path' --skip-schema-validation --set-string argoFoundation.bootstrap.path=attacker/argocd
 kp_reject 'schema-bypassed caller credential' --skip-schema-validation --set-string argoFoundation.bootstrap.repositorySecretName=attacker-secret
-kp_reject 'schema-bypassed invalid cluster UUID' --skip-schema-validation --set-string argoFoundation.bootstrap.clusterID=71111111-1111-0111-8111-111111111111
 kp_reject 'schema-bypassed malformed branch' --skip-schema-validation --set-string argoFoundation.bootstrap.targetRevision=refs/heads/release//candidate
 kp_reject 'schema-bypassed string enable flag' --skip-schema-validation --set-string argoFoundation.bootstrap.enabled=true
 

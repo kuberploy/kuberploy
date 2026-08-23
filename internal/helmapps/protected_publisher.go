@@ -318,7 +318,7 @@ func (p *ProtectedGitPublisher) processCascadeObservation(guard *protectedPublic
 	}
 	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
 		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.TargetRef != protectedMutation.TargetRef ||
-		!validProtectedBindingPrefix(binding.Prefix, binding.ClusterID, protectedMutation.Path) {
+		!validProtectedBindingPrefix(binding.Prefix, protectedMutation.Path) {
 		return ErrInvalid
 	}
 	head, err := p.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
@@ -448,8 +448,8 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 	}
 	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
 		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.ID != protectedMutation.BindingID ||
-		binding.TargetRef != protectedMutation.TargetRef || binding.ClusterID == "" ||
-		!validProtectedBindingPrefix(binding.Prefix, binding.ClusterID, protectedMutation.Path) {
+		binding.TargetRef != protectedMutation.TargetRef ||
+		!validProtectedBindingPrefix(binding.Prefix, protectedMutation.Path) {
 		return ErrInvalid
 	}
 	head, err := p.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
@@ -663,8 +663,8 @@ func (p *ProtectedGitPublisher) refreshProtectedRoot(ctx context.Context, bindin
 	}
 }
 
-func validProtectedBindingPrefix(prefix, clusterID, protectedPath string) bool {
-	expected := "clusters/" + clusterID
+func validProtectedBindingPrefix(prefix, protectedPath string) bool {
+	expected := gitprojection.PlatformPrefix()
 	return prefix == expected && len(protectedPath) > len(expected) && protectedPath[:len(expected)+1] == expected+"/"
 }
 

@@ -8,7 +8,7 @@ import (
 
 func TestProtectedOperationIdentityIsStableForRecoveryAndRevisionBound(t *testing.T) {
 	item := runtimeIntegration()
-	config := ProtectedGitConfig{BindingID: "33333333-3333-4333-8333-333333333333", ClusterID: "44444444-4444-4444-8444-444444444444", Owner: "edge-worker:recovery-test", Template: runtimeTemplate()}
+	config := ProtectedGitConfig{BindingID: "33333333-3333-4333-8333-333333333333", Owner: "edge-worker:recovery-test", Template: runtimeTemplate()}
 	content, _, err := RenderManagedBundle(item, config.Template)
 	if err != nil {
 		t.Fatal(err)

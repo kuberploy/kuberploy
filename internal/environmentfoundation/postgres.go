@@ -43,7 +43,7 @@ func (s *PostgresStore) Close() {
 }
 
 const intentColumns = `id::text,environment_id::text,project_id::text,namespace,argo_project,
-	platform_binding_id::text,cluster_id::text,target_ref,planned_head_revision,binding_generation,
+	platform_binding_id::text,target_ref,planned_head_revision,binding_generation,
 	profile_digest,publisher_config_digest,publisher_contract,publisher_policy,
 	manifest_path,manifest,manifest_digest,intent_digest,
 	commit_trailer,state,active,next_attempt_at,attempts,consecutive_failures,last_failure_code,
@@ -55,7 +55,7 @@ type rowScanner interface{ Scan(...any) error }
 func scanIntent(row rowScanner) (Intent, error) {
 	var v Intent
 	err := row.Scan(&v.ID, &v.EnvironmentID, &v.ProjectID, &v.Namespace, &v.ArgoProject,
-		&v.Authority.BindingID, &v.Authority.ClusterID, &v.Authority.TargetRef, &v.Authority.PlannedHead, &v.Authority.Generation,
+		&v.Authority.BindingID, &v.Authority.TargetRef, &v.Authority.PlannedHead, &v.Authority.Generation,
 		&v.ProfileDigest, &v.PublisherConfigDigest, &v.PublisherContractVersion, &v.PublisherPolicy,
 		&v.Path, &v.Manifest, &v.ManifestDigest, &v.IntentDigest, &v.CommitTrailer,
 		&v.State, &v.Active, &v.NextAttemptAt, &v.Attempts, &v.ConsecutiveFailures, &v.LastFailureCode, &v.LeaseOwner,
@@ -106,7 +106,7 @@ func (s *PostgresStore) EnsureIntent(ctx context.Context, request EnsureRequest)
 	existing, err := scanIntent(tx.QueryRow(ctx, `SELECT `+intentColumns+` FROM environment_foundation_intents WHERE id=$1`, request.IntentID))
 	if err == nil {
 		if existing.EnvironmentID != request.EnvironmentID || existing.ProfileDigest != profileDigest ||
-			existing.PublisherConfigDigest != request.Profile.PublisherConfigDigest || existing.Authority.ClusterID != request.Profile.ClusterID ||
+			existing.PublisherConfigDigest != request.Profile.PublisherConfigDigest ||
 			existing.Authority.BindingID != request.Profile.PlatformBindingID {
 			return Intent{}, ErrConflict
 		}
@@ -121,14 +121,14 @@ func (s *PostgresStore) EnsureIntent(ctx context.Context, request EnsureRequest)
 	var identity EnvironmentIdentity
 	var authority GitAuthority
 	err = tx.QueryRow(ctx, `SELECT e.id::text,e.project_id::text,e.namespace,e.argo_project,
-		b.id::text,b.cluster_id::text,b.target_ref,b.target_head_revision,b.projection_generation
+		b.id::text,b.target_ref,b.target_head_revision,b.projection_generation
 		FROM environments e JOIN git_repository_bindings b
-		  ON b.kind='platform' AND b.id=$3 AND b.cluster_id=$2
+		  ON b.kind='platform' AND b.id=$2
 		WHERE e.id=$1 AND b.state='ready' AND b.target_head_revision IS NOT NULL
 		  AND b.indexed_revision=b.target_head_revision AND b.projection_generation>0
-		FOR SHARE OF e,b`, request.EnvironmentID, request.Profile.ClusterID, request.Profile.PlatformBindingID).Scan(
+		FOR SHARE OF e,b`, request.EnvironmentID, request.Profile.PlatformBindingID).Scan(
 		&identity.EnvironmentID, &identity.ProjectID, &identity.Namespace, &identity.ArgoProject,
-		&authority.BindingID, &authority.ClusterID, &authority.TargetRef, &authority.PlannedHead, &authority.Generation)
+		&authority.BindingID, &authority.TargetRef, &authority.PlannedHead, &authority.Generation)
 	if err != nil {
 		return Intent{}, mapPG(err)
 	}
@@ -163,13 +163,13 @@ func (s *PostgresStore) EnsureIntent(ctx context.Context, request EnsureRequest)
 		return Intent{}, err
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO environment_foundation_intents(
-		id,environment_id,project_id,namespace,argo_project,platform_binding_id,cluster_id,target_ref,
+		id,environment_id,project_id,namespace,argo_project,platform_binding_id,target_ref,
 		planned_head_revision,binding_generation,profile_digest,publisher_config_digest,publisher_contract,publisher_policy,manifest_path,
 		manifest,manifest_digest,intent_digest,commit_trailer,state,active,next_attempt_at,attempts,
 		consecutive_failures,last_failure_code,lease_epoch,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending',true,$20,0,0,'',0,$20,$20)`,
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',true,$19,0,0,'',0,$19,$19)`,
 		value.ID, value.EnvironmentID, value.ProjectID, value.Namespace, value.ArgoProject, value.Authority.BindingID,
-		value.Authority.ClusterID, value.Authority.TargetRef, value.Authority.PlannedHead, value.Authority.Generation,
+		value.Authority.TargetRef, value.Authority.PlannedHead, value.Authority.Generation,
 		profileDigest, value.PublisherConfigDigest, value.PublisherContractVersion, value.PublisherPolicy,
 		value.Path, value.Manifest, value.ManifestDigest, value.IntentDigest, value.CommitTrailer, request.Now)
 	if err != nil {

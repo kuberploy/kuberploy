@@ -80,7 +80,7 @@ func scanBinding(row rowScanner) (Binding, error) {
 	var binding Binding
 	var target, indexed *string
 	var targetAt, indexedAt *time.Time
-	err := row.Scan(&binding.ID, &binding.Kind, &binding.ScopeID, &binding.ProjectID, &binding.EnvironmentID, &binding.ClusterID,
+	err := row.Scan(&binding.ID, &binding.Kind, &binding.ScopeID, &binding.ProjectID, &binding.EnvironmentID,
 		&binding.Repository.Provider, &binding.Repository.InstallationID, &binding.Repository.RepositoryID, &binding.Repository.Owner, &binding.Repository.Name,
 		&binding.TargetRef, &binding.Prefix, &binding.CredentialMode, &binding.CredentialSecretName, &binding.State, &target, &indexed, &binding.ProjectionGeneration,
 		&binding.ParserVersion, &targetAt, &indexedAt, &binding.CreatedAt, &binding.UpdatedAt)
@@ -102,7 +102,7 @@ func scanBinding(row rowScanner) (Binding, error) {
 	return binding, binding.Validate()
 }
 
-const bindingColumns = `id,kind,scope_id::text,COALESCE(project_id::text,''),COALESCE(environment_id::text,''),COALESCE(cluster_id::text,''),provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at`
+const bindingColumns = `id,kind,scope_id::text,COALESCE(project_id::text,''),COALESCE(environment_id::text,''),provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at`
 
 func getBinding(ctx context.Context, query rowQueryer, id string, suffix string) (Binding, error) {
 	return scanBinding(query.QueryRow(ctx, `SELECT `+bindingColumns+` FROM git_repository_bindings WHERE id=$1 `+suffix, id))
@@ -112,9 +112,9 @@ func (s *PostgreSQLStore) PutBinding(ctx context.Context, binding Binding) error
 	if err := binding.Validate(); err != nil {
 		return err
 	}
-	result, err := s.pool.Exec(ctx, `INSERT INTO git_repository_bindings(id,kind,scope_id,project_id,environment_id,cluster_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at)
-		VALUES($1,$2,$3,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,NULLIF($6,'')::uuid,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NULLIF($17,''),NULLIF($18,''),$19,$20,NULLIF($21,'0001-01-01T00:00:00Z'::timestamptz),NULLIF($22,'0001-01-01T00:00:00Z'::timestamptz),$23,$24) ON CONFLICT(id) DO NOTHING`,
-		binding.ID, binding.Kind, binding.ScopeID, binding.ProjectID, binding.EnvironmentID, binding.ClusterID, binding.Repository.Provider, binding.Repository.InstallationID, binding.Repository.RepositoryID, binding.Repository.Owner, binding.Repository.Name,
+	result, err := s.pool.Exec(ctx, `INSERT INTO git_repository_bindings(id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at)
+		VALUES($1,$2,$3,NULLIF($4,'')::uuid,NULLIF($5,'')::uuid,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULLIF($16,''),NULLIF($17,''),$18,$19,NULLIF($20,'0001-01-01T00:00:00Z'::timestamptz),NULLIF($21,'0001-01-01T00:00:00Z'::timestamptz),$22,$23) ON CONFLICT(id) DO NOTHING`,
+		binding.ID, binding.Kind, binding.ScopeID, binding.ProjectID, binding.EnvironmentID, binding.Repository.Provider, binding.Repository.InstallationID, binding.Repository.RepositoryID, binding.Repository.Owner, binding.Repository.Name,
 		binding.TargetRef, binding.Prefix, binding.CredentialMode, binding.CredentialSecretName, binding.State, binding.TargetHeadRevision, binding.IndexedRevision, binding.ProjectionGeneration, binding.ParserVersion, binding.TargetHeadObservedAt, binding.IndexedAt, binding.CreatedAt, binding.UpdatedAt)
 	if err != nil {
 		return classifyPostgres(err)

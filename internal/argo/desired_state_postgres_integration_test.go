@@ -35,7 +35,6 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 		pgEnvironmentID         = "b2400000-0000-4000-8000-000000000002"
 		pgEnvironmentBindingID  = "b2400000-0000-4000-8000-000000000003"
 		pgPlatformBindingID     = "b2400000-0000-4000-8000-000000000004"
-		pgClusterID             = "b2400000-0000-4000-8000-000000000005"
 		pgApplicationID         = "b2400000-0000-4000-8000-000000000006"
 		pgDeploymentID          = "b2400000-0000-4000-8000-000000000007"
 		pgCommandID             = "b2400000-0000-4000-8000-000000000008"
@@ -72,8 +71,7 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	platformBinding, err := gitprojection.NewGitHubPlatformBinding(pgPlatformBindingID, pgClusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 2401, RepositoryID: 2403, Owner: "kuberploy", Name: "platform-desired-state"},
+	platformBinding, err := gitprojection.NewGitHubPlatformBinding(pgPlatformBindingID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 2401, RepositoryID: 2403, Owner: "kuberploy", Name: "platform-desired-state"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
@@ -142,7 +140,7 @@ func TestPostgreSQLDesiredStateFencingSaturationAndExactReadiness(t *testing.T) 
 		t.Fatal("PostgreSQL trigger allowed an unfenced pending command to prepopulate its write-base receipt")
 	}
 	identity, err := argo.DesiredStateRuntimeIdentityForConfig(argo.DesiredStateRuntimeConfig{
-		Enabled: true, GitHubAppID: 2400, PlatformBindingID: pgPlatformBindingID, ClusterID: pgClusterID,
+		Enabled: true, GitHubAppID: 2400, PlatformBindingID: pgPlatformBindingID,
 		ArgoNamespace: "argocd", RootApplicationName: "kuberploy-root", RepositorySecretName: "kuberploy-platform-repository",
 		Runtime: runtime, DigestEnforcement: argo.ChartDigestNativeOCI,
 	})

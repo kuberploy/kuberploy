@@ -21,19 +21,19 @@ var protectedGitHubRepositoryRE = regexp.MustCompile(`^https://github\.com/[A-Za
 // excludes status: a degraded workload must remain safely removable.
 type ProtectedApplicationExpectation struct {
 	Namespace, Project, RepositoryURL, TargetRevision string
-	DestinationNamespace, ClusterID                   string
+	DestinationNamespace                              string
 	ProjectID, EnvironmentID, ApplicationID           string
 	ReleaseRevisionID, PayloadPath                    string
 	PayloadDigest, SpecDigest, FinalizerDigest        string
 }
 
 func NewProtectedApplicationExpectation(namespace, project, repositoryURL, targetRevision,
-	destinationNamespace, clusterID, projectID, environmentID, applicationID,
+	destinationNamespace, projectID, environmentID, applicationID,
 	releaseRevisionID, payloadPath, payloadDigest string) (ProtectedApplicationExpectation, error) {
 	expectation := ProtectedApplicationExpectation{Namespace: namespace, Project: project,
 		RepositoryURL: repositoryURL, TargetRevision: targetRevision,
-		DestinationNamespace: destinationNamespace, ClusterID: clusterID,
-		ProjectID: projectID, EnvironmentID: environmentID, ApplicationID: applicationID,
+		DestinationNamespace: destinationNamespace,
+		ProjectID:            projectID, EnvironmentID: environmentID, ApplicationID: applicationID,
 		ReleaseRevisionID: releaseRevisionID, PayloadPath: payloadPath, PayloadDigest: payloadDigest,
 		FinalizerDigest: contentDigest([]byte(ProtectedApplicationResourcesFinalizer))}
 	var err error
@@ -47,7 +47,7 @@ func NewProtectedApplicationExpectation(namespace, project, repositoryURL, targe
 func (e ProtectedApplicationExpectation) Validate() error {
 	if !kubeRE.MatchString(e.Namespace) ||
 		!kubeRE.MatchString(e.Project) || !kubeRE.MatchString(e.DestinationNamespace) ||
-		!uuidRE.MatchString(e.ClusterID) || !uuidRE.MatchString(e.ProjectID) ||
+		!uuidRE.MatchString(e.ProjectID) ||
 		!uuidRE.MatchString(e.EnvironmentID) || !uuidRE.MatchString(e.ApplicationID) ||
 		!uuidRE.MatchString(e.ReleaseRevisionID) || !commitRE.MatchString(e.TargetRevision) ||
 		!protectedGitHubRepositoryRE.MatchString(e.RepositoryURL) || !digestRE.MatchString(e.PayloadDigest) ||
@@ -70,7 +70,7 @@ func protectedApplicationName(e ProtectedApplicationExpectation) string {
 }
 
 func protectedApplicationPath(e ProtectedApplicationExpectation) string {
-	return "clusters/" + e.ClusterID + "/helm-manifests/environments/" + e.EnvironmentID +
+	return "platform/helm-manifests/environments/" + e.EnvironmentID +
 		"/applications/" + e.ApplicationID + "/revisions/" + e.ReleaseRevisionID
 }
 

@@ -87,7 +87,7 @@ func newPublisherFixture(t *testing.T) publisherFixture {
 	base := strings.TrimSpace(runFoundationGit(t, work, "rev-parse", "HEAD"))
 
 	repository := gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1, RepositoryID: 2, Owner: "kuberploy", Name: "platform"}
-	binding, err := gitprojection.NewGitHubPlatformBinding(testBindingID, testClusterID, repository, "refs/heads/main", now)
+	binding, err := gitprojection.NewGitHubPlatformBinding(testBindingID, repository, "refs/heads/main", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestProtectedGitPublisherPersistsBaseBeforePushAndRecovers(t *testing.T) {
 
 func TestProtectedGitPublisherRejectsRequestPathSubstitutionBeforeProvider(t *testing.T) {
 	fixture := newPublisherFixture(t)
-	fixture.request.Path = "clusters/" + testClusterID + "/argocd/foundations/" + testIntentID2 + ".yaml"
+	fixture.request.Path = "platform/argocd/foundations/" + testIntentID2 + ".yaml"
 	if _, err := fixture.publisher.Publish(context.Background(), fixture.lease, fixture.request); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("path substitution was not rejected: %v", err)
 	}

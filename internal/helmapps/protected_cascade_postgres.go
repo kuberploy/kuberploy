@@ -60,14 +60,14 @@ func (s *PostgresProtectedPublicationStore) activateCascadeObserverOnce(ctx cont
 		AND contract_version=$2 AND config_digest=$3 AND platform_binding_id=$4
 		AND started_at=$5 AND observed_at<= $6 AND observed_at>= $6-interval '5 minutes'
 		AND lease_until>$6 AND lease_until<=observed_at+interval '5 minutes'
-		AND (identity->>'githubAppId')::bigint=$7 AND identity->>'clusterId'=$8
-		AND identity->>'argoNamespace'=$9 AND identity->>'rootApplicationName'=$10
-		AND identity->>'repositorySecretName'=$11 AND identity->>'chartRepository'=$12
-		AND identity->>'chartName'=$13 AND identity->>'chartVersion'=$14
-		AND identity->>'chartDigest'=$15 AND identity->>'rendererImage'=$16
-		AND identity->>'chartDigestEnforcement'=$17`, observation.WorkerID,
+		AND (identity->>'githubAppId')::bigint=$7
+		AND identity->>'argoNamespace'=$8 AND identity->>'rootApplicationName'=$9
+		AND identity->>'repositorySecretName'=$10 AND identity->>'chartRepository'=$11
+		AND identity->>'chartName'=$12 AND identity->>'chartVersion'=$13
+		AND identity->>'chartDigest'=$14 AND identity->>'rendererImage'=$15
+		AND identity->>'chartDigestEnforcement'=$16`, observation.WorkerID,
 		identity.ContractVersion, identity.ConfigDigest, identity.PlatformBindingID,
-		observation.StartedAt.UTC(), dbNow, identity.GitHubAppID, identity.ClusterID,
+		observation.StartedAt.UTC(), dbNow, identity.GitHubAppID,
 		identity.ArgoNamespace, identity.RootApplicationName, identity.RepositorySecretName,
 		identity.Runtime.ChartRepository, identity.Runtime.ChartName, identity.Runtime.ChartVersion,
 		identity.Runtime.ChartDigest, identity.Runtime.RendererImage, identity.DigestEnforcement).
@@ -97,7 +97,7 @@ const protectedCascadeColumns = `id::text,delete_intent_id::text,release_revisio
 	payload_intent_id::text,base_application_intent_id::text,release_generation,
 	payload_revision,
 	project_id::text,environment_id::text,application_id::text,platform_binding_id::text,
-	environment_binding_id::text,cluster_id::text,platform_target_ref,environment_target_ref,
+	environment_binding_id::text,platform_target_ref,environment_target_ref,
 	environment_revision,environment_generation,catalog_digest,planned_base_revision,
 	argo_namespace,application_path,source_content,source_content_digest,adopted_content,
 	adopted_content_digest,operation,precondition,expected_etag,intent_digest,commit_trailer,
@@ -114,7 +114,7 @@ func scanProtectedCascade(row rowScanner) (ProtectedApplicationCascadePreflight,
 		&value.PayloadRevision,
 		&value.Target.ProjectID, &value.Target.EnvironmentID, &value.Target.ApplicationID,
 		&value.Binding.PlatformBindingID, &value.Binding.EnvironmentBindingID,
-		&value.Binding.ClusterID, &value.Binding.PlatformTargetRef,
+		&value.Binding.PlatformTargetRef,
 		&value.Binding.EnvironmentTargetRef, &value.Binding.EnvironmentRevision,
 		&value.Binding.EnvironmentGeneration, &value.Binding.CatalogDigest,
 		&value.Binding.PlannedBaseRevision, &value.ArgoNamespace, &value.ApplicationPath,
@@ -229,8 +229,7 @@ func (s *PostgresProtectedPublicationStore) createCascadePreflightForPayloadOnce
 	var platformHead, platformTargetRef string
 	err = tx.QueryRow(ctx, `SELECT target_head_revision,target_ref FROM public.git_repository_bindings
 		WHERE id=$1 AND kind='platform' AND credential_mode='github-app'
-		  AND cluster_id=$2 FOR KEY SHARE`, payload.Binding.PlatformBindingID,
-		payload.Binding.ClusterID).Scan(&platformHead, &platformTargetRef)
+		  FOR KEY SHARE`, payload.Binding.PlatformBindingID).Scan(&platformHead, &platformTargetRef)
 	if err != nil || !gitCommitRE.MatchString(platformHead) {
 		if err != nil {
 			return ProtectedApplicationCascadePreflight{}, false, classifyPostgres(err)
@@ -266,7 +265,7 @@ func (s *PostgresProtectedPublicationStore) createCascadePreflightForPayloadOnce
 	_, err = tx.Exec(ctx, `INSERT INTO public.helm_application_cascade_preflights(
 		id,delete_intent_id,release_revision_id,payload_intent_id,base_application_intent_id,
 		release_generation,payload_revision,project_id,environment_id,application_id,platform_binding_id,
-		environment_binding_id,cluster_id,platform_target_ref,environment_target_ref,
+		environment_binding_id,platform_target_ref,environment_target_ref,
 		environment_revision,environment_generation,catalog_digest,planned_base_revision,
 		argo_namespace,application_path,source_content,source_content_digest,adopted_content,
 		adopted_content_digest,content_digest,operation,precondition,expected_etag,intent_digest,
@@ -276,12 +275,12 @@ func (s *PostgresProtectedPublicationStore) createCascadePreflightForPayloadOnce
 		write_base_revision,committed_revision,committed_parent_revision,verified_path_digest,
 		provider_request,created_at,updated_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-		$21,$22,$23,$24,$25,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,0,0,'pending',$36,
-		0,0,'',0,'','','','','',$36,$36)`, value.ID, value.DeleteIntentID,
+		$21,$22,$23,$24,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,0,0,'pending',$35,
+		0,0,'',0,'','','','','',$35,$35)`, value.ID, value.DeleteIntentID,
 		value.ReleaseRevisionID, value.PayloadIntentID, value.BaseApplicationIntentID,
 		value.ReleaseGeneration, value.PayloadRevision, value.Target.ProjectID, value.Target.EnvironmentID,
 		value.Target.ApplicationID, value.Binding.PlatformBindingID,
-		value.Binding.EnvironmentBindingID, value.Binding.ClusterID,
+		value.Binding.EnvironmentBindingID,
 		value.Binding.PlatformTargetRef, value.Binding.EnvironmentTargetRef,
 		value.Binding.EnvironmentRevision, value.Binding.EnvironmentGeneration,
 		value.Binding.CatalogDigest, value.Binding.PlannedBaseRevision, value.ArgoNamespace,
@@ -573,7 +572,7 @@ func (s *PostgresProtectedPublicationStore) claimCascadeObservationOnce(ctx cont
 		 AND head.generation=preflight.release_generation
 		JOIN public.git_repository_bindings binding ON binding.id=preflight.platform_binding_id
 		 AND binding.kind='platform' AND binding.credential_mode='github-app'
-		 AND binding.cluster_id=preflight.cluster_id AND binding.target_ref=preflight.platform_target_ref
+		 AND binding.target_ref=preflight.platform_target_ref
 		WHERE preflight.state='verified' AND preflight.platform_binding_id=$6
 		  AND public.helm_application_cascade_preflight_is_fresh(preflight.id)
 		  AND NOT `+terminalCascadeDeleteExistsSQL("preflight")+`
@@ -671,7 +670,7 @@ func (s *PostgresProtectedPublicationStore) recordCascadeObservationOnce(ctx con
 		preflight.ReleaseRevisionID != receipt.ReleaseRevisionID || preflight.PayloadIntentID != receipt.PayloadIntentID ||
 		preflight.BaseApplicationIntentID != receipt.BaseApplicationIntentID || preflight.Target.ProjectID != receipt.ProjectID ||
 		preflight.Target.EnvironmentID != receipt.EnvironmentID || preflight.Target.ApplicationID != receipt.ApplicationID ||
-		preflight.Binding.ClusterID != receipt.ClusterID || preflight.ApplicationPath != receipt.ApplicationPath ||
+		preflight.ApplicationPath != receipt.ApplicationPath ||
 		preflight.SourceContentDigest != receipt.SourceContentDigest || preflight.AdoptedContentDigest != receipt.AdoptedContentDigest {
 		if err != nil {
 			return ProtectedApplicationCascadeReceipt{}, err
@@ -703,8 +702,8 @@ func (s *PostgresProtectedPublicationStore) recordCascadeObservationOnce(ctx con
 	var platformHead string
 	err = tx.QueryRow(ctx, `SELECT target_head_revision FROM public.git_repository_bindings
 		WHERE id=$1 AND kind='platform' AND credential_mode='github-app'
-		  AND cluster_id=$2 AND target_ref=$3 FOR UPDATE`, preflight.Binding.PlatformBindingID,
-		preflight.Binding.ClusterID, preflight.Binding.PlatformTargetRef).Scan(&platformHead)
+		  AND target_ref=$2 FOR UPDATE`, preflight.Binding.PlatformBindingID,
+		preflight.Binding.PlatformTargetRef).Scan(&platformHead)
 	if err != nil || platformHead != receipt.ProviderHead || receipt.RootObservedRevision != platformHead {
 		if err != nil {
 			return ProtectedApplicationCascadeReceipt{}, classifyPostgres(err)
@@ -712,7 +711,7 @@ func (s *PostgresProtectedPublicationStore) recordCascadeObservationOnce(ctx con
 		return ProtectedApplicationCascadeReceipt{}, ErrConflict
 	}
 	binding, err := scanCascadePlatformBinding(tx.QueryRow(ctx, `SELECT id,kind,scope_id::text,
-		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),COALESCE(cluster_id::text,''),
+		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),
 		provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
 		credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,
 		projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at
@@ -742,20 +741,20 @@ func (s *PostgresProtectedPublicationStore) recordCascadeObservationOnce(ctx con
 	err = tx.QueryRow(ctx, `INSERT INTO public.helm_application_cascade_receipts(
 		id,delete_intent_id,cascade_preflight_id,observation_epoch,observation_lease_epoch,release_revision_id,
 		payload_intent_id,base_application_intent_id,project_id,environment_id,application_id,
-		cluster_id,application_path,source_content_digest,adopted_content_digest,
+		application_path,source_content_digest,adopted_content_digest,
 		adoption_revision,adoption_parent_revision,provider_head,root_observed_revision,
 		root_uid,root_resource_version,root_spec_digest,root_sync_status,child_uid,child_resource_version,
 		child_spec_digest,finalizer_digest,child_release_revision_id,child_payload_revision,
 		child_payload_path,child_payload_digest,publisher_contract,publisher_policy_version,
 		publisher_config_digest,worker_id,worker_epoch,observer_activation_epoch,observed_at)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-		$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38)
+		$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37)
 		RETURNING observation_epoch,observed_at,observer_activation_epoch,
 		argo_contract,argo_config_digest,argo_worker_id,argo_worker_epoch,
 		argo_started_at,argo_readiness_observed_at,argo_readiness_lease_until`, receipt.ID,
 		receipt.DeleteIntentID, receipt.CascadePreflightID, receipt.ObservationEpoch, receipt.ObservationLeaseEpoch,
 		receipt.ReleaseRevisionID, receipt.PayloadIntentID, receipt.BaseApplicationIntentID,
-		receipt.ProjectID, receipt.EnvironmentID, receipt.ApplicationID, receipt.ClusterID,
+		receipt.ProjectID, receipt.EnvironmentID, receipt.ApplicationID,
 		receipt.ApplicationPath, receipt.SourceContentDigest, receipt.AdoptedContentDigest,
 		receipt.AdoptionRevision, receipt.AdoptionParentRevision, receipt.ProviderHead,
 		receipt.RootObservedRevision, receipt.RootUID, receipt.RootResourceVersion,

@@ -261,8 +261,8 @@ func (w *DesiredStateWriter) bindings(ctx context.Context, command DesiredStateC
 		return gitprojection.Binding{}, gitprojection.Binding{}, err
 	}
 	if platform.Validate() != nil || platform.Kind != gitprojection.BindingPlatform || platform.CredentialMode != gitprojection.CredentialGitHubApp ||
-		platform.ID != w.Identity.PlatformBindingID || platform.ClusterID != w.Identity.ClusterID || platform.ID != command.PlatformBindingID ||
-		platform.ClusterID != command.ClusterID || platform.TargetRef != command.PlatformTargetRef || environment.Validate() != nil ||
+		platform.ID != w.Identity.PlatformBindingID || platform.ID != command.PlatformBindingID ||
+		platform.TargetRef != command.PlatformTargetRef || environment.Validate() != nil ||
 		environment.Kind != gitprojection.BindingEnvironment || environment.ID != command.EnvironmentBindingID ||
 		environment.ProjectID != command.ProjectID || environment.EnvironmentID != command.EnvironmentID ||
 		environment.TargetRef != command.EnvironmentTargetRef || command.Runtime != w.Identity.Runtime && command.WriteBaseRevision == "" ||

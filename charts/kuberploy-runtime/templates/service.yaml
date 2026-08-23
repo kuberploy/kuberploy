@@ -21,6 +21,7 @@ spec:
     {{- end }}
 ---
 {{- end }}
+{{- define "kuberploy-runtime.serviceBase" -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -40,3 +41,21 @@ spec:
       targetPort: {{ .name }}
       protocol: {{ .protocol | default "TCP" }}
     {{- end }}
+{{- end -}}
+{{- $base := include "kuberploy-runtime.serviceBase" . | fromYaml -}}
+{{- $overrides := .Values.spec.overrides | default dict -}}
+{{- $override := get $overrides "service" | default dict -}}
+{{- $resource := mergeOverwrite (deepCopy $base) (deepCopy $override) -}}
+{{- $_ := set $resource "apiVersion" (get $base "apiVersion") -}}
+{{- $_ := set $resource "kind" (get $base "kind") -}}
+{{- $metadata := get $resource "metadata" -}}
+{{- $baseMetadata := get $base "metadata" -}}
+{{- $_ := set $metadata "name" (get $baseMetadata "name") -}}
+{{- $_ := unset $metadata "namespace" -}}
+{{- $labels := mergeOverwrite (deepCopy (get $metadata "labels" | default dict)) (deepCopy (get $baseMetadata "labels")) -}}
+{{- $_ := set $metadata "labels" $labels -}}
+{{- $annotations := mergeOverwrite (deepCopy (get $metadata "annotations" | default dict)) (deepCopy (get $baseMetadata "annotations" | default dict)) -}}
+{{- $_ := set $metadata "annotations" $annotations -}}
+{{- $resourceSpec := get $resource "spec" -}}
+{{- $_ := set $resourceSpec "selector" (deepCopy (get (get $base "spec") "selector")) -}}
+{{- toYaml $resource -}}

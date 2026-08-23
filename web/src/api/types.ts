@@ -110,7 +110,6 @@ export type PlatformArgoGitRepository = {
 
 export type PlatformArgoGitBinding = {
   id: string;
-  clusterId: string;
   repository: PlatformArgoGitRepository;
   targetRef: string;
   pathPrefix: string;

@@ -96,7 +96,7 @@ func (o *ProtectedCascadeObserver) processOneActivated(ctx context.Context) (res
 	}
 	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
 		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.ID != preflight.Binding.PlatformBindingID ||
-		binding.ClusterID != preflight.Binding.ClusterID || binding.TargetRef != preflight.Binding.PlatformTargetRef {
+		binding.TargetRef != preflight.Binding.PlatformTargetRef {
 		return ProtectedApplicationCascadeReceipt{}, ErrConflict
 	}
 	head, err := o.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
@@ -169,7 +169,7 @@ func (o *ProtectedCascadeObserver) processOneActivated(ctx context.Context) (res
 		ObserverActivationEpoch: lease.ObserverActivationEpoch, ReleaseRevisionID: preflight.ReleaseRevisionID,
 		PayloadIntentID: preflight.PayloadIntentID, BaseApplicationIntentID: preflight.BaseApplicationIntentID,
 		ProjectID: preflight.Target.ProjectID, EnvironmentID: preflight.Target.EnvironmentID,
-		ApplicationID: preflight.Target.ApplicationID, ClusterID: preflight.Binding.ClusterID,
+		ApplicationID:   preflight.Target.ApplicationID,
 		ApplicationPath: preflight.ApplicationPath, SourceContentDigest: preflight.SourceContentDigest,
 		AdoptedContentDigest: preflight.AdoptedContentDigest, AdoptionRevision: adoptionRevision,
 		AdoptionParentRevision: adoptionParent, ProviderHead: head.Commit,

@@ -13,17 +13,15 @@ const ProtectedArgoRootCompatibilityContract = "helm-protected-argo-root.v1"
 
 // ProductionProtectedArgoReadinessConfig joins independently configured Helm
 // and Argo authorities. Paths are deliberately absent: the adapter derives the
-// only compatible recursive root and protected Application directory from the
-// exact cluster identity.
+// only compatible recursive root and protected Application directory.
 type ProductionProtectedArgoReadinessConfig struct {
 	PlatformBindingID string
-	ClusterID         string
 	Application       ProtectedApplicationRuntime
 	Publisher         ProtectedPublisherIdentity
 }
 
 func (c ProductionProtectedArgoReadinessConfig) Validate() error {
-	if !uuidRE.MatchString(c.PlatformBindingID) || !uuidRE.MatchString(c.ClusterID) ||
+	if !uuidRE.MatchString(c.PlatformBindingID) ||
 		c.Application.Validate() != nil || c.Publisher.Validate() != nil {
 		return ErrInvalid
 	}
@@ -64,7 +62,7 @@ func validateProductionArgoProbe(probe argo.ProductionDesiredStateReadinessProbe
 	identity := probe.Identity
 	repositoryCredential, credentialErr := argo.RepositoryCredentialName(config.PlatformBindingID)
 	if identity.Validate() != nil || identity.ContractVersion != argo.DesiredStateContract ||
-		identity.PlatformBindingID != config.PlatformBindingID || identity.ClusterID != config.ClusterID ||
+		identity.PlatformBindingID != config.PlatformBindingID ||
 		identity.ArgoNamespace != config.Application.ArgoNamespace ||
 		identity.RootApplicationName != argo.PlatformRootApplicationName ||
 		credentialErr != nil || identity.RepositorySecretName != repositoryCredential ||
@@ -81,14 +79,13 @@ func (r *ProductionProtectedArgoReadiness) expectedCompatibilityDigest() (string
 		validateProductionArgoProbe(r.probe, r.config) != nil {
 		return "", ErrInvalid
 	}
-	rootPath := path.Join(gitprojection.PlatformPrefix(r.config.ClusterID), "argocd")
+	rootPath := path.Join(gitprojection.PlatformPrefix(), "argocd")
 	applicationDirectory := path.Join(rootPath, "helm-applications")
 	return digestJSON(struct {
 		Contract                 string                     `json:"contract"`
 		ArgoContract             string                     `json:"argoContract"`
 		ArgoConfigDigest         string                     `json:"argoConfigDigest"`
 		PlatformBindingID        string                     `json:"platformBindingId"`
-		ClusterID                string                     `json:"clusterId"`
 		ArgoNamespace            string                     `json:"argoNamespace"`
 		RootApplicationName      string                     `json:"rootApplicationName"`
 		RootPath                 string                     `json:"rootPath"`
@@ -96,7 +93,7 @@ func (r *ProductionProtectedArgoReadiness) expectedCompatibilityDigest() (string
 		ProtectedApplicationPath string                     `json:"protectedApplicationPath"`
 		Publisher                ProtectedPublisherIdentity `json:"publisher"`
 	}{ProtectedArgoRootCompatibilityContract, r.probe.Identity.ContractVersion,
-		r.probe.Identity.ConfigDigest, r.config.PlatformBindingID, r.config.ClusterID,
+		r.probe.Identity.ConfigDigest, r.config.PlatformBindingID,
 		r.config.Application.ArgoNamespace, r.probe.Identity.RootApplicationName, rootPath, true,
 		applicationDirectory, r.config.Publisher})
 }

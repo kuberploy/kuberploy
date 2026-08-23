@@ -22,7 +22,7 @@ func TestProductionProtectedRootRefresherUsesExactVerifiedPlatformHead(t *testin
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	_, _, _, observation := protectedArgoReadinessFixture(t, now)
 	identity := observation.DesiredStateRuntimeIdentity
-	binding, err := gitprojection.NewGitHubPlatformBinding(identity.PlatformBindingID, identity.ClusterID,
+	binding, err := gitprojection.NewGitHubPlatformBinding(identity.PlatformBindingID,
 		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 7, RepositoryID: 8,
 			Owner: "kuberploy", Name: "platform"}, "refs/heads/main", now)
 	if err != nil {
@@ -50,7 +50,7 @@ func TestProductionProtectedRootRefresherUsesExactVerifiedPlatformHead(t *testin
 		t.Fatalf("refresh calls=%d err=%v", calls, err)
 	}
 	substituted := binding
-	substituted.ClusterID = strings.Repeat("0", 8) + binding.ClusterID[8:]
+	substituted.ScopeID = strings.Repeat("0", 8) + binding.ScopeID[8:]
 	if err = adapter.RefreshProtectedRoot(t.Context(), substituted, head, now); !errors.Is(err, ErrInvalid) || calls != 1 {
 		t.Fatalf("substituted binding refresh calls=%d err=%v", calls, err)
 	}

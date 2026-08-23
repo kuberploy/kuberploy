@@ -155,7 +155,7 @@ export function PlatformArgoGitBindingPage() {
       <PageHeader
         eyebrow="Platform settings"
         title="Argo Git authority"
-        description="Bind protected platform desired state to one verified GitHub App repository. Kuberploy derives the cluster, canonical remote, protected path, and GitHub App identity."
+        description="Bind this installation's protected desired state to one verified GitHub App repository. Kuberploy manages only its current Kubernetes cluster."
         actions={
           humanPlatformAdmin ? (
             <Button
@@ -198,13 +198,7 @@ export function PlatformArgoGitBindingPage() {
           </div>
           <dl className="detail-list">
             <div>
-              <dt>Cluster</dt>
-              <dd>
-                <code>{binding.data.clusterId}</code>
-              </dd>
-            </div>
-            <div>
-              <dt>Protected path</dt>
+              <dt>Installation-scoped path</dt>
               <dd>
                 <code>{binding.data.pathPrefix}</code>
               </dd>
@@ -255,7 +249,7 @@ export function PlatformArgoGitBindingPage() {
           <EmptyState
             icon="route"
             title="Platform Git binding is not configured"
-            description="The operator must configure the server-owned cluster and GitHub App identity before this workflow is available. Argo remains disabled."
+            description="The operator must configure this installation's GitHub App identity before this workflow is available. Argo remains disabled."
           />
         </Card>
       ) : binding.error && !bindingMissing ? (

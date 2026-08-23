@@ -5,7 +5,6 @@ afterEach(() => vi.unstubAllGlobals());
 
 const safeBinding = {
   id: "binding-safe",
-  clusterId: "01900000-0000-7000-8000-000000000001",
   repository: {
     provider: "github" as const,
     installationId: 42,
@@ -14,7 +13,7 @@ const safeBinding = {
     name: "platform-gitops",
   },
   targetRef: "refs/heads/platform",
-  pathPrefix: "clusters/01900000-0000-7000-8000-000000000001/argo",
+  pathPrefix: "platform",
   state: "waiting-for-git" as const,
   createdAt: "2026-08-09T00:00:00Z",
   updatedAt: "2026-08-09T00:00:00Z",

@@ -17,7 +17,6 @@ import (
 
 const (
 	desiredStatePlatformBindingID = "12111111-1111-4111-8111-111111111111"
-	desiredStateClusterID         = "13111111-1111-4111-8111-111111111111"
 	desiredStateCommandID         = "14111111-1111-4111-8111-111111111111"
 )
 
@@ -101,8 +100,7 @@ func desiredStateTargetFixture(t *testing.T, now time.Time) (argo.DesiredStateTa
 	environmentTarget, application := targetFixture(t)
 	environmentTarget.Binding.CredentialMode = gitprojection.CredentialGitHubApp
 	environmentTarget.Binding.CredentialSecretName = ""
-	platform, err := gitprojection.NewGitHubPlatformBinding(desiredStatePlatformBindingID, desiredStateClusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 17, RepositoryID: 18, Owner: "kuberploy", Name: "platform"},
+	platform, err := gitprojection.NewGitHubPlatformBinding(desiredStatePlatformBindingID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 17, RepositoryID: 18, Owner: "kuberploy", Name: "platform"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
@@ -123,8 +121,8 @@ func desiredStateIdentity(t *testing.T, target argo.DesiredStateTarget) argo.Des
 	}
 	identity, err := argo.DesiredStateRuntimeIdentityForConfig(argo.DesiredStateRuntimeConfig{
 		Enabled: true, GitHubAppID: target.PlatformBinding.Repository.InstallationID,
-		PlatformBindingID: target.PlatformBinding.ID, ClusterID: target.PlatformBinding.ClusterID,
-		ArgoNamespace: target.Environment.ArgoNamespace, RootApplicationName: argo.PlatformRootApplicationName,
+		PlatformBindingID: target.PlatformBinding.ID,
+		ArgoNamespace:     target.Environment.ArgoNamespace, RootApplicationName: argo.PlatformRootApplicationName,
 		RepositorySecretName: repositorySecretName, Runtime: target.Environment.Runtime,
 		DigestEnforcement: argo.ChartDigestNativeOCI,
 	})
@@ -141,7 +139,7 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantPath := "clusters/" + desiredStateClusterID + "/argocd/environments/" + environmentID + ".yaml"
+	wantPath := "platform/argocd/environments/" + environmentID + ".yaml"
 	if command.Path != wantPath || command.BaseRevision != target.PlatformBinding.TargetHeadRevision ||
 		command.Precondition != gitprojection.MutationCreateIfAbsent || command.ExpectedETag != "" ||
 		command.DestinationNamespace != target.Environment.Environment.Namespace || command.ArgoProject != target.Environment.Environment.ArgoProject {
@@ -160,7 +158,7 @@ func TestDesiredStateCommandDerivesProtectedAuthorityAndDigestPin(t *testing.T) 
 
 	for name, mutate := range map[string]func(*argo.DesiredStateCommand){
 		"path": func(value *argo.DesiredStateCommand) {
-			value.Path = "clusters/" + desiredStateClusterID + "/argocd/root.yaml"
+			value.Path = "platform/argocd/root.yaml"
 		},
 		"destination": func(value *argo.DesiredStateCommand) { value.DestinationNamespace = "attacker" },
 		"project":     func(value *argo.DesiredStateCommand) { value.ArgoProject = "default" },

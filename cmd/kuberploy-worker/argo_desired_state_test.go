@@ -32,7 +32,6 @@ func productionConfigEnvironmentForWorker() map[string]string {
 		"KUBERPLOY_GITHUB_APP_ID":              "12345",
 		"KUBERPLOY_GITHUB_APP_CLIENT_ID":       "Iv1_client",
 		argo.ProductionPlatformBindingIDEnv:    "11111111-1111-4111-8111-111111111111",
-		argo.ProductionClusterIDEnv:            "22222222-2222-4222-8222-222222222222",
 		argo.ProductionNamespaceEnv:            "argocd",
 		argo.ProductionChartRepositoryEnv:      "oci://ghcr.io/kuberploy/charts",
 		argo.ProductionChartVersionEnv:         "1.2.3",

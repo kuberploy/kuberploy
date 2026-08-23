@@ -100,7 +100,7 @@
   {{- fail "certificate observation maximum age must cover at least two poll intervals" -}}
   {{- end -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.certificateIssuerObserver))) "clusterID,enabled,maximumAgeSeconds,platformBindingID,pollIntervalSeconds,readinessLeaseSeconds,requestTimeoutSeconds" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.certificateIssuerObserver))) "enabled,maximumAgeSeconds,platformBindingID,pollIntervalSeconds,readinessLeaseSeconds,requestTimeoutSeconds" -}}
 {{- fail "config.certificateIssuerObserver accepts only the closed production runtime contract" -}}
 {{- end -}}
 {{- if .Values.config.certificateIssuerObserver.enabled -}}
@@ -113,11 +113,8 @@
   {{- if or (ne .Values.config.certificateIssuerObserver.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.certificateIssuerObserver.platformBindingID .Values.config.environmentFoundation.platformBindingID) -}}
   {{- fail "certificate issuer observer platform binding must equal protected Argo and foundation" -}}
   {{- end -}}
-  {{- if or (ne .Values.config.certificateIssuerObserver.clusterID .Values.config.argoDesiredState.clusterID) (ne .Values.config.certificateIssuerObserver.clusterID .Values.config.environmentFoundation.clusterID) -}}
-  {{- fail "certificate issuer observer cluster must equal protected Argo and foundation" -}}
-  {{- end -}}
-  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.certificateIssuerObserver.platformBindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.certificateIssuerObserver.clusterID)) -}}
-  {{- fail "certificate issuer observer requires canonical binding and cluster UUIDs" -}}
+  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.certificateIssuerObserver.platformBindingID) -}}
+  {{- fail "certificate issuer observer requires a canonical platform binding UUID" -}}
   {{- end -}}
   {{- $issuerPoll := int64 .Values.config.certificateIssuerObserver.pollIntervalSeconds -}}
   {{- $issuerTimeout := int64 .Values.config.certificateIssuerObserver.requestTimeoutSeconds -}}
@@ -363,35 +360,32 @@
 {{- end -}}
 {{- if .Values.config.externalDNSOperational.enabled -}}
   {{- if or (not .Values.config.edgeRuntime.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled) -}}{{- fail "operational ExternalDNS requires edge runtime, protected Git, Argo desired state, and environment foundation" -}}{{- end -}}
-  {{- if or (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.externalDNSOperational.clusterID .Values.config.argoDesiredState.clusterID) (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.environmentFoundation.platformBindingID) (ne .Values.config.externalDNSOperational.clusterID .Values.config.environmentFoundation.clusterID) -}}{{- fail "operational ExternalDNS identities must equal the protected platform Git identities" -}}{{- end -}}
+  {{- if or (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.externalDNSOperational.platformBindingID .Values.config.environmentFoundation.platformBindingID) -}}{{- fail "operational ExternalDNS identity must equal the protected platform Git binding" -}}{{- end -}}
   {{- if not (regexMatch "^[^[:space:]]+$" .Values.config.externalDNSOperational.image) -}}{{- fail "operational ExternalDNS requires a Kubernetes image reference" -}}{{- end -}}
 {{- end -}}
 {{- if and .Values.config.argoObservation.enabled (not .Values.rbac.argoNamespace) -}}
 {{- fail "Argo observation requires one explicit Argo namespace" -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.platformGitBinding))) "bindingID,clusterID,enabled" -}}
-{{- fail "config.platformGitBinding accepts only enabled, bindingID, and clusterID" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.platformGitBinding))) "bindingID,enabled" -}}
+{{- fail "config.platformGitBinding accepts only enabled and bindingID" -}}
 {{- end -}}
 {{- if .Values.config.platformGitBinding.enabled -}}
   {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) -}}
   {{- fail "platform Git binding bootstrap requires Git projection and GitHub App" -}}
   {{- end -}}
-  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.bindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.clusterID)) -}}
-  {{- fail "platform Git binding bootstrap requires canonical binding and cluster UUIDs" -}}
+  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.platformGitBinding.bindingID) -}}
+  {{- fail "platform Git binding bootstrap requires a canonical binding UUID" -}}
   {{- end -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.environmentFoundation))) "clusterID,enabled,platformBindingID,pollIntervalSeconds,psaVersion" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.environmentFoundation))) "enabled,platformBindingID,pollIntervalSeconds,psaVersion" -}}
 {{- fail "config.environmentFoundation accepts only the closed production runtime contract" -}}
 {{- end -}}
 {{- if .Values.config.environmentFoundation.enabled -}}
   {{- if or (not .Values.config.argoDesiredState.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.platformGitBinding.enabled) -}}
   {{- fail "environment foundation requires platform Git binding, protected Argo desired state, Git projection, and GitHub App" -}}
   {{- end -}}
-  {{- if or (ne .Values.config.environmentFoundation.platformBindingID .Values.config.argoDesiredState.platformBindingID) (ne .Values.config.environmentFoundation.clusterID .Values.config.argoDesiredState.clusterID) -}}
+  {{- if ne .Values.config.environmentFoundation.platformBindingID .Values.config.argoDesiredState.platformBindingID -}}
   {{- fail "environment foundation and protected Argo desired state require one exact platform authority" -}}
-  {{- end -}}
-  {{- if ne .Values.config.environmentFoundation.clusterID .Values.config.platformGitBinding.clusterID -}}
-  {{- fail "environment foundation and platform Git binding require one exact cluster identity" -}}
   {{- end -}}
   {{- if not (regexMatch "^v1[.](?:2[5-9]|[3-9][0-9])$" .Values.config.environmentFoundation.psaVersion) -}}
   {{- fail "environment foundation requires a pinned supported Pod Security version" -}}
@@ -401,15 +395,12 @@
   {{- fail "environment foundation poll interval is outside the runtime contract" -}}
   {{- end -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.argoDesiredState))) "catalogMaxAgeSeconds,clusterID,enabled,namespace,platformBindingID,pollIntervalSeconds,runtimeChartDigest,runtimeChartRepository,runtimeChartVersion" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.argoDesiredState))) "catalogMaxAgeSeconds,enabled,namespace,platformBindingID,pollIntervalSeconds,runtimeChartDigest,runtimeChartRepository,runtimeChartVersion" -}}
 {{- fail "config.argoDesiredState accepts only the closed production runtime contract" -}}
 {{- end -}}
 {{- if .Values.config.argoDesiredState.enabled -}}
   {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.platformGitBinding.enabled) (not .Values.config.argoObservation.enabled) (not .Values.config.environmentFoundation.enabled) -}}
   {{- fail "protected Argo desired state requires platform Git binding, Git projection, GitHub App, Argo observation, and environment foundation" -}}
-  {{- end -}}
-  {{- if ne .Values.config.argoDesiredState.clusterID .Values.config.platformGitBinding.clusterID -}}
-  {{- fail "protected Argo desired state and platform Git binding require one exact cluster identity" -}}
   {{- end -}}
   {{- range .Values.networkPolicy.kubeAPIServerCIDRs -}}
     {{- if not (regexMatch `(?:/32|/128)$` .) -}}
@@ -419,8 +410,8 @@
   {{- if or (ne .Values.config.argoDesiredState.namespace .Values.config.argoObservation.namespace) (ne .Values.config.argoDesiredState.namespace .Values.rbac.argoNamespace) (not .Values.config.argoDesiredState.namespace) -}}
   {{- fail "protected Argo desired state, Argo observation, and RBAC must use one exact namespace" -}}
   {{- end -}}
-  {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.argoDesiredState.platformBindingID)) (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.argoDesiredState.clusterID)) -}}
-  {{- fail "protected Argo desired state requires canonical platform binding and cluster UUIDs" -}}
+  {{- if not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" .Values.config.argoDesiredState.platformBindingID) -}}
+  {{- fail "protected Argo desired state requires a canonical platform binding UUID" -}}
   {{- end -}}
   {{- if not (regexMatch "^oci://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[1-9][0-9]{0,4})?/[A-Za-z0-9][A-Za-z0-9._/-]{0,500}$" .Values.config.argoDesiredState.runtimeChartRepository) -}}
   {{- fail "protected Argo desired state requires an exact OCI runtime chart repository" -}}
@@ -588,7 +579,6 @@ data:
   KUBERPLOY_AUTO_DEPLOY_ENABLED: {{ .Values.config.autoDeploy.enabled | quote }}
   {{- if .Values.config.platformGitBinding.enabled }}
   KUBERPLOY_PLATFORM_GIT_BINDING_ID: {{ .Values.config.platformGitBinding.bindingID | quote }}
-  KUBERPLOY_CLUSTER_ID: {{ .Values.config.platformGitBinding.clusterID | quote }}
   {{- end }}
   KUBERPLOY_RUNTIME_SECRETS_ENABLED: {{ .Values.config.runtimeSecrets.enabled | quote }}
   {{- if .Values.config.runtimeSecrets.enabled }}
@@ -618,7 +608,6 @@ data:
   KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED: {{ .Values.config.certificateIssuerObserver.enabled | quote }}
   {{- if .Values.config.certificateIssuerObserver.enabled }}
   KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID: {{ .Values.config.certificateIssuerObserver.platformBindingID | quote }}
-  KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_CLUSTER_ID: {{ .Values.config.certificateIssuerObserver.clusterID | quote }}
   KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE: {{ .Release.Namespace | quote }}
   KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") | quote }}
   KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS: {{ .Values.config.certificateIssuerObserver.pollIntervalSeconds | quote }}
@@ -657,7 +646,6 @@ data:
   KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED: {{ .Values.config.externalDNSOperational.enabled | quote }}
   {{- if .Values.config.externalDNSOperational.enabled }}
   KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID: {{ .Values.config.externalDNSOperational.platformBindingID | quote }}
-  KUBERPLOY_EXTERNAL_DNS_CLUSTER_ID: {{ .Values.config.externalDNSOperational.clusterID | quote }}
   KUBERPLOY_EXTERNAL_DNS_NAMESPACE: {{ .Values.config.externalDNSOperational.namespace | quote }}
   KUBERPLOY_EXTERNAL_DNS_VERSION: {{ .Values.config.externalDNSOperational.version | quote }}
   KUBERPLOY_EXTERNAL_DNS_IMAGE: {{ .Values.config.externalDNSOperational.image | quote }}

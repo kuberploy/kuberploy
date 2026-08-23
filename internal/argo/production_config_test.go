@@ -13,7 +13,6 @@ func productionConfigEnvironment() map[string]string {
 		productionGitHubAppIDEnv:          "12345",
 		productionGitHubClientIDEnv:       "Iv1_client",
 		ProductionPlatformBindingIDEnv:    "11111111-1111-4111-8111-111111111111",
-		ProductionClusterIDEnv:            "22222222-2222-4222-8222-222222222222",
 		ProductionNamespaceEnv:            "argocd",
 		ProductionChartRepositoryEnv:      "oci://ghcr.io/kuberploy/charts",
 		ProductionChartVersionEnv:         "1.2.3",
@@ -56,7 +55,6 @@ func TestProductionRuntimeConfigFromLookupRejectsDormantAndMalformedSettings(t *
 	for name, mutate := range map[string]func(map[string]string){
 		"boolean":                func(values map[string]string) { values[ProductionEnabledEnv] = "TRUE" },
 		"platform binding":       func(values map[string]string) { values[ProductionPlatformBindingIDEnv] = "not-a-uuid" },
-		"cluster":                func(values map[string]string) { values[ProductionClusterIDEnv] = "not-a-uuid" },
 		"floating chart":         func(values map[string]string) { values[ProductionChartDigestEnv] = "latest" },
 		"floating renderer":      func(values map[string]string) { values[ProductionRendererImageEnv] = "ghcr.io/kuberploy/worker:latest" },
 		"admin write impossible": func(values map[string]string) { values[productionGitHubAppIDEnv] = "01" },
@@ -73,13 +71,10 @@ func TestProductionRuntimeConfigFromLookupRejectsDormantAndMalformedSettings(t *
 	}
 }
 
-func TestProductionRuntimeConfigDisabledAllowsSharedBootstrapClusterIdentity(t *testing.T) {
-	config, err := ProductionRuntimeConfigFromLookup(lookupProduction(map[string]string{
-		ProductionEnabledEnv:   "false",
-		ProductionClusterIDEnv: "22222222-2222-4222-8222-222222222222",
-	}))
+func TestProductionRuntimeConfigDisabledIgnoresUnrelatedSettings(t *testing.T) {
+	config, err := ProductionRuntimeConfigFromLookup(lookupProduction(map[string]string{ProductionEnabledEnv: "false"}))
 	if err != nil || !reflect.DeepEqual(config, ProductionRuntimeConfig{}) {
-		t.Fatalf("bootstrap cluster leaked into disabled Argo config=%+v err=%v", config, err)
+		t.Fatalf("settings leaked into disabled Argo config=%+v err=%v", config, err)
 	}
 }
 

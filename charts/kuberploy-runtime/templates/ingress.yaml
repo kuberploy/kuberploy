@@ -1,3 +1,62 @@
+{{- define "kuberploy-runtime.ingressBase" -}}
+{{- $root := .root -}}
+{{- $route := .route -}}
+{{- $routeName := .routeName -}}
+{{- $tlsEnabled := .tlsEnabled -}}
+{{- $tlsSecretName := .tlsSecretName -}}
+{{- $dns := .dns -}}
+{{- $dnsMode := .dnsMode -}}
+{{- $middlewareNames := .middlewareNames -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $routeName }}
+  labels:
+    {{- include "kuberploy-runtime.labels" $root | nindent 4 }}
+    {{- if eq $dnsMode "externalDns" }}
+    kuberploy.io/dns-integration: {{ get $dns "integrationRef" | quote }}
+    {{- end }}
+    {{- if eq $dnsMode "sslip" }}
+    kuberploy.io/dns-mode: "sslip"
+    {{- end }}
+  annotations:
+    kuberploy.io/application-id: {{ $root.Values.metadata.id | quote }}
+    kubernetes.io/ingress.class: {{ $route.ingressClassName | default "traefik" | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ ternary "websecure" "web" $tlsEnabled | quote }}
+    {{- if $tlsEnabled }}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- end }}
+    {{- if eq $route.tls.mode "letsencrypt" }}
+    cert-manager.io/cluster-issuer: {{ $route.tls.issuerRef | quote }}
+    cert-manager.io/private-key-algorithm: "ECDSA"
+    cert-manager.io/private-key-size: "256"
+    {{- end }}
+    {{- if eq $dnsMode "externalDns" }}
+    external-dns.alpha.kubernetes.io/hostname: {{ $route.host | quote }}
+    external-dns.alpha.kubernetes.io/ttl: {{ get $dns "ttl" | default 300 | quote }}
+    {{- end }}
+    {{- if gt (len $middlewareNames) 0 }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ join "," $middlewareNames | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ $route.ingressClassName | default "traefik" }}
+  {{- if $tlsEnabled }}
+  tls:
+    - hosts: [{{ $route.host | quote }}]
+      secretName: {{ $tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ $route.host | quote }}
+      http:
+        paths:
+          - path: {{ $route.path | default "/" | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "kuberploy-runtime.appName" $root }}
+                port:
+                  name: {{ $route.port }}
+{{- end -}}
 {{- range (.Values.spec.routes | default (list)) }}
 {{- $route := . }}
 {{- $routeName := include "kuberploy-runtime.routeName" (dict "root" $ "route" $route) }}
@@ -32,58 +91,23 @@
   {{- $resourceName := include "kuberploy-runtime.middlewareRef" (dict "root" $ "name" .) }}
   {{- $middlewareNames = append $middlewareNames (printf "%s-%s@kubernetescrd" $.Release.Namespace $resourceName) }}
 {{- end }}
+{{- $base := include "kuberploy-runtime.ingressBase" (dict "root" $ "route" $route "routeName" $routeName "tlsEnabled" $tlsEnabled "tlsSecretName" $tlsSecretName "dns" $dns "dnsMode" $dnsMode "middlewareNames" $middlewareNames) | fromYaml -}}
+{{- $overrides := $.Values.spec.overrides | default dict -}}
+{{- $override := get $overrides "ingress" | default dict -}}
+{{- $resource := mergeOverwrite (deepCopy $base) (deepCopy $override) -}}
+{{- $_ := set $resource "apiVersion" (get $base "apiVersion") -}}
+{{- $_ := set $resource "kind" (get $base "kind") -}}
+{{- $metadata := get $resource "metadata" -}}
+{{- $baseMetadata := get $base "metadata" -}}
+{{- $_ := set $metadata "name" (get $baseMetadata "name") -}}
+{{- $_ := unset $metadata "namespace" -}}
+{{- $labels := mergeOverwrite (deepCopy (get $metadata "labels" | default dict)) (deepCopy (get $baseMetadata "labels")) -}}
+{{- $_ := set $metadata "labels" $labels -}}
+{{- $annotations := mergeOverwrite (deepCopy (get $baseMetadata "annotations" | default dict)) (deepCopy (get $metadata "annotations" | default dict)) -}}
+{{- $_ := set $annotations "kuberploy.io/application-id" (get (get $baseMetadata "annotations") "kuberploy.io/application-id") -}}
+{{- $_ := set $metadata "annotations" $annotations -}}
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: {{ $routeName }}
-  labels:
-    {{- include "kuberploy-runtime.labels" $ | nindent 4 }}
-    {{- if eq $dnsMode "externalDns" }}
-    kuberploy.io/dns-integration: {{ get $dns "integrationRef" | quote }}
-    {{- end }}
-    {{- if eq $dnsMode "sslip" }}
-    kuberploy.io/dns-mode: "sslip"
-    {{- end }}
-  annotations:
-    kuberploy.io/application-id: {{ $.Values.metadata.id | quote }}
-    # Keep the legacy annotation aligned for controllers that still filter on
-    # it, while spec.ingressClassName remains the authoritative modern field.
-    kubernetes.io/ingress.class: {{ $route.ingressClassName | default "traefik" | quote }}
-    traefik.ingress.kubernetes.io/router.entrypoints: {{ ternary "websecure" "web" $tlsEnabled | quote }}
-    {{- if $tlsEnabled }}
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    {{- end }}
-    {{- if eq $route.tls.mode "letsencrypt" }}
-    cert-manager.io/cluster-issuer: {{ $route.tls.issuerRef | quote }}
-    cert-manager.io/private-key-algorithm: "ECDSA"
-    cert-manager.io/private-key-size: "256"
-    {{- end }}
-    {{- if eq $dnsMode "externalDns" }}
-    external-dns.alpha.kubernetes.io/hostname: {{ $route.host | quote }}
-    external-dns.alpha.kubernetes.io/ttl: {{ get $dns "ttl" | default 300 | quote }}
-    {{- end }}
-    {{- if gt (len $middlewareNames) 0 }}
-    traefik.ingress.kubernetes.io/router.middlewares: {{ join "," $middlewareNames | quote }}
-    {{- end }}
-spec:
-  ingressClassName: {{ $route.ingressClassName | default "traefik" }}
-  {{- if $tlsEnabled }}
-  tls:
-    - hosts: [{{ $route.host | quote }}]
-      secretName: {{ $tlsSecretName }}
-  {{- end }}
-  rules:
-    - host: {{ $route.host | quote }}
-      http:
-        paths:
-          - path: {{ $route.path | default "/" | quote }}
-            pathType: Prefix
-            backend:
-              service:
-                name: {{ include "kuberploy-runtime.appName" $ }}
-                port:
-                  name: {{ $route.port }}
+{{ toYaml $resource }}
 {{- if and $tlsEnabled ($route.tls.redirectHttp | default false) }}
 ---
 apiVersion: networking.k8s.io/v1

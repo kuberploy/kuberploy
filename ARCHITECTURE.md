@@ -28,7 +28,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 | Deployment engine | Argo CD |
 | Ordinary app packaging | Versioned, platform-owned `kuberploy-runtime` Helm chart |
 | Advanced app packaging | External Helm/OCI chart with policy restrictions |
-| Managed runtime authoring | Guided Deployment/Service forms and Advanced YAML over one canonical `AppConfig` draft |
+| Managed runtime authoring | Guided forms plus bounded Deployment, Service, Ingress and ServiceAccount YAML overrides over one canonical `AppConfig` draft |
 | Runtime settings | Ordinary values render to versioned immutable ConfigMaps; sensitive values use write-only, versioned secret bindings |
 | Runtime secret backends | Strict namespace/name-bound Sealed Secrets first; External Secrets remains unavailable until an audited concrete remote material writer exists |
 | Source builds | Pluggable build engines: rootless BuildKit and isolated DinD |
@@ -298,28 +298,47 @@ For mutually untrusted public tenants, a separate build cluster is preferred ove
 
 Application identity is separate from release identity. The same digest is promoted from development to staging and production without rebuilding.
 
+### PostgreSQL maintenance contract
+
+The schema is organized by lifecycle, not by UI screen. Core product rows
+(`users`, `teams`, `projects`, `environments`, `applications`) own current
+identity and simple one-to-one settings. Durable commands, leases, outbox rows,
+immutable revisions, provider receipts and rebuildable projections remain
+separate because they have independent retention, retry, concurrency or audit
+semantics. They must not be folded into mutable product rows merely to reduce
+the table count.
+
+One-to-one settings without an independent lifecycle belong on their owner.
+For example, an App's registry-pull mode and optional project credential are
+columns on `applications`, not a separate selection table. The permanent
+single-cluster contract likewise has no `cluster_id` column: one singleton
+platform Git binding owns the fixed `platform/` protected root, while
+environment bindings retain their `tenants/<project>/environments/<environment>`
+roots. Adding a table or restoring an installation/cluster identifier requires
+a new durable lifecycle that cannot be represented safely by an existing
+owner, command, revision, receipt or projection.
+
 ## 7. GitOps repository contract
 
 Use separate repositories or separately protected trust boundaries.
 
 ```text
 kuberploy-platform.git
-  clusters/
-    production/
-      projects/
-      applicationsets/
-      namespaces/
-      policies/
-      edge/
-      secrets/
-        stores/              # non-secret store policy and scope metadata
-        bindings/            # logical keys and opaque version metadata
-        materializations/    # ExternalSecret references or SealedSecret ciphertext
-      monitoring/
-        stack.yaml
-        profiles/
-        rules/
-        targets/
+  platform/
+    projects/
+    applicationsets/
+    namespaces/
+    policies/
+    edge/
+    secrets/
+      stores/              # non-secret store policy and scope metadata
+      bindings/            # logical keys and opaque version metadata
+      materializations/    # ExternalSecret references or SealedSecret ciphertext
+    monitoring/
+      stack.yaml
+      profiles/
+      rules/
+      targets/
 
 kuberploy-environments.git
   tenants/
@@ -567,7 +586,7 @@ The mirror is a performance cache, not a shared authority. Kuberploy never expos
 - Each generated Argo Application uses a fully qualified target ref, points at the narrow application directory and carries `argocd.argoproj.io/manifest-generate-paths` for its true dependencies, preventing an unrelated monorepo path from forcing unnecessary manifest generation.
 - New/deleted application directories refresh the owning ApplicationSet; an ordinary edit refreshes the existing Application without regenerating every project.
 - Kuberploy pushes once and lets Argo auto-sync. It never issues `app sync` and never refreshes each workload Application; only the single root Application receives the bounded refresh above. Its status projector consumes Argo/Kubernetes watches rather than polling Argo once per application.
-- At higher scale, repo-server replicas, manifest-generation parallelism/cache storage, webhook refresh workers/jitter and application-controller processors are tuned from observed queue and reconciliation metrics. Multi-cluster expansion may then shard the application controller.
+- At higher scale, repo-server replicas, manifest-generation parallelism/cache storage, webhook refresh workers/jitter and application-controller processors are tuned from observed queue and reconciliation metrics for the current cluster.
 - A bulk commit may deliberately contain several trusted generated targets, but operations retain individual audit links. Argo webhook jitter prevents a large change from creating a synchronized repo-server refresh spike.
 
 #### Backpressure, fairness and performance objectives
@@ -1258,9 +1277,22 @@ The guided Service form covers:
 - session affinity and internal traffic policy where supported;
 - selection of the Service port used by a Traefik route or application metrics endpoint.
 
-Tenant runtime Services do not use `NodePort`, `LoadBalancer`, `ExternalName`, manually chosen cluster IPs or arbitrary selectors. Public HTTP exposure remains a separate Route form backed by Traefik, so an advanced YAML edit cannot create an untracked internet endpoint or select another workload.
+The guided path creates an ordinary internal Service and a separate Traefik
+Route. A collapsed expert section provides separate partial YAML editors for
+the generated Deployment, Service, Ingress and ServiceAccount. The renderer
+merges Guided configuration first and the matching expert resource second, so
+expert values win when both paths set the same ordinary Kubernetes field. This
+supports provider annotations such as an EKS IAM role on the ServiceAccount or
+Cloudflare proxy control on the Ingress without requiring a new form field.
 
-Advanced YAML additionally exposes schema-approved lifecycle hooks, init/sidecar details, container security context, affinity, topology spread, termination behavior, HPA/PDB tuning and allowlisted annotations. It has no `extraObjects`, raw Pod-template or arbitrary-annotation escape hatch.
+The expert resource editors are not `extraObjects` or a cluster-wide manifest
+escape hatch. They cannot change apiVersion, kind, name, namespace,
+Kuberploy-owned labels/annotations, generated selectors, the primary immutable
+App image, the App ServiceAccount identity, host isolation, HostPath, host
+ports, added Linux capabilities or privileged container settings. Advanced
+sidecar/init-container images remain immutable. Deployment overrides are
+unavailable for StatefulSet Apps. The same schema, semantic validator, pinned
+Helm render and policy checks run before Git publication.
 
 The config response identifies editable and locked JSON pointers. Platform-owned paths include destination namespace/cluster, Argo project, runtime chart version, resource identity, Kuberploy ownership/monitoring labels, Service selectors, ServiceAccount identity/token policy, privilege/host access and cluster-scoped resources. The release writer owns source revision, promotion state and the primary image digest. Platform administrators own issuer, certificate, DNS-integration and metrics-ingestion-profile definitions and their scope allowlists; they also own every privileged placement-policy reference. Developers may select only reference IDs already authorized for their scope and own resources, replicas, probes, ports, environment/secret references and routes within policy. YAML may display a locked value, but preview fails with an exact path-level diagnostic if the user changes it; a build or promotion can update its owned image path without rewriting unrelated YAML nodes.
 
@@ -2277,7 +2309,7 @@ Create project and environment
 | Generated temporary domain | Yes | Configured wildcard base domain or server-derived `sslip.io`; deterministic first public LB IP, with operator-verified static IP required for hostname-only load balancers |
 | Replicas, CPU/memory, port and health checks | Yes | Small, validated runtime form; new services explicitly request `50m` CPU and `100Mi` memory by default |
 | Resource and scheduling controls | Yes | Per-service requests/limits, selectors, required/preferred node affinity, server-derived same-application pod anti-affinity, topology spread and approved tolerations/profiles; compatible with Karpenter scale-to-zero without tenant NodePool/taint mutation |
-| Deployment/Service form plus custom YAML | Yes | Guided and Advanced YAML tabs edit the same canonical AppConfig, with render/policy/diff before Git |
+| Deployment/Service form plus custom YAML | Yes | Guided controls plus separate bounded Deployment, Service, Ingress and ServiceAccount YAML overrides edit the same canonical AppConfig; advanced values win before render/policy/diff |
 | Helm/OCI chart deployment | Yes | Kuberploy differentiator; admin-approved charts initially |
 | Git diff, commit/PR and Argo health | Yes | Kuberploy differentiator and core release timeline |
 | Git-backed control-plane performance | Yes | PostgreSQL projections plus Valkey Streams and the narrow Operation-status cache, incremental mirrors/indexing, path-scoped ETags, short ref-CAS lanes, backpressure and Argo path-aware refresh |
@@ -2292,10 +2324,17 @@ Create project and environment
 | Database and volume backups | No | Must not ship before restore is designed and tested |
 | Nixpacks, Railpack and buildpacks | Later | Dockerfile first keeps the builder scope small |
 | Templates and service marketplace | Later | Curated Helm catalog after chart-policy boundaries are proven |
-| Multi-server or multi-cluster management | Later | Single-cluster MVP |
+| Multi-server or multi-cluster management | No | Each Kuberploy installation manages only its current Kubernetes cluster; install a separate control plane for another cluster |
 | Canary, blue/green and advanced rollout policy | Later | Argo Rollouts integration after ordinary rollouts are reliable |
 
 ### P0: MVP must ship
+
+Kuberploy has a permanent single-cluster product contract. The API and UI do
+not expose a cluster catalog, cluster selector, remote kubeconfig, placement
+target, cross-cluster credential or internal cluster identity. The database has
+no `cluster_id`; the singleton platform Git binding uses the fixed `platform/`
+root. Two installations that need independent authority use separate platform
+repositories or refs instead of sharing one writable platform root.
 
 - Single target cluster converged through one Helm invocation using
   `kuberploy-installer` after the selected Argo bootstrap boundary is usable:
@@ -2361,13 +2400,12 @@ Create project and environment
 
 ### P2: platform expansion
 
-- Multi-cluster placement and a separate build cluster.
 - Canary and blue/green delivery through Argo Rollouts.
 - SBOM, vulnerability scanning, signing and admission verification.
 - Curated Helm service catalog.
 - Administrator-only raw manifest/Kustomize application source with fixed namespace/kind policy and a read-only resource summary instead of fake form round-tripping.
 - Managed data services only after backup, restore and upgrade workflows are tested.
-- Fine-grained custom roles, notifications, long-term metric storage and multi-cluster log federation.
+- Fine-grained custom roles, notifications and long-term metric storage.
 
 ### Non-goals for MVP
 

@@ -101,12 +101,12 @@ func (s *Store) CreatePlatformGitBinding(_ context.Context, actor, key, fingerpr
 	if err := s.authorizeLocked(actor, domain.PermissionPlatformAdmin, domain.AccessTarget{Type: "platform", ID: "platform"}); err != nil {
 		return base.Result[gitprojection.Binding]{}, err
 	}
-	idemKey := ik(actor, "argo-platform-git-bindings.create:"+in.ClusterID, key)
+	idemKey := ik(actor, "argo-platform-git-bindings.create", key)
 	if old, replay := s.idempotency[idemKey]; replay {
 		if old.fingerprint != fingerprint || old.typ != "argo-platform-git-binding" {
 			return base.Result[gitprojection.Binding]{}, base.ErrIdempotencyConflict
 		}
-		binding, found := s.platformGitBindings[in.ClusterID]
+		binding, found := s.platformGitBindings["platform"]
 		if !found || binding.ID != old.resourceID {
 			return base.Result[gitprojection.Binding]{}, base.ErrNotFound
 		}
@@ -118,30 +118,30 @@ func (s *Store) CreatePlatformGitBinding(_ context.Context, actor, key, fingerpr
 		in.LinkedRepositoryID != deterministicGitHubRepositoryID(installation.ID, in.Repository.RepositoryID) {
 		return base.Result[gitprojection.Binding]{}, base.ErrNotFound
 	}
-	if _, exists = s.platformGitBindings[in.ClusterID]; exists {
+	if _, exists = s.platformGitBindings["platform"]; exists {
 		return base.Result[gitprojection.Binding]{}, base.ErrConflict
 	}
 	if _, err := in.Repository.CanonicalRemote(); err != nil {
 		return base.Result[gitprojection.Binding]{}, gitprojection.ErrInvalid
 	}
 	now := time.Now().UTC()
-	binding, err := gitprojection.NewGitHubPlatformBinding(in.BindingID, in.ClusterID, in.Repository, in.TargetRef, now)
+	binding, err := gitprojection.NewGitHubPlatformBinding(in.BindingID, in.Repository, in.TargetRef, now)
 	if err != nil {
 		return base.Result[gitprojection.Binding]{}, err
 	}
-	s.platformGitBindings[in.ClusterID] = binding
+	s.platformGitBindings["platform"] = binding
 	s.idempotency[idemKey] = idemRecord{fingerprint: fingerprint, typ: "argo-platform-git-binding", resourceID: binding.ID}
 	s.audits++
 	return base.Result[gitprojection.Binding]{Value: binding}, nil
 }
 
-func (s *Store) GetPlatformGitBindingForActor(_ context.Context, actor, clusterID string) (gitprojection.Binding, error) {
+func (s *Store) GetPlatformGitBindingForActor(_ context.Context, actor string) (gitprojection.Binding, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.authorizeLocked(actor, domain.PermissionPlatformAdmin, domain.AccessTarget{Type: "platform", ID: "platform"}); err != nil {
 		return gitprojection.Binding{}, err
 	}
-	binding, exists := s.platformGitBindings[clusterID]
+	binding, exists := s.platformGitBindings["platform"]
 	if !exists {
 		return gitprojection.Binding{}, base.ErrNotFound
 	}

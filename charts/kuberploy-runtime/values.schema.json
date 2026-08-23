@@ -48,6 +48,7 @@
         "environmentId": { "$ref": "#/$defs/uuid" },
         "delivery": { "$ref": "#/$defs/delivery" },
         "runtime": { "$ref": "#/$defs/runtime" },
+        "overrides": { "$ref": "#/$defs/resourceOverrides" },
         "routes": {
           "type": "array",
           "maxItems": 32,
@@ -65,6 +66,51 @@
     "uuid": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "resourceOverrides": {
+      "type": "object",
+      "description": "Advanced merge overrides applied after Guided App configuration. Kuberploy restores server-owned resource identity and workload isolation fields after merging.",
+      "additionalProperties": false,
+      "properties": {
+        "deployment": { "$ref": "#/$defs/workloadResourceOverride" },
+        "service": { "$ref": "#/$defs/workloadResourceOverride" },
+        "ingress": { "$ref": "#/$defs/workloadResourceOverride" },
+        "serviceAccount": { "$ref": "#/$defs/serviceAccountResourceOverride" }
+      }
+    },
+    "resourceMetadataOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "labels": {
+          "type": "object",
+          "maxProperties": 128,
+          "propertyNames": { "$ref": "#/$defs/labelKey" },
+          "additionalProperties": { "$ref": "#/$defs/labelValue" }
+        },
+        "annotations": {
+          "type": "object",
+          "maxProperties": 128,
+          "propertyNames": { "$ref": "#/$defs/labelKey" },
+          "additionalProperties": { "type": "string", "maxLength": 16384 }
+        }
+      }
+    },
+    "workloadResourceOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metadata": { "$ref": "#/$defs/resourceMetadataOverride" },
+        "spec": { "type": "object", "maxProperties": 256 }
+      }
+    },
+    "serviceAccountResourceOverride": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metadata": { "$ref": "#/$defs/resourceMetadataOverride" },
+        "automountServiceAccountToken": { "type": "boolean" }
+      }
     },
     "secretBindingIdentity": {
       "type": "object",

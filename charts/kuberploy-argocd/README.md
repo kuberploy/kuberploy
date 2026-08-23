@@ -24,7 +24,7 @@ The optional bootstrap boundary creates one retained root `AppProject` and
 binding's cluster UUID, binding UUID, GitHub owner/repository, and fully
 qualified branch ref. The chart—not a caller—derives the canonical
 `https://github.com/<owner>/<repository>.git` remote, the fixed
-`clusters/<cluster-id>/argocd` directory, and the deterministic repository
+`platform/argocd` directory, and the deterministic repository
 credential annotation. The root source recursively reads that directory and
 uses the exact in-cluster destination and automated sync policy checked by the
 production prerequisite observer. This is the one exceptional direct write
@@ -46,7 +46,6 @@ An enabled bootstrap profile therefore has this closed shape:
 argoFoundation:
   bootstrap:
     enabled: true
-    clusterID: 71111111-1111-4111-8111-111111111112
     bindingID: 71111111-1111-4111-8111-111111111111
     repositoryOwner: kuberploy
     repositoryName: platform-gitops
@@ -55,7 +54,7 @@ argoFoundation:
 
 For that identity the rendered source is exactly
 `https://github.com/kuberploy/platform-gitops.git`,
-`clusters/71111111-1111-4111-8111-111111111112/argocd`, and repository Secret
+`platform/argocd`, and repository Secret
 `kuberploy-repo-71111111111141118111111111111111`.
 
 The repository/API CIDRs are optional infrastructure-hardening inputs. Empty

@@ -50,11 +50,11 @@ func (i ProtectedPublisherIdentity) Validate() error {
 }
 
 type ProtectedBindingSnapshot struct {
-	PlatformBindingID, EnvironmentBindingID, ClusterID string
-	PlatformTargetRef, EnvironmentTargetRef            string
-	EnvironmentRevision                                string
-	EnvironmentGeneration                              int64
-	CatalogDigest, PlannedBaseRevision                 string
+	PlatformBindingID, EnvironmentBindingID string
+	PlatformTargetRef, EnvironmentTargetRef string
+	EnvironmentRevision                     string
+	EnvironmentGeneration                   int64
+	CatalogDigest, PlannedBaseRevision      string
 }
 
 // ArgoMaterializationAuthority is the worker-owned identity against which an
@@ -83,7 +83,7 @@ func (a ArgoMaterializationAuthority) Validate() error {
 // its claim-time write base.
 type ProtectedPublicationPrerequisiteReceipt struct {
 	ReleaseRevisionID, ProjectID, EnvironmentID, ApplicationID string
-	PlatformBindingID, EnvironmentBindingID, ClusterID         string
+	PlatformBindingID, EnvironmentBindingID                    string
 	EnvironmentRevision                                        string
 	EnvironmentGeneration                                      int64
 	FoundationIntentID, FoundationRevision                     string
@@ -98,7 +98,7 @@ type ProtectedPublicationPrerequisiteReceipt struct {
 type ProtectedApplicationContinuationReceipt struct {
 	ApplicationIntentID, ReleaseRevisionID, PayloadIntentID   string
 	ProjectID, EnvironmentID, ApplicationID                   string
-	PlatformBindingID, EnvironmentBindingID, ClusterID        string
+	PlatformBindingID, EnvironmentBindingID                   string
 	SourceEnvironmentRevision                                 string
 	SourceEnvironmentGeneration                               int64
 	SourceFoundationIntentID, SourceFoundationRevision        string
@@ -123,7 +123,7 @@ func (r ProtectedApplicationContinuationReceipt) Validate() error {
 		!uuidRE.MatchString(r.PayloadIntentID) ||
 		!uuidRE.MatchString(r.ProjectID) || !uuidRE.MatchString(r.EnvironmentID) ||
 		!uuidRE.MatchString(r.ApplicationID) || !uuidRE.MatchString(r.PlatformBindingID) ||
-		!uuidRE.MatchString(r.EnvironmentBindingID) || !uuidRE.MatchString(r.ClusterID) ||
+		!uuidRE.MatchString(r.EnvironmentBindingID) ||
 		!gitCommitRE.MatchString(r.SourceEnvironmentRevision) || r.SourceEnvironmentGeneration < 1 ||
 		!uuidRE.MatchString(r.SourceFoundationIntentID) || !gitCommitRE.MatchString(r.SourceFoundationRevision) ||
 		!uuidRE.MatchString(r.SourceDesiredStateCommandID) || !gitCommitRE.MatchString(r.SourceDesiredStateRevision) ||
@@ -147,7 +147,7 @@ func (r ProtectedPublicationPrerequisiteReceipt) Validate() error {
 	if !uuidRE.MatchString(r.ReleaseRevisionID) || !uuidRE.MatchString(r.ProjectID) ||
 		!uuidRE.MatchString(r.EnvironmentID) || !uuidRE.MatchString(r.ApplicationID) ||
 		!uuidRE.MatchString(r.PlatformBindingID) || !uuidRE.MatchString(r.EnvironmentBindingID) ||
-		!uuidRE.MatchString(r.ClusterID) || !gitCommitRE.MatchString(r.EnvironmentRevision) ||
+		!gitCommitRE.MatchString(r.EnvironmentRevision) ||
 		r.EnvironmentGeneration < 1 || !uuidRE.MatchString(r.FoundationIntentID) ||
 		!gitCommitRE.MatchString(r.FoundationRevision) || !uuidRE.MatchString(r.DesiredStateCommandID) ||
 		!gitCommitRE.MatchString(r.DesiredStateRevision) ||
@@ -163,7 +163,7 @@ func (r ProtectedPublicationPrerequisiteReceipt) ValidateFor(releaseID string, t
 		r.ReleaseRevisionID != releaseID || r.ProjectID != target.ProjectID ||
 		r.EnvironmentID != target.EnvironmentID || r.ApplicationID != target.ApplicationID ||
 		r.PlatformBindingID != binding.PlatformBindingID ||
-		r.EnvironmentBindingID != binding.EnvironmentBindingID || r.ClusterID != binding.ClusterID ||
+		r.EnvironmentBindingID != binding.EnvironmentBindingID ||
 		r.EnvironmentRevision != binding.EnvironmentRevision ||
 		r.EnvironmentGeneration != binding.EnvironmentGeneration {
 		return ErrConflict
@@ -173,7 +173,7 @@ func (r ProtectedPublicationPrerequisiteReceipt) ValidateFor(releaseID string, t
 
 func (s ProtectedBindingSnapshot) Validate() error {
 	if !uuidRE.MatchString(s.PlatformBindingID) || !uuidRE.MatchString(s.EnvironmentBindingID) ||
-		!uuidRE.MatchString(s.ClusterID) || !validProtectedGitRef(s.PlatformTargetRef) ||
+		!validProtectedGitRef(s.PlatformTargetRef) ||
 		!validProtectedGitRef(s.EnvironmentTargetRef) || !gitCommitRE.MatchString(s.EnvironmentRevision) ||
 		s.EnvironmentGeneration < 1 || !validDigest(s.CatalogDigest) ||
 		!gitCommitRE.MatchString(s.PlannedBaseRevision) {
@@ -255,7 +255,7 @@ func (i ProtectedPayloadIntent) Validate() error {
 		(i.ProviderRequest != "" && containsControl(i.ProviderRequest)) {
 		return ErrInvalid
 	}
-	expectedPath := protectedPayloadPath(i.Binding.ClusterID, i.Target.EnvironmentID,
+	expectedPath := protectedPayloadPath(i.Target.EnvironmentID,
 		i.Target.ApplicationID, i.ReleaseRevisionID, i.Action == ProtectedPayloadDisable)
 	if i.Path != expectedPath {
 		return ErrInvalid
@@ -360,7 +360,7 @@ func (p ProtectedApplicationCascadePreflight) Validate() error {
 		!uuidRE.MatchString(p.BaseApplicationIntentID) || p.ReleaseGeneration < 2 ||
 		!gitCommitRE.MatchString(p.PayloadRevision) || !dnsLabelRE.MatchString(p.ArgoNamespace) ||
 		p.Target.Validate() != nil || p.Binding.Validate() != nil ||
-		p.ApplicationPath != protectedApplicationPath(p.Binding.ClusterID, p.Target.EnvironmentID, p.Target.ApplicationID) ||
+		p.ApplicationPath != protectedApplicationPath(p.Target.EnvironmentID, p.Target.ApplicationID) ||
 		len(p.SourceContent) < 1 || len(p.SourceContent) > MaximumDescriptorSize ||
 		len(p.AdoptedContent) < 1 || len(p.AdoptedContent) > MaximumDescriptorSize ||
 		!validDigest(p.SourceContentDigest) || digestBytes(p.SourceContent) != p.SourceContentDigest ||
@@ -435,7 +435,7 @@ func (p ProtectedApplicationCascadePreflight) ApplicationExpectation() (argo.Pro
 	}
 	return argo.NewProtectedApplicationExpectation(p.ArgoNamespace, manifest.Spec.Project,
 		manifest.Spec.Source.RepoURL, manifest.Spec.Source.TargetRevision,
-		manifest.Spec.Destination.Namespace, p.Binding.ClusterID, p.Target.ProjectID,
+		manifest.Spec.Destination.Namespace, p.Target.ProjectID,
 		p.Target.EnvironmentID, p.Target.ApplicationID,
 		annotations["kuberploy.io/helm-release-revision"],
 		annotations["argocd.argoproj.io/manifest-generate-paths"],
@@ -521,31 +521,31 @@ func validateProtectedCascadeRuntimeShape(p ProtectedApplicationCascadePreflight
 }
 
 type ProtectedApplicationCascadeReceipt struct {
-	ID, DeleteIntentID, CascadePreflightID             string
-	ObservationEpoch                                   int64
-	ObservationLeaseEpoch                              int64
-	ObserverActivationEpoch                            int64
-	ReleaseRevisionID, PayloadIntentID                 string
-	BaseApplicationIntentID                            string
-	ProjectID, EnvironmentID, ApplicationID, ClusterID string
-	ApplicationPath                                    string
-	SourceContentDigest, AdoptedContentDigest          string
-	AdoptionRevision, AdoptionParentRevision           string
-	ProviderHead, RootObservedRevision                 string
-	RootSyncStatus                                     string
-	RootUID, RootResourceVersion                       string
-	RootSpecDigest, ChildUID, ChildResourceVersion     string
-	ChildSpecDigest, FinalizerDigest                   string
-	ChildReleaseRevisionID, ChildPayloadRevision       string
-	ChildPayloadPath, ChildPayloadDigest               string
-	Publisher                                          ProtectedPublisherIdentity
-	WorkerID                                           string
-	WorkerEpoch                                        int64
-	ArgoContract, ArgoConfigDigest, ArgoWorkerID       string
-	ArgoWorkerEpoch                                    int64
-	ArgoStartedAt, ArgoReadinessObservedAt             time.Time
-	ArgoReadinessLeaseUntil                            time.Time
-	ObservedAt                                         time.Time
+	ID, DeleteIntentID, CascadePreflightID         string
+	ObservationEpoch                               int64
+	ObservationLeaseEpoch                          int64
+	ObserverActivationEpoch                        int64
+	ReleaseRevisionID, PayloadIntentID             string
+	BaseApplicationIntentID                        string
+	ProjectID, EnvironmentID, ApplicationID        string
+	ApplicationPath                                string
+	SourceContentDigest, AdoptedContentDigest      string
+	AdoptionRevision, AdoptionParentRevision       string
+	ProviderHead, RootObservedRevision             string
+	RootSyncStatus                                 string
+	RootUID, RootResourceVersion                   string
+	RootSpecDigest, ChildUID, ChildResourceVersion string
+	ChildSpecDigest, FinalizerDigest               string
+	ChildReleaseRevisionID, ChildPayloadRevision   string
+	ChildPayloadPath, ChildPayloadDigest           string
+	Publisher                                      ProtectedPublisherIdentity
+	WorkerID                                       string
+	WorkerEpoch                                    int64
+	ArgoContract, ArgoConfigDigest, ArgoWorkerID   string
+	ArgoWorkerEpoch                                int64
+	ArgoStartedAt, ArgoReadinessObservedAt         time.Time
+	ArgoReadinessLeaseUntil                        time.Time
+	ObservedAt                                     time.Time
 }
 
 func (r ProtectedApplicationCascadeReceipt) validateProposal(now time.Time) error {
@@ -554,7 +554,7 @@ func (r ProtectedApplicationCascadeReceipt) validateProposal(now time.Time) erro
 		!uuidRE.MatchString(r.ReleaseRevisionID) || !uuidRE.MatchString(r.PayloadIntentID) ||
 		!uuidRE.MatchString(r.BaseApplicationIntentID) || !uuidRE.MatchString(r.ProjectID) ||
 		!uuidRE.MatchString(r.EnvironmentID) || !uuidRE.MatchString(r.ApplicationID) ||
-		!uuidRE.MatchString(r.ClusterID) || !validProtectedApplicationPath(r.ApplicationPath) ||
+		!validProtectedApplicationPath(r.ApplicationPath) ||
 		!validDigest(r.SourceContentDigest) || !validDigest(r.AdoptedContentDigest) ||
 		!gitCommitRE.MatchString(r.AdoptionRevision) || !gitCommitRE.MatchString(r.AdoptionParentRevision) ||
 		!gitCommitRE.MatchString(r.ProviderHead) || r.RootObservedRevision != r.ProviderHead ||
@@ -614,10 +614,9 @@ func (i ProtectedApplicationIntent) Validate() error {
 		!uuidRE.MatchString(i.PayloadIntentID) || i.ReleaseGeneration < 1 ||
 		i.Target.Validate() != nil || i.Binding.Validate() != nil ||
 		!gitCommitRE.MatchString(i.PayloadRevision) ||
-		i.PayloadPath != protectedPayloadPath(i.Binding.ClusterID, i.Target.EnvironmentID,
+		i.PayloadPath != protectedPayloadPath(i.Target.EnvironmentID,
 			i.Target.ApplicationID, i.ReleaseRevisionID, i.Action == ProtectedApplicationDelete) ||
-		i.ApplicationPath != protectedApplicationPath(i.Binding.ClusterID,
-			i.Target.EnvironmentID, i.Target.ApplicationID) ||
+		i.ApplicationPath != protectedApplicationPath(i.Target.EnvironmentID, i.Target.ApplicationID) ||
 		!validDigest(i.IntentDigest) ||
 		i.CommitTrailer != "Kuberploy-Helm-Application-Intent: "+i.ID ||
 		i.Publisher.Validate() != nil || i.PublisherAdoptionEpoch < 0 ||
@@ -647,8 +646,7 @@ func (i ProtectedApplicationIntent) Validate() error {
 	switch i.Action {
 	case ProtectedApplicationPublish:
 		if (i.Operation != "create" && i.Operation != "update") ||
-			i.SourceDirectory != protectedSourceDirectory(i.Binding.ClusterID,
-				i.Target.EnvironmentID, i.Target.ApplicationID, i.ReleaseRevisionID) ||
+			i.SourceDirectory != protectedSourceDirectory(i.Target.EnvironmentID, i.Target.ApplicationID, i.ReleaseRevisionID) ||
 			len(i.Content) < 1 || len(i.Content) > MaximumDescriptorSize ||
 			!validDigest(i.ContentDigest) || digestBytes(i.Content) != i.ContentDigest {
 			return ErrInvalid
@@ -1061,8 +1059,7 @@ func renderProtectedArgoApplication(intentID string, release ReleaseRevision,
 	manifest.Spec.Project = argoProject
 	manifest.Spec.Source.RepoURL = "https://github.com/" + repositoryOwner + "/" + repositoryName + ".git"
 	manifest.Spec.Source.TargetRevision = payload.CommittedRevision
-	manifest.Spec.Source.Path = protectedSourceDirectory(payload.Binding.ClusterID,
-		release.Target.EnvironmentID, release.Target.ApplicationID, release.ID)
+	manifest.Spec.Source.Path = protectedSourceDirectory(release.Target.EnvironmentID, release.Target.ApplicationID, release.ID)
 	manifest.Spec.Source.Directory.Recurse = false
 	manifest.Spec.Source.Directory.Include = "release.yaml"
 	manifest.Spec.Destination.Server = ArgoInClusterServer
@@ -1115,42 +1112,42 @@ func protectedApplicationHasExactForegroundFinalizer(content []byte) bool {
 	return err == nil && !changed && bytes.Equal(adopted, content)
 }
 
-func protectedPayloadPath(clusterID, environmentID, applicationID, releaseID string, disabled bool) string {
+func protectedPayloadPath(environmentID, applicationID, releaseID string, disabled bool) string {
 	name := "release.yaml"
 	if disabled {
 		name = "disabled.json"
 	}
-	return protectedSourceDirectory(clusterID, environmentID, applicationID, releaseID) + "/" + name
+	return protectedSourceDirectory(environmentID, applicationID, releaseID) + "/" + name
 }
 
-func protectedSourceDirectory(clusterID, environmentID, applicationID, releaseID string) string {
-	return "clusters/" + clusterID + "/helm-manifests/environments/" + environmentID +
+func protectedSourceDirectory(environmentID, applicationID, releaseID string) string {
+	return "platform/helm-manifests/environments/" + environmentID +
 		"/applications/" + applicationID + "/revisions/" + releaseID
 }
 
-func protectedApplicationPath(clusterID, environmentID, applicationID string) string {
-	return "clusters/" + clusterID + "/argocd/helm-applications/" + environmentID + "/" + applicationID + ".yaml"
+func protectedApplicationPath(environmentID, applicationID string) string {
+	return "platform/argocd/helm-applications/" + environmentID + "/" + applicationID + ".yaml"
 }
 
 func validProtectedPayloadPath(value string) bool {
 	parts := strings.Split(value, "/")
-	if len(parts) != 10 || parts[0] != "clusters" || !uuidRE.MatchString(parts[1]) ||
-		parts[2] != "helm-manifests" || parts[3] != "environments" || !uuidRE.MatchString(parts[4]) ||
-		parts[5] != "applications" || !uuidRE.MatchString(parts[6]) || parts[7] != "revisions" ||
-		!uuidRE.MatchString(parts[8]) {
+	if len(parts) != 9 || parts[0] != "platform" || parts[1] != "helm-manifests" ||
+		parts[2] != "environments" || !uuidRE.MatchString(parts[3]) ||
+		parts[4] != "applications" || !uuidRE.MatchString(parts[5]) || parts[6] != "revisions" ||
+		!uuidRE.MatchString(parts[7]) {
 		return false
 	}
-	return parts[9] == "release.yaml" || parts[9] == "disabled.json"
+	return parts[8] == "release.yaml" || parts[8] == "disabled.json"
 }
 
 func validProtectedApplicationPath(value string) bool {
 	parts := strings.Split(value, "/")
-	if len(parts) != 6 || parts[0] != "clusters" || !uuidRE.MatchString(parts[1]) ||
-		parts[2] != "argocd" || parts[3] != "helm-applications" || !uuidRE.MatchString(parts[4]) ||
-		!strings.HasSuffix(parts[5], ".yaml") {
+	if len(parts) != 5 || parts[0] != "platform" || parts[1] != "argocd" ||
+		parts[2] != "helm-applications" || !uuidRE.MatchString(parts[3]) ||
+		!strings.HasSuffix(parts[4], ".yaml") {
 		return false
 	}
-	return uuidRE.MatchString(strings.TrimSuffix(parts[5], ".yaml"))
+	return uuidRE.MatchString(strings.TrimSuffix(parts[4], ".yaml"))
 }
 
 func validProtectedETag(value string) bool {

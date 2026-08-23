@@ -15,7 +15,6 @@ const (
 	ObserverContract                 = "cert-manager-cluster-issuer-observer.v1"
 	ObserverEnabledEnv               = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED"
 	ObserverBindingIDEnv             = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID"
-	ObserverClusterIDEnv             = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_CLUSTER_ID"
 	ObserverNamespaceEnv             = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE"
 	ObserverServiceAccountEnv        = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT"
 	ObserverPollSecondsEnv           = "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS"
@@ -34,7 +33,6 @@ var ErrObservationUnavailable = errors.New("cert-manager issuer observation is u
 type ObserverConfig struct {
 	Enabled        bool
 	BindingID      string
-	ClusterID      string
 	Namespace      string
 	ServiceAccount string
 	PollInterval   time.Duration
@@ -68,13 +66,12 @@ func ObserverConfigFromLookup(lookup func(string) (string, bool)) (ObserverConfi
 		return ObserverConfig{}, ErrObservationUnavailable
 	}
 	bindingID, bindingConfigured := lookup(ObserverBindingIDEnv)
-	clusterID, clusterConfigured := lookup(ObserverClusterIDEnv)
 	namespace, namespaceConfigured := lookup(ObserverNamespaceEnv)
 	serviceAccount, serviceAccountConfigured := lookup(ObserverServiceAccountEnv)
-	if !bindingConfigured || !clusterConfigured || !namespaceConfigured || !serviceAccountConfigured {
+	if !bindingConfigured || !namespaceConfigured || !serviceAccountConfigured {
 		return ObserverConfig{}, ErrObservationUnavailable
 	}
-	config := ObserverConfig{Enabled: true, BindingID: bindingID, ClusterID: clusterID, Namespace: namespace, ServiceAccount: serviceAccount, PollInterval: 30 * time.Second,
+	config := ObserverConfig{Enabled: true, BindingID: bindingID, Namespace: namespace, ServiceAccount: serviceAccount, PollInterval: 30 * time.Second,
 		RequestTimeout: 10 * time.Second, MaximumAge: 2 * time.Minute, ReadinessLease: 3 * time.Minute}
 	for name, destination := range map[string]*time.Duration{
 		ObserverPollSecondsEnv:           &config.PollInterval,
@@ -102,18 +99,18 @@ func ObserverConfigFromLookup(lookup func(string) (string, bool)) (ObserverConfi
 }
 
 func observerCompanionEnvs() []string {
-	return []string{ObserverBindingIDEnv, ObserverClusterIDEnv, ObserverNamespaceEnv, ObserverServiceAccountEnv, ObserverPollSecondsEnv,
+	return []string{ObserverBindingIDEnv, ObserverNamespaceEnv, ObserverServiceAccountEnv, ObserverPollSecondsEnv,
 		ObserverRequestTimeoutSecondsEnv, ObserverMaximumAgeSecondsEnv, ObserverReadinessLeaseSecondsEnv}
 }
 
 func (c ObserverConfig) Validate() error {
 	if !c.Enabled {
-		if c.BindingID != "" || c.ClusterID != "" || c.Namespace != "" || c.ServiceAccount != "" || c.PollInterval != 0 || c.RequestTimeout != 0 || c.MaximumAge != 0 || c.ReadinessLease != 0 {
+		if c.BindingID != "" || c.Namespace != "" || c.ServiceAccount != "" || c.PollInterval != 0 || c.RequestTimeout != 0 || c.MaximumAge != 0 || c.ReadinessLease != 0 {
 			return ErrObservationUnavailable
 		}
 		return nil
 	}
-	if !uuidRE.MatchString(c.BindingID) || !uuidRE.MatchString(c.ClusterID) || !dnsLabelRE.MatchString(c.Namespace) ||
+	if !uuidRE.MatchString(c.BindingID) || !dnsLabelRE.MatchString(c.Namespace) ||
 		!dnsLabelRE.MatchString(c.ServiceAccount) || c.PollInterval < 5*time.Second ||
 		c.PollInterval > time.Hour || c.RequestTimeout < time.Second || c.RequestTimeout > 30*time.Second ||
 		c.RequestTimeout >= c.PollInterval || c.MaximumAge < 2*c.PollInterval || c.MaximumAge > 15*time.Minute ||
@@ -132,7 +129,6 @@ func ObserverIdentityForConfig(config ObserverConfig) (ObserverRuntimeIdentity, 
 		Contract               string `json:"contract"`
 		Enabled                bool   `json:"enabled"`
 		BindingID              string `json:"bindingId"`
-		ClusterID              string `json:"clusterId"`
 		APIGroup               string `json:"apiGroup"`
 		APIVersion             string `json:"apiVersion"`
 		Kind                   string `json:"kind"`
@@ -143,7 +139,7 @@ func ObserverIdentityForConfig(config ObserverConfig) (ObserverRuntimeIdentity, 
 		RequestTimeoutSeconds  int64  `json:"requestTimeoutSeconds"`
 		MaximumAgeSeconds      int64  `json:"maximumAgeSeconds"`
 		ReadinessLeaseSeconds  int64  `json:"readinessLeaseSeconds"`
-	}{ObserverContract, true, config.BindingID, config.ClusterID, ObserverAPIGroup, ObserverAPIVersion, ObserverKind, ObserverNamespace,
+	}{ObserverContract, true, config.BindingID, ObserverAPIGroup, ObserverAPIVersion, ObserverKind, ObserverNamespace,
 		config.Namespace, config.ServiceAccount, int64(config.PollInterval.Seconds()), int64(config.RequestTimeout.Seconds()),
 		int64(config.MaximumAge.Seconds()), int64(config.ReadinessLease.Seconds())})
 	if err != nil {

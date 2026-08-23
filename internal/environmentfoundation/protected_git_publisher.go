@@ -48,8 +48,8 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 	}
 	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
 		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.CredentialSecretName != "" ||
-		binding.ID != request.BindingID || binding.ClusterID != request.ClusterID ||
-		binding.Prefix != gitprojection.PlatformPrefix(request.ClusterID) || binding.TargetRef != request.TargetRef ||
+		binding.ID != request.BindingID ||
+		binding.Prefix != gitprojection.PlatformPrefix() || binding.TargetRef != request.TargetRef ||
 		binding.ProjectionGeneration < request.BindingGeneration {
 		return PublicationReceipt{}, ErrInvalid
 	}
@@ -129,7 +129,7 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 func foundationMutation(request PublicationRequest, base, expectedPreimage string, hasPreimage bool) gitprojection.Mutation {
 	mutation := gitprojection.Mutation{
 		BindingID: request.BindingID, OperationID: request.IntentID,
-		Path: ManifestPath(request.ClusterID, request.EnvironmentID), BaseRevision: base,
+		Path: ManifestPath(request.EnvironmentID), BaseRevision: base,
 		Precondition: gitprojection.MutationCreateIfAbsent, Action: gitprojection.MutationUpsert,
 		Content: append([]byte(nil), request.Content...), ContentSHA256: request.ContentDigest,
 		Message:   "publish environment foundation " + request.EnvironmentID,
@@ -154,7 +154,7 @@ func (p *ProtectedGitPublisher) verifyReceipt(ctx context.Context, binding gitpr
 		return PublicationReceipt{}, errors.Join(ErrConflict, gitprojection.ErrProviderMismatch)
 	}
 	receipt := PublicationReceipt{IntentID: request.IntentID, BindingID: request.BindingID,
-		TargetRef: request.TargetRef, Path: ManifestPath(request.ClusterID, request.EnvironmentID),
+		TargetRef: request.TargetRef, Path: ManifestPath(request.EnvironmentID),
 		ContentDigest: request.ContentDigest, ParentRevision: parent, CommittedRevision: committed,
 		ProviderRequest: verified.ProviderRequest, ObservedAt: p.notBefore(verified.ObservedAt)}
 	return receipt, nil

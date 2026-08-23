@@ -50,12 +50,11 @@ func TestPostgresProtectedBindingResolverRejectsStaleOrSubstitutedSnapshots(t *t
 	setupHelmReleasePGFixture(t, ctx, outer, fixture)
 	target := ReleaseTarget{ProjectID: fixture.projectID, EnvironmentID: fixture.environmentID,
 		ApplicationID: fixture.applicationID}
-	config := ProtectedBindingResolverConfig{PlatformBindingID: fixture.platformBindingID,
-		ClusterID: fixture.clusterID}
+	config := ProtectedBindingResolverConfig{PlatformBindingID: fixture.platformBindingID}
 	resolver := &PostgresProtectedBindingResolver{begin: nestedProtectedResolverBeginner{tx: outer}, config: config}
 	resolved, err := resolver.ResolveProtectedBinding(ctx, target)
 	if err != nil || resolved.Validate() != nil || resolved.PlatformBindingID != fixture.platformBindingID ||
-		resolved.EnvironmentBindingID != fixture.environmentBindingID || resolved.ClusterID != fixture.clusterID ||
+		resolved.EnvironmentBindingID != fixture.environmentBindingID ||
 		resolved.EnvironmentRevision != fixture.environmentHead || resolved.EnvironmentGeneration != 1 ||
 		resolved.PlannedBaseRevision != fixture.platformHead {
 		t.Fatalf("resolved=%#v err=%v", resolved, err)

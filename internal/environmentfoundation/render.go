@@ -155,13 +155,13 @@ func buildIntent(id string, identity EnvironmentIdentity, authority GitAuthority
 	if err != nil {
 		return Intent{}, err
 	}
-	path := ManifestPath(authority.ClusterID, identity.EnvironmentID)
+	path := ManifestPath(identity.EnvironmentID)
 	canonical, err := json.Marshal(struct {
-		Contract, ID, EnvironmentID, ProjectID, Namespace, ArgoProject, BindingID, ClusterID, TargetRef, PlannedHead, ProfileDigest, PublisherConfigDigest, Path, ManifestDigest string
-		Generation                                                                                                                                                               int64
+		Contract, ID, EnvironmentID, ProjectID, Namespace, ArgoProject, BindingID, TargetRef, PlannedHead, ProfileDigest, PublisherConfigDigest, Path, ManifestDigest string
+		Generation                                                                                                                                                    int64
 	}{
 		Contract: Contract, ID: id, EnvironmentID: identity.EnvironmentID, ProjectID: identity.ProjectID, Namespace: identity.Namespace, ArgoProject: identity.ArgoProject,
-		BindingID: authority.BindingID, ClusterID: authority.ClusterID, TargetRef: authority.TargetRef, PlannedHead: authority.PlannedHead, Generation: authority.Generation,
+		BindingID: authority.BindingID, TargetRef: authority.TargetRef, PlannedHead: authority.PlannedHead, Generation: authority.Generation,
 		ProfileDigest: profileDigest, PublisherConfigDigest: profile.PublisherConfigDigest, Path: path, ManifestDigest: contentDigest})
 	if err != nil {
 		return Intent{}, ErrInvalid

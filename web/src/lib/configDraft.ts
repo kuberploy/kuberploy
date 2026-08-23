@@ -48,6 +48,13 @@ export type GuidedRuntimeProcess = {
   terminationGracePeriodSeconds?: number;
 };
 
+export type GuidedResourceOverrides = {
+  deploymentYaml: string;
+  serviceYaml: string;
+  ingressYaml: string;
+  serviceAccountYaml: string;
+};
+
 export type GuidedConfig = GuidedRuntimeProcess & {
   workingDirectory: string;
   replicas: number;
@@ -85,6 +92,7 @@ export type GuidedConfig = GuidedRuntimeProcess & {
   middlewares: GuidedTraefikMiddleware[];
   middlewareRefs: string[];
   middlewareGuidedIssue: string;
+  resourceOverrides: GuidedResourceOverrides;
 };
 
 export function defaultGuidedProbe(port = "http"): GuidedProbe {
@@ -639,6 +647,26 @@ export function validateGuidedProbes(
   }
 }
 
+export function validateGuidedResourceOverrides(
+  values: GuidedResourceOverrides,
+): string | null {
+  try {
+    parseFragment(values.deploymentYaml, "object", "Deployment override");
+    parseFragment(values.serviceYaml, "object", "Service override");
+    parseFragment(values.ingressYaml, "object", "Ingress override");
+    parseFragment(
+      values.serviceAccountYaml,
+      "object",
+      "ServiceAccount override",
+    );
+    return null;
+  } catch (error) {
+    return error instanceof Error
+      ? error.message
+      : "Invalid resource override.";
+  }
+}
+
 export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
   const document = parseDocument(rawYaml, { uniqueKeys: true });
   if (document.errors.length)
@@ -646,6 +674,7 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
   const value = document.toJS() as Record<string, unknown> | null;
   const spec = (value?.spec ?? {}) as Record<string, unknown>;
   const runtime = (spec.runtime ?? {}) as Record<string, unknown>;
+  const overrides = isObject(spec.overrides) ? spec.overrides : {};
   const resources = (runtime.resources ?? {}) as Record<string, unknown>;
   const requests = (resources.requests ?? {}) as Record<string, unknown>;
   const limits = (resources.limits ?? {}) as Record<string, unknown>;
@@ -771,6 +800,12 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
     middlewares: middlewareState.definitions,
     middlewareRefs: middlewareState.refs,
     middlewareGuidedIssue,
+    resourceOverrides: {
+      deploymentYaml: yamlFragment(overrides.deployment, "{}"),
+      serviceYaml: yamlFragment(overrides.service, "{}"),
+      ingressYaml: yamlFragment(overrides.ingress, "{}"),
+      serviceAccountYaml: yamlFragment(overrides.serviceAccount, "{}"),
+    },
   };
 }
 
@@ -925,6 +960,30 @@ export function applyGuidedConfig(
   else document.deleteIn(["spec", "runtime", "priorityClassName"]);
   if (probes) document.setIn(["spec", "runtime", "probes"], probes);
   else document.deleteIn(["spec", "runtime", "probes"]);
+
+  const resourceOverrides: Array<
+    [string, keyof GuidedResourceOverrides, string]
+  > = [
+    ["deployment", "deploymentYaml", "Deployment override"],
+    ["service", "serviceYaml", "Service override"],
+    ["ingress", "ingressYaml", "Ingress override"],
+    ["serviceAccount", "serviceAccountYaml", "ServiceAccount override"],
+  ];
+  let hasResourceOverride = false;
+  resourceOverrides.forEach(([key, field, label]) => {
+    const fragment = parseFragment(
+      values.resourceOverrides[field],
+      "object",
+      label,
+    ) as Record<string, unknown>;
+    if (Object.keys(fragment).length > 0) {
+      document.setIn(["spec", "overrides", key], fragment);
+      hasResourceOverride = true;
+    } else if (document.getIn(["spec", "overrides"]) != null) {
+      document.deleteIn(["spec", "overrides", key]);
+    }
+  });
+  if (!hasResourceOverride) document.deleteIn(["spec", "overrides"]);
 
   if (!values.host.trim()) {
     if (currentRoutes.length <= 1) {

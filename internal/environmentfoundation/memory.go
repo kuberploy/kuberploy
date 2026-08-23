@@ -47,7 +47,7 @@ func (s *MemoryStore) EnsureIntent(ctx context.Context, request EnsureRequest) (
 	if !found {
 		return Intent{}, ErrNotFound
 	}
-	if record.Authority.ClusterID != request.Profile.ClusterID || record.Authority.BindingID != request.Profile.PlatformBindingID {
+	if record.Authority.BindingID != request.Profile.PlatformBindingID {
 		return Intent{}, ErrConflict
 	}
 	value, err := buildIntent(request.IntentID, record.Identity, record.Authority, request.Profile, request.Now)

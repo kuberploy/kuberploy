@@ -39,21 +39,16 @@ model access_grants {
   @@index([subject_team_id, scope_type, scope_id], map: "access_grants_team_subject_idx", where: raw("(subject_team_id IS NOT NULL)"))
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model application_registry_pull_selections {
-  application_id        String   @id @db.Uuid
-  mode                  String
-  project_credential_id String?  @db.Uuid
-  updated_by            String   @db.Uuid
-  updated_at            DateTime @default(now()) @db.Timestamptz(6)
-}
-
 model applications {
-  id         String   @id @db.Uuid
-  project_id String   @db.Uuid
-  name       String
-  slug       String
-  created_at DateTime @default(now()) @db.Timestamptz(6)
+  id                                  String    @id @db.Uuid
+  project_id                          String    @db.Uuid
+  name                                String
+  slug                                String
+  registry_pull_mode                  String?
+  registry_pull_project_credential_id String?   @db.Uuid
+  registry_pull_updated_by            String?   @db.Uuid
+  registry_pull_updated_at            DateTime? @db.Timestamptz(6)
+  created_at                          DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([id, project_id], map: "applications_id_project_unique")
   @@unique([project_id, slug])
@@ -139,7 +134,6 @@ model argo_desired_state_commands {
   environment_id           String    @unique(map: "argo_desired_state_commands_environment_live_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text, 'git-committed'::text]))")) @db.Uuid
   platform_binding_id      String    @unique(map: "argo_desired_state_commands_binding_claim_idx", where: raw("(lease_owner IS NOT NULL)")) @db.Uuid
   environment_binding_id   String    @db.Uuid
-  cluster_id               String    @db.Uuid
   platform_target_ref      String
   environment_target_ref   String
   environment_revision     String
@@ -196,7 +190,6 @@ model argo_desired_state_materialization_receipts {
   project_id                   String   @db.Uuid
   environment_id               String   @db.Uuid
   platform_binding_id          String   @db.Uuid
-  cluster_id                   String   @db.Uuid
   platform_target_ref          String
   environment_target_ref       String
   desired_state_command_id     String   @db.Uuid
@@ -631,7 +624,6 @@ model environment_foundation_intents {
   namespace                 String
   argo_project              String
   platform_binding_id       String    @db.Uuid
-  cluster_id                String    @db.Uuid
   target_ref                String
   planned_head_revision     String
   binding_generation        BigInt
@@ -830,13 +822,13 @@ model git_pull_request_publications {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model git_repository_bindings {
   id                      String    @id @db.Uuid
   kind                    String
   scope_id                String    @db.Uuid
   project_id              String?   @db.Uuid
   environment_id          String?   @unique(map: "git_repository_bindings_environment_authority", where: raw("(kind = 'environment'::text)")) @db.Uuid
-  cluster_id              String?   @unique(map: "git_repository_bindings_platform_authority", where: raw("(kind = 'platform'::text)")) @db.Uuid
   provider                String
   installation_id         BigInt
   repository_id           BigInt
@@ -856,7 +848,6 @@ model git_repository_bindings {
   updated_at              DateTime  @db.Timestamptz(6)
   credential_mode         String    @default("legacy-secret")
 
-  @@unique([id, cluster_id], map: "git_repository_bindings_id_cluster_unique")
   @@unique([id, project_id, environment_id])
   @@unique([id, target_ref])
   @@unique([provider, installation_id, repository_id, target_ref, scope_id])
@@ -1088,7 +1079,6 @@ model helm_protected_application_intents {
   action                           String
   platform_binding_id              String    @db.Uuid
   environment_binding_id           String    @db.Uuid
-  cluster_id                       String    @db.Uuid
   platform_target_ref              String
   environment_target_ref           String
   environment_revision             String
@@ -1160,7 +1150,6 @@ model helm_application_cascade_preflights {
   application_id                   String    @db.Uuid
   platform_binding_id              String    @db.Uuid
   environment_binding_id           String    @db.Uuid
-  cluster_id                       String    @db.Uuid
   platform_target_ref              String
   environment_target_ref           String
   environment_revision             String
@@ -1331,7 +1320,6 @@ model helm_application_cascade_receipts {
   project_id                 String   @db.Uuid
   environment_id             String   @db.Uuid
   application_id             String   @db.Uuid
-  cluster_id                 String   @db.Uuid
   application_path           String
   source_content_digest      String
   adopted_content_digest     String
@@ -1380,7 +1368,6 @@ model helm_application_continuation_receipts {
   application_id                       String   @db.Uuid
   platform_binding_id                  String   @db.Uuid
   environment_binding_id               String   @db.Uuid
-  cluster_id                           String   @db.Uuid
   source_environment_revision          String
   source_environment_generation        BigInt
   source_foundation_intent_id          String   @db.Uuid
@@ -1424,7 +1411,6 @@ model helm_protected_payload_intents {
   action                           String
   platform_binding_id              String    @db.Uuid
   environment_binding_id           String    @db.Uuid
-  cluster_id                       String    @db.Uuid
   platform_target_ref              String
   environment_target_ref           String
   environment_revision             String
@@ -1482,7 +1468,6 @@ model helm_publication_prerequisite_receipts {
   application_id           String   @db.Uuid
   platform_binding_id      String   @db.Uuid
   environment_binding_id   String   @db.Uuid
-  cluster_id               String   @db.Uuid
   environment_revision     String
   environment_generation   BigInt
   foundation_intent_id     String   @db.Uuid

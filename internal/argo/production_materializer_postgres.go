@@ -69,7 +69,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 		return false, err
 	}
 	if platform.Validate() != nil || platform.Kind != gitprojection.BindingPlatform || platform.ID != m.identity.PlatformBindingID ||
-		platform.ClusterID != m.identity.ClusterID || platform.CredentialMode != gitprojection.CredentialGitHubApp ||
+		platform.CredentialMode != gitprojection.CredentialGitHubApp ||
 		platform.TargetHeadRevision == "" || (platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) {
 		return false, ErrArgoRuntimePrerequisiteNotReady
 	}

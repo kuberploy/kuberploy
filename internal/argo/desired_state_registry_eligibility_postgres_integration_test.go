@@ -156,7 +156,7 @@ func TestPostgreSQLDesiredStateRegistryEligibilityUsesExactIndexedPolicyDocument
 		return binding
 	}
 
-	platform, err := gitprojection.NewGitHubPlatformBinding(id.New(), id.New(),
+	platform, err := gitprojection.NewGitHubPlatformBinding(id.New(),
 		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 8_100_000_000_000_001,
 			RepositoryID: 8_100_000_000_000_003, Owner: "kuberploy", Name: "argo-platform"}, "refs/heads/platform", now)
 	if err != nil {

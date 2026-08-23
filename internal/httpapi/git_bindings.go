@@ -11,7 +11,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
 
-var platformClusterIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var platformBindingIDRE = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type environmentGitBindingRequest struct {
 	InstallationID string `json:"installationId"`
@@ -26,18 +26,17 @@ type environmentGitBindingRequest struct {
 type PlatformGitBindingConfig struct {
 	Enabled     bool
 	BindingID   string
-	ClusterID   string
 	GitHubAppID int64
 }
 
 func (c PlatformGitBindingConfig) Validate() error {
 	if !c.Enabled {
-		if c.BindingID != "" || c.ClusterID != "" || c.GitHubAppID != 0 {
+		if c.BindingID != "" || c.GitHubAppID != 0 {
 			return gitprojection.ErrInvalid
 		}
 		return nil
 	}
-	if !platformClusterIDRE.MatchString(c.BindingID) || !platformClusterIDRE.MatchString(c.ClusterID) || c.GitHubAppID <= 0 {
+	if !platformBindingIDRE.MatchString(c.BindingID) || c.GitHubAppID <= 0 {
 		return gitprojection.ErrInvalid
 	}
 	return nil
@@ -59,7 +58,6 @@ type platformGitRepositoryView struct {
 
 type platformGitBindingView struct {
 	ID                   string                     `json:"id"`
-	ClusterID            string                     `json:"clusterId"`
 	Repository           platformGitRepositoryView  `json:"repository"`
 	TargetRef            string                     `json:"targetRef"`
 	PathPrefix           string                     `json:"pathPrefix"`
@@ -71,7 +69,7 @@ type platformGitBindingView struct {
 }
 
 func safePlatformGitBinding(binding gitprojection.Binding) platformGitBindingView {
-	view := platformGitBindingView{ID: binding.ID, ClusterID: binding.ClusterID,
+	view := platformGitBindingView{ID: binding.ID,
 		Repository: platformGitRepositoryView{Provider: binding.Repository.Provider,
 			InstallationID: binding.Repository.InstallationID, RepositoryID: binding.Repository.RepositoryID,
 			Owner: binding.Repository.Owner, Name: binding.Repository.Name},
@@ -198,7 +196,7 @@ func (s *Server) platformArgoGitBinding(w http.ResponseWriter, r *http.Request) 
 	}
 	actorID := currentUser(r.Context()).ID
 	if r.Method == http.MethodGet {
-		binding, err := s.store.GetPlatformGitBindingForActor(r.Context(), actorID, s.platformGitBinding.ClusterID)
+		binding, err := s.store.GetPlatformGitBindingForActor(r.Context(), actorID)
 		if err != nil {
 			mappedError(w, r, err)
 			return
@@ -230,7 +228,7 @@ func (s *Server) platformArgoGitBinding(w http.ResponseWriter, r *http.Request) 
 		githubBuildUnavailable(w, r, "The verified repository does not belong to the operator-configured GitHub App.")
 		return
 	}
-	create := gitprojection.CreatePlatformBindingInput{BindingID: s.platformGitBinding.BindingID, ClusterID: s.platformGitBinding.ClusterID,
+	create := gitprojection.CreatePlatformBindingInput{BindingID: s.platformGitBinding.BindingID,
 		LinkedInstallationID: input.InstallationID, LinkedRepositoryID: input.RepositoryID,
 		GitHubAppID: s.platformGitBinding.GitHubAppID, Repository: resolved.Repository, TargetRef: input.TargetRef}
 	result, err := s.store.CreatePlatformGitBinding(r.Context(), actorID, key, "sha256:"+fingerprint(input), requestID(r.Context()), create)

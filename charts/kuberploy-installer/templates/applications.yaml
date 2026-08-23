@@ -109,10 +109,10 @@
       "githubApp" (dict "enabled" true "appID" $github.appID "clientID" $github.clientID "appSlug" $github.appSlug "secretRef" (dict "name" $github.secretName))
       "buildLogs" (dict "enabled" true)
       "gitProjection" (dict "enabled" true "chartVersion" $component.expectedPackageVersion)
-      "platformGitBinding" (dict "enabled" true "bindingID" $github.platformBindingID "clusterID" $github.clusterID)
+      "platformGitBinding" (dict "enabled" true "bindingID" $github.platformBindingID)
       "argoObservation" (dict "enabled" true "namespace" $github.argoNamespace "pollIntervalSeconds" 30)
-      "environmentFoundation" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "psaVersion" $github.psaVersion "pollIntervalSeconds" 1)
-      "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "clusterID" $github.clusterID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $runtimeChartVersion "runtimeChartDigest" $runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
+      "environmentFoundation" (dict "enabled" true "platformBindingID" $github.platformBindingID "psaVersion" $github.psaVersion "pollIntervalSeconds" 1)
+      "argoDesiredState" (dict "enabled" true "platformBindingID" $github.platformBindingID "namespace" $github.argoNamespace "runtimeChartRepository" "oci://ghcr.io/kuberploy/charts" "runtimeChartVersion" $runtimeChartVersion "runtimeChartDigest" $runtimeChartDigest "pollIntervalSeconds" 1 "catalogMaxAgeSeconds" 900)
       "autoDeploy" (dict "enabled" true)
     )
     "builder" (dict "enabled" true "buildKitImage" $github.buildKitImage "dindImage" $github.dindImage

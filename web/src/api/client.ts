@@ -424,7 +424,6 @@ function safePlatformArgoGitBinding(
 ): PlatformArgoGitBinding {
   return {
     id: binding.id,
-    clusterId: binding.clusterId,
     repository: {
       provider: "github",
       installationId: binding.repository.installationId,

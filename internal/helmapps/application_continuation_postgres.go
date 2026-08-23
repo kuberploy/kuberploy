@@ -12,7 +12,7 @@ import (
 
 const applicationContinuationColumns = `application_intent_id::text,release_revision_id::text,payload_intent_id::text,
 	project_id::text,environment_id::text,application_id::text,platform_binding_id::text,
-	environment_binding_id::text,cluster_id::text,source_environment_revision,
+	environment_binding_id::text,source_environment_revision,
 	source_environment_generation,source_foundation_intent_id::text,source_foundation_revision,
 	source_desired_state_command_id::text,source_desired_state_revision,
 	source_desired_state_content_digest,current_environment_revision,current_environment_generation,
@@ -27,7 +27,7 @@ func scanApplicationContinuation(row rowScanner) (ProtectedApplicationContinuati
 	var value ProtectedApplicationContinuationReceipt
 	err := row.Scan(&value.ApplicationIntentID, &value.ReleaseRevisionID, &value.PayloadIntentID, &value.ProjectID,
 		&value.EnvironmentID, &value.ApplicationID, &value.PlatformBindingID,
-		&value.EnvironmentBindingID, &value.ClusterID, &value.SourceEnvironmentRevision,
+		&value.EnvironmentBindingID, &value.SourceEnvironmentRevision,
 		&value.SourceEnvironmentGeneration, &value.SourceFoundationIntentID,
 		&value.SourceFoundationRevision, &value.SourceDesiredStateCommandID,
 		&value.SourceDesiredStateRevision, &value.SourceDesiredStateContentDigest,
@@ -77,7 +77,7 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 	if errors.Is(err, ErrNotFound) {
 		_, err = tx.Exec(ctx, `INSERT INTO public.helm_application_continuation_receipts(
 		application_intent_id,release_revision_id,payload_intent_id,project_id,environment_id,application_id,
-		platform_binding_id,environment_binding_id,cluster_id,source_environment_revision,
+		platform_binding_id,environment_binding_id,source_environment_revision,
 		source_environment_generation,source_foundation_intent_id,source_foundation_revision,
 		source_desired_state_command_id,source_desired_state_revision,source_desired_state_content_digest,
 		current_environment_revision,current_environment_generation,current_foundation_intent_id,
@@ -87,7 +87,7 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 		current_chart_digest,current_renderer_image,current_chart_digest_enforcement,current_app_project_content,
 		application_content_digest,application_intent_digest,created_at)
 		SELECT $11,release.id,payload.id,release.project_id,release.environment_id,release.application_id,
-			payload.platform_binding_id,payload.environment_binding_id,payload.cluster_id,
+			payload.platform_binding_id,payload.environment_binding_id,
 			prerequisite.environment_revision,prerequisite.environment_generation,
 			prerequisite.foundation_intent_id,prerequisite.foundation_revision,
 			prerequisite.desired_state_command_id,prerequisite.desired_state_revision,
@@ -125,7 +125,6 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 			ON foundation.environment_id=release.environment_id AND foundation.project_id=release.project_id
 			AND foundation.active AND foundation.state='ready'
 			AND foundation.platform_binding_id=payload.platform_binding_id
-			AND foundation.cluster_id=payload.cluster_id
 			AND foundation.target_ref=payload.platform_target_ref
 			AND foundation.namespace=desired_environment.namespace
 			AND foundation.argo_project=desired_environment.argo_project
@@ -145,7 +144,6 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 			AND current_command.environment_id=release.environment_id
 			AND current_command.platform_binding_id=payload.platform_binding_id
 			AND current_command.environment_binding_id=payload.environment_binding_id
-			AND current_command.cluster_id=payload.cluster_id
 			AND current_command.platform_target_ref=payload.platform_target_ref
 			AND current_command.environment_target_ref=payload.environment_target_ref
 			AND current_command.state='verified'
@@ -165,14 +163,12 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 			AND prerequisite.application_id=release.application_id
 			AND prerequisite.platform_binding_id=payload.platform_binding_id
 			AND prerequisite.environment_binding_id=payload.environment_binding_id
-			AND prerequisite.cluster_id=payload.cluster_id
 			AND prerequisite.environment_revision=payload.environment_revision
 			AND prerequisite.environment_generation=payload.environment_generation
 			AND source_command.project_id=release.project_id
 			AND source_command.environment_id=release.environment_id
 			AND current_command.argo_project=desired_environment.argo_project
 			AND current_command.destination_namespace=desired_environment.namespace
-			AND platform.cluster_id=payload.cluster_id
 			AND platform.target_ref=payload.platform_target_ref
 			AND environment.project_id=release.project_id
 			AND environment.environment_id=release.environment_id
@@ -247,7 +243,7 @@ func ensureApplicationContinuation(ctx context.Context, tx pgx.Tx, release Relea
 		value.ReleaseRevisionID != release.ID || value.ProjectID != release.Target.ProjectID ||
 		value.EnvironmentID != release.Target.EnvironmentID || value.ApplicationID != release.Target.ApplicationID ||
 		value.PlatformBindingID != payload.Binding.PlatformBindingID ||
-		value.EnvironmentBindingID != payload.Binding.EnvironmentBindingID || value.ClusterID != payload.Binding.ClusterID ||
+		value.EnvironmentBindingID != payload.Binding.EnvironmentBindingID ||
 		value.SourceEnvironmentRevision != payload.Binding.EnvironmentRevision ||
 		value.SourceEnvironmentGeneration != payload.Binding.EnvironmentGeneration ||
 		value.ApplicationContentDigest != application.ContentDigest || value.ApplicationIntentDigest != application.IntentDigest ||

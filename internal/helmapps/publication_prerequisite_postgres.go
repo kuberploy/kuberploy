@@ -10,7 +10,7 @@ import (
 
 const publicationPrerequisiteColumns = `release_revision_id::text,project_id::text,
 	environment_id::text,application_id::text,platform_binding_id::text,
-	environment_binding_id::text,cluster_id::text,environment_revision,
+	environment_binding_id::text,environment_revision,
 	environment_generation,foundation_intent_id::text,foundation_revision,
 	desired_state_command_id::text,desired_state_revision,planned_base_revision,created_at`
 
@@ -20,7 +20,7 @@ func scanPublicationPrerequisite(row prerequisiteRow) (ProtectedPublicationPrere
 	var value ProtectedPublicationPrerequisiteReceipt
 	err := row.Scan(&value.ReleaseRevisionID, &value.ProjectID, &value.EnvironmentID,
 		&value.ApplicationID, &value.PlatformBindingID, &value.EnvironmentBindingID,
-		&value.ClusterID, &value.EnvironmentRevision, &value.EnvironmentGeneration,
+		&value.EnvironmentRevision, &value.EnvironmentGeneration,
 		&value.FoundationIntentID, &value.FoundationRevision, &value.DesiredStateCommandID,
 		&value.DesiredStateRevision, &value.PlannedBaseRevision, &value.CreatedAt)
 	if err != nil {
@@ -60,12 +60,12 @@ func ensurePublicationPrerequisite(ctx context.Context, tx pgx.Tx, release Relea
 		FROM environment_foundation_intents intent
 		WHERE intent.environment_id=$1 AND intent.project_id=$2 AND intent.active
 		  AND intent.state='ready' AND intent.platform_binding_id=$3
-		  AND intent.cluster_id=$4 AND intent.target_ref=$5
+		  AND intent.target_ref=$4
 		  AND intent.committed_revision<>'' AND intent.published_at IS NOT NULL
 		  AND intent.completed_at=intent.published_at
 		ORDER BY intent.created_at DESC,intent.id DESC LIMIT 1 FOR KEY SHARE`,
 		release.Target.EnvironmentID, release.Target.ProjectID, binding.PlatformBindingID,
-		binding.ClusterID, binding.PlatformTargetRef).Scan(&foundationID, &foundationRevision)
+		binding.PlatformTargetRef).Scan(&foundationID, &foundationRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ProtectedPublicationPrerequisiteReceipt{}, ErrFoundationNotReady
 	}
@@ -81,22 +81,21 @@ func ensurePublicationPrerequisite(ctx context.Context, tx pgx.Tx, release Relea
 		WHERE materialization.project_id=$1 AND materialization.environment_id=$2
 		  AND materialization.platform_binding_id=$3
 		  AND materialization.environment_binding_id=$4
-		  AND materialization.cluster_id=$5
-		  AND materialization.platform_target_ref=$6
-		  AND materialization.environment_target_ref=$7
-		  AND materialization.environment_revision=$8
-		  AND materialization.environment_generation=$9
-		  AND materialization.policy_digest=$10
-		  AND materialization.chart_repository=$11
-		  AND materialization.chart_name=$12
-		  AND materialization.chart_version=$13
-		  AND materialization.chart_digest=$14
-		  AND materialization.renderer_image=$15
-		  AND materialization.chart_digest_enforcement=$16
+		  AND materialization.platform_target_ref=$5
+		  AND materialization.environment_target_ref=$6
+		  AND materialization.environment_revision=$7
+		  AND materialization.environment_generation=$8
+		  AND materialization.policy_digest=$9
+		  AND materialization.chart_repository=$10
+		  AND materialization.chart_name=$11
+		  AND materialization.chart_version=$12
+		  AND materialization.chart_digest=$13
+		  AND materialization.renderer_image=$14
+		  AND materialization.chart_digest_enforcement=$15
 		  AND command.project_id=$1 AND command.environment_id=$2
 		  AND command.platform_binding_id=$3 AND command.environment_binding_id=$4
-		  AND command.cluster_id=$5 AND command.platform_target_ref=$6
-		  AND command.environment_target_ref=$7 AND command.state='verified'
+		  AND command.platform_target_ref=$5
+		  AND command.environment_target_ref=$6 AND command.state='verified'
 		  AND command.generation=materialization.desired_state_generation
 		  AND command.committed_revision<>'' AND command.write_base_revision<>''
 		  AND command.committed_revision=materialization.desired_state_revision
@@ -116,7 +115,7 @@ func ensurePublicationPrerequisite(ctx context.Context, tx pgx.Tx, release Relea
 		ORDER BY materialization.created_at DESC,materialization.id DESC
 		LIMIT 1 FOR KEY SHARE OF materialization,command`,
 		release.Target.ProjectID, release.Target.EnvironmentID, binding.PlatformBindingID,
-		binding.EnvironmentBindingID, binding.ClusterID, binding.PlatformTargetRef,
+		binding.EnvironmentBindingID, binding.PlatformTargetRef,
 		binding.EnvironmentTargetRef, binding.EnvironmentRevision,
 		binding.EnvironmentGeneration, authority.PolicyDigest, authority.Runtime.ChartRepository,
 		authority.Runtime.ChartName, authority.Runtime.ChartVersion, authority.Runtime.ChartDigest,
@@ -132,7 +131,7 @@ func ensurePublicationPrerequisite(ctx context.Context, tx pgx.Tx, release Relea
 		ReleaseRevisionID: release.ID, ProjectID: release.Target.ProjectID,
 		EnvironmentID: release.Target.EnvironmentID, ApplicationID: release.Target.ApplicationID,
 		PlatformBindingID: binding.PlatformBindingID, EnvironmentBindingID: binding.EnvironmentBindingID,
-		ClusterID: binding.ClusterID, EnvironmentRevision: binding.EnvironmentRevision,
+		EnvironmentRevision:   binding.EnvironmentRevision,
 		EnvironmentGeneration: binding.EnvironmentGeneration, FoundationIntentID: foundationID,
 		FoundationRevision: foundationRevision, DesiredStateCommandID: desiredStateID,
 		DesiredStateRevision: desiredStateRevision, PlannedBaseRevision: binding.PlannedBaseRevision,
@@ -143,13 +142,13 @@ func ensurePublicationPrerequisite(ctx context.Context, tx pgx.Tx, release Relea
 	}
 	result, err := tx.Exec(ctx, `INSERT INTO helm_publication_prerequisite_receipts(
 		release_revision_id,project_id,environment_id,application_id,platform_binding_id,
-		environment_binding_id,cluster_id,environment_revision,environment_generation,
+		environment_binding_id,environment_revision,environment_generation,
 		foundation_intent_id,foundation_revision,desired_state_command_id,
 		desired_state_revision,planned_base_revision,created_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	ON CONFLICT(release_revision_id) DO NOTHING`, value.ReleaseRevisionID, value.ProjectID,
 		value.EnvironmentID, value.ApplicationID, value.PlatformBindingID,
-		value.EnvironmentBindingID, value.ClusterID, value.EnvironmentRevision,
+		value.EnvironmentBindingID, value.EnvironmentRevision,
 		value.EnvironmentGeneration, value.FoundationIntentID, value.FoundationRevision,
 		value.DesiredStateCommandID, value.DesiredStateRevision, value.PlannedBaseRevision,
 		value.CreatedAt)
@@ -200,8 +199,8 @@ func publicationPrerequisite(ctx context.Context, query prerequisiteQuerier,
 		EXISTS(SELECT 1 FROM environment_foundation_intents foundation
 		  WHERE foundation.id=$1 AND foundation.environment_id=$2
 		    AND foundation.project_id=$3 AND foundation.state IN ('ready','superseded')
-		    AND foundation.platform_binding_id=$4 AND foundation.cluster_id=$5
-		    AND foundation.committed_revision=$6 AND foundation.published_at IS NOT NULL
+		    AND foundation.platform_binding_id=$4
+		    AND foundation.committed_revision=$5 AND foundation.published_at IS NOT NULL
 		    AND foundation.completed_at=foundation.published_at),
 		EXISTS(SELECT 1 FROM argo_desired_state_materialization_receipts materialization
 		  JOIN argo_desired_state_commands command
@@ -211,19 +210,19 @@ func publicationPrerequisite(ctx context.Context, query prerequisiteQuerier,
 		    ON environment_binding.id=command.environment_binding_id
 		  JOIN git_repository_bindings platform_binding
 		    ON platform_binding.id=command.platform_binding_id
-		  WHERE materialization.environment_binding_id=$8
-		    AND materialization.environment_revision=$9
-		    AND materialization.environment_generation=$10
+		  WHERE materialization.environment_binding_id=$7
+		    AND materialization.environment_revision=$8
+		    AND materialization.environment_generation=$9
 		    AND materialization.project_id=$3 AND materialization.environment_id=$2
-		    AND materialization.platform_binding_id=$4 AND materialization.cluster_id=$5
-		    AND materialization.desired_state_command_id=$7
-		    AND materialization.desired_state_revision=$11
-		    AND materialization.created_at<=$12
-		    AND command.id=$7 AND command.project_id=$3 AND command.environment_id=$2
-		    AND command.platform_binding_id=$4 AND command.environment_binding_id=$8
-		    AND command.cluster_id=$5 AND command.state='verified'
+		    AND materialization.platform_binding_id=$4
+		    AND materialization.desired_state_command_id=$6
+		    AND materialization.desired_state_revision=$10
+		    AND materialization.created_at<=$11
+		    AND command.id=$6 AND command.project_id=$3 AND command.environment_id=$2
+		    AND command.platform_binding_id=$4 AND command.environment_binding_id=$7
+		    AND command.state='verified'
 		    AND command.generation=materialization.desired_state_generation
-		    AND command.committed_revision=$11 AND command.verified_at IS NOT NULL
+		    AND command.committed_revision=$10 AND command.verified_at IS NOT NULL
 		    AND command.content_sha256=materialization.desired_state_content_sha256
 		    AND command.completed_at=command.verified_at
 		    AND command.argo_project=environment.argo_project
@@ -235,10 +234,9 @@ func publicationPrerequisite(ctx context.Context, query prerequisiteQuerier,
 		    AND environment_binding.target_ref=command.environment_target_ref
 		    AND platform_binding.kind='platform'
 		    AND platform_binding.credential_mode='github-app'
-		    AND platform_binding.cluster_id=command.cluster_id
 		    AND platform_binding.target_ref=command.platform_target_ref)`,
 		value.FoundationIntentID, value.EnvironmentID, value.ProjectID,
-		value.PlatformBindingID, value.ClusterID, value.FoundationRevision,
+		value.PlatformBindingID, value.FoundationRevision,
 		value.DesiredStateCommandID, value.EnvironmentBindingID, value.EnvironmentRevision,
 		value.EnvironmentGeneration, value.DesiredStateRevision, value.CreatedAt).Scan(&foundationCurrent,
 		&desiredStateCurrent)

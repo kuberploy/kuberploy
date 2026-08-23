@@ -66,16 +66,16 @@ func (s *MemoryStore) PutBinding(_ context.Context, binding Binding) error {
 }
 
 type bindingIdentity struct {
-	Kind                                         BindingKind
-	ScopeID, ProjectID, EnvironmentID, ClusterID string
-	Repository                                   RepositoryIdentity
-	TargetRef, Prefix                            string
-	CredentialMode                               CredentialMode
-	CredentialSecretName                         string
+	Kind                              BindingKind
+	ScopeID, ProjectID, EnvironmentID string
+	Repository                        RepositoryIdentity
+	TargetRef, Prefix                 string
+	CredentialMode                    CredentialMode
+	CredentialSecretName              string
 }
 
 func immutableBinding(b Binding) bindingIdentity {
-	return bindingIdentity{b.Kind, b.ScopeID, b.ProjectID, b.EnvironmentID, b.ClusterID, b.Repository, b.TargetRef, b.Prefix, b.CredentialMode, b.CredentialSecretName}
+	return bindingIdentity{b.Kind, b.ScopeID, b.ProjectID, b.EnvironmentID, b.Repository, b.TargetRef, b.Prefix, b.CredentialMode, b.CredentialSecretName}
 }
 
 func (s *MemoryStore) Binding(_ context.Context, id string) (Binding, error) {

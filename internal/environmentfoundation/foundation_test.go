@@ -15,7 +15,6 @@ const (
 	testEnvironmentID = "11111111-1111-4111-8111-111111111111"
 	testProjectID     = "22222222-2222-4222-8222-222222222222"
 	testBindingID     = "33333333-3333-4333-8333-333333333333"
-	testClusterID     = "44444444-4444-4444-8444-444444444444"
 	testIntentID      = "55555555-5555-4555-8555-555555555555"
 	testIntentID2     = "66666666-6666-4666-8666-666666666666"
 	testWorker1       = "foundation-worker-test-0001"
@@ -27,10 +26,10 @@ func testIdentity() EnvironmentIdentity {
 	return EnvironmentIdentity{testEnvironmentID, testProjectID, "kp-demo-dev", "kp-demo"}
 }
 func testAuthority() GitAuthority {
-	return GitAuthority{testBindingID, testClusterID, "refs/heads/main", strings.Repeat("a", 40), 7}
+	return GitAuthority{testBindingID, "refs/heads/main", strings.Repeat("a", 40), 7}
 }
 func testProfile() Profile {
-	return DefaultProfile(testClusterID, testBindingID, testDigest("publisher"), "v1.31")
+	return DefaultProfile(testBindingID, testDigest("publisher"), "v1.31")
 }
 
 func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
@@ -124,9 +123,9 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 }
 
 func TestFoundationPathIsInsideOnlyBootstrapArgoRoot(t *testing.T) {
-	root := "clusters/" + testClusterID + "/argocd"
-	foundation := ManifestPath(testClusterID, testEnvironmentID)
-	helmPayload := "clusters/" + testClusterID + "/helm-manifests/environments/" + testEnvironmentID + "/releases/x/y/z/values.yaml"
+	root := "platform/argocd"
+	foundation := ManifestPath(testEnvironmentID)
+	helmPayload := "platform/helm-manifests/environments/" + testEnvironmentID + "/releases/x/y/z/values.yaml"
 	if !strings.HasPrefix(foundation, root+"/") || strings.HasPrefix(helmPayload, root+"/") {
 		t.Fatalf("bootstrap ownership escaped root=%q foundation=%q helm=%q", root, foundation, helmPayload)
 	}
@@ -186,7 +185,7 @@ func TestMemoryStoreDerivesIdentityAndFencesRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if intent.ProjectID != testProjectID || intent.Namespace != "kp-demo-dev" || intent.Path != ManifestPath(testClusterID, testEnvironmentID) {
+	if intent.ProjectID != testProjectID || intent.Namespace != "kp-demo-dev" || intent.Path != ManifestPath(testEnvironmentID) {
 		t.Fatalf("identity was not server-derived: %#v", intent)
 	}
 	idempotent, err := store.EnsureIntent(ctx, EnsureRequest{testIntentID, testEnvironmentID, profile, now.Add(time.Second)})

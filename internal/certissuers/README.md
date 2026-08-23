@@ -37,7 +37,7 @@ the existing authenticated GitHub head verifier, the single hardened
 `MirrorManager`, an exact platform binding/cluster identity, and the exact
 server-configured observer namespace and ServiceAccount. It renders one closed
 three-document bundle at
-`clusters/<cluster>/argocd/platform/certificate-issuers/<name>.yaml`. The
+`platform/argocd/platform/certificate-issuers/<name>.yaml`. The
 writer persists the provider-pinned write base in the shared path reservation,
 uses exact path CAS, operation and intent trailers, normal fast-forward pushes,
 push-before-receipt recovery, and an exact provider reread. It never accepts a

@@ -346,9 +346,8 @@ func TestEdgeRoutePolicyUsesActiveManagedExternalDNSProfilePostgreSQL(t *testing
 	}
 
 	base := edgeRouteTestConfig(t)
-	operational := externaldns.OperationalConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(),
-		Template: externaldns.ManagedRuntimeTemplate{Namespace: "external-dns", Version: "v0.18.0",
-			Image: "registry.k8s.io/external-dns/external-dns:v0.18.0", ServiceAccount: "external-dns"}, PollInterval: 30 * time.Second}
+	operational := externaldns.OperationalConfig{Enabled: true, BindingID: id.New(), Template: externaldns.ManagedRuntimeTemplate{Namespace: "external-dns", Version: "v0.18.0",
+		Image: "registry.k8s.io/external-dns/external-dns:v0.18.0", ServiceAccount: "external-dns"}, PollInterval: 30 * time.Second}
 	profile, err := externaldns.ManagedProfile(integration, operational.Template)
 	if err != nil {
 		t.Fatal(err)

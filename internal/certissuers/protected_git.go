@@ -25,14 +25,13 @@ var ErrMaterializationUnavailable = errors.New("cert-manager issuer materializat
 
 type ProtectedGitConfig struct {
 	BindingID              string
-	ClusterID              string
 	Owner                  string
 	ObserverNamespace      string
 	ObserverServiceAccount string
 }
 
 func (c ProtectedGitConfig) Validate() error {
-	if !uuidRE.MatchString(c.BindingID) || !uuidRE.MatchString(c.ClusterID) ||
+	if !uuidRE.MatchString(c.BindingID) ||
 		len(c.Owner) < 8 || len(c.Owner) > 128 || !utf8.ValidString(c.Owner) ||
 		!dnsLabelRE.MatchString(c.ObserverNamespace) || !dnsLabelRE.MatchString(c.ObserverServiceAccount) {
 		return ErrInvalid
@@ -52,7 +51,7 @@ func ProtectedGitConfigForObserver(owner string, observer ObserverConfig) (Prote
 	if observer.Validate() != nil || !observer.Enabled {
 		return ProtectedGitConfig{}, ErrInvalid
 	}
-	config := ProtectedGitConfig{BindingID: observer.BindingID, ClusterID: observer.ClusterID, Owner: owner,
+	config := ProtectedGitConfig{BindingID: observer.BindingID, Owner: owner,
 		ObserverNamespace: observer.Namespace, ObserverServiceAccount: observer.ServiceAccount}
 	return config, config.Validate()
 }
@@ -78,14 +77,14 @@ func NewProtectedGitPublisher(store gitprojection.Store, provider gitprojection.
 }
 
 type PublicationReceipt struct {
-	OperationID, BindingID, ClusterID, TargetRef, Path string
-	SpecDigest, ContentDigest                          string
-	Revision                                           int64
-	Action                                             string
-	ParentRevision, CommittedRevision, ProviderHead    string
-	ProviderRequest                                    string
-	ObservedAt                                         time.Time
-	Changed                                            bool
+	OperationID, BindingID, TargetRef, Path         string
+	SpecDigest, ContentDigest                       string
+	Revision                                        int64
+	Action                                          string
+	ParentRevision, CommittedRevision, ProviderHead string
+	ProviderRequest                                 string
+	ObservedAt                                      time.Time
+	Changed                                         bool
 }
 
 func (p *ProtectedGitPublisher) Materialize(ctx context.Context, desired Desired) (PublicationReceipt, error) {
@@ -110,7 +109,7 @@ func (p *ProtectedGitPublisher) publish(ctx context.Context, desired Desired, ac
 		return PublicationReceipt{}, err
 	}
 	contentDigest := protectedDigest(content)
-	documentPath := protectedIssuerPath(p.config.ClusterID, desired.Name)
+	documentPath := protectedIssuerPath(desired.Name)
 	operationID := protectedOperationID(p.config, desired, action, contentDigest)
 
 	binding, err := p.store.Binding(ctx, p.config.BindingID)
@@ -119,8 +118,8 @@ func (p *ProtectedGitPublisher) publish(ctx context.Context, desired Desired, ac
 	}
 	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
 		binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.CredentialSecretName != "" ||
-		binding.ID != p.config.BindingID || binding.ClusterID != p.config.ClusterID ||
-		binding.Prefix != gitprojection.PlatformPrefix(p.config.ClusterID) || binding.ProjectionGeneration < 1 {
+		binding.ID != p.config.BindingID ||
+		binding.Prefix != gitprojection.PlatformPrefix() || binding.ProjectionGeneration < 1 {
 		return PublicationReceipt{}, ErrInvalid
 	}
 
@@ -285,7 +284,7 @@ func (p *ProtectedGitPublisher) finalizeReceipt(ctx context.Context, binding git
 
 func protectedReceipt(binding gitprojection.Binding, desired Desired, action gitprojection.MutationAction,
 	operationID, documentPath, contentDigest, parent, committed string, verified gitprojection.VerifiedHead, changed bool) PublicationReceipt {
-	return PublicationReceipt{OperationID: operationID, BindingID: binding.ID, ClusterID: binding.ClusterID,
+	return PublicationReceipt{OperationID: operationID, BindingID: binding.ID,
 		TargetRef: binding.TargetRef, Path: documentPath, SpecDigest: desired.SpecDigest, ContentDigest: contentDigest,
 		Revision: desired.Revision, Action: string(action), ParentRevision: parent, CommittedRevision: committed,
 		ProviderHead: verified.Commit, ProviderRequest: verified.ProviderRequest, ObservedAt: verified.ObservedAt.UTC(), Changed: changed}
@@ -301,8 +300,8 @@ func (p *ProtectedGitPublisher) notBefore(values ...time.Time) time.Time {
 	return now
 }
 
-func protectedIssuerPath(clusterID, name string) string {
-	return path.Join(gitprojection.PlatformPrefix(clusterID), "argocd", "platform", "certificate-issuers", name+".yaml")
+func protectedIssuerPath(name string) string {
+	return path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "certificate-issuers", name+".yaml")
 }
 
 func protectedDigest(content []byte) string {
@@ -311,7 +310,7 @@ func protectedDigest(content []byte) string {
 }
 
 func protectedOperationID(config ProtectedGitConfig, desired Desired, action gitprojection.MutationAction, contentDigest string) string {
-	raw, _ := json.Marshal([]any{protectedIssuerContract, config.BindingID, config.ClusterID, config.ObserverNamespace,
+	raw, _ := json.Marshal([]any{protectedIssuerContract, config.BindingID, config.ObserverNamespace,
 		config.ObserverServiceAccount, desired.ProfileID, desired.Name,
 		desired.Revision, desired.SpecDigest, action, contentDigest})
 	sum := sha256.Sum256(raw)

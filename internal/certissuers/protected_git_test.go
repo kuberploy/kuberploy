@@ -15,7 +15,6 @@ import (
 
 const (
 	protectedTestBinding                = "11111111-1111-4111-8111-111111111111"
-	protectedTestCluster                = "22222222-2222-4222-8222-222222222222"
 	protectedTestObserverNamespace      = "kuberploy-system"
 	protectedTestObserverServiceAccount = "kuberploy-certissuer-observer"
 )
@@ -95,7 +94,7 @@ func newProtectedFixture(t *testing.T, initialPath string, initial []byte) prote
 	runProtectedGit(t, seed, "push", "origin", "main")
 	base := strings.TrimSpace(runProtectedGit(t, seed, "rev-parse", "HEAD"))
 	repository := gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 1, RepositoryID: 2, Owner: "kuberploy", Name: "platform"}
-	binding, err := gitprojection.NewGitHubPlatformBinding(protectedTestBinding, protectedTestCluster, repository, "refs/heads/main", now)
+	binding, err := gitprojection.NewGitHubPlatformBinding(protectedTestBinding, repository, "refs/heads/main", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +124,7 @@ func newProtectedFixture(t *testing.T, initialPath string, initial []byte) prote
 func (f protectedFixture) publisher(t *testing.T, store gitprojection.Store) *ProtectedGitPublisher {
 	t.Helper()
 	publisher, err := NewProtectedGitPublisher(store, f.verifier, f.manager,
-		ProtectedGitConfig{BindingID: protectedTestBinding, ClusterID: protectedTestCluster, Owner: "certissuer-worker:test",
+		ProtectedGitConfig{BindingID: protectedTestBinding, Owner: "certissuer-worker:test",
 			ObserverNamespace: protectedTestObserverNamespace, ObserverServiceAccount: protectedTestObserverServiceAccount},
 		func() time.Time { return f.now.Add(10 * time.Second) })
 	if err != nil {
@@ -179,7 +178,7 @@ func TestRenderClusterIssuerIsClosedAndDeterministic(t *testing.T) {
 	if err != nil || protectedDigest(bundle) == protectedDigest(otherBundle) {
 		t.Fatalf("observer subject is not covered by bundle digest: err=%v", err)
 	}
-	baseConfig := ProtectedGitConfig{BindingID: protectedTestBinding, ClusterID: protectedTestCluster, Owner: "certissuer-worker:test",
+	baseConfig := ProtectedGitConfig{BindingID: protectedTestBinding, Owner: "certissuer-worker:test",
 		ObserverNamespace: protectedTestObserver.Namespace, ObserverServiceAccount: protectedTestObserver.ServiceAccount}
 	otherConfig := baseConfig
 	otherConfig.ObserverNamespace = otherObserver.Namespace
@@ -208,11 +207,10 @@ func TestRenderClusterIssuerIsClosedAndDeterministic(t *testing.T) {
 }
 
 func TestProtectedGitConfigDerivesExactObserverSubject(t *testing.T) {
-	observer := ObserverConfig{Enabled: true, BindingID: protectedTestBinding, ClusterID: protectedTestCluster,
-		Namespace: protectedTestObserverNamespace, ServiceAccount: protectedTestObserverServiceAccount,
+	observer := ObserverConfig{Enabled: true, BindingID: protectedTestBinding, Namespace: protectedTestObserverNamespace, ServiceAccount: protectedTestObserverServiceAccount,
 		PollInterval: 30 * time.Second, RequestTimeout: 10 * time.Second, MaximumAge: 2 * time.Minute, ReadinessLease: 3 * time.Minute}
 	config, err := ProtectedGitConfigForObserver("certissuer-worker:test", observer)
-	if err != nil || config.BindingID != observer.BindingID || config.ClusterID != observer.ClusterID ||
+	if err != nil || config.BindingID != observer.BindingID ||
 		config.ObserverNamespace != observer.Namespace || config.ObserverServiceAccount != observer.ServiceAccount || config.Validate() != nil {
 		t.Fatalf("config=%#v err=%v", config, err)
 	}
@@ -229,7 +227,7 @@ func TestProtectedPublisherPersistsCASRecoversPushAndRereadsProvider(t *testing.
 	if _, err := publisher.Materialize(t.Context(), fixture.desired); !errors.Is(err, ErrMaterializationUnavailable) {
 		t.Fatalf("lost DB receipt error=%v", err)
 	}
-	path := protectedIssuerPath(protectedTestCluster, fixture.desired.Name)
+	path := protectedIssuerPath(fixture.desired.Name)
 	written := runProtectedGit(t, fixture.seed, "--git-dir", fixture.remote, "show", "refs/heads/main:"+path)
 	want, _ := RenderProtectedClusterIssuerBundle(fixture.desired, protectedTestObserver)
 	if written != string(want) {
@@ -255,7 +253,7 @@ func TestProtectedPublisherRejectsDescendantPathSubstitutionDuringRecovery(t *te
 	if _, err := publisher.Materialize(t.Context(), fixture.desired); !errors.Is(err, ErrMaterializationUnavailable) {
 		t.Fatalf("lost DB receipt error=%v", err)
 	}
-	documentPath := protectedIssuerPath(protectedTestCluster, fixture.desired.Name)
+	documentPath := protectedIssuerPath(fixture.desired.Name)
 	appendProtectedRemote(t, fixture.remote, documentPath, []byte("apiVersion: attacker.invalid/v1\nkind: ClusterIssuer\n"))
 	if _, err := publisher.Materialize(t.Context(), fixture.desired); !errors.Is(err, ErrConflict) {
 		t.Fatalf("descendant substitution err=%v", err)
@@ -264,7 +262,7 @@ func TestProtectedPublisherRejectsDescendantPathSubstitutionDuringRecovery(t *te
 
 func TestProtectedControllerDematerializesOnlyExactCatalogPreimage(t *testing.T) {
 	desiredFixture := newProtectedFixture(t, "", nil)
-	documentPath := protectedIssuerPath(protectedTestCluster, desiredFixture.desired.Name)
+	documentPath := protectedIssuerPath(desiredFixture.desired.Name)
 
 	t.Run("exact delete", func(t *testing.T) {
 		catalog := NewMemoryStore()

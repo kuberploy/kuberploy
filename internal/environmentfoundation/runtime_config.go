@@ -14,7 +14,6 @@ import (
 const (
 	RuntimeEnabledEnv                = "KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED"
 	RuntimePlatformBindingIDEnv      = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID"
-	RuntimeClusterIDEnv              = "KUBERPLOY_CLUSTER_ID"
 	RuntimePSAVersionEnv             = "KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION"
 	RuntimePollSecondsEnv            = "KUBERPLOY_ENVIRONMENT_FOUNDATION_POLL_INTERVAL_SECONDS"
 	RuntimeControlPlaneNamespaceEnv  = "KUBERPLOY_ENVIRONMENT_FOUNDATION_CONTROL_PLANE_NAMESPACE"
@@ -64,16 +63,16 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if err != nil || pollSeconds < 1 || pollSeconds > 60 || strconv.FormatInt(pollSeconds, 10) != pollRaw {
 		return RuntimeConfig{}, errors.New(RuntimePollSecondsEnv + " must be a canonical integer from 1 through 60")
 	}
-	platformBindingID, clusterID := value(RuntimePlatformBindingIDEnv), value(RuntimeClusterIDEnv)
-	profile := DefaultProfile(clusterID, platformBindingID, "sha256:"+strings.Repeat("0", 64), value(RuntimePSAVersionEnv))
+	platformBindingID := value(RuntimePlatformBindingIDEnv)
+	profile := DefaultProfile(platformBindingID, "sha256:"+strings.Repeat("0", 64), value(RuntimePSAVersionEnv))
 	profile.ControlPlaneNamespace = value(RuntimeControlPlaneNamespaceEnv)
 	profile.ObserverServiceAccount = value(RuntimeObserverServiceAccountEnv)
 	canonical, err := json.Marshal(struct {
-		Contract, PlatformBindingID, ClusterID, PSAVersion string
-		Quota                                              Quota
-		Limits                                             Limits
-		ControlPlaneNamespace, ObserverServiceAccount      string
-	}{Contract, platformBindingID, clusterID, profile.PSAVersion, profile.Quota, profile.Limits, profile.ControlPlaneNamespace, profile.ObserverServiceAccount})
+		Contract, PlatformBindingID, PSAVersion       string
+		Quota                                         Quota
+		Limits                                        Limits
+		ControlPlaneNamespace, ObserverServiceAccount string
+	}{Contract, platformBindingID, profile.PSAVersion, profile.Quota, profile.Limits, profile.ControlPlaneNamespace, profile.ObserverServiceAccount})
 	if err != nil {
 		return RuntimeConfig{}, ErrInvalid
 	}

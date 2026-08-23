@@ -22,7 +22,7 @@ func (s unavailableFoundationStore) EnsureIntent(context.Context, EnsureRequest)
 func foundationRuntimeConfig(t *testing.T) RuntimeConfig {
 	t.Helper()
 	values := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testBindingID,
-		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+		RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
 		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
 	config, err := RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := values[name]; return value, ok })
 	if err != nil {
@@ -60,7 +60,7 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 		t.Fatalf("binding authority was not digested into config: %#v", config)
 	}
 	changed := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testIntentID,
-		RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+		RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
 		RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
 	other, err := RuntimeConfigFromLookup(func(name string) (string, bool) { value, ok := changed[name]; return value, ok })
 	if err != nil || other.Publisher.ConfigDigest == config.Publisher.ConfigDigest {
@@ -72,7 +72,7 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 	} {
 		t.Run("invalid-"+name, func(t *testing.T) {
 			values := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testBindingID,
-				RuntimeClusterIDEnv: testClusterID, RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
+				RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",
 				RuntimeControlPlaneNamespaceEnv: "kuberploy-system", RuntimeObserverServiceAccountEnv: "kuberploy-api"}
 			values[name] = value
 			if _, configErr := RuntimeConfigFromLookup(func(key string) (string, bool) { result, ok := values[key]; return result, ok }); configErr == nil {

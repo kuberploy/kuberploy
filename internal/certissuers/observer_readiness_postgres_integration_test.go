@@ -34,7 +34,7 @@ func TestPostgresObserverReadinessFencesIdentityTargetsAndLeaseEpoch(t *testing.
 	// Deliberately retain sub-microsecond precision. PostgreSQL truncates it;
 	// the returned lease must still remain usable for the next heartbeat.
 	now := time.Now().UTC().Truncate(time.Microsecond).Add(321 * time.Nanosecond)
-	config := ObserverConfig{Enabled: true, BindingID: id.New(), ClusterID: id.New(), Namespace: "kuberploy-system",
+	config := ObserverConfig{Enabled: true, BindingID: id.New(), Namespace: "kuberploy-system",
 		ServiceAccount: "kuberploy-worker", PollInterval: 5 * time.Second, RequestTimeout: time.Second,
 		MaximumAge: 30 * time.Second, ReadinessLease: 30 * time.Second}
 	identity, err := ObserverIdentityForConfig(config)

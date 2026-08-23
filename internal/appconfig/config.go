@@ -34,7 +34,7 @@ var EditablePointers = []string{
 	"/spec/runtime/affinity", "/spec/runtime/topologySpreadConstraints", "/spec/runtime/tolerations", "/spec/runtime/priorityClassName",
 	"/spec/runtime/probes",
 	"/spec/runtime/command", "/spec/runtime/args", "/spec/runtime/workingDirectory", "/spec/runtime/terminationGracePeriodSeconds",
-	"/spec/routes", "/spec/middlewares",
+	"/spec/routes", "/spec/middlewares", "/spec/overrides",
 }
 
 var errInvalidCertificateReferences = errors.New("invalid AppConfig certificate references")
@@ -255,7 +255,122 @@ func ParseAndValidate(raw []byte) (map[string]any, domain.WorkloadRuntime, []Dia
 	for _, problem := range domain.ValidateApplicationScheduling(runtime, applicationID) {
 		diagnostics = append(diagnostics, Diagnostic{Code: problem.Code, Detail: problem.Detail, Pointer: domainPointer(problem.Pointer)})
 	}
+	diagnostics = append(diagnostics, validateResourceOverrides(spec, runtime)...)
 	return parsed, runtime, diagnostics
+}
+
+var protectedResourceLabels = map[string]struct{}{
+	"app.kubernetes.io/name":       {},
+	"app.kubernetes.io/instance":   {},
+	"app.kubernetes.io/managed-by": {},
+	"helm.sh/chart":                {},
+}
+
+func validateResourceOverrides(spec map[string]any, runtime domain.WorkloadRuntime) []Diagnostic {
+	raw, present := spec["overrides"]
+	if !present {
+		return nil
+	}
+	overrides, ok := raw.(map[string]any)
+	if !ok {
+		return nil // The JSON Schema reports the exact type error.
+	}
+	var diagnostics []Diagnostic
+	for _, resource := range []string{"deployment", "service", "ingress", "serviceAccount"} {
+		rawOverride, exists := overrides[resource]
+		if !exists {
+			continue
+		}
+		override, mapOK := rawOverride.(map[string]any)
+		if !mapOK {
+			continue
+		}
+		root := "/spec/overrides/" + resource
+		if resource == "deployment" && runtime.WorkloadType == "StatefulSet" && len(override) > 0 {
+			diagnostics = append(diagnostics, Diagnostic{Code: "OverrideResourceMismatch", Detail: "Deployment overrides are unavailable while the App workload type is StatefulSet.", Pointer: root})
+		}
+		if metadata, metadataOK := override["metadata"].(map[string]any); metadataOK {
+			for _, field := range []string{"labels", "annotations"} {
+				values, valuesOK := metadata[field].(map[string]any)
+				if !valuesOK {
+					continue
+				}
+				for key := range values {
+					_, protectedLabel := protectedResourceLabels[key]
+					if strings.HasPrefix(key, "kuberploy.io/") || protectedLabel {
+						diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedResourceIdentity", Detail: "Kuberploy-owned resource identity metadata cannot be overridden.", Pointer: root + "/metadata/" + field + "/" + escape(key)})
+					}
+				}
+			}
+		}
+		resourceSpec, specOK := override["spec"].(map[string]any)
+		if !specOK {
+			continue
+		}
+		if (resource == "deployment" || resource == "service") && resourceSpec["selector"] != nil {
+			diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedResourceIdentity", Detail: "The generated App selector cannot be overridden.", Pointer: root + "/spec/selector"})
+		}
+		if resource == "deployment" {
+			diagnostics = append(diagnostics, validateOverridePodTemplate(resourceSpec, root+"/spec")...)
+		}
+	}
+	return diagnostics
+}
+
+func validateOverridePodTemplate(spec map[string]any, root string) []Diagnostic {
+	template, ok := spec["template"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	podSpec, ok := template["spec"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	var diagnostics []Diagnostic
+	for _, field := range []string{"serviceAccountName", "hostNetwork", "hostPID", "hostIPC", "hostUsers"} {
+		if _, present := podSpec[field]; present {
+			diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedWorkloadIsolation", Detail: "The in-cluster App identity and host-isolation boundary cannot be overridden.", Pointer: root + "/template/spec/" + field})
+		}
+	}
+	if volumes, ok := podSpec["volumes"].([]any); ok {
+		for index, value := range volumes {
+			volume, mapOK := value.(map[string]any)
+			if mapOK && volume["hostPath"] != nil {
+				diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedWorkloadIsolation", Detail: "HostPath volumes are outside the App workload boundary.", Pointer: fmt.Sprintf("%s/template/spec/volumes/%d/hostPath", root, index)})
+			}
+		}
+	}
+	for _, field := range []string{"containers", "initContainers"} {
+		containers, ok := podSpec[field].([]any)
+		if !ok {
+			continue
+		}
+		for index, value := range containers {
+			container, mapOK := value.(map[string]any)
+			if !mapOK {
+				continue
+			}
+			if image, present := container["image"].(string); present && !autoDeployImageRE.MatchString(image) {
+				diagnostics = append(diagnostics, Diagnostic{Code: "ImmutableImageRequired", Detail: "Advanced container images must use an immutable repository@sha256 digest.", Pointer: fmt.Sprintf("%s/template/spec/%s/%d/image", root, field, index)})
+			}
+			if ports, portsOK := container["ports"].([]any); portsOK {
+				for portIndex, value := range ports {
+					port, portOK := value.(map[string]any)
+					if portOK && port["hostPort"] != nil {
+						diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedWorkloadIsolation", Detail: "Host ports are outside the App workload boundary.", Pointer: fmt.Sprintf("%s/template/spec/%s/%d/ports/%d/hostPort", root, field, index, portIndex)})
+					}
+				}
+			}
+			security, _ := container["securityContext"].(map[string]any)
+			if security["privileged"] == true || security["allowPrivilegeEscalation"] == true || security["procMount"] == "Unmasked" {
+				diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedWorkloadIsolation", Detail: "Privileged or host-equivalent container security settings are outside the App workload boundary.", Pointer: fmt.Sprintf("%s/template/spec/%s/%d/securityContext", root, field, index)})
+			}
+			if capabilities, capabilitiesOK := security["capabilities"].(map[string]any); capabilitiesOK && capabilities["add"] != nil {
+				diagnostics = append(diagnostics, Diagnostic{Code: "ProtectedWorkloadIsolation", Detail: "Adding Linux capabilities is outside the App workload boundary.", Pointer: fmt.Sprintf("%s/template/spec/%s/%d/securityContext/capabilities/add", root, field, index)})
+			}
+		}
+	}
+	return diagnostics
 }
 
 // MaterializedImage returns the exact immutable image selected by a validated

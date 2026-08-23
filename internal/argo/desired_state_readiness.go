@@ -21,7 +21,6 @@ type DesiredStateRuntimeConfig struct {
 	Enabled              bool
 	GitHubAppID          int64
 	PlatformBindingID    string
-	ClusterID            string
 	ArgoNamespace        string
 	RootApplicationName  string
 	RepositorySecretName string
@@ -31,13 +30,13 @@ type DesiredStateRuntimeConfig struct {
 
 func (c DesiredStateRuntimeConfig) Validate() error {
 	if !c.Enabled {
-		if c.GitHubAppID != 0 || c.PlatformBindingID != "" || c.ClusterID != "" || c.ArgoNamespace != "" ||
+		if c.GitHubAppID != 0 || c.PlatformBindingID != "" || c.ArgoNamespace != "" ||
 			c.RootApplicationName != "" || c.RepositorySecretName != "" || c.Runtime != (RuntimeLock{}) || c.DigestEnforcement != "" {
 			return ErrInvalid
 		}
 		return nil
 	}
-	if c.GitHubAppID <= 0 || !uuidRE.MatchString(c.PlatformBindingID) || !uuidRE.MatchString(c.ClusterID) ||
+	if c.GitHubAppID <= 0 || !uuidRE.MatchString(c.PlatformBindingID) ||
 		!kubeRE.MatchString(c.ArgoNamespace) || !kubeRE.MatchString(c.RootApplicationName) || !kubeRE.MatchString(c.RepositorySecretName) ||
 		c.Runtime.Validate() != nil || c.DigestEnforcement != ChartDigestNativeOCI {
 		return ErrInvalid
@@ -53,13 +52,12 @@ func (c DesiredStateRuntimeConfig) RuntimeDigest() (string, error) {
 		Enabled              bool                   `json:"enabled"`
 		GitHubAppID          int64                  `json:"githubAppId"`
 		PlatformBindingID    string                 `json:"platformBindingId"`
-		ClusterID            string                 `json:"clusterId"`
 		ArgoNamespace        string                 `json:"argoNamespace"`
 		RootApplicationName  string                 `json:"rootApplicationName"`
 		RepositorySecretName string                 `json:"repositorySecretName"`
 		Runtime              RuntimeLock            `json:"runtime"`
 		DigestEnforcement    ChartDigestEnforcement `json:"digestEnforcement"`
-	}{true, c.GitHubAppID, c.PlatformBindingID, c.ClusterID, c.ArgoNamespace, c.RootApplicationName, c.RepositorySecretName, c.Runtime, c.DigestEnforcement}
+	}{true, c.GitHubAppID, c.PlatformBindingID, c.ArgoNamespace, c.RootApplicationName, c.RepositorySecretName, c.Runtime, c.DigestEnforcement}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", ErrInvalid
@@ -72,7 +70,6 @@ type DesiredStateRuntimeIdentity struct {
 	DesiredStateWorkerIdentity
 	GitHubAppID          int64                  `json:"githubAppId"`
 	PlatformBindingID    string                 `json:"platformBindingId"`
-	ClusterID            string                 `json:"clusterId"`
 	ArgoNamespace        string                 `json:"argoNamespace"`
 	RootApplicationName  string                 `json:"rootApplicationName"`
 	RepositorySecretName string                 `json:"repositorySecretName"`
@@ -87,7 +84,7 @@ func DesiredStateRuntimeIdentityForConfig(config DesiredStateRuntimeConfig) (Des
 	}
 	return DesiredStateRuntimeIdentity{
 		DesiredStateWorkerIdentity: DesiredStateWorkerIdentity{ContractVersion: DesiredStateContract, ConfigDigest: digest},
-		GitHubAppID:                config.GitHubAppID, PlatformBindingID: config.PlatformBindingID, ClusterID: config.ClusterID,
+		GitHubAppID:                config.GitHubAppID, PlatformBindingID: config.PlatformBindingID,
 		ArgoNamespace: config.ArgoNamespace, RootApplicationName: config.RootApplicationName,
 		RepositorySecretName: config.RepositorySecretName, Runtime: config.Runtime, DigestEnforcement: config.DigestEnforcement,
 	}, nil
@@ -95,12 +92,12 @@ func DesiredStateRuntimeIdentityForConfig(config DesiredStateRuntimeConfig) (Des
 
 func (i DesiredStateRuntimeIdentity) Validate() error {
 	if i.DesiredStateWorkerIdentity.Validate() != nil || i.GitHubAppID <= 0 || !uuidRE.MatchString(i.PlatformBindingID) ||
-		!uuidRE.MatchString(i.ClusterID) || !kubeRE.MatchString(i.ArgoNamespace) || !kubeRE.MatchString(i.RootApplicationName) ||
+		!kubeRE.MatchString(i.ArgoNamespace) || !kubeRE.MatchString(i.RootApplicationName) ||
 		!kubeRE.MatchString(i.RepositorySecretName) || i.Runtime.Validate() != nil || i.DigestEnforcement != ChartDigestNativeOCI {
 		return ErrInvalid
 	}
 	digest, err := (DesiredStateRuntimeConfig{
-		Enabled: true, GitHubAppID: i.GitHubAppID, PlatformBindingID: i.PlatformBindingID, ClusterID: i.ClusterID,
+		Enabled: true, GitHubAppID: i.GitHubAppID, PlatformBindingID: i.PlatformBindingID,
 		ArgoNamespace: i.ArgoNamespace, RootApplicationName: i.RootApplicationName,
 		RepositorySecretName: i.RepositorySecretName, Runtime: i.Runtime, DigestEnforcement: i.DigestEnforcement,
 	}).RuntimeDigest()

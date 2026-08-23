@@ -86,17 +86,17 @@ func (l Limits) Validate() error {
 // Profile is operator-owned configuration. It deliberately contains numeric
 // resource bounds and exact platform workload selectors, never arbitrary YAML.
 type Profile struct {
-	ClusterID, PlatformBindingID, PublisherConfigDigest string
-	PSAVersion                                          string
-	Quota                                               Quota
-	Limits                                              Limits
-	ControlPlaneNamespace                               string
-	ObserverServiceAccount                              string
+	PlatformBindingID, PublisherConfigDigest string
+	PSAVersion                               string
+	Quota                                    Quota
+	Limits                                   Limits
+	ControlPlaneNamespace                    string
+	ObserverServiceAccount                   string
 }
 
-func DefaultProfile(clusterID, platformBindingID, publisherConfigDigest, psaVersion string) Profile {
+func DefaultProfile(platformBindingID, publisherConfigDigest, psaVersion string) Profile {
 	return Profile{
-		ClusterID: clusterID, PlatformBindingID: platformBindingID, PublisherConfigDigest: publisherConfigDigest, PSAVersion: psaVersion,
+		PlatformBindingID: platformBindingID, PublisherConfigDigest: publisherConfigDigest, PSAVersion: psaVersion,
 		Quota: Quota{Pods: 100, Services: 40, ConfigMaps: 200, Secrets: 200, PersistentVolumeClaims: 20,
 			RequestCPUMilli: 16000, LimitCPUMilli: 32000, RequestMemoryMiB: 32768,
 			LimitMemoryMiB: 65536, RequestStorageGiB: 1024},
@@ -108,7 +108,7 @@ func DefaultProfile(clusterID, platformBindingID, publisherConfigDigest, psaVers
 }
 
 func (p Profile) Validate() error {
-	if !uuidRE.MatchString(p.ClusterID) || !uuidRE.MatchString(p.PlatformBindingID) || !digestRE.MatchString(p.PublisherConfigDigest) ||
+	if !uuidRE.MatchString(p.PlatformBindingID) || !digestRE.MatchString(p.PublisherConfigDigest) ||
 		!psaVersionRE.MatchString(p.PSAVersion) || p.Quota.Validate() != nil || p.Limits.Validate() != nil ||
 		!dnsLabelRE.MatchString(p.ControlPlaneNamespace) || !dnsLabelRE.MatchString(p.ObserverServiceAccount) {
 		return ErrInvalid
@@ -143,12 +143,12 @@ func (i EnvironmentIdentity) Validate() error {
 }
 
 type GitAuthority struct {
-	BindingID, ClusterID, TargetRef, PlannedHead string
-	Generation                                   int64
+	BindingID, TargetRef, PlannedHead string
+	Generation                        int64
 }
 
 func (a GitAuthority) Validate() error {
-	if !uuidRE.MatchString(a.BindingID) || !uuidRE.MatchString(a.ClusterID) || !gitRefRE.MatchString(a.TargetRef) ||
+	if !uuidRE.MatchString(a.BindingID) || !gitRefRE.MatchString(a.TargetRef) ||
 		strings.Contains(a.TargetRef, "..") || strings.Contains(a.TargetRef, "//") ||
 		!gitCommitRE.MatchString(a.PlannedHead) || a.Generation < 1 {
 		return ErrInvalid
@@ -201,7 +201,7 @@ func (i Intent) Validate() error {
 	if !uuidRE.MatchString(i.ID) || i.EnvironmentIdentity.Validate() != nil || i.Authority.Validate() != nil ||
 		!digestRE.MatchString(i.ProfileDigest) || !digestRE.MatchString(i.PublisherConfigDigest) ||
 		i.PublisherContractVersion != PublisherContract || i.PublisherPolicy != ProtectedGitPolicy ||
-		i.Path != ManifestPath(i.Authority.ClusterID, i.EnvironmentID) || len(i.Manifest) < 1 || len(i.Manifest) > MaximumManifestBytes ||
+		i.Path != ManifestPath(i.EnvironmentID) || len(i.Manifest) < 1 || len(i.Manifest) > MaximumManifestBytes ||
 		digest(i.Manifest) != i.ManifestDigest || !digestRE.MatchString(i.IntentDigest) ||
 		i.CommitTrailer != "Kuberploy-Environment-Foundation-Intent: "+i.ID || i.CreatedAt.IsZero() ||
 		i.UpdatedAt.Before(i.CreatedAt) || i.NextAttemptAt.Before(i.CreatedAt) || i.Attempts < 0 || i.Attempts > MaximumAttempts ||
@@ -292,11 +292,11 @@ func (r Readiness) Validate() error {
 	return nil
 }
 
-func ManifestPath(clusterID, environmentID string) string {
-	if !uuidRE.MatchString(clusterID) || !uuidRE.MatchString(environmentID) {
+func ManifestPath(environmentID string) string {
+	if !uuidRE.MatchString(environmentID) {
 		return ""
 	}
-	return fmt.Sprintf("clusters/%s/argocd/foundations/%s.yaml", clusterID, environmentID)
+	return fmt.Sprintf("platform/argocd/foundations/%s.yaml", environmentID)
 }
 
 func digest(value []byte) string {

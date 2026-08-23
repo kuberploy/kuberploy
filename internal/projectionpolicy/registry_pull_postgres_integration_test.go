@@ -52,7 +52,6 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_safety_poll_cursors WHERE binding_id=$1`, bindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_verified_head_observations WHERE binding_id=$1`, bindingID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=$1`, bindingID)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM application_registry_pull_selections WHERE application_id=$1`, applicationID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM project_registry_pull_credentials WHERE id=$1`, pullCredentialID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM service_registry_policies WHERE registry_target_id=$1`, targetID)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM service_registry_policies WHERE registry_target_id=$1`, ambiguousTargetID)
@@ -141,8 +140,8 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 		VALUES($1,$2,$3,'Production pull',$4,$5,$5)`, pullCredentialID, projectID, targetID, userID, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO application_registry_pull_selections(application_id,mode,project_credential_id,updated_by,updated_at)
-		VALUES($1,'public',NULL,$2,$3)`, applicationID, userID, now); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE applications SET registry_pull_mode='public',registry_pull_project_credential_id=NULL,
+		registry_pull_updated_by=$2,registry_pull_updated_at=$3 WHERE id=$1`, applicationID, userID, now); err != nil {
 		t.Fatal(err)
 	}
 	publicSelectionTx, beginErr := pool.Begin(ctx)
@@ -156,8 +155,8 @@ func TestPostgreSQLRegistryPullPolicyIsExactAtomicAndNonDestructive(t *testing.T
 	if err = publicSelectionTx.Rollback(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE application_registry_pull_selections
-		SET mode='project-credential',project_credential_id=$2,updated_at=$3 WHERE application_id=$1`, applicationID, pullCredentialID, now.Add(time.Second)); err != nil {
+	if _, err = pool.Exec(ctx, `UPDATE applications
+		SET registry_pull_mode='project-credential',registry_pull_project_credential_id=$2,registry_pull_updated_at=$3 WHERE id=$1`, applicationID, pullCredentialID, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	selectedTx, beginErr := pool.Begin(ctx)

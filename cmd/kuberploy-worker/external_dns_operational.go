@@ -54,7 +54,7 @@ func newExternalDNSOperationalRuntimeWithDatabase(ctx context.Context, databaseU
 		store.Close()
 		return nil, err
 	}
-	publisher, err := externaldns.NewProtectedPublisher(git.store, git.headVerifier, git.writeManager, externaldns.ProtectedGitConfig{BindingID: config.BindingID, ClusterID: config.ClusterID, Owner: owner, Template: config.Template}, func() time.Time { return time.Now().UTC() })
+	publisher, err := externaldns.NewProtectedPublisher(git.store, git.headVerifier, git.writeManager, externaldns.ProtectedGitConfig{BindingID: config.BindingID, Owner: owner, Template: config.Template}, func() time.Time { return time.Now().UTC() })
 	if err != nil {
 		store.Close()
 		return nil, err

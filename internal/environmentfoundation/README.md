@@ -36,7 +36,7 @@ credential broker, and normal fast-forward writer; there is no second writer.
 
 The deterministic bundle is written only to:
 
-`clusters/<cluster UUID>/argocd/foundations/<environment UUID>.yaml`
+`platform/argocd/foundations/<environment UUID>.yaml`
 
 It contains:
 

@@ -198,7 +198,7 @@ type Store interface {
 	CreateEnvironmentGitBinding(context.Context, string, string, string, string, gitprojection.CreateEnvironmentBindingInput) (Result[gitprojection.Binding], error)
 	GetEnvironmentGitBindingForActor(context.Context, string, string) (gitprojection.Binding, error)
 	CreatePlatformGitBinding(context.Context, string, string, string, string, gitprojection.CreatePlatformBindingInput) (Result[gitprojection.Binding], error)
-	GetPlatformGitBindingForActor(context.Context, string, string) (gitprojection.Binding, error)
+	GetPlatformGitBindingForActor(context.Context, string) (gitprojection.Binding, error)
 	CreateApplication(context.Context, string, string, string, domain.CreateApplication) (Result[domain.Application], error)
 	ListApplications(context.Context) ([]domain.Application, error)
 	GetApplication(context.Context, string) (domain.Application, error)

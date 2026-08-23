@@ -14,13 +14,13 @@ func protectedArgoReadinessFixture(t *testing.T, now time.Time) (*argo.MemoryDes
 	*argo.ProductionDesiredStateReadinessProbe, ProductionProtectedArgoReadinessConfig,
 	argo.DesiredStateRuntimeWorkerObservation) {
 	t.Helper()
-	platformBindingID, clusterID := id.New(), id.New()
+	platformBindingID := id.New()
 	repositoryCredential, err := argo.RepositoryCredentialName(platformBindingID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	identity, err := argo.DesiredStateRuntimeIdentityForConfig(argo.DesiredStateRuntimeConfig{
-		Enabled: true, GitHubAppID: 1001, PlatformBindingID: platformBindingID, ClusterID: clusterID,
+		Enabled: true, GitHubAppID: 1001, PlatformBindingID: platformBindingID,
 		ArgoNamespace: "argocd", RootApplicationName: argo.PlatformRootApplicationName,
 		RepositorySecretName: repositoryCredential,
 		Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts",
@@ -38,7 +38,7 @@ func protectedArgoReadinessFixture(t *testing.T, now time.Time) (*argo.MemoryDes
 		Now:    func() time.Time { return now.Add(24 * time.Hour) }}
 	publisher := ProtectedPublisherIdentity{Contract: ProtectedPublisherContract, PolicyVersion: ProtectedGitPolicy,
 		ConfigDigest: digestBytes([]byte("protected-argo-publisher"))}
-	config := ProductionProtectedArgoReadinessConfig{PlatformBindingID: platformBindingID, ClusterID: clusterID,
+	config := ProductionProtectedArgoReadinessConfig{PlatformBindingID: platformBindingID,
 		Application: ProtectedApplicationRuntime{ArgoNamespace: identity.ArgoNamespace}, Publisher: publisher}
 	observation := argo.DesiredStateRuntimeWorkerObservation{WorkerID: "helm-argo-readiness-worker", DesiredStateRuntimeIdentity: identity,
 		StartedAt: now, ObservedAt: now}
@@ -110,9 +110,6 @@ func TestNewProductionProtectedArgoReadinessRejectsEveryRootMismatch(t *testing.
 		}},
 		{name: "platform binding mismatch", mutate: func(_ **argo.ProductionDesiredStateReadinessProbe, config *ProductionProtectedArgoReadinessConfig) {
 			config.PlatformBindingID = id.New()
-		}},
-		{name: "cluster mismatch", mutate: func(_ **argo.ProductionDesiredStateReadinessProbe, config *ProductionProtectedArgoReadinessConfig) {
-			config.ClusterID = id.New()
 		}},
 		{name: "Argo namespace mismatch", mutate: func(_ **argo.ProductionDesiredStateReadinessProbe, config *ProductionProtectedArgoReadinessConfig) {
 			config.Application.ArgoNamespace = "other-argocd"

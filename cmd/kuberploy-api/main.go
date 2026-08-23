@@ -158,8 +158,7 @@ func run() error {
 		return argo.ErrInvalid
 	}
 	if foundationConfig.Enabled && (!argoDesiredStateConfig.Enabled || !gitProjectionConfig.Enabled ||
-		foundationConfig.PlatformBindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID ||
-		foundationConfig.Profile.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID) {
+		foundationConfig.PlatformBindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID) {
 		return environmentfoundation.ErrInvalid
 	}
 	platformGitBindingConfig, err := platformGitBindingConfigFromEnvironment(gitProjectionConfig)
@@ -197,9 +196,9 @@ func run() error {
 			SourceBuildConfigDigest: sourceBuildDigest, SourceBuildGitHubAppID: sourceBuildConfig.GitHub.AppID,
 			GitProjectionConfigDigest: gitProjectionDigest, GitProjectionGitHubAppID: gitProjectionConfig.GitHub.AppID,
 			FoundationConfigDigest: foundationConfig.Publisher.ConfigDigest, FoundationPollNanos: int64(foundationConfig.PollInterval),
-			FoundationPlatformBindingID: foundationConfig.PlatformBindingID, FoundationClusterID: foundationConfig.Profile.ClusterID,
-			ArgoConfigDigest: argoIdentity.ConfigDigest, ArgoGitHubAppID: argoIdentity.GitHubAppID,
-			ArgoPlatformBindingID: argoIdentity.PlatformBindingID, ArgoClusterID: argoIdentity.ClusterID,
+			FoundationPlatformBindingID: foundationConfig.PlatformBindingID,
+			ArgoConfigDigest:            argoIdentity.ConfigDigest, ArgoGitHubAppID: argoIdentity.GitHubAppID,
+			ArgoPlatformBindingID: argoIdentity.PlatformBindingID,
 		})
 		if err != nil {
 			return err
@@ -228,12 +227,10 @@ func run() error {
 	if certificateIssuerConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled ||
 		!edgeRuntimeConfig.Enabled || edgeRuntimeConfig.Profiles.CertManager == nil ||
 		certificateIssuerConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID ||
-		certificateIssuerConfig.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID ||
-		certificateIssuerConfig.BindingID != foundationConfig.PlatformBindingID ||
-		certificateIssuerConfig.ClusterID != foundationConfig.Profile.ClusterID) {
+		certificateIssuerConfig.BindingID != foundationConfig.PlatformBindingID) {
 		return certissuers.ErrObservationUnavailable
 	}
-	if externalDNSOperationalConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled || !edgeRuntimeConfig.Enabled || externalDNSOperationalConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID || externalDNSOperationalConfig.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID || externalDNSOperationalConfig.BindingID != foundationConfig.PlatformBindingID || externalDNSOperationalConfig.ClusterID != foundationConfig.Profile.ClusterID) {
+	if externalDNSOperationalConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled || !edgeRuntimeConfig.Enabled || externalDNSOperationalConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID || externalDNSOperationalConfig.BindingID != foundationConfig.PlatformBindingID) {
 		return externaldns.ErrRuntimeUnavailable
 	}
 	sourceBuilds, err := newSourceBuildAPI(ctx, databaseURL, publicURL, os.Getenv(githubAppSlugEnv), sourceBuildConfig, db)

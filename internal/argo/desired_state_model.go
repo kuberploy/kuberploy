@@ -58,7 +58,7 @@ func (t DesiredStateTarget) Validate() error {
 	platform := t.PlatformBinding
 	if t.Environment.Validate() != nil || platform.Validate() != nil || platform.Kind != gitprojection.BindingPlatform ||
 		t.Environment.Binding.CredentialMode != gitprojection.CredentialGitHubApp ||
-		platform.CredentialMode != gitprojection.CredentialGitHubApp || platform.ClusterID == "" ||
+		platform.CredentialMode != gitprojection.CredentialGitHubApp ||
 		platform.TargetHeadRevision == "" || platform.TargetHeadObservedAt.IsZero() ||
 		(platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) {
 		return ErrInvalid
@@ -66,11 +66,11 @@ func (t DesiredStateTarget) Validate() error {
 	return nil
 }
 
-func DesiredStatePath(clusterID, environmentID string) (string, error) {
-	if !uuidRE.MatchString(clusterID) || !uuidRE.MatchString(environmentID) {
+func DesiredStatePath(environmentID string) (string, error) {
+	if !uuidRE.MatchString(environmentID) {
 		return "", ErrInvalid
 	}
-	return path.Join(gitprojection.PlatformPrefix(clusterID), "argocd", "environments", environmentID+".yaml"), nil
+	return path.Join(gitprojection.PlatformPrefix(), "argocd", "environments", environmentID+".yaml"), nil
 }
 
 type DesiredStateCommandState string
@@ -112,7 +112,6 @@ type DesiredStateCommand struct {
 	EnvironmentID         string `json:"environmentId"`
 	PlatformBindingID     string `json:"platformBindingId"`
 	EnvironmentBindingID  string `json:"environmentBindingId"`
-	ClusterID             string `json:"clusterId"`
 	PlatformTargetRef     string `json:"platformTargetRef"`
 	EnvironmentTargetRef  string `json:"environmentTargetRef"`
 	EnvironmentRevision   string `json:"environmentRevision"`
@@ -164,7 +163,7 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 	if err != nil || len(content) > gitprojection.MaxDocumentBytes {
 		return DesiredStateCommand{}, ErrInvalid
 	}
-	commandPath, err := DesiredStatePath(target.PlatformBinding.ClusterID, target.Environment.Environment.ID)
+	commandPath, err := DesiredStatePath(target.Environment.Environment.ID)
 	if err != nil {
 		return DesiredStateCommand{}, err
 	}
@@ -187,7 +186,7 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 	contentSHA := contentDigest(content)
 	command := DesiredStateCommand{
 		ID: id, Generation: generation, ProjectID: target.Environment.Project.ID, EnvironmentID: target.Environment.Environment.ID,
-		PlatformBindingID: target.PlatformBinding.ID, EnvironmentBindingID: target.Environment.Binding.ID, ClusterID: target.PlatformBinding.ClusterID,
+		PlatformBindingID: target.PlatformBinding.ID, EnvironmentBindingID: target.Environment.Binding.ID,
 		PlatformTargetRef: target.PlatformBinding.TargetRef, EnvironmentTargetRef: target.Environment.Binding.TargetRef,
 		EnvironmentRevision: target.Environment.Binding.IndexedRevision, EnvironmentGeneration: target.Environment.Binding.ProjectionGeneration, Path: commandPath,
 		ArgoNamespace: target.Environment.ArgoNamespace, DestinationNamespace: target.Environment.Environment.Namespace,
@@ -209,7 +208,7 @@ func newDesiredStateCommand(id string, target DesiredStateTarget, approval Desir
 }
 
 func (c DesiredStateCommand) Validate() error {
-	commandPath, pathErr := DesiredStatePath(c.ClusterID, c.EnvironmentID)
+	commandPath, pathErr := DesiredStatePath(c.EnvironmentID)
 	validPrecondition := c.Precondition == gitprojection.MutationCreateIfAbsent && c.ExpectedETag == "" ||
 		c.Precondition == gitprojection.MutationMatchETag && strongETagRE.MatchString(c.ExpectedETag)
 	if !uuidRE.MatchString(c.ID) || c.Generation <= 0 || !uuidRE.MatchString(c.ProjectID) || !uuidRE.MatchString(c.EnvironmentID) ||
@@ -248,7 +247,7 @@ func (c DesiredStateCommand) Validate() error {
 func (c DesiredStateCommand) ValidateFor(target DesiredStateTarget) error {
 	if c.Validate() != nil || target.Validate() != nil || c.ProjectID != target.Environment.Project.ID ||
 		c.EnvironmentID != target.Environment.Environment.ID || c.PlatformBindingID != target.PlatformBinding.ID ||
-		c.EnvironmentBindingID != target.Environment.Binding.ID || c.ClusterID != target.PlatformBinding.ClusterID ||
+		c.EnvironmentBindingID != target.Environment.Binding.ID ||
 		c.PlatformTargetRef != target.PlatformBinding.TargetRef || c.EnvironmentTargetRef != target.Environment.Binding.TargetRef ||
 		c.EnvironmentRevision != target.Environment.Binding.IndexedRevision || c.EnvironmentGeneration != target.Environment.Binding.ProjectionGeneration ||
 		c.BaseRevision != target.PlatformBinding.TargetHeadRevision ||

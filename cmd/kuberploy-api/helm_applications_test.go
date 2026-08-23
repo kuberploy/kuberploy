@@ -24,14 +24,13 @@ func helmAPIAuthoritiesFixture(t *testing.T) (*gitProjectionAPI, *argoDesiredSta
 	projection := &gitProjectionAPI{store: projectionStore, backend: &gitprojection.ControlPlane{},
 		readiness: &gitprojection.RuntimeReadinessProbe{Store: projectionStore, Identity: projectionIdentity}}
 	platformBindingID := "11111111-1111-4111-8111-111111111111"
-	clusterID := "22222222-2222-4222-8222-222222222222"
 	repositoryCredential, err := argo.RepositoryCredentialName(platformBindingID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	argoIdentity, err := argo.DesiredStateRuntimeIdentityForConfig(argo.DesiredStateRuntimeConfig{
 		Enabled: true, GitHubAppID: projectionIdentity.GitHubAppID, PlatformBindingID: platformBindingID,
-		ClusterID: clusterID, ArgoNamespace: "argocd", RootApplicationName: argo.PlatformRootApplicationName,
+		ArgoNamespace: "argocd", RootApplicationName: argo.PlatformRootApplicationName,
 		RepositorySecretName: repositoryCredential,
 		Runtime: argo.RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: argo.RuntimeChartName,
 			ChartVersion: "1.2.3", ChartDigest: "sha256:" + strings.Repeat("b", 64),

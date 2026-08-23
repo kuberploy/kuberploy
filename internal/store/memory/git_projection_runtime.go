@@ -16,7 +16,7 @@ func memoryGitDocumentKey(bindingID, path string) string { return bindingID + "\
 
 func sameMemoryGitBindingAuthority(left, right gitprojection.Binding) bool {
 	return left.ID == right.ID && left.Kind == right.Kind && left.ScopeID == right.ScopeID &&
-		left.ProjectID == right.ProjectID && left.EnvironmentID == right.EnvironmentID && left.ClusterID == right.ClusterID &&
+		left.ProjectID == right.ProjectID && left.EnvironmentID == right.EnvironmentID &&
 		left.Repository == right.Repository && left.TargetRef == right.TargetRef && left.Prefix == right.Prefix &&
 		left.CredentialMode == right.CredentialMode && left.CredentialSecretName == right.CredentialSecretName
 }
@@ -38,12 +38,12 @@ func (s *Store) PutBinding(_ context.Context, binding gitprojection.Binding) err
 		}
 		s.gitBindings[binding.EnvironmentID] = binding
 	case gitprojection.BindingPlatform:
-		if current, exists := s.platformGitBindings[binding.ClusterID]; exists {
+		if current, exists := s.platformGitBindings["platform"]; exists {
 			if current.ID != binding.ID || !sameMemoryGitBindingAuthority(current, binding) {
 				return base.ErrConflict
 			}
 		}
-		s.platformGitBindings[binding.ClusterID] = binding
+		s.platformGitBindings["platform"] = binding
 	default:
 		return gitprojection.ErrInvalid
 	}

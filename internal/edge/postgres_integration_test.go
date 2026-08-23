@@ -380,11 +380,11 @@ func TestPostgreSQLEdgeSemanticTransitionsWakeGitPolicyRevalidation(t *testing.T
 	}
 	head := strings.Repeat("a", 40)
 	if _, err = pool.Exec(ctx, `INSERT INTO git_repository_bindings(
-		id,kind,scope_id,project_id,environment_id,cluster_id,provider,installation_id,repository_id,
+		id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,
 		repository_owner,repository_name,target_ref,path_prefix,credential_mode,credential_secret_name,
 		state,target_head_revision,indexed_revision,projection_generation,parser_version,
 		target_head_observed_at,indexed_at,created_at,updated_at
-	) VALUES($1,'environment',$2,$3,$2,NULL,'github',9000000000000001,9000000000000002,
+	) VALUES($1,'environment',$2,$3,$2,'github',9000000000000001,9000000000000002,
 		'kuberploy','edge-wake','refs/heads/main',$4,'github-app','','ready',$5,$5,1,'appconfig-v1alpha1',$6,$6,$6,$6)`,
 		bindingID, environmentID, projectID, "tenants/"+projectID+"/environments/"+environmentID, head, now); err != nil {
 		t.Fatal(err)

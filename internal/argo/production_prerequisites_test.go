@@ -20,7 +20,6 @@ import (
 const (
 	productionPlatformBindingID    = "71111111-1111-4111-8111-111111111111"
 	productionEnvironmentBindingID = "72111111-1111-4111-8111-111111111111"
-	productionClusterID            = "73111111-1111-4111-8111-111111111111"
 	productionProjectID            = "74111111-1111-4111-8111-111111111111"
 	productionEnvironmentID        = "75111111-1111-4111-8111-111111111111"
 )
@@ -77,7 +76,7 @@ type staticFoundationProbe struct{ err error }
 
 func (p staticFoundationProbe) Probe(context.Context) error { return p.err }
 
-func (c staticRuntimeBindingCatalog) ArgoRepositoryBindings(context.Context, int64, string, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error) {
+func (c staticRuntimeBindingCatalog) ArgoRepositoryBindings(context.Context, int64, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error) {
 	return c.values, c.err
 }
 
@@ -160,8 +159,7 @@ func (s *recoveringRootApplication) RefreshPlatformRootApplication(_ context.Con
 
 func productionBindings(t *testing.T, now time.Time) (gitprojection.Binding, gitprojection.Binding) {
 	t.Helper()
-	platform, err := gitprojection.NewGitHubPlatformBinding(productionPlatformBindingID, productionClusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 501, RepositoryID: 601, Owner: "kuberploy", Name: "platform"},
+	platform, err := gitprojection.NewGitHubPlatformBinding(productionPlatformBindingID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 501, RepositoryID: 601, Owner: "kuberploy", Name: "platform"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +188,7 @@ func productionIdentity(t *testing.T, platform gitprojection.Binding) DesiredSta
 		t.Fatal(err)
 	}
 	identity, err := DesiredStateRuntimeIdentityForConfig(DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1001,
-		PlatformBindingID: platform.ID, ClusterID: platform.ClusterID, ArgoNamespace: "argocd",
+		PlatformBindingID: platform.ID, ArgoNamespace: "argocd",
 		RootApplicationName: PlatformRootApplicationName, RepositorySecretName: credentialName,
 		Runtime: RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime", ChartVersion: "1.2.3",
 			ChartDigest: "sha256:" + strings.Repeat("c", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("d", 64)},
@@ -558,10 +556,10 @@ func TestInClusterProductionClientObservesExactProtectedApplication(t *testing.T
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	expectation, err := NewProtectedApplicationExpectation("argocd", "kp-project",
 		"https://github.com/kuberploy/gitops.git", strings.Repeat("a", 40), "app-ns",
-		"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222",
+		"22222222-2222-4222-8222-222222222222",
 		"33333333-3333-4333-8333-333333333333", "44444444-4444-4444-8444-444444444444",
 		"55555555-5555-4555-8555-555555555555",
-		"clusters/11111111-1111-4111-8111-111111111111/helm-manifests/environments/33333333-3333-4333-8333-333333333333/applications/44444444-4444-4444-8444-444444444444/revisions/55555555-5555-4555-8555-555555555555/release.yaml",
+		"platform/helm-manifests/environments/33333333-3333-4333-8333-333333333333/applications/44444444-4444-4444-8444-444444444444/revisions/55555555-5555-4555-8555-555555555555/release.yaml",
 		"sha256:"+strings.Repeat("b", 64))
 	if err != nil {
 		t.Fatal(err)

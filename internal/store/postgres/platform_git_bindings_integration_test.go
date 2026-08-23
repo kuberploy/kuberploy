@@ -38,13 +38,13 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 	defer st.Close()
 
 	adminID, viewerID, installationID, repositoryID := id.New(), id.New(), id.New(), id.New()
-	clusterID, concurrentClusterID, rejectedClusterID := id.New(), id.New(), id.New()
+	bindingIDs := []string{id.New(), id.New(), id.New()}
 	now := databaseTime(time.Now())
 	suffix := adminID[:8]
 	cleanup := func(cleanupContext context.Context) {
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM audit_events WHERE actor_id=$1`, adminID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM mutation_receipts WHERE actor_id IN ($1,$2)`, adminID, viewerID)
-		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE cluster_id IN ($1,$2,$3)`, clusterID, concurrentClusterID, rejectedClusterID)
+		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=ANY($1::uuid[])`, bindingIDs)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM github_repositories WHERE id=$1`, repositoryID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM github_installations WHERE id=$1`, installationID)
 		_, _ = st.pool.Exec(cleanupContext, `DELETE FROM access_grants WHERE subject_user_id IN ($1,$2) OR created_by IN ($1,$2)`, adminID, viewerID)
@@ -77,13 +77,25 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 		}
 	}
 
-	input := gitprojection.CreatePlatformBindingInput{BindingID: id.New(), ClusterID: clusterID, LinkedInstallationID: installationID,
+	input := gitprojection.CreatePlatformBindingInput{BindingID: bindingIDs[0], LinkedInstallationID: installationID,
 		LinkedRepositoryID: repositoryID, GitHubAppID: 177,
 		Repository: gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 184242,
 			RepositoryID: 189001, Owner: "kuberploy", Name: "platform-gitops"}, TargetRef: "refs/heads/platform"}
+	rejected := input
+	rejected.BindingID = bindingIDs[2]
+	rejected.GitHubAppID++
+	if _, err = st.CreatePlatformGitBinding(ctx, adminID, "platform-binding-app-mismatch", "platform-binding-app-mismatch", "platform-binding-app-mismatch", rejected); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("operator/catalog App ID mismatch error=%v", err)
+	}
+	rejected.GitHubAppID = input.GitHubAppID
+	rejected.LinkedRepositoryID = id.New()
+	if _, err = st.CreatePlatformGitBinding(ctx, adminID, "platform-binding-repo-mismatch", "platform-binding-repo-mismatch", "platform-binding-repo-mismatch", rejected); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("unresolved repository catalog error=%v", err)
+	}
+
 	created, err := st.CreatePlatformGitBinding(ctx, adminID, "platform-binding", "platform-binding", "platform-binding-request", input)
-	if err != nil || created.Replay || created.Value.ID != input.BindingID || created.Value.Kind != gitprojection.BindingPlatform || created.Value.ClusterID != clusterID ||
-		created.Value.Prefix != gitprojection.PlatformPrefix(clusterID) || created.Value.CredentialMode != gitprojection.CredentialGitHubApp ||
+	if err != nil || created.Replay || created.Value.ID != input.BindingID || created.Value.Kind != gitprojection.BindingPlatform || created.Value.ScopeID != input.BindingID ||
+		created.Value.Prefix != gitprojection.PlatformPrefix() || created.Value.CredentialMode != gitprojection.CredentialGitHubApp ||
 		created.Value.CredentialSecretName != "" {
 		t.Fatalf("created=%#v err=%v", created, err)
 	}
@@ -97,37 +109,30 @@ func TestPostgreSQLPlatformGitBindingIsAuthorizedCatalogBoundIdempotentAndConcur
 	if _, err = st.CreatePlatformGitBinding(ctx, viewerID, "platform-binding-viewer", "platform-binding-viewer", "platform-binding-viewer", input); !errors.Is(err, base.ErrForbidden) {
 		t.Fatalf("non-platform-admin create error=%v", err)
 	}
-	if _, err = st.GetPlatformGitBindingForActor(ctx, viewerID, clusterID); !errors.Is(err, base.ErrForbidden) {
+	if _, err = st.GetPlatformGitBindingForActor(ctx, viewerID); !errors.Is(err, base.ErrForbidden) {
 		t.Fatalf("non-platform-admin read error=%v", err)
 	}
-	read, err := st.GetPlatformGitBindingForActor(ctx, adminID, clusterID)
+	read, err := st.GetPlatformGitBindingForActor(ctx, adminID)
 	if err != nil || read.ID != created.Value.ID {
 		t.Fatalf("read=%#v err=%v", read, err)
 	}
 	var auditCount int
 	if err = st.pool.QueryRow(ctx, `SELECT count(*) FROM audit_events
-		WHERE actor_id=$1 AND action='argo-platform-git-binding.create' AND target_type='cluster' AND target_id=$2`, adminID, clusterID).Scan(&auditCount); err != nil || auditCount != 1 {
+		WHERE actor_id=$1 AND action='argo-platform-git-binding.create' AND target_type='platform' AND target_id=$2`, adminID, created.Value.ID).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("audit count=%d err=%v", auditCount, err)
 	}
 	if _, err = st.pool.Exec(ctx, `UPDATE git_repository_bindings SET target_ref='refs/heads/attacker' WHERE id=$1`, created.Value.ID); err == nil {
 		t.Fatal("platform binding immutable target ref was mutable")
 	}
 
-	rejected := input
-	rejected.ClusterID = rejectedClusterID
-	rejected.GitHubAppID++
-	if _, err = st.CreatePlatformGitBinding(ctx, adminID, "platform-binding-app-mismatch", "platform-binding-app-mismatch", "platform-binding-app-mismatch", rejected); !errors.Is(err, base.ErrNotFound) {
-		t.Fatalf("operator/catalog App ID mismatch error=%v", err)
-	}
-	rejected.GitHubAppID = input.GitHubAppID
-	rejected.LinkedRepositoryID = id.New()
-	if _, err = st.CreatePlatformGitBinding(ctx, adminID, "platform-binding-repo-mismatch", "platform-binding-repo-mismatch", "platform-binding-repo-mismatch", rejected); !errors.Is(err, base.ErrNotFound) {
-		t.Fatalf("unresolved repository catalog error=%v", err)
+	// Remove the first singleton after its complete lifecycle assertions so the
+	// concurrent create race starts from the same empty installation state.
+	if _, err = st.pool.Exec(ctx, `DELETE FROM git_repository_bindings WHERE id=$1`, created.Value.ID); err != nil {
+		t.Fatalf("delete first singleton fixture: %v", err)
 	}
 
 	concurrent := input
-	concurrent.BindingID = id.New()
-	concurrent.ClusterID = concurrentClusterID
+	concurrent.BindingID = bindingIDs[1]
 	results := make(chan error, 2)
 	var start sync.WaitGroup
 	start.Add(1)

@@ -114,14 +114,13 @@
         "github": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "clusterID", "platformBindingID", "argoNamespace", "psaVersion", "buildKitImage", "buildSecretName", "buildSecretProfiles", "sshSecretName", "sshSecretProfiles", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
+          "required": ["enabled", "appID", "clientID", "appSlug", "secretName", "platformBindingID", "argoNamespace", "psaVersion", "buildKitImage", "buildSecretName", "buildSecretProfiles", "sshSecretName", "sshSecretProfiles", "controlPlaneEgressCIDRs", "sourceEgressCIDRs", "registryEgressCIDRs"],
           "properties": {
             "enabled": { "type": "boolean" },
             "appID": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
             "clientID": { "type": "string", "maxLength": 128 },
             "appSlug": { "type": "string", "maxLength": 100 },
             "secretName": { "$ref": "#/$defs/optionalDNSLabel" },
-            "clusterID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
             "platformBindingID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
             "argoNamespace": { "$ref": "#/$defs/optionalDNSLabel" },
             "psaVersion": { "type": "string", "pattern": "^(?:|v1\\.(?:2[5-9]|[3-9][0-9]))$" },
@@ -138,7 +137,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "clusterID": { "minLength": 36 }, "platformBindingID": { "minLength": 36 }, "argoNamespace": { "minLength": 1 }, "psaVersion": { "minLength": 5 }, "buildKitImage": { "minLength": 12 } } }
+              "then": { "properties": { "appID": { "minimum": 1 }, "clientID": { "minLength": 6 }, "appSlug": { "minLength": 1 }, "secretName": { "minLength": 1 }, "platformBindingID": { "minLength": 36 }, "argoNamespace": { "minLength": 1 }, "psaVersion": { "minLength": 5 }, "buildKitImage": { "minLength": 12 } } }
             }
           ]
         },

@@ -171,7 +171,7 @@ func (s *Store) DeleteProjectRegistryPullCredentialForActor(ctx context.Context,
 		return false, base.ErrNotFound
 	}
 	var selected bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM application_registry_pull_selections WHERE project_credential_id=$1)`, credentialID).Scan(&selected); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM applications WHERE registry_pull_project_credential_id=$1)`, credentialID).Scan(&selected); err != nil {
 		return false, err
 	}
 	if selected {
@@ -208,7 +208,9 @@ func (s *Store) ApplicationRegistryPullSelectionForActor(ctx context.Context, ac
 	if err = authorizeWith(ctx, tx, actor, domain.PermissionRegistryRead, domain.AccessTarget{Type: "application", ID: applicationID}); err != nil {
 		return domain.ApplicationRegistryPullSelection{}, err
 	}
-	value, err := scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `SELECT application_id::text,mode,COALESCE(project_credential_id::text,''),updated_at FROM application_registry_pull_selections WHERE application_id=$1`, applicationID))
+	value, err := scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `SELECT id::text,registry_pull_mode,
+		COALESCE(registry_pull_project_credential_id::text,''),COALESCE(registry_pull_updated_at,created_at)
+		FROM applications WHERE id=$1 AND registry_pull_mode IS NOT NULL`, applicationID))
 	if errors.Is(err, base.ErrNotFound) {
 		value, err = domain.ApplicationRegistryPullSelection{ApplicationID: applicationID, Mode: domain.ApplicationRegistryPullPublic}, nil
 	}
@@ -240,7 +242,9 @@ func (s *Store) PutApplicationRegistryPullSelectionForActor(ctx context.Context,
 		if old.fingerprint != fingerprint {
 			return base.Result[domain.ApplicationRegistryPullSelection]{}, base.ErrIdempotencyConflict
 		}
-		current, loadErr := scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `SELECT application_id::text,mode,COALESCE(project_credential_id::text,''),updated_at FROM application_registry_pull_selections WHERE application_id=$1`, value.ApplicationID))
+		current, loadErr := scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `SELECT id::text,registry_pull_mode,
+			COALESCE(registry_pull_project_credential_id::text,''),COALESCE(registry_pull_updated_at,created_at)
+			FROM applications WHERE id=$1`, value.ApplicationID))
 		if loadErr != nil {
 			return base.Result[domain.ApplicationRegistryPullSelection]{}, loadErr
 		}
@@ -254,9 +258,11 @@ func (s *Store) PutApplicationRegistryPullSelectionForActor(ctx context.Context,
 	if value.ProjectCredentialID != "" {
 		credential = value.ProjectCredentialID
 	}
-	value, err = scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `INSERT INTO application_registry_pull_selections(application_id,mode,project_credential_id,updated_by,updated_at)
-		VALUES($1,$2,$3,$4,$5) ON CONFLICT(application_id) DO UPDATE SET mode=EXCLUDED.mode,project_credential_id=EXCLUDED.project_credential_id,updated_by=EXCLUDED.updated_by,updated_at=EXCLUDED.updated_at
-		RETURNING application_id::text,mode,COALESCE(project_credential_id::text,''),updated_at`, value.ApplicationID, value.Mode, credential, actor, now))
+	value, err = scanApplicationRegistryPullSelection(tx.QueryRow(ctx, `UPDATE applications SET
+		registry_pull_mode=$2,registry_pull_project_credential_id=$3,
+		registry_pull_updated_by=$4,registry_pull_updated_at=$5 WHERE id=$1
+		RETURNING id::text,registry_pull_mode,COALESCE(registry_pull_project_credential_id::text,''),registry_pull_updated_at`,
+		value.ApplicationID, value.Mode, credential, actor, now))
 	if err != nil {
 		return base.Result[domain.ApplicationRegistryPullSelection]{}, err
 	}

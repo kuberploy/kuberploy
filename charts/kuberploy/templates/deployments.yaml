@@ -106,7 +106,7 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_ENABLED
             {{- if $.Values.config.certificateIssuerObserver.enabled }}
-            {{- range $name := list "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_CLUSTER_ID" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_REQUEST_TIMEOUT_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_MAXIMUM_AGE_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_READINESS_LEASE_SECONDS" }}
+            {{- range $name := list "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_BINDING_ID" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_NAMESPACE" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_SERVICE_ACCOUNT" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_POLL_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_REQUEST_TIMEOUT_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_MAXIMUM_AGE_SECONDS" "KUBERPLOY_CERTIFICATE_ISSUER_OBSERVER_READINESS_LEASE_SECONDS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
@@ -169,7 +169,7 @@ spec:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED
             {{- if $.Values.config.externalDNSOperational.enabled }}
-            {{- range $name := list "KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID" "KUBERPLOY_EXTERNAL_DNS_CLUSTER_ID" "KUBERPLOY_EXTERNAL_DNS_NAMESPACE" "KUBERPLOY_EXTERNAL_DNS_VERSION" "KUBERPLOY_EXTERNAL_DNS_IMAGE" "KUBERPLOY_EXTERNAL_DNS_SERVICE_ACCOUNT" "KUBERPLOY_EXTERNAL_DNS_POLL_SECONDS" }}
+            {{- range $name := list "KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID" "KUBERPLOY_EXTERNAL_DNS_NAMESPACE" "KUBERPLOY_EXTERNAL_DNS_VERSION" "KUBERPLOY_EXTERNAL_DNS_IMAGE" "KUBERPLOY_EXTERNAL_DNS_SERVICE_ACCOUNT" "KUBERPLOY_EXTERNAL_DNS_POLL_SECONDS" }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:
@@ -188,17 +188,6 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_PLATFORM_GIT_BINDING_ID
-            - name: KUBERPLOY_CLUSTER_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_CLUSTER_ID
-            {{- else if and (eq $component "worker") (or $.Values.config.environmentFoundation.enabled $.Values.config.argoDesiredState.enabled) }}
-            - name: KUBERPLOY_CLUSTER_ID
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_CLUSTER_ID
             {{- end }}
             - name: KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED
               valueFrom:

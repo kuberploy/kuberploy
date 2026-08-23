@@ -74,7 +74,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 113)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 112)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 		WHERE n.nspname='public'`, 110)
@@ -83,13 +83,13 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		WHERE n.nspname='public' AND NOT t.tgisinternal`, 105)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 951)
+		WHERE n.nspname='public' AND c.contype='c'`, 952)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
 		WHERE n.nspname='public' AND c.condeferrable`, 15)
 	assertCatalogCount(t, ctx, pool, "expression indexes", `SELECT count(*)
 		FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND i.indexprs IS NOT NULL`, 1)
+		WHERE n.nspname='public' AND i.indexprs IS NOT NULL`, 2)
 
 	for _, function := range []string{
 		"protect_git_pull_request_publication",

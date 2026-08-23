@@ -12,8 +12,7 @@ import (
 
 func workerCertificateIssuerConfig() certissuers.ObserverConfig {
 	return certissuers.ObserverConfig{Enabled: true,
-		BindingID: "11111111-1111-4111-8111-111111111111", ClusterID: "22222222-2222-4222-8222-222222222222",
-		Namespace: "kuberploy-system", ServiceAccount: "kuberploy-worker", PollInterval: 30 * time.Second,
+		BindingID: "11111111-1111-4111-8111-111111111111", Namespace: "kuberploy-system", ServiceAccount: "kuberploy-worker", PollInterval: 30 * time.Second,
 		RequestTimeout: 10 * time.Second, MaximumAge: 2 * time.Minute, ReadinessLease: 3 * time.Minute}
 }
 

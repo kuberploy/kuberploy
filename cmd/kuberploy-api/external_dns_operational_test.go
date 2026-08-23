@@ -14,7 +14,6 @@ func validExternalDNSOperationalConfig() externaldns.OperationalConfig {
 	return externaldns.OperationalConfig{
 		Enabled:   true,
 		BindingID: "11111111-1111-4111-8111-111111111111",
-		ClusterID: "22222222-2222-4222-8222-222222222222",
 		Template: externaldns.ManagedRuntimeTemplate{
 			Namespace: "external-dns", Version: "v0.18.0",
 			Image:          "registry.k8s.io/external-dns/external-dns@sha256:" + strings.Repeat("a", 64),

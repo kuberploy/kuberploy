@@ -15,10 +15,10 @@ func protectedBindingResolverFixture(t *testing.T) (ReleaseTarget, ProtectedBind
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	target := ReleaseTarget{ProjectID: id.New(), EnvironmentID: id.New(), ApplicationID: id.New()}
-	clusterID, platformID := id.New(), id.New()
+	platformID := id.New()
 	repository := gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 10,
 		RepositoryID: 20, Owner: "kuberploy", Name: "platform"}
-	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, clusterID, repository, "refs/heads/platform", now)
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, repository, "refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func protectedBindingResolverFixture(t *testing.T) (ReleaseTarget, ProtectedBind
 	snapshot := ProtectedBindingResolutionSnapshot{Platform: platform, Environments: []gitprojection.Binding{environment},
 		ActiveGenerations: []gitprojection.Generation{generation}, ApplicationProjects: map[string]string{target.ApplicationID: target.ProjectID},
 		Catalog: []ApprovalDocument{releaseApprovalDocumentFixture(t)}}
-	return target, ProtectedBindingResolverConfig{PlatformBindingID: platformID, ClusterID: clusterID}, snapshot
+	return target, ProtectedBindingResolverConfig{PlatformBindingID: platformID}, snapshot
 }
 
 func TestMemoryProtectedBindingResolverDerivesOnlyExactReadySnapshot(t *testing.T) {
@@ -48,7 +48,7 @@ func TestMemoryProtectedBindingResolverDerivesOnlyExactReadySnapshot(t *testing.
 	resolver := &MemoryProtectedBindingResolver{Config: config, Snapshot: snapshot}
 	resolved, err := resolver.ResolveProtectedBinding(t.Context(), target)
 	if err != nil || resolved.Validate() != nil || resolved.PlatformBindingID != config.PlatformBindingID ||
-		resolved.ClusterID != config.ClusterID || resolved.EnvironmentBindingID != snapshot.Environments[0].ID ||
+		resolved.EnvironmentBindingID != snapshot.Environments[0].ID ||
 		resolved.EnvironmentRevision != snapshot.Environments[0].IndexedRevision ||
 		resolved.EnvironmentGeneration != snapshot.Environments[0].ProjectionGeneration ||
 		resolved.PlannedBaseRevision != snapshot.Platform.TargetHeadRevision {

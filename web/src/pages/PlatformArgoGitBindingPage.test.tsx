@@ -20,7 +20,6 @@ const admin: Principal = {
 
 const created: PlatformArgoGitBinding = {
   id: "binding-safe",
-  clusterId: "01900000-0000-7000-8000-000000000001",
   repository: {
     provider: "github",
     installationId: 42,
@@ -29,7 +28,7 @@ const created: PlatformArgoGitBinding = {
     name: "platform-gitops",
   },
   targetRef: "refs/heads/platform",
-  pathPrefix: "clusters/01900000-0000-7000-8000-000000000001/argo",
+  pathPrefix: "platform",
   state: "waiting-for-git",
   createdAt: "2026-08-09T00:00:00Z",
   updatedAt: "2026-08-09T00:00:00Z",
@@ -118,9 +117,8 @@ describe("platform Argo Git authority page", () => {
       expect.any(String),
     );
     expect(await screen.findByText("kuberploy/platform-gitops")).toBeVisible();
-    expect(screen.getByText("platform")).toBeVisible();
+    expect(screen.getAllByText("platform")).toHaveLength(2);
     expect(screen.queryByText("refs/heads/platform")).toBeNull();
-    expect(screen.getByText(created.pathPrefix)).toBeVisible();
     expect(
       await screen.findByText("Authority recorded; Argo is ready"),
     ).toBeVisible();

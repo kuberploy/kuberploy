@@ -333,10 +333,13 @@ describe("guided sslip.io hostname", () => {
       });
     });
     expect(screen.queryByLabelText(/^DNS integration/)).toBeNull();
-    expect(screen.getByRole("status")).toHaveTextContent(
+    const sslipStatus = screen
+      .getByText(preview.hostname)
+      .closest('[role="status"]');
+    expect(sslipStatus).toHaveTextContent(
       /public ingress IP and exact fresh edge runtime readiness/i,
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(sslipStatus).toHaveTextContent(
       /Dynamic ALB\/load-balancer hostnames are not eligible/i,
     );
   });
@@ -378,8 +381,48 @@ describe("guided sslip.io hostname", () => {
     expect(screen.getByRole("textbox", { name: "Hostname" })).toHaveAttribute(
       "readonly",
     );
-    expect(screen.getByRole("status")).toHaveTextContent(
+    expect(
+      screen
+        .getByText("sslip.io hostname unavailable")
+        .closest('[role="status"]'),
+    ).toHaveTextContent(
       "No fresh public ingress observation is available.",
+    );
+  });
+
+  it("edits separate collapsed Kubernetes resource overrides", async () => {
+    const user = userEvent.setup();
+    const initial = guidedConfigFromYaml(defaultConfigYaml({ name: "api" }));
+    const onChange = vi.fn();
+    render(<GuidedConfigForm initial={initial} onChange={onChange} />);
+
+    expect(
+      screen.getByText("Advanced Kubernetes YAML overrides").closest("details"),
+    ).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Advanced Kubernetes YAML overrides"));
+    expect(
+      screen.getByText(/Advanced YAML wins over matching Guided fields/i),
+    ).toBeInTheDocument();
+
+    const serviceAccount = screen.getByRole("textbox", {
+      name: "ServiceAccount override YAML",
+    });
+    await user.clear(serviceAccount);
+    fireEvent.change(serviceAccount, {
+      target: {
+        value:
+          "metadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app",
+      },
+    });
+
+    await waitFor(() =>
+      expect(onChange.mock.lastCall?.[0].resourceOverrides).toMatchObject({
+        deploymentYaml: "{}",
+        serviceYaml: "{}",
+        ingressYaml: "{}",
+        serviceAccountYaml:
+          "metadata:\n  annotations:\n    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app",
+      }),
     );
   });
 });

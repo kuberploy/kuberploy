@@ -51,12 +51,12 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO git_repository_bindings(
-		id,kind,scope_id,cluster_id,provider,installation_id,repository_id,repository_owner,
+		id,kind,scope_id,provider,installation_id,repository_id,repository_owner,
 		repository_name,target_ref,path_prefix,credential_secret_name,credential_mode,state,
 		target_head_revision,indexed_revision,projection_generation,parser_version,
 		target_head_observed_at,indexed_at,created_at,updated_at)
-		VALUES($1,'platform',$2::uuid,$2::uuid,'github',1,2,'kuberploy','platform','refs/heads/main',
-		'clusters/'||$2::text,'','github-app','ready',$3,$3,7,'appconfig.v1',$4,$4,$4,$4)`, testBindingID, testClusterID, strings.Repeat("a", 40), now); err != nil {
+		VALUES($1,'platform',$1::uuid,'github',1,2,'kuberploy','platform','refs/heads/main',
+		'platform','','github-app','ready',$2,$2,7,'appconfig.v1',$3,$3,$3,$3)`, testBindingID, strings.Repeat("a", 40), now); err != nil {
 		t.Fatal(err)
 	}
 	store, err := NewPostgresStore(pool)

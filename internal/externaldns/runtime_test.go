@@ -71,7 +71,7 @@ func TestOperationalConfigDefaultOffAndExact(t *testing.T) {
 	if err != nil || config.Enabled {
 		t.Fatalf("default off %#v %v", config, err)
 	}
-	values := map[string]string{OperationalEnabledEnv: "true", OperationalBindingIDEnv: "11111111-1111-4111-8111-111111111111", OperationalClusterIDEnv: "22222222-2222-4222-8222-222222222222", OperationalNamespaceEnv: "kuberploy-dns", OperationalVersionEnv: "v0.18.0", OperationalImageEnv: runtimeTemplate().Image, OperationalServiceAccountEnv: "external-dns-managed", OperationalPollSecondsEnv: "5"}
+	values := map[string]string{OperationalEnabledEnv: "true", OperationalBindingIDEnv: "11111111-1111-4111-8111-111111111111", OperationalNamespaceEnv: "kuberploy-dns", OperationalVersionEnv: "v0.18.0", OperationalImageEnv: runtimeTemplate().Image, OperationalServiceAccountEnv: "external-dns-managed", OperationalPollSecondsEnv: "5"}
 	config, err = OperationalConfigFromLookup(func(name string) (string, bool) { v, ok := values[name]; return v, ok })
 	if err != nil || config.Validate() != nil {
 		t.Fatalf("enabled config %#v %v", config, err)

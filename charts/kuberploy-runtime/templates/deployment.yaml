@@ -1,3 +1,4 @@
+{{- define "kuberploy-runtime.workloadBase" -}}
 {{- $strategy := .Values.spec.runtime.strategy | default dict -}}
 {{- $strategyType := get $strategy "type" | default "RollingUpdate" -}}
 {{- $workloadType := .Values.spec.runtime.workloadType | default "Deployment" -}}
@@ -137,3 +138,51 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+{{- end -}}
+{{- $base := include "kuberploy-runtime.workloadBase" . | fromYaml -}}
+{{- $overrides := .Values.spec.overrides | default dict -}}
+{{- $override := get $overrides "deployment" | default dict -}}
+{{- if and (eq (.Values.spec.runtime.workloadType | default "Deployment") "StatefulSet") (gt (len $override) 0) -}}
+  {{- fail "spec.overrides.deployment is unavailable for a StatefulSet workload" -}}
+{{- end -}}
+{{- $resource := mergeOverwrite (deepCopy $base) (deepCopy $override) -}}
+{{- $_ := set $resource "apiVersion" (get $base "apiVersion") -}}
+{{- $_ := set $resource "kind" (get $base "kind") -}}
+{{- $metadata := get $resource "metadata" -}}
+{{- $baseMetadata := get $base "metadata" -}}
+{{- $_ := set $metadata "name" (get $baseMetadata "name") -}}
+{{- $_ := unset $metadata "namespace" -}}
+{{- $labels := mergeOverwrite (deepCopy (get $metadata "labels" | default dict)) (deepCopy (get $baseMetadata "labels")) -}}
+{{- $_ := set $metadata "labels" $labels -}}
+{{- $annotations := mergeOverwrite (deepCopy (get $metadata "annotations" | default dict)) (deepCopy (get $baseMetadata "annotations" | default dict)) -}}
+{{- $_ := set $metadata "annotations" $annotations -}}
+{{- $resourceSpec := get $resource "spec" -}}
+{{- $baseSpec := get $base "spec" -}}
+{{- $_ := set $resourceSpec "selector" (deepCopy (get $baseSpec "selector")) -}}
+{{- $template := get $resourceSpec "template" -}}
+{{- $baseTemplate := get $baseSpec "template" -}}
+{{- $templateMetadata := get $template "metadata" -}}
+{{- $baseTemplateMetadata := get $baseTemplate "metadata" -}}
+{{- $templateLabels := mergeOverwrite (deepCopy (get $templateMetadata "labels" | default dict)) (deepCopy (get $baseTemplateMetadata "labels")) -}}
+{{- $_ := set $templateMetadata "labels" $templateLabels -}}
+{{- $templateAnnotations := mergeOverwrite (deepCopy (get $templateMetadata "annotations" | default dict)) (deepCopy (get $baseTemplateMetadata "annotations" | default dict)) -}}
+{{- $_ := set $templateMetadata "annotations" $templateAnnotations -}}
+{{- $podSpec := get $template "spec" -}}
+{{- $basePodSpec := get $baseTemplate "spec" -}}
+{{- $_ := set $podSpec "serviceAccountName" (get $basePodSpec "serviceAccountName") -}}
+{{- range $field := list "hostNetwork" "hostPID" "hostIPC" "hostUsers" -}}
+  {{- $_ := unset $podSpec $field -}}
+{{- end -}}
+{{- $containers := get $podSpec "containers" -}}
+{{- if or (not (kindIs "slice" $containers)) (eq (len $containers) 0) -}}
+  {{- fail "spec.overrides.deployment must retain one application container" -}}
+{{- end -}}
+{{- $baseApplication := index (get $basePodSpec "containers") 0 -}}
+{{- $application := index $containers 0 -}}
+{{- if not (kindIs "map" $application) -}}
+  {{- fail "spec.overrides.deployment first container must be a mapping" -}}
+{{- end -}}
+{{- $_ := set $application "name" (get $baseApplication "name") -}}
+{{- $_ := set $application "image" (get $baseApplication "image") -}}
+{{- $_ := set $application "securityContext" (deepCopy (get $baseApplication "securityContext")) -}}
+{{- toYaml $resource -}}

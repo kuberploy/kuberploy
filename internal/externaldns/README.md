@@ -8,7 +8,7 @@ arbitrary arguments, endpoints, and Kubernetes YAML are never accepted.
 When `KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED=true`, the worker derives the
 current revision directly from PostgreSQL, renders a closed digest-pinned
 ServiceAccount/ConfigMap/Deployment/RBAC bundle, and publishes it under
-`clusters/<cluster>/argocd/platform/external-dns/<integration-id>.yaml` through
+`platform/argocd/platform/external-dns/<integration-id>.yaml` through
 the protected platform Git CAS writer. The installer-owned recursive Argo root
 Application applies that bundle. Publication receipts are durable; a managed
 target cannot become API-ready before its current receipt and exact live

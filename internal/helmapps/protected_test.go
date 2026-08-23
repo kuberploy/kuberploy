@@ -32,8 +32,7 @@ func TestRenderProtectedArgoApplicationPinsOnlyTheVerifiedPayloadCommit(t *testi
 	source := requireProtectedMap(t, spec, "source")
 	if source["repoURL"] != "https://github.com/kuberploy/platform.git" ||
 		source["targetRevision"] != payload.CommittedRevision ||
-		source["path"] != protectedSourceDirectory(payload.Binding.ClusterID,
-			release.Target.EnvironmentID, release.Target.ApplicationID, release.ID) {
+		source["path"] != protectedSourceDirectory(release.Target.EnvironmentID, release.Target.ApplicationID, release.ID) {
 		t.Fatalf("unsafe or mutable source: %#v", source)
 	}
 	directory := requireProtectedMap(t, source, "directory")
@@ -71,7 +70,7 @@ func TestRenderProtectedArgoApplicationRollbackCarriesForegroundResourcesFinaliz
 		t.Fatalf("invalid rollback release fixture: %v", err)
 	}
 	payload.ID, payload.ReleaseRevisionID, payload.ReleaseGeneration = id.New(), release.ID, release.Generation
-	payload.Path = protectedPayloadPath(payload.Binding.ClusterID, release.Target.EnvironmentID,
+	payload.Path = protectedPayloadPath(release.Target.EnvironmentID,
 		release.Target.ApplicationID, release.ID, false)
 	payload.IntentDigest = digestBytes([]byte("rollback-payload-intent"))
 	payload.CommitTrailer = "Kuberploy-Helm-Payload-Intent: " + payload.ID
@@ -100,11 +99,9 @@ func TestProtectedMutationRejectsEveryUnownedPathAndMutableTarget(t *testing.T) 
 		ReleaseGeneration: release.Generation, Target: release.Target,
 		Action: ProtectedApplicationPublish, Binding: payload.Binding,
 		PayloadRevision: payload.CommittedRevision, PayloadPath: payload.Path,
-		SourceDirectory: protectedSourceDirectory(payload.Binding.ClusterID,
-			release.Target.EnvironmentID, release.Target.ApplicationID, release.ID),
-		ApplicationPath: protectedApplicationPath(payload.Binding.ClusterID,
-			release.Target.EnvironmentID, release.Target.ApplicationID),
-		Operation: "create", Precondition: "create-if-absent", Content: content,
+		SourceDirectory: protectedSourceDirectory(release.Target.EnvironmentID, release.Target.ApplicationID, release.ID),
+		ApplicationPath: protectedApplicationPath(release.Target.EnvironmentID, release.Target.ApplicationID),
+		Operation:       "create", Precondition: "create-if-absent", Content: content,
 		ContentDigest: digestBytes(content), IntentDigest: digestBytes([]byte("application-intent")),
 		CommitTrailer: "Kuberploy-Helm-Application-Intent: " + intentID,
 		Publisher:     payload.Publisher, Message: "publish", State: ProtectedPending,
@@ -187,7 +184,7 @@ func protectedApplicationFixture(t *testing.T) (ReleaseRevision, ProtectedPayloa
 		ID: id.New(), ReleaseRevisionID: release.ID, ReleaseGeneration: 1, Target: target,
 		Action: ProtectedPayloadPublish,
 		Binding: ProtectedBindingSnapshot{
-			PlatformBindingID: id.New(), EnvironmentBindingID: id.New(), ClusterID: id.New(),
+			PlatformBindingID: id.New(), EnvironmentBindingID: id.New(),
 			PlatformTargetRef: "refs/heads/main", EnvironmentTargetRef: "refs/heads/main",
 			EnvironmentRevision: strings.Repeat("a", 40), EnvironmentGeneration: 1,
 			CatalogDigest: digestBytes([]byte("catalog")), PlannedBaseRevision: strings.Repeat("b", 40),
@@ -205,7 +202,7 @@ func protectedApplicationFixture(t *testing.T) (ReleaseRevision, ProtectedPayloa
 		VerifiedPathDigest: digestBytes(content), ProviderRequest: "provider-request",
 		NextAttemptAt: now, CreatedAt: now, UpdatedAt: verifiedAt, CompletedAt: &verifiedAt,
 	}
-	payload.Path = protectedPayloadPath(payload.Binding.ClusterID, target.EnvironmentID,
+	payload.Path = protectedPayloadPath(target.EnvironmentID,
 		target.ApplicationID, release.ID, false)
 	payload.CommitTrailer = "Kuberploy-Helm-Payload-Intent: " + payload.ID
 	if payload.Validate() != nil {
@@ -263,9 +260,8 @@ func TestCascadePreflightAllowsOnlyExactLegacyFinalizerAdoption(t *testing.T) {
 		PayloadIntentID: id.New(), BaseApplicationIntentID: id.New(),
 		PayloadRevision: payload.CommittedRevision, ArgoNamespace: runtime.ArgoNamespace,
 		ReleaseGeneration: 2, Target: release.Target, Binding: payload.Binding,
-		ApplicationPath: protectedApplicationPath(payload.Binding.ClusterID,
-			release.Target.EnvironmentID, release.Target.ApplicationID),
-		SourceContent: source, SourceContentDigest: digestBytes(source),
+		ApplicationPath: protectedApplicationPath(release.Target.EnvironmentID, release.Target.ApplicationID),
+		SourceContent:   source, SourceContentDigest: digestBytes(source),
 		AdoptedContent: adopted, AdoptedContentDigest: digestBytes(adopted),
 		Operation: "update", Precondition: "match-etag",
 		Contract: protectedCascadeContract, Publisher: payload.Publisher,

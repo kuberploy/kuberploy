@@ -173,10 +173,10 @@ boundary.
 Publication uses exactly two Git phases through `ProtectedPublicationStore`:
 
 1. Commit `release.yaml` (or a server-derived disabled receipt) at the unique
-   release revision path under `clusters/<cluster>/helm-manifests/...`. This
+   release revision path under `platform/helm-manifests/...`. This
    path is outside Argo's recursive root and cannot affect the cluster yet.
 2. Only after phase one is provider-verified, create/update/delete the one
-   stable Application under `clusters/<cluster>/argocd/helm-applications/...`.
+   stable Application under `platform/argocd/helm-applications/...`.
    A published Application pins `targetRevision` to the exact phase-one commit,
    uses directory mode with `recurse: false` and `include: release.yaml`, and
    contains no Helm, plugin, Kustomize, exclude, or mutable-ref source.
@@ -240,7 +240,7 @@ cross-checks the platform binding, cluster, Argo namespace, deterministic
 repository credential, production root Application name, runtime chart, and
 native OCI digest enforcement against the Helm runtime and publisher identity.
 Its compatibility digest fixes the recursive
-`clusters/<cluster>/argocd` root and the protected `helm-applications`
+`platform/argocd` root and the protected `helm-applications`
 directory. Each capability evaluation snapshots its requested timestamp into
 the production probe, so a divergent caller clock, stale lease, changed probe,
 publisher substitution, or root-identity mismatch cannot advertise Helm.

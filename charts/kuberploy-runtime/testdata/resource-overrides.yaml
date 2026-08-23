@@ -1,0 +1,62 @@
+apiVersion: config.kuberploy.io/v1alpha1
+kind: AppConfig
+kuberployExpectedIdentity:
+  projectId: 11111111-1111-4111-8111-111111111111
+  environmentId: 22222222-2222-4222-8222-222222222222
+  applicationId: 33333333-3333-4333-8333-333333333333
+metadata:
+  id: 33333333-3333-4333-8333-333333333333
+  name: override-app
+spec:
+  projectId: 11111111-1111-4111-8111-111111111111
+  applicationId: 33333333-3333-4333-8333-333333333333
+  environmentId: 22222222-2222-4222-8222-222222222222
+  delivery:
+    mode: image
+    release:
+      repository: registry.example.test/team/app
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  overrides:
+    deployment:
+      metadata:
+        annotations:
+          example.com/deployment-policy: advanced
+      spec:
+        replicas: 3
+        revisionHistoryLimit: 9
+    service:
+      metadata:
+        annotations:
+          example.com/service-policy: advanced
+      spec:
+        type: LoadBalancer
+    ingress:
+      metadata:
+        annotations:
+          external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+          external-dns.alpha.kubernetes.io/ttl: "60"
+    serviceAccount:
+      metadata:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app
+  runtime:
+    replicas: 1
+    ports:
+      - name: http
+        containerPort: 8080
+        servicePort: 80
+        protocol: TCP
+    resources:
+      requests:
+        cpu: 50m
+        memory: 100Mi
+  routes:
+    - host: override.example.test
+      path: /
+      port: http
+      dns:
+        mode: externalDns
+        integrationRef: cloudflare
+        ttl: 300
+      tls:
+        mode: httpOnly

@@ -17,7 +17,6 @@ import (
 
 const observerTestUID = "55555555-5555-4555-8555-555555555555"
 const observerTestBindingID = "66666666-6666-4666-8666-666666666666"
-const observerTestClusterID = "77777777-7777-4777-8777-777777777777"
 
 func observerLookup(values map[string]string) func(string) (string, bool) {
 	return func(name string) (string, bool) {
@@ -27,8 +26,7 @@ func observerLookup(values map[string]string) func(string) (string, bool) {
 }
 
 func testObserverConfig() ObserverConfig {
-	return ObserverConfig{Enabled: true, BindingID: observerTestBindingID, ClusterID: observerTestClusterID,
-		Namespace: "kuberploy-system", ServiceAccount: "kuberploy-issuer-observer", PollInterval: 30 * time.Second,
+	return ObserverConfig{Enabled: true, BindingID: observerTestBindingID, Namespace: "kuberploy-system", ServiceAccount: "kuberploy-issuer-observer", PollInterval: 30 * time.Second,
 		RequestTimeout: 10 * time.Second, MaximumAge: 2 * time.Minute, ReadinessLease: 3 * time.Minute}
 }
 
@@ -53,14 +51,14 @@ func TestObserverConfigurationIsStrictDefaultOffAndIdentityExact(t *testing.T) {
 		t.Fatalf("partial identity accepted: %v", err)
 	}
 	if _, err = ObserverConfigFromLookup(observerLookup(map[string]string{
-		ObserverEnabledEnv: "true", ObserverBindingIDEnv: observerTestBindingID, ObserverClusterIDEnv: observerTestClusterID,
+		ObserverEnabledEnv: "true", ObserverBindingIDEnv: observerTestBindingID,
 		ObserverNamespaceEnv: "kuberploy-system", ObserverServiceAccountEnv: "INVALID SERVICE ACCOUNT",
 	})); !errors.Is(err, ErrObservationUnavailable) {
 		t.Fatalf("invalid service account accepted: %v", err)
 	}
 	config, err = ObserverConfigFromLookup(observerLookup(map[string]string{
 		ObserverEnabledEnv: "true", ObserverNamespaceEnv: "kuberploy-system", ObserverServiceAccountEnv: "kuberploy-issuer-observer",
-		ObserverBindingIDEnv: observerTestBindingID, ObserverClusterIDEnv: observerTestClusterID,
+		ObserverBindingIDEnv:   observerTestBindingID,
 		ObserverPollSecondsEnv: "20", ObserverRequestTimeoutSecondsEnv: "5", ObserverMaximumAgeSecondsEnv: "60",
 	}))
 	if err != nil || config.Validate() != nil {

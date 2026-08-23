@@ -92,6 +92,108 @@ func TestApplySupportsWorkloadTypeSpecificStrategies(t *testing.T) {
 	}
 }
 
+func TestAppConfigAcceptsAdvancedResourceOverrides(t *testing.T) {
+	raw := strings.Replace(string(validConfig(t)), "  runtime:\n", `  overrides:
+    deployment:
+      metadata:
+        annotations:
+          example.com/restarted-at: "2026-08-23T00:00:00Z"
+      spec:
+        replicas: 3
+    ingress:
+      metadata:
+        annotations:
+          external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+    serviceAccount:
+      metadata:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app
+  runtime:
+`, 1)
+	parsed, _, diagnostics := appconfig.ParseAndValidate([]byte(raw))
+	if len(diagnostics) != 0 {
+		t.Fatalf("valid resource overrides rejected: %#v", diagnostics)
+	}
+	spec := parsed["spec"].(map[string]any)
+	if _, ok := spec["overrides"].(map[string]any); !ok {
+		t.Fatalf("resource overrides not retained: %#v", spec)
+	}
+}
+
+func TestAppConfigRejectsOverridesThatEscapeOwnedIdentity(t *testing.T) {
+	for name, fragment := range map[string]string{
+		"owned label": `    serviceAccount:
+      metadata:
+        annotations:
+          kuberploy.io/application-id: attacker
+`,
+		"service selector": `    service:
+      spec:
+        selector:
+          app: other
+`,
+		"host network": `    deployment:
+      spec:
+        template:
+          spec:
+            hostNetwork: true
+`,
+		"host port": `    deployment:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                ports:
+                  - containerPort: 8080
+                    hostPort: 8080
+`,
+		"added capability": `    deployment:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: app
+                securityContext:
+                  capabilities:
+                    add: [SYS_ADMIN]
+`,
+		"mutable sidecar": `    deployment:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: sidecar
+                image: example.com/sidecar:latest
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw := strings.Replace(string(validConfig(t)), "  runtime:\n", "  overrides:\n"+fragment+"  runtime:\n", 1)
+			if _, _, diagnostics := appconfig.ParseAndValidate([]byte(raw)); len(diagnostics) == 0 {
+				t.Fatal("unsafe resource override accepted")
+			}
+		})
+	}
+}
+
+func TestAppConfigRejectsDeploymentOverrideForStatefulSet(t *testing.T) {
+	raw := strings.Replace(string(validConfig(t)), "  runtime:\n", `  overrides:
+    deployment:
+      metadata:
+        annotations:
+          example.com/restarted-at: now
+  runtime:
+`, 1)
+	before := raw
+	raw = strings.Replace(raw, "    workloadType: \"Deployment\"\n", "    workloadType: \"StatefulSet\"\n", 1)
+	if raw == before {
+		t.Fatal("test fixture did not contain the expected Deployment workload type")
+	}
+	if _, _, diagnostics := appconfig.ParseAndValidate([]byte(raw)); !hasDiagnostic(diagnostics, "OverrideResourceMismatch", "/spec/overrides/deployment") {
+		t.Fatalf("StatefulSet accepted Deployment override: %#v", diagnostics)
+	}
+}
+
 func TestApplyTracksEditableArrayElement(t *testing.T) {
 	candidate := appconfig.Apply(validConfig(t), appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/ports/0/containerPort", Value: 9090}}})
 	if len(candidate.Diagnostics) != 0 || len(candidate.Changes) != 1 || candidate.Changes[0].Pointer != "/spec/runtime/ports" {

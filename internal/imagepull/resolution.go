@@ -48,8 +48,8 @@ func ExactRegistryPolicyTx(ctx context.Context, tx pgx.Tx, targetID, application
 		return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", ErrConflict
 	}
 	var mode, selectedCredentialID, selectedTargetID string
-	selectionErr := tx.QueryRow(ctx, `SELECT mode,COALESCE(project_credential_id::text,'')
-		FROM application_registry_pull_selections WHERE application_id=$1 FOR SHARE`, applicationID).
+	selectionErr := tx.QueryRow(ctx, `SELECT registry_pull_mode,COALESCE(registry_pull_project_credential_id::text,'')
+		FROM applications WHERE id=$1 AND registry_pull_mode='project-credential' FOR SHARE`, applicationID).
 		Scan(&mode, &selectedCredentialID)
 	if selectionErr != nil && !errors.Is(selectionErr, pgx.ErrNoRows) {
 		return domain.RegistryTarget{}, domain.ServiceRegistryPolicy{}, "", selectionErr
@@ -102,8 +102,8 @@ func ResolveReferenceTx(
 		return Reference{}, false, ErrConflict
 	}
 	var selectionMode, selectedCredentialID, selectedTargetID string
-	selectionErr := tx.QueryRow(ctx, `SELECT mode,COALESCE(project_credential_id::text,'')
-		FROM application_registry_pull_selections WHERE application_id=$1 FOR SHARE`, applicationID).
+	selectionErr := tx.QueryRow(ctx, `SELECT registry_pull_mode,COALESCE(registry_pull_project_credential_id::text,'')
+		FROM applications WHERE id=$1 AND registry_pull_mode IS NOT NULL FOR SHARE`, applicationID).
 		Scan(&selectionMode, &selectedCredentialID)
 	explicitSelection := selectionErr == nil
 	if selectionErr != nil && !errors.Is(selectionErr, pgx.ErrNoRows) {

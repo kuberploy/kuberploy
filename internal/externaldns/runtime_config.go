@@ -11,7 +11,6 @@ import (
 const (
 	OperationalEnabledEnv        = "KUBERPLOY_EXTERNAL_DNS_OPERATIONAL_ENABLED"
 	OperationalBindingIDEnv      = "KUBERPLOY_EXTERNAL_DNS_PLATFORM_BINDING_ID"
-	OperationalClusterIDEnv      = "KUBERPLOY_EXTERNAL_DNS_CLUSTER_ID"
 	OperationalNamespaceEnv      = "KUBERPLOY_EXTERNAL_DNS_NAMESPACE"
 	OperationalVersionEnv        = "KUBERPLOY_EXTERNAL_DNS_VERSION"
 	OperationalImageEnv          = "KUBERPLOY_EXTERNAL_DNS_IMAGE"
@@ -20,20 +19,20 @@ const (
 )
 
 type OperationalConfig struct {
-	Enabled              bool
-	BindingID, ClusterID string
-	Template             ManagedRuntimeTemplate
-	PollInterval         time.Duration
+	Enabled      bool
+	BindingID    string
+	Template     ManagedRuntimeTemplate
+	PollInterval time.Duration
 }
 
 func (c OperationalConfig) Validate() error {
 	if !c.Enabled {
-		if c.BindingID != "" || c.ClusterID != "" || c.Template != (ManagedRuntimeTemplate{}) || c.PollInterval != 0 {
+		if c.BindingID != "" || c.Template != (ManagedRuntimeTemplate{}) || c.PollInterval != 0 {
 			return ErrRuntimeUnavailable
 		}
 		return nil
 	}
-	if !uuidRE.MatchString(c.BindingID) || !uuidRE.MatchString(c.ClusterID) || c.Template.Validate() != nil || c.PollInterval < time.Second || c.PollInterval > time.Minute {
+	if !uuidRE.MatchString(c.BindingID) || c.Template.Validate() != nil || c.PollInterval < time.Second || c.PollInterval > time.Minute {
 		return ErrRuntimeUnavailable
 	}
 	return nil
@@ -59,8 +58,8 @@ func OperationalConfigFromLookup(lookup func(string) (string, bool)) (Operationa
 		}
 		return v, nil
 	}
-	values := make([]string, 6)
-	names := []string{OperationalBindingIDEnv, OperationalClusterIDEnv, OperationalNamespaceEnv, OperationalVersionEnv, OperationalImageEnv, OperationalServiceAccountEnv}
+	values := make([]string, 5)
+	names := []string{OperationalBindingIDEnv, OperationalNamespaceEnv, OperationalVersionEnv, OperationalImageEnv, OperationalServiceAccountEnv}
 	for i, name := range names {
 		v, err := required(name)
 		if err != nil {
@@ -76,6 +75,6 @@ func OperationalConfigFromLookup(lookup func(string) (string, bool)) (Operationa
 	if err != nil || poll < 1 || poll > 60 || strconv.FormatInt(poll, 10) != pollRaw {
 		return OperationalConfig{}, errors.New(OperationalPollSecondsEnv + " must be a canonical integer from 1 to 60")
 	}
-	c := OperationalConfig{Enabled: true, BindingID: values[0], ClusterID: values[1], Template: ManagedRuntimeTemplate{Namespace: values[2], Version: values[3], Image: values[4], ServiceAccount: values[5]}, PollInterval: time.Duration(poll) * time.Second}
+	c := OperationalConfig{Enabled: true, BindingID: values[0], Template: ManagedRuntimeTemplate{Namespace: values[1], Version: values[2], Image: values[3], ServiceAccount: values[4]}, PollInterval: time.Duration(poll) * time.Second}
 	return c, c.Validate()
 }

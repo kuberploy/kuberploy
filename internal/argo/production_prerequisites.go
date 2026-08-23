@@ -87,7 +87,7 @@ func (a RepositoryBindingAuthority) validate(appID int64, now time.Time, maximum
 // installation/repository IDs, owner/name, App ID, lifecycle, and required
 // permissions against the verified linked catalog.
 type RuntimeBindingCatalog interface {
-	ArgoRepositoryBindings(context.Context, int64, string, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error)
+	ArgoRepositoryBindings(context.Context, int64, string, time.Time, time.Duration) ([]RepositoryBindingAuthority, error)
 }
 
 // RuntimeBindingCatalogRefresher lets a successful exact provider proof renew
@@ -370,7 +370,7 @@ func NewPlatformRootApplicationExpectation(identity DesiredStateRuntimeIdentity,
 	credentialName, err := RepositoryCredentialName(binding.ID)
 	if identity.Validate() != nil || err != nil || identity.RootApplicationName != PlatformRootApplicationName ||
 		identity.RepositorySecretName != credentialName || binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform ||
-		binding.ID != identity.PlatformBindingID || binding.ClusterID != identity.ClusterID || binding.CredentialMode != gitprojection.CredentialGitHubApp ||
+		binding.ID != identity.PlatformBindingID || binding.CredentialMode != gitprojection.CredentialGitHubApp ||
 		head.ValidateFor(binding) != nil {
 		return PlatformRootApplicationExpectation{}, ErrInvalid
 	}
@@ -529,7 +529,7 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 		return ProductionPrerequisiteProof{}, errors.Join(ErrArgoRuntimePrerequisiteNotReady, err)
 	}
 	authorities, err := p.Catalog.ArgoRepositoryBindings(ctx, p.Identity.GitHubAppID, p.Identity.PlatformBindingID,
-		p.Identity.ClusterID, now.UTC(), maximumAge)
+		now.UTC(), maximumAge)
 	if err != nil {
 		return ProductionPrerequisiteProof{}, err
 	}
@@ -567,7 +567,7 @@ func (p *ProductionPrerequisites) ObserveProductionPrerequisites(ctx context.Con
 			platform, platformCount = authority.Binding, platformCount+1
 		}
 	}
-	if platformCount != 1 || platform.Kind != gitprojection.BindingPlatform || platform.ClusterID != p.Identity.ClusterID ||
+	if platformCount != 1 || platform.Kind != gitprojection.BindingPlatform ||
 		platform.CredentialMode != gitprojection.CredentialGitHubApp || platform.TargetHeadRevision == "" ||
 		(platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) {
 		return ProductionPrerequisiteProof{}, ErrArgoRuntimePrerequisiteNotReady

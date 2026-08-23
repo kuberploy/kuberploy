@@ -67,7 +67,7 @@ func TestPlatformArgoGitBindingContractIsHumanOnlyAndAuthorityClosed(t *testing.
 		actualOutput = append(actualOutput, name)
 	}
 	sort.Strings(actualOutput)
-	if strings.Join(actualOutput, ",") != "clusterId,createdAt,id,pathPrefix,repository,state,targetHeadObservedAt,targetHeadRevision,targetRef,updatedAt" {
+	if strings.Join(actualOutput, ",") != "createdAt,id,pathPrefix,repository,state,targetHeadObservedAt,targetHeadRevision,targetRef,updatedAt" {
 		t.Fatalf("safe response fields drifted: %#v", actualOutput)
 	}
 	for _, forbidden := range []string{"remote", "cloneUrl", "githubAppId", "credentialMode", "credentialSecret", "secretName", "token", "privateKey"} {

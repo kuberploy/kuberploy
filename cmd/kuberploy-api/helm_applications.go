@@ -44,8 +44,8 @@ func newHelmApplicationsAPIFromLookup(ctx context.Context, databaseURL string, p
 	}
 	readiness, err := helmapps.NewProductionProtectedArgoReadiness(argoRuntime.readiness,
 		helmapps.ProductionProtectedArgoReadinessConfig{
-			PlatformBindingID: identity.PlatformBindingID, ClusterID: identity.ClusterID,
-			Application: config.Application, Publisher: config.Publisher,
+			PlatformBindingID: identity.PlatformBindingID,
+			Application:       config.Application, Publisher: config.Publisher,
 		})
 	if err != nil {
 		return nil, err

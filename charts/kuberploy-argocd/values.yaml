@@ -29,9 +29,8 @@ argoFoundation:
   bootstrap:
     enabled: false
     # These values must be copied from the verified platform Git binding. The
-    # chart derives the canonical GitHub remote, fixed cluster path, and
+    # chart derives the canonical GitHub remote, fixed platform path, and
     # deterministic repository credential name; none are caller-selectable.
-    clusterID: ""
     bindingID: ""
     repositoryOwner: ""
     repositoryName: ""

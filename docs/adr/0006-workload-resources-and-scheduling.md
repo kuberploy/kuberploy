@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-08-09
+- Amended by: ADR 0007 for bounded generated-resource overrides; the direct
+  scheduling and same-application selector rules here remain authoritative.
 
 ## Context
 

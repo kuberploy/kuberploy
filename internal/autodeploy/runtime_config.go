@@ -32,11 +32,9 @@ type RuntimeAuthorities struct {
 	FoundationConfigDigest      string
 	FoundationPollNanos         int64
 	FoundationPlatformBindingID string
-	FoundationClusterID         string
 	ArgoConfigDigest            string
 	ArgoGitHubAppID             int64
 	ArgoPlatformBindingID       string
-	ArgoClusterID               string
 }
 
 func RuntimeConfigFromEnvironment() (RuntimeConfig, error) {
@@ -63,8 +61,7 @@ func RuntimeIdentityForAuthorities(authorities RuntimeAuthorities) (RuntimeIdent
 		!digestRE.MatchString(authorities.ArgoConfigDigest) || authorities.SourceBuildGitHubAppID < 1 ||
 		authorities.SourceBuildGitHubAppID != authorities.GitProjectionGitHubAppID ||
 		authorities.SourceBuildGitHubAppID != authorities.ArgoGitHubAppID || !uuidRE.MatchString(authorities.ArgoPlatformBindingID) ||
-		!uuidRE.MatchString(authorities.ArgoClusterID) || authorities.FoundationPlatformBindingID != authorities.ArgoPlatformBindingID ||
-		authorities.FoundationClusterID != authorities.ArgoClusterID {
+		authorities.FoundationPlatformBindingID != authorities.ArgoPlatformBindingID {
 		return RuntimeIdentity{}, ErrInvalid
 	}
 	contract := struct {

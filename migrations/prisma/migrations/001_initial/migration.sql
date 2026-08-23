@@ -228,7 +228,7 @@ BEGIN
       AND (intent.lease_epoch>0 OR
         (intent.continuation_required AND public.helm_application_continuation_is_exact(intent.id)) OR
         (NOT intent.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
-          intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+          intent.platform_binding_id,intent.environment_binding_id,
           intent.project_id,intent.environment_id,intent.platform_target_ref,
           intent.environment_target_ref,intent.environment_revision,intent.environment_generation)))
       AND EXISTS(SELECT 1 FROM public.runtime_readiness readiness
@@ -327,7 +327,7 @@ BEGIN
       AND intent.prerequisite_receipt_id=intent.release_revision_id
       AND intent.prerequisite_contract='helm-publication-prerequisite.v1'
       AND (intent.lease_epoch>0 OR public.helm_protected_adoption_projection_is_fresh(
-          intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+          intent.platform_binding_id,intent.environment_binding_id,
           intent.project_id,intent.environment_id,intent.platform_target_ref,
           intent.environment_target_ref,intent.environment_revision,
           intent.environment_generation
@@ -423,10 +423,10 @@ DECLARE
     app_project uuid;
     credential_project uuid;
 BEGIN
-    SELECT project_id INTO STRICT app_project FROM applications WHERE id=NEW.application_id;
-    IF NEW.mode='project-credential' THEN
+    app_project := NEW.project_id;
+    IF NEW.registry_pull_mode='project-credential' THEN
         SELECT project_id INTO STRICT credential_project
-          FROM project_registry_pull_credentials WHERE id=NEW.project_credential_id;
+          FROM project_registry_pull_credentials WHERE id=NEW.registry_pull_project_credential_id;
         IF app_project <> credential_project THEN
             RAISE EXCEPTION 'registry pull credential belongs to another project' USING ERRCODE='23514';
         END IF;
@@ -735,7 +735,6 @@ SELECT EXISTS (
      AND payload.application_id=preflight.application_id
      AND payload.platform_binding_id=preflight.platform_binding_id
      AND payload.environment_binding_id=preflight.environment_binding_id
-     AND payload.cluster_id=preflight.cluster_id
      AND payload.state='verified' AND payload.action='disable-receipt'
      AND payload.committed_revision=preflight.payload_revision
     JOIN public.helm_protected_application_intents AS base
@@ -745,16 +744,14 @@ SELECT EXISTS (
      AND base.environment_id=preflight.environment_id
      AND base.application_id=preflight.application_id
      AND base.platform_binding_id=preflight.platform_binding_id
-     AND base.cluster_id=preflight.cluster_id
      AND base.application_path=preflight.application_path
      AND base.content=preflight.source_content
      AND base.content_digest=preflight.source_content_digest
     JOIN public.git_repository_bindings AS binding
       ON binding.id=preflight.platform_binding_id
      AND binding.kind='platform' AND binding.credential_mode='github-app'
-     AND binding.cluster_id=preflight.cluster_id
      AND binding.target_ref=preflight.platform_target_ref
-     AND binding.path_prefix='clusters/'||preflight.cluster_id::text
+     AND binding.path_prefix='platform'
      AND binding.state=receipt.platform_binding_state
      AND COALESCE(binding.indexed_revision,'')=receipt.platform_indexed_revision
      AND binding.target_head_revision=receipt.provider_head
@@ -853,7 +850,7 @@ SELECT 'sha256:'||pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
         'https://github.com/'||platform.repository_owner||'/'||platform.repository_name||'.git')::text||
     ',"TargetRevision":'||pg_catalog.to_json(base.payload_revision)::text||
     ',"Path":'||pg_catalog.to_json(
-        'clusters/'||preflight.cluster_id::text||'/helm-manifests/environments/'||
+        'platform/helm-manifests/environments/'||
         preflight.environment_id::text||'/applications/'||preflight.application_id::text||
         '/revisions/'||base.release_revision_id::text)::text||
     ',"Directory":{"recurse":false,"include":"release.yaml"}},' ||
@@ -875,7 +872,6 @@ LEFT JOIN public.helm_application_continuation_receipts AS continuation
  AND continuation.application_id=base.application_id
  AND continuation.platform_binding_id=base.platform_binding_id
  AND continuation.environment_binding_id=base.environment_binding_id
- AND continuation.cluster_id=base.cluster_id
  AND continuation.source_environment_revision=base.environment_revision
  AND continuation.source_environment_generation=base.environment_generation
  AND continuation.planned_base_revision=base.planned_base_revision
@@ -890,7 +886,6 @@ LEFT JOIN public.helm_publication_prerequisite_receipts AS prerequisite
  AND prerequisite.application_id=base.application_id
  AND prerequisite.platform_binding_id=base.platform_binding_id
  AND prerequisite.environment_binding_id=base.environment_binding_id
- AND prerequisite.cluster_id=base.cluster_id
  AND prerequisite.environment_revision=base.environment_revision
  AND prerequisite.environment_generation=base.environment_generation
 JOIN public.environment_foundation_intents AS foundation
@@ -900,7 +895,6 @@ JOIN public.environment_foundation_intents AS foundation
  AND foundation.project_id=base.project_id
  AND foundation.environment_id=base.environment_id
  AND foundation.platform_binding_id=base.platform_binding_id
- AND foundation.cluster_id=base.cluster_id
  AND foundation.target_ref=base.platform_target_ref
 JOIN public.git_repository_bindings AS platform
   ON platform.id=preflight.platform_binding_id
@@ -957,7 +951,6 @@ SELECT EXISTS (
      AND preflight.application_id=intent.application_id
      AND preflight.platform_binding_id=intent.platform_binding_id
      AND preflight.environment_binding_id=intent.environment_binding_id
-     AND preflight.cluster_id=intent.cluster_id
      AND preflight.platform_target_ref=intent.platform_target_ref
      AND preflight.application_path=intent.application_path
      AND intent.expected_etag='"'||preflight.adopted_content_digest||'"'
@@ -1020,7 +1013,6 @@ SELECT EXISTS (
     JOIN public.git_repository_bindings AS platform
       ON platform.id=preflight.platform_binding_id
      AND platform.kind='platform' AND platform.credential_mode='github-app'
-     AND platform.cluster_id=preflight.cluster_id
      AND platform.target_ref=preflight.platform_target_ref
      AND platform.target_head_revision=receipt.provider_head
     JOIN public.runtime_readiness AS publisher
@@ -1072,7 +1064,6 @@ SELECT EXISTS (
       AND receipt.argo_worker_id=activation.argo_worker_id
       AND receipt.argo_worker_epoch=activation.argo_worker_epoch
       AND receipt.argo_started_at=activation.argo_started_at
-      AND activation.argo_identity->>'clusterId'=preflight.cluster_id::text
       AND activation.argo_identity->>'argoNamespace'=preflight.argo_namespace
       AND activation.argo_identity->>'rootApplicationName'='kuberploy-platform-root'
       AND receipt.delete_intent_id=preflight.delete_intent_id
@@ -1082,7 +1073,6 @@ SELECT EXISTS (
       AND receipt.project_id=preflight.project_id
       AND receipt.environment_id=preflight.environment_id
       AND receipt.application_id=preflight.application_id
-      AND receipt.cluster_id=preflight.cluster_id
       AND receipt.application_path=preflight.application_path
       AND receipt.source_content_digest=preflight.source_content_digest
       AND receipt.adopted_content_digest=preflight.adopted_content_digest
@@ -1145,7 +1135,6 @@ SELECT EXISTS (
      AND payload.application_id=preflight.application_id
      AND payload.platform_binding_id=preflight.platform_binding_id
      AND payload.environment_binding_id=preflight.environment_binding_id
-     AND payload.cluster_id=preflight.cluster_id
      AND payload.platform_target_ref=preflight.platform_target_ref
      AND payload.environment_target_ref=preflight.environment_target_ref
      AND payload.environment_revision=preflight.environment_revision
@@ -1160,16 +1149,14 @@ SELECT EXISTS (
      AND base.environment_id=preflight.environment_id
      AND base.application_id=preflight.application_id
      AND base.platform_binding_id=preflight.platform_binding_id
-     AND base.cluster_id=preflight.cluster_id
      AND base.application_path=preflight.application_path
      AND base.content=preflight.source_content
      AND base.content_digest=preflight.source_content_digest
     JOIN public.git_repository_bindings AS platform
       ON platform.id=preflight.platform_binding_id
      AND platform.kind='platform' AND platform.credential_mode='github-app'
-     AND platform.cluster_id=preflight.cluster_id
      AND platform.target_ref=preflight.platform_target_ref
-     AND platform.path_prefix='clusters/'||preflight.cluster_id::text
+     AND platform.path_prefix='platform'
      AND platform.state IN ('ready','indexing')
      AND platform.target_head_revision IS NOT NULL
     WHERE preflight.id=candidate_id
@@ -1326,7 +1313,6 @@ CREATE FUNCTION public.helm_application_continuation_is_exact(candidate_id uuid)
          AND current_command.environment_id=intent.environment_id
          AND current_command.platform_binding_id=intent.platform_binding_id
          AND current_command.environment_binding_id=intent.environment_binding_id
-         AND current_command.cluster_id=intent.cluster_id
          AND current_command.platform_target_ref=intent.platform_target_ref
          AND current_command.environment_target_ref=intent.environment_target_ref
 
@@ -1348,7 +1334,7 @@ CREATE FUNCTION public.helm_application_continuation_is_exact(candidate_id uuid)
           ON foundation.id=receipt.current_foundation_intent_id
          AND foundation.environment_id=intent.environment_id AND foundation.project_id=intent.project_id
          AND foundation.platform_binding_id=intent.platform_binding_id
-         AND foundation.cluster_id=intent.cluster_id AND foundation.target_ref=intent.platform_target_ref
+         AND foundation.target_ref=intent.platform_target_ref
          AND foundation.namespace=desired_environment.namespace
          AND foundation.argo_project=desired_environment.argo_project
          AND foundation.committed_revision=receipt.current_foundation_revision
@@ -1385,7 +1371,7 @@ $$;
 -- Name: helm_protected_adoption_projection_is_fresh(uuid, uuid, uuid, uuid, uuid, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
 --
 
-CREATE FUNCTION public.helm_protected_adoption_projection_is_fresh(candidate_platform_binding_id uuid, candidate_environment_binding_id uuid, candidate_cluster_id uuid, candidate_project_id uuid, candidate_environment_id uuid, candidate_platform_target_ref text, candidate_environment_target_ref text, candidate_environment_revision text, candidate_environment_generation bigint) RETURNS boolean
+CREATE FUNCTION public.helm_protected_adoption_projection_is_fresh(candidate_platform_binding_id uuid, candidate_environment_binding_id uuid, candidate_project_id uuid, candidate_environment_id uuid, candidate_platform_target_ref text, candidate_environment_target_ref text, candidate_environment_revision text, candidate_environment_generation bigint) RETURNS boolean
     LANGUAGE sql STABLE
     SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
@@ -1399,7 +1385,6 @@ CREATE FUNCTION public.helm_protected_adoption_projection_is_fresh(candidate_pla
         WHERE platform.id=candidate_platform_binding_id
           AND platform.kind='platform'
           AND platform.credential_mode='github-app'
-          AND platform.cluster_id=candidate_cluster_id
           AND platform.target_ref=candidate_platform_target_ref
           AND platform.target_head_revision IS NOT NULL
           AND platform.state IN ('ready','indexing')
@@ -1604,14 +1589,14 @@ CREATE FUNCTION public.protect_environment_foundation_intent() RETURNS trigger
     AS $$
 BEGIN
     IF ROW(NEW.id,NEW.environment_id,NEW.project_id,NEW.namespace,NEW.argo_project,
-           NEW.platform_binding_id,NEW.cluster_id,NEW.target_ref,NEW.planned_head_revision,
+           NEW.platform_binding_id,NEW.target_ref,NEW.planned_head_revision,
            NEW.binding_generation,NEW.profile_digest,NEW.publisher_config_digest,
            NEW.publisher_contract,NEW.publisher_policy,
            NEW.manifest_path,NEW.manifest,NEW.manifest_digest,NEW.intent_digest,
            NEW.commit_trailer,NEW.created_at)
        IS DISTINCT FROM
        ROW(OLD.id,OLD.environment_id,OLD.project_id,OLD.namespace,OLD.argo_project,
-           OLD.platform_binding_id,OLD.cluster_id,OLD.target_ref,OLD.planned_head_revision,
+           OLD.platform_binding_id,OLD.target_ref,OLD.planned_head_revision,
            OLD.binding_generation,OLD.profile_digest,OLD.publisher_config_digest,
            OLD.publisher_contract,OLD.publisher_policy,
            OLD.manifest_path,OLD.manifest,OLD.manifest_digest,OLD.intent_digest,
@@ -1726,12 +1711,12 @@ CREATE FUNCTION public.protect_git_binding_identity() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
-    IF ROW(NEW.kind,NEW.scope_id,NEW.project_id,NEW.environment_id,NEW.cluster_id,
+    IF ROW(NEW.kind,NEW.scope_id,NEW.project_id,NEW.environment_id,
            NEW.provider,NEW.installation_id,NEW.repository_id,NEW.repository_owner,
            NEW.repository_name,NEW.target_ref,NEW.path_prefix,NEW.credential_mode,
            NEW.credential_secret_name)
        IS DISTINCT FROM
-       ROW(OLD.kind,OLD.scope_id,OLD.project_id,OLD.environment_id,OLD.cluster_id,
+       ROW(OLD.kind,OLD.scope_id,OLD.project_id,OLD.environment_id,
            OLD.provider,OLD.installation_id,OLD.repository_id,OLD.repository_owner,
            OLD.repository_name,OLD.target_ref,OLD.path_prefix,OLD.credential_mode,
            OLD.credential_secret_name) THEN
@@ -2373,7 +2358,7 @@ BEGIN
        (TG_OP='INSERT' OR OLD.state<>'verified') THEN
         INSERT INTO public.argo_desired_state_materialization_receipts(
             id,environment_binding_id,environment_revision,environment_generation,
-            project_id,environment_id,platform_binding_id,cluster_id,
+            project_id,environment_id,platform_binding_id,
             platform_target_ref,environment_target_ref,desired_state_command_id,
             desired_state_generation,desired_state_revision,desired_state_content_sha256,
             catalog_digest,policy_digest,chart_repository,chart_name,chart_version,chart_digest,
@@ -2381,7 +2366,7 @@ BEGIN
         )
         SELECT NEW.id,NEW.environment_binding_id,NEW.environment_revision,
                NEW.environment_generation,NEW.project_id,NEW.environment_id,
-               NEW.platform_binding_id,NEW.cluster_id,NEW.platform_target_ref,
+               NEW.platform_binding_id,NEW.platform_target_ref,
                NEW.environment_target_ref,NEW.id,NEW.generation,
                NEW.committed_revision,NEW.content_sha256,NEW.catalog_digest,NEW.policy_digest,
                NEW.chart_repository,NEW.chart_name,NEW.chart_version,
@@ -2551,7 +2536,6 @@ BEGIN
           AND receipt.application_id=NEW.application_id
           AND receipt.platform_binding_id=NEW.platform_binding_id
           AND receipt.environment_binding_id=NEW.environment_binding_id
-          AND receipt.cluster_id=NEW.cluster_id
           AND receipt.environment_revision=NEW.environment_revision
           AND receipt.environment_generation=NEW.environment_generation
     ) THEN
@@ -2623,7 +2607,6 @@ DECLARE
     platform_kind text;
     platform_mode text;
     platform_ref text;
-    platform_cluster uuid;
     platform_state text;
     platform_head text;
     environment_kind text;
@@ -2635,15 +2618,13 @@ DECLARE
     environment_indexed text;
     environment_projection_generation bigint;
 BEGIN
-    SELECT kind,credential_mode,target_ref,cluster_id,state,target_head_revision
-      INTO platform_kind,platform_mode,platform_ref,platform_cluster,
-           platform_state,platform_head
+    SELECT kind,credential_mode,target_ref,state,target_head_revision
+      INTO platform_kind,platform_mode,platform_ref,platform_state,platform_head
       FROM git_repository_bindings
      WHERE id=NEW.platform_binding_id;
     IF platform_kind IS DISTINCT FROM 'platform' OR
        platform_mode IS DISTINCT FROM 'github-app' OR
-       platform_ref IS DISTINCT FROM NEW.platform_target_ref OR
-       platform_cluster IS DISTINCT FROM NEW.cluster_id THEN
+       platform_ref IS DISTINCT FROM NEW.platform_target_ref THEN
         RAISE EXCEPTION 'Argo desired state requires the exact protected GitHub App platform binding'
             USING ERRCODE='23514';
     END IF;
@@ -2715,7 +2696,7 @@ BEGIN
 
     IF TG_OP='UPDATE' THEN
         IF ROW(NEW.id,NEW.generation,NEW.project_id,NEW.environment_id,
-               NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+               NEW.platform_binding_id,NEW.environment_binding_id,
                NEW.platform_target_ref,NEW.environment_target_ref,
                NEW.environment_revision,NEW.environment_generation,NEW.path,
                NEW.argo_namespace,NEW.destination_namespace,NEW.argo_project,
@@ -2726,7 +2707,7 @@ BEGIN
                NEW.message,NEW.created_at)
            IS DISTINCT FROM
            ROW(OLD.id,OLD.generation,OLD.project_id,OLD.environment_id,
-               OLD.platform_binding_id,OLD.environment_binding_id,OLD.cluster_id,
+               OLD.platform_binding_id,OLD.environment_binding_id,
                OLD.platform_target_ref,OLD.environment_target_ref,
                OLD.environment_revision,OLD.environment_generation,OLD.path,
                OLD.argo_namespace,OLD.destination_namespace,OLD.argo_project,
@@ -2840,7 +2821,7 @@ BEGIN
           AND environment_binding.projection_generation=NEW.environment_generation
           AND generation.head_revision=NEW.environment_revision AND generation.state='active'
           AND platform.kind='platform' AND platform.credential_mode='github-app'
-          AND platform.cluster_id=NEW.cluster_id AND platform.target_ref=NEW.platform_target_ref
+          AND platform.target_ref=NEW.platform_target_ref
           AND platform.state IN ('ready','indexing')
           AND NOT EXISTS(SELECT 1 FROM public.git_projected_documents document
             WHERE document.binding_id=NEW.environment_binding_id
@@ -2856,7 +2837,6 @@ BEGIN
           AND command.project_id=NEW.project_id AND command.environment_id=NEW.environment_id
           AND command.platform_binding_id=NEW.platform_binding_id
           AND command.environment_binding_id=NEW.environment_binding_id
-          AND command.cluster_id=NEW.cluster_id
           AND command.platform_target_ref=NEW.platform_target_ref
           AND command.environment_target_ref=NEW.environment_target_ref
           AND command.state='verified' AND command.committed_revision=NEW.desired_state_revision
@@ -3258,7 +3238,6 @@ BEGIN
       AND payload.application_id=candidate.application_id
       AND payload.platform_binding_id=candidate.platform_binding_id
       AND payload.environment_binding_id=candidate.environment_binding_id
-      AND payload.cluster_id=candidate.cluster_id
       AND payload.state='verified' AND payload.action='disable-receipt'
       AND payload.committed_revision=candidate.payload_revision
       AND base.state='verified' AND base.action='publish'
@@ -3266,14 +3245,12 @@ BEGIN
       AND base.environment_id=candidate.environment_id
       AND base.application_id=candidate.application_id
       AND base.platform_binding_id=candidate.platform_binding_id
-      AND base.cluster_id=candidate.cluster_id
       AND base.application_path=candidate.application_path
       AND base.content=candidate.source_content
       AND base.content_digest=candidate.source_content_digest
       AND binding.kind='platform' AND binding.credential_mode='github-app'
-      AND binding.cluster_id=candidate.cluster_id
       AND binding.target_ref=candidate.platform_target_ref
-      AND binding.path_prefix='clusters/'||candidate.cluster_id::text
+      AND binding.path_prefix='platform'
       AND binding.state IN ('ready','indexing')
       AND binding.target_head_revision=NEW.provider_head
     FOR UPDATE OF head,binding FOR KEY SHARE OF release,payload,base;
@@ -3563,7 +3540,6 @@ BEGIN
              AND preflight.application_id=NEW.application_id
              AND preflight.platform_binding_id=NEW.platform_binding_id
              AND preflight.environment_binding_id=NEW.environment_binding_id
-             AND preflight.cluster_id=NEW.cluster_id
              AND preflight.platform_target_ref=NEW.platform_target_ref
              AND preflight.application_path=NEW.application_path
              AND NEW.expected_etag='"'||preflight.adopted_content_digest||'"'
@@ -3978,7 +3954,7 @@ BEGIN
         IF ROW(NEW.id,NEW.delete_intent_id,NEW.release_revision_id,NEW.payload_intent_id,
                NEW.base_application_intent_id,NEW.release_generation,NEW.payload_revision,
                NEW.project_id,NEW.environment_id,NEW.application_id,NEW.platform_binding_id,
-               NEW.environment_binding_id,NEW.cluster_id,NEW.platform_target_ref,
+               NEW.environment_binding_id,NEW.platform_target_ref,
                NEW.environment_target_ref,NEW.environment_revision,NEW.environment_generation,
                NEW.catalog_digest,NEW.planned_base_revision,NEW.argo_namespace,
                NEW.application_path,NEW.source_content,NEW.source_content_digest,
@@ -3990,7 +3966,7 @@ BEGIN
            ROW(OLD.id,OLD.delete_intent_id,OLD.release_revision_id,OLD.payload_intent_id,
                OLD.base_application_intent_id,OLD.release_generation,OLD.payload_revision,
                OLD.project_id,OLD.environment_id,OLD.application_id,OLD.platform_binding_id,
-               OLD.environment_binding_id,OLD.cluster_id,OLD.platform_target_ref,
+               OLD.environment_binding_id,OLD.platform_target_ref,
                OLD.environment_target_ref,OLD.environment_revision,OLD.environment_generation,
                OLD.catalog_digest,OLD.planned_base_revision,OLD.argo_namespace,
                OLD.application_path,OLD.source_content,OLD.source_content_digest,
@@ -4110,7 +4086,6 @@ BEGIN
                   AND payload.application_id=NEW.application_id
                   AND payload.platform_binding_id=NEW.platform_binding_id
                   AND payload.environment_binding_id=NEW.environment_binding_id
-                  AND payload.cluster_id=NEW.cluster_id
                   AND payload.platform_target_ref=NEW.platform_target_ref
                   AND payload.environment_target_ref=NEW.environment_target_ref
                   AND payload.environment_revision=NEW.environment_revision
@@ -4121,12 +4096,12 @@ BEGIN
                   AND base.state='verified' AND base.action='publish'
                   AND base.project_id=NEW.project_id AND base.environment_id=NEW.environment_id
                   AND base.application_id=NEW.application_id
-                  AND base.platform_binding_id=NEW.platform_binding_id AND base.cluster_id=NEW.cluster_id
+                  AND base.platform_binding_id=NEW.platform_binding_id
                   AND base.application_path=NEW.application_path
                   AND base.content=NEW.source_content AND base.content_digest=NEW.source_content_digest
                   AND platform.kind='platform' AND platform.credential_mode='github-app'
-                  AND platform.cluster_id=NEW.cluster_id AND platform.target_ref=NEW.platform_target_ref
-                  AND platform.path_prefix='clusters/'||NEW.cluster_id::text
+                  AND platform.target_ref=NEW.platform_target_ref
+                  AND platform.path_prefix='platform'
                   AND platform.state IN ('ready','indexing')
                   AND platform.target_head_revision=NEW.planned_base_revision
                 FOR KEY SHARE OF release,payload,base,platform
@@ -4341,11 +4316,10 @@ BEGIN
        NEW.payload_intent_id<>preflight.payload_intent_id OR
        NEW.base_application_intent_id<>preflight.base_application_intent_id OR
        NEW.project_id<>preflight.project_id OR NEW.environment_id<>preflight.environment_id OR
-       NEW.application_id<>preflight.application_id OR NEW.cluster_id<>preflight.cluster_id OR
+       NEW.application_id<>preflight.application_id OR
        NEW.application_path<>preflight.application_path OR
        NEW.source_content_digest<>preflight.source_content_digest OR
        NEW.adopted_content_digest<>preflight.adopted_content_digest OR
-       activation.argo_identity->>'clusterId'<>preflight.cluster_id::text OR
        activation.argo_identity->>'argoNamespace'<>preflight.argo_namespace OR
        activation.argo_identity->>'rootApplicationName'<>'kuberploy-platform-root' OR
        NEW.adoption_revision<>(CASE WHEN preflight.operation='update'
@@ -4360,7 +4334,7 @@ BEGIN
        NOT EXISTS (
            SELECT 1 FROM public.git_repository_bindings AS platform
            WHERE platform.id=preflight.platform_binding_id AND platform.kind='platform'
-             AND platform.credential_mode='github-app' AND platform.cluster_id=preflight.cluster_id
+             AND platform.credential_mode='github-app'
              AND platform.target_ref=preflight.platform_target_ref
              AND platform.target_head_revision=NEW.provider_head
            FOR KEY SHARE
@@ -4429,7 +4403,6 @@ BEGIN
          AND payload.application_id=release.application_id
          AND payload.platform_binding_id=NEW.platform_binding_id
          AND payload.environment_binding_id=NEW.environment_binding_id
-         AND payload.cluster_id=NEW.cluster_id
          AND payload.environment_revision=NEW.source_environment_revision
          AND payload.environment_generation=NEW.source_environment_generation
         JOIN public.helm_publication_prerequisite_receipts prerequisite
@@ -4439,7 +4412,6 @@ BEGIN
          AND prerequisite.application_id=release.application_id
          AND prerequisite.platform_binding_id=NEW.platform_binding_id
          AND prerequisite.environment_binding_id=NEW.environment_binding_id
-         AND prerequisite.cluster_id=NEW.cluster_id
          AND prerequisite.environment_revision=NEW.source_environment_revision
          AND prerequisite.environment_generation=NEW.source_environment_generation
          AND prerequisite.foundation_intent_id=NEW.source_foundation_intent_id
@@ -4453,7 +4425,7 @@ BEGIN
          AND source_command.content_sha256=NEW.source_desired_state_content_digest
         JOIN public.git_repository_bindings platform
           ON platform.id=NEW.platform_binding_id AND platform.kind='platform'
-         AND platform.credential_mode='github-app' AND platform.cluster_id=NEW.cluster_id
+         AND platform.credential_mode='github-app'
          AND platform.target_ref=payload.platform_target_ref
          AND platform.state IN ('ready','indexing')
          AND platform.target_head_revision=NEW.planned_base_revision
@@ -4476,7 +4448,7 @@ BEGIN
          AND foundation.environment_id=release.environment_id AND foundation.project_id=release.project_id
          AND foundation.active AND foundation.state='ready'
          AND foundation.platform_binding_id=NEW.platform_binding_id
-         AND foundation.cluster_id=NEW.cluster_id AND foundation.target_ref=payload.platform_target_ref
+         AND foundation.target_ref=payload.platform_target_ref
          AND foundation.namespace=desired_environment.namespace
          AND foundation.argo_project=desired_environment.argo_project
          AND foundation.committed_revision=NEW.current_foundation_revision
@@ -4503,7 +4475,6 @@ BEGIN
          AND current_command.environment_id=release.environment_id
          AND current_command.platform_binding_id=NEW.platform_binding_id
          AND current_command.environment_binding_id=NEW.environment_binding_id
-         AND current_command.cluster_id=NEW.cluster_id
          AND current_command.platform_target_ref=payload.platform_target_ref
          AND current_command.environment_target_ref=payload.environment_target_ref
 
@@ -4596,7 +4567,6 @@ BEGIN
               AND receipt.application_id=NEW.application_id
               AND receipt.platform_binding_id=NEW.platform_binding_id
               AND receipt.environment_binding_id=NEW.environment_binding_id
-              AND receipt.cluster_id=NEW.cluster_id
               AND receipt.source_environment_revision=NEW.environment_revision
               AND receipt.source_environment_generation=NEW.environment_generation
               AND receipt.planned_base_revision=NEW.planned_base_revision
@@ -4668,7 +4638,7 @@ BEGIN
             NEW.id,NEW.release_revision_id,NEW.payload_intent_id,
             NEW.release_generation,NEW.project_id,NEW.environment_id,
             NEW.application_id,NEW.action,NEW.platform_binding_id,
-            NEW.environment_binding_id,NEW.cluster_id,NEW.platform_target_ref,
+            NEW.environment_binding_id,NEW.platform_target_ref,
             NEW.environment_target_ref,NEW.environment_revision,
             NEW.environment_generation,NEW.catalog_digest,NEW.planned_base_revision,
             NEW.payload_revision,NEW.payload_path,NEW.source_directory,
@@ -4680,7 +4650,7 @@ BEGIN
             OLD.id,OLD.release_revision_id,OLD.payload_intent_id,
             OLD.release_generation,OLD.project_id,OLD.environment_id,
             OLD.application_id,OLD.action,OLD.platform_binding_id,
-            OLD.environment_binding_id,OLD.cluster_id,OLD.platform_target_ref,
+            OLD.environment_binding_id,OLD.platform_target_ref,
             OLD.environment_target_ref,OLD.environment_revision,
             OLD.environment_generation,OLD.catalog_digest,OLD.planned_base_revision,
             OLD.payload_revision,OLD.payload_path,OLD.source_directory,
@@ -4763,7 +4733,6 @@ BEGIN
        payload_row.application_id<>NEW.application_id OR
        payload_row.platform_binding_id<>NEW.platform_binding_id OR
        payload_row.environment_binding_id<>NEW.environment_binding_id OR
-       payload_row.cluster_id<>NEW.cluster_id OR
        payload_row.platform_target_ref<>NEW.platform_target_ref OR
        payload_row.environment_target_ref<>NEW.environment_target_ref OR
        payload_row.environment_revision<>NEW.environment_revision OR
@@ -4796,20 +4765,17 @@ BEGIN
      FOR KEY SHARE;
     IF platform_row.id IS NULL OR platform_row.kind<>'platform' OR
        platform_row.credential_mode<>'github-app' OR
-       platform_row.cluster_id<>NEW.cluster_id OR
        platform_row.target_ref<>NEW.platform_target_ref OR
-       platform_row.path_prefix<>'clusters/'||NEW.cluster_id::text OR
+       platform_row.path_prefix<>'platform' OR
        platform_row.state NOT IN ('ready','indexing') OR
        platform_row.target_head_revision<>NEW.planned_base_revision THEN
         RAISE EXCEPTION 'Helm protected Application binding is stale or mismatched'
             USING ERRCODE='23514';
     END IF;
 
-    expected_application_path := 'clusters/'||NEW.cluster_id::text||
-        '/argocd/helm-applications/'||NEW.environment_id::text||'/'||
+    expected_application_path := 'platform/argocd/helm-applications/'||NEW.environment_id::text||'/'||
         NEW.application_id::text||'.yaml';
-    expected_source_directory := 'clusters/'||NEW.cluster_id::text||
-        '/helm-manifests/environments/'||NEW.environment_id::text||
+    expected_source_directory := 'platform/helm-manifests/environments/'||NEW.environment_id::text||
         '/applications/'||NEW.application_id::text||'/revisions/'||
         NEW.release_revision_id::text;
     IF NEW.application_path<>expected_application_path OR
@@ -4886,7 +4852,7 @@ BEGIN
         IF OLD.lease_epoch=0 AND NEW.lease_epoch=1 AND NOT (
             (NEW.continuation_required AND public.helm_application_continuation_is_exact(NEW.id)) OR
             (NOT NEW.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
-                NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+                NEW.platform_binding_id,NEW.environment_binding_id,
                 NEW.project_id,NEW.environment_id,NEW.platform_target_ref,
                 NEW.environment_target_ref,NEW.environment_revision,NEW.environment_generation
             ))
@@ -5045,7 +5011,7 @@ BEGIN
         IF ROW(
             NEW.id,NEW.release_revision_id,NEW.release_generation,NEW.project_id,
             NEW.environment_id,NEW.application_id,NEW.action,
-            NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+            NEW.platform_binding_id,NEW.environment_binding_id,
             NEW.platform_target_ref,NEW.environment_target_ref,
             NEW.environment_revision,NEW.environment_generation,NEW.catalog_digest,
             NEW.planned_base_revision,NEW.path,NEW.precondition,NEW.expected_etag,
@@ -5056,7 +5022,7 @@ BEGIN
         ) IS DISTINCT FROM ROW(
             OLD.id,OLD.release_revision_id,OLD.release_generation,OLD.project_id,
             OLD.environment_id,OLD.application_id,OLD.action,
-            OLD.platform_binding_id,OLD.environment_binding_id,OLD.cluster_id,
+            OLD.platform_binding_id,OLD.environment_binding_id,
             OLD.platform_target_ref,OLD.environment_target_ref,
             OLD.environment_revision,OLD.environment_generation,OLD.catalog_digest,
             OLD.planned_base_revision,OLD.path,OLD.precondition,OLD.expected_etag,
@@ -5157,9 +5123,8 @@ BEGIN
      FOR KEY SHARE;
     IF platform_row.id IS NULL OR platform_row.kind<>'platform' OR
        platform_row.credential_mode<>'github-app' OR
-       platform_row.cluster_id<>NEW.cluster_id OR
        platform_row.target_ref<>NEW.platform_target_ref OR
-       platform_row.path_prefix<>'clusters/'||NEW.cluster_id::text OR
+       platform_row.path_prefix<>'platform' OR
        platform_row.state NOT IN ('ready','indexing') OR
        platform_row.target_head_revision<>NEW.planned_base_revision OR
        environment_row.id IS NULL OR environment_row.kind<>'environment' OR
@@ -5190,8 +5155,7 @@ BEGIN
     END IF;
 
     IF NEW.action='publish' THEN
-        expected_path := 'clusters/'||NEW.cluster_id::text||
-            '/helm-manifests/environments/'||NEW.environment_id::text||
+        expected_path := 'platform/helm-manifests/environments/'||NEW.environment_id::text||
             '/applications/'||NEW.application_id::text||'/revisions/'||
             NEW.release_revision_id::text||'/release.yaml';
         SELECT result.rendered_manifests,result.manifest_digest,
@@ -5210,8 +5174,7 @@ BEGIN
                 USING ERRCODE='23514';
         END IF;
     ELSE
-        expected_path := 'clusters/'||NEW.cluster_id::text||
-            '/helm-manifests/environments/'||NEW.environment_id::text||
+        expected_path := 'platform/helm-manifests/environments/'||NEW.environment_id::text||
             '/applications/'||NEW.application_id::text||'/revisions/'||
             NEW.release_revision_id::text||'/disabled.json';
         BEGIN
@@ -5299,7 +5262,7 @@ BEGIN
               AND intent.next_attempt_at<=NEW.created_at AND intent.updated_at<=NEW.created_at
               AND (intent.lease_owner IS NULL OR intent.lease_until<=NEW.created_at)
               AND (intent.lease_epoch>0 OR public.helm_protected_adoption_projection_is_fresh(
-                  intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+                  intent.platform_binding_id,intent.environment_binding_id,
                   intent.project_id,intent.environment_id,intent.platform_target_ref,
                   intent.environment_target_ref,intent.environment_revision,intent.environment_generation))
               AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
@@ -5338,7 +5301,7 @@ BEGIN
               AND (intent.lease_epoch>0 OR
                 (intent.continuation_required AND public.helm_application_continuation_is_exact(intent.id)) OR
                 (NOT intent.continuation_required AND public.helm_protected_adoption_projection_is_fresh(
-                  intent.platform_binding_id,intent.environment_binding_id,intent.cluster_id,
+                  intent.platform_binding_id,intent.environment_binding_id,
                   intent.project_id,intent.environment_id,intent.platform_target_ref,
                   intent.environment_target_ref,intent.environment_revision,intent.environment_generation)))
               AND NOT EXISTS(SELECT 1 FROM public.helm_protected_payload_intents held
@@ -5386,7 +5349,7 @@ BEGIN
     IF NEW.lease_owner IS NOT NULL AND NEW.lease_until>NEW.updated_at THEN
         IF OLD.lease_epoch=0 AND NEW.lease_epoch=1 AND
            NOT public.helm_protected_adoption_projection_is_fresh(
-               NEW.platform_binding_id,NEW.environment_binding_id,NEW.cluster_id,
+               NEW.platform_binding_id,NEW.environment_binding_id,
                NEW.project_id,NEW.environment_id,NEW.platform_target_ref,
                NEW.environment_target_ref,NEW.environment_revision,
                NEW.environment_generation
@@ -5565,7 +5528,6 @@ BEGIN
           AND release.environment_id=NEW.environment_id
           AND release.application_id=NEW.application_id
           AND platform.kind='platform' AND platform.credential_mode='github-app'
-          AND platform.cluster_id=NEW.cluster_id
           AND platform.state IN ('ready','indexing')
           AND platform.target_head_revision=NEW.planned_base_revision
           AND environment_binding.kind='environment'
@@ -5593,7 +5555,6 @@ BEGIN
           AND foundation.environment_id=NEW.environment_id
           AND foundation.project_id=NEW.project_id
           AND foundation.platform_binding_id=NEW.platform_binding_id
-          AND foundation.cluster_id=NEW.cluster_id
           AND foundation.state='ready' AND foundation.active
           AND foundation.committed_revision=NEW.foundation_revision
           AND foundation.published_at IS NOT NULL
@@ -5614,7 +5575,6 @@ BEGIN
           AND materialization.project_id=NEW.project_id
           AND materialization.environment_id=NEW.environment_id
           AND materialization.platform_binding_id=NEW.platform_binding_id
-          AND materialization.cluster_id=NEW.cluster_id
           AND materialization.desired_state_command_id=NEW.desired_state_command_id
           AND materialization.desired_state_revision=NEW.desired_state_revision
           AND materialization.created_at<=NEW.created_at
@@ -5623,7 +5583,6 @@ BEGIN
           AND command.environment_id=NEW.environment_id
           AND command.platform_binding_id=NEW.platform_binding_id
           AND command.environment_binding_id=NEW.environment_binding_id
-          AND command.cluster_id=NEW.cluster_id
           AND command.generation=materialization.desired_state_generation
           AND command.state='verified'
           AND command.committed_revision=NEW.desired_state_revision
@@ -6120,12 +6079,11 @@ BEGIN
             RAISE EXCEPTION 'invalid runtime-secret readiness' USING ERRCODE='23514';
         END IF;
     ELSIF NEW.runtime_kind='argo-desired-state' THEN
-        IF NEW.identity - ARRAY['githubAppId','clusterId','argoNamespace','rootApplicationName','repositorySecretName',
+        IF NEW.identity - ARRAY['githubAppId','argoNamespace','rootApplicationName','repositorySecretName',
                 'chartRepository','chartName','chartVersion','chartDigest','rendererImage','chartDigestEnforcement'] <> '{}'::jsonb OR
-           NOT (NEW.identity ?& ARRAY['githubAppId','clusterId','argoNamespace','rootApplicationName','repositorySecretName',
+           NOT (NEW.identity ?& ARRAY['githubAppId','argoNamespace','rootApplicationName','repositorySecretName',
                 'chartRepository','chartName','chartVersion','chartDigest','rendererImage','chartDigestEnforcement']) OR
            NEW.identity->>'githubAppId' !~ '^[1-9][0-9]*$' OR
-           NEW.identity->>'clusterId' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' OR
            NEW.identity->>'argoNamespace' !~ '^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$' OR
            NEW.identity->>'rootApplicationName' !~ '^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$' OR
            NEW.identity->>'repositorySecretName' !~ '^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$' OR
@@ -6138,7 +6096,7 @@ BEGIN
             RAISE EXCEPTION 'invalid Argo desired-state runtime readiness' USING ERRCODE='23514';
         END IF;
         SELECT kind,credential_mode INTO binding_kind,binding_mode FROM git_repository_bindings
-        WHERE id=NEW.platform_binding_id AND cluster_id::text=NEW.identity->>'clusterId';
+        WHERE id=NEW.platform_binding_id;
         IF binding_kind IS DISTINCT FROM 'platform' OR binding_mode IS DISTINCT FROM 'github-app' THEN
             RAISE EXCEPTION 'Argo readiness requires a protected GitHub App platform binding' USING ERRCODE='23514';
         END IF;
@@ -6619,21 +6577,6 @@ CREATE TABLE public.access_grants (
 
 
 --
--- Name: application_registry_pull_selections; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.application_registry_pull_selections (
-    application_id uuid NOT NULL,
-    mode text NOT NULL,
-    project_credential_id uuid,
-    updated_by uuid NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT application_registry_pull_selections_check CHECK ((((mode = 'public'::text) AND (project_credential_id IS NULL)) OR ((mode = 'project-credential'::text) AND (project_credential_id IS NOT NULL)))),
-    CONSTRAINT application_registry_pull_selections_mode_check CHECK ((mode = ANY (ARRAY['public'::text, 'project-credential'::text])))
-);
-
-
---
 -- Name: applications; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -6642,6 +6585,13 @@ CREATE TABLE public.applications (
     project_id uuid NOT NULL,
     name text NOT NULL,
     slug text NOT NULL,
+    registry_pull_mode text,
+    registry_pull_project_credential_id uuid,
+    registry_pull_updated_by uuid,
+    registry_pull_updated_at timestamp with time zone,
+    CONSTRAINT applications_registry_pull_check CHECK ((((registry_pull_mode IS NULL) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NULL) AND (registry_pull_updated_at IS NULL)) OR ((registry_pull_mode = 'public'::text) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)) OR ((registry_pull_mode = 'project-credential'::text) AND (registry_pull_project_credential_id IS NOT NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)))),
+    CONSTRAINT applications_registry_pull_mode_check CHECK ((registry_pull_mode = ANY (ARRAY['public'::text, 'project-credential'::text]))),
+    CONSTRAINT applications_registry_pull_update_check CHECK (((registry_pull_updated_at IS NULL) = (registry_pull_updated_by IS NULL))),
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
@@ -6758,7 +6708,6 @@ CREATE TABLE public.argo_desired_state_commands (
     environment_id uuid NOT NULL,
     platform_binding_id uuid NOT NULL,
     environment_binding_id uuid NOT NULL,
-    cluster_id uuid NOT NULL,
     platform_target_ref text NOT NULL,
     environment_target_ref text NOT NULL,
     environment_revision text NOT NULL,
@@ -6808,7 +6757,7 @@ CREATE TABLE public.argo_desired_state_commands (
     CONSTRAINT argo_desired_state_commands_chart_name_check CHECK ((chart_name = 'kuberploy-runtime'::text)),
     CONSTRAINT argo_desired_state_commands_chart_repository_check CHECK (((length(chart_repository) >= 7) AND (length(chart_repository) <= 512) AND (chart_repository ~ '^oci://[^/?#@[:space:]]+/[^?#@[:space:]]+$'::text))),
     CONSTRAINT argo_desired_state_commands_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 64) AND (chart_version ~ '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
-    CONSTRAINT argo_desired_state_commands_check CHECK ((path = (((('clusters/'::text || (cluster_id)::text) || '/argocd/environments/'::text) || (environment_id)::text) || '.yaml'::text))),
+    CONSTRAINT argo_desired_state_commands_check CHECK ((path = ((('platform/argocd/environments/'::text || (environment_id)::text) || '.yaml'::text)))),
     CONSTRAINT argo_desired_state_commands_check1 CHECK ((((precondition = 'match-etag'::text) AND (expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text)) OR ((precondition = 'create-if-absent'::text) AND (expected_etag = ''::text)))),
     CONSTRAINT argo_desired_state_commands_check2 CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
     CONSTRAINT argo_desired_state_commands_check3 CHECK ((((write_base_revision = ''::text) AND (write_base_observed_at IS NULL)) OR ((write_base_revision <> ''::text) AND (write_base_observed_at IS NOT NULL) AND (write_base_observed_at >= created_at) AND (write_base_observed_at <= updated_at)))),
@@ -6850,7 +6799,6 @@ CREATE TABLE public.argo_desired_state_materialization_receipts (
     project_id uuid NOT NULL,
     environment_id uuid CONSTRAINT argo_desired_state_materialization_rece_environment_id_not_null NOT NULL,
     platform_binding_id uuid CONSTRAINT argo_desired_state_materialization_platform_binding_id_not_null NOT NULL,
-    cluster_id uuid NOT NULL,
     platform_target_ref text CONSTRAINT argo_desired_state_materialization_platform_target_ref_not_null NOT NULL,
     environment_target_ref text CONSTRAINT argo_desired_state_materializat_environment_target_ref_not_null NOT NULL,
     desired_state_command_id uuid CONSTRAINT argo_desired_state_materializ_desired_state_command_id_not_null NOT NULL,
@@ -7466,7 +7414,6 @@ CREATE TABLE public.environment_foundation_intents (
     namespace text NOT NULL,
     argo_project text NOT NULL,
     platform_binding_id uuid NOT NULL,
-    cluster_id uuid NOT NULL,
     target_ref text NOT NULL,
     planned_head_revision text NOT NULL,
     binding_generation bigint NOT NULL,
@@ -7500,7 +7447,7 @@ CREATE TABLE public.environment_foundation_intents (
     CONSTRAINT environment_foundation_intents_argo_project_check CHECK ((argo_project ~ '^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$'::text)),
     CONSTRAINT environment_foundation_intents_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
     CONSTRAINT environment_foundation_intents_binding_generation_check CHECK ((binding_generation > 0)),
-    CONSTRAINT environment_foundation_intents_check CHECK ((manifest_path = (((('clusters/'::text || (cluster_id)::text) || '/argocd/foundations/'::text) || (environment_id)::text) || '.yaml'::text))),
+    CONSTRAINT environment_foundation_intents_check CHECK ((manifest_path = ((('platform/argocd/foundations/'::text || (environment_id)::text) || '.yaml'::text)))),
     CONSTRAINT environment_foundation_intents_check1 CHECK ((commit_trailer = ('Kuberploy-Environment-Foundation-Intent: '::text || (id)::text))),
     CONSTRAINT environment_foundation_intents_check2 CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
     CONSTRAINT environment_foundation_intents_check3 CHECK (((last_failure_code = ''::text) = (consecutive_failures = 0))),
@@ -7786,7 +7733,6 @@ CREATE TABLE public.git_repository_bindings (
     scope_id uuid NOT NULL,
     project_id uuid,
     environment_id uuid,
-    cluster_id uuid,
     provider text NOT NULL,
     installation_id bigint NOT NULL,
     repository_id bigint NOT NULL,
@@ -7805,7 +7751,7 @@ CREATE TABLE public.git_repository_bindings (
     created_at timestamp with time zone NOT NULL,
     updated_at timestamp with time zone NOT NULL,
     credential_mode text DEFAULT 'legacy-secret'::text NOT NULL,
-    CONSTRAINT git_repository_bindings_check CHECK ((((kind = 'environment'::text) AND (scope_id = environment_id) AND (project_id IS NOT NULL) AND (cluster_id IS NULL) AND (path_prefix = ((('tenants/'::text || (project_id)::text) || '/environments/'::text) || (environment_id)::text))) OR ((kind = 'platform'::text) AND (scope_id = cluster_id) AND (project_id IS NULL) AND (environment_id IS NULL) AND (path_prefix = ('clusters/'::text || (cluster_id)::text))))),
+    CONSTRAINT git_repository_bindings_check CHECK ((((kind = 'environment'::text) AND (scope_id = environment_id) AND (project_id IS NOT NULL) AND (path_prefix = ((('tenants/'::text || (project_id)::text) || '/environments/'::text) || (environment_id)::text))) OR ((kind = 'platform'::text) AND (scope_id = id) AND (project_id IS NULL) AND (environment_id IS NULL) AND (path_prefix = 'platform'::text)))),
     CONSTRAINT git_repository_bindings_check1 CHECK ((((indexed_revision IS NULL) AND (projection_generation = 0) AND (indexed_at IS NULL)) OR ((indexed_revision IS NOT NULL) AND (projection_generation > 0) AND (indexed_at IS NOT NULL)))),
     CONSTRAINT git_repository_bindings_check2 CHECK (((target_head_revision IS NULL) = (target_head_observed_at IS NULL))),
     CONSTRAINT git_repository_bindings_check3 CHECK (((target_head_observed_at IS NULL) OR ((target_head_observed_at >= created_at) AND (target_head_observed_at <= updated_at)))),
@@ -8318,7 +8264,6 @@ CREATE TABLE public.helm_application_cascade_preflights (
     application_id uuid NOT NULL,
     platform_binding_id uuid CONSTRAINT helm_application_cascade_preflight_platform_binding_id_not_null NOT NULL,
     environment_binding_id uuid CONSTRAINT helm_application_cascade_prefli_environment_binding_id_not_null NOT NULL,
-    cluster_id uuid NOT NULL,
     platform_target_ref text CONSTRAINT helm_application_cascade_preflight_platform_target_ref_not_null NOT NULL,
     environment_target_ref text CONSTRAINT helm_application_cascade_prefli_environment_target_ref_not_null NOT NULL,
     environment_revision text CONSTRAINT helm_application_cascade_prefligh_environment_revision_not_null NOT NULL,
@@ -8425,7 +8370,6 @@ CREATE TABLE public.helm_application_cascade_receipts (
     project_id uuid NOT NULL,
     environment_id uuid NOT NULL,
     application_id uuid NOT NULL,
-    cluster_id uuid NOT NULL,
     application_path text NOT NULL,
     source_content_digest text CONSTRAINT helm_application_cascade_receipt_source_content_digest_not_null NOT NULL,
     adopted_content_digest text CONSTRAINT helm_application_cascade_receip_adopted_content_digest_not_null NOT NULL,
@@ -8501,7 +8445,6 @@ CREATE TABLE public.helm_application_continuation_receipts (
     application_id uuid NOT NULL,
     platform_binding_id uuid CONSTRAINT helm_application_continuation_rece_platform_binding_id_not_null NOT NULL,
     environment_binding_id uuid CONSTRAINT helm_application_continuation_r_environment_binding_id_not_null NOT NULL,
-    cluster_id uuid NOT NULL,
     source_environment_revision text CONSTRAINT helm_application_continuati_source_environment_revisio_not_null NOT NULL,
     source_environment_generation bigint CONSTRAINT helm_application_continuati_source_environment_generat_not_null NOT NULL,
     source_foundation_intent_id uuid CONSTRAINT helm_application_continuati_source_foundation_intent_i_not_null NOT NULL,
@@ -8614,7 +8557,6 @@ CREATE TABLE public.helm_protected_application_intents (
     action text NOT NULL,
     platform_binding_id uuid NOT NULL,
     environment_binding_id uuid CONSTRAINT helm_protected_application_inte_environment_binding_id_not_null NOT NULL,
-    cluster_id uuid NOT NULL,
     platform_target_ref text NOT NULL,
     environment_target_ref text CONSTRAINT helm_protected_application_inte_environment_target_ref_not_null NOT NULL,
     environment_revision text CONSTRAINT helm_protected_application_intent_environment_revision_not_null NOT NULL,
@@ -8728,7 +8670,6 @@ CREATE TABLE public.helm_protected_payload_intents (
     action text NOT NULL,
     platform_binding_id uuid NOT NULL,
     environment_binding_id uuid NOT NULL,
-    cluster_id uuid NOT NULL,
     platform_target_ref text NOT NULL,
     environment_target_ref text NOT NULL,
     environment_revision text NOT NULL,
@@ -8888,7 +8829,6 @@ CREATE TABLE public.helm_publication_prerequisite_receipts (
     application_id uuid NOT NULL,
     platform_binding_id uuid CONSTRAINT helm_publication_prerequisite_rece_platform_binding_id_not_null NOT NULL,
     environment_binding_id uuid CONSTRAINT helm_publication_prerequisite_r_environment_binding_id_not_null NOT NULL,
-    cluster_id uuid NOT NULL,
     environment_revision text CONSTRAINT helm_publication_prerequisite_rec_environment_revision_not_null NOT NULL,
     environment_generation bigint CONSTRAINT helm_publication_prerequisite_r_environment_generation_not_null NOT NULL,
     foundation_intent_id uuid CONSTRAINT helm_publication_prerequisite_rec_foundation_intent_id_not_null NOT NULL,
@@ -10093,14 +10033,6 @@ ALTER TABLE ONLY public.access_grants
 
 
 --
--- Name: application_registry_pull_selections application_registry_pull_selections_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.application_registry_pull_selections
-    ADD CONSTRAINT application_registry_pull_selections_pkey PRIMARY KEY (application_id);
-
-
---
 -- Name: applications applications_id_project_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10618,14 +10550,6 @@ ALTER TABLE ONLY public.git_pull_request_publications
 
 ALTER TABLE ONLY public.git_pull_request_publications
     ADD CONSTRAINT git_pull_request_publications_repository_id_candidate_ref_key UNIQUE (repository_id, candidate_ref);
-
-
---
--- Name: git_repository_bindings git_repository_bindings_id_cluster_unique; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_repository_bindings
-    ADD CONSTRAINT git_repository_bindings_id_cluster_unique UNIQUE (id, cluster_id);
 
 
 --
@@ -11908,7 +11832,7 @@ CREATE UNIQUE INDEX git_repository_bindings_environment_authority ON public.git_
 -- Name: git_repository_bindings_platform_authority; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX git_repository_bindings_platform_authority ON public.git_repository_bindings USING btree (cluster_id) WHERE (kind = 'platform'::text);
+CREATE UNIQUE INDEX git_repository_bindings_platform_authority ON public.git_repository_bindings USING btree ((true)) WHERE (kind = 'platform'::text);
 
 
 --
@@ -12486,10 +12410,10 @@ CREATE INDEX user_invitations_expires_idx ON public.user_invitations USING btree
 
 
 --
--- Name: application_registry_pull_selections application_registry_pull_selection_scope; Type: TRIGGER; Schema: public; Owner: -
+-- Name: applications application_registry_pull_selection_scope; Type: TRIGGER; Schema: public; Owner: -
 --
 
-CREATE CONSTRAINT TRIGGER application_registry_pull_selection_scope AFTER INSERT OR UPDATE ON public.application_registry_pull_selections DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.enforce_application_registry_pull_selection_scope();
+CREATE CONSTRAINT TRIGGER application_registry_pull_selection_scope AFTER INSERT OR UPDATE OF project_id, registry_pull_mode, registry_pull_project_credential_id ON public.applications DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.enforce_application_registry_pull_selection_scope();
 
 
 --
@@ -13245,27 +13169,19 @@ ALTER TABLE ONLY public.access_grants
 
 
 --
--- Name: application_registry_pull_selections application_registry_pull_selections_application_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: applications applications_registry_pull_project_credential_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.application_registry_pull_selections
-    ADD CONSTRAINT application_registry_pull_selections_application_id_fkey FOREIGN KEY (application_id) REFERENCES public.applications(id) ON DELETE CASCADE;
-
-
---
--- Name: application_registry_pull_selections application_registry_pull_selections_project_credential_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.application_registry_pull_selections
-    ADD CONSTRAINT application_registry_pull_selections_project_credential_id_fkey FOREIGN KEY (project_credential_id) REFERENCES public.project_registry_pull_credentials(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_registry_pull_project_credential_id_fkey FOREIGN KEY (registry_pull_project_credential_id) REFERENCES public.project_registry_pull_credentials(id) ON DELETE RESTRICT;
 
 
 --
--- Name: application_registry_pull_selections application_registry_pull_selections_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: applications applications_registry_pull_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.application_registry_pull_selections
-    ADD CONSTRAINT application_registry_pull_selections_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id) ON DELETE RESTRICT;
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_registry_pull_updated_by_fkey FOREIGN KEY (registry_pull_updated_by) REFERENCES public.users(id) ON DELETE RESTRICT;
 
 
 --
@@ -13389,11 +13305,11 @@ ALTER TABLE ONLY public.argo_desired_state_commands
 
 
 --
--- Name: argo_desired_state_commands argo_desired_state_commands_platform_binding_id_cluster_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: argo_desired_state_commands argo_desired_state_commands_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.argo_desired_state_commands
-    ADD CONSTRAINT argo_desired_state_commands_platform_binding_id_cluster_id_fkey FOREIGN KEY (platform_binding_id, cluster_id) REFERENCES public.git_repository_bindings(id, cluster_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT argo_desired_state_commands_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
 
 
 --
@@ -13921,7 +13837,7 @@ ALTER TABLE ONLY public.edge_sslip_ingress_observations
 --
 
 ALTER TABLE ONLY public.environment_foundation_intents
-    ADD CONSTRAINT environment_foundation_intent_platform_binding_id_cluster__fkey FOREIGN KEY (platform_binding_id, cluster_id) REFERENCES public.git_repository_bindings(id, cluster_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT environment_foundation_intent_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
 
 
 --
@@ -14393,7 +14309,7 @@ ALTER TABLE ONLY public.helm_protected_application_intents
 --
 
 ALTER TABLE ONLY public.helm_protected_application_intents
-    ADD CONSTRAINT helm_protected_application_in_platform_binding_id_cluster__fkey FOREIGN KEY (platform_binding_id, cluster_id) REFERENCES public.git_repository_bindings(id, cluster_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT helm_protected_application_intent_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
 
 
 --
@@ -14449,7 +14365,7 @@ ALTER TABLE ONLY public.helm_protected_payload_intents
 --
 
 ALTER TABLE ONLY public.helm_protected_payload_intents
-    ADD CONSTRAINT helm_protected_payload_intent_platform_binding_id_cluster__fkey FOREIGN KEY (platform_binding_id, cluster_id) REFERENCES public.git_repository_bindings(id, cluster_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT helm_protected_payload_intent_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
 
 
 --

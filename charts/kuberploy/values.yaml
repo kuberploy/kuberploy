@@ -86,7 +86,6 @@ config:
   platformGitBinding:
     enabled: false
     bindingID: ""
-    clusterID: ""
   # Strict Sealed Secrets runtime. Existing operator Secrets are projected to
   # fixed files; their bytes never enter values, ConfigMaps, or process env.
   runtimeSecrets:
@@ -123,7 +122,6 @@ config:
   certificateIssuerObserver:
     enabled: false
     platformBindingID: ""
-    clusterID: ""
     pollIntervalSeconds: 30
     requestTimeoutSeconds: 10
     maximumAgeSeconds: 120
@@ -170,7 +168,6 @@ config:
   externalDNSOperational:
     enabled: false
     platformBindingID: ""
-    clusterID: ""
     namespace: ""
     version: ""
     image: ""
@@ -189,7 +186,6 @@ config:
   environmentFoundation:
     enabled: false
     platformBindingID: ""
-    clusterID: ""
     psaVersion: ""
     pollIntervalSeconds: 1
   # Protected Argo desired-state reconciliation. The worker may materialize
@@ -200,7 +196,6 @@ config:
   argoDesiredState:
     enabled: false
     platformBindingID: ""
-    clusterID: ""
     namespace: ""
     runtimeChartRepository: ""
     runtimeChartVersion: ""
@@ -267,7 +262,7 @@ components:
   api:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.323
+      reference: ghcr.io/kuberploy/kuberploy-api:0.1.0-rc.324
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -276,7 +271,7 @@ components:
   worker:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.323
+      reference: ghcr.io/kuberploy/kuberploy-worker:0.1.0-rc.324
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 50m, memory: 64Mi}
@@ -284,7 +279,7 @@ components:
   web:
     replicas: 1
     image:
-      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.323
+      reference: ghcr.io/kuberploy/kuberploy-web:0.1.0-rc.324
       pullPolicy: IfNotPresent
     port: 8080
     resources:
@@ -292,7 +287,7 @@ components:
       limits: {cpu: 250m, memory: 128Mi}
   migration:
     image:
-      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.323
+      reference: ghcr.io/kuberploy/kuberploy-migration:0.1.0-rc.324
       pullPolicy: IfNotPresent
     resources:
       requests: {cpu: 25m, memory: 64Mi}

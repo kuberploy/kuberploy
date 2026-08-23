@@ -55,7 +55,6 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		operationID               = "86111111-1111-4111-8111-111111111111"
 		platformID                = "87111111-1111-4111-8111-111111111111"
 		bindingID                 = "88111111-1111-4111-8111-111111111111"
-		clusterID                 = "89111111-1111-4111-8111-111111111111"
 		installationPlatformID    = "8a111111-1111-4111-8111-111111111111"
 		installationEnvironmentID = "8b111111-1111-4111-8111-111111111111"
 		repositoryPlatformID      = "8c111111-1111-4111-8111-111111111111"
@@ -127,8 +126,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, clusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 501, RepositoryID: 601, Owner: "kuberploy", Name: "platform"},
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 501, RepositoryID: 601, Owner: "kuberploy", Name: "platform"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +183,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	}
 	credentialName, _ := RepositoryCredentialName(platform.ID)
 	identity, err := DesiredStateRuntimeIdentityForConfig(DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1001,
-		PlatformBindingID: platform.ID, ClusterID: clusterID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
+		PlatformBindingID: platform.ID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
 		RepositorySecretName: credentialName, Runtime: RuntimeLock{ChartRepository: "oci://ghcr.io/kuberploy/charts", ChartName: "kuberploy-runtime",
 			ChartVersion: "1.2.3", ChartDigest: "sha256:" + strings.Repeat("e", 64), RendererImage: "ghcr.io/kuberploy/renderer@sha256:" + strings.Repeat("f", 64)},
 		DigestEnforcement: ChartDigestNativeOCI})
@@ -322,7 +320,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	rotatedIdentity, err := DesiredStateRuntimeIdentityForConfig(DesiredStateRuntimeConfig{Enabled: true, GitHubAppID: 1001,
-		PlatformBindingID: platform.ID, ClusterID: clusterID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
+		PlatformBindingID: platform.ID, ArgoNamespace: "argocd", RootApplicationName: PlatformRootApplicationName,
 		RepositorySecretName: credentialName, Runtime: RuntimeLock{ChartRepository: "oci://registry.example.test/kuberploy/charts", ChartName: "kuberploy-runtime",
 			ChartVersion: identity.Runtime.ChartVersion, ChartDigest: identity.Runtime.ChartDigest, RendererImage: identity.Runtime.RendererImage},
 		DigestEnforcement: ChartDigestNativeOCI})
@@ -482,7 +480,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorities, err := catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now, time.Minute)
+	authorities, err := catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, now, time.Minute)
 	if err != nil || len(authorities) != 3 {
 		t.Fatalf("authorities=%#v err=%v", authorities, err)
 	}
@@ -498,7 +496,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET last_verified_at=$1 WHERE installation_id IN ($2,$3)`, staleCatalogAt, installationPlatformID, installationEnvironmentID); err != nil {
 		t.Fatal(err)
 	}
-	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now, time.Minute)
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, now, time.Minute)
 	if err != nil || len(authorities) != 3 {
 		t.Fatalf("stale authorities=%#v err=%v", authorities, err)
 	}
@@ -514,7 +512,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err = catalog.MarkArgoRepositoryBindingsVerified(ctx, 1001, verifiedBindings, now); err != nil {
 		t.Fatalf("renew provider-verified catalog: %v", err)
 	}
-	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now.Add(time.Second), time.Minute)
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, now.Add(time.Second), time.Minute)
 	if err != nil || len(authorities) != 3 {
 		t.Fatalf("renewed authorities=%#v err=%v", authorities, err)
 	}
@@ -526,7 +524,7 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if _, err = pool.Exec(ctx, `UPDATE github_repositories SET lifecycle='removed',removed_at=$2,updated_at=$2 WHERE id=$1`, repositoryEnvironmentID, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, clusterID, now.Add(time.Second), 2*time.Minute)
+	authorities, err = catalog.ArgoRepositoryBindings(ctx, 1001, platform.ID, now.Add(time.Second), 2*time.Minute)
 	if err != nil || len(authorities) != 3 || !authorities[0].Authorized || authorities[0].RevocationRequired ||
 		authorities[1].Authorized || !authorities[1].RevocationRequired || authorities[2].Authorized || !authorities[2].RevocationRequired {
 		t.Fatalf("removed repository was not retained for revocation: %#v err=%v", authorities, err)

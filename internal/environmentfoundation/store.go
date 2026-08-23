@@ -38,14 +38,14 @@ type ProtectedPublisher interface {
 }
 
 type PublicationRequest struct {
-	IntentID, BindingID, ClusterID, EnvironmentID, TargetRef, PlannedHead string
-	BindingGeneration                                                     int64
-	Path, ContentDigest, IntentDigest, CommitTrailer                      string
-	Content                                                               []byte
+	IntentID, BindingID, EnvironmentID, TargetRef, PlannedHead string
+	BindingGeneration                                          int64
+	Path, ContentDigest, IntentDigest, CommitTrailer           string
+	Content                                                    []byte
 }
 
 func publicationFor(intent Intent) PublicationRequest {
-	return PublicationRequest{IntentID: intent.ID, BindingID: intent.Authority.BindingID, ClusterID: intent.Authority.ClusterID, EnvironmentID: intent.EnvironmentID,
+	return PublicationRequest{IntentID: intent.ID, BindingID: intent.Authority.BindingID, EnvironmentID: intent.EnvironmentID,
 		TargetRef: intent.Authority.TargetRef, PlannedHead: intent.Authority.PlannedHead, BindingGeneration: intent.Authority.Generation,
 		Path: intent.Path, ContentDigest: intent.ManifestDigest, IntentDigest: intent.IntentDigest,
 		CommitTrailer: intent.CommitTrailer, Content: append([]byte(nil), intent.Manifest...)}
@@ -53,7 +53,7 @@ func publicationFor(intent Intent) PublicationRequest {
 
 func (r PublicationRequest) Validate(intent Intent, publisher PublisherIdentity) error {
 	if intent.Validate() != nil || publisher.Validate() != nil || publisher.ConfigDigest != intent.PublisherConfigDigest ||
-		r.IntentID != intent.ID || r.BindingID != intent.Authority.BindingID || r.ClusterID != intent.Authority.ClusterID || r.EnvironmentID != intent.EnvironmentID ||
+		r.IntentID != intent.ID || r.BindingID != intent.Authority.BindingID || r.EnvironmentID != intent.EnvironmentID ||
 		r.TargetRef != intent.Authority.TargetRef || r.PlannedHead != intent.Authority.PlannedHead ||
 		r.BindingGeneration != intent.Authority.Generation || r.Path != intent.Path || r.ContentDigest != intent.ManifestDigest ||
 		r.IntentDigest != intent.IntentDigest || r.CommitTrailer != intent.CommitTrailer || digest(r.Content) != intent.ManifestDigest {

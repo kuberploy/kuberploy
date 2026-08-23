@@ -122,7 +122,6 @@ type Binding struct {
 	ScopeID              string             `json:"scopeId"`
 	ProjectID            string             `json:"projectId,omitempty"`
 	EnvironmentID        string             `json:"environmentId,omitempty"`
-	ClusterID            string             `json:"clusterId,omitempty"`
 	Repository           RepositoryIdentity `json:"repository"`
 	TargetRef            string             `json:"targetRef"`
 	Prefix               string             `json:"prefix"`
@@ -163,11 +162,10 @@ func (in CreateEnvironmentBindingInput) Validate() error {
 // CreatePlatformBindingInput is assembled only by the platform HTTP/service
 // boundary after resolving opaque linked-catalog IDs against the operator's
 // GitHub App configuration. The central store re-reads and compares the same
-// active catalog rows transactionally. ClusterID and Repository are therefore
-// server authority, never request-body fields.
+// active catalog rows transactionally. Repository is therefore server
+// authority, never a request-body field.
 type CreatePlatformBindingInput struct {
 	BindingID            string
-	ClusterID            string
 	LinkedInstallationID string
 	LinkedRepositoryID   string
 	GitHubAppID          int64
@@ -176,7 +174,7 @@ type CreatePlatformBindingInput struct {
 }
 
 func (in CreatePlatformBindingInput) Validate() error {
-	if !uuidRE.MatchString(in.BindingID) || !uuidRE.MatchString(in.ClusterID) || !uuidRE.MatchString(in.LinkedInstallationID) || !uuidRE.MatchString(in.LinkedRepositoryID) ||
+	if !uuidRE.MatchString(in.BindingID) || !uuidRE.MatchString(in.LinkedInstallationID) || !uuidRE.MatchString(in.LinkedRepositoryID) ||
 		in.GitHubAppID <= 0 || in.Repository.Validate() != nil || !validTargetRef(in.TargetRef) {
 		return ErrInvalid
 	}
@@ -197,16 +195,16 @@ func NewGitHubEnvironmentBinding(id, projectID, environmentID string, repository
 	return b, b.Validate()
 }
 
-func NewPlatformBinding(id, clusterID string, repository RepositoryIdentity, targetRef, credentialSecret string, now time.Time) (Binding, error) {
-	b := Binding{ID: id, Kind: BindingPlatform, ScopeID: clusterID, ClusterID: clusterID, Repository: repository,
-		TargetRef: targetRef, Prefix: PlatformPrefix(clusterID), CredentialSecretName: credentialSecret,
+func NewPlatformBinding(id string, repository RepositoryIdentity, targetRef, credentialSecret string, now time.Time) (Binding, error) {
+	b := Binding{ID: id, Kind: BindingPlatform, ScopeID: id, Repository: repository,
+		TargetRef: targetRef, Prefix: PlatformPrefix(), CredentialSecretName: credentialSecret,
 		CredentialMode: CredentialLegacySecret, State: BindingWaiting, ParserVersion: DefaultParser, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	return b, b.Validate()
 }
 
-func NewGitHubPlatformBinding(id, clusterID string, repository RepositoryIdentity, targetRef string, now time.Time) (Binding, error) {
-	b := Binding{ID: id, Kind: BindingPlatform, ScopeID: clusterID, ClusterID: clusterID, Repository: repository,
-		TargetRef: targetRef, Prefix: PlatformPrefix(clusterID), CredentialMode: CredentialGitHubApp,
+func NewGitHubPlatformBinding(id string, repository RepositoryIdentity, targetRef string, now time.Time) (Binding, error) {
+	b := Binding{ID: id, Kind: BindingPlatform, ScopeID: id, Repository: repository,
+		TargetRef: targetRef, Prefix: PlatformPrefix(), CredentialMode: CredentialGitHubApp,
 		State: BindingWaiting, ParserVersion: DefaultParser, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	return b, b.Validate()
 }
@@ -215,7 +213,7 @@ func EnvironmentPrefix(projectID, environmentID string) string {
 	return path.Join("tenants", projectID, "environments", environmentID)
 }
 
-func PlatformPrefix(clusterID string) string { return path.Join("clusters", clusterID) }
+func PlatformPrefix() string { return "platform" }
 
 func ApplicationPath(binding Binding, applicationID string) (string, error) {
 	if err := binding.Validate(); err != nil || binding.Kind != BindingEnvironment || !uuidRE.MatchString(applicationID) {
@@ -238,11 +236,11 @@ func (b Binding) Validate() error {
 	}
 	switch b.Kind {
 	case BindingEnvironment:
-		if !uuidRE.MatchString(b.ProjectID) || b.EnvironmentID != b.ScopeID || b.ClusterID != "" || b.Prefix != EnvironmentPrefix(b.ProjectID, b.EnvironmentID) {
+		if !uuidRE.MatchString(b.ProjectID) || b.EnvironmentID != b.ScopeID || b.Prefix != EnvironmentPrefix(b.ProjectID, b.EnvironmentID) {
 			return ErrInvalid
 		}
 	case BindingPlatform:
-		if b.ProjectID != "" || b.EnvironmentID != "" || b.ClusterID != b.ScopeID || b.Prefix != PlatformPrefix(b.ClusterID) {
+		if b.ProjectID != "" || b.EnvironmentID != "" || b.ScopeID != b.ID || b.Prefix != PlatformPrefix() {
 			return ErrInvalid
 		}
 	default:

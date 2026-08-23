@@ -17,11 +17,10 @@ const (
 
 type ProtectedBindingResolverConfig struct {
 	PlatformBindingID string
-	ClusterID         string
 }
 
 func (c ProtectedBindingResolverConfig) Validate() error {
-	if !uuidRE.MatchString(c.PlatformBindingID) || !uuidRE.MatchString(c.ClusterID) {
+	if !uuidRE.MatchString(c.PlatformBindingID) {
 		return ErrInvalid
 	}
 	return nil
@@ -181,7 +180,7 @@ func (r *PostgresProtectedBindingResolver) ResolveProtectedBinding(ctx context.C
 }
 
 const protectedResolutionBindingSelect = `SELECT id::text,kind,scope_id::text,
-	COALESCE(project_id::text,''),COALESCE(environment_id::text,''),COALESCE(cluster_id::text,''),
+	COALESCE(project_id::text,''),COALESCE(environment_id::text,''),
 	provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
 	credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,
 	parser_version,target_head_observed_at,indexed_at,created_at,updated_at FROM git_repository_bindings`
@@ -193,7 +192,7 @@ func scanProtectedResolutionBinding(row protectedBindingRow) (gitprojection.Bind
 	var targetRevision, indexedRevision *string
 	var targetAt, indexedAt *time.Time
 	err := row.Scan(&binding.ID, &binding.Kind, &binding.ScopeID, &binding.ProjectID,
-		&binding.EnvironmentID, &binding.ClusterID, &binding.Repository.Provider,
+		&binding.EnvironmentID, &binding.Repository.Provider,
 		&binding.Repository.InstallationID, &binding.Repository.RepositoryID,
 		&binding.Repository.Owner, &binding.Repository.Name, &binding.TargetRef, &binding.Prefix,
 		&binding.CredentialMode, &binding.CredentialSecretName, &binding.State,
@@ -229,7 +228,7 @@ func resolveProtectedBindingSnapshot(config ProtectedBindingResolverConfig, targ
 	}
 	platform, environment, generation := state.Platform, state.Environments[0], state.ActiveGenerations[0]
 	if environment.Validate() != nil || platform.ID != config.PlatformBindingID || platform.Kind != gitprojection.BindingPlatform ||
-		platform.ClusterID != config.ClusterID || platform.ScopeID != config.ClusterID ||
+		platform.ScopeID != platform.ID ||
 		platform.CredentialMode != gitprojection.CredentialGitHubApp || platform.CredentialSecretName != "" ||
 		(platform.State != gitprojection.BindingReady && platform.State != gitprojection.BindingIndexing) ||
 		!gitCommitRE.MatchString(platform.TargetHeadRevision) || platform.TargetHeadObservedAt.IsZero() ||
@@ -250,7 +249,7 @@ func resolveProtectedBindingSnapshot(config ProtectedBindingResolverConfig, targ
 		return ProtectedBindingSnapshot{}, err
 	}
 	result := ProtectedBindingSnapshot{PlatformBindingID: platform.ID, EnvironmentBindingID: environment.ID,
-		ClusterID: platform.ClusterID, PlatformTargetRef: platform.TargetRef,
+		PlatformTargetRef:    platform.TargetRef,
 		EnvironmentTargetRef: environment.TargetRef, EnvironmentRevision: environment.IndexedRevision,
 		EnvironmentGeneration: environment.ProjectionGeneration, CatalogDigest: catalogDigest,
 		PlannedBaseRevision: platform.TargetHeadRevision}

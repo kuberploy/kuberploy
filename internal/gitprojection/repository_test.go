@@ -420,11 +420,8 @@ func TestPreparedRepositoryVerifiesAncestorAndProtectedPathAbsence(t *testing.T)
 		}
 	}
 
-	const (
-		platformBindingID = "77777777-7777-4777-8777-777777777777"
-		clusterID         = "88888888-8888-4888-8888-888888888888"
-	)
-	platform, err := gitprojection.NewGitHubPlatformBinding(platformBindingID, clusterID, fixture.binding.Repository, "refs/heads/main", time.Now().UTC())
+	const platformBindingID = "77777777-7777-4777-8777-777777777777"
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformBindingID, fixture.binding.Repository, "refs/heads/main", time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,11 +433,11 @@ func TestPreparedRepositoryVerifiesAncestorAndProtectedPathAbsence(t *testing.T)
 		t.Fatal(err)
 	}
 	defer platformPrepared.Close(t.Context()) //nolint:errcheck
-	argoPath := gitprojection.PlatformPrefix(clusterID) + "/argocd/environments/" + environmentID + ".yaml"
+	argoPath := gitprojection.PlatformPrefix() + "/argocd/environments/" + environmentID + ".yaml"
 	if err = platformPrepared.VerifyPathAbsent(t.Context(), argoPath); err != nil {
 		t.Fatalf("server-owned Argo protected path was rejected: %v", err)
 	}
-	sibling := gitprojection.PlatformPrefix(clusterID) + "/argocd/projects/" + projectID + ".yaml"
+	sibling := gitprojection.PlatformPrefix() + "/argocd/projects/" + projectID + ".yaml"
 	if err = platformPrepared.VerifyPathAbsent(t.Context(), sibling); !errors.Is(err, gitprojection.ErrInvalid) {
 		t.Fatalf("syntactically safe platform sibling was accepted: %v", err)
 	}
@@ -953,13 +950,11 @@ func TestIndexerRefreshesClockAfterRepositoryPreparation(t *testing.T) {
 
 func TestIndexerActivatesPlatformBindingWithoutParsingTenantDocuments(t *testing.T) {
 	fixture := seedRepository(t, false)
-	const platformClusterID = "88888888-8888-4888-8888-888888888888"
 	fixture.binding.Kind = gitprojection.BindingPlatform
-	fixture.binding.ScopeID = platformClusterID
+	fixture.binding.ScopeID = fixture.binding.ID
 	fixture.binding.ProjectID = ""
 	fixture.binding.EnvironmentID = ""
-	fixture.binding.ClusterID = platformClusterID
-	fixture.binding.Prefix = gitprojection.PlatformPrefix(platformClusterID)
+	fixture.binding.Prefix = gitprojection.PlatformPrefix()
 	fixture.binding.TargetHeadRevision = ""
 	fixture.binding.TargetHeadObservedAt = time.Time{}
 	fixture.binding.State = gitprojection.BindingWaiting

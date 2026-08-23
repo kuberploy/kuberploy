@@ -65,7 +65,7 @@ func TestPostgreSQLProjectRegistryPullCredentialScopeAndSelection(t *testing.T) 
 	if _, err = store.DeleteProjectRegistryPullCredentialForActor(t.Context(), actorID, project.ID, credential.ID, "delete-selected", "delete-selected", "request"); !errors.Is(err, base.ErrConflict) {
 		t.Fatalf("selected delete err=%v", err)
 	}
-	if _, err = store.pool.Exec(t.Context(), `INSERT INTO application_registry_pull_selections(application_id,mode,project_credential_id,updated_by,updated_at) VALUES($1,'project-credential',$2,$3,$4)`, otherApplication.Value.ID, credential.ID, actorID, now); err == nil {
+	if _, err = store.pool.Exec(t.Context(), `UPDATE applications SET registry_pull_mode='project-credential',registry_pull_project_credential_id=$2,registry_pull_updated_by=$3,registry_pull_updated_at=$4 WHERE id=$1`, otherApplication.Value.ID, credential.ID, actorID, now); err == nil {
 		t.Fatal("cross-project selection was accepted")
 	}
 	public := domain.ApplicationRegistryPullSelection{ApplicationID: application.Value.ID, Mode: domain.ApplicationRegistryPullPublic}

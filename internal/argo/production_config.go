@@ -13,7 +13,6 @@ import (
 const (
 	ProductionEnabledEnv              = "KUBERPLOY_ARGO_DESIRED_STATE_ENABLED"
 	ProductionPlatformBindingIDEnv    = "KUBERPLOY_ARGO_PLATFORM_BINDING_ID"
-	ProductionClusterIDEnv            = "KUBERPLOY_CLUSTER_ID"
 	ProductionNamespaceEnv            = "KUBERPLOY_ARGO_NAMESPACE"
 	ProductionChartRepositoryEnv      = "KUBERPLOY_ARGO_RUNTIME_CHART_REPOSITORY"
 	ProductionChartVersionEnv         = "KUBERPLOY_ARGO_RUNTIME_CHART_VERSION"
@@ -102,7 +101,6 @@ func ProductionRuntimeConfigFromLookup(lookup func(string) (string, bool)) (Prod
 		Enabled:              true,
 		GitHubAppID:          appID,
 		PlatformBindingID:    platformBindingID,
-		ClusterID:            value(ProductionClusterIDEnv),
 		ArgoNamespace:        value(ProductionNamespaceEnv),
 		RootApplicationName:  PlatformRootApplicationName,
 		RepositorySecretName: repositorySecretName,

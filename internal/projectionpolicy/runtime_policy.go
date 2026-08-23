@@ -72,10 +72,9 @@ func externalDNSPolicyDigest(config externaldns.OperationalConfig) (string, erro
 	encoded, err := json.Marshal(struct {
 		Enabled              bool
 		BindingID            string
-		ClusterID            string
 		Template             externaldns.ManagedRuntimeTemplate
 		PollIntervalNanosecs int64
-	}{config.Enabled, config.BindingID, config.ClusterID, config.Template, config.PollInterval.Nanoseconds()})
+	}{config.Enabled, config.BindingID, config.Template, config.PollInterval.Nanoseconds()})
 	if err != nil {
 		return "", err
 	}

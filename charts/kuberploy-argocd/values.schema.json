@@ -54,10 +54,9 @@
         "bootstrap": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "clusterID", "bindingID", "repositoryOwner", "repositoryName", "targetRevision"],
+          "required": ["enabled", "bindingID", "repositoryOwner", "repositoryName", "targetRevision"],
           "properties": {
             "enabled": {"type": "boolean"},
-            "clusterID": {"type": "string", "maxLength": 36},
             "bindingID": {"type": "string", "maxLength": 36},
             "repositoryOwner": {"type": "string", "maxLength": 40},
             "repositoryName": {"type": "string", "maxLength": 100},
@@ -68,7 +67,6 @@
               "if": {"properties": {"enabled": {"const": true}}, "required": ["enabled"]},
               "then": {
               "properties": {
-                "clusterID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
                 "bindingID": {"pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
                 "repositoryOwner": {"pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,38}[A-Za-z0-9])?$"},
                 "repositoryName": {"pattern": "^[A-Za-z0-9_.-]{1,100}$"},

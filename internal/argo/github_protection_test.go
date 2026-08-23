@@ -61,7 +61,7 @@ func protectionAdapterFixture(t *testing.T) (gitprojection.Binding, gitprojectio
 	t.Helper()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	repository := gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 77, RepositoryID: 88, Owner: "kuberploy", Name: "platform"}
-	binding, err := gitprojection.NewGitHubPlatformBinding("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", repository, "refs/heads/platform", now)
+	binding, err := gitprojection.NewGitHubPlatformBinding("11111111-1111-4111-8111-111111111111", repository, "refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
 	}

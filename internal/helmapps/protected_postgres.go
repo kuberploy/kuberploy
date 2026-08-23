@@ -50,7 +50,7 @@ func scanCascadePlatformBinding(row rowScanner) (gitprojection.Binding, error) {
 	var target, indexed *string
 	var targetAt, indexedAt *time.Time
 	err := row.Scan(&value.ID, &value.Kind, &value.ScopeID, &value.ProjectID, &value.EnvironmentID,
-		&value.ClusterID, &value.Repository.Provider, &value.Repository.InstallationID,
+		&value.Repository.Provider, &value.Repository.InstallationID,
 		&value.Repository.RepositoryID, &value.Repository.Owner, &value.Repository.Name,
 		&value.TargetRef, &value.Prefix, &value.CredentialMode, &value.CredentialSecretName,
 		&value.State, &target, &indexed, &value.ProjectionGeneration, &value.ParserVersion,
@@ -93,7 +93,7 @@ func NewPostgresProtectedPublicationStore(pool *pgxpool.Pool,
 
 const protectedPayloadColumns = `id::text,release_revision_id::text,release_generation,
 	project_id::text,environment_id::text,application_id::text,action,
-	platform_binding_id::text,environment_binding_id::text,cluster_id::text,
+	platform_binding_id::text,environment_binding_id::text,
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 	catalog_digest,planned_base_revision,path,content,content_digest,
 	COALESCE(manifest_inventory_digest,''),COALESCE(manifest_resource_count,0),
@@ -109,7 +109,7 @@ func scanProtectedPayload(row rowScanner) (ProtectedPayloadIntent, error) {
 	err := row.Scan(&value.ID, &value.ReleaseRevisionID, &value.ReleaseGeneration,
 		&value.Target.ProjectID, &value.Target.EnvironmentID, &value.Target.ApplicationID,
 		&value.Action, &value.Binding.PlatformBindingID, &value.Binding.EnvironmentBindingID,
-		&value.Binding.ClusterID, &value.Binding.PlatformTargetRef,
+		&value.Binding.PlatformTargetRef,
 		&value.Binding.EnvironmentTargetRef, &value.Binding.EnvironmentRevision,
 		&value.Binding.EnvironmentGeneration, &value.Binding.CatalogDigest,
 		&value.Binding.PlannedBaseRevision, &value.Path, &value.Content,
@@ -136,7 +136,7 @@ func scanProtectedPayload(row rowScanner) (ProtectedPayloadIntent, error) {
 
 const protectedApplicationColumns = `id::text,release_revision_id::text,payload_intent_id::text,
 	release_generation,project_id::text,environment_id::text,application_id::text,action,
-	platform_binding_id::text,environment_binding_id::text,cluster_id::text,
+	platform_binding_id::text,environment_binding_id::text,
 	platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 	catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 	application_path,operation,precondition,expected_etag,content,content_digest,
@@ -154,7 +154,7 @@ func scanProtectedApplication(row rowScanner) (ProtectedApplicationIntent, error
 	err := row.Scan(&value.ID, &value.ReleaseRevisionID, &value.PayloadIntentID,
 		&value.ReleaseGeneration, &value.Target.ProjectID, &value.Target.EnvironmentID,
 		&value.Target.ApplicationID, &value.Action, &value.Binding.PlatformBindingID,
-		&value.Binding.EnvironmentBindingID, &value.Binding.ClusterID,
+		&value.Binding.EnvironmentBindingID,
 		&value.Binding.PlatformTargetRef, &value.Binding.EnvironmentTargetRef,
 		&value.Binding.EnvironmentRevision, &value.Binding.EnvironmentGeneration,
 		&value.Binding.CatalogDigest, &value.Binding.PlannedBaseRevision,
@@ -237,8 +237,7 @@ func (s *PostgresProtectedPublicationStore) createPayloadForHeadOnce(ctx context
 		Message:       "Publish protected Helm payload " + release.ID,
 	}
 	if release.DesiredEnabled {
-		value.Action, value.Path = ProtectedPayloadPublish, protectedPayloadPath(binding.ClusterID,
-			target.EnvironmentID, target.ApplicationID, release.ID, false)
+		value.Action, value.Path = ProtectedPayloadPublish, protectedPayloadPath(target.EnvironmentID, target.ApplicationID, release.ID, false)
 		var commandState string
 		err = tx.QueryRow(ctx, `SELECT result.rendered_manifests,result.manifest_digest,
 			result.inventory_digest,result.resource_count,command.state
@@ -253,8 +252,7 @@ func (s *PostgresProtectedPublicationStore) createPayloadForHeadOnce(ctx context
 			return ProtectedPayloadIntent{}, false, ErrConflict
 		}
 	} else {
-		value.Action, value.Path = ProtectedPayloadDisable, protectedPayloadPath(binding.ClusterID,
-			target.EnvironmentID, target.ApplicationID, release.ID, true)
+		value.Action, value.Path = ProtectedPayloadDisable, protectedPayloadPath(target.EnvironmentID, target.ApplicationID, release.ID, true)
 		value.Content, err = json.Marshal(struct {
 			APIVersion        string `json:"apiVersion"`
 			Kind              string `json:"kind"`
@@ -276,7 +274,7 @@ func (s *PostgresProtectedPublicationStore) createPayloadForHeadOnce(ctx context
 	}
 	result, err := tx.Exec(ctx, `INSERT INTO public.helm_protected_payload_intents(
 		id,release_revision_id,release_generation,project_id,environment_id,application_id,
-		action,platform_binding_id,environment_binding_id,cluster_id,platform_target_ref,
+		action,platform_binding_id,environment_binding_id,platform_target_ref,
 		environment_target_ref,environment_revision,environment_generation,catalog_digest,
 		planned_base_revision,path,precondition,expected_etag,content,content_digest,
 		manifest_inventory_digest,manifest_resource_count,intent_digest,commit_trailer,
@@ -284,13 +282,13 @@ func (s *PostgresProtectedPublicationStore) createPayloadForHeadOnce(ctx context
 		publisher_adoption_epoch,message,state,next_attempt_at,attempts,
 		consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-		'create-if-absent','',$18,$19,$20,$21,$22,$23,$24,$25,$25,0,$26,'pending',$27,0,0,'',0,
-		$2,$28,0,$27,$27)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+		'create-if-absent','',$17,$18,$19,$20,$21,$22,$23,$24,$24,0,$25,'pending',$26,0,0,'',0,
+		$2,$27,0,$26,$26)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.ReleaseGeneration,
 		value.Target.ProjectID, value.Target.EnvironmentID, value.Target.ApplicationID,
 		value.Action, value.Binding.PlatformBindingID, value.Binding.EnvironmentBindingID,
-		value.Binding.ClusterID, value.Binding.PlatformTargetRef,
+		value.Binding.PlatformTargetRef,
 		value.Binding.EnvironmentTargetRef, value.Binding.EnvironmentRevision,
 		value.Binding.EnvironmentGeneration, value.Binding.CatalogDigest,
 		value.Binding.PlannedBaseRevision, value.Path, value.Content, value.ContentDigest,
@@ -398,7 +396,7 @@ func (s *PostgresProtectedPublicationStore) createApplicationForPayloadOnce(ctx 
 		ID: intentID, ReleaseRevisionID: release.ID, PayloadIntentID: payload.ID,
 		ReleaseGeneration: release.Generation, Target: release.Target, Binding: binding,
 		PayloadRevision: payload.CommittedRevision, PayloadPath: payload.Path,
-		ApplicationPath: protectedApplicationPath(binding.ClusterID, release.Target.EnvironmentID,
+		ApplicationPath: protectedApplicationPath(release.Target.EnvironmentID,
 			release.Target.ApplicationID), Publisher: publisher,
 		OriginalPublisherConfigDigest: publisher.ConfigDigest, State: ProtectedPending,
 		ContinuationRequired: true, ContinuationReceiptID: intentID,
@@ -409,8 +407,7 @@ func (s *PostgresProtectedPublicationStore) createApplicationForPayloadOnce(ctx 
 	}
 	if release.DesiredEnabled {
 		value.Action = ProtectedApplicationPublish
-		value.SourceDirectory = protectedSourceDirectory(binding.ClusterID,
-			release.Target.EnvironmentID, release.Target.ApplicationID, release.ID)
+		value.SourceDirectory = protectedSourceDirectory(release.Target.EnvironmentID, release.Target.ApplicationID, release.ID)
 		recoveryCreate := false
 		if release.BaseApplicationIntentID != "" {
 			err = tx.QueryRow(ctx, `SELECT public.helm_application_cascade_recovery_create_is_authorized(
@@ -473,7 +470,7 @@ func (s *PostgresProtectedPublicationStore) createApplicationForPayloadOnce(ctx 
 	}
 	result, err := tx.Exec(ctx, `INSERT INTO public.helm_protected_application_intents(
 		id,release_revision_id,payload_intent_id,release_generation,project_id,environment_id,
-		application_id,action,platform_binding_id,environment_binding_id,cluster_id,
+		application_id,action,platform_binding_id,environment_binding_id,
 		platform_target_ref,environment_target_ref,environment_revision,environment_generation,
 		catalog_digest,planned_base_revision,payload_revision,payload_path,source_directory,
 		application_path,operation,precondition,expected_etag,content,content_digest,intent_digest,
@@ -482,13 +479,13 @@ func (s *PostgresProtectedPublicationStore) createApplicationForPayloadOnce(ctx 
 		continuation_contract,cascade_required,cascade_receipt_id,cascade_contract,message,state,next_attempt_at,
 		attempts,consecutive_failures,last_failure_code,lease_epoch,prerequisite_receipt_id,
 		prerequisite_contract,prerequisite_epoch,created_at,updated_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-			$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$30,0,TRUE,$1,$31,$32,$33,$34,$35,'pending',$36,0,0,'',0,
-			$2,$37,0,$36,$36)
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+			$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$29,0,TRUE,$1,$30,$31,$32,$33,$34,'pending',$35,0,0,'',0,
+			$2,$36,0,$35,$35)
 		ON CONFLICT DO NOTHING`, value.ID, value.ReleaseRevisionID, value.PayloadIntentID,
 		value.ReleaseGeneration, value.Target.ProjectID, value.Target.EnvironmentID,
 		value.Target.ApplicationID, value.Action, value.Binding.PlatformBindingID,
-		value.Binding.EnvironmentBindingID, value.Binding.ClusterID,
+		value.Binding.EnvironmentBindingID,
 		value.Binding.PlatformTargetRef, value.Binding.EnvironmentTargetRef,
 		value.Binding.EnvironmentRevision, value.Binding.EnvironmentGeneration,
 		value.Binding.CatalogDigest, value.Binding.PlannedBaseRevision, value.PayloadRevision,
@@ -801,7 +798,6 @@ func cascadePreflightIsFreshSQL(alias string) string {
 		  AND base.content=` + alias + `.source_content
 		  AND base.content_digest=` + alias + `.source_content_digest
 		  AND platform.kind='platform' AND platform.credential_mode='github-app'
-		  AND platform.cluster_id=` + alias + `.cluster_id
 		  AND platform.target_ref=` + alias + `.platform_target_ref
 		  AND platform.target_head_revision IS NOT NULL)`
 }
@@ -815,7 +811,7 @@ func freshProtectedProjectionSQL(alias string) string {
 		JOIN public.git_projection_generations generation ON generation.binding_id=environment.id
 			AND generation.generation=` + alias + `.environment_generation
 		WHERE platform.id=` + alias + `.platform_binding_id AND platform.kind='platform'
-		AND platform.credential_mode='github-app' AND platform.cluster_id=` + alias + `.cluster_id
+		AND platform.credential_mode='github-app'
 		AND platform.target_ref=` + alias + `.platform_target_ref
 		AND platform.target_head_revision IS NOT NULL
 		AND platform.state IN ('ready','indexing') AND environment.kind='environment'

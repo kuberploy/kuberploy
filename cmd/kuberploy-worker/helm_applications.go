@@ -51,7 +51,7 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 		return nil, err
 	}
 	bindings, err := helmapps.NewPostgresProtectedBindingResolver(pool, helmapps.ProtectedBindingResolverConfig{
-		PlatformBindingID: identity.PlatformBindingID, ClusterID: identity.ClusterID,
+		PlatformBindingID: identity.PlatformBindingID,
 	})
 	if err != nil {
 		pool.Close()

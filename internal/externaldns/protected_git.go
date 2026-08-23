@@ -16,12 +16,12 @@ import (
 const protectedContract = "external-dns-protected-git.v1"
 
 type ProtectedGitConfig struct {
-	BindingID, ClusterID, Owner string
-	Template                    ManagedRuntimeTemplate
+	BindingID, Owner string
+	Template         ManagedRuntimeTemplate
 }
 
 func (c ProtectedGitConfig) Validate() error {
-	if !uuidRE.MatchString(c.BindingID) || !uuidRE.MatchString(c.ClusterID) || len(c.Owner) < 8 || len(c.Owner) > 128 || c.Template.Validate() != nil {
+	if !uuidRE.MatchString(c.BindingID) || len(c.Owner) < 8 || len(c.Owner) > 128 || c.Template.Validate() != nil {
 		return ErrRuntimeUnavailable
 	}
 	return nil
@@ -71,14 +71,14 @@ func itemForRendering(item domain.ExternalDNSIntegration) domain.ExternalDNSInte
 }
 
 func (p *ProtectedPublisher) publish(ctx context.Context, item domain.ExternalDNSIntegration, content []byte, action gitprojection.MutationAction) (PublicationReceipt, error) {
-	docPath := path.Join(gitprojection.PlatformPrefix(p.config.ClusterID), "argocd", "platform", "external-dns", item.ID+".yaml")
+	docPath := path.Join(gitprojection.PlatformPrefix(), "argocd", "platform", "external-dns", item.ID+".yaml")
 	contentDigest := digest(content)
 	operationID := externalDNSOperationID(p.config, item, action, contentDigest)
 	binding, err := p.store.Binding(ctx, p.config.BindingID)
 	if err != nil {
 		return PublicationReceipt{}, err
 	}
-	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform || binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.ID != p.config.BindingID || binding.ClusterID != p.config.ClusterID || binding.Prefix != gitprojection.PlatformPrefix(p.config.ClusterID) {
+	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform || binding.CredentialMode != gitprojection.CredentialGitHubApp || binding.ID != p.config.BindingID || binding.Prefix != gitprojection.PlatformPrefix() {
 		return PublicationReceipt{}, ErrRuntimeUnavailable
 	}
 	reservation, reservationErr := p.store.PathReservation(ctx, binding.ID, binding.TargetRef, docPath)
@@ -199,7 +199,7 @@ func externalDNSMutation(ctx context.Context, binding gitprojection.Binding, ite
 }
 
 func externalDNSOperationID(config ProtectedGitConfig, item domain.ExternalDNSIntegration, action gitprojection.MutationAction, contentDigest string) string {
-	raw, _ := json.Marshal([]any{protectedContract, config.BindingID, config.ClusterID, item.ID, item.RuntimeRevision, action, contentDigest})
+	raw, _ := json.Marshal([]any{protectedContract, config.BindingID, item.ID, item.RuntimeRevision, action, contentDigest})
 	sum := sha256.Sum256(raw)
 	value := append([]byte(nil), sum[:16]...)
 	value[6] = value[6]&0x0f | 0x50

@@ -115,21 +115,18 @@ func run() error {
 		return argo.ErrInvalid
 	}
 	if foundationConfig.Enabled && (!argoDesiredStateConfig.Enabled || !gitProjectionConfig.Enabled ||
-		foundationConfig.PlatformBindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID ||
-		foundationConfig.Profile.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID) {
+		foundationConfig.PlatformBindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID) {
 		return environmentfoundation.ErrInvalid
 	}
 	if certificateIssuerConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled ||
 		!edgeRuntimeConfig.Enabled || edgeRuntimeConfig.Profiles.CertManager == nil ||
 		certificateIssuerConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID ||
-		certificateIssuerConfig.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID ||
-		certificateIssuerConfig.BindingID != foundationConfig.PlatformBindingID ||
-		certificateIssuerConfig.ClusterID != foundationConfig.Profile.ClusterID) {
+		certificateIssuerConfig.BindingID != foundationConfig.PlatformBindingID) {
 		return certissuers.ErrObservationUnavailable
 	}
 	if externalDNSOperationalConfig.Enabled && (!gitProjectionConfig.Enabled || !argoDesiredStateConfig.Enabled || !foundationConfig.Enabled || !edgeRuntimeConfig.Enabled ||
-		externalDNSOperationalConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID || externalDNSOperationalConfig.ClusterID != argoDesiredStateConfig.DesiredState.ClusterID ||
-		externalDNSOperationalConfig.BindingID != foundationConfig.PlatformBindingID || externalDNSOperationalConfig.ClusterID != foundationConfig.Profile.ClusterID) {
+		externalDNSOperationalConfig.BindingID != argoDesiredStateConfig.DesiredState.PlatformBindingID ||
+		externalDNSOperationalConfig.BindingID != foundationConfig.PlatformBindingID) {
 		return externaldns.ErrRuntimeUnavailable
 	}
 	managedRegistryConfig, err := registry.RuntimeConfigFromEnvironment()

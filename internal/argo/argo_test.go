@@ -30,7 +30,6 @@ const (
 	bindingID     = "11111111-1111-4111-8111-111111111111"
 	operationID   = "55555555-5555-4555-8555-555555555555"
 	platformID    = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-	clusterID     = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 )
 
 func targetFixture(t *testing.T) (argo.EnvironmentTarget, domain.Application) {
@@ -61,8 +60,7 @@ func desiredTargetFixture(t *testing.T) (argo.DesiredStateTarget, domain.Applica
 	t.Helper()
 	environment, application := targetFixture(t)
 	now := time.Now().UTC()
-	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, clusterID,
-		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 9, RepositoryID: 10, Owner: "kuberploy", Name: "platform"},
+	platform, err := gitprojection.NewGitHubPlatformBinding(platformID, gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 9, RepositoryID: 10, Owner: "kuberploy", Name: "platform"},
 		"refs/heads/platform", now)
 	if err != nil {
 		t.Fatal(err)
