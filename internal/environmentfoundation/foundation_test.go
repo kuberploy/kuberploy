@@ -49,14 +49,17 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 	kinds := map[string]int{}
 	waves := map[string]int{}
 	var observerRules []policyRule
+	var http01Policy networkPolicySpec
 	documents := 0
 	for {
 		var raw struct {
 			Kind     string `yaml:"kind"`
 			Metadata struct {
+				Name        string            `yaml:"name"`
 				Annotations map[string]string `yaml:"annotations"`
 			} `yaml:"metadata"`
-			Rules []policyRule `yaml:"rules"`
+			Spec  networkPolicySpec `yaml:"spec"`
+			Rules []policyRule      `yaml:"rules"`
 		}
 		err = decoder.Decode(&raw)
 		if err != nil {
@@ -74,8 +77,11 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 		if raw.Kind == "Role" {
 			observerRules = raw.Rules
 		}
+		if raw.Kind == "NetworkPolicy" && raw.Metadata.Name == "kuberploy-http01-solver-ingress" {
+			http01Policy = raw.Spec
+		}
 	}
-	if documents != FoundationResourceCount || kinds["Namespace"] != 1 || kinds["ResourceQuota"] != 1 || kinds["LimitRange"] != 1 || kinds["NetworkPolicy"] != 2 || kinds["Role"] != 1 || kinds["RoleBinding"] != 1 {
+	if documents != FoundationResourceCount || kinds["Namespace"] != 1 || kinds["ResourceQuota"] != 1 || kinds["LimitRange"] != 1 || kinds["NetworkPolicy"] != 3 || kinds["Role"] != 1 || kinds["RoleBinding"] != 1 {
 		t.Fatalf("unexpected inventory docs=%d kinds=%#v", documents, kinds)
 	}
 	if waves["-30"] != 1 || waves["-20"] != FoundationResourceCount-1 {
@@ -95,8 +101,17 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 	if logRules != 1 {
 		t.Fatalf("expected one exact pods/log rule, got %#v", observerRules)
 	}
+	if labels, ok := http01Policy.PodSelector["matchLabels"].(map[string]any); !ok || labels["acme.cert-manager.io/http01-solver"] != "true" {
+		t.Fatalf("HTTP-01 solver selector widened or missing: %#v", http01Policy.PodSelector)
+	}
+	if len(http01Policy.PolicyTypes) != 1 || http01Policy.PolicyTypes[0] != "Ingress" || len(http01Policy.Ingress) != 1 ||
+		len(http01Policy.Ingress[0].From) != 1 || len(http01Policy.Ingress[0].Ports) != 1 || http01Policy.Ingress[0].Ports[0] != (networkPort{"TCP", 8089}) ||
+		http01Policy.Ingress[0].From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "kuberploy-system" ||
+		http01Policy.Ingress[0].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "traefik" {
+		t.Fatalf("HTTP-01 solver ingress authority widened or missing: %#v", http01Policy)
+	}
 	content := string(first)
-	for _, required := range []string{"kuberploy.io/runtime-namespace: \"true\"", "pod-security.kubernetes.io/enforce: restricted", "pod-security.kubernetes.io/enforce-version: v1.31", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
+	for _, required := range []string{"kuberploy.io/runtime-namespace: \"true\"", "pod-security.kubernetes.io/enforce: restricted", "pod-security.kubernetes.io/enforce-version: v1.31", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "name: kuberploy-http01-solver-ingress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("manifest omitted %q\n%s", required, content)
 		}

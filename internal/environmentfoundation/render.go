@@ -81,7 +81,7 @@ func Render(identity EnvironmentIdentity, profile Profile) ([]byte, string, erro
 		return nil, "", ErrInvalid
 	}
 	labels := map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/environment-id": identity.EnvironmentID,
-		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v1"}
+		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v2"}
 	nsLabels := cloneLabels(labels)
 	nsLabels["kuberploy.io/runtime-namespace"] = "true"
 	nsLabels["pod-security.kubernetes.io/enforce"] = "restricted"
@@ -105,6 +105,10 @@ func Render(identity EnvironmentIdentity, profile Profile) ([]byte, string, erro
 			Max:            map[string]string{"cpu": fmt.Sprintf("%dm", profile.Limits.MaximumCPUMilli), "memory": fmt.Sprintf("%dMi", profile.Limits.MaximumMemoryMiB)}}}}},
 		{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy", Metadata: namespaced("kuberploy-default-deny", identity.Namespace, labels), Spec: networkPolicySpec{PodSelector: map[string]any{}, PolicyTypes: []string{"Ingress", "Egress"}}},
 		{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy", Metadata: namespaced("kuberploy-dns-egress", identity.Namespace, labels), Spec: networkPolicySpec{PodSelector: map[string]any{}, PolicyTypes: []string{"Egress"}, Egress: []networkRule{{To: []peer{{NamespaceSelector: &selector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": "kube-system"}}, PodSelector: &selector{MatchLabels: map[string]string{"k8s-app": "kube-dns"}}}}, Ports: []networkPort{{"UDP", 53}, {"TCP", 53}}}}}},
+		{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy", Metadata: namespaced("kuberploy-http01-solver-ingress", identity.Namespace, labels), Spec: networkPolicySpec{
+			PodSelector: map[string]any{"matchLabels": map[string]string{"acme.cert-manager.io/http01-solver": "true"}}, PolicyTypes: []string{"Ingress"},
+			Ingress: []networkRule{{From: []peer{{NamespaceSelector: &selector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": profile.ControlPlaneNamespace}}, PodSelector: &selector{MatchLabels: map[string]string{"app.kubernetes.io/name": "traefik"}}}}, Ports: []networkPort{{"TCP", 8089}}}},
+		}},
 		{APIVersion: "rbac.authorization.k8s.io/v1", Kind: "Role", Metadata: namespaced("kuberploy-runtime-observer", identity.Namespace, labels), Rules: []policyRule{
 			{APIGroups: []string{""}, Resources: []string{"endpoints", "events", "pods", "services"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{""}, Resources: []string{"pods/log"}, Verbs: []string{"get"}},

@@ -17,13 +17,14 @@ import (
 
 const (
 	Contract                = "environment-foundation.v1"
+	ManifestContract        = "environment-foundation-manifest.v2"
 	PublisherContract       = "environment-foundation-protected-git.v1"
 	ProtectedGitPolicy      = "platform-protected-git.v1"
 	MaximumAttempts         = 30
 	MinimumLease            = 15 * time.Second
 	MaximumLease            = 5 * time.Minute
 	MaximumManifestBytes    = 256 * 1024
-	FoundationResourceCount = 7
+	FoundationResourceCount = 8
 )
 
 var (

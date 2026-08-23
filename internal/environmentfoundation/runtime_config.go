@@ -68,11 +68,11 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	profile.ControlPlaneNamespace = value(RuntimeControlPlaneNamespaceEnv)
 	profile.ObserverServiceAccount = value(RuntimeObserverServiceAccountEnv)
 	canonical, err := json.Marshal(struct {
-		Contract, PlatformBindingID, PSAVersion       string
-		Quota                                         Quota
-		Limits                                        Limits
-		ControlPlaneNamespace, ObserverServiceAccount string
-	}{Contract, platformBindingID, profile.PSAVersion, profile.Quota, profile.Limits, profile.ControlPlaneNamespace, profile.ObserverServiceAccount})
+		Contract, ManifestContract, PlatformBindingID, PSAVersion string
+		Quota                                                     Quota
+		Limits                                                    Limits
+		ControlPlaneNamespace, ObserverServiceAccount             string
+	}{Contract, ManifestContract, platformBindingID, profile.PSAVersion, profile.Quota, profile.Limits, profile.ControlPlaneNamespace, profile.ObserverServiceAccount})
 	if err != nil {
 		return RuntimeConfig{}, ErrInvalid
 	}
