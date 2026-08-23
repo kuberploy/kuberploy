@@ -130,6 +130,15 @@ func TestPostgresApprovalAdmissionIsAtomicAndExactlyIdempotent(t *testing.T) {
 	if len(catalog[0].PackageBytes) != 0 {
 		t.Fatal("approval catalog exposed immutable package bytes")
 	}
+	releases, err := NewPostgresReleaseService(pool, helmPGOperatorDigest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseCatalog, err := releases.ApprovalCatalog(ctx, 1)
+	if err != nil || len(releaseCatalog) != 1 || releaseCatalog[0].Approval.Source.Kind != ChartSourceKindOCI ||
+		releaseCatalog[0].Approval.ID != approval.ID || releaseCatalog[0].DocumentsDigest != documentsDigest {
+		t.Fatalf("release catalog=%+v err=%v", releaseCatalog, err)
+	}
 	approvedPackages, err := NewPostgresApprovedPackageSource(pool)
 	if err != nil {
 		t.Fatal(err)

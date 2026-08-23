@@ -3,6 +3,7 @@ package builds
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func TestKubernetesWorkloadUsesOnlyGitSSHCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	privateKey := []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n-----END OPENSSH PRIVATE KEY-----\n")
+	privateKey := []byte("fixture-private-key")
 	desired, err := adapter.desiredWorkload(BuildWorkload{
 		Attempt: attempt, Plan: plan, CheckoutRequest: attempt.CheckoutRequest, InputDigest: attempt.InputDigest,
 		SSHPrivateKey: privateKey, SSHKnownHosts: []byte(definition.GitSSH.KnownHosts),
@@ -60,6 +61,36 @@ func TestKubernetesWorkloadUsesOnlyGitSSHCredentials(t *testing.T) {
 	decoded, err := base64.StdEncoding.DecodeString(data["ssh-private-key"].(string))
 	if err != nil || string(decoded) != string(privateKey) {
 		t.Fatal("SSH private key was not bound exactly")
+	}
+}
+
+func TestCreatedGitSSHSourceSecretMatchesPlannedObject(t *testing.T) {
+	definition := validGitSSHDefinition(t)
+	attempt, err := newAttempt(definition, Repository{}, EnqueuePush{
+		ClaimKey: "sha256:" + strings.Repeat("b", 64), CommitSHA: strings.Repeat("a", 40), GitRef: definition.TriggerRef, ResolvedAt: testNow,
+	}, 1, nil, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey := []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n-----END OPENSSH PRIVATE KEY-----\n")
+	desired, err := desiredSSHSourceSecret(attempt.PlanRequest, attempt.InputDigest, privateKey, []byte(definition.GitSSH.KnownHosts))
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := cloneMap(desired)
+	metadata := live["metadata"].(map[string]any)
+	metadata["uid"] = "00000000-0000-4000-8000-000000000001"
+	metadata["resourceVersion"] = "1"
+	if err = validateCreatedSourceSecret(live, desired); err != nil {
+		t.Fatalf("canonical Git SSH Secret rejected: %v", err)
+	}
+	skeleton := sourceSecretSkeleton(attempt.PlanRequest, attempt.InputDigest)
+	if err = validateSourceSecret(live, skeleton); err != nil {
+		t.Fatalf("owned Git SSH Secret rejected without credential bytes: %v", err)
+	}
+	live["data"].(map[string]any)["known_hosts"] = base64.StdEncoding.EncodeToString([]byte{})
+	if err = validateCreatedSourceSecret(live, desired); !errors.Is(err, ErrInfrastructure) {
+		t.Fatalf("empty known_hosts accepted: %v", err)
 	}
 }
 

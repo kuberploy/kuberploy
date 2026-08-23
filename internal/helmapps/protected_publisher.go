@@ -31,6 +31,7 @@ type ProtectedGitPublisher struct {
 	Bindings          ProtectedGitBindingStore
 	Provider          gitprojection.HeadVerifier
 	Manager           *gitprojection.MirrorManager
+	RootRefresher     ProtectedRootRefresher
 	Publisher         ProtectedPublisherIdentity
 	WorkerID          string
 	WorkerEpoch       int64
@@ -41,8 +42,9 @@ type ProtectedGitPublisher struct {
 
 func (p *ProtectedGitPublisher) Validate() error {
 	if p == nil || p.Store == nil || p.Cascade == nil || p.Activations == nil ||
-		p.Bindings == nil || p.Provider == nil || p.Manager == nil ||
+		p.Bindings == nil || p.Provider == nil || p.Manager == nil || p.RootRefresher == nil ||
 		p.Manager.Validate() != nil || p.Publisher.Validate() != nil ||
+		p.RootRefresher.Validate() != nil ||
 		!workerIDRE.MatchString(p.WorkerID) || p.WorkerEpoch < 1 || p.Now == nil {
 		return ErrInvalid
 	}
@@ -584,6 +586,9 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		return gitprojection.ErrProviderMismatch
 	}
 	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
+	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, verifyAt); err != nil {
+		return err
+	}
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, revision, mutation.ContentSHA256, verified.ProviderRequest,
 			verifyAt)
@@ -632,10 +637,25 @@ func (p *ProtectedGitPublisher) recoverFoundClaim(guard *protectedPublicationLea
 		return gitprojection.ErrProviderMismatch
 	}
 	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
+	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, verifyAt); err != nil {
+		return err
+	}
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, found, mutation.ContentSHA256, verified.ProviderRequest,
 			verifyAt)
 	})
+}
+
+func (p *ProtectedGitPublisher) refreshProtectedRoot(ctx context.Context, binding gitprojection.Binding,
+	head gitprojection.VerifiedHead, mutation gitprojection.Mutation, now time.Time) error {
+	switch mutation.Authority {
+	case gitprojection.MutationAuthorityHelmPayload:
+		return nil
+	case gitprojection.MutationAuthorityHelmApplication, gitprojection.MutationAuthorityHelmCascade:
+		return p.RootRefresher.RefreshProtectedRoot(ctx, binding, head, now)
+	default:
+		return ErrInvalid
+	}
 }
 
 func validProtectedBindingPrefix(prefix, clusterID, protectedPath string) bool {

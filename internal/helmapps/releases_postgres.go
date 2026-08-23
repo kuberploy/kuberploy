@@ -27,16 +27,8 @@ func (s *PostgresReleaseService) ApprovalCatalog(ctx context.Context, limit int)
 	if limit < 1 || limit > 100 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT
-		a.approval_id::text,a.revision,a.oci_repository,a.chart_version,
-		a.manifest_digest,a.package_digest,a.values_schema_digest,a.renderer_image,
-		a.renderer_version,a.policy_version,a.created_by::text,a.idempotency_key,
-		a.created_at,a.identity_digest,d.values_schema_json,d.default_values_yaml,
-		d.documents_digest,d.created_at
-		FROM helm_chart_approvals a
-		JOIN helm_chart_approval_documents d
-		  ON d.approval_id=a.approval_id AND d.approval_revision=a.revision
-		ORDER BY a.created_at DESC,a.approval_id,a.revision DESC LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, approvalDocumentSelect+
+		`ORDER BY a.created_at DESC,a.approval_id,a.revision DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

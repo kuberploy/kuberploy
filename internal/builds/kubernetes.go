@@ -762,6 +762,27 @@ func validateSourceSecret(live, desired map[string]any) error {
 	if !ok || len(data) != 2 {
 		return ErrInfrastructure
 	}
+	desiredData, _ := desired["data"].(map[string]any)
+	_, wantsSSHPrivateKey := desiredData["ssh-private-key"]
+	_, wantsKnownHosts := desiredData["known_hosts"]
+	if wantsSSHPrivateKey || wantsKnownHosts {
+		if !wantsSSHPrivateKey || !wantsKnownHosts || validateGitSSHSourceSecretData(data) != nil {
+			return ErrInfrastructure
+		}
+	} else if _, hasSSHPrivateKey := data["ssh-private-key"]; hasSSHPrivateKey {
+		if validateGitSSHSourceSecretData(data) != nil {
+			return ErrInfrastructure
+		}
+	} else if validateGitHubSourceSecretData(data) != nil {
+		return ErrInfrastructure
+	}
+	if _, extra := live["stringData"]; extra {
+		return ErrInfrastructure
+	}
+	return nil
+}
+
+func validateGitHubSourceSecretData(data map[string]any) error {
 	username, usernameOK := decodeSecretValue(data["username"], 64)
 	token, tokenOK := decodeSecretValue(data["token"], maximumSourceTokenBytes)
 	defer clear(username)
@@ -769,7 +790,15 @@ func validateSourceSecret(live, desired map[string]any) error {
 	if !usernameOK || !tokenOK || string(username) != "x-access-token" || len(token) < 20 || !sourceTokenRE.Match(token) {
 		return ErrInfrastructure
 	}
-	if _, extra := live["stringData"]; extra {
+	return nil
+}
+
+func validateGitSSHSourceSecretData(data map[string]any) error {
+	privateKey, privateKeyOK := decodeSecretValue(data["ssh-private-key"], 64<<10)
+	knownHosts, knownHostsOK := decodeSecretValue(data["known_hosts"], 64<<10)
+	defer clear(privateKey)
+	defer clear(knownHosts)
+	if !privateKeyOK || !knownHostsOK || bytes.IndexByte(privateKey, 0) >= 0 || bytes.IndexByte(knownHosts, 0) >= 0 {
 		return ErrInfrastructure
 	}
 	return nil

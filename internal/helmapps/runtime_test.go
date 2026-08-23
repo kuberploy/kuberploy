@@ -150,6 +150,7 @@ func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *te
 				RendererImage: "ghcr.io/kuberploy/renderer@" + digestBytes([]byte("renderer"))},
 			DigestEnforcement: argo.ChartDigestNativeOCI},
 		GitBindings: fixture.bindings, GitProvider: fixture.headVerifier(t), GitManager: fixture.manager,
+		RootRefresher:   fixture.refresher,
 		ArgoObservation: argoObservation,
 		CascadeRoots:    cascadeRootSourceStub{}, CascadeApplications: cascadeApplicationSourceStub{},
 		WorkerID: "helm-runtime-worker-0001", WorkerEpoch: 1, StartedAt: testTime,
@@ -162,6 +163,7 @@ func TestEnabledRuntimeRequiresAndWiresExactProtectedPublisherDependencies(t *te
 		func() RuntimeDependencies { value := dependencies; value.GitBindings = nil; return value }(),
 		func() RuntimeDependencies { value := dependencies; value.GitProvider = nil; return value }(),
 		func() RuntimeDependencies { value := dependencies; value.GitManager = nil; return value }(),
+		func() RuntimeDependencies { value := dependencies; value.RootRefresher = nil; return value }(),
 		func() RuntimeDependencies {
 			value := dependencies
 			value.ArgoObservation = argo.DesiredStateRuntimeWorkerObservation{}

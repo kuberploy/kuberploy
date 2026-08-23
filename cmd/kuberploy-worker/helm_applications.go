@@ -67,6 +67,8 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 		ArgoMaterialization: helmapps.ArgoMaterializationAuthority{PolicyDigest: projection.policyDigest,
 			Runtime: identity.Runtime, DigestEnforcement: identity.DigestEnforcement},
 		GitBindings: projection.store, GitProvider: projection.headVerifier, GitManager: projection.writeManager,
+		RootRefresher: &helmapps.ProductionProtectedRootRefresher{Identity: identity,
+			Refresher: argoRuntime.kubernetes},
 		ArgoObservation: argoRuntime.observation, CascadeRoots: argoRuntime.kubernetes,
 		CascadeApplications: argoRuntime.kubernetes,
 		WorkerID:            workerLeaseOwner(processIdentity, "helm-applications"), WorkerEpoch: 1,

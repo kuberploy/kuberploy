@@ -335,6 +335,7 @@ type protectedPublisherFixture struct {
 	bindings  *gitprojection.MemoryStore
 	manager   *gitprojection.MirrorManager
 	store     *protectedPublisherStoreStub
+	refresher *protectedRootRefresherStub
 	publisher ProtectedPublisherIdentity
 	target    ReleaseTarget
 }
@@ -398,7 +399,8 @@ func newProtectedPublisherFixture(t *testing.T) *protectedPublisherFixture {
 	target := ReleaseTarget{ProjectID: id.New(), EnvironmentID: id.New(), ApplicationID: id.New()}
 	fixture := &protectedPublisherFixture{now: now, remote: remote, seed: seed, base: base, binding: binding, bindings: bindings,
 		manager: &gitprojection.MirrorManager{Root: filepath.Join(root, "cache"), AllowLocalTests: true, LocalRemote: remote},
-		store:   &protectedPublisherStoreStub{}, publisher: publisher, target: target}
+		store:   &protectedPublisherStoreStub{}, refresher: &protectedRootRefresherStub{},
+		publisher: publisher, target: target}
 	fixture.store.payload = fixture.pendingPayload(id.New(), []byte("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: approved\n"), false, base)
 	fixture.store.prerequisite = ProtectedPublicationPrerequisiteReceipt{
 		ReleaseRevisionID: fixture.store.payload.ReleaseRevisionID,
@@ -483,10 +485,32 @@ func (f protectedHeadVerifierFunc) VerifyTargetHead(ctx context.Context, binding
 	return f(ctx, binding, source)
 }
 
+type protectedRootRefresherStub struct {
+	calls int
+	err   error
+}
+
+func (s *protectedRootRefresherStub) Validate() error {
+	if s == nil {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func (s *protectedRootRefresherStub) RefreshProtectedRoot(_ context.Context,
+	binding gitprojection.Binding, head gitprojection.VerifiedHead, now time.Time) error {
+	if s.Validate() != nil || binding.Validate() != nil || head.ValidateFor(binding) != nil || now.Before(head.ObservedAt) {
+		return ErrInvalid
+	}
+	s.calls++
+	return s.err
+}
+
 func (f *protectedPublisherFixture) worker(t *testing.T) *ProtectedGitPublisher {
 	return &ProtectedGitPublisher{Store: f.store, Cascade: f.store, Activations: f.store,
 		Bindings: f.bindings, Provider: f.headVerifier(t), Manager: f.manager,
-		Publisher: f.publisher, WorkerID: "helm-protected-worker-0001", WorkerEpoch: 1,
+		RootRefresher: f.refresher,
+		Publisher:     f.publisher, WorkerID: "helm-protected-worker-0001", WorkerEpoch: 1,
 		Now: func() time.Time { return f.now }}
 }
 
@@ -499,7 +523,8 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	manifest := []byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n  finalizers:\n    - resources-finalizer.argocd.argoproj.io\n")
 	fixture.store.application = fixture.pendingApplication(payload, manifest, ProtectedApplicationPublish, "create-if-absent", "")
 	application, err := fixture.worker(t).ProcessApplicationOne(t.Context())
-	if err != nil || application.State != ProtectedVerified || application.CommittedParentRevision != payload.CommittedRevision {
+	if err != nil || application.State != ProtectedVerified || application.CommittedParentRevision != payload.CommittedRevision ||
+		fixture.refresher.calls != 1 {
 		t.Fatalf("application=%#v err=%v", application, err)
 	}
 	commitObject, err := runProtectedPublisherGit(t, fixture.remote, "cat-file", "commit", application.CommittedRevision)
@@ -524,11 +549,35 @@ func TestProtectedGitPublisherCommitsTwoPhasesAndMatchDeletesStableApplication(t
 	fixture.store.application = fixture.pendingApplication(disable, nil, ProtectedApplicationDelete,
 		"match-etag", `"`+application.ContentDigest+`"`)
 	deleted, err := fixture.worker(t).ProcessApplicationOne(t.Context())
-	if err != nil || deleted.State != ProtectedVerified || deleted.VerifiedPathDigest != "" {
+	if err != nil || deleted.State != ProtectedVerified || deleted.VerifiedPathDigest != "" || fixture.refresher.calls != 2 {
 		t.Fatalf("deleted=%#v err=%v", deleted, err)
 	}
 	if _, showErr := runProtectedPublisherGit(t, fixture.remote, "show", deleted.CommittedRevision+":"+deleted.ApplicationPath); showErr == nil {
 		t.Fatal("match-delete receipt was verified while the stable Application still existed")
+	}
+}
+
+func TestProtectedGitPublisherRequiresRootRefreshBeforeApplicationVerification(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+	if err != nil || payload.State != ProtectedVerified || fixture.refresher.calls != 0 {
+		t.Fatalf("payload=%#v refreshes=%d err=%v", payload, fixture.refresher.calls, err)
+	}
+	manifest := []byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n  finalizers:\n    - resources-finalizer.argocd.argoproj.io\n")
+	fixture.store.application = fixture.pendingApplication(payload, manifest,
+		ProtectedApplicationPublish, "create-if-absent", "")
+	fixture.refresher.err = ErrUnavailable
+	first, err := fixture.worker(t).ProcessApplicationOne(t.Context())
+	if !errors.Is(err, ErrUnavailable) || first.State != ProtectedGitCommitted ||
+		first.CommittedRevision == "" || fixture.refresher.calls != 1 {
+		t.Fatalf("first=%#v refreshes=%d err=%v", first, fixture.refresher.calls, err)
+	}
+	committed := first.CommittedRevision
+	fixture.refresher.err = nil
+	verified, err := fixture.worker(t).ProcessApplicationOne(t.Context())
+	if err != nil || verified.State != ProtectedVerified || verified.CommittedRevision != committed ||
+		fixture.refresher.calls != 2 {
+		t.Fatalf("verified=%#v refreshes=%d err=%v", verified, fixture.refresher.calls, err)
 	}
 }
 

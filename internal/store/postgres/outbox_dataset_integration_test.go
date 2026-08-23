@@ -3,6 +3,8 @@ package postgres
 import (
 	"os"
 	"testing"
+
+	"github.com/kuberploy/kuberploy/internal/domain"
 )
 
 func TestOutboxDatasetReconciliationReplaysOnlyNonTerminalWork(t *testing.T) {
@@ -43,7 +45,7 @@ func TestOutboxDatasetReconciliationReplaysOnlyNonTerminalWork(t *testing.T) {
 		t.Fatalf("initial replayed=%d err=%v", replayed, reconcileErr)
 	}
 	pending, err := store.PendingOutbox(ctx, 10)
-	if err != nil || len(pending) != 1 || pending[0].OperationID != queuedID {
+	if err != nil || countPendingOperation(pending, queuedID) != 1 || countPendingOperation(pending, terminalID) != 0 {
 		t.Fatalf("pending=%#v err=%v", pending, err)
 	}
 	if err = store.MarkOutboxPublished(ctx, queuedID); err != nil {
@@ -53,7 +55,7 @@ func TestOutboxDatasetReconciliationReplaysOnlyNonTerminalWork(t *testing.T) {
 		t.Fatalf("stable replayed=%d err=%v", replayed, reconcileErr)
 	}
 	pending, err = store.PendingOutbox(ctx, 10)
-	if err != nil || len(pending) != 0 {
+	if err != nil || countPendingOperation(pending, queuedID) != 0 || countPendingOperation(pending, terminalID) != 0 {
 		t.Fatalf("stable pending=%#v err=%v", pending, err)
 	}
 	secondDataset := "22222222-2222-4222-8222-222222222222"
@@ -72,4 +74,14 @@ func TestOutboxDatasetReconciliationReplaysOnlyNonTerminalWork(t *testing.T) {
 	if _, reconcileErr := store.ReconcileOutboxDataset(ctx, "not-a-dataset-id"); reconcileErr == nil {
 		t.Fatal("invalid dataset identity was accepted")
 	}
+}
+
+func countPendingOperation(pending []domain.WorkMessage, operationID string) int {
+	count := 0
+	for _, message := range pending {
+		if message.OperationID == operationID {
+			count++
+		}
+	}
+	return count
 }

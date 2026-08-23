@@ -203,6 +203,7 @@ type RuntimeDependencies struct {
 	GitBindings         ProtectedGitBindingStore
 	GitProvider         gitprojection.HeadVerifier
 	GitManager          *gitprojection.MirrorManager
+	RootRefresher       ProtectedRootRefresher
 	ArgoObservation     argo.DesiredStateRuntimeWorkerObservation
 	CascadeRoots        argo.PlatformRootCascadeSource
 	CascadeApplications argo.ProtectedApplicationSource
@@ -248,6 +249,7 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 		dependencies.Bindings == nil || dependencies.ArgoMaterialization.Validate() != nil ||
 		dependencies.GitBindings == nil || dependencies.GitProvider == nil ||
 		dependencies.GitManager == nil || dependencies.GitManager.Validate() != nil ||
+		dependencies.RootRefresher == nil || dependencies.RootRefresher.Validate() != nil ||
 		dependencies.ArgoObservation.Validate() != nil || dependencies.CascadeRoots == nil ||
 		dependencies.CascadeApplications == nil ||
 		dependencies.Now == nil || dependencies.StartedAt.IsZero() ||
@@ -299,7 +301,8 @@ func NewRuntime(config RuntimeConfig, dependencies RuntimeDependencies) (*Runtim
 	publisher := &ProtectedGitPublisher{Store: publications, Cascade: publications, Activations: publications,
 		Bindings: dependencies.GitBindings,
 		Provider: dependencies.GitProvider, Manager: dependencies.GitManager,
-		Publisher: config.Publisher, WorkerID: dependencies.WorkerID, WorkerEpoch: dependencies.WorkerEpoch,
+		RootRefresher: dependencies.RootRefresher,
+		Publisher:     config.Publisher, WorkerID: dependencies.WorkerID, WorkerEpoch: dependencies.WorkerEpoch,
 		LeaseDuration: config.PublishLeaseDuration, Now: dependencies.Now}
 	if publisher.Validate() != nil {
 		return nil, ErrInvalid
