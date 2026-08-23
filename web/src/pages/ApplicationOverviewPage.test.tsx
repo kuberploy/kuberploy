@@ -13,6 +13,9 @@ const routeParams = vi.hoisted(
     environmentId?: string;
   } => ({ applicationId: "application-1" }),
 );
+const routeSearch = vi.hoisted(
+  (): { tab?: string; source?: string; environmentId?: string } => ({}),
+);
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -25,7 +28,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useParams: () => routeParams,
-  useSearch: () => ({}),
+  useSearch: () => routeSearch,
 }));
 
 function wrapper() {
@@ -96,6 +99,9 @@ afterEach(() => {
   routeParams.applicationId = "application-1";
   delete routeParams.projectId;
   delete routeParams.environmentId;
+  delete routeSearch.tab;
+  delete routeSearch.source;
+  delete routeSearch.environmentId;
   vi.restoreAllMocks();
 });
 
@@ -149,6 +155,47 @@ describe("application source overview", () => {
     client.setQueryData(["environments"], { items: [] });
 
     await waitFor(() => expect(environment).toHaveValue(""));
+  });
+
+  it("keeps an environment-scoped Helm selection while placements load", async () => {
+    routeParams.projectId = "project-1";
+    routeSearch.tab = "source";
+    routeSearch.source = "helm";
+    routeSearch.environmentId = "environment-1";
+    let resolvePlacements!: (
+      value: Awaited<ReturnType<typeof api.environmentApps>>,
+    ) => void;
+    vi.mocked(api.environmentApps).mockReturnValue(
+      new Promise((resolve) => {
+        resolvePlacements = resolve;
+      }),
+    );
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    await waitFor(() =>
+      expect(api.environmentApps).toHaveBeenCalledWith("environment-1"),
+    );
+    resolvePlacements({
+      items: [
+        {
+          projectId: "project-1",
+          environmentId: "environment-1",
+          applicationId: "application-1",
+          applicationName: "Payments API",
+          applicationSlug: "payments-api",
+          state: "draft",
+          desiredState: "stopped",
+          createdAt: "2026-08-23T00:00:00Z",
+          updatedAt: "2026-08-23T00:00:00Z",
+        },
+      ],
+    });
+
+    const environment = await screen.findByRole("combobox", {
+      name: /Environment/,
+    });
+    await waitFor(() => expect(environment).toHaveValue("environment-1"));
   });
 
   it("offers Helm only in Environments where the App is actually placed", async () => {

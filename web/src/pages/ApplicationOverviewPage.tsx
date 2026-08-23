@@ -141,6 +141,7 @@ export function ApplicationOverviewPage() {
       ),
     [applicationId, placementQueries, projectEnvironments],
   );
+  const placementsPending = placementQueries.some((query) => query.isPending);
   useEffect(() => {
     const requestedSource: SourceKind =
       search.source === "oci"
@@ -164,6 +165,7 @@ export function ApplicationOverviewPage() {
   ]);
   useEffect(() => {
     if (!application.data || !environments.data) return;
+    if (placementsPending) return;
     if (
       environmentId &&
       !applicationEnvironments.some(
@@ -177,6 +179,7 @@ export function ApplicationOverviewPage() {
     applicationEnvironments,
     environmentId,
     environments.data,
+    placementsPending,
   ]);
   const selectedEnvironment = applicationEnvironments.find(
     (item) => item.id === environmentId,
@@ -209,7 +212,7 @@ export function ApplicationOverviewPage() {
     application.isPending ||
     projects.isPending ||
     environments.isPending ||
-    placementQueries.some((query) => query.isPending)
+    placementsPending
   ) {
     return <Skeleton lines={7} />;
   }
@@ -542,12 +545,12 @@ export function ApplicationOverviewPage() {
             buildEnabled={features?.gitSSHBuilds === true}
             canManageBuilds={Boolean(
               humanSession &&
-                hasBuildApplicationCapability(
-                  effectiveCapabilities,
-                  "build-definitions:write",
-                  application.data,
-                  project,
-                )
+              hasBuildApplicationCapability(
+                effectiveCapabilities,
+                "build-definitions:write",
+                application.data,
+                project,
+              ),
             )}
             registryTargets={compatibleBuildRegistryTargets(
               registry.data?.items ?? [],
