@@ -21,6 +21,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/shadcn/dialog";
+import { canCreateAppInEnvironment } from "../lib/appCreationAccess";
 
 function environmentAction(
   capabilities: Awaited<ReturnType<typeof api.capabilities>> | undefined,
@@ -39,22 +40,6 @@ function environmentAction(
           capability.scopeId === project.id) ||
         (capability.scopeType === "environment" &&
           capability.scopeId === environmentId)),
-  );
-}
-
-function canCreateAppIdentity(
-  capabilities: Awaited<ReturnType<typeof api.capabilities>> | undefined,
-  project: Project,
-) {
-  return (capabilities?.capabilities ?? []).some(
-    (capability) =>
-      capability.actions?.includes("applications:create") &&
-      ((capability.scopeType === "platform" &&
-        capability.scopeId === "platform") ||
-        (capability.scopeType === "team" &&
-          capability.scopeId === project.teamId) ||
-        (capability.scopeType === "project" &&
-          capability.scopeId === project.id)),
   );
 }
 
@@ -202,14 +187,11 @@ export function EnvironmentPage() {
     );
   }
 
-  const canAddApp =
-    canCreateAppIdentity(capabilities.data, project) &&
-    environmentAction(
-      capabilities.data,
-      project,
-      environment.data.id,
-      "deployments:create",
-    );
+  const canAddApp = canCreateAppInEnvironment(
+    capabilities.data,
+    project,
+    environment.data,
+  );
   const canCreateEnvironment = environmentAction(
     capabilities.data,
     project,

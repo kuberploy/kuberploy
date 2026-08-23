@@ -62,6 +62,7 @@ beforeEach(() => {
     features: {
       builds: true,
       builder: true,
+      gitSSH: true,
       gitSSHBuilds: true,
       helmDeployments: true,
     },
@@ -70,7 +71,13 @@ beforeEach(() => {
         role: "project-admin",
         scopeType: "project",
         scopeId: "project-payments",
-        actions: ["applications:create", "deployments:create"],
+        actions: [
+          "applications:create",
+          "deployments:create",
+          "build-definitions:write",
+          "helm-releases:deploy",
+          "helm-releases:disable",
+        ],
       },
     ],
   });
@@ -187,11 +194,78 @@ describe("Add App source flow", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it("keeps build sources unavailable without build-definition authority", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        builds: true,
+        builder: true,
+        gitSSH: true,
+        gitSSHBuilds: true,
+        helmDeployments: true,
+      },
+      capabilities: [
+        {
+          role: "developer",
+          scopeType: "project",
+          scopeId: "project-payments",
+          actions: [
+            "applications:create",
+            "deployments:create",
+            "helm-releases:deploy",
+            "helm-releases:disable",
+          ],
+        },
+      ],
+    });
+
+    render(<AddAppPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByRole("radio", { name: /OCI image/ }),
+    ).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /GitHub App/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Git SSH/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Helm chart/ })).toBeEnabled();
+  });
+
+  it("allows Helm App creation without OCI deployment authority", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        builds: false,
+        builder: false,
+        gitSSH: false,
+        gitSSHBuilds: false,
+        helmDeployments: true,
+      },
+      capabilities: [
+        {
+          role: "developer",
+          scopeType: "project",
+          scopeId: "project-payments",
+          actions: [
+            "applications:create",
+            "helm-releases:deploy",
+            "helm-releases:disable",
+          ],
+        },
+      ],
+    });
+
+    render(<AddAppPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByRole("radio", { name: /OCI image/ }),
+    ).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Helm chart/ })).toBeEnabled();
+    expect(screen.queryByText("Add App is unavailable")).toBeNull();
+  });
+
   it("does not create a draft App from an unavailable source", async () => {
     vi.mocked(api.capabilities).mockResolvedValue({
       features: {
         builds: false,
         builder: false,
+        gitSSH: false,
         gitSSHBuilds: false,
         helmDeployments: false,
       },

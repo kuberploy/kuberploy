@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
-import type { Capabilities, Project } from "../api/types";
 import { Icon, type IconName } from "../components/Icon";
 import {
   Button,
@@ -14,24 +13,11 @@ import {
   PageHeader,
   Skeleton,
 } from "../components/ui";
-
-export type AppSourceKind = "oci" | "github" | "git-ssh" | "helm";
-
-function sourceAvailable(source: AppSourceKind, capabilities?: Capabilities) {
-  switch (source) {
-    case "oci":
-      return true;
-    case "github":
-      return (
-        capabilities?.features?.builds === true &&
-        capabilities.features.builder === true
-      );
-    case "git-ssh":
-      return capabilities?.features?.gitSSHBuilds === true;
-    case "helm":
-      return capabilities?.features?.helmDeployments === true;
-  }
-}
+import {
+  canCreateAppInEnvironment,
+  canUseAppSource,
+  type AppSourceKind,
+} from "../lib/appCreationAccess";
 
 const sources: Array<{
   id: AppSourceKind;
@@ -66,43 +52,13 @@ const sources: Array<{
     id: "helm",
     title: "Helm chart",
     description: "Publish a chart release through protected desired state.",
-    detail: "Supports OCI, Helm repositories, public Git, raw values YAML, and rollback.",
+    detail:
+      "Supports OCI, Helm repositories, public Git, raw values YAML, and rollback.",
     icon: "layers",
   },
 ];
 
 type AppIdentityForm = { name: string };
-
-function canCreateApp(
-  capabilities: Capabilities | undefined,
-  project: Project,
-  environmentId: string,
-) {
-  const grants = capabilities?.capabilities ?? [];
-  const canCreateIdentity = grants.some(
-    (capability) =>
-      capability.actions?.includes("applications:create") &&
-      ((capability.scopeType === "platform" &&
-        capability.scopeId === "platform") ||
-        (capability.scopeType === "team" &&
-          capability.scopeId === project.teamId) ||
-        (capability.scopeType === "project" &&
-          capability.scopeId === project.id)),
-  );
-  const canCreateDeployment = grants.some(
-    (capability) =>
-      capability.actions?.includes("deployments:create") &&
-      ((capability.scopeType === "platform" &&
-        capability.scopeId === "platform") ||
-        (capability.scopeType === "team" &&
-          capability.scopeId === project.teamId) ||
-        (capability.scopeType === "project" &&
-          capability.scopeId === project.id) ||
-        (capability.scopeType === "environment" &&
-          capability.scopeId === environmentId)),
-  );
-  return canCreateIdentity && canCreateDeployment;
-}
 
 export function AddAppPage() {
   const { projectId, environmentId } = useParams({
@@ -198,11 +154,17 @@ export function AddAppPage() {
       />
     );
   }
-  if (!canCreateApp(capabilities.data, project.data, environmentId)) {
+  if (
+    !canCreateAppInEnvironment(
+      capabilities.data,
+      project.data,
+      environment.data,
+    )
+  ) {
     return (
       <EmptyState
         title="Add App is unavailable"
-        description="Your current role cannot create both an App identity and its environment deployment."
+        description="Your current role cannot create an App identity with any available source in this Environment."
         action={
           <Link
             to="/projects/$projectId/environments/$environmentId"
@@ -215,6 +177,8 @@ export function AddAppPage() {
       />
     );
   }
+  const currentProject = project.data;
+  const currentEnvironment = environment.data;
 
   return (
     <div className="page page--narrow">
@@ -244,7 +208,12 @@ export function AddAppPage() {
         aria-label="App source"
       >
         {sources.map((candidate) => {
-          const available = sourceAvailable(candidate.id, capabilities.data);
+          const available = canUseAppSource(
+            candidate.id,
+            capabilities.data,
+            currentProject,
+            currentEnvironment,
+          );
           return (
             <button
               key={candidate.id}

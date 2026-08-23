@@ -197,6 +197,40 @@ describe("environment App workspace", () => {
     ).toBeDisabled();
   });
 
+  it("shows Add App for a Helm-only source workflow", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        builds: false,
+        builder: false,
+        gitSSH: false,
+        gitSSHBuilds: false,
+        helmDeployments: true,
+      },
+      capabilities: [
+        {
+          role: "developer",
+          scopeType: "project",
+          scopeId: "project-payments",
+          actions: [
+            "applications:create",
+            "helm-releases:deploy",
+            "helm-releases:disable",
+          ],
+        },
+      ],
+    });
+
+    render(<EnvironmentPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByRole("heading", { name: "Production" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add App" })).toHaveAttribute(
+      "href",
+      "/projects/project-payments/environments/environment-production/apps/new",
+    );
+  });
+
   it("keeps loading and empty states explicit", async () => {
     let resolveApplications!: (value: { items: [] }) => void;
     vi.mocked(api.environmentApps).mockImplementation(
