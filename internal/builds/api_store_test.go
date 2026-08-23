@@ -115,12 +115,11 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 		t.Fatalf("retry agent image=%q, want refreshed operator runtime %q", retry.PlanRequest.AgentImage, currentExecution.BuilderAgentImage)
 	}
 	store.mu.Lock()
-	message, outboxOK := store.outbox[retryID]
 	_, claimOK := store.claims[claimMapKey("github-delivery", retryClaim)]
 	receipt, receiptOK := store.deliveries[retryClaim]
 	store.mu.Unlock()
-	if !outboxOK || message.TraceID != retryClaim || !claimOK || !receiptOK || receipt.State != DeliveryEnqueued {
-		t.Fatalf("retry durability outbox=%#v claim=%v receipt=%#v", message, claimOK, receipt)
+	if !claimOK || !receiptOK || receipt.State != DeliveryEnqueued {
+		t.Fatalf("retry durability claim=%v receipt=%#v", claimOK, receipt)
 	}
 	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, strings.Repeat("d", 64), currentExecution, completed.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("existing retry rebound to a different durable claim: %v", err)

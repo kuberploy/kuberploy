@@ -59,7 +59,6 @@ type MemoryStore struct {
 	deliveries             map[string]DeliveryReceipt
 	attempts               map[string]BuildAttempt
 	serviceGeneration      map[string]int64
-	outbox                 map[string]OutboxMessage
 	setupAuthorizations    map[string]SetupAuthorization
 	githubUserBindings     map[string]githubapp.AccountIdentity
 	githubUserOwners       map[int64]string
@@ -73,7 +72,7 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		claims: map[string]memoryClaim{}, installations: map[string]Installation{}, installationByProvider: map[string]string{},
 		repositories: map[string]Repository{}, definitions: map[string]BuildDefinition{}, deliveries: map[string]DeliveryReceipt{},
-		attempts: map[string]BuildAttempt{}, serviceGeneration: map[string]int64{}, outbox: map[string]OutboxMessage{},
+		attempts: map[string]BuildAttempt{}, serviceGeneration: map[string]int64{},
 		setupAuthorizations: map[string]SetupAuthorization{}, githubUserBindings: map[string]githubapp.AccountIdentity{},
 		githubUserOwners: map[int64]string{}, setupHandoffs: map[[sha256.Size]byte]memorySetupHandoff{}, apiIdempotency: map[string]memoryAPIIdempotency{},
 		releaseProjections: map[string]memoryReleaseProjection{},
@@ -555,7 +554,6 @@ func (s *MemoryStore) EnqueuePushBuilds(_ context.Context, input EnqueuePush, ow
 	for _, attempt := range staged {
 		if _, exists := s.attempts[attempt.ID]; !exists {
 			s.attempts[attempt.ID] = cloneAttempt(attempt)
-			s.outbox[attempt.ID] = OutboxMessage{AttemptID: attempt.ID, Kind: "source-build", TraceID: input.ClaimKey, AvailableAt: now.UTC()}
 		}
 	}
 	completed := now.UTC()
@@ -825,45 +823,6 @@ func (s *MemoryStore) CompleteCancellation(_ context.Context, attemptID, owner s
 	attempt.FailureCode = ""
 	attempt.LeaseOwner, attempt.LeaseUntil = "", time.Time{}
 	s.attempts[attempt.ID] = attempt
-	return nil
-}
-
-func (s *MemoryStore) PendingOutbox(_ context.Context, limit int) ([]OutboxMessage, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, ErrInvalid
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	result := make([]OutboxMessage, 0)
-	for _, message := range s.outbox {
-		if message.PublishedAt == nil {
-			result = append(result, message)
-		}
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].AvailableAt.Equal(result[j].AvailableAt) {
-			return result[i].AttemptID < result[j].AttemptID
-		}
-		return result[i].AvailableAt.Before(result[j].AvailableAt)
-	})
-	if len(result) > limit {
-		result = result[:limit]
-	}
-	return result, nil
-}
-
-func (s *MemoryStore) MarkOutboxPublished(_ context.Context, attemptID string, at time.Time) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	message, ok := s.outbox[attemptID]
-	if !ok {
-		return ErrNotFound
-	}
-	if message.PublishedAt == nil {
-		published := at.UTC()
-		message.PublishedAt = &published
-		s.outbox[attemptID] = message
-	}
 	return nil
 }
 

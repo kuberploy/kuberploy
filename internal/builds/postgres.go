@@ -534,10 +534,6 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 		if err != nil {
 			return nil, classifyPostgres(err)
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO build_outbox(attempt_id,kind,trace_id,available_at,created_at) VALUES($1,'source-build',$2,$3,$3)`, attempt.ID, input.ClaimKey, now.UTC())
-		if err != nil {
-			return nil, classifyPostgres(err)
-		}
 		staged = append(staged, attempt)
 	}
 	command, err := tx.Exec(ctx, `UPDATE github_webhook_receipts SET state='enqueued',failure_code='',completed_at=$4,lease_owner=NULL,lease_until=NULL,updated_at=$4 WHERE claim_key=$1 AND state='processing' AND lease_owner=$2 AND git_ref=$3`, input.ClaimKey, owner, input.GitRef, now.UTC())
@@ -775,37 +771,6 @@ func (s *PostgreSQLStore) CompleteCancellation(ctx context.Context, attemptID, o
 	}
 	if command.RowsAffected() != 1 {
 		return ErrLeaseLost
-	}
-	return nil
-}
-
-func (s *PostgreSQLStore) PendingOutbox(ctx context.Context, limit int) ([]OutboxMessage, error) {
-	if limit < 1 || limit > 1000 {
-		return nil, ErrInvalid
-	}
-	rows, err := s.pool.Query(ctx, `SELECT attempt_id::text,kind,trace_id,attempts,available_at,published_at FROM build_outbox WHERE published_at IS NULL ORDER BY available_at,created_at,attempt_id LIMIT $1`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	result := make([]OutboxMessage, 0)
-	for rows.Next() {
-		var message OutboxMessage
-		if err = rows.Scan(&message.AttemptID, &message.Kind, &message.TraceID, &message.Attempts, &message.AvailableAt, &message.PublishedAt); err != nil {
-			return nil, err
-		}
-		result = append(result, message)
-	}
-	return result, rows.Err()
-}
-
-func (s *PostgreSQLStore) MarkOutboxPublished(ctx context.Context, attemptID string, at time.Time) error {
-	command, err := s.pool.Exec(ctx, `UPDATE build_outbox SET published_at=COALESCE(published_at,$2) WHERE attempt_id=$1`, attemptID, at.UTC())
-	if err != nil {
-		return classifyPostgres(err)
-	}
-	if command.RowsAffected() != 1 {
-		return ErrNotFound
 	}
 	return nil
 }

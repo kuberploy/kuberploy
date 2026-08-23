@@ -7009,17 +7009,6 @@ CREATE TABLE public.auto_deploy_runs (
 
 
 --
--- Name: bootstrap_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.bootstrap_state (
-    singleton boolean DEFAULT true NOT NULL,
-    consumed_at timestamp with time zone,
-    CONSTRAINT bootstrap_state_singleton_check CHECK (singleton)
-);
-
-
---
 -- Name: build_attempts; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7099,24 +7088,6 @@ CREATE TABLE public.build_definitions (
     CONSTRAINT build_definitions_definition_digest_check CHECK ((definition_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT build_definitions_generation_check CHECK ((generation > 0)),
     CONSTRAINT build_definitions_spec_check CHECK ((jsonb_typeof(spec) = 'object'::text))
-);
-
-
---
--- Name: build_outbox; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.build_outbox (
-    attempt_id uuid NOT NULL,
-    kind text NOT NULL,
-    trace_id text NOT NULL,
-    attempts integer DEFAULT 0 NOT NULL,
-    last_error_code text DEFAULT ''::text NOT NULL,
-    available_at timestamp with time zone DEFAULT now() NOT NULL,
-    published_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT build_outbox_attempts_check CHECK ((attempts >= 0)),
-    CONSTRAINT build_outbox_kind_check CHECK ((kind = 'source-build'::text))
 );
 
 
@@ -10201,14 +10172,6 @@ ALTER TABLE ONLY public.auto_deploy_runs
 
 
 --
--- Name: bootstrap_state bootstrap_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.bootstrap_state
-    ADD CONSTRAINT bootstrap_state_pkey PRIMARY KEY (singleton);
-
-
---
 -- Name: build_attempts build_attempts_delivery_claim_key_definition_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10246,14 +10209,6 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_definitions
     ADD CONSTRAINT build_definitions_pkey PRIMARY KEY (id);
-
-
---
--- Name: build_outbox build_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_outbox
-    ADD CONSTRAINT build_outbox_pkey PRIMARY KEY (attempt_id);
 
 
 --
@@ -11635,13 +11590,6 @@ CREATE UNIQUE INDEX build_definitions_active_git_ssh_ref_idx ON public.build_def
 --
 
 CREATE INDEX build_definitions_push_idx ON public.build_definitions USING btree (installation_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
-
-
---
--- Name: build_outbox_pending_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX build_outbox_pending_idx ON public.build_outbox USING btree (available_at, created_at) WHERE (published_at IS NULL);
 
 
 --
@@ -13641,14 +13589,6 @@ ALTER TABLE ONLY public.build_definitions
 
 
 --
--- Name: build_outbox build_outbox_attempt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_outbox
-    ADD CONSTRAINT build_outbox_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.build_attempts(id) ON DELETE CASCADE;
-
-
---
 -- Name: build_release_projections build_release_projections_attempt_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -15153,8 +15093,3 @@ ALTER TABLE public.helm_application_cascade_absence_receipts ENABLE ROW LEVEL SE
 --
 -- PostgreSQL database dump complete
 --
-
-
-
-
-INSERT INTO public.bootstrap_state (singleton) VALUES (true) ON CONFLICT DO NOTHING;

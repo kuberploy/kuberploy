@@ -39,8 +39,9 @@ receives the handoff.
    is never used as build source.
 4. The authoritative 40-hex commit, monotonically allocated service
    generation, closed `builder.JobPlanRequest`, closed checkout request, and
-   one `build_outbox` record are committed atomically. Uniqueness on delivery
-   plus definition makes replays exactly once; distinct authenticated
+   one durable `build_attempts` row are committed in one transaction.
+   Uniqueness on the delivery plus definition makes replays exactly once;
+   distinct authenticated
    deliveries that resolve to the same definition/ref/commit reuse that exact
    push attempt. Explicit human retries remain separate generations.
 5. `BuildController` leases the attempt and repeats installation/repository

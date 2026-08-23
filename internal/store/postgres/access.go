@@ -246,7 +246,7 @@ func invalidateUsers(ctx context.Context, tx pgx.Tx, userIDs map[string]struct{}
 
 func (s *Store) BootstrapRequired(ctx context.Context) (bool, error) {
 	var required bool
-	err := s.pool.QueryRow(ctx, `SELECT consumed_at IS NULL FROM bootstrap_state WHERE singleton=true`).Scan(&required)
+	err := s.pool.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM users)`).Scan(&required)
 	return required, err
 }
 

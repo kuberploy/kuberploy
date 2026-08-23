@@ -41,9 +41,6 @@ type Store interface {
 	CompleteAttempt(context.Context, string, string, BuildCompletion, time.Time) error
 	RequestCancel(context.Context, string, time.Time) (BuildAttempt, error)
 	CompleteCancellation(context.Context, string, string, time.Time) error
-
-	PendingOutbox(context.Context, int) ([]OutboxMessage, error)
-	MarkOutboxPublished(context.Context, string, time.Time) error
 }
 
 type BuildCompletion struct {

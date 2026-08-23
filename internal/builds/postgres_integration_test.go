@@ -322,21 +322,9 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		!promotable.CompletedAt.Equal(result.CompletedAt) || !promotable.ProjectionCompletedAt.Equal(projectionRetryAt.Add(time.Second)) {
 		t.Fatalf("PostgreSQL promotion projection=%#v err=%v", promotable, err)
 	}
-	outbox, err := store.PendingOutbox(ctx, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, message := range outbox {
-		if message.AttemptID == attempt.ID {
-			found = true
-			if message.TraceID != claimKey {
-				t.Fatalf("trace=%s", message.TraceID)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("outbox missing attempt %s", attempt.ID)
+	var durableAttempts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM build_attempts WHERE id=$1 AND trigger_key=$2`, attempt.ID, claimKey).Scan(&durableAttempts); err != nil || durableAttempts != 1 {
+		t.Fatalf("durable attempts=%d err=%v", durableAttempts, err)
 	}
 
 	// Exercise the same immutable retry and cancellation transitions used by
@@ -532,18 +520,9 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if !modes[RegistryManaged] || !modes[RegistryExternal] {
 		t.Fatalf("registry modes=%v", modes)
 	}
-	externalOutbox, err := store.PendingOutbox(ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	externalMessages := 0
-	for _, message := range externalOutbox {
-		if message.TraceID == externalClaim.ClaimKey {
-			externalMessages++
-		}
-	}
-	if externalMessages != len(externalAttempts) {
-		t.Fatalf("external outbox messages=%d attempts=%d", externalMessages, len(externalAttempts))
+	var externalRows int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM build_attempts WHERE trigger_key=$1`, externalClaim.ClaimKey).Scan(&externalRows); err != nil || externalRows != len(externalAttempts) {
+		t.Fatalf("external attempt rows=%d attempts=%d err=%v", externalRows, len(externalAttempts), err)
 	}
 	if _, err = pool.Exec(ctx, `DELETE FROM github_one_time_claims WHERE kind='github-delivery' AND claim_key=$1`, claimKey); err == nil {
 		t.Fatal("database allowed permanent tombstone deletion")

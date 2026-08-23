@@ -13,7 +13,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 )
 
-func TestWebhookUsesAuthoritativeCommitAndExactlyOnceOutbox(t *testing.T) {
+func TestWebhookUsesAuthoritativeCommitAndExactlyOnceAttempt(t *testing.T) {
 	for _, mode := range []RegistryMode{RegistryManaged, RegistryExternal} {
 		t.Run(string(mode), func(t *testing.T) {
 			store, definition := seedMemory(t, mode)
@@ -48,12 +48,8 @@ func TestWebhookUsesAuthoritativeCommitAndExactlyOnceOutbox(t *testing.T) {
 			if second.State != DeliveryEnqueued || !second.Replay {
 				t.Fatalf("replay=%#v", second)
 			}
-			outbox, err := store.PendingOutbox(context.Background(), 10)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(outbox) != 1 || outbox[0].AttemptID != attempt.ID || outbox[0].TraceID != first.ClaimKey {
-				t.Fatalf("outbox=%#v", outbox)
+			if count := memoryAttemptCount(store); count != 1 {
+				t.Fatalf("attempt count=%d", count)
 			}
 		})
 	}
@@ -80,9 +76,8 @@ func TestWebhookAcceptPersistsReceiptWithoutProviderWork(t *testing.T) {
 	if err != nil || stored.State != DeliveryClaimed || len(stored.TypedEvent) == 0 {
 		t.Fatalf("durable receipt=%#v err=%v", stored, err)
 	}
-	outbox, err := store.PendingOutbox(context.Background(), 10)
-	if err != nil || len(outbox) != 0 {
-		t.Fatalf("HTTP receipt path created work directly: %#v err=%v", outbox, err)
+	if count := memoryAttemptCount(store); count != 0 {
+		t.Fatalf("HTTP receipt path created %d attempts directly", count)
 	}
 	replay, err := service.Accept(context.Background(), http.Header{}, strings.NewReader("ignored"))
 	if err != nil || !replay.Replay || replay.ClaimKey != accepted.ClaimKey || replay.State != DeliveryClaimed {
@@ -157,9 +152,8 @@ func TestTerminalDeliveryPayloadExpiresButPermanentTombstoneReplays(t *testing.T
 	if err != nil || replayed.State != DeliveryEnqueued || !replayed.Replay {
 		t.Fatalf("replayed=%#v err=%v", replayed, err)
 	}
-	outbox, err := store.PendingOutbox(context.Background(), 10)
-	if err != nil || len(outbox) != 1 || outbox[0].AttemptID != first.AttemptIDs[0] {
-		t.Fatalf("outbox=%#v err=%v", outbox, err)
+	if count := memoryAttemptCount(store); count != 1 {
+		t.Fatalf("attempt count=%d", count)
 	}
 }
 
@@ -234,12 +228,8 @@ func TestConcurrentDeliveryCreatesOneAttempt(t *testing.T) {
 			t.Errorf("concurrent handle: %v", err)
 		}
 	}
-	outbox, err := store.PendingOutbox(context.Background(), 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(outbox) != 1 {
-		t.Fatalf("outbox=%#v", outbox)
+	if count := memoryAttemptCount(store); count != 1 {
+		t.Fatalf("attempt count=%d", count)
 	}
 }
 
@@ -261,9 +251,8 @@ func TestDifferentDeliveriesForSameResolvedCommitCoalesce(t *testing.T) {
 	if err != nil || len(second.AttemptIDs) != 1 || second.AttemptIDs[0] != first.AttemptIDs[0] {
 		t.Fatalf("same resolved commit was not coalesced: first=%#v second=%#v err=%v", first, second, err)
 	}
-	outbox, err := store.PendingOutbox(context.Background(), 10)
-	if err != nil || len(outbox) != 1 {
-		t.Fatalf("coalesced outbox=%#v err=%v", outbox, err)
+	if count := memoryAttemptCount(store); count != 1 {
+		t.Fatalf("coalesced attempt count=%d", count)
 	}
 }
 
@@ -282,7 +271,7 @@ func TestDeliveryIDCannotBeReboundToDifferentAuthenticatedBody(t *testing.T) {
 	}
 }
 
-func TestAuthorizationRevokedDuringResolutionCannotReachOutbox(t *testing.T) {
+func TestAuthorizationRevokedDuringResolutionCannotCreateAttempt(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow
 	provider := &fakeProvider{resolvedCommit: strings.Repeat("b", 40), now: clock}
@@ -300,10 +289,15 @@ func TestAuthorizationRevokedDuringResolutionCannotReachOutbox(t *testing.T) {
 	if !errors.Is(err, ErrUnauthorized) || outcome.State != DeliveryFailed {
 		t.Fatalf("outcome=%#v err=%v", outcome, err)
 	}
-	outbox, outboxErr := store.PendingOutbox(context.Background(), 10)
-	if outboxErr != nil || len(outbox) != 0 {
-		t.Fatalf("outbox=%#v err=%v", outbox, outboxErr)
+	if count := memoryAttemptCount(store); count != 0 {
+		t.Fatalf("unauthorized push created %d attempts", count)
 	}
+}
+
+func memoryAttemptCount(store *MemoryStore) int {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return len(store.attempts)
 }
 
 func TestUnknownInstallationIsDurablyPendingAndKeepsTombstone(t *testing.T) {

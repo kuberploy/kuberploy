@@ -53,7 +53,6 @@ type invitationRecord struct {
 
 type Store struct {
 	mu                        sync.Mutex
-	bootstrapUsed             bool
 	users                     map[string]domain.User
 	invitations               map[string]invitationRecord
 	teams                     map[string]domain.Team
@@ -138,12 +137,12 @@ func (s *Store) Close()                     {}
 func (s *Store) BootstrapRequired(context.Context) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.bootstrapUsed, nil
+	return len(s.users) == 0, nil
 }
 func (s *Store) BootstrapAdmin(_ context.Context, u domain.User, passwordHash string, hash []byte, expires time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.bootstrapUsed {
+	if len(s.users) != 0 {
 		return base.ErrBootstrapConsumed
 	}
 	if s.passwordCredentials == nil {
@@ -156,7 +155,6 @@ func (s *Store) BootstrapAdmin(_ context.Context, u domain.User, passwordHash st
 	if _, exists := s.passwordCredentials[email]; exists {
 		return base.ErrConflict
 	}
-	s.bootstrapUsed = true
 	s.users[u.ID] = u
 	s.passwordCredentials[email] = struct{ userID, hash string }{u.ID, passwordHash}
 	grantID := id.New()

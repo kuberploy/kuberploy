@@ -151,16 +151,19 @@ func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHa
 	if strings.TrimSpace(user.Email) == "" || passwordHash == "" {
 		return base.ErrConflict
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var consumed *time.Time
-	if err = tx.QueryRow(ctx, `SELECT consumed_at FROM bootstrap_state WHERE singleton=true FOR UPDATE`).Scan(&consumed); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('kuberploy-bootstrap-admin'))`); err != nil {
 		return err
 	}
-	if consumed != nil {
+	var consumed bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users)`).Scan(&consumed); err != nil {
+		return err
+	}
+	if consumed {
 		return base.ErrBootstrapConsumed
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO users(id,email,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, user.ID, nullableString(user.Email), userDisplayName(user), user.Role, user.Issuer, user.Subject, user.GrantRevision, user.CreatedAt)
@@ -178,10 +181,6 @@ func (s *Store) BootstrapAdmin(ctx context.Context, user domain.User, passwordHa
 	_, err = tx.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,grant_revision,expires_at) VALUES($1,$2,$3,$4)`, sessionHash, user.ID, user.GrantRevision, expires)
 	if err != nil {
 		return classify(err)
-	}
-	_, err = tx.Exec(ctx, `UPDATE bootstrap_state SET consumed_at=now() WHERE singleton=true AND consumed_at IS NULL`)
-	if err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }

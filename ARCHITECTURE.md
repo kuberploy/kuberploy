@@ -314,13 +314,19 @@ columns on `applications`, not a separate selection table. The per-App source
 build generation is also an atomic `applications.build_generation` counter;
 it is not a separate one-row counter table. Workers increment that owner row
 with `UPDATE ... RETURNING`, which preserves concurrent monotonic allocation
-without another schema lifecycle. The permanent
-single-cluster contract likewise has no `cluster_id` column: one singleton
-platform Git binding owns the fixed `platform/` protected root, while
-environment bindings retain their `tenants/<project>/environments/<environment>`
-roots. Adding a table or restoring an installation/cluster identifier requires
-a new durable lifecycle that cannot be represented safely by an existing
-owner, command, revision, receipt or projection.
+without another schema lifecycle. A source-build attempt is itself the durable
+queue item, so workers lease `build_attempts` directly; there is no duplicate
+source-build outbox table. Fresh-install bootstrap state is derived from the
+absence of users under one PostgreSQL transaction-scoped advisory lock; it
+does not need a permanent singleton table.
+
+The permanent single-cluster contract likewise has no `cluster_id` column:
+one singleton platform Git binding owns the fixed `platform/` protected root,
+while environment bindings retain their
+`tenants/<project>/environments/<environment>` roots. Adding a table or
+restoring an installation/cluster identifier requires a new durable lifecycle
+that cannot be represented safely by an existing owner, command, revision,
+receipt or projection.
 
 ## 7. GitOps repository contract
 

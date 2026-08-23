@@ -284,10 +284,6 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO build_outbox(attempt_id,kind,trace_id,available_at,created_at) VALUES($1,'source-build',$2,$3,$3)`, attempt.ID, claimKey, now.UTC())
-	if err != nil {
-		return BuildAttempt{}, false, classifyPostgres(err)
-	}
 	return attempt, false, tx.Commit(ctx)
 }
 
@@ -355,9 +351,6 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 		attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
 		attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
 	if err != nil {
-		return BuildAttempt{}, false, classifyPostgres(err)
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO build_outbox(attempt_id,kind,trace_id,available_at,created_at) VALUES($1,'source-build',$2,$3,$3)`, attempt.ID, claimKey, now.UTC()); err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
 	return attempt, false, tx.Commit(ctx)

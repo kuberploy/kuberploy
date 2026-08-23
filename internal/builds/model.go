@@ -276,15 +276,6 @@ type EnqueuePush struct {
 	ResolvedAt time.Time
 }
 
-type OutboxMessage struct {
-	AttemptID   string
-	Kind        string
-	TraceID     string
-	Attempts    int
-	AvailableAt time.Time
-	PublishedAt *time.Time
-}
-
 func (i Installation) validate() error {
 	if !uuidRE.MatchString(i.ID) || i.AppID <= 0 || i.GitHubInstallationID <= 0 || !validAccount(i.Account) ||
 		(i.RepositorySelection != "all" && i.RepositorySelection != "selected") || i.LastVerifiedAt.IsZero() || i.UpdatedAt.IsZero() {

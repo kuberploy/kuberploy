@@ -191,7 +191,6 @@ func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAtte
 	}
 	s.serviceGeneration[generationKey] = generation
 	s.attempts[attempt.ID] = cloneAttempt(attempt)
-	s.outbox[attempt.ID] = OutboxMessage{AttemptID: attempt.ID, Kind: "source-build", TraceID: claimKey, AvailableAt: now.UTC()}
 	return attempt, false, nil
 }
 
@@ -231,6 +230,5 @@ func (s *MemoryStore) EnqueueManualAttempt(_ context.Context, definitionID, comm
 	}
 	s.serviceGeneration[generationKey] = generation
 	s.attempts[attempt.ID] = cloneAttempt(attempt)
-	s.outbox[attempt.ID] = OutboxMessage{AttemptID: attempt.ID, Kind: "source-build", TraceID: claimKey, AvailableAt: now.UTC()}
 	return attempt, false, nil
 }
