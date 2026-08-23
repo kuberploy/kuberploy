@@ -9,6 +9,14 @@ kp_postgres="kuberploy-prisma-pg-${kp_suffix}"
 kp_delayed_postgres="kuberploy-prisma-delayed-pg-${kp_suffix}"
 kp_waiter="kuberploy-prisma-waiter-${kp_suffix}"
 kp_image="kuberploy-migration:test-${kp_suffix}"
+kp_baseline="${kp_root}/migrations/prisma/migrations/001_initial/migration.sql"
+
+if grep -Fq '\\restrict ' "${kp_baseline}" ||
+  grep -Fq '\\unrestrict ' "${kp_baseline}" ||
+  grep -Fqx "SELECT pg_catalog.set_config('search_path', '', false);" "${kp_baseline}"; then
+  printf 'Prisma baseline contains pg_dump transport directives that break migrate deploy\n' >&2
+  exit 1
+fi
 
 kp_cleanup() {
   docker rm -f "${kp_waiter}" >/dev/null 2>&1 || true

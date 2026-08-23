@@ -111,6 +111,10 @@ make a local fixture pass.
 `migrations/prisma/migrations/001_initial/migration.sql` is the reviewed final
 `0.1.0` baseline. It contains every pre-stable schema increment and therefore
 requires a fresh database when replacing any older release-candidate history.
+Until the first stable release, fold schema corrections into this single
+baseline by applying the current authoritative schema to a fresh PostgreSQL 18
+database and regenerating one schema-only dump. Do not accumulate upgrade
+migrations for disposable release-candidate databases.
 Do not edit this baseline after the first stable release. Every later schema
 change must add the next ordered native SQL migration, exercise the real
 upgrade, review the print-only `npm --prefix migrations run pull` output

@@ -1368,7 +1368,7 @@ $$;
 
 
 --
--- Name: helm_protected_adoption_projection_is_fresh(uuid, uuid, uuid, uuid, uuid, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
+-- Name: helm_protected_adoption_projection_is_fresh(uuid, uuid, uuid, uuid, text, text, text, bigint); Type: FUNCTION; Schema: public; Owner: -
 --
 
 CREATE FUNCTION public.helm_protected_adoption_projection_is_fresh(candidate_platform_binding_id uuid, candidate_environment_binding_id uuid, candidate_project_id uuid, candidate_environment_id uuid, candidate_platform_target_ref text, candidate_environment_target_ref text, candidate_environment_revision text, candidate_environment_generation bigint) RETURNS boolean
@@ -6592,75 +6592,11 @@ CREATE TABLE public.applications (
     registry_pull_updated_by uuid,
     registry_pull_updated_at timestamp with time zone,
     build_generation bigint DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT applications_build_generation_check CHECK ((build_generation >= 0)),
     CONSTRAINT applications_registry_pull_check CHECK ((((registry_pull_mode IS NULL) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NULL) AND (registry_pull_updated_at IS NULL)) OR ((registry_pull_mode = 'public'::text) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)) OR ((registry_pull_mode = 'project-credential'::text) AND (registry_pull_project_credential_id IS NOT NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)))),
     CONSTRAINT applications_registry_pull_mode_check CHECK ((registry_pull_mode = ANY (ARRAY['public'::text, 'project-credential'::text]))),
-    CONSTRAINT applications_registry_pull_update_check CHECK (((registry_pull_updated_at IS NULL) = (registry_pull_updated_by IS NULL))),
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: environment_app_placements; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.environment_app_placements (
-    project_id uuid NOT NULL,
-    environment_id uuid NOT NULL,
-    application_id uuid NOT NULL,
-    state text DEFAULT 'draft'::text NOT NULL,
-    desired_state text DEFAULT 'stopped'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT environment_app_placements_state_check CHECK ((((state = 'draft'::text) AND (desired_state = 'stopped'::text)) OR ((state = 'active'::text) AND (desired_state = 'running'::text))))
-);
-
-
---
--- Name: git_ssh_key_revisions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.git_ssh_key_revisions (
-    id uuid NOT NULL,
-    scope text NOT NULL,
-    owner_id uuid NOT NULL,
-    revision bigint NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    public_key text NOT NULL,
-    fingerprint text NOT NULL,
-    encryption_key_version text NOT NULL,
-    private_key_ciphertext bytea NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    revoked_at timestamp with time zone,
-    CONSTRAINT git_ssh_key_revisions_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text]))),
-    CONSTRAINT git_ssh_key_revisions_revision_check CHECK ((revision > 0)),
-    CONSTRAINT git_ssh_key_revisions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text]))),
-    CONSTRAINT git_ssh_key_revisions_revoked_at_check CHECK ((((status = 'active'::text) AND (revoked_at IS NULL)) OR ((status = 'revoked'::text) AND (revoked_at IS NOT NULL)))),
-    CONSTRAINT git_ssh_key_revisions_public_key_check CHECK (((length(public_key) >= 80) AND (length(public_key) <= 1024) AND (public_key ~ '^ssh-ed25519 [A-Za-z0-9+/=]+$'::text))),
-    CONSTRAINT git_ssh_key_revisions_fingerprint_check CHECK (((length(fingerprint) >= 50) AND (length(fingerprint) <= 80) AND (fingerprint ~ '^SHA256:[A-Za-z0-9+/]+$'::text))),
-    CONSTRAINT git_ssh_key_revisions_key_version_check CHECK (((length(encryption_key_version) >= 1) AND (length(encryption_key_version) <= 64))),
-    CONSTRAINT git_ssh_key_revisions_ciphertext_check CHECK (((octet_length(private_key_ciphertext) >= 32) AND (octet_length(private_key_ciphertext) <= 65536)))
-);
-
-
---
--- Name: git_ssh_key_mutation_receipts; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.git_ssh_key_mutation_receipts (
-    actor_id uuid NOT NULL,
-    idempotency_key text NOT NULL,
-    operation text NOT NULL,
-    request_fingerprint text NOT NULL,
-    scope text NOT NULL,
-    owner_id uuid NOT NULL,
-    key_revision bigint NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT git_ssh_key_mutation_receipts_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 128))),
-    CONSTRAINT git_ssh_key_mutation_receipts_operation_check CHECK ((operation = ANY (ARRAY['create'::text, 'rotate'::text, 'revoke'::text]))),
-    CONSTRAINT git_ssh_key_mutation_receipts_fingerprint_check CHECK ((request_fingerprint ~ '^[0-9a-f]{64}$'::text)),
-    CONSTRAINT git_ssh_key_mutation_receipts_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text]))),
-    CONSTRAINT git_ssh_key_mutation_receipts_revision_check CHECK ((key_revision > 0))
+    CONSTRAINT applications_registry_pull_update_check CHECK (((registry_pull_updated_at IS NULL) = (registry_pull_updated_by IS NULL)))
 );
 
 
@@ -6761,7 +6697,7 @@ CREATE TABLE public.argo_desired_state_commands (
     CONSTRAINT argo_desired_state_commands_chart_name_check CHECK ((chart_name = 'kuberploy-runtime'::text)),
     CONSTRAINT argo_desired_state_commands_chart_repository_check CHECK (((length(chart_repository) >= 7) AND (length(chart_repository) <= 512) AND (chart_repository ~ '^oci://[^/?#@[:space:]]+/[^?#@[:space:]]+$'::text))),
     CONSTRAINT argo_desired_state_commands_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 64) AND (chart_version ~ '^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
-    CONSTRAINT argo_desired_state_commands_check CHECK ((path = ((('platform/argocd/environments/'::text || (environment_id)::text) || '.yaml'::text)))),
+    CONSTRAINT argo_desired_state_commands_check CHECK ((path = (('platform/argocd/environments/'::text || (environment_id)::text) || '.yaml'::text))),
     CONSTRAINT argo_desired_state_commands_check1 CHECK ((((precondition = 'match-etag'::text) AND (expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text)) OR ((precondition = 'create-if-absent'::text) AND (expected_etag = ''::text)))),
     CONSTRAINT argo_desired_state_commands_check2 CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
     CONSTRAINT argo_desired_state_commands_check3 CHECK ((((write_base_revision = ''::text) AND (write_base_observed_at IS NULL)) OR ((write_base_revision <> ''::text) AND (write_base_observed_at IS NOT NULL) AND (write_base_observed_at >= created_at) AND (write_base_observed_at <= updated_at)))),
@@ -7083,10 +7019,10 @@ CREATE TABLE public.build_definitions (
     enabled boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT build_definitions_source_check CHECK ((((source_kind = 'github'::text) AND (installation_id IS NOT NULL) AND (repository_id IS NOT NULL) AND (git_ssh_source IS NULL)) OR ((source_kind = 'git_ssh'::text) AND (installation_id IS NULL) AND (repository_id IS NULL) AND (jsonb_typeof(git_ssh_source) = 'object'::text)))),
-    CONSTRAINT build_definitions_source_kind_check CHECK ((source_kind = ANY (ARRAY['github'::text, 'git_ssh'::text]))),
     CONSTRAINT build_definitions_definition_digest_check CHECK ((definition_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT build_definitions_generation_check CHECK ((generation > 0)),
+    CONSTRAINT build_definitions_source_check CHECK ((((source_kind = 'github'::text) AND (installation_id IS NOT NULL) AND (repository_id IS NOT NULL) AND (git_ssh_source IS NULL)) OR ((source_kind = 'git_ssh'::text) AND (installation_id IS NULL) AND (repository_id IS NULL) AND (jsonb_typeof(git_ssh_source) = 'object'::text)))),
+    CONSTRAINT build_definitions_source_kind_check CHECK ((source_kind = ANY (ARRAY['github'::text, 'git_ssh'::text]))),
     CONSTRAINT build_definitions_spec_check CHECK ((jsonb_typeof(spec) = 'object'::text))
 );
 
@@ -7367,6 +7303,22 @@ CREATE TABLE public.edge_sslip_ingress_observations (
 
 
 --
+-- Name: environment_app_placements; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.environment_app_placements (
+    project_id uuid NOT NULL,
+    environment_id uuid NOT NULL,
+    application_id uuid NOT NULL,
+    state text DEFAULT 'draft'::text NOT NULL,
+    desired_state text DEFAULT 'stopped'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT environment_app_placements_state_check CHECK ((((state = 'draft'::text) AND (desired_state = 'stopped'::text)) OR ((state = 'active'::text) AND (desired_state = 'running'::text))))
+);
+
+
+--
 -- Name: environment_foundation_intents; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -7410,7 +7362,7 @@ CREATE TABLE public.environment_foundation_intents (
     CONSTRAINT environment_foundation_intents_argo_project_check CHECK ((argo_project ~ '^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$'::text)),
     CONSTRAINT environment_foundation_intents_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
     CONSTRAINT environment_foundation_intents_binding_generation_check CHECK ((binding_generation > 0)),
-    CONSTRAINT environment_foundation_intents_check CHECK ((manifest_path = ((('platform/argocd/foundations/'::text || (environment_id)::text) || '.yaml'::text)))),
+    CONSTRAINT environment_foundation_intents_check CHECK ((manifest_path = (('platform/argocd/foundations/'::text || (environment_id)::text) || '.yaml'::text))),
     CONSTRAINT environment_foundation_intents_check1 CHECK ((commit_trailer = ('Kuberploy-Environment-Foundation-Intent: '::text || (id)::text))),
     CONSTRAINT environment_foundation_intents_check2 CHECK (((updated_at >= created_at) AND (next_attempt_at >= created_at))),
     CONSTRAINT environment_foundation_intents_check3 CHECK (((last_failure_code = ''::text) = (consecutive_failures = 0))),
@@ -7771,6 +7723,54 @@ CREATE TABLE public.git_safety_poll_cursors (
 
 
 --
+-- Name: git_ssh_key_mutation_receipts; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.git_ssh_key_mutation_receipts (
+    actor_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    operation text NOT NULL,
+    request_fingerprint text NOT NULL,
+    scope text NOT NULL,
+    owner_id uuid NOT NULL,
+    key_revision bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT git_ssh_key_mutation_receipts_fingerprint_check CHECK ((request_fingerprint ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT git_ssh_key_mutation_receipts_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 128))),
+    CONSTRAINT git_ssh_key_mutation_receipts_operation_check CHECK ((operation = ANY (ARRAY['create'::text, 'rotate'::text, 'revoke'::text]))),
+    CONSTRAINT git_ssh_key_mutation_receipts_revision_check CHECK ((key_revision > 0)),
+    CONSTRAINT git_ssh_key_mutation_receipts_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text])))
+);
+
+
+--
+-- Name: git_ssh_key_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.git_ssh_key_revisions (
+    id uuid NOT NULL,
+    scope text NOT NULL,
+    owner_id uuid NOT NULL,
+    revision bigint NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    public_key text NOT NULL,
+    fingerprint text NOT NULL,
+    encryption_key_version text NOT NULL,
+    private_key_ciphertext bytea NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    CONSTRAINT git_ssh_key_revisions_ciphertext_check CHECK (((octet_length(private_key_ciphertext) >= 32) AND (octet_length(private_key_ciphertext) <= 65536))),
+    CONSTRAINT git_ssh_key_revisions_fingerprint_check CHECK (((length(fingerprint) >= 50) AND (length(fingerprint) <= 80) AND (fingerprint ~ '^SHA256:[A-Za-z0-9+/]+$'::text))),
+    CONSTRAINT git_ssh_key_revisions_key_version_check CHECK (((length(encryption_key_version) >= 1) AND (length(encryption_key_version) <= 64))),
+    CONSTRAINT git_ssh_key_revisions_public_key_check CHECK (((length(public_key) >= 80) AND (length(public_key) <= 1024) AND (public_key ~ '^ssh-ed25519 [A-Za-z0-9+/=]+$'::text))),
+    CONSTRAINT git_ssh_key_revisions_revision_check CHECK ((revision > 0)),
+    CONSTRAINT git_ssh_key_revisions_revoked_at_check CHECK ((((status = 'active'::text) AND (revoked_at IS NULL)) OR ((status = 'revoked'::text) AND (revoked_at IS NOT NULL)))),
+    CONSTRAINT git_ssh_key_revisions_scope_check CHECK ((scope = ANY (ARRAY['app'::text, 'project'::text]))),
+    CONSTRAINT git_ssh_key_revisions_status_check CHECK ((status = ANY (ARRAY['active'::text, 'revoked'::text])))
+);
+
+
+--
 -- Name: git_verified_head_observations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -8070,11 +8070,11 @@ CREATE TABLE public.helm_application_cascade_absence_receipts (
     CONSTRAINT helm_application_cascade_absence_r_platform_binding_state_check CHECK ((platform_binding_state = ANY (ARRAY['ready'::text, 'indexing'::text]))),
     CONSTRAINT helm_application_cascade_absence_r_publisher_worker_epoch_check CHECK ((publisher_worker_epoch > 0)),
     CONSTRAINT helm_application_cascade_absence_re_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT helm_application_cascade_absence_rece_publisher_worker_id_check CHECK ((((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128)) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
+    CONSTRAINT helm_application_cascade_absence_rece_publisher_worker_id_check CHECK (((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
     CONSTRAINT helm_application_cascade_absence_recei_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
     CONSTRAINT helm_application_cascade_absence_recei_release_generation_check CHECK ((release_generation > 1)),
-    CONSTRAINT helm_application_cascade_absence_receipt_application_path_check CHECK ((((length(application_path) >= 1) AND (length(application_path) <= 1024)) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
-    CONSTRAINT helm_application_cascade_absence_receipt_provider_request_check CHECK ((((length(provider_request) >= 1) AND (length(provider_request) <= 256)) AND (provider_request !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_absence_receipt_application_path_check CHECK (((length(application_path) >= 1) AND (length(application_path) <= 1024) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
+    CONSTRAINT helm_application_cascade_absence_receipt_provider_request_check CHECK (((length(provider_request) >= 1) AND (length(provider_request) <= 256) AND (provider_request !~ '[[:cntrl:]]'::text))),
     CONSTRAINT helm_application_cascade_absence_receipts_expected_etag_check CHECK ((expected_etag ~ '^"sha256:[0-9a-f]{64}"$'::text)),
     CONSTRAINT helm_application_cascade_absence_receipts_lease_epoch_check CHECK ((lease_epoch > 0)),
     CONSTRAINT helm_application_cascade_absence_receipts_provider_head_check CHECK ((provider_head ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text))
@@ -8164,7 +8164,7 @@ CREATE TABLE public.helm_application_cascade_observation_jobs (
     CONSTRAINT helm_application_cascade_observation_jobs_check2 CHECK (((lease_owner IS NULL) = (lease_until IS NULL))),
     CONSTRAINT helm_application_cascade_observation_jobs_check3 CHECK (((state = 'superseded'::text) = (superseded_at IS NOT NULL))),
     CONSTRAINT helm_application_cascade_observation_jobs_lease_epoch_check CHECK ((lease_epoch >= 0)),
-    CONSTRAINT helm_application_cascade_observation_jobs_lease_owner_check CHECK (((lease_owner IS NULL) OR (((length(lease_owner) >= 16) AND (length(lease_owner) <= 128)) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
+    CONSTRAINT helm_application_cascade_observation_jobs_lease_owner_check CHECK (((lease_owner IS NULL) OR ((length(lease_owner) >= 16) AND (length(lease_owner) <= 128) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
     CONSTRAINT helm_application_cascade_observation_jobs_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'claimed'::text, 'verified'::text, 'failed'::text, 'superseded'::text]))),
     CONSTRAINT helm_application_cascade_observation_jobs_worker_epoch_check CHECK (((worker_epoch IS NULL) OR (worker_epoch > 0)))
 );
@@ -8196,12 +8196,12 @@ CREATE TABLE public.helm_application_cascade_observer_activations (
     activated_at timestamp with time zone CONSTRAINT helm_application_cascade_observer_activat_activated_at_not_null NOT NULL,
     CONSTRAINT helm_application_cascade_observe_publisher_policy_version_check CHECK ((publisher_policy_version = 'helm-protected-git.v1'::text)),
     CONSTRAINT helm_application_cascade_observer__publisher_worker_epoch_check CHECK ((publisher_worker_epoch > 0)),
-    CONSTRAINT helm_application_cascade_observer_act_publisher_worker_id_check CHECK ((((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128)) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
+    CONSTRAINT helm_application_cascade_observer_act_publisher_worker_id_check CHECK (((length(publisher_worker_id) >= 16) AND (length(publisher_worker_id) <= 128) AND (publisher_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
     CONSTRAINT helm_application_cascade_observer_acti_argo_config_digest_check CHECK ((argo_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_observer_acti_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
     CONSTRAINT helm_application_cascade_observer_activ_argo_worker_epoch_check CHECK ((argo_worker_epoch > 0)),
     CONSTRAINT helm_application_cascade_observer_activa_activation_epoch_check CHECK ((activation_epoch > 0)),
-    CONSTRAINT helm_application_cascade_observer_activati_argo_worker_id_check CHECK ((((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256)) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
+    CONSTRAINT helm_application_cascade_observer_activati_argo_worker_id_check CHECK (((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
     CONSTRAINT helm_application_cascade_observer_activatio_argo_contract_check CHECK ((argo_contract = 'argo-desired-state-runtime-v1'::text)),
     CONSTRAINT helm_application_cascade_observer_activatio_argo_identity_check CHECK (((jsonb_typeof(argo_identity) = 'object'::text) AND (octet_length((argo_identity)::text) <= 8192))),
     CONSTRAINT helm_application_cascade_observer_activations_check CHECK (((publisher_started_at <= publisher_readiness_observed_at) AND (publisher_readiness_observed_at <= activated_at) AND (publisher_readiness_lease_until > activated_at) AND (publisher_readiness_lease_until <= (publisher_readiness_observed_at + '00:05:00'::interval)) AND (publisher_readiness_lease_until <= (activated_at + '00:05:00'::interval)))),
@@ -8278,9 +8278,9 @@ CREATE TABLE public.helm_application_cascade_preflights (
     CONSTRAINT helm_application_cascade_prefligh_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_preflight_adopted_content_digest_check CHECK ((adopted_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_preflight_environment_generation_check CHECK ((environment_generation > 0)),
-    CONSTRAINT helm_application_cascade_preflight_environment_target_ref_check CHECK ((((length(environment_target_ref) >= 1) AND (length(environment_target_ref) <= 255)) AND (environment_target_ref !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_preflight_environment_target_ref_check CHECK (((length(environment_target_ref) >= 1) AND (length(environment_target_ref) <= 255) AND (environment_target_ref !~ '[[:cntrl:]]'::text))),
     CONSTRAINT helm_application_cascade_preflights_adopted_content_check CHECK (((octet_length(adopted_content) >= 1) AND (octet_length(adopted_content) <= 32768))),
-    CONSTRAINT helm_application_cascade_preflights_application_path_check CHECK ((((length(application_path) >= 1) AND (length(application_path) <= 1024)) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
+    CONSTRAINT helm_application_cascade_preflights_application_path_check CHECK (((length(application_path) >= 1) AND (length(application_path) <= 1024) AND (application_path !~ '(^/|/\.\.?(/|$)|//|\\|[[:cntrl:]])'::text))),
     CONSTRAINT helm_application_cascade_preflights_argo_namespace_check CHECK ((argo_namespace ~ '^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$'::text)),
     CONSTRAINT helm_application_cascade_preflights_attempts_check CHECK (((attempts >= 0) AND (attempts <= 30))),
     CONSTRAINT helm_application_cascade_preflights_catalog_digest_check CHECK ((catalog_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
@@ -8298,11 +8298,11 @@ CREATE TABLE public.helm_application_cascade_preflights (
     CONSTRAINT helm_application_cascade_preflights_intent_digest_check CHECK ((intent_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_preflights_last_failure_code_check CHECK (((last_failure_code = ''::text) OR (last_failure_code ~ '^[a-z][a-z0-9.-]{0,62}$'::text))),
     CONSTRAINT helm_application_cascade_preflights_lease_epoch_check CHECK ((lease_epoch >= 0)),
-    CONSTRAINT helm_application_cascade_preflights_lease_owner_check CHECK (((lease_owner IS NULL) OR (((length(lease_owner) >= 16) AND (length(lease_owner) <= 128)) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
+    CONSTRAINT helm_application_cascade_preflights_lease_owner_check CHECK (((lease_owner IS NULL) OR ((length(lease_owner) >= 16) AND (length(lease_owner) <= 128) AND (lease_owner ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))),
     CONSTRAINT helm_application_cascade_preflights_operation_check CHECK ((operation = ANY (ARRAY['observe'::text, 'update'::text]))),
     CONSTRAINT helm_application_cascade_preflights_payload_revision_check CHECK ((payload_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
     CONSTRAINT helm_application_cascade_preflights_planned_base_revision_check CHECK ((planned_base_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
-    CONSTRAINT helm_application_cascade_preflights_platform_target_ref_check CHECK ((((length(platform_target_ref) >= 1) AND (length(platform_target_ref) <= 255)) AND (platform_target_ref !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_preflights_platform_target_ref_check CHECK (((length(platform_target_ref) >= 1) AND (length(platform_target_ref) <= 255) AND (platform_target_ref !~ '[[:cntrl:]]'::text))),
     CONSTRAINT helm_application_cascade_preflights_precondition_check CHECK ((precondition = 'match-etag'::text)),
     CONSTRAINT helm_application_cascade_preflights_prerequisite_epoch_check CHECK ((prerequisite_epoch >= 0)),
     CONSTRAINT helm_application_cascade_preflights_provider_request_check CHECK (((length(provider_request) <= 256) AND (provider_request !~ '[[:cntrl:]]'::text))),
@@ -8373,12 +8373,12 @@ CREATE TABLE public.helm_application_cascade_receipts (
     CONSTRAINT helm_application_cascade_receipts_argo_config_digest_check CHECK ((argo_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_argo_contract_check CHECK ((argo_contract = 'argo-desired-state-runtime-v1'::text)),
     CONSTRAINT helm_application_cascade_receipts_argo_worker_epoch_check CHECK ((argo_worker_epoch > 0)),
-    CONSTRAINT helm_application_cascade_receipts_argo_worker_id_check CHECK ((((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256)) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
+    CONSTRAINT helm_application_cascade_receipts_argo_worker_id_check CHECK (((length(argo_worker_id) >= 1) AND (length(argo_worker_id) <= 256) AND (argo_worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:/+-]{0,255}$'::text))),
     CONSTRAINT helm_application_cascade_receipts_check CHECK ((root_observed_revision = provider_head)),
     CONSTRAINT helm_application_cascade_receipts_check1 CHECK (((argo_started_at <= argo_readiness_observed_at) AND (argo_readiness_observed_at <= observed_at) AND (argo_readiness_lease_until > observed_at) AND (argo_readiness_lease_until <= (argo_readiness_observed_at + '00:05:00'::interval)))),
     CONSTRAINT helm_application_cascade_receipts_child_payload_digest_check CHECK ((child_payload_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_child_payload_revision_check CHECK ((child_payload_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
-    CONSTRAINT helm_application_cascade_receipts_child_resource_version_check CHECK ((((length(child_resource_version) >= 1) AND (length(child_resource_version) <= 128)) AND (child_resource_version !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_receipts_child_resource_version_check CHECK (((length(child_resource_version) >= 1) AND (length(child_resource_version) <= 128) AND (child_resource_version !~ '[[:cntrl:]]'::text))),
     CONSTRAINT helm_application_cascade_receipts_child_spec_digest_check CHECK ((child_spec_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_finalizer_digest_check CHECK ((finalizer_digest = 'sha256:4a33b93a0b2d591421d38cedd7660abbfffcb3fc10be2cbbe9e4d8525ce17f48'::text)),
     CONSTRAINT helm_application_cascade_receipts_observation_epoch_check CHECK ((observation_epoch > 0)),
@@ -8386,12 +8386,12 @@ CREATE TABLE public.helm_application_cascade_receipts (
     CONSTRAINT helm_application_cascade_receipts_provider_head_check CHECK ((provider_head ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'::text)),
     CONSTRAINT helm_application_cascade_receipts_publisher_config_digest_check CHECK ((publisher_config_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_publisher_contract_check CHECK ((publisher_contract = 'helm-protected-publisher.v1'::text)),
-    CONSTRAINT helm_application_cascade_receipts_root_resource_version_check CHECK ((((length(root_resource_version) >= 1) AND (length(root_resource_version) <= 128)) AND (root_resource_version !~ '[[:cntrl:]]'::text))),
+    CONSTRAINT helm_application_cascade_receipts_root_resource_version_check CHECK (((length(root_resource_version) >= 1) AND (length(root_resource_version) <= 128) AND (root_resource_version !~ '[[:cntrl:]]'::text))),
     CONSTRAINT helm_application_cascade_receipts_root_spec_digest_check CHECK ((root_spec_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_root_sync_status_check CHECK ((root_sync_status = 'Synced'::text)),
     CONSTRAINT helm_application_cascade_receipts_source_content_digest_check CHECK ((source_content_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_application_cascade_receipts_worker_epoch_check CHECK ((worker_epoch > 0)),
-    CONSTRAINT helm_application_cascade_receipts_worker_id_check CHECK ((((length(worker_id) >= 16) AND (length(worker_id) <= 128)) AND (worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))
+    CONSTRAINT helm_application_cascade_receipts_worker_id_check CHECK (((length(worker_id) >= 16) AND (length(worker_id) <= 128) AND (worker_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text)))
 );
 
 
@@ -8489,8 +8489,8 @@ CREATE TABLE public.helm_chart_approvals (
     created_by uuid NOT NULL,
     idempotency_key text NOT NULL,
     created_at timestamp with time zone NOT NULL,
-    CONSTRAINT helm_chart_approvals_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 128) AND (chart_version ~ '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
     CONSTRAINT helm_chart_approvals_chart_name_check CHECK (((length(chart_name) >= 1) AND (length(chart_name) <= 253) AND (chart_name ~ '^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$'::text))),
+    CONSTRAINT helm_chart_approvals_chart_version_check CHECK (((length(chart_version) >= 5) AND (length(chart_version) <= 128) AND (chart_version ~ '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$'::text))),
     CONSTRAINT helm_chart_approvals_idempotency_key_check CHECK (((length(idempotency_key) >= 16) AND (length(idempotency_key) <= 128) AND (idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$'::text))),
     CONSTRAINT helm_chart_approvals_identity_digest_check CHECK ((identity_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT helm_chart_approvals_manifest_digest_check CHECK ((manifest_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
@@ -8500,7 +8500,7 @@ CREATE TABLE public.helm_chart_approvals (
     CONSTRAINT helm_chart_approvals_renderer_image_check CHECK ((renderer_image = 'docker.io/alpine/helm:4.2.3'::text)),
     CONSTRAINT helm_chart_approvals_renderer_version_check CHECK ((renderer_version = '4.2.3'::text)),
     CONSTRAINT helm_chart_approvals_revision_check CHECK ((revision > 0)),
-    CONSTRAINT helm_chart_approvals_source_check CHECK ((source_kind = ANY (ARRAY['oci'::text, 'helm-repository'::text, 'git'::text]) AND jsonb_typeof(source_json) = 'object'::text AND octet_length(source_json::text) <= 8192)),
+    CONSTRAINT helm_chart_approvals_source_check CHECK (((source_kind = ANY (ARRAY['oci'::text, 'helm-repository'::text, 'git'::text])) AND (jsonb_typeof(source_json) = 'object'::text) AND (octet_length((source_json)::text) <= 8192))),
     CONSTRAINT helm_chart_approvals_values_schema_digest_check CHECK ((values_schema_digest ~ '^sha256:[0-9a-f]{64}$'::text))
 );
 
@@ -10020,46 +10020,6 @@ ALTER TABLE ONLY public.applications
 
 
 --
--- Name: environment_app_placements environment_app_placements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.environment_app_placements
-    ADD CONSTRAINT environment_app_placements_pkey PRIMARY KEY (environment_id, application_id);
-
-
---
--- Name: git_ssh_key_revisions git_ssh_key_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_revisions
-    ADD CONSTRAINT git_ssh_key_revisions_pkey PRIMARY KEY (id);
-
-
---
--- Name: git_ssh_key_revisions git_ssh_key_revisions_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_revisions
-    ADD CONSTRAINT git_ssh_key_revisions_fingerprint_key UNIQUE (fingerprint);
-
-
---
--- Name: git_ssh_key_revisions git_ssh_key_revisions_scope_owner_id_revision_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_revisions
-    ADD CONSTRAINT git_ssh_key_revisions_scope_owner_id_revision_key UNIQUE (scope, owner_id, revision);
-
-
---
--- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
-    ADD CONSTRAINT git_ssh_key_mutation_receipts_pkey PRIMARY KEY (actor_id, idempotency_key);
-
-
---
 -- Name: argo_application_observations argo_application_observations_application_environment_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10180,14 +10140,6 @@ ALTER TABLE ONLY public.build_attempts
 
 
 --
--- Name: build_attempts build_attempts_trigger_kind_trigger_key_definition_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_attempts
-    ADD CONSTRAINT build_attempts_trigger_kind_trigger_key_definition_id_key UNIQUE (trigger_kind, trigger_key, definition_id);
-
-
---
 -- Name: build_attempts build_attempts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -10201,6 +10153,14 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_attempts
     ADD CONSTRAINT build_attempts_project_id_service_id_generation_key UNIQUE (project_id, service_id, generation);
+
+
+--
+-- Name: build_attempts build_attempts_trigger_kind_trigger_key_definition_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.build_attempts
+    ADD CONSTRAINT build_attempts_trigger_kind_trigger_key_definition_id_key UNIQUE (trigger_kind, trigger_key, definition_id);
 
 
 --
@@ -10329,6 +10289,14 @@ ALTER TABLE ONLY public.edge_runtime_targets
 
 ALTER TABLE ONLY public.edge_sslip_ingress_observations
     ADD CONSTRAINT edge_sslip_ingress_observations_pkey PRIMARY KEY (target_key, profile_revision);
+
+
+--
+-- Name: environment_app_placements environment_app_placements_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_pkey PRIMARY KEY (environment_id, application_id);
 
 
 --
@@ -10529,6 +10497,38 @@ ALTER TABLE ONLY public.git_repository_bindings
 
 ALTER TABLE ONLY public.git_safety_poll_cursors
     ADD CONSTRAINT git_safety_poll_cursors_pkey PRIMARY KEY (binding_id);
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_pkey PRIMARY KEY (actor_id, idempotency_key);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_fingerprint_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_fingerprint_key UNIQUE (fingerprint);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: git_ssh_key_revisions git_ssh_key_revisions_scope_owner_id_revision_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_revisions
+    ADD CONSTRAINT git_ssh_key_revisions_scope_owner_id_revision_key UNIQUE (scope, owner_id, revision);
 
 
 --
@@ -11572,17 +11572,17 @@ CREATE INDEX build_attempts_work_idx ON public.build_attempts USING btree (state
 
 
 --
--- Name: build_definitions_active_ref_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
-
-
---
 -- Name: build_definitions_active_git_ssh_ref_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX build_definitions_active_git_ssh_ref_idx ON public.build_definitions USING btree (project_id, service_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'git_ssh'::text));
+
+
+--
+-- Name: build_definitions_active_ref_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
 
 
 --
@@ -11635,34 +11635,6 @@ CREATE UNIQUE INDEX deployments_environment_application_unique ON public.deploym
 
 
 --
--- Name: environment_app_placements_project_application_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX environment_app_placements_project_application_idx ON public.environment_app_placements USING btree (project_id, application_id);
-
-
---
--- Name: git_ssh_key_revisions_active_key; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX git_ssh_key_revisions_active_key ON public.git_ssh_key_revisions USING btree (scope, owner_id) WHERE (status = 'active'::text);
-
-
---
--- Name: git_ssh_key_revisions_owner_history_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX git_ssh_key_revisions_owner_history_idx ON public.git_ssh_key_revisions USING btree (scope, owner_id, revision DESC);
-
-
---
--- Name: git_ssh_key_mutation_receipts_revision_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX git_ssh_key_mutation_receipts_revision_idx ON public.git_ssh_key_mutation_receipts USING btree (scope, owner_id, key_revision);
-
-
---
 -- Name: edge_runtime_targets_active_key_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -11688,6 +11660,13 @@ CREATE INDEX edge_runtime_targets_readiness_idx ON public.edge_runtime_targets U
 --
 
 CREATE INDEX edge_sslip_ingress_fresh_idx ON public.edge_sslip_ingress_observations USING btree (runtime_config_digest, observed_at DESC);
+
+
+--
+-- Name: environment_app_placements_project_application_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX environment_app_placements_project_application_idx ON public.environment_app_placements USING btree (project_id, application_id);
 
 
 --
@@ -11786,6 +11765,27 @@ CREATE INDEX git_safety_poll_due_idx ON public.git_safety_poll_cursors USING btr
 --
 
 CREATE INDEX git_safety_poll_reconcile_due_idx ON public.git_safety_poll_cursors USING btree (lease_until, next_poll_at, binding_id);
+
+
+--
+-- Name: git_ssh_key_mutation_receipts_revision_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX git_ssh_key_mutation_receipts_revision_idx ON public.git_ssh_key_mutation_receipts USING btree (scope, owner_id, key_revision);
+
+
+--
+-- Name: git_ssh_key_revisions_active_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX git_ssh_key_revisions_active_key ON public.git_ssh_key_revisions USING btree (scope, owner_id) WHERE (status = 'active'::text);
+
+
+--
+-- Name: git_ssh_key_revisions_owner_history_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX git_ssh_key_revisions_owner_history_idx ON public.git_ssh_key_revisions USING btree (scope, owner_id, revision DESC);
 
 
 --
@@ -13101,6 +13101,14 @@ ALTER TABLE ONLY public.access_grants
 
 
 --
+-- Name: applications applications_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
+
+
+--
 -- Name: applications applications_registry_pull_project_credential_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -13114,46 +13122,6 @@ ALTER TABLE ONLY public.applications
 
 ALTER TABLE ONLY public.applications
     ADD CONSTRAINT applications_registry_pull_updated_by_fkey FOREIGN KEY (registry_pull_updated_by) REFERENCES public.users(id) ON DELETE RESTRICT;
-
-
---
--- Name: applications applications_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.applications
-    ADD CONSTRAINT applications_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
-
-
---
--- Name: environment_app_placements environment_app_placements_application_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.environment_app_placements
-    ADD CONSTRAINT environment_app_placements_application_id_project_id_fkey FOREIGN KEY (application_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE CASCADE;
-
-
---
--- Name: environment_app_placements environment_app_placements_environment_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.environment_app_placements
-    ADD CONSTRAINT environment_app_placements_environment_id_project_id_fkey FOREIGN KEY (environment_id, project_id) REFERENCES public.environments(id, project_id) ON DELETE CASCADE;
-
-
---
--- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
-    ADD CONSTRAINT git_ssh_key_mutation_receipts_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-
---
--- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_key_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
-    ADD CONSTRAINT git_ssh_key_mutation_receipts_key_revision_fkey FOREIGN KEY (scope, owner_id, key_revision) REFERENCES public.git_ssh_key_revisions(scope, owner_id, revision) ON DELETE RESTRICT;
 
 
 --
@@ -13741,7 +13709,23 @@ ALTER TABLE ONLY public.edge_sslip_ingress_observations
 
 
 --
--- Name: environment_foundation_intents environment_foundation_intent_platform_binding_id_cluster__fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: environment_app_placements environment_app_placements_application_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_application_id_project_id_fkey FOREIGN KEY (application_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE CASCADE;
+
+
+--
+-- Name: environment_app_placements environment_app_placements_environment_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.environment_app_placements
+    ADD CONSTRAINT environment_app_placements_environment_id_project_id_fkey FOREIGN KEY (environment_id, project_id) REFERENCES public.environments(id, project_id) ON DELETE CASCADE;
+
+
+--
+-- Name: environment_foundation_intents environment_foundation_intent_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.environment_foundation_intents
@@ -13882,6 +13866,22 @@ ALTER TABLE ONLY public.git_repository_bindings
 
 ALTER TABLE ONLY public.git_safety_poll_cursors
     ADD CONSTRAINT git_safety_poll_cursors_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: git_ssh_key_mutation_receipts git_ssh_key_mutation_receipts_key_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
+    ADD CONSTRAINT git_ssh_key_mutation_receipts_key_revision_fkey FOREIGN KEY (scope, owner_id, key_revision) REFERENCES public.git_ssh_key_revisions(scope, owner_id, revision) ON DELETE RESTRICT;
 
 
 --
@@ -14213,14 +14213,6 @@ ALTER TABLE ONLY public.helm_protected_application_intents
 
 
 --
--- Name: helm_protected_application_intents helm_protected_application_in_platform_binding_id_cluster__fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.helm_protected_application_intents
-    ADD CONSTRAINT helm_protected_application_intent_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
-
-
---
 -- Name: helm_protected_application_intents helm_protected_application_in_platform_binding_id_platform_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -14234,6 +14226,14 @@ ALTER TABLE ONLY public.helm_protected_application_intents
 
 ALTER TABLE ONLY public.helm_protected_application_intents
     ADD CONSTRAINT helm_protected_application_in_release_revision_id_project__fkey FOREIGN KEY (release_revision_id, project_id, environment_id, application_id, release_generation) REFERENCES public.helm_release_revisions(id, project_id, environment_id, application_id, generation) ON DELETE RESTRICT;
+
+
+--
+-- Name: helm_protected_application_intents helm_protected_application_intent_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.helm_protected_application_intents
+    ADD CONSTRAINT helm_protected_application_intent_platform_binding_id_fkey FOREIGN KEY (platform_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
 
 
 --
@@ -14269,7 +14269,7 @@ ALTER TABLE ONLY public.helm_protected_payload_intents
 
 
 --
--- Name: helm_protected_payload_intents helm_protected_payload_intent_platform_binding_id_cluster__fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+-- Name: helm_protected_payload_intents helm_protected_payload_intent_platform_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.helm_protected_payload_intents

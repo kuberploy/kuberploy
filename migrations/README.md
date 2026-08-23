@@ -29,6 +29,11 @@ For a schema change:
 `001_initial` is the reviewed final `0.1.0` baseline. It includes every
 release-candidate schema correction and therefore intentionally requires a
 fresh database for installations created from an older RC migration history.
+While `0.1.0` remains pre-stable, regenerate this one schema-only PostgreSQL 18
+baseline from the current authoritative schema instead of adding incremental
+release-candidate migrations. Remove `pg_dump`'s psql-only `\\restrict` /
+`\\unrestrict` transport lines and its empty `search_path` session directive;
+Prisma executes migration SQL directly and owns `_prisma_migrations`.
 After `0.1.0` is stable, this checksum and history are immutable and every
 schema change must use a new ordered migration.
 
