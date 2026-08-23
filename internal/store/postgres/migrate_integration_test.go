@@ -74,7 +74,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 110)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 109)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
 		WHERE n.nspname='public'`, 110)
@@ -145,7 +145,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		contract_version,config_digest,identity,observation,started_at,observed_at,lease_until,updated_at)
 		VALUES('source-build','global',$1,1,'source-build.v1',$2,
 		jsonb_build_object('githubAppId',1,'builderNamespace','builds','builderAgentImage',$3::text),
-		'{}'::jsonb,$4,$4,$4::timestamptz+interval '1 minute',$4)`, workerID, "sha256:"+strings.Repeat("1", 64),
+		jsonb_build_object('builderCapacityReady',true),$4,$4,$4::timestamptz+interval '1 minute',$4)`, workerID, "sha256:"+strings.Repeat("1", 64),
 		"registry.example/kuberploy-build-agent@sha256:"+strings.Repeat("2", 64), now); err != nil {
 		t.Fatal(err)
 	}
