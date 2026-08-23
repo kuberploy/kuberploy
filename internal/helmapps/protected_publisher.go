@@ -585,10 +585,14 @@ func (p *ProtectedGitPublisher) processClaim(guard *protectedPublicationLeaseGua
 		verified.ObservedAt.After(guard.NotBefore(p.now())) {
 		return gitprojection.ErrProviderMismatch
 	}
-	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
-	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, verifyAt); err != nil {
+	refreshAt := guard.NotBefore(p.now(), verified.ObservedAt)
+	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, refreshAt); err != nil {
 		return err
 	}
+	// Root reconciliation can outlive a publication heartbeat. Re-read the
+	// guard's monotonic floor after the refresh so the terminal receipt cannot
+	// regress updated_at behind a heartbeat that renewed this same lease.
+	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, revision, mutation.ContentSHA256, verified.ProviderRequest,
 			verifyAt)
@@ -636,10 +640,11 @@ func (p *ProtectedGitPublisher) recoverFoundClaim(guard *protectedPublicationLea
 		verified.ObservedAt.After(guard.NotBefore(p.now())) {
 		return gitprojection.ErrProviderMismatch
 	}
-	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
-	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, verifyAt); err != nil {
+	refreshAt := guard.NotBefore(p.now(), verified.ObservedAt)
+	if err = p.refreshProtectedRoot(guard.Context(), binding, verified, mutation, refreshAt); err != nil {
 		return err
 	}
+	verifyAt := guard.NotBefore(p.now(), verified.ObservedAt)
 	return guard.Finish(func(current ProtectedIntentLease) error {
 		return work.verify(current, found, mutation.ContentSHA256, verified.ProviderRequest,
 			verifyAt)

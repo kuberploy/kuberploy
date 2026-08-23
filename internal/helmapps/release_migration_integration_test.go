@@ -950,13 +950,22 @@ func TestPostgresProtectedPublicationStoreLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	applicationLease, err = store.HeartbeatApplication(ctx, applicationLease,
+		applicationWorkAt.Add(4*time.Second), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.RebindApplicationWriteBase(ctx, applicationLease, applicationRebind,
-		strings.Repeat("f", 40), applicationWorkAt.Add(4*time.Second),
-		applicationWorkAt.Add(4*time.Second)); !errors.Is(err, ErrConflict) {
+		strings.Repeat("f", 40), applicationWorkAt.Add(5*time.Second),
+		applicationWorkAt.Add(5*time.Second)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("committed application write base was mutable: %v", err)
 	}
+	if _, err = store.VerifyApplication(ctx, applicationLease, applicationCommit,
+		application.ContentDigest, "provider-application-stale", applicationWorkAt.Add(3*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("pre-heartbeat application timestamp was accepted: %v", err)
+	}
 	application, err = store.VerifyApplication(ctx, applicationLease, applicationCommit,
-		application.ContentDigest, "provider-application-verified", applicationWorkAt.Add(3*time.Second))
+		application.ContentDigest, "provider-application-verified", applicationWorkAt.Add(5*time.Second))
 	if err != nil || application.State != ProtectedVerified {
 		t.Fatalf("verified application=%+v err=%v", application, err)
 	}

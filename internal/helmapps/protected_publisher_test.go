@@ -31,6 +31,7 @@ type protectedPublisherStoreStub struct {
 	payloadAdoptions int
 	appAdoptions     int
 	payloadHeartbeat chan time.Time
+	appHeartbeat     chan time.Time
 }
 
 func (s *protectedPublisherStoreStub) ActivateCascadeObserver(context.Context, string, int64,
@@ -211,6 +212,12 @@ func (s *protectedPublisherStoreStub) HeartbeatApplication(_ context.Context, le
 	}
 	until := now.Add(duration)
 	s.application.LeaseUntil, s.application.UpdatedAt = &until, now
+	if s.appHeartbeat != nil {
+		select {
+		case s.appHeartbeat <- now:
+		default:
+		}
+	}
 	return applicationLease(s.application), nil
 }
 
@@ -317,7 +324,8 @@ func (s *protectedPublisherStoreStub) VerifyPayload(_ context.Context, lease Pro
 
 func (s *protectedPublisherStoreStub) VerifyApplication(_ context.Context, lease ProtectedIntentLease,
 	revision, digest, request string, now time.Time) (ProtectedApplicationIntent, error) {
-	if !activeApplicationLease(s.application, lease, now) || s.application.CommittedRevision != revision || digest != s.application.ContentDigest {
+	if !activeApplicationLease(s.application, lease, now) || now.Before(s.application.UpdatedAt) ||
+		s.application.CommittedRevision != revision || digest != s.application.ContentDigest {
 		return ProtectedApplicationIntent{}, ErrLeaseLost
 	}
 	s.application.State, s.application.VerifiedPathDigest, s.application.ProviderRequest = ProtectedVerified, digest, request
@@ -486,8 +494,9 @@ func (f protectedHeadVerifierFunc) VerifyTargetHead(ctx context.Context, binding
 }
 
 type protectedRootRefresherStub struct {
-	calls int
-	err   error
+	calls        int
+	err          error
+	beforeReturn func()
 }
 
 func (s *protectedRootRefresherStub) Validate() error {
@@ -503,6 +512,9 @@ func (s *protectedRootRefresherStub) RefreshProtectedRoot(_ context.Context,
 		return ErrInvalid
 	}
 	s.calls++
+	if s.beforeReturn != nil {
+		s.beforeReturn()
+	}
 	return s.err
 }
 
@@ -578,6 +590,52 @@ func TestProtectedGitPublisherRequiresRootRefreshBeforeApplicationVerification(t
 	if err != nil || verified.State != ProtectedVerified || verified.CommittedRevision != committed ||
 		fixture.refresher.calls != 2 {
 		t.Fatalf("verified=%#v refreshes=%d err=%v", verified, fixture.refresher.calls, err)
+	}
+}
+
+func TestProtectedGitPublisherVerifiesAfterRefreshHeartbeat(t *testing.T) {
+	fixture := newProtectedPublisherFixture(t)
+	payload, err := fixture.worker(t).ProcessPayloadOne(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.store.application = fixture.pendingApplication(payload,
+		[]byte("apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: exact\n"),
+		ProtectedApplicationPublish, "create-if-absent", "")
+
+	var clockMu sync.Mutex
+	clockNow := fixture.now
+	now := func() time.Time {
+		clockMu.Lock()
+		defer clockMu.Unlock()
+		return clockNow
+	}
+	fixture.store.appHeartbeat = make(chan time.Time, 1)
+	fixture.refresher.beforeReturn = func() {
+		clockMu.Lock()
+		target := fixture.now.Add(30 * time.Second)
+		clockNow = target
+		clockMu.Unlock()
+		timeout := time.NewTimer(time.Second)
+		defer timeout.Stop()
+		for {
+			select {
+			case heartbeatAt := <-fixture.store.appHeartbeat:
+				if !heartbeatAt.Before(target) {
+					return
+				}
+			case <-timeout.C:
+				t.Fatal("application refresh did not outlive a heartbeat")
+			}
+		}
+	}
+	worker := fixture.worker(t)
+	worker.Now = now
+	worker.HeartbeatInterval = 5 * time.Millisecond
+	application, err := worker.ProcessApplicationOne(t.Context())
+	if err != nil || application.State != ProtectedVerified || application.VerifiedAt == nil ||
+		application.VerifiedAt.Before(clockNow) {
+		t.Fatalf("application=%#v clock=%s err=%v", application, clockNow, err)
 	}
 }
 
