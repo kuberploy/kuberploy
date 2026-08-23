@@ -200,7 +200,8 @@ describe("Git SSH source key scope", () => {
         application={application}
         project={project}
         enabled
-        buildEnabled
+        buildConfigured
+        buildReady
         canManageBuilds
         registryTargets={[
           {
@@ -251,5 +252,36 @@ describe("Git SSH source key scope", () => {
         expect.any(String),
       ),
     );
+  });
+
+  it("keeps repository binding editable while build execution is unavailable", async () => {
+    vi.mocked(api.applicationGitSSHKeys).mockResolvedValue({
+      items: [
+        {
+          scope: "app",
+          ownerId: application.id,
+          revision: 1,
+          status: "active",
+          publicKey: "ssh-ed25519 AAAATEST",
+          fingerprint: "SHA256:test",
+        },
+      ],
+    });
+
+    render(
+      <GitSSHSourcePanel
+        application={application}
+        project={project}
+        enabled
+        buildConfigured
+        buildReady={false}
+        canManageBuilds
+      />,
+      { wrapper: wrapper() },
+    );
+
+    expect(await screen.findByLabelText(/^Repository URL/)).toBeVisible();
+    expect(screen.getByText("Builder runtime unavailable")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Build commit" })).toBeNull();
   });
 });

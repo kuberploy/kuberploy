@@ -166,8 +166,8 @@ describe("source-build workspace", () => {
     expect(await screen.findByText("Immutable history")).toBeInTheDocument();
     expect(screen.getByText("Attempt history")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Create immutable definition" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "Create immutable definition" }),
+    ).toBeInTheDocument();
     expect(api.buildDefinitions).toHaveBeenCalledWith("application-safe");
     expect(api.buildAttempts).toHaveBeenCalledWith("application-safe", 50);
   });

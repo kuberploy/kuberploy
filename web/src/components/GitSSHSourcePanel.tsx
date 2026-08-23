@@ -25,14 +25,16 @@ export function GitSSHSourcePanel({
   application,
   project,
   enabled,
-  buildEnabled = false,
+  buildConfigured = false,
+  buildReady = false,
   canManageBuilds = false,
   registryTargets = [],
 }: {
   application: Application;
   project: Project;
   enabled: boolean;
-  buildEnabled?: boolean;
+  buildConfigured?: boolean;
+  buildReady?: boolean;
   canManageBuilds?: boolean;
   registryTargets?: RegistryTarget[];
 }) {
@@ -74,7 +76,7 @@ export function GitSSHSourcePanel({
   const definitions = useQuery({
     queryKey: ["build-definitions", application.id],
     queryFn: () => api.buildDefinitions(application.id),
-    enabled,
+    enabled: enabled && buildConfigured,
     retry: false,
   });
   const activeDefinition = useMemo(
@@ -313,7 +315,7 @@ export function GitSSHSourcePanel({
           title="Git SSH key operation failed"
         />
       ) : null}
-      {activeKey && buildEnabled && canManageBuilds ? (
+      {activeKey && buildConfigured && canManageBuilds ? (
         <section className="service-settings-section">
           <div className="service-settings-section__header">
             <div>
@@ -387,7 +389,18 @@ export function GitSSHSourcePanel({
           </Button>
         </section>
       ) : null}
-      {activeDefinition && buildEnabled && canManageBuilds ? (
+      {buildConfigured && !buildReady ? (
+        <div className="notice notice--warning">
+          <div>
+            <strong>Builder runtime unavailable</strong>
+            <p>
+              Deploy keys and repository bindings remain editable. Manual build
+              execution resumes when builder capacity reports Ready.
+            </p>
+          </div>
+        </div>
+      ) : null}
+      {activeDefinition && buildReady && canManageBuilds ? (
         <section className="service-settings-section">
           <div>
             <span className="eyebrow">Manual build</span>

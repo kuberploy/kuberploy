@@ -203,7 +203,6 @@ export function SourceBuildsPage() {
     selectedApplication &&
     selectedProject &&
     humanSession &&
-    builderEnabled &&
     hasBuildApplicationCapability(
       effectiveCapabilities,
       "build-definitions:write",
@@ -279,10 +278,9 @@ export function SourceBuildsPage() {
               <div>
                 <strong>Builder runtime unavailable</strong>
                 <p>
-                  Existing metadata remains readable, but new definition and
-                  attempt commands stay hidden until a matching worker and a
-                  Ready dedicated node labeled and tainted for DinD are
-                  available.
+                  Source configuration remains editable. Build execution resumes
+                  after a matching worker and a Ready dedicated node labeled and
+                  tainted for DinD are available.
                 </p>
               </div>
             </div>
@@ -361,16 +359,14 @@ export function SourceBuildsPage() {
                     label={canCreateDefinition ? "Writable" : "Read only"}
                   />
                 </div>
-                {builderEnabled ? (
-                  <BuildDefinitionForm
-                    key={selectedApplication.id}
-                    application={selectedApplication}
-                    project={selectedProject}
-                    capabilities={effectiveCapabilities}
-                    humanSession={humanSession}
-                    registryTargets={registryTargets}
-                  />
-                ) : null}
+                <BuildDefinitionForm
+                  key={selectedApplication.id}
+                  application={selectedApplication}
+                  project={selectedProject}
+                  capabilities={effectiveCapabilities}
+                  humanSession={humanSession}
+                  registryTargets={registryTargets}
+                />
               </Card>
 
               <Card className="source-build-card">

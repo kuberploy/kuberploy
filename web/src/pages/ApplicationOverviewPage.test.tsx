@@ -140,6 +140,37 @@ describe("application source overview", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps GitHub source configuration editable while builder capacity is unavailable", async () => {
+    routeSearch.tab = "source";
+    routeSearch.source = "github";
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        builds: false,
+        builder: false,
+        githubAppSetup: true,
+      },
+      featureStates: { builds: "unavailable", builder: "unavailable" },
+      capabilities: [
+        {
+          scopeType: "application",
+          scopeId: "application-1",
+          actions: ["build-definitions:read", "build-definitions:write"],
+        },
+      ],
+    });
+
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(
+      await screen.findByText("Builder runtime unavailable"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("combobox", { name: "GitHub installation" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Source builds are disabled")).toBeNull();
+    expect(api.buildDefinitions).toHaveBeenCalledWith("application-1");
+  });
+
   it("clears Helm environment selection when environment access disappears", async () => {
     const user = userEvent.setup();
     const { client, Wrapper } = wrapper();

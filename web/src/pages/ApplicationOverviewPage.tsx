@@ -68,6 +68,15 @@ export function ApplicationOverviewPage() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const humanSession = me.data?.authentication?.kind === "session";
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
+  const features = capabilities.data?.features;
+  const featureStates = capabilities.data?.featureStates;
+  const buildsConfigured = featureStates?.builds
+    ? featureStates.builds !== "disabled"
+    : features?.builds === true;
+  const buildsReady = features?.builds === true && features?.builder === true;
+  const gitSSHBuildsConfigured = featureStates?.gitSSHBuilds
+    ? featureStates.gitSSHBuilds !== "disabled"
+    : features?.gitSSHBuilds === true;
   const project = projects.data?.items.find(
     (item) => item.id === application.data?.projectId,
   );
@@ -105,8 +114,7 @@ export function ApplicationOverviewPage() {
   const buildDefinitions = useQuery({
     queryKey: ["build-definitions", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
-    enabled:
-      capabilities.data?.features?.builds === true && canReadBuildDefinitions,
+    enabled: buildsConfigured && canReadBuildDefinitions,
     retry: false,
   });
   const registry = useQuery({
@@ -188,7 +196,6 @@ export function ApplicationOverviewPage() {
     deployments.data?.items.filter(
       (item) => item.applicationId === applicationId,
     ) ?? [];
-  const features = capabilities.data?.features;
   const activeBuildDefinition = useMemo(
     () =>
       (buildDefinitions.data?.items ?? [])
@@ -448,14 +455,26 @@ export function ApplicationOverviewPage() {
       {tab === "source" && source === "build" ? (
         <div className="page-stack">
           <Card className="service-settings-card">
-            {features?.builds !== true || features?.builder !== true ? (
+            {!buildsConfigured ? (
               <EmptyState
                 icon="git"
-                title="Source builds are not ready"
-                description="Both the Source Builds API and the cluster builder must report ready before a build definition can be created."
+                title="Source builds are disabled"
+                description="The installation must configure the Source Builds API before a build definition can be created."
               />
             ) : (
               <>
+                {!buildsReady ? (
+                  <div className="notice notice--warning">
+                    <div>
+                      <strong>Builder runtime unavailable</strong>
+                      <p>
+                        Source configuration remains editable. Build execution
+                        resumes after a matching worker and dedicated builder
+                        node report Ready.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
                 {activeBuildDefinition ? (
                   <div className="notice notice--info">
                     <div>
@@ -528,7 +547,8 @@ export function ApplicationOverviewPage() {
             application={application.data}
             project={project}
             enabled={features?.gitSSH === true}
-            buildEnabled={features?.gitSSHBuilds === true}
+            buildConfigured={gitSSHBuildsConfigured}
+            buildReady={features?.gitSSHBuilds === true}
             canManageBuilds={Boolean(
               humanSession &&
               hasBuildApplicationCapability(
