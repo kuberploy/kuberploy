@@ -62,6 +62,7 @@ beforeEach(() => {
     features: {
       builds: true,
       builder: true,
+      githubAppSetup: true,
       gitSSH: true,
       gitSSHBuilds: true,
       helmDeployments: true,
@@ -226,6 +227,36 @@ describe("Add App source flow", () => {
     expect(screen.getByRole("radio", { name: /GitHub App/ })).toBeDisabled();
     expect(screen.getByRole("radio", { name: /Git SSH/ })).toBeDisabled();
     expect(screen.getByRole("radio", { name: /Helm chart/ })).toBeEnabled();
+  });
+
+  it("allows stopped draft Git sources while build execution lacks capacity", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: {
+        builds: false,
+        builder: false,
+        githubAppSetup: true,
+        gitSSH: true,
+        gitSSHBuilds: false,
+        helmDeployments: false,
+      },
+      capabilities: [
+        {
+          role: "project-admin",
+          scopeType: "project",
+          scopeId: "project-payments",
+          actions: ["applications:create", "build-definitions:write"],
+        },
+      ],
+    });
+
+    render(<AddAppPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByRole("radio", { name: /GitHub App/ }),
+    ).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /Git SSH/ })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /OCI image/ })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Helm chart/ })).toBeDisabled();
   });
 
   it("allows Helm App creation without OCI deployment authority", async () => {

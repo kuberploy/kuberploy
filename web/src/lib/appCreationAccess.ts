@@ -69,8 +69,7 @@ export function canUseAppSource(
       );
     case "github":
       return (
-        capabilities?.features?.builds === true &&
-        capabilities.features.builder === true &&
+        capabilities?.features?.githubAppSetup === true &&
         grants(capabilities, ["build-definitions:write"], (capability) =>
           coversProject(capability, project),
         )
@@ -78,7 +77,6 @@ export function canUseAppSource(
     case "git-ssh":
       return (
         capabilities?.features?.gitSSH === true &&
-        capabilities.features.gitSSHBuilds === true &&
         grants(capabilities, ["build-definitions:write"], (capability) =>
           coversProject(capability, project),
         )
