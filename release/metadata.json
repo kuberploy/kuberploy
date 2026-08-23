@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Environment-scoped Apps add OCI, GitHub, Git SSH, and universal Helm sources with stopped environment cloning and an email-first administration flow.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.317"
+  "version": "0.1.0-rc.318"
 }

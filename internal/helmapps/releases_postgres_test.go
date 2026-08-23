@@ -48,3 +48,27 @@ func TestDeriveReleasePhaseReportsDurableCascadeProgress(t *testing.T) {
 		t.Fatalf("path-absence recovery phase=%s failure=%s", phase, failure)
 	}
 }
+
+func TestDeriveReleasePhaseKeepsRecoverableProjectionReplansPending(t *testing.T) {
+	status := ReleaseStatus{Revision: ReleaseRevision{DesiredEnabled: true},
+		RenderState: "succeeded", PayloadState: "verified", ApplicationState: "superseded"}
+	phase, failure := deriveReleasePhase(status, "", "", "", "", "", "", "projection-superseded")
+	if phase != ReleasePhaseApplicationPending || failure != "" {
+		t.Fatalf("application replan phase=%s failure=%s", phase, failure)
+	}
+
+	status.Revision.DesiredEnabled = false
+	status.ApplicationState = ""
+	phase, failure = deriveReleasePhase(status, "", "", "superseded",
+		"cascade-projection-superseded", "", "", "")
+	if phase != ReleasePhaseApplicationPending || failure != "" {
+		t.Fatalf("cascade replan phase=%s failure=%s", phase, failure)
+	}
+
+	status.Revision.DesiredEnabled = true
+	status.ApplicationState = "superseded"
+	phase, failure = deriveReleasePhase(status, "", "", "", "", "", "", "invalid-command")
+	if phase != ReleasePhaseFailed || failure != "invalid-command" {
+		t.Fatalf("terminal application phase=%s failure=%s", phase, failure)
+	}
+}

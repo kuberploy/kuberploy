@@ -522,6 +522,9 @@ func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, cas
 		case "git-committed":
 			return ReleasePhaseApplicationCommitted, ""
 		case "failed", "superseded":
+			if cascadeState == "superseded" && cascadeFailure == "cascade-projection-superseded" {
+				return ReleasePhaseApplicationPending, ""
+			}
 			return ReleasePhaseFailed, cascadeFailure
 		case "verified":
 			switch cascadeObservationState {
@@ -557,6 +560,9 @@ func deriveReleasePhase(status ReleaseStatus, renderFailure, payloadFailure, cas
 	case "verified":
 		return ReleasePhasePublished, ""
 	case "failed", "superseded":
+		if status.ApplicationState == "superseded" && applicationFailure == "projection-superseded" {
+			return ReleasePhaseApplicationPending, ""
+		}
 		return ReleasePhaseFailed, applicationFailure
 	default:
 		return ReleasePhaseFailed, "invalid-durable-state"

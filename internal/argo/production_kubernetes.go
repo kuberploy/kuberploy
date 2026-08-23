@@ -24,7 +24,7 @@ const (
 	argoHardRefreshAnnotation           = "argocd.argoproj.io/refresh"
 	argoApplicationSetRefreshAnnotation = "argocd.argoproj.io/application-set-refresh"
 	platformRootRefreshPollInterval     = 250 * time.Millisecond
-	platformRootRefreshTimeout          = 30 * time.Second
+	platformRootRefreshTimeout          = 90 * time.Second
 )
 
 // InClusterProductionClient exposes only narrow Kubernetes authority surfaces:
