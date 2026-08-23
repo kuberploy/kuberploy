@@ -12,6 +12,19 @@ import (
 
 const protectedCascadeTable = "public.helm_application_cascade_preflights"
 
+func terminalCascadeDeleteExistsSQL(preflightAlias string) string {
+	return `EXISTS(SELECT 1 FROM public.helm_protected_application_intents terminal
+		WHERE terminal.release_revision_id=` + preflightAlias + `.release_revision_id
+		AND terminal.payload_intent_id=` + preflightAlias + `.payload_intent_id
+		AND terminal.release_generation=` + preflightAlias + `.release_generation
+		AND terminal.project_id=` + preflightAlias + `.project_id
+		AND terminal.environment_id=` + preflightAlias + `.environment_id
+		AND terminal.application_id=` + preflightAlias + `.application_id
+		AND terminal.action='delete' AND terminal.state='verified'
+		AND terminal.cascade_required AND terminal.cascade_receipt_id=` + preflightAlias + `.id
+		AND terminal.cascade_contract='helm-application-cascade-preflight.v1')`
+}
+
 func (s *PostgresProtectedPublicationStore) ActivateCascadeObserver(ctx context.Context,
 	owner string, workerEpoch int64, publisher ProtectedPublisherIdentity, now time.Time) (int64, error) {
 	return retryProtectedTransaction(ctx, func() (int64, error) {
@@ -563,6 +576,7 @@ func (s *PostgresProtectedPublicationStore) claimCascadeObservationOnce(ctx cont
 		 AND binding.cluster_id=preflight.cluster_id AND binding.target_ref=preflight.platform_target_ref
 		WHERE preflight.state='verified' AND preflight.platform_binding_id=$6
 		  AND public.helm_application_cascade_preflight_is_fresh(preflight.id)
+		  AND NOT `+terminalCascadeDeleteExistsSQL("preflight")+`
 		ON CONFLICT(cascade_preflight_id,activation_epoch) DO NOTHING`, publisher.Contract,
 		publisher.PolicyVersion, publisher.ConfigDigest, activationEpoch, dbNow, identity.PlatformBindingID)
 	if err != nil {
@@ -570,10 +584,13 @@ func (s *PostgresProtectedPublicationStore) claimCascadeObservationOnce(ctx cont
 	}
 	_, err = tx.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs job SET
 		state='pending',next_attempt_at=$3,attempts=0,consecutive_failures=0,last_failure_code='',
-		completed_at=NULL,updated_at=$3 WHERE job.activation_epoch=$1 AND job.publisher_config_digest=$2
+		completed_at=NULL,updated_at=$3 FROM public.helm_application_cascade_preflights preflight
+		WHERE preflight.id=job.cascade_preflight_id
+		AND job.activation_epoch=$1 AND job.publisher_config_digest=$2
 		AND job.state='verified'
 		AND public.helm_application_cascade_preflight_is_fresh(job.cascade_preflight_id)
-		AND NOT public.helm_application_cascade_observation_is_exact(job.cascade_preflight_id,$2,$3)`,
+		AND NOT public.helm_application_cascade_observation_is_exact(job.cascade_preflight_id,$2,$3)
+		AND NOT `+terminalCascadeDeleteExistsSQL("preflight"),
 		activationEpoch, publisher.ConfigDigest, dbNow)
 	if err != nil {
 		return ProtectedApplicationCascadePreflight{}, ProtectedCascadeObservationLease{}, classifyPostgres(err)
@@ -590,6 +607,7 @@ func (s *PostgresProtectedPublicationStore) claimCascadeObservationOnce(ctx cont
 		 AND job.publisher_policy_version=$2 AND job.publisher_config_digest=$3
 		 AND job.attempts<30 AND job.next_attempt_at<=$4
 		 AND public.helm_application_cascade_preflight_is_fresh(preflight.id)
+		 AND NOT `+terminalCascadeDeleteExistsSQL("preflight")+`
 		 AND (job.state='pending' OR (job.state='claimed' AND job.lease_until<=$4))
 		 AND NOT public.helm_application_cascade_observation_is_exact(preflight.id,$3,$4)
 		ORDER BY job.next_attempt_at,job.created_at,job.cascade_preflight_id

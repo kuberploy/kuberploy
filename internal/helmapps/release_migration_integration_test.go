@@ -1913,6 +1913,37 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 	if err != nil || deleted.State != ProtectedVerified || deleted.VerifiedPathDigest != "" {
 		t.Fatalf("verified delete=%+v err=%v", deleted, err)
 	}
+
+	// Once the protected delete is terminal, a replacement worker activation
+	// must reuse that durable outcome. Re-observing the old child is impossible
+	// after its Git path and Argo Application have correctly disappeared.
+	terminalWorker := "helm-cascade-observer-terminal-0003"
+	terminalAt := helmPGDatabaseNow(t, ctx, pool)
+	if err = store.PutPublisherReadiness(ctx, ProtectedPublisherReadiness{
+		WorkerID: terminalWorker, WorkerEpoch: 3, Publisher: rotatedPublisher,
+		StartedAt: terminalAt.Add(-time.Second), ObservedAt: terminalAt,
+		LeaseUntil: terminalAt.Add(4 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateCascadeObserver(ctx, terminalWorker, 3, rotatedPublisher, terminalAt); err != nil {
+		t.Fatal(err)
+	}
+	if terminalPreflight, terminalLease, terminalErr := store.ClaimCascadeObservation(ctx,
+		terminalWorker, 3, rotatedPublisher, terminalAt, time.Minute); !errors.Is(terminalErr, ErrNotFound) {
+		t.Fatalf("terminal delete was re-observed: preflight=%+v lease=%+v err=%v",
+			terminalPreflight, terminalLease, terminalErr)
+	}
+	var activeObservationJobs, terminalAttempts int
+	var terminalState string
+	if err = pool.QueryRow(ctx, `SELECT count(*),max(state),max(attempts)
+		FROM public.helm_application_cascade_observation_jobs
+		WHERE cascade_preflight_id=$1 AND state<>'superseded'`, preflightID).
+		Scan(&activeObservationJobs, &terminalState, &terminalAttempts); err != nil ||
+		activeObservationJobs != 1 || terminalState != "verified" || terminalAttempts != 1 {
+		t.Fatalf("terminal observation jobs=%d state=%s attempts=%d err=%v",
+			activeObservationJobs, terminalState, terminalAttempts, err)
+	}
 }
 
 func TestPostgresProtectedPublisherActivationSerializesWithClaim(t *testing.T) {
