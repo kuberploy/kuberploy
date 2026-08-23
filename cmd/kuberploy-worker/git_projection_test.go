@@ -39,3 +39,15 @@ func TestNewGitProjectionRuntimeRejectsCertificatePolicyWithoutExactResolver(t *
 		t.Fatalf("dormant resolver runtime=%#v err=%v", runtime, err)
 	}
 }
+
+func TestEdgeRoutePolicyKeepsDisabledCertificateResolverNil(t *testing.T) {
+	policy := newEdgeRouteReferencePolicy(edge.RuntimeConfig{}, externaldns.OperationalConfig{}, nil, certissuers.ObserverConfig{}, nil)
+	if policy.Certificates != nil {
+		t.Fatal("disabled certificate resolver became a non-nil interface")
+	}
+	resolver := &certificates.PostgreSQLReferenceResolver{}
+	policy = newEdgeRouteReferencePolicy(edge.RuntimeConfig{}, externaldns.OperationalConfig{}, resolver, certissuers.ObserverConfig{}, nil)
+	if policy.Certificates != resolver {
+		t.Fatal("enabled certificate resolver was not installed")
+	}
+}

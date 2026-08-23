@@ -310,7 +310,11 @@ the table count.
 
 One-to-one settings without an independent lifecycle belong on their owner.
 For example, an App's registry-pull mode and optional project credential are
-columns on `applications`, not a separate selection table. The permanent
+columns on `applications`, not a separate selection table. The per-App source
+build generation is also an atomic `applications.build_generation` counter;
+it is not a separate one-row counter table. Workers increment that owner row
+with `UPDATE ... RETURNING`, which preserves concurrent monotonic allocation
+without another schema lifecycle. The permanent
 single-cluster contract likewise has no `cluster_id` column: one singleton
 platform Git binding owns the fixed `platform/` protected root, while
 environment bindings retain their `tenants/<project>/environments/<environment>`

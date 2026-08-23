@@ -6589,6 +6589,8 @@ CREATE TABLE public.applications (
     registry_pull_project_credential_id uuid,
     registry_pull_updated_by uuid,
     registry_pull_updated_at timestamp with time zone,
+    build_generation bigint DEFAULT 0 NOT NULL,
+    CONSTRAINT applications_build_generation_check CHECK ((build_generation >= 0)),
     CONSTRAINT applications_registry_pull_check CHECK ((((registry_pull_mode IS NULL) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NULL) AND (registry_pull_updated_at IS NULL)) OR ((registry_pull_mode = 'public'::text) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)) OR ((registry_pull_mode = 'project-credential'::text) AND (registry_pull_project_credential_id IS NOT NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)))),
     CONSTRAINT applications_registry_pull_mode_check CHECK ((registry_pull_mode = ANY (ARRAY['public'::text, 'project-credential'::text]))),
     CONSTRAINT applications_registry_pull_update_check CHECK (((registry_pull_updated_at IS NULL) = (registry_pull_updated_by IS NULL))),
@@ -7142,18 +7144,6 @@ CREATE TABLE public.build_release_projections (
     CONSTRAINT build_release_projections_check4 CHECK (((state <> 'succeeded'::text) OR (failure_code = ''::text))),
     CONSTRAINT build_release_projections_lease_epoch_check CHECK ((lease_epoch >= 0)),
     CONSTRAINT build_release_projections_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'processing'::text, 'succeeded'::text, 'failed'::text])))
-);
-
-
---
--- Name: build_service_generations; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.build_service_generations (
-    project_id uuid NOT NULL,
-    service_id uuid NOT NULL,
-    last_generation bigint NOT NULL,
-    CONSTRAINT build_service_generations_last_generation_check CHECK ((last_generation >= 0))
 );
 
 
@@ -10270,14 +10260,6 @@ ALTER TABLE ONLY public.build_outbox
 
 ALTER TABLE ONLY public.build_release_projections
     ADD CONSTRAINT build_release_projections_pkey PRIMARY KEY (attempt_id);
-
-
---
--- Name: build_service_generations build_service_generations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_service_generations
-    ADD CONSTRAINT build_service_generations_pkey PRIMARY KEY (project_id, service_id);
 
 
 --
@@ -13670,22 +13652,6 @@ ALTER TABLE ONLY public.build_outbox
 
 ALTER TABLE ONLY public.build_release_projections
     ADD CONSTRAINT build_release_projections_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.build_attempts(id) ON DELETE RESTRICT;
-
-
---
--- Name: build_service_generations build_service_generations_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_service_generations
-    ADD CONSTRAINT build_service_generations_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-
---
--- Name: build_service_generations build_service_generations_service_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_service_generations
-    ADD CONSTRAINT build_service_generations_service_id_project_id_fkey FOREIGN KEY (service_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE CASCADE;
 
 
 --

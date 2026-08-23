@@ -513,7 +513,7 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 			return nil, getErr
 		}
 		var generation int64
-		if err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1) ON CONFLICT(project_id,service_id) DO UPDATE SET last_generation=build_service_generations.last_generation+1 RETURNING last_generation`, current.ProjectID, current.ServiceID).Scan(&generation); err != nil {
+		if err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`, current.ProjectID, current.ServiceID).Scan(&generation); err != nil {
 			return nil, classifyPostgres(err)
 		}
 		imports, importErr := cacheImportsQuery(ctx, tx, current, generation)

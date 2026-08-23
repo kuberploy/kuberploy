@@ -240,8 +240,7 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 		}
 	}
 	var generation int64
-	err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1)
-		ON CONFLICT(project_id,service_id) DO UPDATE SET last_generation=build_service_generations.last_generation+1 RETURNING last_generation`,
+	err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`,
 		definition.ProjectID, definition.ServiceID).Scan(&generation)
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
@@ -329,8 +328,7 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
 	var generation int64
-	if err = tx.QueryRow(ctx, `INSERT INTO build_service_generations(project_id,service_id,last_generation) VALUES($1,$2,1)
-		ON CONFLICT(project_id,service_id) DO UPDATE SET last_generation=build_service_generations.last_generation+1 RETURNING last_generation`,
+	if err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`,
 		definition.ProjectID, definition.ServiceID).Scan(&generation); err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}

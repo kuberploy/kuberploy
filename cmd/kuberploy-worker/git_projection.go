@@ -157,11 +157,7 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 		Client: gitprojection.GitHubGitClientAdapter{Client: provider}, Write: true,
 	}
 	indexer := config.Indexer(store)
-	edgePolicy := &projectionpolicy.EdgeRouteReferencePolicy{Config: edgeConfig, ExternalDNSConfig: externalDNSConfig, Certificates: certificateResolver}
-	if issuerConfig.Enabled {
-		edgePolicy.ManagedIssuers = issuerStore
-		edgePolicy.ManagedIssuerMaxAge = issuerConfig.MaximumAge
-	}
+	edgePolicy := newEdgeRouteReferencePolicy(edgeConfig, externalDNSConfig, certificateResolver, issuerConfig, issuerStore)
 	var sslipResolver *edge.PostgreSQLSSLIPResolver
 	if edgeConfig.Enabled && edgeConfig.Profiles.Traefik != nil && edgeConfig.Profiles.Traefik.SSLIP != nil {
 		sslipResolver, err = edge.OpenPostgreSQLSSLIPResolver(ctx, databaseURL, edgeConfig)
@@ -217,6 +213,28 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 	return &gitProjectionRuntime{store: store, coordinator: coordinator, writer: &projectionOperationWriter{projection: projectionWriter},
 		publications: publicationReconciler, policy: policy, policyDigest: policyDigest, headVerifier: verifier, writeManager: writeManager,
 		identity: identity, workerID: workerLeaseOwner(processIdentity, "git-runtime"), startedAt: time.Now().UTC(), sslip: sslipResolver, middleware: middlewareStore}, nil
+}
+
+func newEdgeRouteReferencePolicy(
+	edgeConfig edge.RuntimeConfig,
+	externalDNSConfig externaldns.OperationalConfig,
+	certificateResolver *certificates.PostgreSQLReferenceResolver,
+	issuerConfig certissuers.ObserverConfig,
+	issuerStore *certissuers.PostgresStore,
+) *projectionpolicy.EdgeRouteReferencePolicy {
+	policy := &projectionpolicy.EdgeRouteReferencePolicy{Config: edgeConfig, ExternalDNSConfig: externalDNSConfig}
+	// Assigning a nil concrete pointer to an interface produces a non-nil
+	// interface. Keep the optional resolver interface genuinely nil when the
+	// certificate observer is disabled, otherwise every ordinary AppConfig
+	// activation calls a nil resolver and fails before projection can advance.
+	if certificateResolver != nil {
+		policy.Certificates = certificateResolver
+	}
+	if issuerConfig.Enabled {
+		policy.ManagedIssuers = issuerStore
+		policy.ManagedIssuerMaxAge = issuerConfig.MaximumAge
+	}
+	return policy
 }
 
 func (r *gitProjectionRuntime) Run(ctx context.Context) error {
