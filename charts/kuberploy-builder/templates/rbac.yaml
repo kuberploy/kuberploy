@@ -41,4 +41,30 @@ subjects:
   - kind: ServiceAccount
     name: {{ .Values.controllerServiceAccount.name }}
     namespace: {{ .Values.controllerServiceAccount.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuberploy-builder-node-reader
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kuberploy-builder-node-reader
+  labels:
+    {{- include "kuberploy-builder.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kuberploy-builder-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.controllerServiceAccount.name }}
+    namespace: {{ .Values.controllerServiceAccount.namespace }}
 {{- end }}

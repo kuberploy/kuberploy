@@ -29,10 +29,11 @@ type fakeBuildResources struct {
 	deletes         []string
 	nextUID         int
 	holdJobDeletion bool
+	builderNodes    []map[string]any
 }
 
 func newFakeBuildResources() *fakeBuildResources {
-	return &fakeBuildResources{objects: make(map[string]map[string]any), nextUID: 1}
+	return &fakeBuildResources{objects: make(map[string]map[string]any), nextUID: 1, builderNodes: []map[string]any{readyBuilderNode("builder-1")}}
 }
 
 func (f *fakeBuildResources) key(resource kubernetesResource, namespace, name string) string {
@@ -116,6 +117,28 @@ func (f *fakeBuildResources) ListBuildPods(_ context.Context, namespace, operati
 		return nil, ErrInfrastructure
 	}
 	return result, nil
+}
+
+func (f *fakeBuildResources) ListBuilderNodes(_ context.Context, limit int64) ([]map[string]any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if limit != 100 || len(f.builderNodes) > int(limit) {
+		return nil, ErrInfrastructure
+	}
+	result := make([]map[string]any, 0, len(f.builderNodes))
+	for _, node := range f.builderNodes {
+		result = append(result, cloneMap(node))
+	}
+	return result, nil
+}
+
+func readyBuilderNode(name string) map[string]any {
+	return map[string]any{
+		"apiVersion": "v1", "kind": "Node",
+		"metadata": map[string]any{"name": name, "labels": map[string]any{"kuberploy.io/node-class": "dind-builder"}},
+		"spec":     map[string]any{"taints": []any{map[string]any{"key": "kuberploy.io/dind-builder", "value": "true", "effect": "NoSchedule"}}},
+		"status":   map[string]any{"conditions": []any{map[string]any{"type": "Ready", "status": "True"}}},
+	}
 }
 
 func kubernetesWorkloadFixture(t *testing.T) (BuildAttempt, BuildWorkload) {
@@ -619,6 +642,62 @@ func TestKubernetesRESTClientKeepsCredentialBodiesOutOfErrors(t *testing.T) {
 	_, err = client.Create(context.Background(), resourceSecrets, attempt.JobNamespace, secret)
 	if err == nil || strings.Contains(err.Error(), sourceToken) || strings.Contains(err.Error(), base64.StdEncoding.EncodeToString([]byte(sourceToken))) {
 		t.Fatalf("credential-bearing Kubernetes response escaped through error: %v", err)
+	}
+}
+
+func TestKubernetesBuilderCapacityRequiresReadyDedicatedTaintedNode(t *testing.T) {
+	resources := newFakeBuildResources()
+	adapter := newTestKubernetesAdapter(t, resources)
+	if err := adapter.BuilderCapacityReady(context.Background()); err != nil {
+		t.Fatalf("ready builder rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"missing-taint": func(node map[string]any) { node["spec"].(map[string]any)["taints"] = []any{} },
+		"cordoned":      func(node map[string]any) { node["spec"].(map[string]any)["unschedulable"] = true },
+		"not-ready": func(node map[string]any) {
+			node["status"].(map[string]any)["conditions"] = []any{map[string]any{"type": "Ready", "status": "False"}}
+		},
+		"extra-hard-taint": func(node map[string]any) {
+			node["spec"].(map[string]any)["taints"] = append(node["spec"].(map[string]any)["taints"].([]any), map[string]any{"key": "dedicated", "value": "other", "effect": "NoSchedule"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			node := readyBuilderNode("builder-1")
+			mutate(node)
+			resources.builderNodes = []map[string]any{node}
+			if err := adapter.BuilderCapacityReady(context.Background()); !errors.Is(err, ErrBuilderCapacityUnavailable) {
+				t.Fatalf("ineligible node accepted: %v", err)
+			}
+		})
+	}
+	resources.builderNodes = nil
+	if err := adapter.BuilderCapacityReady(context.Background()); !errors.Is(err, ErrBuilderCapacityUnavailable) {
+		t.Fatalf("empty capacity accepted: %v", err)
+	}
+	resources.builderNodes = []map[string]any{{"apiVersion": "v1", "kind": "Node"}}
+	if err := adapter.BuilderCapacityReady(context.Background()); !errors.Is(err, ErrInfrastructure) {
+		t.Fatalf("malformed node was not rejected: %v", err)
+	}
+}
+
+func TestKubernetesRESTBuilderNodeListIsBoundedAndSelectorPinned(t *testing.T) {
+	const serviceAccountToken = "service-account.header.signature"
+	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v1/nodes" || request.URL.Query().Get("limit") != "100" || request.URL.Query().Get("labelSelector") != "kuberploy.io/node-class=dind-builder" {
+			t.Errorf("unsafe node query: %s?%s", request.URL.Path, request.URL.RawQuery)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"apiVersion":"v1","kind":"NodeList","metadata":{},"items":[{"metadata":{"name":"builder-1","labels":{"kuberploy.io/node-class":"dind-builder"}},"spec":{"taints":[{"key":"kuberploy.io/dind-builder","value":"true","effect":"NoSchedule"}]},"status":{"conditions":[{"type":"Ready","status":"True"}]}}]}`))
+	}))
+	defer server.Close()
+	tokenPath := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenPath, []byte(serviceAccountToken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &inClusterBuildResources{baseURL: server.URL, http: server.Client(), tokenPath: tokenPath}
+	nodes, err := client.ListBuilderNodes(context.Background(), 100)
+	if err != nil || len(nodes) != 1 || nodes[0]["apiVersion"] != "v1" || nodes[0]["kind"] != "Node" {
+		t.Fatalf("nodes=%#v err=%v", nodes, err)
 	}
 }
 

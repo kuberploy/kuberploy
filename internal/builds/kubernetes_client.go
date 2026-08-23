@@ -207,6 +207,51 @@ func (c *inClusterBuildResources) ListBuildPods(ctx context.Context, namespace, 
 	return pods, nil
 }
 
+func (c *inClusterBuildResources) ListBuilderNodes(ctx context.Context, limit int64) ([]map[string]any, error) {
+	if limit != 100 {
+		return nil, ErrInvalid
+	}
+	query := url.Values{
+		"labelSelector": {"kuberploy.io/node-class=dind-builder"},
+		"limit":         {"100"},
+	}
+	encoded, status, err := c.request(ctx, http.MethodGet, "/api/v1/nodes?"+query.Encode(), nil)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(encoded)
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("Kubernetes API GET nodes returned HTTP %d", status)
+	}
+	object, err := decodeKubernetesObject(encoded)
+	if err != nil || object["apiVersion"] != "v1" || object["kind"] != "NodeList" {
+		return nil, ErrInfrastructure
+	}
+	items, ok := object["items"].([]any)
+	metadata, metadataOK := object["metadata"].(map[string]any)
+	continuation, _ := metadata["continue"].(string)
+	if !ok || !metadataOK || continuation != "" || len(items) > int(limit) {
+		return nil, ErrInfrastructure
+	}
+	nodes := make([]map[string]any, 0, len(items))
+	for _, raw := range items {
+		node, ok := raw.(map[string]any)
+		if !ok {
+			return nil, ErrInfrastructure
+		}
+		apiVersion, hasAPIVersion := node["apiVersion"]
+		kind, hasKind := node["kind"]
+		if hasAPIVersion != hasKind || hasAPIVersion && (apiVersion != "v1" || kind != "Node") {
+			return nil, ErrInfrastructure
+		}
+		if !hasAPIVersion {
+			node["apiVersion"], node["kind"] = "v1", "Node"
+		}
+		nodes = append(nodes, node)
+	}
+	return nodes, nil
+}
+
 func (c *inClusterBuildResources) request(ctx context.Context, method, path string, body []byte) ([]byte, int, error) {
 	if !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/apis/") {
 		return nil, 0, ErrInvalid

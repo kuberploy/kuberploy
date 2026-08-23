@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Environment-scoped Apps add OCI, GitHub, Git SSH, and universal Helm sources with stopped environment cloning and an email-first administration flow.",
+  "summary": "Source-build readiness now requires a Ready dedicated DinD builder node, unavailable builds stay readable in the UI, and accepted webhooks fail cleanly without orphaned workloads when capacity is absent.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.326"
+  "version": "0.1.0-rc.327"
 }

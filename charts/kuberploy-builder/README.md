@@ -46,6 +46,13 @@ still available and publishes a typed result through the exact
 `/result/result.json` termination-message file; results exceeding 4 KiB are
 rejected before publication.
 
+The controller ServiceAccount receives one cluster-scoped read permission:
+bounded `list` on Nodes. Every readiness heartbeat and build attempt requires
+at least one Ready, uncordoned Node with the exact label and taint above and no
+additional hard taint. Missing capacity reports the builder capability as
+unavailable and fails an accepted attempt before provider credentials or build
+objects are created.
+
 The controller must put the operation, generation, and deterministic spec-hash
 labels emitted by the Job planner on the request ConfigMap, credential Secrets,
 Job, and run NetworkPolicy. Recovery may adopt an existing Job only when all

@@ -6053,7 +6053,9 @@ BEGIN
 
     IF NEW.runtime_kind='source-build' THEN
         IF NEW.contract_version<>'source-build.v1' OR NEW.identity - ARRAY['githubAppId','builderNamespace','builderAgentImage'] <> '{}'::jsonb OR
-           NOT (NEW.identity ?& ARRAY['githubAppId','builderNamespace','builderAgentImage']) OR NEW.observation<>'{}'::jsonb OR
+           NOT (NEW.identity ?& ARRAY['githubAppId','builderNamespace','builderAgentImage']) OR
+           NEW.observation - ARRAY['builderCapacityReady'] <> '{}'::jsonb OR NOT (NEW.observation ? 'builderCapacityReady') OR
+           jsonb_typeof(NEW.observation->'builderCapacityReady')<>'boolean' OR
            NEW.identity->>'githubAppId' !~ '^[1-9][0-9]*$' OR
            NEW.identity->>'builderNamespace' !~ '^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$' OR
            NEW.identity->>'builderAgentImage' !~ '^[^[:space:]@]+@sha256:[0-9a-f]{64}$' OR

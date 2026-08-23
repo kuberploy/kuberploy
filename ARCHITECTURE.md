@@ -829,6 +829,7 @@ Requirements and controls:
 - Pin builder images by version and digest.
 - `automountServiceAccountToken: false` and no Kubernetes RBAC for the build Pod.
 - Dedicated tainted builder nodes; production workloads cannot tolerate the taint.
+- Worker readiness requires at least one Ready, uncordoned node with the exact builder label and taint. Missing capacity disables build mutations and terminalizes an accepted attempt before source credentials or a Job are created.
 - Per-build `emptyDir` volumes with size limits and ephemeral-storage requests/limits.
 - `activeDeadlineSeconds`, explicit attempt count and `ttlSecondsAfterFinished`.
 - Docker daemon listens on the Unix socket only.
@@ -1564,7 +1565,7 @@ Runtime namespaces receive:
 
 P0 expresses these guardrails with Kubernetes Pod Security Admission and native `ValidatingAdmissionPolicy`/CEL so the newest supported Kubernetes minor is not held back by a policy-engine release. A later Kyverno or other policy-engine adapter is optional and may be enabled only when its published Kubernetes support range includes the target cluster; it does not replace the platform compiler or AppProject boundary.
 
-The DinD namespace necessarily permits an approved privileged shape. An admission policy allows only the build-controller ServiceAccount to create that exact Job template. Platform users receive no Kubernetes RBAC to that namespace.
+The DinD namespace necessarily permits an approved privileged shape. An admission policy allows only the build-controller ServiceAccount to create that exact Job template. Platform users receive no Kubernetes RBAC to that namespace. The controller has one cluster-scoped read permission: bounded Node listing for exact dedicated-builder capacity readiness.
 
 Git write access is deployment authority. Use a repository per organization or trust boundary when tenants can access Git directly. Production branches use pull requests, CODEOWNERS and required render/policy checks.
 
@@ -1604,6 +1605,7 @@ Operations use at-least-once execution with idempotency:
 | A locked chart, image or tool digest is missing or does not match | Fail the install or upgrade before mutation; never fall back to a mutable tag or an unverified artifact |
 | Duplicate or out-of-order webhook | Deduplicate by delivery ID and key builds to the exact SHA |
 | Older build finishes after a newer build | Keep the artifact, but block automatic promotion with a generation check |
+| No dedicated builder node is Ready and schedulable | Report the builder capability unavailable, retain immutable history for reads and fail an accepted attempt as `builder-capacity-unavailable` after exact attempt-resource cleanup; never schedule privileged DinD on a general-purpose node |
 | DinD does not become ready | Fail the attempt after startup/deadline thresholds and create a clean retry Job |
 | Node eviction | Retry as a new attempt using registry cache |
 | Registry push succeeds but Git update fails | Preserve verified digest and retry `ConfigPending` idempotently |

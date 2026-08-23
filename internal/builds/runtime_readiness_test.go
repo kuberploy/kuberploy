@@ -36,13 +36,26 @@ func TestRuntimeReadinessRequiresFreshExactIdentity(t *testing.T) {
 	}
 	now := time.Date(2026, 8, 9, 10, 0, 0, 0, time.UTC)
 	observation := SourceBuildWorkerObservation{WorkerID: "worker-runtime-0123456789", SourceBuildRuntimeIdentity: identity,
-		StartedAt: now.Add(-time.Minute), ObservedAt: now}
+		BuilderCapacityReady: true, StartedAt: now.Add(-time.Minute), ObservedAt: now}
 	if err = store.ObserveSourceBuildWorker(context.Background(), observation); err != nil {
 		t.Fatal(err)
 	}
 	probe := &RuntimeReadinessProbe{Store: store, Identity: identity, Now: func() time.Time { return now }}
 	if err = probe.Probe(context.Background()); err != nil {
 		t.Fatalf("matching observation was not ready: %v", err)
+	}
+	observation.BuilderCapacityReady = false
+	observation.ObservedAt = now.Add(time.Second)
+	if err = store.ObserveSourceBuildWorker(context.Background(), observation); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SourceBuildRuntimeReady(context.Background(), identity, observation.ObservedAt, SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
+		t.Fatalf("worker without builder capacity was ready: %v", err)
+	}
+	observation.BuilderCapacityReady = true
+	observation.ObservedAt = now.Add(2 * time.Second)
+	if err = store.ObserveSourceBuildWorker(context.Background(), observation); err != nil {
+		t.Fatal(err)
 	}
 	for name, mutation := range map[string]func(*SourceBuildRuntimeIdentity){
 		"digest":    func(i *SourceBuildRuntimeIdentity) { i.ConfigDigest = "sha256:" + strings.Repeat("b", 64) },
@@ -60,7 +73,7 @@ func TestRuntimeReadinessRequiresFreshExactIdentity(t *testing.T) {
 			}
 		})
 	}
-	if err = store.SourceBuildRuntimeReady(context.Background(), identity, now.Add(SourceBuildHeartbeatMaxAge+time.Second), SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
+	if err = store.SourceBuildRuntimeReady(context.Background(), identity, observation.ObservedAt.Add(SourceBuildHeartbeatMaxAge+time.Second), SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
 		t.Fatalf("stale observation ready: %v", err)
 	}
 	if err = store.SourceBuildRuntimeReady(context.Background(), identity, now.Add(-10*time.Second), SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
@@ -78,7 +91,7 @@ func TestRuntimeReadinessConcurrentHeartbeatsNeverRegress(t *testing.T) {
 		go func(offset int) {
 			defer workers.Done()
 			_ = store.ObserveSourceBuildWorker(context.Background(), SourceBuildWorkerObservation{WorkerID: "worker-runtime-concurrent", SourceBuildRuntimeIdentity: identity,
-				StartedAt: start, ObservedAt: start.Add(time.Duration(offset) * time.Second)})
+				BuilderCapacityReady: true, StartedAt: start, ObservedAt: start.Add(time.Duration(offset) * time.Second)})
 		}(i)
 	}
 	workers.Wait()

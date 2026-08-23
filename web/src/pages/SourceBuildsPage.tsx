@@ -94,8 +94,12 @@ export function SourceBuildsPage() {
     retry: false,
   });
   const features = capabilities.data?.features;
+  const featureStates = capabilities.data?.featureStates;
   const githubSetupEnabled = features?.githubAppSetup === true;
   const buildsEnabled = features?.builds === true;
+  const buildsConfigured = featureStates?.builds
+    ? featureStates.builds !== "disabled"
+    : buildsEnabled;
   const builderEnabled = features?.builder === true;
   const autoDeployEnabled = features?.autoDeploy === true;
   const registryEnabled = features?.registry === true;
@@ -110,12 +114,12 @@ export function SourceBuildsPage() {
   const projects = useQuery({
     queryKey: ["projects"],
     queryFn: api.projects,
-    enabled: buildsEnabled,
+    enabled: buildsConfigured,
   });
   const applications = useQuery({
     queryKey: ["applications"],
     queryFn: api.applications,
-    enabled: buildsEnabled,
+    enabled: buildsConfigured,
   });
   const readableApplications = useMemo(
     () =>
@@ -155,7 +159,7 @@ export function SourceBuildsPage() {
     queryKey: ["application-registry", selectedApplicationId],
     queryFn: () => api.applicationRegistry(selectedApplicationId, 100),
     enabled:
-      buildsEnabled &&
+      buildsConfigured &&
       registryEnabled &&
       Boolean(selectedApplication) &&
       canReadApplicationRegistry,
@@ -172,13 +176,13 @@ export function SourceBuildsPage() {
   const definitions = useQuery({
     queryKey: ["build-definitions", selectedApplicationId],
     queryFn: () => api.buildDefinitions(selectedApplicationId),
-    enabled: buildsEnabled && Boolean(selectedApplication),
+    enabled: buildsConfigured && Boolean(selectedApplication),
     retry: false,
   });
   const attempts = useQuery({
     queryKey: ["build-attempts", selectedApplicationId],
     queryFn: () => api.buildAttempts(selectedApplicationId, 50),
-    enabled: buildsEnabled && Boolean(selectedApplication),
+    enabled: buildsConfigured && Boolean(selectedApplication),
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.items.some((attempt) =>
@@ -193,7 +197,7 @@ export function SourceBuildsPage() {
   const buildError =
     definitions.error ?? attempts.error ?? applicationRegistry.error;
   const loadingBuildCatalog =
-    buildsEnabled &&
+    buildsConfigured &&
     (projects.isPending || applications.isPending || capabilities.isPending);
   const canCreateDefinition = Boolean(
     selectedApplication &&
@@ -215,7 +219,7 @@ export function SourceBuildsPage() {
         title="GitHub source builds"
         description="Create immutable, repository-scoped definitions and follow isolated multi-platform builds from verified webhooks to registry digests."
         actions={
-          buildsEnabled && selectedApplication ? (
+          buildsConfigured && selectedApplication ? (
             <Button
               variant="secondary"
               onClick={() =>
@@ -248,7 +252,7 @@ export function SourceBuildsPage() {
         canSetup={canSetupGitHub}
       />
 
-      {!buildsEnabled ? (
+      {!buildsConfigured ? (
         <Card>
           <EmptyState
             icon="terminal"
@@ -276,8 +280,9 @@ export function SourceBuildsPage() {
                 <strong>Builder runtime unavailable</strong>
                 <p>
                   Existing metadata remains readable, but new definition and
-                  attempt commands stay hidden until a matching worker is
-                  healthy.
+                  attempt commands stay hidden until a matching worker and a
+                  Ready dedicated node labeled and tainted for DinD are
+                  available.
                 </p>
               </div>
             </div>

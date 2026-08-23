@@ -103,7 +103,8 @@ no registry credential, manifest body, build log, or webhook payload.
 
 The setup tables hold only setup identities, one-time handoff digests and API
 idempotency metadata. Source-build readiness records a bounded worker identity,
-configuration digest and heartbeat timestamps. The digest covers the exact App
+configuration digest, dedicated-builder capacity result and heartbeat
+timestamps. The digest covers the exact App
 ID, builder namespace, pod ServiceAccount, agent image, three required worker
 loops, resources and source/registry host egress profile; it contains no
 credential bytes or credential references.

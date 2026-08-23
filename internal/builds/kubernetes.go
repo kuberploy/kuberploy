@@ -55,6 +55,7 @@ type kubernetesBuildResources interface {
 	Create(context.Context, kubernetesResource, string, map[string]any) (map[string]any, error)
 	Delete(context.Context, kubernetesResource, string, string, deletePreconditions) error
 	ListBuildPods(context.Context, string, string, string, int64) ([]map[string]any, error)
+	ListBuilderNodes(context.Context, int64) ([]map[string]any, error)
 }
 
 // KubernetesAdapter implements the durable build controller's Kubernetes
@@ -225,6 +226,110 @@ func newKubernetesAdapter(resources kubernetesBuildResources, namespace string) 
 }
 
 var _ KubernetesBuildAPI = (*KubernetesAdapter)(nil)
+
+func (a *KubernetesAdapter) BuilderCapacityReady(ctx context.Context) error {
+	if a == nil || a.resources == nil {
+		return ErrInfrastructure
+	}
+	nodes, err := a.resources.ListBuilderNodes(ctx, 100)
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		eligible, validationErr := eligibleBuilderNode(node)
+		if validationErr != nil {
+			return validationErr
+		}
+		if eligible {
+			return nil
+		}
+	}
+	return ErrBuilderCapacityUnavailable
+}
+
+func eligibleBuilderNode(node map[string]any) (bool, error) {
+	if node["apiVersion"] != "v1" || node["kind"] != "Node" || !kubeNameRE.MatchString(objectName(node)) {
+		return false, ErrInfrastructure
+	}
+	metadata, metadataOK := node["metadata"].(map[string]any)
+	labels, labelsOK := metadata["labels"].(map[string]any)
+	if !metadataOK || !labelsOK {
+		return false, ErrInfrastructure
+	}
+	if labels["kuberploy.io/node-class"] != "dind-builder" {
+		return false, nil
+	}
+	if deleting, exists := metadata["deletionTimestamp"]; exists && deleting != nil && deleting != "" {
+		return false, nil
+	}
+	spec, specOK := node["spec"].(map[string]any)
+	status, statusOK := node["status"].(map[string]any)
+	if !specOK || !statusOK {
+		return false, ErrInfrastructure
+	}
+	if unschedulable, exists := spec["unschedulable"]; exists {
+		value, ok := unschedulable.(bool)
+		if !ok {
+			return false, ErrInfrastructure
+		}
+		if value {
+			return false, nil
+		}
+	}
+	ready := false
+	conditions, conditionsOK := status["conditions"].([]any)
+	if !conditionsOK {
+		return false, ErrInfrastructure
+	}
+	for _, raw := range conditions {
+		condition, ok := raw.(map[string]any)
+		if !ok {
+			return false, ErrInfrastructure
+		}
+		if condition["type"] == "Ready" && condition["status"] == "True" {
+			ready = true
+		}
+	}
+	if !ready {
+		return false, nil
+	}
+	taints, exists := spec["taints"]
+	if !exists {
+		return false, nil
+	}
+	taintList, ok := taints.([]any)
+	if !ok {
+		return false, ErrInfrastructure
+	}
+	required := false
+	for _, raw := range taintList {
+		taint, ok := raw.(map[string]any)
+		if !ok {
+			return false, ErrInfrastructure
+		}
+		key, keyOK := taint["key"].(string)
+		effect, effectOK := taint["effect"].(string)
+		value := ""
+		if rawValue, exists := taint["value"]; exists {
+			var valueOK bool
+			value, valueOK = rawValue.(string)
+			if !valueOK {
+				return false, ErrInfrastructure
+			}
+		}
+		if !keyOK || !effectOK {
+			return false, ErrInfrastructure
+		}
+		if key == "kuberploy.io/dind-builder" && value == "true" && effect == "NoSchedule" {
+			required = true
+			continue
+		}
+		if effect == "NoSchedule" || effect == "NoExecute" {
+			return false, nil
+		}
+	}
+	return required, nil
+}
 
 func (a *KubernetesAdapter) Ensure(ctx context.Context, workload BuildWorkload) (WorkloadObservation, error) {
 	return a.ensure(ctx, workload, workload.SourceCredential.Reveal())

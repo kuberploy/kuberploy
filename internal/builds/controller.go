@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -49,9 +50,14 @@ type WorkloadObservation struct {
 }
 
 type KubernetesBuildAPI interface {
+	BuilderCapacityProbe
 	Ensure(context.Context, BuildWorkload) (WorkloadObservation, error)
 	Cancel(context.Context, BuildAttempt) error
 	PromoteCache(context.Context, BuildAttempt, string) (bool, error)
+}
+
+type BuilderCapacityProbe interface {
+	BuilderCapacityReady(context.Context) error
 }
 
 type BuildController struct {
@@ -95,6 +101,22 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		}
 		result.State = AttemptCancelled
 		return result, nil
+	}
+	if capacityErr := c.Kubernetes.BuilderCapacityReady(ctx); capacityErr != nil {
+		if errors.Is(capacityErr, ErrBuilderCapacityUnavailable) {
+			// A worker may lose its lease after creating the deterministic Job
+			// but before marking the attempt running. Fence that crash window by
+			// deleting only this attempt's exact resources before terminalizing.
+			if cancelErr := c.Kubernetes.Cancel(ctx, attempt); cancelErr != nil {
+				return c.deferInfrastructure(ctx, attempt, "builder-capacity-cleanup-failed", cancelErr)
+			}
+			if err = c.Store.FailAttempt(ctx, attempt.ID, c.Owner, "builder-capacity-unavailable", c.now()); err != nil {
+				return result, err
+			}
+			result.State = AttemptFailed
+			return result, nil
+		}
+		return c.deferInfrastructure(ctx, attempt, "builder-capacity-check-failed", capacityErr)
 	}
 	definition, err := c.Store.Definition(ctx, attempt.DefinitionID)
 	if err != nil || !definition.Enabled || definition.DefinitionDigest != attempt.DefinitionDigest {

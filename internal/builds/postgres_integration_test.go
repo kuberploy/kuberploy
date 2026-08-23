@@ -46,14 +46,27 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	runtimeIdentity := SourceBuildRuntimeIdentity{ConfigDigest: "sha256:" + strings.Repeat("9", 64), GitHubAppID: 987654,
 		BuilderNamespace: "kuberploy-build-dind", BuilderAgentImage: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("8", 64)}
 	observation := SourceBuildWorkerObservation{WorkerID: "postgres-runtime-worker-01", SourceBuildRuntimeIdentity: runtimeIdentity,
-		StartedAt: now.Add(-time.Minute), ObservedAt: now}
+		BuilderCapacityReady: true, StartedAt: now.Add(-time.Minute), ObservedAt: now}
 	if err = store.ObserveSourceBuildWorker(ctx, observation); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.SourceBuildRuntimeReady(ctx, runtimeIdentity, now, SourceBuildHeartbeatMaxAge); err != nil {
 		t.Fatalf("fresh matching worker not ready: %v", err)
 	}
-	if err = store.SourceBuildRuntimeReady(ctx, runtimeIdentity, now.Add(SourceBuildHeartbeatMaxAge+time.Second), SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
+	observation.BuilderCapacityReady = false
+	observation.ObservedAt = now.Add(time.Second)
+	if err = store.ObserveSourceBuildWorker(ctx, observation); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SourceBuildRuntimeReady(ctx, runtimeIdentity, observation.ObservedAt, SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
+		t.Fatalf("worker without dedicated builder capacity was ready: %v", err)
+	}
+	observation.BuilderCapacityReady = true
+	observation.ObservedAt = now.Add(2 * time.Second)
+	if err = store.ObserveSourceBuildWorker(ctx, observation); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.SourceBuildRuntimeReady(ctx, runtimeIdentity, observation.ObservedAt.Add(SourceBuildHeartbeatMaxAge+time.Second), SourceBuildHeartbeatMaxAge); !errors.Is(err, ErrRuntimeNotReady) {
 		t.Fatalf("stale worker remained ready: %v", err)
 	}
 	userID, projectID, serviceID, installationID, repositoryID, registryID, definitionID := id.New(), id.New(), id.New(), id.New(), id.New(), id.New(), id.New()

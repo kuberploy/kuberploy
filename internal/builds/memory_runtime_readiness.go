@@ -25,7 +25,7 @@ func (s *MemoryStore) SourceBuildRuntimeReady(_ context.Context, identity Source
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, observation := range s.runtimeReadiness {
-		if observation.SourceBuildRuntimeIdentity == identity && !observation.ObservedAt.Before(now.Add(-maximumAge)) &&
+		if observation.BuilderCapacityReady && observation.SourceBuildRuntimeIdentity == identity && !observation.ObservedAt.Before(now.Add(-maximumAge)) &&
 			!observation.ObservedAt.After(now.Add(5*time.Second)) {
 			return nil
 		}

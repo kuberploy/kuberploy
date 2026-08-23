@@ -11,7 +11,10 @@ const (
 	SourceBuildHeartbeatMaxAge   = 35 * time.Second
 )
 
-var ErrRuntimeNotReady = errors.New("matching source-build worker is not ready")
+var (
+	ErrRuntimeNotReady            = errors.New("matching source-build worker is not ready")
+	ErrBuilderCapacityUnavailable = errors.New("no ready dedicated builder node is available")
+)
 
 type SourceBuildRuntimeIdentity struct {
 	ConfigDigest      string
@@ -40,8 +43,9 @@ func (i SourceBuildRuntimeIdentity) validate() error {
 type SourceBuildWorkerObservation struct {
 	WorkerID string
 	SourceBuildRuntimeIdentity
-	StartedAt  time.Time
-	ObservedAt time.Time
+	BuilderCapacityReady bool
+	StartedAt            time.Time
+	ObservedAt           time.Time
 }
 
 func (o SourceBuildWorkerObservation) validate() error {

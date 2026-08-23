@@ -46,6 +46,26 @@ func TestControllerCreatesExactWorkloadPromotesCacheAndStoresSafeResult(t *testi
 	}
 }
 
+func TestControllerFailsWithoutBuilderCapacityBeforeCredentialsOrKubernetesObjects(t *testing.T) {
+	store, _ := seedMemory(t, RegistryManaged)
+	clock := testNow
+	attempt := createAttempt(t, store, RegistryManaged, &clock)
+	provider := &fakeProvider{resolvedCommit: attempt.CommitSHA, now: clock}
+	kube := &fakeKubernetes{capacityErr: ErrBuilderCapacityUnavailable}
+	controller := &BuildController{Store: store, Provider: provider, Kubernetes: kube, Owner: "build-controller", LeaseDuration: time.Minute, Now: func() time.Time { return clock }}
+	result, err := controller.ReconcileNext(context.Background())
+	if err != nil || result.State != AttemptFailed {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	stored, getErr := store.Attempt(context.Background(), attempt.ID)
+	if getErr != nil || stored.State != AttemptFailed || stored.FailureCode != "builder-capacity-unavailable" || len(kube.workloads) != 0 || len(kube.cancelled) != 1 {
+		t.Fatalf("stored=%#v workloads=%d cancels=%d err=%v", stored, len(kube.workloads), len(kube.cancelled), getErr)
+	}
+	if provider.mintCalls != 0 {
+		t.Fatalf("provider credential minted without builder capacity: %d", provider.mintCalls)
+	}
+}
+
 func TestControllerRetriesSameImmutableAttemptAndAdopts(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow

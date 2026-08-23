@@ -204,6 +204,7 @@ func storedAttemptDefinitions(definitions []BuildDefinition) []AttemptDefinition
 type fakeKubernetes struct {
 	mu           sync.Mutex
 	errorCount   int
+	capacityErr  error
 	cancelErrors int
 	mismatch     bool
 	state        WorkloadState
@@ -211,6 +212,8 @@ type fakeKubernetes struct {
 	workloads    []BuildWorkload
 	cancelled    []string
 }
+
+func (k *fakeKubernetes) BuilderCapacityReady(context.Context) error { return k.capacityErr }
 
 func (k *fakeKubernetes) Ensure(_ context.Context, workload BuildWorkload) (WorkloadObservation, error) {
 	k.mu.Lock()

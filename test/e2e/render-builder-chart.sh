@@ -39,6 +39,10 @@ yq eval-all 'true' "${kp_render}" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].namespace' "${kp_render}")" == "kuberploy-system" ]]
 [[ "$(yq eval-all 'select(.kind == "RoleBinding") | .subjects[0].name' "${kp_render}")" == "kuberploy-controller" ]]
 [[ "$(yq eval-all '[select(.kind == "RoleBinding") | .subjects[] | select(.name == "kuberploy-build-pod")] | length' "${kp_render}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all 'select(.kind == "ClusterRole" and .metadata.name == "kuberploy-builder-node-reader") | .rules[0].resources | join(",")' "${kp_render}")" == "nodes" ]]
+[[ "$(yq eval-all 'select(.kind == "ClusterRole" and .metadata.name == "kuberploy-builder-node-reader") | .rules[0].verbs | join(",")' "${kp_render}")" == "list" ]]
+[[ "$(yq eval-all 'select(.kind == "ClusterRoleBinding" and .metadata.name == "kuberploy-builder-node-reader") | .subjects[0].name' "${kp_render}")" == "kuberploy-controller" ]]
+[[ "$(yq eval-all 'select(.kind == "ClusterRoleBinding" and .metadata.name == "kuberploy-builder-node-reader") | .subjects[0].namespace' "${kp_render}")" == "kuberploy-system" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_render}" | tail -1)" == "2" ]]
 [[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "default-deny") | .spec.ingress | length' "${kp_render}")" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" or .kind == "ValidatingAdmissionPolicyBinding")] | length' "${kp_render}" | tail -1)" == "14" ]]
@@ -146,7 +150,7 @@ for kp_required in \
   "v.name == 'registry-push-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-push'" \
   "v.name == 'registry-cache-credentials' && v.mountPath == '/var/run/secrets/kuberploy/registry-cache'" \
   "!has(v.readOnly) || v.readOnly == false" \
-  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.326'" \
+  "c.image == 'registry.example.test/kuberploy/builder-agent:0.1.0-rc.327'" \
   "c.name == 'checkout'" \
   "c.name == 'dind'" \
   "c.command == ['/usr/local/bin/docker-init', '--', '/usr/local/bin/dockerd']" \

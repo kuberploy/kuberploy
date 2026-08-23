@@ -19,6 +19,7 @@ type sourceBuildRuntime struct {
 	store     *builds.PostgreSQLStore
 	gitSSH    *gitssh.PostgresRepository
 	runner    *builds.WorkerRunner
+	capacity  builds.BuilderCapacityProbe
 	identity  builds.SourceBuildRuntimeIdentity
 	workerID  string
 	startedAt time.Time
@@ -87,7 +88,7 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 			slog.Warn("GitHub source build worker iteration failed", "loop", loop, "error", err)
 		},
 	}
-	return &sourceBuildRuntime{store: store, gitSSH: gitSSHRepository, runner: runner, identity: runtimeIdentity,
+	return &sourceBuildRuntime{store: store, gitSSH: gitSSHRepository, runner: runner, capacity: kubernetes, identity: runtimeIdentity,
 		workerID: workerLeaseOwner(processIdentity, "runtime"), startedAt: time.Now().UTC()}, nil
 }
 
@@ -134,8 +135,9 @@ func (r *sourceBuildRuntime) heartbeat(ctx context.Context) error {
 }
 
 func (r *sourceBuildRuntime) observe(ctx context.Context, observedAt time.Time) error {
+	capacityReady := r.capacity != nil && r.capacity.BuilderCapacityReady(ctx) == nil
 	return r.store.ObserveSourceBuildWorker(ctx, builds.SourceBuildWorkerObservation{WorkerID: r.workerID,
-		SourceBuildRuntimeIdentity: r.identity, StartedAt: r.startedAt, ObservedAt: observedAt})
+		SourceBuildRuntimeIdentity: r.identity, BuilderCapacityReady: capacityReady, StartedAt: r.startedAt, ObservedAt: observedAt})
 }
 
 func (r *sourceBuildRuntime) Close() {

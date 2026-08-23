@@ -118,9 +118,10 @@ function renderPage(response: Capabilities) {
 }
 
 describe("source-build workspace", () => {
-  it("does not query build catalogs while runtime capabilities are false", async () => {
+  it("does not query build catalogs when the feature is disabled", async () => {
     renderPage({
       features: { githubAppSetup: false, builds: false, builder: false },
+      featureStates: { builds: "disabled", builder: "disabled" },
       capabilities: [
         {
           scopeType: "platform",
@@ -137,6 +138,38 @@ describe("source-build workspace", () => {
     expect(api.applications).not.toHaveBeenCalled();
     expect(api.buildDefinitions).not.toHaveBeenCalled();
     expect(api.buildAttempts).not.toHaveBeenCalled();
+  });
+
+  it("keeps immutable history readable when dedicated builder capacity is unavailable", async () => {
+    renderPage({
+      features: { githubAppSetup: false, builds: false, builder: false },
+      featureStates: { builds: "unavailable", builder: "unavailable" },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: [
+            "build-definitions:read",
+            "build-definitions:write",
+            "builds:read",
+          ],
+        },
+      ],
+    });
+
+    expect(
+      await screen.findByText("Builder runtime unavailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ready dedicated node labeled and tainted/),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Immutable history")).toBeInTheDocument();
+    expect(screen.getByText("Attempt history")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Create immutable definition" }),
+    ).not.toBeInTheDocument();
+    expect(api.buildDefinitions).toHaveBeenCalledWith("application-safe");
+    expect(api.buildAttempts).toHaveBeenCalledWith("application-safe", 50);
   });
 
   it("does not treat coarse unions or environment grants as build access", async () => {
