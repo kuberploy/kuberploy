@@ -221,7 +221,7 @@ export function HelmApplicationsPanel({
   const renderedPreview = useQuery({
     queryKey: ["helm-rendered-preview", ...target],
     queryFn: () => api.helmRenderedPreview(...target),
-    enabled: canRead,
+    enabled: canRead && head.data?.revision.desiredEnabled === true,
     retry: false,
   });
   const [selectedApprovalKey, setSelectedApprovalKey] = useState("");
@@ -619,6 +619,7 @@ export function HelmApplicationsPanel({
 
   if (!canRead) return null;
   const noHead = head.error instanceof ApiError && head.error.status === 404;
+  const desiredReleaseDisabled = head.data?.revision.desiredEnabled === false;
   const mutationError =
     mutationFeedback?.scopeKey === scopeKey ? mutationFeedback.error : null;
   const latestMutation =
@@ -868,9 +869,15 @@ export function HelmApplicationsPanel({
             <h2>Read-only preview</h2>
           </div>
         </div>
-        {renderedPreview.isPending ? <Skeleton lines={4} /> : null}
-        {renderedPreview.error instanceof ApiError &&
-        renderedPreview.error.status === 404 ? (
+        {desiredReleaseDisabled ? (
+          <EmptyState
+            title="Desired release disabled"
+            description="The latest immutable revision removed desired Helm state, so there is no current rendered inventory to preview. Roll back a published revision or create an update to enable it again."
+          />
+        ) : renderedPreview.isPending ? (
+          <Skeleton lines={4} />
+        ) : renderedPreview.error instanceof ApiError &&
+          renderedPreview.error.status === 404 ? (
           <EmptyState
             title="No rendered inventory"
             description="The current desired revision has not produced a verified redacted inventory yet."
@@ -881,7 +888,7 @@ export function HelmApplicationsPanel({
             onRetry={() => void renderedPreview.refetch()}
           />
         ) : null}
-        {renderedPreview.data ? (
+        {!desiredReleaseDisabled && renderedPreview.data ? (
           <div className="helm-values-preview">
             <p>
               Release revision{" "}

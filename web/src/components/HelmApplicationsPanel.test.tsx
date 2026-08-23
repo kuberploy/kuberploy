@@ -527,6 +527,24 @@ describe("Helm application panel", () => {
     expect(screen.queryByLabelText(/namespace/i)).not.toBeInTheDocument();
   });
 
+  it("shows an intentional empty preview for a disabled desired release", async () => {
+    vi.mocked(api.helmRelease).mockResolvedValue({
+      ...status,
+      revision: { ...revision, action: "disable", desiredEnabled: false },
+      phase: "published",
+      renderState: undefined,
+    });
+
+    renderPanel();
+
+    expect(await screen.findByText("Desired release disabled")).toBeVisible();
+    expect(
+      screen.getByText(/there is no current rendered inventory to preview/i),
+    ).toBeVisible();
+    expect(screen.queryByText("Could not load this view")).not.toBeInTheDocument();
+    expect(api.helmRenderedPreview).not.toHaveBeenCalled();
+  });
+
   it("explains the fail-closed recovery for an already-absent Application path", async () => {
     vi.mocked(api.helmRelease).mockResolvedValue({
       ...status,
