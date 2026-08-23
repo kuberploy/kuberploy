@@ -233,7 +233,7 @@ export function EnvironmentGitBindingPanel({
         <p className="muted-copy">
           This environment has no Git authority yet. An interactive project
           administrator with build-management permission must create it before
-          deployments can enter the protected GitOps path.
+          Apps can enter the protected GitOps path.
         </p>
       ) : (
         <form className="automation-create-form" onSubmit={submit}>

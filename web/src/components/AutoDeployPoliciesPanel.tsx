@@ -207,7 +207,7 @@ export function AutoDeployPoliciesPanel({
         !input.templateDeploymentId ||
         !input.serviceActorId
       )
-        throw new Error("Select an existing deployment configuration.");
+        throw new Error("Select an existing App configuration.");
       return api.createAutoDeployPolicy(
         input.applicationId,
         {
@@ -325,10 +325,10 @@ export function AutoDeployPoliciesPanel({
     <Card className="source-build-card">
       <div className="card__header card__header--inside">
         <div>
-          <span className="eyebrow">Automatic deployment</span>
+          <span className="eyebrow">Automatic App delivery</span>
           <h2>Verified build → pinned AppConfig</h2>
           <p>
-            Choose an exact deployment/config snapshot and project service
+            Choose an exact App configuration snapshot and Project service
             account identity. No token is created or stored. AppConfig or parent
             VariableSet drift pauses automation until you save a new revision.
           </p>
@@ -371,7 +371,7 @@ export function AutoDeployPoliciesPanel({
             </select>
           </label>
           <label className="field">
-            <span className="field__label">Pinned deployment config</span>
+            <span className="field__label">Pinned App configuration</span>
             <select
               value={deploymentId}
               onChange={(event) => setDeploymentId(event.target.value)}
@@ -422,7 +422,7 @@ export function AutoDeployPoliciesPanel({
                 />
                 <strong>{shortId(policy.buildDefinitionId, 12)}</strong>
                 <small>
-                  Revision {policy.currentRevision} · deployment{" "}
+                  Revision {policy.currentRevision} · runtime{" "}
                   {shortId(policy.current.sourceDeploymentId, 12)}
                 </small>
               </div>
@@ -475,7 +475,7 @@ export function AutoDeployPoliciesPanel({
       ) : (
         <EmptyState
           title="No auto-deploy policies"
-          description="Pin a verified build definition to an existing deployment configuration."
+          description="Pin a verified build definition to an existing App configuration."
         />
       )}
       {revise.error ? (
@@ -484,7 +484,7 @@ export function AutoDeployPoliciesPanel({
       {disableConfirmation ? (
         <ConfirmDialog
           title={`Disable auto-deploy policy ${disableConfirmation.id}?`}
-          description="Verified builds will stop creating deployment operations until this policy is enabled again."
+          description="Verified builds will stop creating App rollout operations until this policy is enabled again."
           confirmLabel="Disable policy"
           icon="close"
           busy={revise.isPending}

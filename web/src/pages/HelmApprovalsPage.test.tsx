@@ -158,15 +158,25 @@ describe("Helm approvals settings", () => {
     vi.spyOn(api, "platformHelmApprovals").mockResolvedValue({ items: [] });
     const create = vi
       .spyOn(api, "createPlatformHelmApproval")
-      .mockResolvedValue({} as Awaited<ReturnType<typeof api.createPlatformHelmApproval>>);
+      .mockResolvedValue(
+        {} as Awaited<ReturnType<typeof api.createPlatformHelmApproval>>,
+      );
     renderPage();
-    await user.selectOptions(await screen.findByLabelText(/^Chart source/), "helm-repository");
-    await user.type(screen.getByLabelText(/^Repository URL/), "https://charts.example.test/stable");
+    await user.selectOptions(
+      await screen.findByLabelText(/^Chart source/),
+      "helm-repository",
+    );
+    await user.type(
+      screen.getByLabelText(/^Repository URL/),
+      "https://charts.example.test/stable",
+    );
     await user.type(screen.getByLabelText(/^Chart name/), "sample");
     await user.type(screen.getByLabelText(/^Chart version/), "1.2.3");
     expect(screen.getByLabelText(/^manifest Digest/i)).not.toBeRequired();
     expect(screen.getByLabelText(/^package Digest/i)).not.toBeRequired();
-    await user.click(screen.getByRole("button", { name: "Create immutable approval" }));
+    await user.click(
+      screen.getByRole("button", { name: "Create immutable approval" }),
+    );
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
     expect(create.mock.calls[0]?.[0]).toMatchObject({
       sourceKind: "helm-repository",

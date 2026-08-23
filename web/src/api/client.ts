@@ -771,8 +771,12 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
     ...(definition.installationId
       ? { installationId: definition.installationId }
       : {}),
-    ...(definition.repositoryId ? { repositoryId: definition.repositoryId } : {}),
-    ...(definition.repositoryUrl ? { repositoryUrl: definition.repositoryUrl } : {}),
+    ...(definition.repositoryId
+      ? { repositoryId: definition.repositoryId }
+      : {}),
+    ...(definition.repositoryUrl
+      ? { repositoryUrl: definition.repositoryUrl }
+      : {}),
     ...(definition.gitSSHKeyScope
       ? { gitSSHKeyScope: definition.gitSSHKeyScope }
       : {}),
@@ -1741,7 +1745,11 @@ function safeCreateHelmApproval(value: CreateHelmApproval): CreateHelmApproval {
   };
   if (value.sourceKind === "oci") return { ...common, sourceKind: "oci" };
   if (value.sourceKind === "helm-repository") {
-    return { ...common, sourceKind: "helm-repository", chartName: value.chartName };
+    return {
+      ...common,
+      sourceKind: "helm-repository",
+      chartName: value.chartName,
+    };
   }
   return {
     ...common,

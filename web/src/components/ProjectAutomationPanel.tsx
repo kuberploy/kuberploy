@@ -69,13 +69,13 @@ const scopeFields: Array<{
     field: "appRead",
     value: "app.read",
     label: "Read applications",
-    description: "Projects, applications, deployments, status, and metrics.",
+    description: "Projects, Apps, runtime status, and metrics.",
   },
   {
     field: "appEdit",
     value: "app.edit",
     label: "Edit applications",
-    description: "Create deployments and update Git-backed configuration.",
+    description: "Deploy Apps and update Git-backed configuration.",
   },
   {
     field: "buildCreate",

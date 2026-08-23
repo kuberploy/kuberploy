@@ -126,8 +126,8 @@ export function UpgradePage() {
               {noStableRelease
                 ? "Stable release feed is empty."
                 : latest.error
-                ? errorMessage(latest.error)
-                : "No release returned."}
+                  ? errorMessage(latest.error)
+                  : "No release returned."}
             </p>
           </div>
         </Card>

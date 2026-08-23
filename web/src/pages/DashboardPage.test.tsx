@@ -48,6 +48,12 @@ describe("dashboard platform health", () => {
     const health = await screen.findByRole("region", {
       name: "Platform health",
     });
+    expect(screen.getByText("App instances")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Recent Apps" }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("No Apps running yet")).toBeInTheDocument();
+    expect(screen.queryByText("Deployments")).toBeNull();
     await waitFor(() => {
       expect(health).toHaveTextContent("GitOpsHealthy");
       expect(health).toHaveTextContent("Argo CDUnavailable");

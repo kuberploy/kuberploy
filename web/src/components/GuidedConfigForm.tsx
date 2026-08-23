@@ -1226,15 +1226,15 @@ export function GuidedConfigForm({
                       {!selectedDNSIntegration
                         ? "Select an External DNS integration"
                         : selectedDNSIntegrationReady
-                        ? "External DNS revision is ready"
-                        : "External DNS runtime is not ready"}
+                          ? "External DNS revision is ready"
+                          : "External DNS runtime is not ready"}
                     </strong>
                     <p>
                       {!selectedDNSIntegration
                         ? "Choose one authorized integration before previewing or saving automatic DNS."
                         : selectedDNSIntegrationReady
-                        ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
-                        : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
+                          ? "The selected revision is protected-Git materialized and freshly observed. Preview and save revalidate this exact slug, hostname, and runtime boundary."
+                          : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
                     </p>
                   </div>
                 </div>

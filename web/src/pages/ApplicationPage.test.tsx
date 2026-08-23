@@ -124,6 +124,9 @@ describe("application rollout truth", () => {
 
     renderApplication({ features: {}, capabilities: [] });
 
+    expect(await screen.findByText("App runtime")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /New deployment/i })).toBeNull();
+
     const observed = (await screen.findByText("Observed revision"))
       .parentElement;
     expect(observed).toHaveTextContent(authoritativeRevision);

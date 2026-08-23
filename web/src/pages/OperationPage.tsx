@@ -55,9 +55,7 @@ export function OperationPage() {
       <PageHeader
         eyebrow="Durable operation"
         title={
-          operation.data
-            ? titleCase(operation.data.kind)
-            : "Deployment operation"
+          operation.data ? titleCase(operation.data.kind) : "App operation"
         }
         description="Acceptance, Git mutation, Argo reconciliation, and rollout are separate stages. This page never calls a queued operation complete early."
         actions={
@@ -154,7 +152,7 @@ export function OperationPage() {
                 params={{ applicationId, deploymentId }}
                 className="button button--primary"
               >
-                Open deployment <Icon name="arrow" />
+                Open App <Icon name="arrow" />
               </Link>
             ) : null}
           </div>

@@ -484,7 +484,7 @@ export function ProjectsPage() {
                       <dd>{projectEnvironments.length}</dd>
                     </div>
                     <div>
-                      <dt>Deployments</dt>
+                      <dt>App instances</dt>
                       <dd>
                         {deployments.data?.items.filter((deployment) =>
                           projectApplications.some(

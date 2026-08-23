@@ -256,7 +256,7 @@ export function ApplicationOverviewPage() {
       <PageHeader
         eyebrow={project.name}
         title={application.data.name}
-        description="Manage this App's source, runtime image access, and environment deployments."
+        description="Manage this App's source, runtime image access, and Environment instances."
         actions={
           <Link
             to="/projects/$projectId"
@@ -323,11 +323,9 @@ export function ApplicationOverviewPage() {
                 <Icon name="deploy" />
               </span>
               <div>
-                <small>Deployments</small>
+                <small>App instances</small>
                 <strong>{applicationDeployments.length}</strong>
-                <Link to="/deploy" className="text-link">
-                  New deployment <Icon name="arrow" />
-                </Link>
+                <span>Created from an Environment</span>
               </div>
             </Card>
           </section>
@@ -336,24 +334,12 @@ export function ApplicationOverviewPage() {
             <div className="section-heading">
               <div>
                 <span className="eyebrow">Environments</span>
-                <h2>Deployments</h2>
+                <h2>Environment instances</h2>
                 <p>
-                  Open an environment deployment to manage configuration,
-                  releases, logs, and metrics.
+                  Open an App instance to manage configuration, releases, logs,
+                  and metrics.
                 </p>
               </div>
-              <Link
-                to="/deploy"
-                search={{
-                  projectId: project.id,
-                  environmentId:
-                    routeEnvironmentId || applicationEnvironments[0]?.id,
-                  applicationId: application.data.id,
-                }}
-                className="button button--primary"
-              >
-                <Icon name="plus" /> Deploy App
-              </Link>
             </div>
             {applicationDeployments.length ? (
               <div className="deployment-card-grid">
@@ -379,7 +365,7 @@ export function ApplicationOverviewPage() {
                         {compactImageReference(deployment.image)}
                       </strong>
                       <span>
-                        Open deployment <Icon name="arrow" />
+                        Open App <Icon name="arrow" />
                       </span>
                     </Link>
                   );
@@ -389,8 +375,8 @@ export function ApplicationOverviewPage() {
               <EmptyState
                 compact
                 icon="deploy"
-                title="No deployment yet"
-                description="Choose a source, then deploy this App to an environment."
+                title="No App instance yet"
+                description="Open an Environment and use Add App to create its stopped draft."
                 action={
                   <button
                     className="button button--secondary"
@@ -410,7 +396,7 @@ export function ApplicationOverviewPage() {
           <div className="application-source-card__header">
             <div>
               <span className="eyebrow">App setup</span>
-              <h2>Deployment source</h2>
+              <h2>App source</h2>
               <p>Choose how Kuberploy should deliver this App.</p>
             </div>
           </div>
@@ -516,7 +502,7 @@ export function ApplicationOverviewPage() {
             <EmptyState
               icon="deploy"
               title="Deploy an existing image"
-              description="Use a public image or select a project pull credential, then configure its deployment. Image tags are resolved to an immutable digest before saving."
+              description="Use a public image or select a Project pull credential, then configure the App runtime. Image tags are resolved to an immutable digest before saving."
               action={
                 <Link
                   to="/deploy"
@@ -528,7 +514,7 @@ export function ApplicationOverviewPage() {
                   }}
                   className="button button--primary"
                 >
-                  Configure image deployment <Icon name="arrow" />
+                  Configure OCI App <Icon name="arrow" />
                 </Link>
               }
             />
@@ -600,7 +586,7 @@ export function ApplicationOverviewPage() {
           ) : (
             <EmptyState
               title="Select an environment"
-              description="No dummy deployment is required; selecting the target environment is enough to configure Helm desired state."
+              description="No placeholder workload is required; selecting the target Environment is enough to configure Helm desired state."
             />
           )}
         </div>

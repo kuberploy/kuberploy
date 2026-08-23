@@ -19,9 +19,8 @@ export function HelmApprovalsPage() {
   const client = useQueryClient();
   const form = useRef<HTMLFormElement>(null);
   const replayKey = useRef(crypto.randomUUID());
-  const [sourceKind, setSourceKind] = useState<
-    CreateHelmApproval["sourceKind"]
-  >("oci");
+  const [sourceKind, setSourceKind] =
+    useState<CreateHelmApproval["sourceKind"]>("oci");
   const principal = useQuery({
     queryKey: ["me"],
     queryFn: api.me,
@@ -52,7 +51,10 @@ export function HelmApprovalsPage() {
       const current = form.current
         ? new FormData(form.current)
         : new FormData();
-      const submitted = input.input as unknown as Record<string, string | undefined>;
+      const submitted = input.input as unknown as Record<
+        string,
+        string | undefined
+      >;
       const sameDraft = [
         "repository",
         "version",
@@ -62,7 +64,10 @@ export function HelmApprovalsPage() {
         "manifestDigest",
         "packageDigest",
         "valuesSchemaDigest",
-      ].every((field) => String(current.get(field) ?? "") === String(submitted[field] ?? ""));
+      ].every(
+        (field) =>
+          String(current.get(field) ?? "") === String(submitted[field] ?? ""),
+      );
       if (sameDraft) {
         form.current?.reset();
         replayKey.current = crypto.randomUUID();
@@ -116,8 +121,10 @@ export function HelmApprovalsPage() {
             const common = {
               repository: String(data.get("repository") ?? ""),
               version: String(data.get("version") ?? ""),
-              manifestDigest: String(data.get("manifestDigest") ?? "") || undefined,
-              packageDigest: String(data.get("packageDigest") ?? "") || undefined,
+              manifestDigest:
+                String(data.get("manifestDigest") ?? "") || undefined,
+              packageDigest:
+                String(data.get("packageDigest") ?? "") || undefined,
               valuesSchemaDigest:
                 String(data.get("valuesSchemaDigest") ?? "") || undefined,
             };
@@ -148,7 +155,9 @@ export function HelmApprovalsPage() {
               name="sourceKind"
               value={sourceKind}
               onChange={(event) =>
-                setSourceKind(event.target.value as CreateHelmApproval["sourceKind"])
+                setSourceKind(
+                  event.target.value as CreateHelmApproval["sourceKind"],
+                )
               }
             >
               <option value="oci">OCI registry</option>
@@ -200,7 +209,12 @@ export function HelmApprovalsPage() {
                 />
               </Field>
               <Field label="Chart path" required>
-                <input name="chartPath" maxLength={512} required placeholder="charts/service" />
+                <input
+                  name="chartPath"
+                  maxLength={512}
+                  required
+                  placeholder="charts/service"
+                />
               </Field>
             </>
           ) : null}
@@ -270,8 +284,8 @@ export function HelmApprovalsPage() {
                   {approval.chartName} · {approval.version}
                 </strong>
                 <small>
-                  {approval.sourceKind} · {approval.repository} · Approval {approval.revision} ·{" "}
-                  {formatDate(approval.createdAt)}
+                  {approval.sourceKind} · {approval.repository} · Approval{" "}
+                  {approval.revision} · {formatDate(approval.createdAt)}
                 </small>
                 <small>
                   Manifest <code>{approval.manifestDigest}</code>

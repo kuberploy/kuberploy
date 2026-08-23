@@ -325,8 +325,9 @@ export function BuildDetailPage() {
           <span className="eyebrow">Verified release</span>
           <h2>Promote to an environment</h2>
           <p>
-            Select only deployment intent. Application, project, namespace,
-            registry release, and immutable image are derived by the server.
+            Select only the intended App target. Application, project,
+            namespace, registry release, and immutable image are derived by the
+            server.
           </p>
         </div>
         <BuildPromotionPanel

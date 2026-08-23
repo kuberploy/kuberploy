@@ -178,9 +178,7 @@ describe("deployment runtime panel", () => {
 
     render(panel(), { wrapper: wrapper() });
 
-    expect(
-      await screen.findByText("No deployment workload"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("No App runtime")).toBeInTheDocument();
     expect(logs).not.toHaveBeenCalled();
     expect(events).not.toHaveBeenCalled();
   });

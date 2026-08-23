@@ -214,9 +214,9 @@ describe("runtime-secret reference picker", () => {
     ).toBeDisabled();
     await userEvent.setup().selectOptions(bindingSelect, `${binding.id}@4`);
     await waitFor(() =>
-      expect(screen.getByLabelText("Secret variable 1 version")).toHaveTextContent(
-        "v4",
-      ),
+      expect(
+        screen.getByLabelText("Secret variable 1 version"),
+      ).toHaveTextContent("v4"),
     );
     expect(
       screen.getByRole("combobox", { name: "Secret variable 1 key" }),

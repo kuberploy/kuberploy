@@ -71,7 +71,7 @@ export function ConfigEditor({
     deploymentEnvironment,
   );
   const middlewareEditingUnavailableReason = !canWriteConfig
-    ? "You need an effective deployment configuration write capability covering this application and environment. The current definitions remain inspectable."
+    ? "You need effective App configuration write access covering this App and Environment. The current definitions remain inspectable."
     : capabilities.data?.features?.traefikMiddlewares !== true
       ? "The platform has not reported the Traefik middleware runtime capability ready. Existing YAML remains visible and Advanced YAML continues to use the AppConfig contract."
       : undefined;
@@ -313,8 +313,8 @@ export function ConfigEditor({
             <strong>Configuration is read-only</strong>
             <p>
               You can inspect Guided and Advanced YAML safely, but preview and
-              commit require an effective deployment configuration write
-              capability at a covering scope.
+              commit require effective App configuration write capability at a
+              covering scope.
             </p>
           </div>
           <PlaceholderBadge>Read-only</PlaceholderBadge>

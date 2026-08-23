@@ -120,12 +120,14 @@ describe("typed API client", () => {
   });
 
   it("sends the current Git bundle ETag for an existing deployment update", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({ id: "op_etag", kind: "deploy", state: "queued" }),
-        { status: 202, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ id: "op_etag", kind: "deploy", state: "queued" }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
     const etag = `"sha256:${"b".repeat(64)}"`;
 
@@ -154,7 +156,11 @@ describe("typed API client", () => {
   it("sends the current Git bundle ETag for a rollback intent", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
-        JSON.stringify({ id: "op_rollback", kind: "deploy", state: "queued" }),
+        JSON.stringify({
+          id: "op_rollback",
+          kind: "deploy",
+          state: "queued",
+        }),
         { status: 202, headers: { "Content-Type": "application/json" } },
       ),
     );

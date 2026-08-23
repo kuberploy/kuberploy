@@ -19,7 +19,10 @@ const lookbackChoices = [
 const maximumVisibleLines = 2_000;
 
 function unavailableDescription(error: unknown) {
-  if (error instanceof ApiError && (error.status === 404 || error.status === 410)) {
+  if (
+    error instanceof ApiError &&
+    (error.status === 404 || error.status === 410)
+  ) {
     return "The live build source has ended or was removed. Terminal build metadata remains available.";
   }
   return "The exact live builder source could not be verified. Terminal build metadata remains available.";

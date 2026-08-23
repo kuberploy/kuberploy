@@ -377,7 +377,7 @@ export function RegistryPullCredentialsPanel({
       {credentialToRemove ? (
         <ConfirmDialog
           title={`Remove project pull credential ${credentialToRemove.name}?`}
-          description="Services will no longer be able to select this credential."
+          description="Apps will no longer be able to select this credential."
           confirmLabel="Remove credential"
           icon="close"
           busy={remove.isPending}

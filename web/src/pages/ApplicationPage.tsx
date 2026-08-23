@@ -194,21 +194,14 @@ export function ApplicationPage() {
         <span>{application.data?.name ?? "Application"}</span>
       </div>
       <PageHeader
-        eyebrow="Application deployment"
+        eyebrow="App runtime"
         title={application.data?.name ?? "Loading application"}
         description={
           deployment.data
-            ? `${deployment.data.image ?? deployment.data.source?.reference ?? "Image resolving"} · deployment ${shortId(deployment.data.id)}`
+            ? `${deployment.data.image ?? deployment.data.source?.reference ?? "Image resolving"} · runtime ${shortId(deployment.data.id)}`
             : "Loading immutable release identity…"
         }
-        actions={
-          <>
-            <StatusPill value={health} />
-            <Link to="/deploy" className="button button--secondary">
-              <Icon name="deploy" /> New deployment
-            </Link>
-          </>
-        }
+        actions={<StatusPill value={health} />}
       />
 
       {loadError ? (
@@ -402,7 +395,7 @@ export function ApplicationPage() {
                   </div>
                   <OperationTimeline
                     operations={relatedOperations.slice(0, 4)}
-                    empty="No operation has been correlated with this deployment yet."
+                    empty="No operation has been correlated with this App runtime yet."
                   />
                 </Card>
               </div>
@@ -461,7 +454,7 @@ export function ApplicationPage() {
               </div>
               <OperationTimeline
                 operations={relatedOperations}
-                empty="No release operations are indexed for this deployment."
+                empty="No release operations are indexed for this App runtime."
               />
               {helmEnvironment ? (
                 <DeploymentRollbackPanel

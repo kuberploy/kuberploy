@@ -212,7 +212,7 @@ export function AuthScreen({
             A self-hosted control plane for immutable releases, explicit routes,
             and an honest view of what Argo CD is doing.
           </p>
-          <div className="auth-flow" aria-label="Kuberploy deployment flow">
+          <div className="auth-flow" aria-label="Kuberploy App delivery flow">
             <span>OCI image</span>
             <Icon name="arrow" />
             <span>Git commit</span>

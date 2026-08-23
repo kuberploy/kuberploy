@@ -282,7 +282,7 @@ export function EnvironmentPage() {
                     <strong>{placement.applicationName}</strong>
                     <small>
                       {appDeployments.length
-                        ? `${appDeployments.length} deployment${appDeployments.length === 1 ? "" : "s"} in ${environment.data.name}`
+                        ? `${appDeployments.length} running instance${appDeployments.length === 1 ? "" : "s"} in ${environment.data.name}`
                         : `Stopped draft · review settings before start`}
                     </small>
                   </div>

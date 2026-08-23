@@ -155,7 +155,7 @@ These are code boundaries, not necessarily separate microservices in the MVP.
 
 | Component | Responsibilities | Explicitly does not do |
 |---|---|---|
-| Web UI | Product forms, Git diff preview, build/deployment timeline, logs and health through a generated public-API client | Hold Kubernetes or Git credentials or call private mutation endpoints |
+| Web UI | Product forms, Git diff preview, App delivery timeline, logs and health through a generated public-API client | Hold Kubernetes or Git credentials or call private mutation endpoints |
 | API and command service | Authentication, RBAC, contract-conformant validation, idempotency and async operation creation | Apply application manifests directly |
 | API contract publisher | Serve bundled OpenAPI documents, interactive Swagger UI, agent profile, workflow descriptions and human guides from the running release | Maintain a second hand-written API model or weaken runtime authorization |
 | Webhook receiver | HMAC validation, delivery deduplication and fast enqueue | Perform a build synchronously |
@@ -2331,13 +2331,13 @@ Create project and environment
 - Approved external Helm Apps receive one raw values YAML editor with schema
   diagnostics and a redacted read-only rendered-manifests preview in P0.
 - Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned immutable ConfigMaps, plus container port, replicas, CPU/memory and health probes.
-- Per-service resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
+- Per-App resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
 - Write-only versioned runtime-secret creation/rotation with strict Sealed Secrets, exact binding/application scope, environment/file delivery, readiness-gated rollout and metadata-only UI/API reads; External Secrets remains unavailable until an audited concrete remote material writer exists.
 - Managed or adopted Traefik with generated/custom domains, server-derived `sslip.io` convenience hostnames, and explicit HTTP-only, Let's Encrypt, or custom-certificate mode per route.
 - Optional external-dns configuration page with provider/zone/ownership controls and a per-route automatic/manual DNS toggle.
 - UI-managed reusable Traefik middlewares with ordered route chains, typed forms and policy-checked expert configuration.
-- Build logs, per-Pod/container logs, Deployment-wide merged log streaming, Kubernetes events, deployment history, cancel and retry.
-- Managed `kube-prometheus-stack`, an existing Prometheus-compatible endpoint, or disabled mode, with application/service, namespace and platform-admin global dashboards.
+- Build logs, per-Pod/container logs, App-wide merged log streaming, Kubernetes events, rollout history, cancel and retry.
+- Managed `kube-prometheus-stack`, an existing Prometheus-compatible endpoint, or disabled mode, with App, namespace and platform-admin global dashboards.
 - Viewer/developer/project-admin/organization-admin/platform-admin grants assignable across multiple projects, environments, namespaces and applications; platform admin sees all.
 - Read-only release inspection in the UI, with operator-owned `kuberploy-installer` Helm upgrade/rollback and exact enabled-Argo-Application revision, sync and health gates. Kuberploy never retains cluster-wide Helm mutation authority or imperatively mutates an Argo-owned child.
 - Namespace isolation, quotas, network policies and an audit timeline.

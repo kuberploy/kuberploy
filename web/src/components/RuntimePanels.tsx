@@ -155,7 +155,7 @@ function LogSourceFilters({
       <PlaceholderBadge>
         {filters.pod || filters.revision || filters.container
           ? "Exact source view"
-          : "Merged deployment view"}
+          : "Merged App view"}
       </PlaceholderBadge>
     </div>
   );
@@ -230,7 +230,7 @@ export function LogsPanel({
       <div className="card__header card__header--inside">
         <div>
           <span className="eyebrow">Kubernetes live source</span>
-          <h2>Deployment logs</h2>
+          <h2>App logs</h2>
         </div>
         <PlaceholderBadge>
           {workloads.isPending
@@ -241,7 +241,7 @@ export function LogsPanel({
         </PlaceholderBadge>
       </div>
       <p className="panel-description">
-        Deployment-wide logs and events are scoped through the Kuberploy API.
+        App-wide logs and events are scoped through the Kuberploy API.
         Kubernetes live mode does not promise retention after Pod deletion or
         log rotation.
       </p>
@@ -254,15 +254,15 @@ export function LogsPanel({
             workloads.error
               ? "Logs unavailable"
               : runtimeInventoryMissing
-                ? "Deployment workload unavailable"
-                : "No deployment workload"
+                ? "App runtime unavailable"
+                : "No App runtime"
           }
           description={
             workloads.error
-              ? "The scoped log gateway is not ready for this deployment. The workload continues running."
+              ? "The scoped log gateway is not ready for this App. The workload continues running."
               : runtimeInventoryMissing
-                ? "The selected deployment was not returned by the scoped runtime inventory. No other workload was selected as a fallback."
-                : "The application has no deployment workload available for a bounded runtime snapshot."
+                ? "The selected App runtime was not returned by the scoped runtime inventory. No other workload was selected as a fallback."
+                : "The App has no workload available for a bounded runtime snapshot."
           }
           action={
             <PlaceholderBadge>
@@ -311,7 +311,7 @@ export function LogsPanel({
                     ? "Exact Pod snapshot"
                     : hasLogFilter
                       ? "Source-filtered snapshot"
-                      : "Deployment-wide snapshot"}
+                      : "App-wide snapshot"}
                 </h3>
               </div>
               {logs.data ? (
@@ -327,7 +327,7 @@ export function LogsPanel({
               <EmptyState
                 icon="logs"
                 title="Logs unavailable"
-                description="The scoped log gateway is not ready for this deployment. The workload continues running."
+                description="The scoped log gateway is not ready for this App. The workload continues running."
                 action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
                 compact
               />
@@ -341,7 +341,7 @@ export function LogsPanel({
                   <div
                     className="log-viewer"
                     role="log"
-                    aria-label="Deployment log snapshot"
+                    aria-label="App log snapshot"
                   >
                     {lines.map((line, index) => (
                       <div
@@ -379,7 +379,7 @@ export function LogsPanel({
                   <EmptyState
                     icon="logs"
                     title="No log lines yet"
-                    description="The deployment returned an empty bounded snapshot. Sources are shown above when Kubernetes reported them."
+                    description="The App returned an empty bounded snapshot. Sources are shown above when Kubernetes reported them."
                     action={<PlaceholderBadge>No data</PlaceholderBadge>}
                     compact
                   />
@@ -407,7 +407,7 @@ export function LogsPanel({
               <EmptyState
                 icon="deploy"
                 title="Kubernetes events unavailable"
-                description="The scoped event gateway could not return this deployment snapshot. The workload continues running."
+                description="The scoped event gateway could not return this App snapshot. The workload continues running."
                 action={<PlaceholderBadge>API unavailable</PlaceholderBadge>}
                 compact
               />
@@ -467,7 +467,7 @@ export function LogsPanel({
               <EmptyState
                 icon="deploy"
                 title="No Kubernetes events"
-                description="The deployment, its ReplicaSets, and exact Pods returned no events in this bounded snapshot."
+                description="The App workload, its ReplicaSets, and exact Pods returned no events in this bounded snapshot."
                 action={<PlaceholderBadge>No data</PlaceholderBadge>}
                 compact
               />
@@ -603,7 +603,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
       <div className="metrics-panel__head">
         <div>
           <span className="eyebrow">Scoped Prometheus gateway</span>
-          <h2>Service metrics</h2>
+          <h2>App metrics</h2>
           <p>
             Named, bounded queries only. Tenant users never receive arbitrary
             PromQL access.

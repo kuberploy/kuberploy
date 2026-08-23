@@ -684,7 +684,7 @@ describe("new deployment runtime controls", () => {
     );
     const submit = screen.getByRole("button", { name: /commit & deploy/i });
     await user.click(submit);
-    await screen.findByText("Deployment was not accepted");
+    await screen.findByText("App could not be deployed");
     await user.click(submit);
 
     await waitFor(() => expect(createDeployment).toHaveBeenCalledTimes(2));

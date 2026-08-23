@@ -1139,7 +1139,7 @@ export function InstallationSharingConfirmation({
             onChange={(event) => setConfirmed(event.target.checked)}
           />
           <span>
-            I understand this changes repository deployment access for the exact
+            I understand this changes repository App-source access for the exact
             GitHub App installation and team shown above.
           </span>
         </label>

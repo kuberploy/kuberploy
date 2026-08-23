@@ -124,7 +124,7 @@ function mutationNotice(result?: HelmMutationResult) {
         </strong>
         <p>
           Revision {result.revision.generation} is durable and pending protected
-          processing; it is not an observed deployment result.
+          processing; it is not an observed runtime result.
         </p>
       </div>
     </div>

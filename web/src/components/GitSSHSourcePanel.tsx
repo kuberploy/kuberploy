@@ -80,7 +80,8 @@ export function GitSSHSourcePanel({
   const activeDefinition = useMemo(
     () =>
       definitions.data?.items.find(
-        (definition) => definition.sourceKind === "git_ssh" && definition.enabled,
+        (definition) =>
+          definition.sourceKind === "git_ssh" && definition.enabled,
       ),
     [definitions.data?.items],
   );
@@ -170,7 +171,8 @@ export function GitSSHSourcePanel({
       }
       const port = parsed.port || "22";
       if (!registryTargetID) throw new Error("Select a registry target.");
-      if (!hostKey.trim()) throw new Error("Paste the provider SSH host public key.");
+      if (!hostKey.trim())
+        throw new Error("Paste the provider SSH host public key.");
       createDefinition.mutate({
         sourceKind: "git_ssh",
         repositoryUrl: parsed.toString(),
@@ -197,7 +199,9 @@ export function GitSSHSourcePanel({
         maxAttempts: 3,
       });
     } catch (error) {
-      setFormError(error instanceof Error ? error.message : "Invalid Git SSH source.");
+      setFormError(
+        error instanceof Error ? error.message : "Invalid Git SSH source.",
+      );
     }
   };
 
@@ -207,7 +211,10 @@ export function GitSSHSourcePanel({
       setFormError("Enter the exact lowercase 40-character commit SHA.");
       return;
     }
-    createBuild.mutate({ definitionId: activeDefinition.id, commitSha: commit });
+    createBuild.mutate({
+      definitionId: activeDefinition.id,
+      commitSha: commit,
+    });
   };
 
   if (!enabled) {
@@ -327,7 +334,10 @@ export function GitSSHSourcePanel({
               />
             </Field>
             <Field label="Branch" required>
-              <input value={branch} onChange={(event) => setBranch(event.target.value)} />
+              <input
+                value={branch}
+                onChange={(event) => setBranch(event.target.value)}
+              />
             </Field>
             <Field label="Registry target" required>
               <select
@@ -343,10 +353,16 @@ export function GitSSHSourcePanel({
               </select>
             </Field>
             <Field label="Build context" required>
-              <input value={contextPath} onChange={(event) => setContextPath(event.target.value)} />
+              <input
+                value={contextPath}
+                onChange={(event) => setContextPath(event.target.value)}
+              />
             </Field>
             <Field label="Dockerfile" required>
-              <input value={dockerfilePath} onChange={(event) => setDockerfilePath(event.target.value)} />
+              <input
+                value={dockerfilePath}
+                onChange={(event) => setDockerfilePath(event.target.value)}
+              />
             </Field>
           </div>
           <Field
@@ -366,7 +382,8 @@ export function GitSSHSourcePanel({
             disabled={!registryTargets.length}
             onClick={submitDefinition}
           >
-            <Icon name="plus" /> {activeDefinition ? "Replace binding" : "Create binding"}
+            <Icon name="plus" />{" "}
+            {activeDefinition ? "Replace binding" : "Create binding"}
           </Button>
         </section>
       ) : null}
@@ -392,9 +409,21 @@ export function GitSSHSourcePanel({
           </Button>
         </section>
       ) : null}
-      {formError ? <ErrorPanel error={new Error(formError)} title="Git SSH source is invalid" /> : null}
-      {createDefinition.error ? <ErrorPanel error={createDefinition.error} title="Git SSH binding failed" /> : null}
-      {createBuild.error ? <ErrorPanel error={createBuild.error} title="Git SSH build failed" /> : null}
+      {formError ? (
+        <ErrorPanel
+          error={new Error(formError)}
+          title="Git SSH source is invalid"
+        />
+      ) : null}
+      {createDefinition.error ? (
+        <ErrorPanel
+          error={createDefinition.error}
+          title="Git SSH binding failed"
+        />
+      ) : null}
+      {createBuild.error ? (
+        <ErrorPanel error={createBuild.error} title="Git SSH build failed" />
+      ) : null}
       <div className="notice">
         <div>
           <strong>Next: authorize and verify the repository</strong>

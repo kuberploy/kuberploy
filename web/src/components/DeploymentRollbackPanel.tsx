@@ -185,7 +185,7 @@ export function DeploymentRollbackPanel({
           <div>
             <strong>Confirm generation {selected.generation}</strong>
             <p>
-              A new deployment operation will reconstruct only server-owned
+              A new App rollout operation will reconstruct only server-owned
               history from <code>{selected.sourceOperationId}</code>.
             </p>
             <label className="checkbox-row">

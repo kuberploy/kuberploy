@@ -290,8 +290,8 @@ function VariableSetEditor({
         </div>
       ) : (
         <p className="muted-copy">
-          Read-only: an exact scoped deployment configuration write capability
-          and interactive session are required to preview or save this source.
+          Read-only: exact scoped App configuration write access and interactive
+          session are required to preview or save this source.
         </p>
       )}
       {previewError ? (

@@ -35,8 +35,9 @@ export function hasHelmCapability(
   return capabilities.some((capability) => {
     const actionAllowed =
       capability.actions?.includes(action) === true ||
-      apiActions[action]?.every((item) => capability.actions?.includes(item)) ===
-        true;
+      apiActions[action]?.every((item) =>
+        capability.actions?.includes(item),
+      ) === true;
     if (!actionAllowed) return false;
     switch (capability.scopeType) {
       case "platform":

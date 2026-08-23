@@ -160,7 +160,11 @@ describe("Git SSH source key scope", () => {
       sshFiles: [],
       cacheTrustLane: "protected",
       cacheImports: 2,
-      profile: { resource: "standard", timeoutSeconds: 900, egress: "registry-and-source" },
+      profile: {
+        resource: "standard",
+        timeoutSeconds: 900,
+        egress: "registry-and-source",
+      },
       maxAttempts: 3,
       definitionDigest: `sha256:${"a".repeat(64)}`,
       definitionGeneration: 1,
@@ -175,20 +179,22 @@ describe("Git SSH source key scope", () => {
     const createDefinition = vi
       .spyOn(api, "createBuildDefinition")
       .mockResolvedValue(activeDefinition);
-    const createBuild = vi.spyOn(api, "createManualBuildAttempt").mockResolvedValue({
-      id: "attempt-1",
-      definitionId: activeDefinition.id,
-      projectId: project.id,
-      applicationId: application.id,
-      commitSha: "b".repeat(40),
-      gitRef: "refs/heads/main",
-      generation: 1,
-      state: "queued",
-      executionAttempts: 0,
-      maxAttempts: 3,
-      createdAt: "2026-08-23T00:00:00Z",
-      updatedAt: "2026-08-23T00:00:00Z",
-    });
+    const createBuild = vi
+      .spyOn(api, "createManualBuildAttempt")
+      .mockResolvedValue({
+        id: "attempt-1",
+        definitionId: activeDefinition.id,
+        projectId: project.id,
+        applicationId: application.id,
+        commitSha: "b".repeat(40),
+        gitRef: "refs/heads/main",
+        generation: 1,
+        state: "queued",
+        executionAttempts: 0,
+        maxAttempts: 3,
+        createdAt: "2026-08-23T00:00:00Z",
+        updatedAt: "2026-08-23T00:00:00Z",
+      });
     render(
       <GitSSHSourcePanel
         application={application}
@@ -211,9 +217,18 @@ describe("Git SSH source key scope", () => {
       { wrapper: wrapper() },
     );
 
-    await user.type(await screen.findByLabelText(/^Repository URL/), "ssh://git@git.example.test/team/repository.git");
-    await user.selectOptions(screen.getByLabelText(/^Registry target/), "registry-1");
-    await user.type(screen.getByLabelText(/^SSH host public key/), "ssh-ed25519 AAAAHOST");
+    await user.type(
+      await screen.findByLabelText(/^Repository URL/),
+      "ssh://git@git.example.test/team/repository.git",
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/^Registry target/),
+      "registry-1",
+    );
+    await user.type(
+      screen.getByLabelText(/^SSH host public key/),
+      "ssh-ed25519 AAAAHOST",
+    );
     await user.click(screen.getByRole("button", { name: /Replace binding/ }));
     await waitFor(() => expect(createDefinition).toHaveBeenCalled());
     expect(createDefinition.mock.calls[0]?.[1]).toMatchObject({
@@ -221,14 +236,20 @@ describe("Git SSH source key scope", () => {
       repositoryUrl: "ssh://git@git.example.test/team/repository.git",
       gitSSHKeyScope: "app",
       gitSSHKeyRevision: 2,
-      hostKeyPins: [{ endpoint: "git.example.test:22", publicKey: "ssh-ed25519 AAAAHOST" }],
+      hostKeyPins: [
+        { endpoint: "git.example.test:22", publicKey: "ssh-ed25519 AAAAHOST" },
+      ],
     });
 
     const commit = "b".repeat(40);
     await user.type(screen.getByLabelText(/^Commit SHA/), commit);
     await user.click(screen.getByRole("button", { name: "Build commit" }));
     await waitFor(() =>
-      expect(createBuild).toHaveBeenCalledWith(activeDefinition.id, commit, expect.any(String)),
+      expect(createBuild).toHaveBeenCalledWith(
+        activeDefinition.id,
+        commit,
+        expect.any(String),
+      ),
     );
   });
 });

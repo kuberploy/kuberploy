@@ -559,7 +559,7 @@ export function NewDeploymentPage() {
     }) => {
       if (!gitOpsReady) {
         throw new Error(
-          "Protected Git and Argo CD must both report fresh readiness before a deployment can be committed.",
+          "Protected Git and Argo CD must both report fresh readiness before an App can be deployed.",
         );
       }
       if (
@@ -623,13 +623,11 @@ export function NewDeploymentPage() {
           !sslipHostname.data?.hostname)
       ) {
         throw new Error(
-          "A fresh server-derived sslip.io hostname preview is required before deployment.",
+          "A fresh server-derived sslip.io hostname preview is required before deploying the App.",
         );
       }
       if (values.applicationMode !== "existing" || !values.applicationId) {
-        throw new Error(
-          "Create or select the application identity before committing a deployment.",
-        );
+        throw new Error("Create or select the App identity before deployment.");
       }
       const applicationId = values.applicationId;
       const env = [
@@ -966,7 +964,7 @@ export function NewDeploymentPage() {
                   <p className="muted-copy">
                     This creates a recoverable application record, not a
                     workload. It remains available from Projects even if you
-                    leave this deployment wizard.
+                    leave this App setup.
                   </p>
                 </div>
               </div>
@@ -1154,7 +1152,7 @@ export function NewDeploymentPage() {
             </Field>
             {imageIsTag ? (
               <div className="notice notice--warning">
-                <strong>Resolve this tag before deployment</strong>
+                <strong>Resolve this tag before deploying the App</strong>
                 {applicationMode !== "existing" ? (
                   <p>
                     Tag resolution requires an existing application so the
@@ -1529,7 +1527,7 @@ export function NewDeploymentPage() {
             {routeMode === "sslip" ? (
               <Field
                 label="sslip.io hostname"
-                hint="Read-only and derived from the fresh public Traefik endpoint. The deployment request sends no hostname or IP."
+                hint="Read-only and derived from the fresh public Traefik endpoint. The App request sends no hostname or IP."
               >
                 <input
                   aria-label="sslip.io hostname"
@@ -1547,7 +1545,7 @@ export function NewDeploymentPage() {
             ) : applicationMode !== "existing" ? (
               <small>
                 Select an existing application to preview its exact sslip.io
-                hostname before deployment.
+                hostname before deploying the App.
               </small>
             ) : sslipHostname.error ? (
               <small>{errorMessage(sslipHostname.error)}</small>
@@ -1555,7 +1553,7 @@ export function NewDeploymentPage() {
             <div className="route-mode-row">
               <div>
                 <StatusPill value="active" label="HTTP only · /" />
-                <small>Supported during initial deployment</small>
+                <small>Supported during initial App deployment</small>
               </div>
               <div>
                 <PlaceholderBadge>
@@ -1579,7 +1577,7 @@ export function NewDeploymentPage() {
               <div>
                 <h3>Advanced exposure stays preview-first</h3>
                 <p>
-                  After the deployment exists, upgrade the initial HTTP route
+                  After the App runtime exists, upgrade the initial HTTP route
                   with TLS, DNS automation, and middleware in its shared Form /
                   Advanced YAML editor.
                 </p>
@@ -1590,7 +1588,7 @@ export function NewDeploymentPage() {
 
           {deploy.error ? (
             <div className="notice notice--error" role="alert">
-              <strong>Deployment was not accepted</strong>
+              <strong>App could not be deployed</strong>
               <p>{errorMessage(deploy.error)}</p>
             </div>
           ) : null}
@@ -1598,8 +1596,9 @@ export function NewDeploymentPage() {
             <div className="notice notice--warning" role="status">
               <strong>Protected GitOps is not ready</strong>
               <p>
-                Deployment remains disabled until both the exact Git projection
-                worker and protected Argo desired-state runtime are healthy.
+                App deployment remains disabled until both the exact Git
+                projection worker and protected Argo desired-state runtime are
+                healthy.
               </p>
             </div>
           ) : null}
@@ -1608,7 +1607,7 @@ export function NewDeploymentPage() {
               <strong>Loading current Git configuration</strong>
               <p>
                 Existing applications use the current strong Git bundle ETag for
-                a safe deployment update.
+                a safe App update.
               </p>
             </div>
           ) : null}

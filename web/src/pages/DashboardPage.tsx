@@ -81,9 +81,9 @@ export function DashboardPage() {
           ["Projects", projects.data?.items.length ?? 0, "Git-backed scopes"],
           ["Applications", applications.data?.items.length ?? 0, "Workloads"],
           [
-            "Deployments",
+            "App instances",
             deployments.data?.items.length ?? 0,
-            "Environment bindings",
+            "Environment runtimes",
           ],
           ["In progress", activeOperations, "Operations"],
         ].map(([label, value, detail]) => (
@@ -145,7 +145,7 @@ export function DashboardPage() {
         <section className="console-section">
           <div className="console-section__header">
             <div>
-              <h2>Recent deployments</h2>
+              <h2>Recent Apps</h2>
               <p>Latest desired state by application and environment.</p>
             </div>
             <Link to="/projects" className="text-link">
@@ -181,7 +181,7 @@ export function DashboardPage() {
                       <strong>
                         {application?.name ??
                           deployment.name ??
-                          `Deployment ${shortId(deployment.id)}`}
+                          `App ${shortId(deployment.id)}`}
                       </strong>
                       <small>
                         {deployment.image ??
@@ -205,8 +205,8 @@ export function DashboardPage() {
           ) : (
             <EmptyState
               icon="deploy"
-              title="No deployments yet"
-              description="Open a project environment to add its first service."
+              title="No Apps running yet"
+              description="Open a Project Environment to add its first App."
               compact
             />
           )}

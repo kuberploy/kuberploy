@@ -222,8 +222,8 @@ function ActiveReferencePicker({
                 : { bindingId: "", bindingName: "", key: "", version: 0 },
             );
           }}
-          >
-            <option value="">Select ready binding</option>
+        >
+          <option value="">Select ready binding</option>
           {value.bindingId && !selectedIsCurrent ? (
             <option value={selectedKey} disabled>
               {value.bindingName} · v{value.version || "?"} (unavailable)

@@ -377,10 +377,7 @@ describe("certificate management panel", () => {
     const updatedDetail = {
       ...detail,
       activeVersion: 3,
-      versions: [
-        ...detail.versions,
-        { ...detail.versions[0]!, number: 3 },
-      ],
+      versions: [...detail.versions, { ...detail.versions[0]!, number: 3 }],
     };
     vi.spyOn(api, "certificateBindings").mockResolvedValue({
       items: [detail],
@@ -420,7 +417,9 @@ describe("certificate management panel", () => {
       ["certificate-bindings", application.id, production.id],
       { items: [{ ...detail, activeVersion: 3 }] },
     );
-    await waitFor(() => expect(screen.getByText("Version 3")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText("Version 3")).toBeInTheDocument(),
+    );
 
     await user.type(
       screen.getByRole("textbox", {
