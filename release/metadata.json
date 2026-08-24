@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "The complete pre-stable PostgreSQL schema is regenerated as one canonical 001_initial migration; installations from older release candidates require a fresh database.",
+  "summary": "Git SSH source builds now ship a pinned OpenSSH client and fixed runtime identity. The pre-stable PostgreSQL schema remains one canonical 001_initial migration; installations from older release candidates require a fresh database.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.346"
+  "version": "0.1.0-rc.347"
 }
