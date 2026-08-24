@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -47,6 +48,14 @@ func TestKubernetesObserverRejectsProfileArgumentsAndIssuerDrift(t *testing.T) {
 	reader.deployments[deploymentKey] = value
 	if _, err := observer.ObserveExternalDNS(context.Background(), external); !errors.Is(err, ErrObservation) {
 		t.Fatalf("duplicate TXT/policy argument accepted: %v", err)
+	}
+	value = reader.deployments[deploymentKey]
+	value.ContainerArguments = slices.DeleteFunc(value.ContainerArguments, func(argument string) bool {
+		return argument == "--managed-record-types=TXT" || argument == "--policy=sync"
+	})
+	reader.deployments[deploymentKey] = value
+	if _, err := observer.ObserveExternalDNS(context.Background(), external); !errors.Is(err, ErrObservation) {
+		t.Fatalf("missing TXT managed-record type accepted: %v", err)
 	}
 
 	issuerName := config.Profiles.CertManager.ProductionIssuer

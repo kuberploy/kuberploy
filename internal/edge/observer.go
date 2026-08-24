@@ -262,9 +262,21 @@ func (o *KubernetesTargetObserver) ObserveExternalDNS(ctx context.Context, profi
 	}
 	for _, required := range profile.RequiredArguments() {
 		separator := strings.IndexByte(required, '=')
-		if separator < 1 || !hasExactArgument(deployment.ContainerArguments, required[:separator+1], required) {
+		if separator < 1 {
 			return ObservationReceipt{}, mismatch("external-dns-arguments-mismatch")
 		}
+		prefix := required[:separator+1]
+		if prefix == "--managed-record-types=" {
+			continue
+		}
+		if !hasExactArgument(deployment.ContainerArguments, prefix, required) {
+			return ObservationReceipt{}, mismatch("external-dns-arguments-mismatch")
+		}
+	}
+	if !hasExactArgumentSet(deployment.ContainerArguments, "--managed-record-types=", []string{
+		"--managed-record-types=A", "--managed-record-types=AAAA", "--managed-record-types=CNAME", "--managed-record-types=TXT",
+	}) {
+		return ObservationReceipt{}, mismatch("external-dns-arguments-mismatch")
 	}
 	if profile.Mode == ModeManaged {
 		if !hasExactArgument(deployment.ContainerArguments, "--label-filter=", "--label-filter="+profile.LabelFilter) {

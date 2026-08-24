@@ -69,7 +69,8 @@ externaldns:
   sources: [ingress]
   policy: upsert-only
   registry: txt
-  txtPrefix: "a-"
+  txtPrefix: "%{record_type}-"
+  managedRecordTypes: [A, AAAA, CNAME, TXT]
   txtOwnerId: ""
   domainFilters: []
   excludeDomains: []

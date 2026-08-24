@@ -56,7 +56,8 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "txtPrefix": {"const": "a-"},
+        "txtPrefix": {"const": "%{record_type}-"},
+        "managedRecordTypes": {"const": ["A", "AAAA", "CNAME", "TXT"]},
         "txtOwnerId": {"type": ["string", "null"], "maxLength": 128},
         "domainFilters": {
           "type": "array",

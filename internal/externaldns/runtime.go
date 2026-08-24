@@ -60,7 +60,11 @@ func ManagedProfile(item domain.ExternalDNSIntegration, t ManagedRuntimeTemplate
 }
 
 func managedArguments(item domain.ExternalDNSIntegration) []string {
-	values := []string{"--source=ingress", "--provider=" + item.ProviderKind, "--registry=txt", "--txt-prefix=a-", "--policy=" + item.SyncPolicy, "--txt-owner-id=" + item.TXTOwnerID, "--label-filter=kuberploy.io/dns-integration=" + item.Slug}
+	values := []string{
+		"--source=ingress", "--provider=" + item.ProviderKind, "--registry=txt", "--txt-prefix=%{record_type}-",
+		"--managed-record-types=A", "--managed-record-types=AAAA", "--managed-record-types=CNAME", "--managed-record-types=TXT",
+		"--policy=" + item.SyncPolicy, "--txt-owner-id=" + item.TXTOwnerID, "--label-filter=kuberploy.io/dns-integration=" + item.Slug,
+	}
 	for _, domain := range item.AllowedDomainSuffixes {
 		values = append(values, "--domain-filter="+domain)
 	}
