@@ -280,6 +280,55 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 		t.Fatalf("no-change direct deployment state=%q desired=%q effective=%q operation=%q",
 			deploymentState, desiredRevision, effectiveDocument.ConfigRevision, operationCommit)
 	}
+
+	// A parent VariableSet changes the effective values revision for every app
+	// even when app.yaml is byte-identical. Activation must advance the central
+	// deployment fence to the same revision rendered into Argo.
+	if err = store.FinishReconciliation(ctx, convergence.Lease, gitprojection.ReconciliationOutcome{LastCommit: laterHead,
+		NextPollAt: testStart.Add(time.Hour)}, testStart.Add(8*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	parentHead := strings.Repeat("f", 40)
+	current, _, err = store.RecordVerifiedHead(ctx, verified(current, parentHead, "postgres-parent-variable", testStart.Add(9*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentWork, err := store.ClaimReconciliation(ctx, "postgres-parent-indexer", testStart.Add(10*time.Second), 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentGeneration, err := store.BeginGeneration(ctx, parentWork.Lease, parentHead, current.ParserVersion, testStart.Add(11*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentApp, err := gitprojection.NewDocument(current, parentGeneration.Number, pgApplication, parentHead,
+		convergedDocument.ConfigRevision, convergedDocument.BlobID, convergedDocument.Raw, convergedDocument.Parsed, nil, testStart.Add(11*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencyPaths, err := gitprojection.DependencyPaths(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentRaw := []byte("apiVersion: variables.kuberploy.io/v1alpha1\nkind: VariableSet\nvalues:\n  FEATURE: \"enabled\"\n")
+	parentDocument, err := gitprojection.NewDependencyDocument(current, parentGeneration.Number, dependencyPaths[0], parentHead, parentHead,
+		strings.Repeat("1", 40), parentRaw, map[string]any{"apiVersion": "variables.kuberploy.io/v1alpha1", "kind": "VariableSet",
+			"values": map[string]any{"FEATURE": "enabled"}}, nil, testStart.Add(11*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDocuments(ctx, parentGeneration, []gitprojection.Document{parentApp, parentDocument}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateGeneration(ctx, parentWork.Lease, parentGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, testStart.Add(12*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT desired_revision FROM deployments WHERE id=$1`, pgDeployment).Scan(&desiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	if desiredRevision != parentHead {
+		t.Fatalf("parent VariableSet activation left deployment desired revision=%q want=%q", desiredRevision, parentHead)
+	}
 }
 
 func TestPostgreSQLDependencyInvalidationSchedulesSameHeadReindex(t *testing.T) {

@@ -664,6 +664,18 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	if _, err = tx.Exec(ctx, `UPDATE git_repository_bindings SET indexed_revision=$2,projection_generation=$3,indexed_at=$4,state='ready',updated_at=$4 WHERE id=$1`, binding.ID, generation.HeadRevision, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
+	// AppConfig config_revision represents the complete effective values bundle,
+	// including both parent VariableSets. Advance every affected deployment when
+	// activation changes that effective revision; otherwise Argo follows the new
+	// values commit while the deployment status API remains fenced to the old one.
+	if _, err = tx.Exec(ctx, `UPDATE deployments d SET desired_revision=doc.config_revision,updated_at=$3
+		FROM git_repository_bindings b,applications a,git_projected_documents doc
+		WHERE b.id=$1 AND b.kind='environment' AND b.environment_id=d.environment_id
+		AND a.id=d.application_id AND a.project_id=b.project_id
+		AND doc.binding_id=b.id AND doc.generation=$2 AND doc.application_id=d.application_id AND doc.valid
+		AND d.desired_revision IS DISTINCT FROM doc.config_revision`, binding.ID, generation.Number, now.UTC()); err != nil {
+		return Binding{}, err
+	}
 	// The exact activated provider head converges every committed reservation
 	// visible under the binding lock, including an operation commit followed by
 	// a later normal fast-forward before indexing. Advance only commands linked
