@@ -203,6 +203,7 @@ describe("Git SSH source key scope", () => {
         buildConfigured
         buildReady
         canManageBuilds
+        defaultBuildPlatform="linux/arm64"
         registryTargets={[
           {
             id: "registry-1",
@@ -230,6 +231,13 @@ describe("Git SSH source key scope", () => {
       screen.getByLabelText(/^SSH host public key/),
       "ssh-ed25519 AAAAHOST",
     );
+    expect(
+      screen.getByRole("checkbox", { name: "linux/amd64" }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "linux/arm64" }),
+    ).toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: "linux/amd64" }));
     await user.click(screen.getByRole("button", { name: /Replace binding/ }));
     await waitFor(() => expect(createDefinition).toHaveBeenCalled());
     expect(createDefinition.mock.calls[0]?.[1]).toMatchObject({
@@ -240,6 +248,7 @@ describe("Git SSH source key scope", () => {
       hostKeyPins: [
         { endpoint: "git.example.test:22", publicKey: "ssh-ed25519 AAAAHOST" },
       ],
+      platforms: ["linux/amd64", "linux/arm64"],
     });
 
     const commit = "b".repeat(40);

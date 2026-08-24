@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type {
   Application,
@@ -28,6 +28,7 @@ export function GitSSHSourcePanel({
   buildConfigured = false,
   buildReady = false,
   canManageBuilds = false,
+  defaultBuildPlatform = "linux/amd64",
   registryTargets = [],
 }: {
   application: Application;
@@ -36,6 +37,7 @@ export function GitSSHSourcePanel({
   buildConfigured?: boolean;
   buildReady?: boolean;
   canManageBuilds?: boolean;
+  defaultBuildPlatform?: "linux/amd64" | "linux/arm64";
   registryTargets?: RegistryTarget[];
 }) {
   const client = useQueryClient();
@@ -48,8 +50,18 @@ export function GitSSHSourcePanel({
   const [registryTargetID, setRegistryTargetID] = useState("");
   const [contextPath, setContextPath] = useState(".");
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
+  const [amd64, setAMD64] = useState(
+    defaultBuildPlatform === "linux/amd64",
+  );
+  const [arm64, setARM64] = useState(
+    defaultBuildPlatform === "linux/arm64",
+  );
   const [commitSHA, setCommitSHA] = useState("");
   const [formError, setFormError] = useState("");
+  useEffect(() => {
+    setAMD64(defaultBuildPlatform === "linux/amd64");
+    setARM64(defaultBuildPlatform === "linux/arm64");
+  }, [application.id, defaultBuildPlatform]);
   const attempt = useRef<{
     operation: "create" | "rotate" | "revoke";
     scope: KeyScope;
@@ -173,6 +185,10 @@ export function GitSSHSourcePanel({
       }
       const port = parsed.port || "22";
       if (!registryTargetID) throw new Error("Select a registry target.");
+      const platforms: CreateBuildDefinition["platforms"] = [];
+      if (amd64) platforms.push("linux/amd64");
+      if (arm64) platforms.push("linux/arm64");
+      if (!platforms.length) throw new Error("Select at least one platform.");
       if (!hostKey.trim())
         throw new Error("Paste the provider SSH host public key.");
       createDefinition.mutate({
@@ -190,7 +206,7 @@ export function GitSSHSourcePanel({
         triggerRef: `refs/heads/${branch.trim()}`,
         contextPath: contextPath.trim(),
         dockerfilePath: dockerfilePath.trim(),
-        platforms: ["linux/amd64"],
+        platforms,
         cacheTrustLane: "protected",
         cacheImports: 2,
         profile: {
@@ -367,6 +383,29 @@ export function GitSSHSourcePanel({
               />
             </Field>
           </div>
+          <fieldset className="build-platforms">
+            <legend>Platforms</legend>
+            <label>
+              <input
+                type="checkbox"
+                checked={amd64}
+                onChange={(event) => setAMD64(event.target.checked)}
+              />{" "}
+              linux/amd64
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={arm64}
+                onChange={(event) => setARM64(event.target.checked)}
+              />{" "}
+              linux/arm64
+            </label>
+            <small>
+              Defaults to this Kuberploy installation's CPU architecture.
+              Select both only when the image must run on both architectures.
+            </small>
+          </fieldset>
           <Field
             label="SSH host public key"
             required

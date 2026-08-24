@@ -571,6 +571,9 @@ export function ApplicationOverviewPage() {
                 project,
               ),
             )}
+            defaultBuildPlatform={
+              capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
+            }
             registryTargets={compatibleBuildRegistryTargets(
               registry.data?.items ?? [],
               project.id,
