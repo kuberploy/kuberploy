@@ -6,11 +6,12 @@ Status: proposed architecture for the first production-capable release.
 
 Kuberploy is a self-hosted, Kubernetes-native PaaS with a Dokploy-like developer experience and a strict GitOps deployment model.
 
-The platform supports three delivery modes:
+The platform supports four App source modes:
 
-1. Build a Git repository on Kubernetes, push the resulting OCI image, commit its immutable digest to Git, and let Argo CD deploy it.
-2. Resolve an existing registry image to an immutable digest, commit it to Git, and let Argo CD deploy it.
-3. Deploy a pinned Helm or OCI chart through Argo CD, with its values stored in Git.
+1. GitHub App: build an installed GitHub repository on Kubernetes, push the resulting OCI image, commit its immutable digest to Git, and let Argo CD deploy it; verified webhooks can trigger builds.
+2. Git SSH: clone any supported Git provider with a generated App- or Project-scoped deploy key, then run the same build pipeline through manual or API triggers.
+3. OCI image: resolve an existing registry image to an immutable digest, commit it to Git, and let Argo CD deploy it.
+4. Helm chart: deploy a pinned chart from OCI, a Helm repository, or Git through Argo CD, with its values stored in Git.
 
 Kuberploy also installs or adopts Traefik so an application can be exposed by entering a domain and port in the UI. cert-manager supplies automatic TLS, and an optional managed external-dns integration can create DNS records per route.
 
@@ -269,7 +270,7 @@ For mutually untrusted public tenants, a separate build cluster is preferred ove
 | APIServiceAccount | Named automation principal with an owner, scoped grants and independently expiring/revocable token records; unrelated to a Kubernetes workload ServiceAccount |
 | Project | Groups applications and environments |
 | Environment | Binds a project to one administrator-approved namespace, Git path and the project's Argo AppProject; a project gains multiple namespaces by owning multiple environments |
-| Application | Stable logical workload independent of an environment |
+| Application | Stable logical workload independent of an environment, with one durable source kind: `oci`, `github`, `git-ssh`, or `helm` |
 | DeploymentSpec | Desired state of an application in one environment |
 | VariableSet | Git-backed project or environment ordinary values and opt-in secret-binding references; application-level values remain in `AppConfig` |
 | BuildDefinition | Source repository, ref rules, context, Dockerfile and builder settings |
@@ -309,8 +310,10 @@ semantics. They must not be folded into mutable product rows merely to reduce
 the table count.
 
 One-to-one settings without an independent lifecycle belong on their owner.
-For example, an App's registry-pull mode and optional project credential are
-columns on `applications`, not a separate selection table. The per-App source
+For example, an App's durable source kind, registry-pull mode, and optional
+project credential are columns on `applications`, not separate selection
+tables. The source kind is chosen when the App identity is created and keeps
+reloads and direct links on the same delivery workflow. The per-App source
 build generation is also an atomic `applications.build_generation` counter;
 it is not a separate one-row counter table. Workers increment that owner row
 with `UPDATE ... RETURNING`, which preserves concurrent monotonic allocation

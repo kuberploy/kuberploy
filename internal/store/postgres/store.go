@@ -551,8 +551,11 @@ func (s *Store) CreateApplication(ctx context.Context, actor, key, fingerprint s
 		v, e := getApplication(ctx, tx, old.resourceID)
 		return base.Result[domain.Application]{Value: v, Replay: true}, e
 	}
-	a := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, CreatedAt: time.Now().UTC()}
-	_, err = tx.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at)VALUES($1,$2,$3,$4,$5)`, a.ID, a.ProjectID, a.Name, a.Slug, a.CreatedAt)
+	if !in.SourceKind.Valid() {
+		in.SourceKind = domain.ApplicationSourceOCI
+	}
+	a := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, SourceKind: in.SourceKind, CreatedAt: time.Now().UTC()}
+	_, err = tx.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,source_kind,created_at)VALUES($1,$2,$3,$4,$5,$6)`, a.ID, a.ProjectID, a.Name, a.Slug, a.SourceKind, a.CreatedAt)
 	if err != nil {
 		return base.Result[domain.Application]{}, classify(err)
 	}
@@ -578,14 +581,14 @@ func getApplication(ctx context.Context, q interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }, id string) (domain.Application, error) {
 	var a domain.Application
-	err := q.QueryRow(ctx, `SELECT id,project_id,name,slug,created_at FROM applications WHERE id=$1`, id).Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.CreatedAt)
+	err := q.QueryRow(ctx, `SELECT id,project_id,name,slug,source_kind,created_at FROM applications WHERE id=$1`, id).Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.SourceKind, &a.CreatedAt)
 	return a, classify(err)
 }
 func (s *Store) GetApplication(ctx context.Context, id string) (domain.Application, error) {
 	return getApplication(ctx, s.pool, id)
 }
 func (s *Store) ListApplications(ctx context.Context) ([]domain.Application, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,project_id,name,slug,created_at FROM applications ORDER BY created_at,id`)
+	rows, err := s.pool.Query(ctx, `SELECT id,project_id,name,slug,source_kind,created_at FROM applications ORDER BY created_at,id`)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +596,7 @@ func (s *Store) ListApplications(ctx context.Context) ([]domain.Application, err
 	var out []domain.Application
 	for rows.Next() {
 		var a domain.Application
-		if err = rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.CreatedAt); err != nil {
+		if err = rows.Scan(&a.ID, &a.ProjectID, &a.Name, &a.Slug, &a.SourceKind, &a.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

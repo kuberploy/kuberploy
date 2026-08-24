@@ -22,7 +22,7 @@ describe("typed API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await api.createApplication(
-      { projectId: "project_1", name: "API" },
+      { projectId: "project_1", name: "API", sourceKind: "oci" },
       "reservation-attempt-1",
     );
 

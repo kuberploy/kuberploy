@@ -2944,6 +2944,7 @@ export const api = {
       environmentId?: string;
       name: string;
       slug?: string;
+      sourceKind: "oci" | "github" | "git-ssh" | "helm";
     },
     idempotencyKey?: string,
   ) =>

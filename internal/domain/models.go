@@ -76,11 +76,25 @@ const (
 )
 
 type Application struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"projectId"`
-	Name      string    `json:"name"`
-	Slug      string    `json:"slug"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string                `json:"id"`
+	ProjectID  string                `json:"projectId"`
+	Name       string                `json:"name"`
+	Slug       string                `json:"slug"`
+	SourceKind ApplicationSourceKind `json:"sourceKind"`
+	CreatedAt  time.Time             `json:"createdAt"`
+}
+
+type ApplicationSourceKind string
+
+const (
+	ApplicationSourceOCI    ApplicationSourceKind = "oci"
+	ApplicationSourceGitHub ApplicationSourceKind = "github"
+	ApplicationSourceGitSSH ApplicationSourceKind = "git-ssh"
+	ApplicationSourceHelm   ApplicationSourceKind = "helm"
+)
+
+func (kind ApplicationSourceKind) Valid() bool {
+	return kind == ApplicationSourceOCI || kind == ApplicationSourceGitHub || kind == ApplicationSourceGitSSH || kind == ApplicationSourceHelm
 }
 
 type EnvironmentAppPlacementState string
@@ -327,6 +341,7 @@ type CloneEnvironment struct {
 }
 type CreateApplication struct {
 	ProjectID, EnvironmentID, Name, Slug string
+	SourceKind                           ApplicationSourceKind
 }
 type CreateDeployment struct {
 	EnvironmentID string

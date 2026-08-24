@@ -474,7 +474,10 @@ func (s *Store) CreateApplication(_ context.Context, actor, key, fp string, in d
 		}
 	}
 	now := time.Now().UTC()
-	v := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, CreatedAt: now}
+	if !in.SourceKind.Valid() {
+		in.SourceKind = domain.ApplicationSourceOCI
+	}
+	v := domain.Application{ID: id.New(), ProjectID: in.ProjectID, Name: in.Name, Slug: in.Slug, SourceKind: in.SourceKind, CreatedAt: now}
 	s.applications[v.ID] = v
 	if in.EnvironmentID != "" {
 		if s.environmentAppPlacements[in.EnvironmentID] == nil {

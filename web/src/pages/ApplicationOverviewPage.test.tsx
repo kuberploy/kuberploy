@@ -48,6 +48,7 @@ beforeEach(() => {
     id: "application-1",
     projectId: "project-1",
     name: "Payments API",
+    sourceKind: "github",
   });
   vi.spyOn(api, "projects").mockResolvedValue({
     items: [{ id: "project-1", name: "Payments" }],
@@ -106,7 +107,26 @@ afterEach(() => {
 });
 
 describe("application source overview", () => {
-  it("offers GitHub, Git SSH, image, and Helm as peer source choices", async () => {
+  it("restores the durable OCI source after reload without URL state", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "oci",
+    });
+    const user = userEvent.setup();
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    expect(await screen.findByText("OCI image")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Source & build" }));
+    expect(screen.getByRole("tab", { name: "Existing image" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByText("Deploy an existing image")).toBeVisible();
+  });
+
+  it("shows the durable source and prevents accidental source-type drift", async () => {
     const user = userEvent.setup();
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
 
@@ -130,14 +150,12 @@ describe("application source overview", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Git SSH" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Helm chart" })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     expect(
-      screen.getByRole("combobox", { name: /Environment/ }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("Helm applications are not ready"),
-    ).toBeInTheDocument();
+      screen.getByRole("tab", { name: "GitHub / Dockerfile" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("tab", { name: "Existing image" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Git SSH" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Helm chart" })).toBeDisabled();
   });
 
   it("keeps GitHub source configuration editable while builder capacity is unavailable", async () => {
@@ -172,13 +190,18 @@ describe("application source overview", () => {
   });
 
   it("clears Helm environment selection when environment access disappears", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "helm",
+    });
     const user = userEvent.setup();
     const { client, Wrapper } = wrapper();
     render(<ApplicationOverviewPage />, { wrapper: Wrapper });
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     const environment = await screen.findByRole("combobox", {
       name: /Environment/,
     });
@@ -191,6 +214,12 @@ describe("application source overview", () => {
   });
 
   it("keeps an environment-scoped Helm selection while placements load", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "helm",
+    });
     routeParams.projectId = "project-1";
     routeSearch.tab = "source";
     routeSearch.source = "helm";
@@ -232,6 +261,12 @@ describe("application source overview", () => {
   });
 
   it("offers Helm only in Environments where the App is actually placed", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "helm",
+    });
     vi.mocked(api.environments).mockResolvedValue({
       items: [
         {
@@ -272,7 +307,6 @@ describe("application source overview", () => {
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
 
     const environment = screen.getByRole("combobox", { name: /Environment/ });
     expect(environment).toHaveTextContent("Test");
@@ -292,13 +326,18 @@ describe("application source overview", () => {
   });
 
   it("resets workspace state when navigating to another application", async () => {
+    vi.mocked(api.application).mockResolvedValue({
+      id: "application-1",
+      projectId: "project-1",
+      name: "Payments API",
+      sourceKind: "helm",
+    });
     const user = userEvent.setup();
     const { Wrapper } = wrapper();
     const view = render(<ApplicationOverviewPage />, { wrapper: Wrapper });
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.click(screen.getByRole("tab", { name: "Helm chart" }));
     await user.selectOptions(
       await screen.findByRole("combobox", { name: /Environment/ }),
       "environment-1",

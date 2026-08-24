@@ -514,7 +514,7 @@ export function NewDeploymentPage() {
         );
       }
       return api.createApplication(
-        { projectId, name: normalizedName },
+        { projectId, name: normalizedName, sourceKind: "oci" },
         idempotencyKey,
       );
     },

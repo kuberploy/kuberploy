@@ -301,9 +301,12 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if environment.Value.Namespace != wantNamespace || environment.Value.ArgoProject != wantArgoProject {
 		t.Fatalf("PostgreSQL accepted caller-owned destination: %#v", environment.Value)
 	}
-	application, err := st.CreateApplication(ctx, developer.ID, "application", "application", domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	application, err := st.CreateApplication(ctx, developer.ID, "application", "application", domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api", SourceKind: domain.ApplicationSourceGitHub})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if application.Value.SourceKind != domain.ApplicationSourceGitHub {
+		t.Fatalf("application source kind=%q", application.Value.SourceKind)
 	}
 	siblingApplication, err := st.CreateApplication(ctx, developer.ID, "sibling-application", "sibling-application", domain.CreateApplication{ProjectID: project.Value.ID, Name: "Worker", Slug: "worker"})
 	if err != nil {

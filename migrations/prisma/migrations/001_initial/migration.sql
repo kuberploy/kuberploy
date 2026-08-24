@@ -6587,6 +6587,7 @@ CREATE TABLE public.applications (
     project_id uuid NOT NULL,
     name text NOT NULL,
     slug text NOT NULL,
+    source_kind text DEFAULT 'oci'::text NOT NULL,
     registry_pull_mode text,
     registry_pull_project_credential_id uuid,
     registry_pull_updated_by uuid,
@@ -6594,6 +6595,7 @@ CREATE TABLE public.applications (
     build_generation bigint DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT applications_build_generation_check CHECK ((build_generation >= 0)),
+    CONSTRAINT applications_source_kind_check CHECK ((source_kind = ANY (ARRAY['oci'::text, 'github'::text, 'git-ssh'::text, 'helm'::text]))),
     CONSTRAINT applications_registry_pull_check CHECK ((((registry_pull_mode IS NULL) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NULL) AND (registry_pull_updated_at IS NULL)) OR ((registry_pull_mode = 'public'::text) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)) OR ((registry_pull_mode = 'project-credential'::text) AND (registry_pull_project_credential_id IS NOT NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)))),
     CONSTRAINT applications_registry_pull_mode_check CHECK ((registry_pull_mode = ANY (ARRAY['public'::text, 'project-credential'::text]))),
     CONSTRAINT applications_registry_pull_update_check CHECK (((registry_pull_updated_at IS NULL) = (registry_pull_updated_by IS NULL)))

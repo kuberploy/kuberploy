@@ -33,6 +33,32 @@ function compactImageReference(image?: string) {
   return digest ? `${name}@sha256:${digest.slice(0, 12)}…` : name;
 }
 
+function applicationSourceTab(kind: string): SourceKind {
+  return kind === "oci"
+    ? "image"
+    : kind === "git-ssh"
+      ? "ssh"
+      : kind === "helm"
+        ? "helm"
+        : "build";
+}
+
+function applicationSourceLabel(
+  kind: string,
+  definition?: { triggerRef: string },
+) {
+  if (kind === "oci") return "OCI image";
+  if (kind === "git-ssh") {
+    return definition
+      ? `Git SSH / ${gitRefLabel(definition.triggerRef)}`
+      : "Git SSH";
+  }
+  if (kind === "helm") return "Helm chart";
+  return definition
+    ? `GitHub / ${gitRefLabel(definition.triggerRef)}`
+    : "GitHub App";
+}
+
 export function ApplicationOverviewPage() {
   const {
     applicationId = "",
@@ -44,7 +70,6 @@ export function ApplicationOverviewPage() {
     source?: string;
     environmentId?: string;
   };
-  const [source, setSource] = useState<SourceKind>("build");
   const [tab, setTab] = useState<WorkspaceTab>("overview");
   const [environmentId, setEnvironmentId] = useState("");
   const application = useQuery({
@@ -151,26 +176,9 @@ export function ApplicationOverviewPage() {
   );
   const placementsPending = placementQueries.some((query) => query.isPending);
   useEffect(() => {
-    const requestedSource: SourceKind =
-      search.source === "oci"
-        ? "image"
-        : search.source === "github"
-          ? "build"
-          : search.source === "git-ssh"
-            ? "ssh"
-            : search.source === "helm"
-              ? "helm"
-              : "build";
-    setSource(requestedSource);
     setTab(search.tab === "source" ? "source" : "overview");
     setEnvironmentId(search.environmentId ?? routeEnvironmentId ?? "");
-  }, [
-    applicationId,
-    routeEnvironmentId,
-    search.environmentId,
-    search.source,
-    search.tab,
-  ]);
+  }, [applicationId, routeEnvironmentId, search.environmentId, search.tab]);
   useEffect(() => {
     if (!application.data || !environments.data) return;
     if (placementsPending) return;
@@ -196,6 +204,7 @@ export function ApplicationOverviewPage() {
     deployments.data?.items.filter(
       (item) => item.applicationId === applicationId,
     ) ?? [];
+  const source = applicationSourceTab(application.data?.sourceKind ?? "oci");
   const activeBuildDefinition = useMemo(
     () =>
       (buildDefinitions.data?.items ?? [])
@@ -305,13 +314,13 @@ export function ApplicationOverviewPage() {
               <div>
                 <small>Source</small>
                 <strong>
-                  {activeBuildDefinition
-                    ? `GitHub / ${gitRefLabel(activeBuildDefinition.triggerRef)}`
-                    : "Choose Git, image, or Helm"}
+                  {applicationSourceLabel(
+                    application.data.sourceKind ?? "oci",
+                    activeBuildDefinition,
+                  )}
                 </strong>
                 <button className="text-link" onClick={() => setTab("source")}>
-                  {activeBuildDefinition ? "Manage source" : "Configure source"}{" "}
-                  <Icon name="arrow" />
+                  Manage source <Icon name="arrow" />
                 </button>
               </div>
             </Card>
@@ -416,7 +425,7 @@ export function ApplicationOverviewPage() {
               type="button"
               role="tab"
               aria-selected={source === "build"}
-              onClick={() => setSource("build")}
+              disabled={source !== "build"}
             >
               <Icon name="git" />
               GitHub / Dockerfile
@@ -425,7 +434,7 @@ export function ApplicationOverviewPage() {
               type="button"
               role="tab"
               aria-selected={source === "image"}
-              onClick={() => setSource("image")}
+              disabled={source !== "image"}
             >
               <Icon name="deploy" />
               Existing image
@@ -434,7 +443,7 @@ export function ApplicationOverviewPage() {
               type="button"
               role="tab"
               aria-selected={source === "ssh"}
-              onClick={() => setSource("ssh")}
+              disabled={source !== "ssh"}
             >
               <Icon name="terminal" />
               Git SSH
@@ -443,7 +452,7 @@ export function ApplicationOverviewPage() {
               type="button"
               role="tab"
               aria-selected={source === "helm"}
-              onClick={() => setSource("helm")}
+              disabled={source !== "helm"}
             >
               <Icon name="layers" />
               Helm chart

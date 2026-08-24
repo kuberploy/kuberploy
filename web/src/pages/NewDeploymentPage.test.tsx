@@ -197,7 +197,7 @@ describe("new deployment runtime controls", () => {
 
     await screen.findByText("Application identity created");
     expect(createApplication).toHaveBeenCalledWith(
-      { projectId: "project-1", name: "New API" },
+      { projectId: "project-1", name: "New API", sourceKind: "oci" },
       expect.any(String),
     );
     expect(

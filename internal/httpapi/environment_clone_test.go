@@ -142,11 +142,11 @@ func TestCreateApplicationAtomicallyCreatesStoppedEnvironmentPlacement(t *testin
 	outboxBefore := f.store.OutboxCount()
 
 	body := map[string]string{
-		"projectId": project.ID, "environmentId": environment.ID, "name": "API", "slug": "api",
+		"projectId": project.ID, "environmentId": environment.ID, "name": "API", "slug": "api", "sourceKind": "git-ssh",
 	}
 	response = f.request(http.MethodPost, "/v1/applications", "create-app-placement", body)
 	application := decode[domain.Application](t, response)
-	if response.StatusCode != http.StatusCreated || application.ProjectID != project.ID {
+	if response.StatusCode != http.StatusCreated || application.ProjectID != project.ID || application.SourceKind != domain.ApplicationSourceGitSSH {
 		t.Fatalf("create status=%d application=%#v", response.StatusCode, application)
 	}
 	response = f.request(http.MethodGet, "/v1/environments/"+environment.ID+"/apps", "", nil)

@@ -216,10 +216,11 @@ func (s *Server) cloneEnvironment(w http.ResponseWriter, r *http.Request) {
 }
 
 type applicationRequest struct {
-	ProjectID     string `json:"projectId"`
-	EnvironmentID string `json:"environmentId,omitempty"`
-	Name          string `json:"name"`
-	Slug          string `json:"slug,omitempty"`
+	ProjectID     string                       `json:"projectId"`
+	EnvironmentID string                       `json:"environmentId,omitempty"`
+	Name          string                       `json:"name"`
+	Slug          string                       `json:"slug,omitempty"`
+	SourceKind    domain.ApplicationSourceKind `json:"sourceKind"`
 }
 
 func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
@@ -241,19 +242,22 @@ func (s *Server) applications(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
+	if in.SourceKind == "" {
+		in.SourceKind = domain.ApplicationSourceOCI
+	}
 	if in.Slug == "" {
 		in.Slug = slugify(in.Name)
 	} else {
 		in.Slug = strings.ToLower(strings.TrimSpace(in.Slug))
 	}
 	if in.ProjectID == "" || in.Name == "" || len(in.Name) > 100 || !validSlug(in.Slug) ||
-		(in.EnvironmentID != "" && !validUUID(in.EnvironmentID)) {
-		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The application project, name, or slug is invalid.")
+		(in.EnvironmentID != "" && !validUUID(in.EnvironmentID)) || !in.SourceKind.Valid() {
+		writeProblem(w, r, 422, "ValidationFailed", "Validation failed", "The application project, name, slug, or sourceKind is invalid.")
 		return
 	}
 	u := currentUser(r.Context())
 	result, err := s.store.CreateApplication(r.Context(), u.ID, key, fingerprint(in), domain.CreateApplication{
-		ProjectID: in.ProjectID, EnvironmentID: in.EnvironmentID, Name: in.Name, Slug: in.Slug,
+		ProjectID: in.ProjectID, EnvironmentID: in.EnvironmentID, Name: in.Name, Slug: in.Slug, SourceKind: in.SourceKind,
 	})
 	if err != nil {
 		mappedError(w, r, err)

@@ -44,6 +44,7 @@ model applications {
   project_id                          String    @db.Uuid
   name                                String
   slug                                String
+  source_kind                         String    @default("oci")
   registry_pull_mode                  String?
   registry_pull_project_credential_id String?   @db.Uuid
   registry_pull_updated_by            String?   @db.Uuid

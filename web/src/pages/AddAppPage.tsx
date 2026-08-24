@@ -93,7 +93,10 @@ export function AddAppPage() {
       name: string;
       idempotencyKey: string;
     }) =>
-      api.createApplication({ projectId, environmentId, name }, idempotencyKey),
+      api.createApplication(
+        { projectId, environmentId, name, sourceKind: source! },
+        idempotencyKey,
+      ),
     onSuccess: async (application, input) => {
       if (stableAttempt.current?.key === input.idempotencyKey) {
         stableAttempt.current = null;

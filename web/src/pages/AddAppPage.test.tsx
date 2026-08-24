@@ -130,6 +130,7 @@ describe("Add App source flow", () => {
       projectId: "project-payments",
       environmentId: "environment-production",
       name: "Payments API",
+      sourceKind: "oci",
     });
     await waitFor(() =>
       expect(navigate).toHaveBeenCalledWith({
@@ -144,7 +145,7 @@ describe("Add App source flow", () => {
   });
 
   it("opens GitHub source setup for the created App", async () => {
-    vi.spyOn(api, "createApplication").mockResolvedValue({
+    const create = vi.spyOn(api, "createApplication").mockResolvedValue({
       id: "application-web",
       projectId: "project-payments",
       name: "Web",
@@ -156,6 +157,18 @@ describe("Add App source flow", () => {
     await user.type(screen.getByRole("textbox", { name: "App name" }), "Web");
     await user.click(
       screen.getByRole("button", { name: "Continue with GitHub App" }),
+    );
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        {
+          projectId: "project-payments",
+          environmentId: "environment-production",
+          name: "Web",
+          sourceKind: "github",
+        },
+        expect.any(String),
+      ),
     );
 
     await waitFor(() =>

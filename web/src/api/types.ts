@@ -474,6 +474,7 @@ export type Application = ResourceMetadata & {
   id: string;
   projectId: string;
   name: string;
+  sourceKind?: "oci" | "github" | "git-ssh" | "helm";
   slug?: string;
   description?: string;
   status?: string;
