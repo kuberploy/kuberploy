@@ -3686,7 +3686,7 @@ BEGIN
             END IF;
         ELSIF OLD.state='claimed' AND NEW.state IN ('pending','failed') THEN
             IF NEW.attempts<>OLD.attempts OR NEW.lease_epoch<>OLD.lease_epoch OR
-               NEW.consecutive_failures<>LEAST(OLD.consecutive_failures+1,30) OR
+               NEW.consecutive_failures<>OLD.consecutive_failures+1 OR
                NEW.last_failure_code='' OR NEW.lease_owner IS NOT NULL OR
                NEW.worker_epoch IS NOT NULL OR NEW.lease_until IS NOT NULL OR
                ((NEW.state='pending')<>(NEW.completed_at IS NULL)) THEN

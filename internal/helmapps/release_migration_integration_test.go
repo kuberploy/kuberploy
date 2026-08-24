@@ -1732,9 +1732,9 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatalf("cascade observation claim=%+v lease=%+v err=%v",
 			observedPreflight, observationLease, err)
 	}
-	// A terminal retry must saturate its bounded failure counter. Incrementing
-	// 30 to 31 violates the database check and can strand later Helm work behind
-	// a permanently failing round-robin cascade phase.
+	// A retry that reaches the bounded failure counter must become terminal.
+	// Leaving failure 30 pending permits another claim whose retry would violate
+	// the database check and strand later Helm work behind the cascade phase.
 	retrySetup, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -1744,7 +1744,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = retrySetup.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs
-		SET attempts=30,consecutive_failures=30,last_failure_code='observer-timeout'
+		SET attempts=29,consecutive_failures=29,last_failure_code='observer-timeout'
 		WHERE cascade_preflight_id=$1 AND activation_epoch=$2
 		AND publisher_config_digest=$3 AND state='claimed'`, preflightID,
 		observationLease.ObserverActivationEpoch, observationLease.Publisher.ConfigDigest); err != nil {
@@ -1764,7 +1764,7 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		WHERE cascade_preflight_id=$1 AND activation_epoch=$2 AND publisher_config_digest=$3`,
 		preflightID, observationLease.ObserverActivationEpoch, observationLease.Publisher.ConfigDigest).
 		Scan(&retryState, &retryAttempts, &retryFailures); err != nil ||
-		retryState != "failed" || retryAttempts != 30 || retryFailures != 30 {
+		retryState != "failed" || retryAttempts != 29 || retryFailures != 30 {
 		t.Fatalf("terminal cascade retry state=%s attempts=%d failures=%d err=%v",
 			retryState, retryAttempts, retryFailures, err)
 	}

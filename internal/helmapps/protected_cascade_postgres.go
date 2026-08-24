@@ -799,11 +799,11 @@ func (s *PostgresProtectedPublicationStore) RetryCascadeObservation(ctx context.
 		return ErrInvalid
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs SET
-		state=CASE WHEN attempts>=30 THEN 'failed' ELSE 'pending' END,
-		consecutive_failures=LEAST(consecutive_failures+1,30),last_failure_code=$7,
-		next_attempt_at=CASE WHEN attempts>=30 THEN next_attempt_at ELSE $8 END,
+		state=CASE WHEN attempts>=30 OR consecutive_failures>=29 THEN 'failed' ELSE 'pending' END,
+		consecutive_failures=consecutive_failures+1,last_failure_code=$7,
+		next_attempt_at=CASE WHEN attempts>=30 OR consecutive_failures>=29 THEN next_attempt_at ELSE $8 END,
 		lease_owner=NULL,worker_epoch=NULL,lease_until=NULL,
-		completed_at=CASE WHEN attempts>=30 THEN $9 ELSE NULL END,updated_at=$9
+		completed_at=CASE WHEN attempts>=30 OR consecutive_failures>=29 THEN $9 ELSE NULL END,updated_at=$9
 		WHERE cascade_preflight_id=$1 AND activation_epoch=$2 AND publisher_config_digest=$3
 		AND lease_owner=$4 AND worker_epoch=$5 AND lease_epoch=$6 AND lease_until>$9
 		AND state='claimed'`, lease.CascadePreflightID, lease.ObserverActivationEpoch,
