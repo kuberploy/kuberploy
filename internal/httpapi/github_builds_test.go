@@ -13,6 +13,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -238,7 +239,7 @@ func newGitHubBuildHTTP(t *testing.T, setup httpapi.GitHubSetupBackend, webhook 
 	t.Helper()
 	st := memory.New()
 	srv := httptest.NewServer(httpapi.New(httpapi.Options{Store: st, BootstrapToken: "one-time-secret", Version: "test", GitHubSetup: setup,
-		GitHubWebhook: webhook, Builds: build, HighRiskLimiter: limiter}))
+		GitHubWebhook: webhook, Builds: build, DefaultBuildPlatform: "linux/arm64", HighRiskLimiter: limiter}))
 	jar, _ := cookiejar.New(nil)
 	fixture := &apiFixture{t: t, server: srv, client: &http.Client{Jar: jar}, store: st}
 	t.Cleanup(srv.Close)
@@ -665,7 +666,14 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	backend := &buildHTTPBackend{}
 	f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
 	admin := f.bootstrap()
-	response := f.request(http.MethodPost, "/v1/projects", "build-http-project", map[string]string{"name": "Builds"})
+	response := f.request(http.MethodGet, "/v1/capabilities", "", nil)
+	capabilities := decode[struct {
+		Defaults map[string]string `json:"defaults"`
+	}](t, response)
+	if capabilities.Defaults["buildPlatform"] != "linux/arm64" {
+		t.Fatalf("default build platform=%q", capabilities.Defaults["buildPlatform"])
+	}
+	response = f.request(http.MethodPost, "/v1/projects", "build-http-project", map[string]string{"name": "Builds"})
 	project := decode[domain.Project](t, response)
 	response = f.request(http.MethodPost, "/v1/applications", "build-http-application", map[string]string{"projectId": project.ID, "name": "API"})
 	application := decode[domain.Application](t, response)
@@ -731,6 +739,16 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 		t.Fatalf("create status=%d mutation=%#v creates=%d body=%s", response.StatusCode, mutation, creates, body)
 	}
 
+	delete(create, "platforms")
+	response = f.request(http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions", "build-http-create-default-platform", create)
+	response.Body.Close()
+	backend.mu.Lock()
+	mutation, creates = backend.mutation, backend.creates
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusCreated || !slices.Equal(mutation.Platforms, []string{"linux/arm64"}) || creates != 2 {
+		t.Fatalf("default platform create status=%d platforms=%v creates=%d", response.StatusCode, mutation.Platforms, creates)
+	}
+
 	duplicate := strings.Replace(string(mustJSONBytes(t, create)), `"resource":"small"`, `"resource":"small","resource":"large"`, 1)
 	request, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/applications/"+application.ID+"/build-definitions", strings.NewReader(duplicate))
 	request.Header.Set("Content-Type", "application/json")
@@ -744,7 +762,7 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	backend.mu.Lock()
 	creates = backend.creates
 	backend.mu.Unlock()
-	if response.StatusCode != http.StatusBadRequest || problem.Code != "InvalidJSON" || creates != 1 {
+	if response.StatusCode != http.StatusBadRequest || problem.Code != "InvalidJSON" || creates != 2 {
 		t.Fatalf("duplicate nested JSON status=%d problem=%#v creates=%d", response.StatusCode, problem, creates)
 	}
 

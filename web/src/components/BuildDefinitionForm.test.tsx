@@ -109,6 +109,7 @@ function renderForm(
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   }),
+  defaultBuildPlatform: "linux/amd64" | "linux/arm64" = "linux/amd64",
 ) {
   render(
     <QueryClientProvider client={queryClient}>
@@ -122,6 +123,7 @@ function renderForm(
             actions: ["build-definitions:write"],
           },
         ]}
+        defaultBuildPlatform={defaultBuildPlatform}
         humanSession={humanSession}
         registryTargets={[target]}
       />
@@ -131,6 +133,23 @@ function renderForm(
 }
 
 describe("build definition form", () => {
+  it("defaults to the installation CPU and keeps multi-platform as opt-in", async () => {
+    const user = userEvent.setup();
+    renderForm(true, undefined, "linux/arm64");
+
+    const amd64 = screen.getByRole("checkbox", { name: "linux/amd64" });
+    const arm64 = screen.getByRole("checkbox", { name: "linux/arm64" });
+    expect(amd64).not.toBeChecked();
+    expect(arm64).toBeChecked();
+
+    await user.click(amd64);
+    expect(amd64).toBeChecked();
+    expect(arm64).toBeChecked();
+    expect(
+      screen.getByText(/Defaults to this Kuberploy installation's CPU/),
+    ).toBeInTheDocument();
+  });
+
   it("submits no build-secret or SSH fields when no operator profiles exist", async () => {
     const user = userEvent.setup();
     const create = vi

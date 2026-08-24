@@ -16,6 +16,7 @@ type capabilitiesResponse struct {
 	Capabilities  []capabilityView  `json:"capabilities"`
 	Features      map[string]bool   `json:"features"`
 	FeatureStates map[string]string `json:"featureStates"`
+	Defaults      map[string]string `json:"defaults"`
 	Limits        map[string]any    `json:"limits"`
 }
 
@@ -227,7 +228,8 @@ func (s *Server) capabilities(w http.ResponseWriter, r *http.Request) {
 			"builder": featureState(buildEnabled, buildsConfigured), "builds": featureState(buildEnabled, buildsConfigured),
 			"gitSSHBuilds": featureState(s.gitSSHKeys != nil && s.builds != nil && s.buildReadiness != nil, gitSSHBuildsConfigured),
 		},
-		Limits: map[string]any{"deploymentReplicas": 100, "environmentVariables": 256, "workloadPorts": 32, "tolerations": 32, "idempotencyKeyBytes": 128, "serviceAccountTokenMaxTTLSeconds": int64(automation.MaxTokenTTL.Seconds())},
+		Defaults: map[string]string{"buildPlatform": s.defaultBuildPlatform},
+		Limits:   map[string]any{"deploymentReplicas": 100, "environmentVariables": 256, "workloadPorts": 32, "tolerations": 32, "idempotencyKeyBytes": 128, "serviceAccountTokenMaxTTLSeconds": int64(automation.MaxTokenTTL.Seconds())},
 	})
 }
 

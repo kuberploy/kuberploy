@@ -187,7 +187,7 @@ type BuildDefinitionBase = {
   triggerRef: string;
   contextPath: string;
   dockerfilePath: string;
-  platforms: Array<"linux/amd64" | "linux/arm64">;
+  platforms?: Array<"linux/amd64" | "linux/arm64">;
   buildArgs?: BuildArgument[];
   secretProfileIds?: string[];
   sshProfileIds?: string[];
@@ -350,6 +350,7 @@ export type Capabilities = {
   capabilities?: Capability[];
   features?: Record<string, boolean>;
   featureStates?: Record<string, "disabled" | "unavailable" | "healthy">;
+  defaults?: { buildPlatform?: "linux/amd64" | "linux/arm64" };
   limits?: Record<string, number | string | boolean>;
 };
 

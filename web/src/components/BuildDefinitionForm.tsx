@@ -38,26 +38,30 @@ type DefinitionForm = {
 
 type StableAttempt = { signature: string; key: string };
 
-const defaultDefinitionValues: DefinitionForm = {
-  installationId: "",
-  repositoryId: "",
-  registryTargetId: "",
-  refType: "branch",
-  triggerRef: "main",
-  contextPath: ".",
-  dockerfilePath: "Dockerfile",
-  amd64: true,
-  arm64: false,
-  buildArgs: "",
-  cacheTrustLane: "protected",
-  cacheImports: 2,
-  profileResource: "standard",
-  timeoutSeconds: 900,
-  profileEgress: "registry-and-source",
-  maxAttempts: 3,
-  secretProfileIds: [],
-  sshProfileIds: [],
-};
+function defaultDefinitionValues(
+  platform: "linux/amd64" | "linux/arm64",
+): DefinitionForm {
+  return {
+    installationId: "",
+    repositoryId: "",
+    registryTargetId: "",
+    refType: "branch",
+    triggerRef: "main",
+    contextPath: ".",
+    dockerfilePath: "Dockerfile",
+    amd64: platform === "linux/amd64",
+    arm64: platform === "linux/arm64",
+    buildArgs: "",
+    cacheTrustLane: "protected",
+    cacheImports: 2,
+    profileResource: "standard",
+    timeoutSeconds: 900,
+    profileEgress: "registry-and-source",
+    maxAttempts: 3,
+    secretProfileIds: [],
+    sshProfileIds: [],
+  };
+}
 
 const namePattern = /^[a-z][a-z0-9_.-]{0,62}$/;
 const buildArgPattern = /^[A-Z_][A-Z0-9_]{0,127}$/;
@@ -101,12 +105,14 @@ export function BuildDefinitionForm({
   application,
   project,
   capabilities,
+  defaultBuildPlatform,
   humanSession,
   registryTargets,
 }: {
   application: Application;
   project: Project;
   capabilities: Capability[];
+  defaultBuildPlatform: "linux/amd64" | "linux/arm64";
   humanSession: boolean;
   registryTargets: RegistryTarget[];
 }) {
@@ -139,7 +145,7 @@ export function BuildDefinitionForm({
     retry: false,
   });
   const form = useForm<DefinitionForm>({
-    defaultValues: defaultDefinitionValues,
+    defaultValues: defaultDefinitionValues(defaultBuildPlatform),
   });
   useEffect(() => {
     if (!secretProfiles.isSuccess || !secretProfiles.data) return;
@@ -211,7 +217,8 @@ export function BuildDefinitionForm({
       ]);
     },
   });
-  resetFormRef.current = () => form.reset(defaultDefinitionValues);
+  resetFormRef.current = () =>
+    form.reset(defaultDefinitionValues(defaultBuildPlatform));
   resetCreateRef.current = create.reset;
 
   useEffect(() => {
@@ -221,7 +228,7 @@ export function BuildDefinitionForm({
     setParseError(undefined);
     setCreatedDefinitionId("");
     resetCreateRef.current();
-  }, [application.id]);
+  }, [application.id, defaultBuildPlatform]);
 
   const submit = (value: DefinitionForm) => {
     setParseError(undefined);
@@ -466,6 +473,10 @@ export function BuildDefinitionForm({
           <label>
             <input type="checkbox" {...form.register("arm64")} /> linux/arm64
           </label>
+          <small>
+            Defaults to this Kuberploy installation's CPU architecture. Select
+            both only when the image must run on both architectures.
+          </small>
         </fieldset>
 
         <Field

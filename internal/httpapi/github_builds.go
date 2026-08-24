@@ -887,6 +887,9 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	if input.SourceKind == "" {
 		input.SourceKind = builds.SourceGitHub
 	}
+	if len(input.Platforms) == 0 {
+		input.Platforms = []string{s.defaultBuildPlatform}
+	}
 	if input.SourceKind == builds.SourceGitHub {
 		if err := s.store.AuthorizeGitHubInstallationForProject(r.Context(), currentUser(r.Context()).ID, strings.TrimSpace(input.InstallationID), application.ProjectID); err != nil {
 			mappedError(w, r, err)

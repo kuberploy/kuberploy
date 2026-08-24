@@ -915,7 +915,7 @@ function safeCreateBuildDefinition(
     triggerRef: input.triggerRef,
     contextPath: input.contextPath,
     dockerfilePath: input.dockerfilePath,
-    platforms: [...input.platforms].slice(0, 2),
+    platforms: input.platforms?.slice(0, 2),
     buildArgs: input.buildArgs?.slice(0, 64).map(safeBuildArgument),
     secretProfileIds: input.secretProfileIds?.slice(0, 32),
     sshProfileIds: input.sshProfileIds?.slice(0, 8),

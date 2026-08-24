@@ -369,6 +369,9 @@ export function SourceBuildsPage() {
                   application={selectedApplication}
                   project={selectedProject}
                   capabilities={effectiveCapabilities}
+                  defaultBuildPlatform={
+                    capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
+                  }
                   humanSession={humanSession}
                   registryTargets={registryTargets}
                 />

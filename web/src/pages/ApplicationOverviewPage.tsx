@@ -512,6 +512,9 @@ export function ApplicationOverviewPage() {
                   application={application.data}
                   project={project}
                   capabilities={effectiveCapabilities}
+                  defaultBuildPlatform={
+                    capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
+                  }
                   humanSession={humanSession}
                   registryTargets={compatibleBuildRegistryTargets(
                     registry.data?.items ?? [],
