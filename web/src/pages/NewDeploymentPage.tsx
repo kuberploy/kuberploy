@@ -352,7 +352,8 @@ export function NewDeploymentPage() {
       initialScopeApplied.current ||
       !projects.isSuccess ||
       !environments.isSuccess ||
-      (Boolean(search.applicationId) && !applications.isSuccess)
+      (Boolean(search.applicationId) &&
+        (!applications.isSuccess || applications.isFetching))
     ) {
       return;
     }
@@ -401,6 +402,7 @@ export function NewDeploymentPage() {
     initialScopeApplied.current = true;
   }, [
     applications.data,
+    applications.isFetching,
     applications.isSuccess,
     environments.data,
     environments.isSuccess,

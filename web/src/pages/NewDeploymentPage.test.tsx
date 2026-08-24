@@ -94,6 +94,59 @@ describe("new deployment runtime controls", () => {
     });
   });
 
+  it("waits for the invalidated App list before applying an Add App handoff", async () => {
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+    router.search.applicationId = "application-new";
+    let resolveApplications!: (
+      value: Awaited<ReturnType<typeof api.applications>>,
+    ) => void;
+    const refreshedApplications = new Promise<
+      Awaited<ReturnType<typeof api.applications>>
+    >((resolve) => {
+      resolveApplications = resolve;
+    });
+    vi.mocked(api.applications).mockReturnValue(refreshedApplications);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(["applications"], {
+      items: [
+        {
+          id: "application-1",
+          projectId: "project-1",
+          name: "Payments API",
+        },
+      ],
+    });
+    await queryClient.invalidateQueries({ queryKey: ["applications"] });
+
+    render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
+
+    expect(
+      await screen.findByRole("radio", { name: "New application" }),
+    ).toBeChecked();
+    resolveApplications({
+      items: [
+        {
+          id: "application-new",
+          projectId: "project-1",
+          name: "RC338 OCI App",
+          sourceKind: "oci",
+        },
+      ],
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("radio", { name: "Existing application" }),
+      ).toBeChecked(),
+    );
+    expect(screen.getByRole("combobox", { name: "Application" })).toHaveValue(
+      "application-new",
+    );
+  });
+
   it("loads the current Git bundle ETag before updating an existing deployment", async () => {
     const user = userEvent.setup();
     const etag = `"sha256:${"a".repeat(64)}"`;
