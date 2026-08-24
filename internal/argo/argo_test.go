@@ -473,6 +473,34 @@ func TestObservedStateRejectsCrossNamespaceAndOutOfOrderEvents(t *testing.T) {
 	}
 }
 
+func TestObservedStateAcceptsOnlyExactSyncedApplicationUIDRollover(t *testing.T) {
+	store := argo.NewMemoryObservationStore()
+	original := observationFixture(t)
+	if err := store.PutObservation(t.Context(), original); err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := original
+	replacement.ArgoUID = "88888888-8888-4888-8888-888888888888"
+	replacement.ObservedRevision = strings.Repeat("b", 40)
+	replacement.Sync = argo.SyncOutOfSync
+	replacement.ObservedAt = replacement.ObservedAt.Add(time.Second)
+	replacement.UpdatedAt = replacement.ObservedAt
+	if err := store.PutObservation(t.Context(), replacement); !errors.Is(err, argo.ErrConflict) {
+		t.Fatalf("unsynced Application UID rollover accepted: %v", err)
+	}
+
+	replacement.ObservedRevision = replacement.DesiredRevision
+	replacement.Sync = argo.SyncSynced
+	if err := store.PutObservation(t.Context(), replacement); err != nil {
+		t.Fatalf("exact synced Application UID rollover rejected: %v", err)
+	}
+	stored, err := store.Observation(t.Context(), original.DeploymentID)
+	if err != nil || stored.ArgoUID != replacement.ArgoUID || !stored.Reconciled() {
+		t.Fatalf("replacement observation=%#v err=%v", stored, err)
+	}
+}
+
 type artifactVerifier struct {
 	calls atomic.Int64
 	err   error

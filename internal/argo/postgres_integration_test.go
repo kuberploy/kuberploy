@@ -120,11 +120,27 @@ func TestPostgreSQLArgoObservationAndRollbackContract(t *testing.T) {
 	if err != nil || !storedObservation.Reconciled() || storedObservation.ProjectID != pgProject {
 		t.Fatalf("observation=%#v err=%v", storedObservation, err)
 	}
+	replacement := observation
+	replacement.ArgoUID = "a2000000-0000-4000-8000-000000000009"
+	replacement.Sync = argo.SyncOutOfSync
+	replacement.ObservedRevision = strings.Repeat("c", 40)
+	replacement.ObservedAt, replacement.UpdatedAt = now.Add(2*time.Second), now.Add(2*time.Second)
+	if err = store.PutObservation(ctx, replacement); !errors.Is(err, argo.ErrConflict) {
+		t.Fatalf("unsynced Application UID rollover accepted: %v", err)
+	}
+	replacement.Sync, replacement.ObservedRevision = argo.SyncSynced, replacement.DesiredRevision
+	if err = store.PutObservation(ctx, replacement); err != nil {
+		t.Fatalf("exact synced Application UID rollover rejected: %v", err)
+	}
+	storedObservation, err = store.Observation(ctx, pgDeployment)
+	if err != nil || storedObservation.ArgoUID != replacement.ArgoUID || !storedObservation.Reconciled() {
+		t.Fatalf("replacement observation=%#v err=%v", storedObservation, err)
+	}
 	work, err := store.ClaimObservation(ctx, runtimeNamespace, "integration-observer-a", now.Add(2*time.Second), 30*time.Second)
 	if err != nil || work.Lease.Epoch != 1 {
 		t.Fatalf("observation work=%#v err=%v", work, err)
 	}
-	fenced := observation
+	fenced := replacement
 	fenced.ObservedAt, fenced.UpdatedAt = now.Add(3*time.Second), now.Add(3*time.Second)
 	if err = store.PutObservationFenced(ctx, work.Lease, fenced, now.Add(3*time.Second)); err != nil {
 		t.Fatal(err)

@@ -39,7 +39,7 @@ func (s *MemoryObservationStore) putObservationLocked(value Observation) error {
 		if value.ObservedAt.Before(current.ObservedAt) || value.UpdatedAt.Before(current.UpdatedAt) {
 			return ErrConflict
 		}
-		if current.ProjectID != value.ProjectID || current.EnvironmentID != value.EnvironmentID || current.ArgoUID != value.ArgoUID || current.ArgoNamespace != value.ArgoNamespace || current.ArgoName != value.ArgoName || current.DestinationNamespace != value.DestinationNamespace {
+		if observationIdentityConflict(current, value) {
 			return ErrConflict
 		}
 		if value.ObservedAt.Equal(current.ObservedAt) && value.UpdatedAt.Equal(current.UpdatedAt) {
@@ -51,6 +51,22 @@ func (s *MemoryObservationStore) putObservationLocked(value Observation) error {
 	}
 	s.values[value.DeploymentID] = cloneObservation(value)
 	return nil
+}
+
+// A Kubernetes Application receives a new UID when Argo recreates it. The
+// observer has already resolved every stable identity from PostgreSQL and
+// validated the exact name, project, destination, labels, and desired Git
+// revision. Permit that UID rollover only once the replacement is synced to
+// the server-owned desired revision; an untrusted or stale replacement cannot
+// establish a new durable identity.
+func observationIdentityConflict(current, replacement Observation) bool {
+	if current.ApplicationID != replacement.ApplicationID || current.ProjectID != replacement.ProjectID ||
+		current.EnvironmentID != replacement.EnvironmentID || current.ArgoNamespace != replacement.ArgoNamespace ||
+		current.ArgoName != replacement.ArgoName || current.DestinationNamespace != replacement.DestinationNamespace {
+		return true
+	}
+	return current.ArgoUID != replacement.ArgoUID &&
+		(replacement.Sync != SyncSynced || replacement.ObservedRevision != replacement.DesiredRevision)
 }
 
 func (s *MemoryObservationStore) Observation(_ context.Context, deploymentID string) (Observation, error) {

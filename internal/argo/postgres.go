@@ -76,7 +76,7 @@ func putObservationTx(ctx context.Context, tx pgx.Tx, value Observation) error {
 		return classifyPostgres(err)
 	}
 	if err == nil {
-		if value.ObservedAt.Before(current.ObservedAt) || value.UpdatedAt.Before(current.UpdatedAt) || current.ProjectID != value.ProjectID || current.EnvironmentID != value.EnvironmentID || current.ArgoUID != value.ArgoUID || current.ArgoNamespace != value.ArgoNamespace || current.ArgoName != value.ArgoName || current.DestinationNamespace != value.DestinationNamespace {
+		if value.ObservedAt.Before(current.ObservedAt) || value.UpdatedAt.Before(current.UpdatedAt) || observationIdentityConflict(current, value) {
 			return ErrConflict
 		}
 		if value.ObservedAt.Equal(current.ObservedAt) && value.UpdatedAt.Equal(current.UpdatedAt) {
@@ -87,7 +87,7 @@ func putObservationTx(ctx context.Context, tx pgx.Tx, value Observation) error {
 		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO argo_application_observations(deployment_id,application_id,project_id,environment_id,argo_uid,argo_namespace,argo_name,destination_namespace,desired_revision,observed_revision,sync_status,health_status,operation_phase,message,resources,observed_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT(deployment_id) DO UPDATE SET desired_revision=excluded.desired_revision,observed_revision=excluded.observed_revision,sync_status=excluded.sync_status,health_status=excluded.health_status,operation_phase=excluded.operation_phase,message=excluded.message,resources=excluded.resources,observed_at=excluded.observed_at,updated_at=excluded.updated_at`,
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) ON CONFLICT(deployment_id) DO UPDATE SET argo_uid=excluded.argo_uid,desired_revision=excluded.desired_revision,observed_revision=excluded.observed_revision,sync_status=excluded.sync_status,health_status=excluded.health_status,operation_phase=excluded.operation_phase,message=excluded.message,resources=excluded.resources,observed_at=excluded.observed_at,updated_at=excluded.updated_at`,
 		value.DeploymentID, value.ApplicationID, value.ProjectID, value.EnvironmentID, value.ArgoUID, value.ArgoNamespace, value.ArgoName, value.DestinationNamespace, value.DesiredRevision, value.ObservedRevision, value.Sync, value.Health, value.OperationPhase, value.Message, resources, value.ObservedAt.UTC(), value.UpdatedAt.UTC())
 	if err != nil {
 		return classifyPostgres(err)
