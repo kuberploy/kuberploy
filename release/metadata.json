@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Argo deployment observation now recovers safely when an exact desired-state Application is recreated with a new Kubernetes UID. Source builds default to the running Kuberploy CPU architecture while keeping multi-platform builds opt-in, and Git SSH builds ship a pinned OpenSSH client and fixed runtime identity. The pre-stable PostgreSQL schema remains one canonical 001_initial migration; installations from older release candidates require a fresh database.",
+  "summary": "Helm cascade retries now saturate their terminal failure counter instead of violating the database constraint. Argo observation recovers safely when an exact desired-state Application is recreated with a new UID. Source builds default to the running Kuberploy CPU architecture while multi-platform remains opt-in, and Git SSH builds include a pinned OpenSSH client. The pre-stable schema remains one 001_initial migration; older release candidates require a fresh database.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.349"
+  "version": "0.1.0-rc.350"
 }
