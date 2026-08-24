@@ -44,9 +44,11 @@ describe("middleware profile management", () => {
     vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
     const catalog = vi.spyOn(api, "middlewareProfileCatalog");
     renderPage();
-    expect(
-      await screen.findByText("Middleware profile management unavailable"),
-    ).toBeVisible();
+    const unavailable = await screen.findByText(
+      "Middleware profile management unavailable",
+    );
+    expect(unavailable).toBeVisible();
+    expect(unavailable.closest(".page")).toHaveClass("page--narrow");
     expect(catalog).not.toHaveBeenCalled();
   });
 

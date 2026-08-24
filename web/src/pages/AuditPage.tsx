@@ -30,7 +30,7 @@ export function AuditPage() {
     enabled: canQuery,
   });
   return (
-    <div className="page-stack">
+    <div className="page page-stack">
       <PageHeader
         title="Audit timeline"
         description="Safe actor, action, resource, outcome, and request metadata. Secret and provider detail is never exposed."

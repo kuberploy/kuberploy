@@ -337,10 +337,12 @@ export function MiddlewareProfilesPage() {
     return <Skeleton lines={8} />;
   if (!ready)
     return (
-      <EmptyState
-        title="Middleware profile management unavailable"
-        description="This human-only library opens only when Traefik, Git projection, Argo serving readiness, and the reusable profile store are healthy."
-      />
+      <div className="page page--narrow settings-page">
+        <EmptyState
+          title="Middleware profile management unavailable"
+          description="This human-only library opens only when Traefik, Git projection, Argo serving readiness, and the reusable profile store are healthy."
+        />
+      </div>
     );
 
   return (

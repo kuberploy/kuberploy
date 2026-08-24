@@ -443,6 +443,15 @@ pre {
   width: min(940px, 100%);
 }
 
+.page-stack {
+  display: grid;
+  gap: 24px;
+}
+
+.page-stack > .page-header {
+  margin-bottom: 6px;
+}
+
 .page-header {
   display: flex;
   align-items: end;
