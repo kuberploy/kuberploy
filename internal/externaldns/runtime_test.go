@@ -26,7 +26,7 @@ func TestManagedRuntimeBundleIsClosedAndExact(t *testing.T) {
 		t.Fatalf("runtime must select the immutable integration slug rendered by the workload chart, got %q", profile.LabelFilter)
 	}
 	text := string(content)
-	for _, required := range []string{`"kind": "Deployment"`, `"kind": "ClusterRole"`, `"name": "cloudflare-credentials"`, `"--domain-filter=prod.example.com"`, `"--label-filter=kuberploy.io/dns-integration=primary"`, `"kuberploy.io/edge-spec-digest"`} {
+	for _, required := range []string{`"kind": "Deployment"`, `"kind": "ClusterRole"`, `"name": "cloudflare-credentials"`, `"--domain-filter=prod.example.com"`, `"--label-filter=kuberploy.io/dns-integration=primary"`, `"--txt-prefix=a-"`, `"kuberploy.io/edge-spec-digest"`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("missing %q", required)
 		}

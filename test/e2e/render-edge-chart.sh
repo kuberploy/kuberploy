@@ -310,6 +310,7 @@ for kp_arg in \
   '--source=ingress' \
   '--policy=upsert-only' \
   '--registry=txt' \
+  '--txt-prefix=a-' \
   '--label-filter=kuberploy.io/dns-integration=cloudflare-primary' \
   '--annotation-filter=external-dns.alpha.kubernetes.io/hostname' \
   '--domain-filter=example.test' \

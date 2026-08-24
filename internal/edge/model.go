@@ -339,7 +339,7 @@ func (p ExternalDNSProfile) RequiredArguments() []string {
 	if p.Validate() != nil {
 		return nil
 	}
-	return []string{"--provider=" + p.ProviderKind, "--policy=" + p.Policy, "--registry=txt", "--txt-owner-id=" + p.TXTOwnerID}
+	return []string{"--provider=" + p.ProviderKind, "--policy=" + p.Policy, "--registry=txt", "--txt-prefix=a-", "--txt-owner-id=" + p.TXTOwnerID}
 }
 
 func validExternalDNSProvider(value string) bool {
