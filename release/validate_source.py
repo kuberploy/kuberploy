@@ -34,6 +34,13 @@ RELEASE_COMPONENT_CHARTS = (
 )
 
 
+def validate_builder_agent_runtime(dockerfile: str) -> None:
+    if "openssh-client-default=10.3_p1-r0" not in dockerfile:
+        raise SystemExit("builder-agent runtime must install the pinned SSH client used by Git SSH sources")
+    if "adduser -S -D -H -u 65532 -G kuberploy kuberploy" not in dockerfile:
+        raise SystemExit("builder-agent runtime must define the fixed UID used by the SSH client")
+
+
 def validate_installer_dependency_source(root: Path, version: str) -> None:
     installer = root / "charts/kuberploy-installer"
     metadata, _ = parse_chart(installer / "Chart.yaml")
@@ -625,6 +632,9 @@ def main() -> None:
             )
         if ":latest" in dockerfile.lower():
             raise SystemExit(f"release Dockerfile contains a latest reference: {dockerfile_path}")
+    validate_builder_agent_runtime(
+        (args.root / "build/package/builder-agent.Dockerfile").read_text(encoding="utf-8")
+    )
     values = (args.root / "charts/kuberploy/values.yaml").read_text(encoding="utf-8")
     if yaml_scalar(values, ("builder", "enabled")) != "false":
         raise SystemExit("source chart must keep the privileged builder boundary disabled")

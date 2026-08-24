@@ -11,7 +11,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from validate_source import validate_installer_dependency_source, validate_stable_qualification
+from validate_source import (
+    validate_builder_agent_runtime,
+    validate_installer_dependency_source,
+    validate_stable_qualification,
+)
 
 
 def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.CompletedProcess[str]:
@@ -26,6 +30,31 @@ def run_validator(root: Path, fixture: Path, workflow: str) -> subprocess.Comple
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
+    builder_dockerfile = (root / "build/package/builder-agent.Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    validate_builder_agent_runtime(builder_dockerfile)
+    try:
+        validate_builder_agent_runtime(
+            builder_dockerfile.replace("openssh-client-default=10.3_p1-r0", "missing-ssh-client", 1)
+        )
+    except SystemExit as error:
+        if "pinned SSH client" not in str(error):
+            raise
+    else:
+        raise SystemExit("validator accepted a builder-agent image without an SSH client")
+    try:
+        validate_builder_agent_runtime(
+            builder_dockerfile.replace(
+                "    && adduser -S -D -H -u 65532 -G kuberploy kuberploy\n", "", 1
+            )
+        )
+    except SystemExit as error:
+        if "fixed UID" not in str(error):
+            raise
+    else:
+        raise SystemExit("validator accepted a builder-agent image without its runtime identity")
+
     current_version = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))["version"]
     stable_version = current_version.split("-", 1)[0]
     candidate_version = (
