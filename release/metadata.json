@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm cascade retries now saturate their terminal failure counter instead of violating the database constraint. Argo observation recovers safely when an exact desired-state Application is recreated with a new UID. Source builds default to the running Kuberploy CPU architecture while multi-platform remains opt-in, and Git SSH builds include a pinned OpenSSH client. The pre-stable schema remains one 001_initial migration; older release candidates require a fresh database.",
+  "summary": "Helm cascade retries now become terminal when they reach the bounded failure counter, preserving the database constraint and retained-database upgrades. Argo observation recovers safely when an exact desired-state Application is recreated with a new UID. Source builds default to the running Kuberploy CPU architecture while multi-platform remains opt-in, and Git SSH builds include a pinned OpenSSH client. The pre-stable schema remains one 001_initial migration.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.350"
+  "version": "0.1.0-rc.351"
 }
