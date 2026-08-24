@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "The complete pre-stable PostgreSQL schema is regenerated as one canonical 001_initial migration; installations from older release candidates require a fresh database.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.344"
+  "version": "0.1.0-rc.345"
 }
