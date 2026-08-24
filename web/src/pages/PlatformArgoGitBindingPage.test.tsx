@@ -27,7 +27,7 @@ const created: PlatformArgoGitBinding = {
     owner: "kuberploy",
     name: "platform-gitops",
   },
-  targetRef: "refs/heads/platform",
+  targetRef: "refs/heads/main",
   pathPrefix: "platform",
   state: "waiting-for-git",
   createdAt: "2026-08-09T00:00:00Z",
@@ -112,13 +112,13 @@ describe("platform Argo Git authority page", () => {
       {
         installationId: "installation-opaque",
         repositoryId: "repository-opaque",
-        targetRef: "refs/heads/platform",
+        targetRef: "refs/heads/main",
       },
       expect.any(String),
     );
     expect(await screen.findByText("kuberploy/platform-gitops")).toBeVisible();
-    expect(screen.getAllByText("platform")).toHaveLength(2);
-    expect(screen.queryByText("refs/heads/platform")).toBeNull();
+    expect(screen.getByText("main")).toBeVisible();
+    expect(screen.queryByText("refs/heads/main")).toBeNull();
     expect(
       await screen.findByText("Authority recorded; Argo is ready"),
     ).toBeVisible();

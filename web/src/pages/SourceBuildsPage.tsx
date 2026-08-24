@@ -222,7 +222,11 @@ export function SourceBuildsPage() {
             <Button
               variant="secondary"
               onClick={() =>
-                void Promise.all([definitions.refetch(), attempts.refetch()])
+                void Promise.all([
+                  definitions.refetch(),
+                  attempts.refetch(),
+                  applicationRegistry.refetch(),
+                ])
               }
             >
               <Icon name="refresh" /> Refresh

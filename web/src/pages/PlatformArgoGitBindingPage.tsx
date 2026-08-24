@@ -64,7 +64,7 @@ export function PlatformArgoGitBindingPage() {
   });
   const [installationId, setInstallationId] = useState("");
   const [repositoryId, setRepositoryId] = useState("");
-  const [targetRef, setTargetRef] = useState("platform");
+  const [targetRef, setTargetRef] = useState("main");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
   const createAttempt = useRef<{ signature: string; key: string } | null>(null);
@@ -130,7 +130,7 @@ export function PlatformArgoGitBindingPage() {
       return;
     }
     if (!branchNamePattern.test(branch)) {
-      setValidationError("Use a branch name such as platform with no spaces.");
+      setValidationError("Use a branch name such as main with no spaces.");
       return;
     }
     if (!confirmed) {
@@ -338,7 +338,7 @@ export function PlatformArgoGitBindingPage() {
                   setTargetRef(event.target.value);
                   setConfirmed(false);
                 }}
-                placeholder="platform"
+                placeholder="main"
                 autoComplete="off"
                 spellCheck={false}
                 maxLength={210}

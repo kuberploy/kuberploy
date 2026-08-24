@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
@@ -319,6 +320,38 @@ describe("source-build workspace", () => {
       screen.queryByRole("option", { name: /Platform registry/ }),
     ).not.toBeInTheDocument();
     expect(platformTargets).not.toHaveBeenCalled();
+  });
+
+  it("refreshes application registry access with build history", async () => {
+    const user = userEvent.setup();
+    const applicationRegistry = vi
+      .spyOn(api, "applicationRegistry")
+      .mockResolvedValue({ items: [], truncated: false });
+
+    renderPage({
+      features: {
+        githubAppSetup: false,
+        builds: true,
+        builder: true,
+        registry: true,
+      },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: [
+            "build-definitions:read",
+            "build-definitions:write",
+            "builds:read",
+            "registry:read",
+          ],
+        },
+      ],
+    });
+
+    await waitFor(() => expect(applicationRegistry).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(applicationRegistry).toHaveBeenCalledTimes(2));
   });
 
   it("clears revoked application scope before build queries can refetch", async () => {
