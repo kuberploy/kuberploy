@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
@@ -26,6 +27,7 @@ type BuildDefinitionCatalog interface {
 	GetProject(context.Context, string) (domain.Project, error)
 	Authorize(context.Context, string, domain.Permission, domain.AccessTarget) error
 	RegistryTarget(context.Context, string) (domain.RegistryTarget, error)
+	PutServiceRegistryPolicy(context.Context, domain.ServiceRegistryPolicy) (domain.ServiceRegistryPolicy, error)
 	ServiceRegistryPolicy(context.Context, string, string) (domain.ServiceRegistryPolicy, error)
 }
 
@@ -82,11 +84,14 @@ func (r *ServerBuildDefinitionResolver) ResolveBuildDefinition(ctx context.Conte
 	if target.ID != registryTargetID {
 		return BuildDefinitionResolution{}, builds.ErrInfrastructure
 	}
+	expectedRepository := target.RepositoryPrefix + "/projects/" + project.ID + "/services/" + application.ID + "/image"
 	policy, err := r.Catalog.ServiceRegistryPolicy(ctx, target.ID, application.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		policy, err = r.Catalog.PutServiceRegistryPolicy(ctx, registrycore.DefaultPolicy(target.ID, application.ID, expectedRepository, time.Now().UTC()))
+	}
 	if err != nil {
 		return BuildDefinitionResolution{}, buildResolverStoreError(err)
 	}
-	expectedRepository := target.RepositoryPrefix + "/projects/" + project.ID + "/services/" + application.ID + "/image"
 	if registrycore.ValidatePolicyForTarget(target, policy) != nil || policy.RegistryTargetID != target.ID ||
 		policy.ServiceID != application.ID || policy.Repository != expectedRepository {
 		return BuildDefinitionResolution{}, builds.ErrInfrastructure

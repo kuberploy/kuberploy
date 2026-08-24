@@ -16,17 +16,21 @@ import (
 )
 
 type resolverCatalog struct {
-	application domain.Application
-	project     domain.Project
-	target      domain.RegistryTarget
-	policy      domain.ServiceRegistryPolicy
-	policyErr   error
-	authorize   error
+	application  domain.Application
+	project      domain.Project
+	target       domain.RegistryTarget
+	policy       domain.ServiceRegistryPolicy
+	policyErr    error
+	putPolicy    domain.ServiceRegistryPolicy
+	putPolicyErr error
+	authorize    error
 }
 
 type unusedDefinitionResolver struct{}
 
-type staticBuilderSettings struct{ value builds.BuilderPlatformSettings }
+type staticBuilderSettings struct {
+	value builds.BuilderPlatformSettings
+}
 
 func (s staticBuilderSettings) Current(context.Context) (builds.BuilderPlatformSettings, error) {
 	return s.value, nil
@@ -53,6 +57,14 @@ func (c *resolverCatalog) RegistryTarget(context.Context, string) (domain.Regist
 }
 func (c *resolverCatalog) ServiceRegistryPolicy(context.Context, string, string) (domain.ServiceRegistryPolicy, error) {
 	return c.policy, c.policyErr
+}
+func (c *resolverCatalog) PutServiceRegistryPolicy(_ context.Context, policy domain.ServiceRegistryPolicy) (domain.ServiceRegistryPolicy, error) {
+	c.putPolicy = policy
+	if c.putPolicyErr != nil {
+		return domain.ServiceRegistryPolicy{}, c.putPolicyErr
+	}
+	c.policy, c.policyErr = policy, nil
+	return policy, nil
 }
 
 func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T) {
@@ -126,8 +138,12 @@ func TestServerBuildDefinitionResolverRequiresExactApplicationPolicy(t *testing.
 		t.Fatalf("mismatched application policy accepted: %v", err)
 	}
 	catalog.policyErr = store.ErrNotFound
-	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrNotFound) {
-		t.Fatalf("missing application policy accepted: %v", err)
+	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); err != nil {
+		t.Fatalf("default application policy was not materialized: %v", err)
+	}
+	if catalog.putPolicy.RegistryTargetID != targetID || catalog.putPolicy.ServiceID != applicationID ||
+		catalog.putPolicy.Repository != "tenant/projects/"+projectID+"/services/"+applicationID+"/image" {
+		t.Fatalf("default application policy=%#v", catalog.putPolicy)
 	}
 }
 
