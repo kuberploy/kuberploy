@@ -24,7 +24,7 @@ type accessQuerier interface {
 
 func actorIsAdmin(ctx context.Context, q rowQuerier, actor string) (bool, error) {
 	var admin bool
-	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='platform-admin' AND scope_type='platform' AND scope_id='platform')`, actor).Scan(&admin)
+	err := q.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM access_grants g JOIN users u ON u.id=g.subject_user_id WHERE g.subject_user_id=$1 AND g.role='platform-admin' AND g.scope_type='platform' AND g.scope_id='platform' AND u.issuer<>'kuberploy:deleted')`, actor).Scan(&admin)
 	return admin, err
 }
 
@@ -332,7 +332,7 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 		return nil, err
 	}
 	query := `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM users u
-		WHERE NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
+		WHERE u.issuer<>'kuberploy:deleted' AND NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
 	args := []any{}
 	if !admin {
 		bindings, bindingErr := effectiveBindings(ctx, s.pool, actor)
@@ -345,7 +345,7 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 		}
 		query = `SELECT DISTINCT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at
 			FROM team_memberships visible JOIN users u ON u.id=visible.user_id
-			WHERE visible.team_id::text=ANY($1)
+			WHERE visible.team_id::text=ANY($1) AND u.issuer<>'kuberploy:deleted'
 			AND NOT EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) ORDER BY u.created_at,u.id`
 		args = append(args, managedTeamIDs)
 	}
@@ -363,6 +363,112 @@ func (s *Store) ListUsersForActor(ctx context.Context, actor string) ([]domain.U
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) DeleteUser(ctx context.Context, actor, userID, confirmationEmail, key, fingerprint, requestID string) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	scope := "users.delete:" + userID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, scope, key)); err != nil {
+		return false, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, scope, key); findErr != nil {
+		return false, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return false, base.ErrIdempotencyConflict
+		}
+		return true, tx.Commit(ctx)
+	}
+	admin, err := actorIsAdmin(ctx, tx, actor)
+	if err != nil {
+		return false, err
+	}
+	if !admin {
+		return false, base.ErrForbidden
+	}
+	if actor == userID {
+		return false, base.ErrSelfDeletion
+	}
+	var email, issuer string
+	var serviceAccount bool
+	err = tx.QueryRow(ctx, `SELECT COALESCE(u.email,''),u.issuer,EXISTS(SELECT 1 FROM service_accounts sa WHERE sa.id=u.id) FROM users u WHERE u.id=$1 FOR UPDATE`, userID).Scan(&email, &issuer, &serviceAccount)
+	if err != nil {
+		return false, classify(err)
+	}
+	if serviceAccount {
+		return false, base.ErrNotFound
+	}
+	if issuer == "kuberploy:deleted" {
+		if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "user", userID, nil); err != nil {
+			return false, classify(err)
+		}
+		return false, tx.Commit(ctx)
+	}
+	if !strings.EqualFold(strings.TrimSpace(confirmationEmail), strings.TrimSpace(email)) {
+		return false, base.ErrDeletionConfirmation
+	}
+	var blocked bool
+	err = tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM github_installations WHERE owner_user_id=$1) OR
+		EXISTS(SELECT 1 FROM team_memberships m WHERE m.user_id=$1 AND m.role='owner' AND (SELECT count(*) FROM team_memberships owners WHERE owners.team_id=m.team_id AND owners.role='owner')=1)`, userID).Scan(&blocked)
+	if err != nil {
+		return false, err
+	}
+	if blocked {
+		return false, base.ErrUserDeletionBlocked
+	}
+	var platformAdmin bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM access_grants WHERE subject_user_id=$1 AND role='platform-admin' AND scope_type='platform' AND scope_id='platform')`, userID).Scan(&platformAdmin); err != nil {
+		return false, err
+	}
+	if platformAdmin {
+		var adminCount int
+		if err = tx.QueryRow(ctx, `SELECT count(DISTINCT g.subject_user_id) FROM access_grants g JOIN users u ON u.id=g.subject_user_id WHERE g.role='platform-admin' AND g.scope_type='platform' AND g.scope_id='platform' AND u.issuer<>'kuberploy:deleted'`).Scan(&adminCount); err != nil {
+			return false, err
+		}
+		if adminCount <= 1 {
+			return false, base.ErrUserDeletionBlocked
+		}
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM user_password_credentials WHERE user_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM team_memberships WHERE user_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE subject_user_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM github_user_bindings WHERE user_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM github_setup_handoffs WHERE actor_id=$1`, userID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM github_setup_authorizations WHERE actor_id=$1`, userID); err != nil {
+		return false, err
+	}
+	tag, err := tx.Exec(ctx, `UPDATE users SET email=NULL,display_name='Deleted user',issuer='kuberploy:deleted',grant_revision=grant_revision+1 WHERE id=$1 AND issuer<>'kuberploy:deleted'`, userID)
+	if err != nil {
+		return false, err
+	}
+	if tag.RowsAffected() != 1 {
+		return false, base.ErrConflict
+	}
+	if err = audit(ctx, tx, actor, "user.delete", "user", userID, requestID, map[string]any{"credentialRemoved": true, "sessionsRevoked": true}); err != nil {
+		return false, err
+	}
+	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "user", userID, nil); err != nil {
+		return false, classify(err)
+	}
+	return false, tx.Commit(ctx)
 }
 
 func (s *Store) CreateTeam(ctx context.Context, actor, key, fingerprint, requestID string, in domain.CreateTeam) (base.Result[domain.Team], error) {
@@ -384,7 +490,7 @@ func (s *Store) CreateTeam(ctx context.Context, actor, key, fingerprint, request
 		return base.Result[domain.Team]{Value: team, Replay: true}, getErr
 	}
 	var actorExists bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, actor).Scan(&actorExists); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND issuer<>'kuberploy:deleted')`, actor).Scan(&actorExists); err != nil {
 		return base.Result[domain.Team]{}, err
 	}
 	if !actorExists {
@@ -451,6 +557,90 @@ func (s *Store) ListTeamsForActor(ctx context.Context, actor string) ([]domain.T
 	return out, rows.Err()
 }
 
+func (s *Store) DeleteTeam(ctx context.Context, actor, teamID, confirmationName, key, fingerprint, requestID string) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	scope := "teams.delete:" + teamID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, scope, key)); err != nil {
+		return false, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, scope, key); findErr != nil {
+		return false, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return false, base.ErrIdempotencyConflict
+		}
+		return true, tx.Commit(ctx)
+	}
+	var name string
+	if err = tx.QueryRow(ctx, `SELECT name FROM teams WHERE id=$1 FOR UPDATE`, teamID).Scan(&name); err != nil {
+		return false, classify(err)
+	}
+	authorized, err := actorCanManageTeam(ctx, tx, actor, teamID)
+	if err != nil {
+		return false, err
+	}
+	if !authorized {
+		return false, base.ErrForbidden
+	}
+	if strings.TrimSpace(confirmationName) != name {
+		return false, base.ErrDeletionConfirmation
+	}
+	var blocked bool
+	err = tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM projects WHERE team_id=$1) OR
+		EXISTS(SELECT 1 FROM github_installations WHERE team_id=$1) OR
+		EXISTS(SELECT 1 FROM github_setup_handoffs WHERE team_id=$1) OR
+		EXISTS(SELECT 1 FROM secret_bindings WHERE organization_id=$1)`, teamID).Scan(&blocked)
+	if err != nil {
+		return false, err
+	}
+	if blocked {
+		return false, base.ErrTeamDeletionBlocked
+	}
+	rows, err := tx.Query(ctx, `SELECT user_id::text FROM team_memberships WHERE team_id=$1`, teamID)
+	if err != nil {
+		return false, err
+	}
+	affected := map[string]struct{}{}
+	for rows.Next() {
+		var userID string
+		if err = rows.Scan(&userID); err != nil {
+			rows.Close()
+			return false, err
+		}
+		affected[userID] = struct{}{}
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close()
+	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE subject_team_id=$1 OR (scope_type='team' AND scope_id=$1::text)`, teamID); err != nil {
+		return false, err
+	}
+	if err = audit(ctx, tx, actor, "team.delete", "team", teamID, requestID, map[string]any{"name": name, "memberCount": len(affected)}); err != nil {
+		return false, err
+	}
+	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "team", teamID, nil); err != nil {
+		return false, classify(err)
+	}
+	tag, err := tx.Exec(ctx, `DELETE FROM teams WHERE id=$1`, teamID)
+	if err != nil {
+		return false, classify(err)
+	}
+	if tag.RowsAffected() != 1 {
+		return false, base.ErrConflict
+	}
+	if err = invalidateUsers(ctx, tx, affected); err != nil {
+		return false, err
+	}
+	return false, tx.Commit(ctx)
+}
+
 func (s *Store) ListTeamMembersForActor(ctx context.Context, actor, teamID string) ([]domain.TeamMember, error) {
 	allowed, err := canAccessTeam(ctx, s.pool, actor, teamID)
 	if err != nil {
@@ -509,7 +699,7 @@ func (s *Store) AddTeamMember(ctx context.Context, actor, teamID, key, fingerpri
 		return base.Result[domain.TeamMember]{}, base.ErrForbidden
 	}
 	var targetExists bool
-	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND NOT EXISTS(SELECT 1 FROM service_accounts WHERE id=$1))`, in.UserID).Scan(&targetExists)
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1 AND issuer<>'kuberploy:deleted' AND NOT EXISTS(SELECT 1 FROM service_accounts WHERE id=$1))`, in.UserID).Scan(&targetExists)
 	if err != nil {
 		return base.Result[domain.TeamMember]{}, err
 	}

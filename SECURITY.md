@@ -197,4 +197,12 @@ PostgreSQL-backed durable operations, and a namespaced updater that does not own
 tenant workloads. NetworkPolicies, provider CIDR narrowing, and stricter image
 controls remain available as optional infrastructure hardening profiles; the
 enabled builder and credential mutation paths retain their fail-closed
-admission policies.
+admission policies. Source builds use privileged DinD and default to scheduling
+on the installation's current node for one-VM usability. A malicious build can
+therefore compromise that node. `builder.nodeIsolation.enabled=true` requires a
+dedicated labeled and tainted node but does not turn DinD into an unprivileged
+workload.
+Platform-admin builder settings are revisioned in PostgreSQL. They can change
+queue concurrency, scheduling mode, and per-container requests/limits for new
+attempts; they cannot weaken the fixed admission shape, images, ServiceAccount,
+network policy, credential mounts, or immutable running Jobs.

@@ -7,6 +7,12 @@ buildKitImage: docker.io/moby/buildkit:v0.32.2
 # functional; sha256 references are accepted for immutable deployments.
 dindImage: docker.io/library/docker:29.7.1-dind
 
+# Revision-zero install default only. Privileged DinD runs on any schedulable
+# node so a one-node install can build immediately. After bootstrap, Settings →
+# Source builders is authoritative for new build attempts.
+nodeIsolation:
+  enabled: false
+
 # Optional operator-managed credential profiles inherited by the control-plane
 # chart. Profile scope is explicit even though this standalone chart does not
 # mount the Secrets itself.

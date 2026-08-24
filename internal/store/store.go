@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,6 +16,10 @@ import (
 var (
 	ErrNotFound                      = errors.New("not found")
 	ErrConflict                      = errors.New("conflict")
+	ErrDeletionConfirmation          = fmt.Errorf("%w: deletion confirmation does not match", ErrConflict)
+	ErrSelfDeletion                  = fmt.Errorf("%w: current user cannot delete itself", ErrConflict)
+	ErrUserDeletionBlocked           = fmt.Errorf("%w: user owns a required resource or final role", ErrConflict)
+	ErrTeamDeletionBlocked           = fmt.Errorf("%w: team still owns or binds resources", ErrConflict)
 	ErrBootstrapConsumed             = errors.New("bootstrap already consumed")
 	ErrIdempotencyConflict           = errors.New("idempotency key reused with different input")
 	ErrForbidden                     = errors.New("forbidden")
@@ -135,9 +140,11 @@ type Store interface {
 	LocalCredential(context.Context, string) (domain.User, string, error)
 	CreateLoginSession(context.Context, string, string, string, []byte, time.Time) (domain.User, error)
 	ListUsersForActor(context.Context, string) ([]domain.User, error)
+	DeleteUser(context.Context, string, string, string, string, string, string) (bool, error)
 
 	CreateTeam(context.Context, string, string, string, string, domain.CreateTeam) (Result[domain.Team], error)
 	ListTeamsForActor(context.Context, string) ([]domain.Team, error)
+	DeleteTeam(context.Context, string, string, string, string, string, string) (bool, error)
 	ListTeamMembersForActor(context.Context, string, string) ([]domain.TeamMember, error)
 	AddTeamMember(context.Context, string, string, string, string, string, domain.AddTeamMember) (Result[domain.TeamMember], error)
 	RemoveTeamMember(context.Context, string, string, string, string) error

@@ -255,16 +255,54 @@ kp_run_installed_auth_and_contract_workflow() {
   curl -fsS "${kp_base}/openapi-agent.json" -o "${kp_dir}/contract-agent.json"
   curl -fsS "${kp_base}/arazzo.yaml" -o "${kp_dir}/contract-arazzo.yaml"
   curl -fsS "${kp_base}/docs/" -o "${kp_dir}/contract-swagger.html"
-  jq -e '.openapi=="3.2.0" and .paths["/v1/auth/login"].post.operationId=="loginWithLocalPassword"' "${kp_dir}/contract-openapi.json" >/dev/null
-  jq -e '.operations|type=="array" and all(.[];.operationId!="bootstrapAdministrator" and .operationId!="loginWithLocalPassword")' "${kp_dir}/contract-agent.json" >/dev/null
+  jq -e '.openapi=="3.2.0" and .paths["/v1/auth/login"].post.operationId=="loginWithLocalPassword" and
+    .paths["/v1/users/{id}"].delete.operationId=="deleteUser" and
+    .paths["/v1/teams/{id}"].delete.operationId=="deleteTeam"' "${kp_dir}/contract-openapi.json" >/dev/null
+  jq -e '.operations|type=="array" and all(.[];
+    .operationId!="bootstrapAdministrator" and .operationId!="loginWithLocalPassword" and
+    .operationId!="deleteUser" and .operationId!="deleteTeam")' "${kp_dir}/contract-agent.json" >/dev/null
   grep -F 'sourceDescription:' "${kp_dir}/contract-arazzo.yaml" >/dev/null
   grep -F 'url: "/openapi.yaml"' "${kp_dir}/contract-swagger.html" >/dev/null
+
+  kp_actual="$(curl -sS -o "${kp_dir}/auth-github-sharing-private.json" -w '%{http_code}' -X PATCH \
+    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-10-one-chart-install-github-private" \
+    -H 'Content-Type: application/json' --data-binary '{"visibility":"private"}' \
+    "${kp_base}/v1/github/installations/${kp_installation}/sharing")"
+  [[ "${kp_actual}" == 200 ]]
+  kp_actual="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-delete-team" \
+    -H 'Content-Type: application/json' --data-binary '{"name":"Qualification Owners"}' \
+    "${kp_base}/v1/teams/${kp_team}")"
+  [[ "${kp_actual}" == 204 ]]
+  kp_actual="$(curl -sS -D "${kp_headers}" -o /dev/null -w '%{http_code}' -X DELETE \
+    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-delete-team" \
+    -H 'Content-Type: application/json' --data-binary '{"name":"Qualification Owners"}' \
+    "${kp_base}/v1/teams/${kp_team}")"
+  [[ "${kp_actual}" == 204 ]] && grep -Eiq '^Idempotent-Replay:[[:space:]]*true' "${kp_headers}"
+  kp_actual="$(curl -sS -o /dev/null -w '%{http_code}' -X DELETE \
+    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
+    --header "Idempotency-Key: qualification-${KUBERPLOY_E2E_RUN_ID}-delete-user" \
+    -H 'Content-Type: application/json' --data-binary "$(jq -cn --arg email "${kp_developer_email}" '{email:$email}')" \
+    "${kp_base}/v1/users/${kp_developer_id}")"
+  [[ "${kp_actual}" == 204 ]]
+  jq -n --arg email "${kp_developer_email}" --arg password "${kp_developer_password}" \
+    '{email:$email,password:$password}' >"${kp_secret_dir}/request.json"
+  [[ "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+    --data-binary "@${kp_secret_dir}/request.json" "${kp_base}/v1/auth/login")" == 401 ]]
+  curl -fsS --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" "${kp_base}/v1/users" \
+    | jq -e --arg id "${kp_developer_id}" 'all(.items[]; .id != $id)' >/dev/null
+  curl -fsS --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" "${kp_base}/v1/teams" \
+    | jq -e --arg id "${kp_team}" 'all(.items[]; .id != $id)' >/dev/null
   rm -f -- "${kp_secret_dir}/request.json" "${kp_secret_dir}/invitation.json" "${kp_secret_dir}/bootstrap.log" "${kp_secret_dir}/jobs.json"
   jq -n --arg admin "${kp_admin_id}" --arg developer "${kp_developer_id}" --arg team "${kp_team}" --arg installation "${kp_installation}" \
     '{adminUserId:$admin,developerUserId:$developer,teamId:$team,installationId:$installation,
       bootstrapTokenJobConsumed:true,logoutInvalidatedSession:true,adminRecurringLogin:true,
       invitationAccepted:true,developerRecurringLogin:true,soleOwnerDenied:true,
-      githubMetadataTeamShared:true,contractsExact:true,secretsExcludedFromEvidence:true}' \
+      githubMetadataTeamShared:true,contractsExact:true,userDeleted:true,teamDeleted:true,
+      deletedUserLoginDenied:true,deletionReplayExact:true,secretsExcludedFromEvidence:true}' \
     >"${kp_dir}/auth-contract-proof.json"
 }
 

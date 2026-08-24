@@ -1798,3 +1798,26 @@ export type ReviseAutoDeployPolicy = {
   enabled: boolean;
   expectedRevision: number;
 };
+
+export type BuilderContainerResources = {
+  cpuRequest: string;
+  memoryRequest: string;
+  ephemeralStorageRequest: string;
+  cpuLimit: string;
+  memoryLimit: string;
+  ephemeralStorageLimit: string;
+};
+
+export type BuilderPlatformSettingsInput = {
+  nodeIsolation: boolean;
+  maxConcurrentBuilders: number;
+  checkoutResources: BuilderContainerResources;
+  dindResources: BuilderContainerResources;
+  agentResources: BuilderContainerResources;
+};
+
+export type BuilderPlatformSettings = BuilderPlatformSettingsInput & {
+  revision: number;
+  updatedBy?: string;
+  updatedAt?: string;
+};

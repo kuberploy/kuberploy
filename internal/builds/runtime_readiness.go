@@ -13,7 +13,7 @@ const (
 
 var (
 	ErrRuntimeNotReady            = errors.New("matching source-build worker is not ready")
-	ErrBuilderCapacityUnavailable = errors.New("no ready dedicated builder node is available")
+	ErrBuilderCapacityUnavailable = errors.New("no ready builder node matching the platform scheduling mode is available")
 )
 
 type SourceBuildRuntimeIdentity struct {

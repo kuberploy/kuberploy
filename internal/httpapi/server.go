@@ -133,6 +133,7 @@ type Options struct {
 	GitBindingRepositories             GitBindingRepositoryResolver
 	PlatformGitBinding                 PlatformGitBindingConfig
 	BuildReadiness                     ReadinessProbe
+	BuilderSettings                    BuilderPlatformSettingsBackend
 	BuildLogReadiness                  ReadinessProbe
 	ValkeyReadiness                    ReadinessProbe
 	OperationCache                     operationcache.Cache
@@ -190,6 +191,7 @@ type Server struct {
 	gitBindingRepositories            GitBindingRepositoryResolver
 	platformGitBinding                PlatformGitBindingConfig
 	buildReadiness                    ReadinessProbe
+	builderSettings                   BuilderPlatformSettingsBackend
 	buildLogReadiness                 ReadinessProbe
 	valkeyReadiness                   ReadinessProbe
 	operationCache                    operationcache.Cache
@@ -217,7 +219,7 @@ type Server struct {
 }
 
 func New(o Options) *Server {
-	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, helmApprovals: o.HelmApprovals, helmRenderedPreviews: o.HelmRenderedPreviews, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
+	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, builderSettings: o.BuilderSettings, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, helmApprovals: o.HelmApprovals, helmRenderedPreviews: o.HelmRenderedPreviews, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
 	s.imageResolutionCatalog, _ = o.Store.(imageresolution.Catalog)
 	if s.gitBindingRepositories == nil {
 		if resolver, ok := o.Builds.(GitBindingRepositoryResolver); ok {
@@ -256,8 +258,10 @@ func New(o Options) *Server {
 	mux.Handle("POST /v1/auth/logout", s.protect(s.humanOnly(http.HandlerFunc(s.logout))))
 	mux.Handle("GET /v1/users", s.protect(s.humanOnly(http.HandlerFunc(s.users))))
 	mux.Handle("POST /v1/users/invitations", s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(invitationIssueLimit, http.HandlerFunc(s.createInvitation))))))
+	mux.Handle("DELETE /v1/users/{id}", s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.deleteUser))))))
 	mux.Handle("GET /v1/teams", s.protect(s.humanOnly(http.HandlerFunc(s.teams))))
 	mux.Handle("POST /v1/teams", s.protect(s.humanOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.teams)))))
+	mux.Handle("DELETE /v1/teams/{id}", s.protect(s.humanOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.deleteTeam)))))
 	mux.Handle("GET /v1/teams/{id}/members", s.protect(s.humanOnly(http.HandlerFunc(s.teamMembers))))
 	mux.Handle("POST /v1/teams/{id}/members", s.protect(s.humanOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.teamMembers)))))
 	mux.Handle("DELETE /v1/teams/{teamId}/members/{userId}", s.protect(s.humanOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.removeTeamMember)))))
@@ -307,6 +311,8 @@ func New(o Options) *Server {
 	mux.Handle("POST /v1/platform/certificate-issuers", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.platformCertificateIssuers)))))))
 	mux.Handle("PUT /v1/platform/certificate-issuers/{id}", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.platformCertificateIssuer)))))))
 	mux.Handle("POST /v1/platform/certificate-issuers/{id}/deactivate", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.deactivatePlatformCertificateIssuer)))))))
+	mux.Handle("GET /v1/platform/builder-settings", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.builderPlatformSettings))))))
+	mux.Handle("PUT /v1/platform/builder-settings", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.builderPlatformSettings)))))))
 	mux.Handle("GET /v1/middlewares", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.middlewareProfiles)))))
 	mux.Handle("GET /v1/middlewares/catalog", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.middlewareProfileCatalog)))))
 	mux.Handle("POST /v1/middlewares/validate", s.secretNoStore(s.protect(s.humanOnly(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.validateMiddlewareProfile))))))
@@ -767,6 +773,14 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, r, 404, "NotFound", "Not found", "The requested resource was not found.")
 	case errors.Is(err, store.ErrIdempotencyConflict):
 		writeProblem(w, r, 409, "IdempotencyConflict", "Idempotency conflict", "This idempotency key was already used with different input.")
+	case errors.Is(err, store.ErrDeletionConfirmation):
+		writeProblem(w, r, 409, "DeletionConfirmationMismatch", "Confirmation does not match", "Type the exact current email or team name to confirm deletion.")
+	case errors.Is(err, store.ErrSelfDeletion):
+		writeProblem(w, r, 409, "SelfDeletionBlocked", "Current user cannot be deleted", "Sign in as another platform administrator before deleting this user.")
+	case errors.Is(err, store.ErrUserDeletionBlocked):
+		writeProblem(w, r, 409, "UserDeletionBlocked", "User still owns required access", "Transfer owned GitHub installations and final team or platform administrator roles before deleting this user.")
+	case errors.Is(err, store.ErrTeamDeletionBlocked):
+		writeProblem(w, r, 409, "TeamDeletionBlocked", "Team still owns resources", "Move or remove the team's projects, GitHub sharing, setup handoffs, and secret bindings before deleting it.")
 	case errors.Is(err, store.ErrConflict):
 		writeProblem(w, r, 409, "Conflict", "Conflict", "The request conflicts with existing state.")
 	case errors.Is(err, store.ErrForbidden):

@@ -159,7 +159,7 @@ for kp_required in \
   'c.securityContext.privileged == true' \
   "c.restartPolicy == 'Always'" \
   "v.name == 'workspace' && v.readOnly == true" \
-  "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
+  "!has(object.spec.template.spec.nodeSelector)" \
   "cidr.matches('^(?:[0-9]{1,3}[.]){3}[0-9]{1,3}/(?:[89]|[12][0-9]|3[0-2])$')" \
   "t.ipBlock.cidr == '0.0.0.0/0'" \
   "t.ipBlock.cidr == '::/0'" \
@@ -179,6 +179,18 @@ for kp_required in \
     exit 1
   }
 done
+
+kp_isolated_render="${kp_tmp}/admission-isolated.yaml"
+helm template boundary-isolated "${kp_chart}" -f "${kp_values}" \
+  --set admissionPolicy.enabled=true --set nodeIsolation.enabled=true >"${kp_isolated_render}"
+rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_isolated_render}" >/dev/null || {
+  printf 'isolated admission render lacks dedicated node selector contract\n' >&2
+  exit 1
+}
+if rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_isolated_render}" >/dev/null; then
+  printf 'isolated admission render retained single-node scheduling contract\n' >&2
+  exit 1
+fi
 
 if rg -F "v.name == 'registry-credentials'" "${kp_render}" >/dev/null; then
   printf 'builder admission still accepts the obsolete shared registry credential volume\n' >&2

@@ -573,7 +573,27 @@ helm template github-builds "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "worker") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_AUTO_DEPLOY_ENABLED")] | length' "${kp_tmp}/github-builds.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_NAMESPACE' "${kp_tmp}/github-builds.yaml")" == "kuberploy-build-dind" ]]
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_DIND_IMAGE' "${kp_tmp}/github-builds.yaml")" == "docker.io/library/docker:29.7.1-dind" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_NODE_ISOLATION' "${kp_tmp}/github-builds.yaml")" == "false" ]]
+[[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_BUILDER_NODE_ISOLATION" and .valueFrom.configMapKeyRef.key == "KUBERPLOY_BUILDER_NODE_ISOLATION")] | length' "${kp_tmp}/github-builds.yaml" | tail -1)" == "2" ]]
+helm template builder-single-node "${kp_root}/charts/kuberploy-builder" \
+  --namespace kuberploy-build-dind -f "${kp_root}/charts/kuberploy-builder/testdata/enabled-values.yaml" \
+  >"${kp_tmp}/builder-single-node.yaml"
+rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_tmp}/builder-single-node.yaml" >/dev/null
+if rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_tmp}/builder-single-node.yaml" >/dev/null; then
+  printf 'single-node builder render still requires dedicated-node scheduling\n' >&2
+  exit 1
+fi
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS' "${kp_tmp}/github-builds.yaml")" == "192.0.0.0/20,2001:db8::/29" ]]
+
+yq '.nodeIsolation.enabled = true' "${kp_root}/charts/kuberploy-builder/testdata/enabled-values.yaml" >"${kp_tmp}/builder-isolated-values.yaml"
+helm template builder-isolated "${kp_root}/charts/kuberploy-builder" \
+  --namespace kuberploy-build-dind -f "${kp_tmp}/builder-isolated-values.yaml" \
+  >"${kp_tmp}/builder-isolated.yaml"
+rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_tmp}/builder-isolated.yaml" >/dev/null
+if rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_tmp}/builder-isolated.yaml" >/dev/null; then
+  printf 'isolated builder render accepted unrestricted scheduling\n' >&2
+  exit 1
+fi
 
 yq '.networkPolicy.externalEgressCIDRs = ["2001:db8::/29","192.0.0.0/20"]' \
   "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/provider-egress-unsorted.yaml"

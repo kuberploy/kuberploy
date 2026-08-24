@@ -30,6 +30,7 @@ const (
 	BuilderAgentImageEnv          = "KUBERPLOY_BUILDER_AGENT_IMAGE"
 	BuilderBuildKitImageEnv       = "KUBERPLOY_BUILDER_BUILDKIT_IMAGE"
 	BuilderDinDImageEnv           = "KUBERPLOY_BUILDER_DIND_IMAGE"
+	BuilderNodeIsolationEnv       = "KUBERPLOY_BUILDER_NODE_ISOLATION"
 	BuilderBuildSecretEnv         = "KUBERPLOY_BUILDER_BUILD_SECRET"
 	BuilderSSHSecretEnv           = "KUBERPLOY_BUILDER_SSH_SECRET"
 	BuilderBuildSecretProfilesEnv = "KUBERPLOY_BUILDER_BUILD_SECRET_PROFILES"
@@ -75,6 +76,7 @@ type WorkerRuntimeConfig struct {
 	BuilderAgentImage        string
 	BuildKitImage            string
 	DinDImage                string
+	NodeIsolation            bool
 	BuildSecret              string
 	SSHSecret                string
 	BuildSecretProfiles      []BuildSecretProfile
@@ -101,13 +103,14 @@ func (c WorkerRuntimeConfig) RuntimeDigest() (string, error) {
 		BuilderAgentImage        string
 		BuildKitImage            string
 		DinDImage                string
+		NodeIsolation            bool
 		SourceEgressCIDRs        []string
 		RegistryEgressCIDRs      []string
 		KubeAPIServerCIDRs       []string
 		BuildSecretProfiles      []BuildSecretProfile
 		SSHSecretProfiles        []BuildSecretProfile
 		Execution                ExecutionSettings
-	}{2, "deliveries+builds+release-projection", c.GitHub.AppID, c.GitHub.ClientID, c.BuilderNamespace, c.BuilderPodServiceAccount, c.BuilderAgentImage, c.BuildKitImage, effectiveDinDImage(c.DinDImage),
+	}{2, "deliveries+builds+release-projection", c.GitHub.AppID, c.GitHub.ClientID, c.BuilderNamespace, c.BuilderPodServiceAccount, c.BuilderAgentImage, c.BuildKitImage, effectiveDinDImage(c.DinDImage), c.NodeIsolation,
 		slices.Clone(c.SourceEgressCIDRs), slices.Clone(c.RegistryEgressCIDRs), slices.Clone(c.KubeAPIServerCIDRs), slices.Clone(c.BuildSecretProfiles), slices.Clone(c.SSHSecretProfiles), c.executionTemplate()}
 	encoded, err := json.Marshal(view)
 	if err != nil {
@@ -214,10 +217,28 @@ func profileIDsForFiles(profiles []BuildSecretProfile, files []builder.FileRefer
 // immutable build definition. registryPort is derived from the verified
 // registry target, never from the public build-definition request.
 func (c WorkerRuntimeConfig) ExecutionSettings(registryPort int) (ExecutionSettings, error) {
+	return c.ExecutionSettingsForPlatform(registryPort, DefaultBuilderPlatformSettings(c))
+}
+
+// ExecutionSettingsForPlatform combines immutable install-time identities and
+// provider boundaries with database-backed operator settings for new builds.
+func (c WorkerRuntimeConfig) ExecutionSettingsForPlatform(registryPort int, platform BuilderPlatformSettings) (ExecutionSettings, error) {
 	if err := c.validateEnabled(); err != nil || registryPort < 1 || registryPort > 65535 {
 		return ExecutionSettings{}, ErrInvalid
 	}
+	if err := platform.Validate(); err != nil {
+		return ExecutionSettings{}, ErrInvalid
+	}
 	settings := c.executionTemplate()
+	settings.CheckoutResources = platform.CheckoutResources
+	settings.DinDResources = platform.DinDResources
+	settings.AgentResources = platform.AgentResources
+	settings.NodeSelector = nil
+	settings.Toleration = builder.TaintToleration{}
+	if platform.NodeIsolation {
+		settings.NodeSelector = map[string]string{"kuberploy.io/node-class": "dind-builder"}
+		settings.Toleration = builder.TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"}
+	}
 	sourceCIDRs := c.SourceEgressCIDRs
 	if len(sourceCIDRs) == 0 {
 		sourceCIDRs = []string{"0.0.0.0/0", "::/0"}
@@ -260,16 +281,19 @@ func (c WorkerRuntimeConfig) ExecutionSettings(registryPort int) (ExecutionSetti
 }
 
 func (c WorkerRuntimeConfig) executionTemplate() ExecutionSettings {
-	return ExecutionSettings{
+	settings := ExecutionSettings{
 		Namespace: c.BuilderNamespace, PodServiceAccount: c.BuilderPodServiceAccount, BuilderAgentImage: c.BuilderAgentImage, BuildKitImage: c.BuildKitImage, DinDImage: effectiveDinDImage(c.DinDImage),
-		NodeSelector:       map[string]string{"kuberploy.io/node-class": "dind-builder"},
-		Toleration:         builder.TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"},
 		CheckoutResources:  builder.ContainerResources{CPURequest: "100m", MemoryRequest: "128Mi", EphemeralStorageRequest: "1Gi", CPULimit: "1", MemoryLimit: "512Mi", EphemeralStorageLimit: "2Gi"},
 		DinDResources:      builder.ContainerResources{CPURequest: "500m", MemoryRequest: "1Gi", EphemeralStorageRequest: "10Gi", CPULimit: "4", MemoryLimit: "8Gi", EphemeralStorageLimit: "50Gi"},
 		AgentResources:     builder.ContainerResources{CPURequest: "250m", MemoryRequest: "256Mi", EphemeralStorageRequest: "1Gi", CPULimit: "4", MemoryLimit: "4Gi", EphemeralStorageLimit: "10Gi"},
 		WorkspaceSizeLimit: "20Gi", SocketSizeLimit: "64Mi", ResultSizeLimit: "1Mi", DockerDataSizeLimit: "50Gi",
 		ActiveDeadlineSeconds: 7860, TTLSecondsAfterFinished: 3600,
 	}
+	if c.NodeIsolation {
+		settings.NodeSelector = map[string]string{"kuberploy.io/node-class": "dind-builder"}
+		settings.Toleration = builder.TaintToleration{Key: "kuberploy.io/dind-builder", Value: "true", Effect: "NoSchedule"}
+	}
+	return settings
 }
 
 func (c WorkerRuntimeConfig) validateEnabled() error {
@@ -336,6 +360,7 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 	agentImage := lookupExact(lookup, BuilderAgentImageEnv)
 	buildKitImage := lookupExact(lookup, BuilderBuildKitImageEnv)
 	dindImage := lookupExact(lookup, BuilderDinDImageEnv)
+	nodeIsolationValue := lookupExact(lookup, BuilderNodeIsolationEnv)
 	buildSecret := lookupExact(lookup, BuilderBuildSecretEnv)
 	sshSecret := lookupExact(lookup, BuilderSSHSecretEnv)
 	if dindImage == "" {
@@ -346,6 +371,12 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 	sourceCIDRs, sourceErr := parseProviderCIDRs(lookupExact(lookup, BuilderSourceEgressCIDRsEnv))
 	registryCIDRs, registryErr := parseHostCIDRs(lookupExact(lookup, BuilderRegistryEgressCIDRsEnv))
 	kubeAPICIDRs, kubeAPIErr := platformconfig.ParseKubeAPIServerCIDRs(lookupExact(lookup, platformconfig.KubeAPIServerCIDRsEnv))
+	if nodeIsolationValue == "" {
+		nodeIsolationValue = "false"
+	}
+	if nodeIsolationValue != "true" && nodeIsolationValue != "false" {
+		return WorkerRuntimeConfig{}, errors.New("KUBERPLOY_BUILDER_NODE_ISOLATION must be exactly true or false")
+	}
 	if appIDValue == "" || clientID == "" || namespace == "" || !kubeNameRE.MatchString(namespace) ||
 		!kubeNameRE.MatchString(podServiceAccount) || !validRuntimeAgentImage(agentImage) || !validRuntimeBuildKitImage(buildKitImage) || !validRuntimeDinDImage(dindImage) ||
 		(buildSecret != "" && !kubeNameRE.MatchString(buildSecret)) || (sshSecret != "" && !kubeNameRE.MatchString(sshSecret)) ||
@@ -365,7 +396,7 @@ func WorkerRuntimeConfigFromLookup(lookup func(string) (string, bool)) (WorkerRu
 		return WorkerRuntimeConfig{}, err
 	}
 	config := WorkerRuntimeConfig{Enabled: true, BuilderNamespace: namespace, BuilderPodServiceAccount: podServiceAccount,
-		BuilderAgentImage: agentImage, BuildKitImage: buildKitImage, DinDImage: dindImage, BuildSecret: buildSecret, SSHSecret: sshSecret,
+		BuilderAgentImage: agentImage, BuildKitImage: buildKitImage, DinDImage: dindImage, NodeIsolation: nodeIsolationValue == "true", BuildSecret: buildSecret, SSHSecret: sshSecret,
 		BuildSecretProfiles: buildProfiles, SSHSecretProfiles: sshProfiles, SourceEgressCIDRs: sourceCIDRs, RegistryEgressCIDRs: registryCIDRs, KubeAPIServerCIDRs: kubeAPICIDRs, GitHub: githubConfig}
 	if err = config.validateEnabled(); err != nil {
 		return WorkerRuntimeConfig{}, err

@@ -680,10 +680,29 @@ func TestKubernetesBuilderCapacityRequiresReadyDedicatedTaintedNode(t *testing.T
 	}
 }
 
-func TestKubernetesRESTBuilderNodeListIsBoundedAndSelectorPinned(t *testing.T) {
+func TestKubernetesBuilderCapacityAllowsReadyGeneralNodeWhenIsolationDisabled(t *testing.T) {
+	resources := newFakeBuildResources()
+	node := readyBuilderNode("starter-1")
+	delete(node["metadata"].(map[string]any)["labels"].(map[string]any), "kuberploy.io/node-class")
+	delete(node["spec"].(map[string]any), "taints")
+	resources.builderNodes = []map[string]any{node}
+	adapter, err := newKubernetesAdapterWithIsolation(resources, "kuberploy-build-dind", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = adapter.BuilderCapacityReady(context.Background()); err != nil {
+		t.Fatalf("ready general node rejected: %v", err)
+	}
+	node["spec"].(map[string]any)["unschedulable"] = true
+	if err = adapter.BuilderCapacityReady(context.Background()); !errors.Is(err, ErrBuilderCapacityUnavailable) {
+		t.Fatalf("cordoned general node accepted: %v", err)
+	}
+}
+
+func TestKubernetesRESTBuilderNodeListIsBounded(t *testing.T) {
 	const serviceAccountToken = "service-account.header.signature"
 	server := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/api/v1/nodes" || request.URL.Query().Get("limit") != "100" || request.URL.Query().Get("labelSelector") != "kuberploy.io/node-class=dind-builder" {
+		if request.URL.Path != "/api/v1/nodes" || request.URL.Query().Get("limit") != "100" || request.URL.Query().Has("labelSelector") {
 			t.Errorf("unsafe node query: %s?%s", request.URL.Path, request.URL.RawQuery)
 		}
 		response.Header().Set("Content-Type", "application/json")

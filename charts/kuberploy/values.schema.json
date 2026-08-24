@@ -1268,7 +1268,7 @@
     "builder": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["enabled", "builderAgentImage", "buildKitImage", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
+      "required": ["enabled", "builderAgentImage", "buildKitImage", "dindImage", "nodeIsolation", "namespace", "controllerServiceAccount", "podServiceAccount", "admissionPolicy", "networkPolicy", "resourceQuota"],
       "properties": {
         "global": {
           "type": "object",
@@ -1296,6 +1296,12 @@
           "minLength": 12,
           "maxLength": 512,
           "pattern": "^(?:[^\\s@]+:v?[0-9]+\\.[0-9]+\\.[0-9]+(?:[-.][A-Za-z0-9]+)*|[^\\s@]+@sha256:[0-9a-f]{64})$"
+        },
+        "nodeIsolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": { "enabled": { "type": "boolean" } }
         },
         "buildSecret": {
           "type": "object",

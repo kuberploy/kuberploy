@@ -127,6 +127,40 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request) {
 	collection(w, views)
 }
 
+type deleteUserRequest struct {
+	Email string `json:"email"`
+}
+
+func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	userID := strings.TrimSpace(r.PathValue("id"))
+	if userID == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "user id is required.")
+		return
+	}
+	var in deleteUserRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Email, _ = emailaddr.Normalize(in.Email)
+	if in.Email == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The exact user email is required for confirmation.")
+		return
+	}
+	replay, err := s.store.DeleteUser(r.Context(), currentUser(r.Context()).ID, userID, in.Email, key, fingerprint(in), requestID(r.Context()))
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 type teamRequest struct {
 	Name string `json:"name"`
 	Slug string `json:"slug,omitempty"`
@@ -171,6 +205,40 @@ func (s *Server) teams(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Location", "/v1/teams/"+result.Value.ID)
 	writeJSON(w, http.StatusCreated, result.Value)
+}
+
+type deleteTeamRequest struct {
+	Name string `json:"name"`
+}
+
+func (s *Server) deleteTeam(w http.ResponseWriter, r *http.Request) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	teamID := strings.TrimSpace(r.PathValue("id"))
+	if teamID == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "team id is required.")
+		return
+	}
+	var in deleteTeamRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The exact team name is required for confirmation.")
+		return
+	}
+	replay, err := s.store.DeleteTeam(r.Context(), currentUser(r.Context()).ID, teamID, in.Name, key, fingerprint(in), requestID(r.Context()))
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type teamMemberRequest struct {

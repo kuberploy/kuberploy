@@ -412,6 +412,28 @@ model build_release_projections {
   @@index([available_at, created_at, attempt_id], map: "build_release_projections_work_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'processing'::text]))"))
 }
 
+model builder_platform_settings_revisions {
+  revision                BigInt   @id
+  node_isolation          Boolean  @default(false)
+  max_concurrent_builders Int      @default(1)
+  checkout_resources      Json
+  dind_resources          Json
+  agent_resources         Json
+  updated_by              String   @db.Uuid
+  updated_at              DateTime @db.Timestamptz(6)
+}
+
+model builder_platform_setting_mutations {
+  actor_id            String   @db.Uuid
+  idempotency_key     String
+  request_fingerprint String
+  revision            BigInt
+  created_at          DateTime @db.Timestamptz(6)
+
+  @@id([actor_id, idempotency_key])
+  @@index([revision])
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model cert_manager_issuer_observations {
   profile_id           String    @db.Uuid

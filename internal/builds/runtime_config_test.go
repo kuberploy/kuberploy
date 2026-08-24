@@ -63,6 +63,24 @@ func TestWorkerRuntimeConfigEnabledUsesFixedProjectedRefsAndNarrowScope(t *testi
 	if err != nil || execution.BuilderAgentImage != config.BuilderAgentImage || len(execution.Egress) != 3 || execution.Egress[1].Ports[0] != 5000 {
 		t.Fatalf("execution=%#v err=%v", execution, err)
 	}
+	if config.NodeIsolation || len(execution.NodeSelector) != 0 || execution.Toleration != (builder.TaintToleration{}) {
+		t.Fatalf("single-node builder was not the default: config=%#v execution=%#v", config, execution)
+	}
+
+	isolatedValues := map[string]string{
+		GitHubBuildsEnabledEnv: "true", GitHubAppIDEnv: "12345", GitHubAppClientIDEnv: "Iv1_KuberployClient",
+		BuilderNamespaceEnv: "kuberploy-build-dind", BuilderPodServiceAccountEnv: "kuberploy-build-pod",
+		BuilderAgentImageEnv: "ghcr.io/kuberploy/builder@sha256:" + strings.Repeat("a", 64), BuilderBuildKitImageEnv: builder.DefaultBuildKitImage,
+		BuilderNodeIsolationEnv: "true",
+	}
+	isolated, err := WorkerRuntimeConfigFromLookup(mapLookup(isolatedValues))
+	if err != nil {
+		t.Fatal(err)
+	}
+	isolatedExecution, err := isolated.ExecutionSettings(5000)
+	if err != nil || isolatedExecution.NodeSelector["kuberploy.io/node-class"] != "dind-builder" || isolatedExecution.Toleration.Key != "kuberploy.io/dind-builder" {
+		t.Fatalf("isolated execution=%#v err=%v", isolatedExecution, err)
+	}
 }
 
 func TestWorkerRuntimeConfigFailsClosedOnPartialOrAmbiguousEnablement(t *testing.T) {
@@ -86,6 +104,8 @@ func TestWorkerRuntimeConfigFailsClosedOnPartialOrAmbiguousEnablement(t *testing
 		"broad source egress":    cloneStringValues(valid),
 	}
 	cases["ambiguous flag"][GitHubBuildsEnabledEnv] = "1"
+	cases["invalid node isolation"] = cloneStringValues(valid)
+	cases["invalid node isolation"][BuilderNodeIsolationEnv] = "yes"
 	cases["whitespace flag"][GitHubBuildsEnabledEnv] = " true "
 	delete(cases["missing app id"], GitHubAppIDEnv)
 	cases["noncanonical app id"][GitHubAppIDEnv] = "012345"
@@ -238,6 +258,7 @@ func TestRuntimeDigestBindsEveryOperatorOwnedWorkerIdentity(t *testing.T) {
 		"BuildKit image":  func(c *WorkerRuntimeConfig) { c.BuildKitImage = "registry.example.test/platform/buildkit:v0.32.2" },
 		"source egress":   func(c *WorkerRuntimeConfig) { c.SourceEgressCIDRs = []string{"192.0.2.11/32"} },
 		"registry egress": func(c *WorkerRuntimeConfig) { c.RegistryEgressCIDRs = []string{"192.0.2.21/32"} },
+		"node isolation":  func(c *WorkerRuntimeConfig) { c.NodeIsolation = !c.NodeIsolation },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {

@@ -14,6 +14,9 @@ import (
 )
 
 func (s *Store) isAdminLocked(actor string) bool {
+	if user, ok := s.users[actor]; !ok || user.Issuer == "kuberploy:deleted" {
+		return false
+	}
 	return accesspolicy.HasPermission(s.bindingsLocked(actor), domain.AccessTarget{Type: "platform", ID: "platform"}, domain.PermissionPlatformAdmin)
 }
 
@@ -293,10 +296,75 @@ func (s *Store) ListUsersForActor(_ context.Context, actor string) ([]domain.Use
 		if _, serviceAccount := s.serviceAccounts[userID]; serviceAccount {
 			continue
 		}
-		out = append(out, s.users[userID])
+		user := s.users[userID]
+		if user.Issuer == "kuberploy:deleted" {
+			continue
+		}
+		out = append(out, user)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
+}
+
+func (s *Store) DeleteUser(_ context.Context, actor, userID, confirmationEmail, key, fp, _ string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := ik(actor, "users.delete:"+userID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
+	}
+	if !s.isAdminLocked(actor) {
+		return false, base.ErrForbidden
+	}
+	if actor == userID {
+		return false, base.ErrSelfDeletion
+	}
+	user, exists := s.users[userID]
+	if !exists || user.Issuer == "kuberploy:deleted" {
+		return false, nil
+	}
+	if _, serviceAccount := s.serviceAccounts[userID]; serviceAccount {
+		return false, base.ErrNotFound
+	}
+	if !strings.EqualFold(strings.TrimSpace(confirmationEmail), strings.TrimSpace(user.Email)) {
+		return false, base.ErrDeletionConfirmation
+	}
+	for _, installation := range s.installations {
+		if installation.OwnerUserID == userID {
+			return false, base.ErrUserDeletionBlocked
+		}
+	}
+	for teamID, members := range s.memberships {
+		if member, ok := members[userID]; ok && member.Role == "owner" && s.ownerCountLocked(teamID) == 1 {
+			return false, base.ErrUserDeletionBlocked
+		}
+	}
+	for teamID := range s.memberships {
+		delete(s.memberships[teamID], userID)
+	}
+	for grantID, grant := range s.accessGrants {
+		if grant.SubjectUserID == userID {
+			delete(s.accessGrants, grantID)
+		}
+	}
+	for token, session := range s.sessions {
+		if session.userID == userID {
+			delete(s.sessions, token)
+		}
+	}
+	delete(s.passwordCredentials, strings.ToLower(strings.TrimSpace(user.Email)))
+	user.Email = ""
+	user.DisplayName = "Deleted user"
+	user.Issuer = "kuberploy:deleted"
+	user.GrantRevision++
+	s.users[userID] = user
+	s.idempotency[idemKey] = idemRecord{fp, "user", userID, ""}
+	s.audits++
+	return false, nil
 }
 
 func (s *Store) CreateTeam(_ context.Context, actor, key, fp, _ string, in domain.CreateTeam) (base.Result[domain.Team], error) {
@@ -339,6 +407,53 @@ func (s *Store) ListTeamsForActor(_ context.Context, actor string) ([]domain.Tea
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
+}
+
+func (s *Store) DeleteTeam(_ context.Context, actor, teamID, confirmationName, key, fp, _ string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := ik(actor, "teams.delete:"+teamID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
+	}
+	if _, exists := s.teams[teamID]; !exists {
+		return false, base.ErrNotFound
+	}
+	if !s.canManageTeamLocked(actor, teamID) {
+		return false, base.ErrForbidden
+	}
+	if strings.TrimSpace(confirmationName) != s.teams[teamID].Name {
+		return false, base.ErrDeletionConfirmation
+	}
+	for _, project := range s.projects {
+		if project.TeamID == teamID {
+			return false, base.ErrTeamDeletionBlocked
+		}
+	}
+	for _, installation := range s.installations {
+		if installation.TeamID == teamID {
+			return false, base.ErrTeamDeletionBlocked
+		}
+	}
+	affected := map[string]struct{}{}
+	for userID := range s.memberships[teamID] {
+		affected[userID] = struct{}{}
+	}
+	for grantID, grant := range s.accessGrants {
+		if grant.SubjectTeamID == teamID || grant.ScopeType == domain.ScopeTeam && grant.ScopeID == teamID {
+			delete(s.accessGrants, grantID)
+		}
+	}
+	delete(s.memberships, teamID)
+	delete(s.teams, teamID)
+	s.idempotency[idemKey] = idemRecord{fp, "team", teamID, ""}
+	s.audits++
+	s.bumpGrantsLocked(affected)
+	return false, nil
 }
 
 func (s *Store) ListTeamMembersForActor(_ context.Context, actor, teamID string) ([]domain.TeamMember, error) {

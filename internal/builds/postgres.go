@@ -578,8 +578,8 @@ func (s *PostgreSQLStore) AttemptAuthorization(ctx context.Context, attemptID st
 	return installation, repository, nil
 }
 
-func (s *PostgreSQLStore) ClaimNextAttempt(ctx context.Context, owner string, now time.Time, duration time.Duration) (BuildAttempt, error) {
-	if !validOwnerLease(owner, duration) {
+func (s *PostgreSQLStore) ClaimNextAttempt(ctx context.Context, owner string, now time.Time, duration time.Duration, maxConcurrent int) (BuildAttempt, error) {
+	if !validOwnerLease(owner, duration) || maxConcurrent < 1 || maxConcurrent > MaximumConcurrentBuilders {
 		return BuildAttempt{}, ErrInvalid
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -587,7 +587,14 @@ func (s *PostgreSQLStore) ClaimNextAttempt(ctx context.Context, owner string, no
 		return BuildAttempt{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	row := tx.QueryRow(ctx, `SELECT id::text FROM build_attempts WHERE state IN ('queued','preparing','running','cancelling') AND available_at<=$1 AND (lease_until IS NULL OR lease_until<=$1) ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`, now.UTC())
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('kuberploy-build-attempt-capacity'))`); err != nil {
+		return BuildAttempt{}, classifyPostgres(err)
+	}
+	row := tx.QueryRow(ctx, `SELECT id::text FROM build_attempts
+		WHERE state IN ('queued','preparing','running','cancelling') AND available_at<=$1 AND (lease_until IS NULL OR lease_until<=$1)
+		AND (state<>'queued' OR (SELECT count(*) FROM build_attempts WHERE state IN ('preparing','running','cancelling'))<$2)
+		ORDER BY CASE state WHEN 'cancelling' THEN 0 WHEN 'running' THEN 1 WHEN 'preparing' THEN 2 ELSE 3 END,created_at,id
+		FOR UPDATE SKIP LOCKED LIMIT 1`, now.UTC(), maxConcurrent)
 	var attemptID string
 	if err = row.Scan(&attemptID); err != nil {
 		return BuildAttempt{}, classifyPostgres(err)

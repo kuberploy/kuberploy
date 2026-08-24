@@ -34,6 +34,7 @@ type WebhookService struct {
 	LeaseDuration time.Duration
 	Now           func() time.Time
 	Runtime       WorkerRuntimeConfig
+	Settings      BuilderPlatformSettingsReader
 	PushWaker     interface {
 		Wake(context.Context, gitprojection.GitHubPushWake) (gitprojection.GitHubPushWakeResult, error)
 	}
@@ -234,7 +235,15 @@ func (s *WebhookService) processDelivery(ctx context.Context, claimKey string, e
 		if resolved.Ref != typed.Ref || !commitRE.MatchString(resolved.CommitSHA) || resolved.ResolvedAt.IsZero() {
 			return s.finishDeliveryError(ctx, outcome, ErrUnauthorized)
 		}
-		definitions, executionErr := attemptDefinitions(authorized.Definitions, s.Runtime)
+		platform := DefaultBuilderPlatformSettings(s.Runtime)
+		if s.Settings != nil {
+			current, settingsErr := s.Settings.Current(ctx)
+			if settingsErr != nil {
+				return outcome, settingsErr
+			}
+			platform = current
+		}
+		definitions, executionErr := attemptDefinitionsWithSettings(authorized.Definitions, s.Runtime, platform)
 		if executionErr != nil {
 			return s.finishDeliveryError(ctx, outcome, executionErr)
 		}
@@ -257,6 +266,10 @@ func (s *WebhookService) processDelivery(ctx context.Context, claimKey string, e
 }
 
 func attemptDefinitions(definitions []BuildDefinition, runtime WorkerRuntimeConfig) ([]AttemptDefinition, error) {
+	return attemptDefinitionsWithSettings(definitions, runtime, DefaultBuilderPlatformSettings(runtime))
+}
+
+func attemptDefinitionsWithSettings(definitions []BuildDefinition, runtime WorkerRuntimeConfig, platform BuilderPlatformSettings) ([]AttemptDefinition, error) {
 	if _, err := RuntimeIdentity(runtime); err != nil {
 		return nil, ErrInfrastructure
 	}
@@ -273,7 +286,7 @@ func attemptDefinitions(definitions []BuildDefinition, runtime WorkerRuntimeConf
 				return nil, ErrInfrastructure
 			}
 		}
-		execution, err := runtime.ExecutionSettings(port)
+		execution, err := runtime.ExecutionSettingsForPlatform(port, platform)
 		if err != nil {
 			return nil, ErrInfrastructure
 		}

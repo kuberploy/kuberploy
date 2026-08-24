@@ -50,22 +50,24 @@ type memoryReleaseProjection struct {
 // and local single-process development. It applies the same transaction
 // boundaries as PostgreSQL under one mutex.
 type MemoryStore struct {
-	mu                     sync.Mutex
-	claims                 map[string]memoryClaim
-	installations          map[string]Installation
-	installationByProvider map[string]string
-	repositories           map[string]Repository
-	definitions            map[string]BuildDefinition
-	deliveries             map[string]DeliveryReceipt
-	attempts               map[string]BuildAttempt
-	serviceGeneration      map[string]int64
-	setupAuthorizations    map[string]SetupAuthorization
-	githubUserBindings     map[string]githubapp.AccountIdentity
-	githubUserOwners       map[int64]string
-	setupHandoffs          map[[sha256.Size]byte]memorySetupHandoff
-	apiIdempotency         map[string]memoryAPIIdempotency
-	releaseProjections     map[string]memoryReleaseProjection
-	runtimeReadiness       map[string]SourceBuildWorkerObservation
+	mu                      sync.Mutex
+	claims                  map[string]memoryClaim
+	installations           map[string]Installation
+	installationByProvider  map[string]string
+	repositories            map[string]Repository
+	definitions             map[string]BuildDefinition
+	deliveries              map[string]DeliveryReceipt
+	attempts                map[string]BuildAttempt
+	serviceGeneration       map[string]int64
+	setupAuthorizations     map[string]SetupAuthorization
+	githubUserBindings      map[string]githubapp.AccountIdentity
+	githubUserOwners        map[int64]string
+	setupHandoffs           map[[sha256.Size]byte]memorySetupHandoff
+	apiIdempotency          map[string]memoryAPIIdempotency
+	releaseProjections      map[string]memoryReleaseProjection
+	runtimeReadiness        map[string]SourceBuildWorkerObservation
+	builderSettings         []BuilderPlatformSettings
+	builderSettingMutations map[string]memoryBuilderSettingMutation
 }
 
 func NewMemoryStore() *MemoryStore {
@@ -75,8 +77,9 @@ func NewMemoryStore() *MemoryStore {
 		attempts: map[string]BuildAttempt{}, serviceGeneration: map[string]int64{},
 		setupAuthorizations: map[string]SetupAuthorization{}, githubUserBindings: map[string]githubapp.AccountIdentity{},
 		githubUserOwners: map[int64]string{}, setupHandoffs: map[[sha256.Size]byte]memorySetupHandoff{}, apiIdempotency: map[string]memoryAPIIdempotency{},
-		releaseProjections: map[string]memoryReleaseProjection{},
-		runtimeReadiness:   map[string]SourceBuildWorkerObservation{},
+		releaseProjections:      map[string]memoryReleaseProjection{},
+		runtimeReadiness:        map[string]SourceBuildWorkerObservation{},
+		builderSettingMutations: map[string]memoryBuilderSettingMutation{},
 	}
 }
 
@@ -615,15 +618,24 @@ func (s *MemoryStore) AttemptAuthorization(_ context.Context, attemptID string) 
 	return cloneInstallation(installation), cloneRepository(repository), nil
 }
 
-func (s *MemoryStore) ClaimNextAttempt(_ context.Context, owner string, now time.Time, duration time.Duration) (BuildAttempt, error) {
-	if !validOwnerLease(owner, duration) {
+func (s *MemoryStore) ClaimNextAttempt(_ context.Context, owner string, now time.Time, duration time.Duration, maxConcurrent int) (BuildAttempt, error) {
+	if !validOwnerLease(owner, duration) || maxConcurrent < 1 || maxConcurrent > MaximumConcurrentBuilders {
 		return BuildAttempt{}, ErrInvalid
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	active := 0
+	for _, attempt := range s.attempts {
+		if attempt.State == AttemptPreparing || attempt.State == AttemptRunning || attempt.State == AttemptCancelling {
+			active++
+		}
+	}
 	candidates := make([]BuildAttempt, 0)
 	for _, attempt := range s.attempts {
 		if terminalAttempt(attempt.State) || attempt.AvailableAt.After(now.UTC()) || attempt.LeaseOwner != "" && attempt.LeaseUntil.After(now.UTC()) {
+			continue
+		}
+		if attempt.State == AttemptQueued && active >= maxConcurrent {
 			continue
 		}
 		candidates = append(candidates, attempt)

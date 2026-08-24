@@ -632,4 +632,67 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	if err = st.RemoveTeamMember(ctx, admin.ID, team.Value.ID, developer.ID, "request"); err != nil {
 		t.Fatalf("repeated PostgreSQL removal should be idempotent: %v", err)
 	}
+
+	deletionInvite := sha256.Sum256([]byte("integration-deletion-invitation"))
+	deletionEmail := "deletion@integration.test"
+	if _, err = st.CreateUserInvitation(ctx, admin.ID, deletionEmail, deletionInvite[:], time.Now().Add(time.Hour), "request"); err != nil {
+		t.Fatal(err)
+	}
+	deletionPasswordHash := strings.Repeat("z", 64)
+	deletionSession := sha256.Sum256([]byte("integration-deletion-session"))
+	deletionUser, err := st.AcceptUserInvitation(ctx, deletionInvite[:], "Deletion target", deletionPasswordHash, deletionSession[:], nil, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletionTeam, err := st.CreateTeam(ctx, admin.ID, "deletion-team", "deletion-team", "request", domain.CreateTeam{Name: "Deletion team", Slug: "deletion-team"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.AddTeamMember(ctx, admin.ID, deletionTeam.Value.ID, "deletion-team-member", "deletion-team-member", "request", domain.AddTeamMember{UserID: deletionUser.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	var deletionRevision int64
+	if err = st.pool.QueryRow(ctx, `SELECT grant_revision FROM users WHERE id=$1`, deletionUser.ID).Scan(&deletionRevision); err != nil {
+		t.Fatal(err)
+	}
+	currentDeletionSession := sha256.Sum256([]byte("integration-current-deletion-session"))
+	if _, err = st.pool.Exec(ctx, `INSERT INTO sessions(token_hash,user_id,grant_revision,expires_at) VALUES($1,$2,$3,$4)`, currentDeletionSession[:], deletionUser.ID, deletionRevision, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.DeleteTeam(ctx, admin.ID, deletionTeam.Value.ID, "Wrong", "delete-team-wrong", "wrong", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("wrong PostgreSQL team confirmation err=%v", err)
+	}
+	if replay, deleteErr := st.DeleteTeam(ctx, admin.ID, deletionTeam.Value.ID, deletionTeam.Value.Name, "delete-team", "exact", "request"); deleteErr != nil || replay {
+		t.Fatalf("PostgreSQL team deletion replay=%v err=%v", replay, deleteErr)
+	}
+	if replay, deleteErr := st.DeleteTeam(ctx, admin.ID, deletionTeam.Value.ID, deletionTeam.Value.Name, "delete-team", "exact", "request"); deleteErr != nil || !replay {
+		t.Fatalf("PostgreSQL team deletion replay replay=%v err=%v", replay, deleteErr)
+	}
+	if _, err = st.UserBySession(ctx, currentDeletionSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted PostgreSQL team retained member session: %v", err)
+	}
+	loginSession := sha256.Sum256([]byte("integration-delete-user-current-session"))
+	if _, err = st.CreateLoginSession(ctx, deletionUser.ID, deletionPasswordHash, "", loginSession[:], time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("create current deletion session: %v", err)
+	}
+	if _, err = st.DeleteUser(ctx, admin.ID, deletionUser.ID, "wrong@integration.test", "delete-user-wrong", "wrong", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("wrong PostgreSQL user confirmation err=%v", err)
+	}
+	if replay, deleteErr := st.DeleteUser(ctx, admin.ID, deletionUser.ID, deletionEmail, "delete-user", "exact", "request"); deleteErr != nil || replay {
+		t.Fatalf("PostgreSQL user deletion replay=%v err=%v", replay, deleteErr)
+	}
+	if replay, deleteErr := st.DeleteUser(ctx, admin.ID, deletionUser.ID, deletionEmail, "delete-user", "exact", "request"); deleteErr != nil || !replay {
+		t.Fatalf("PostgreSQL user deletion replay replay=%v err=%v", replay, deleteErr)
+	}
+	if _, _, err = st.LocalCredential(ctx, deletionEmail); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted PostgreSQL user retained credential: %v", err)
+	}
+	if _, err = st.UserBySession(ctx, loginSession[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted PostgreSQL user retained session: %v", err)
+	}
+	var tombstoneEmail *string
+	var tombstoneIssuer string
+	if err = st.pool.QueryRow(ctx, `SELECT email,issuer FROM users WHERE id=$1`, deletionUser.ID).Scan(&tombstoneEmail, &tombstoneIssuer); err != nil || tombstoneEmail != nil || tombstoneIssuer != "kuberploy:deleted" {
+		t.Fatalf("PostgreSQL user tombstone email=%v issuer=%q err=%v", tombstoneEmail, tombstoneIssuer, err)
+	}
 }

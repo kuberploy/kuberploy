@@ -90,9 +90,11 @@ difference between the nested and standalone Argo CD artifacts.
 The published chart embeds `kuberploy-builder` under the `builder` alias. The
 release packager rewrites the embedded chart to the release version and pins
 its builder-agent image, but `builder.enabled` remains `false`. Enabling that
-subchart is a separate cluster-administrator decision that requires a
-dedicated labelled and tainted builder node pool. Inclusion of this boundary
-does not claim that the build controller or build API is enabled.
+subchart is a separate cluster-administrator decision because it runs
+privileged DinD. The default single-node mode emits no scheduling constraints;
+optional node isolation requires the exact dedicated labelled and tainted
+builder node pool. Inclusion of this boundary does not claim that the build
+controller or build API is enabled.
 
 Each native build pushes an untagged, content-addressed platform manifest.
 After all twelve builds complete, the assembly job verifies each child digest's

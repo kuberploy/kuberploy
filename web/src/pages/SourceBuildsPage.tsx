@@ -283,8 +283,9 @@ export function SourceBuildsPage() {
                 <strong>Builder runtime unavailable</strong>
                 <p>
                   Source configuration remains editable. Build execution resumes
-                  after a matching worker and a Ready dedicated node labeled and
-                  tainted for DinD are available.
+                  after a matching worker and an eligible Ready builder node are
+                  available. Dedicated labels and taints are required only when
+                  node isolation is enabled.
                 </p>
               </div>
             </div>

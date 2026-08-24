@@ -32,7 +32,7 @@ type Store interface {
 
 	Attempt(context.Context, string) (BuildAttempt, error)
 	AttemptAuthorization(context.Context, string) (Installation, Repository, error)
-	ClaimNextAttempt(context.Context, string, time.Time, time.Duration) (BuildAttempt, error)
+	ClaimNextAttempt(context.Context, string, time.Time, time.Duration, int) (BuildAttempt, error)
 	HeartbeatAttempt(context.Context, string, string, time.Time, time.Duration) error
 	MarkAttemptRunning(context.Context, string, string, time.Time) error
 	DeferAttempt(context.Context, string, string, string, time.Time, time.Time) error

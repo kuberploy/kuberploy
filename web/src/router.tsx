@@ -32,6 +32,7 @@ import { MiddlewareProfilesPage } from "./pages/MiddlewareProfilesPage";
 import { VariableSetsPage } from "./pages/VariableSetsPage";
 import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
 import { AuditPage } from "./pages/AuditPage";
+import { BuilderSettingsPage } from "./pages/BuilderSettingsPage";
 import {
   clearInvitationFragment,
   invitationTokenFromHash,
@@ -229,6 +230,11 @@ const certificateIssuersRoute = createRoute({
   path: "/settings/certificate-issuers",
   component: CertificateIssuersPage,
 });
+const builderSettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/builders",
+  component: BuilderSettingsPage,
+});
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
@@ -256,6 +262,7 @@ const routeTree = rootRoute.addChildren([
   helmApprovalsRoute,
   middlewareProfilesRoute,
   certificateIssuersRoute,
+  builderSettingsRoute,
 ]);
 
 export const router = createRouter({

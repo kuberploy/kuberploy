@@ -68,12 +68,12 @@ type TaintToleration struct {
 }
 
 type ContainerResources struct {
-	CPURequest              string
-	MemoryRequest           string
-	EphemeralStorageRequest string
-	CPULimit                string
-	MemoryLimit             string
-	EphemeralStorageLimit   string
+	CPURequest              string `json:"cpuRequest"`
+	MemoryRequest           string `json:"memoryRequest"`
+	EphemeralStorageRequest string `json:"ephemeralStorageRequest"`
+	CPULimit                string `json:"cpuLimit"`
+	MemoryLimit             string `json:"memoryLimit"`
+	EphemeralStorageLimit   string `json:"ephemeralStorageLimit"`
 }
 
 type EgressEndpoint struct {
@@ -217,6 +217,11 @@ func PlanJob(request JobPlanRequest) (JobPlan, error) {
 			},
 		},
 	}
+	if len(request.NodeSelector) == 0 {
+		podSpec := job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+		delete(podSpec, "nodeSelector")
+		delete(podSpec, "tolerations")
+	}
 	policy := plannedNetworkPolicy(request, name, labels)
 	return JobPlan{Job: job, NetworkPolicy: policy}, nil
 }
@@ -265,11 +270,13 @@ func (r JobPlanRequest) Validate() error {
 	if r.CheckoutImage != r.AgentImage {
 		return errors.New("checkout and agent must use the same trusted builder-agent digest")
 	}
-	if len(r.NodeSelector) == 0 || r.NodeSelector["kuberploy.io/node-class"] != "dind-builder" {
-		return errors.New("nodeSelector must target the dedicated dind-builder node class")
+	isolated := len(r.NodeSelector) > 0
+	if isolated && r.NodeSelector["kuberploy.io/node-class"] != "dind-builder" {
+		return errors.New("nodeSelector must target the dedicated dind-builder node class when node isolation is enabled")
 	}
-	if r.Toleration.Key != "kuberploy.io/dind-builder" || r.Toleration.Value != "true" || r.Toleration.Effect != "NoSchedule" {
-		return errors.New("the exact dedicated dind-builder taint toleration is required")
+	exactToleration := r.Toleration.Key == "kuberploy.io/dind-builder" && r.Toleration.Value == "true" && r.Toleration.Effect == "NoSchedule"
+	if isolated != exactToleration {
+		return errors.New("nodeSelector and the dedicated dind-builder toleration must be enabled together")
 	}
 	for name, value := range map[string]ContainerResources{"checkout": r.CheckoutResources, "dind": r.DinDResources, "agent": r.AgentResources} {
 		if err := value.validate(); err != nil {
@@ -359,6 +366,12 @@ func (r ContainerResources) validate() error {
 		}
 	}
 	return nil
+}
+
+// ValidateContainerResources validates one builder container's complete
+// Kubernetes requests and limits without exposing internal Job construction.
+func ValidateContainerResources(resources ContainerResources) error {
+	return resources.validate()
 }
 
 func resources(value ContainerResources) map[string]any {

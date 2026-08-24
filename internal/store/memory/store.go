@@ -171,7 +171,7 @@ func (s *Store) LocalCredential(_ context.Context, email string) (domain.User, s
 	defer s.mu.Unlock()
 	credential, ok := s.passwordCredentials[strings.ToLower(strings.TrimSpace(email))]
 	u, userOK := s.users[credential.userID]
-	if !ok || !userOK {
+	if !ok || !userOK || u.Issuer == "kuberploy:deleted" {
 		return domain.User{}, "", base.ErrNotFound
 	}
 	return u, credential.hash, nil
@@ -180,7 +180,7 @@ func (s *Store) CreateLoginSession(_ context.Context, userID, expectedHash, upgr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u, ok := s.users[userID]
-	if !ok || len(sessionHash) != 32 || !expires.After(time.Now()) {
+	if !ok || u.Issuer == "kuberploy:deleted" || len(sessionHash) != 32 || !expires.After(time.Now()) {
 		return domain.User{}, base.ErrNotFound
 	}
 	email := strings.ToLower(strings.TrimSpace(u.Email))
@@ -207,7 +207,7 @@ func (s *Store) UserBySession(_ context.Context, hash []byte, now time.Time) (do
 		return domain.User{}, base.ErrNotFound
 	}
 	u, ok := s.users[session.userID]
-	if !ok || u.GrantRevision != session.revision {
+	if !ok || u.Issuer == "kuberploy:deleted" || u.GrantRevision != session.revision {
 		return domain.User{}, base.ErrNotFound
 	}
 	return u, nil

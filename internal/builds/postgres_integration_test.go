@@ -78,6 +78,19 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at) VALUES($1,$2,'platform-admin',$3,$4,1,$5)`, userID, "Build Test "+suffix, "build-test-"+suffix, "subject-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
+	settingsService := &BuilderPlatformSettingsService{Store: store, Defaults: DefaultBuilderPlatformSettings(testWorkerRuntimeConfig()), Now: func() time.Time { return now }}
+	settingsInput := settingsService.Defaults.Input()
+	settingsInput.NodeIsolation = true
+	settingsInput.MaxConcurrentBuilders = 3
+	settingsInput.DinDResources.CPULimit = "6"
+	settingsResult, settingsReplay, settingsErr := settingsService.Update(ctx, userID, "postgres-builder-settings-01", "sha256:"+strings.Repeat("a", 64), 0, settingsInput)
+	if settingsErr != nil || settingsReplay || settingsResult.Revision != 1 || settingsResult.MaxConcurrentBuilders != 3 {
+		t.Fatalf("builder settings update=%+v replay=%v err=%v", settingsResult, settingsReplay, settingsErr)
+	}
+	settingsResult, settingsReplay, settingsErr = settingsService.Update(ctx, userID, "postgres-builder-settings-01", "sha256:"+strings.Repeat("a", 64), 0, settingsInput)
+	if settingsErr != nil || !settingsReplay || settingsResult.Revision != 1 {
+		t.Fatalf("builder settings replay=%+v replay=%v err=%v", settingsResult, settingsReplay, settingsErr)
+	}
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, projectID, "Build Test "+suffix, "build-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +273,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || inserted {
 		t.Fatalf("permanent tombstone inserted=%v err=%v", inserted, err)
 	}
-	attempt, err := store.ClaimNextAttempt(ctx, "postgres-builder", now, 2*time.Minute)
+	attempt, err := store.ClaimNextAttempt(ctx, "postgres-builder", now, 2*time.Minute, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +363,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || len(retryAttempts) != 1 {
 		t.Fatalf("retry attempts=%#v err=%v", retryAttempts, err)
 	}
-	retryAttempt, err := store.ClaimNextAttempt(ctx, "postgres-retry", retryNow, time.Minute)
+	retryAttempt, err := store.ClaimNextAttempt(ctx, "postgres-retry", retryNow, time.Minute, 1)
 	if err != nil || retryAttempt.ID != retryAttempts[0].ID || retryAttempt.ExecutionAttempts != 1 {
 		t.Fatalf("retry attempt=%#v err=%v", retryAttempt, err)
 	}
@@ -358,7 +371,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.DeferAttempt(ctx, retryAttempt.ID, "postgres-retry", "github-provider-retry", retryNow, providerRetryAt); err != nil {
 		t.Fatal(err)
 	}
-	retryAttempt, err = store.ClaimNextAttempt(ctx, "postgres-retry", providerRetryAt, time.Minute)
+	retryAttempt, err = store.ClaimNextAttempt(ctx, "postgres-retry", providerRetryAt, time.Minute, 1)
 	if err != nil || retryAttempt.State != AttemptPreparing || retryAttempt.ExecutionAttempts != 1 || retryAttempt.FailureCode != "github-provider-retry" {
 		t.Fatalf("provider-deferred attempt=%#v err=%v", retryAttempt, err)
 	}
@@ -370,7 +383,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err != nil || queued.State != AttemptQueued || queued.ID != retryAttempt.ID || queued.Generation != retryAttempt.Generation || queued.InputDigest != retryAttempt.InputDigest || queued.CacheCandidate != retryAttempt.CacheCandidate || queued.PlanRequest.Build.Destination != retryAttempt.PlanRequest.Build.Destination {
 		t.Fatalf("queued=%#v err=%v", queued, err)
 	}
-	retried, err := store.ClaimNextAttempt(ctx, "postgres-retry", retryAt, time.Minute)
+	retried, err := store.ClaimNextAttempt(ctx, "postgres-retry", retryAt, time.Minute, 1)
 	if err != nil || retried.ID != retryAttempt.ID || retried.ExecutionAttempts != 2 {
 		t.Fatalf("retried=%#v err=%v", retried, err)
 	}
@@ -381,7 +394,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if scheduled, scheduleErr := store.ScheduleAttemptRetry(ctx, retried.ID, "postgres-retry", "kubernetes-cancel-failed", retryAt.Add(2*time.Second), cancelRetryAt); scheduleErr != nil || !scheduled {
 		t.Fatalf("cancel scheduled=%v err=%v", scheduled, scheduleErr)
 	}
-	cancelling, err := store.ClaimNextAttempt(ctx, "postgres-cancel", cancelRetryAt, time.Minute)
+	cancelling, err := store.ClaimNextAttempt(ctx, "postgres-cancel", cancelRetryAt, time.Minute, 1)
 	if err != nil || cancelling.ID != retried.ID || cancelling.State != AttemptCancelling {
 		t.Fatalf("cancelling=%#v err=%v", cancelling, err)
 	}

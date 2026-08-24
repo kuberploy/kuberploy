@@ -63,8 +63,9 @@ type kubernetesBuildResources interface {
 // existing Secret references in the exact Job plan and are never read by this
 // adapter.
 type KubernetesAdapter struct {
-	resources kubernetesBuildResources
-	namespace string
+	resources     kubernetesBuildResources
+	namespace     string
+	nodeIsolation bool
 }
 
 // ObservedBuildJob is an opaque, verified handle to the exact Kubernetes Job
@@ -219,15 +220,23 @@ func VerifyObservedBuildPod(job ObservedBuildJob, live map[string]any) (Observed
 }
 
 func newKubernetesAdapter(resources kubernetesBuildResources, namespace string) (*KubernetesAdapter, error) {
+	return newKubernetesAdapterWithIsolation(resources, namespace, true)
+}
+
+func newKubernetesAdapterWithIsolation(resources kubernetesBuildResources, namespace string, nodeIsolation bool) (*KubernetesAdapter, error) {
 	if resources == nil || !kubeNameRE.MatchString(namespace) {
 		return nil, ErrInvalid
 	}
-	return &KubernetesAdapter{resources: resources, namespace: namespace}, nil
+	return &KubernetesAdapter{resources: resources, namespace: namespace, nodeIsolation: nodeIsolation}, nil
 }
 
 var _ KubernetesBuildAPI = (*KubernetesAdapter)(nil)
 
 func (a *KubernetesAdapter) BuilderCapacityReady(ctx context.Context) error {
+	return a.BuilderCapacityReadyFor(ctx, a.nodeIsolation)
+}
+
+func (a *KubernetesAdapter) BuilderCapacityReadyFor(ctx context.Context, nodeIsolation bool) error {
 	if a == nil || a.resources == nil {
 		return ErrInfrastructure
 	}
@@ -236,7 +245,7 @@ func (a *KubernetesAdapter) BuilderCapacityReady(ctx context.Context) error {
 		return err
 	}
 	for _, node := range nodes {
-		eligible, validationErr := eligibleBuilderNode(node)
+		eligible, validationErr := eligibleBuilderNode(node, nodeIsolation)
 		if validationErr != nil {
 			return validationErr
 		}
@@ -247,7 +256,7 @@ func (a *KubernetesAdapter) BuilderCapacityReady(ctx context.Context) error {
 	return ErrBuilderCapacityUnavailable
 }
 
-func eligibleBuilderNode(node map[string]any) (bool, error) {
+func eligibleBuilderNode(node map[string]any, nodeIsolation bool) (bool, error) {
 	if node["apiVersion"] != "v1" || node["kind"] != "Node" || !kubeNameRE.MatchString(objectName(node)) {
 		return false, ErrInfrastructure
 	}
@@ -256,7 +265,7 @@ func eligibleBuilderNode(node map[string]any) (bool, error) {
 	if !metadataOK || !labelsOK {
 		return false, ErrInfrastructure
 	}
-	if labels["kuberploy.io/node-class"] != "dind-builder" {
+	if nodeIsolation && labels["kuberploy.io/node-class"] != "dind-builder" {
 		return false, nil
 	}
 	if deleting, exists := metadata["deletionTimestamp"]; exists && deleting != nil && deleting != "" {
@@ -295,7 +304,7 @@ func eligibleBuilderNode(node map[string]any) (bool, error) {
 	}
 	taints, exists := spec["taints"]
 	if !exists {
-		return false, nil
+		return !nodeIsolation, nil
 	}
 	taintList, ok := taints.([]any)
 	if !ok {
@@ -328,7 +337,7 @@ func eligibleBuilderNode(node map[string]any) (bool, error) {
 			return false, nil
 		}
 	}
-	return required, nil
+	return !nodeIsolation || required, nil
 }
 
 func (a *KubernetesAdapter) Ensure(ctx context.Context, workload BuildWorkload) (WorkloadObservation, error) {

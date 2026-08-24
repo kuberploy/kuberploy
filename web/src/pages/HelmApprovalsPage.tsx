@@ -86,8 +86,8 @@ export function HelmApprovalsPage() {
     );
   }
   return (
-    <div className="settings-page">
-      <div className="page-heading">
+    <div className="page page--narrow settings-page">
+      <div className="page-header page-heading">
         <div>
           <span className="eyebrow">Platform settings</span>
           <h1>Helm approvals</h1>

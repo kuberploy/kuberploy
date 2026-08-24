@@ -303,8 +303,12 @@ kp_qualification_validate_scenario() {
     and (.workflow.sourceBuild.cancellationPush.afterCommit | type == "string" and test("^[a-f0-9]{40}$"))
     and (.workflow.sourceBuild.cancellationPush.deliveryId | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"))
     and (.workflow.sourceBuild.cancellationPush.afterCommit != .workflow.sourceBuild.push.afterCommit)
-    and ((.workflow.sourceBuild.builderPool | keys) == ["nodeSelector"])
-    and (.workflow.sourceBuild.builderPool.nodeSelector | type == "object" and length > 0)
+    and ((.workflow.sourceBuild.builderPool | keys | sort) == ["nodeIsolation","nodeSelector"])
+    and (.workflow.sourceBuild.builderPool.nodeIsolation | type == "boolean")
+    and (.workflow.sourceBuild.builderPool.nodeSelector | type == "object")
+    and (if .workflow.sourceBuild.builderPool.nodeIsolation then
+      (.workflow.sourceBuild.builderPool.nodeSelector["kuberploy.io/node-class"] == "dind-builder")
+      else (.workflow.sourceBuild.builderPool.nodeSelector | length == 0) end)
     and (.workflow.sourceBuild.definition | type == "object")
     and (.workflow.sourceBuild.promotion | type == "object")
     and ((.workflow.helm | keys | sort) == ["approvalId","approvalRevision","valuesYaml"])
@@ -419,10 +423,11 @@ kp_qualification_validate_semantic_proof() {
       kp_die "stage ${kp_stage} is missing repository installer proof"
     jq -e '
       (keys | sort) == ["adminRecurringLogin","adminUserId","applicationCount",
-        "bootstrapTokenJobConsumed","contractsExact","developerRecurringLogin","developerUserId",
-        "githubMetadataTeamShared","immutableSourceRevisions","independentApplicationsCreated",
-        "installationId","invitationAccepted","logoutInvalidatedSession","mutation",
-        "packageDigestsAttested","secretsExcludedFromEvidence","soleOwnerDenied","teamId"] and
+        "bootstrapTokenJobConsumed","contractsExact","deletedUserLoginDenied","deletionReplayExact",
+        "developerRecurringLogin","developerUserId","githubMetadataTeamShared",
+        "immutableSourceRevisions","independentApplicationsCreated","installationId",
+        "invitationAccepted","logoutInvalidatedSession","mutation","packageDigestsAttested",
+        "secretsExcludedFromEvidence","soleOwnerDenied","teamDeleted","teamId","userDeleted"] and
       .mutation == "installer-render-and-release" and
       (.applicationCount | type == "number" and . >= 2 and floor == .) and
       .independentApplicationsCreated == true and
@@ -431,6 +436,8 @@ kp_qualification_validate_semantic_proof() {
       .logoutInvalidatedSession == true and .adminRecurringLogin == true and
       .invitationAccepted == true and .developerRecurringLogin == true and
       .soleOwnerDenied == true and .githubMetadataTeamShared == true and
+      .userDeleted == true and .teamDeleted == true and
+      .deletedUserLoginDenied == true and .deletionReplayExact == true and
       .contractsExact == true and .secretsExcludedFromEvidence == true and
       all(.adminUserId,.developerUserId,.teamId,.installationId; test("^[a-f0-9-]{36}$"))
     ' "${kp_installer}" >/dev/null || kp_die "stage ${kp_stage} installer proof is invalid"

@@ -338,6 +338,7 @@ func run() error {
 	var buildPromotions *buildpromotion.Resolver
 	var gitBindingRepositories httpapi.GitBindingRepositoryResolver
 	var buildReadiness httpapi.ReadinessProbe
+	var builderSettings httpapi.BuilderPlatformSettingsBackend
 	var gitProjectionBackend httpapi.GitProjectionBackend
 	var gitProjectionReadiness httpapi.ReadinessProbe
 	var argoReadiness httpapi.ReadinessProbe
@@ -350,7 +351,7 @@ func run() error {
 	var helmApprovalBackend httpapi.HelmApprovalAdmissionBackend
 	var helmPreviewBackend httpapi.HelmRenderedManifestPreviewBackend
 	if sourceBuilds != nil {
-		githubSetup, githubWebhook, buildBackend, buildReadiness = sourceBuilds.setup, sourceBuilds.webhook, sourceBuilds.backend, sourceBuilds.readiness
+		githubSetup, githubWebhook, buildBackend, buildReadiness, builderSettings = sourceBuilds.setup, sourceBuilds.webhook, sourceBuilds.backend, sourceBuilds.readiness, sourceBuilds.settings
 		buildPromotions = &buildpromotion.Resolver{Projections: sourceBuilds.store, Releases: db, Resources: db, Access: db}
 		var ok bool
 		gitBindingRepositories, ok = sourceBuilds.backend.(httpapi.GitBindingRepositoryResolver)
@@ -415,7 +416,7 @@ func run() error {
 		}
 	}
 	handler := httpapi.New(httpapi.Options{Store: db, BootstrapToken: os.Getenv("KUBERPLOY_BOOTSTRAP_TOKEN"), Version: version, PublicURL: publicURL, MonitoringMode: monitoringMode, SecureCookie: secure, Releases: releaseService, Metrics: metrics, Runtime: runtime, RuntimeReadiness: runtimeReadiness,
-		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
+		GitHubSetup: githubSetup, GitHubWebhook: githubWebhook, Builds: buildBackend, BuildPromotions: buildPromotions, BuildLogs: buildLogService, GitBindingRepositories: gitBindingRepositories, PlatformGitBinding: platformGitBindingConfig, BuildReadiness: buildReadiness, BuilderSettings: builderSettings, BuildLogReadiness: buildLogReadiness, ValkeyReadiness: valkeyReadinessProbe{pinger: releaseCache}, OperationCache: operationCache, AppConfigRenderedPreviews: appConfigRenderedPreviews,
 		GitProjection: gitProjectionBackend, GitProjectionReadiness: gitProjectionReadiness, ArgoReadiness: argoReadiness,
 		RuntimeSecrets: runtimeSecretBackend, RuntimeSecretReadiness: runtimeSecretReadiness,
 		Certificates: certificateBackend, CertificateReadiness: certificateReadiness, CertificateReferences: certificateReferences, CertificateIssuers: certificateIssuerCatalog,

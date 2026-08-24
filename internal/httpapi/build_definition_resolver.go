@@ -30,8 +30,9 @@ type BuildDefinitionCatalog interface {
 }
 
 type ServerBuildDefinitionResolver struct {
-	Catalog BuildDefinitionCatalog
-	Runtime builds.WorkerRuntimeConfig
+	Catalog  BuildDefinitionCatalog
+	Runtime  builds.WorkerRuntimeConfig
+	Settings builds.BuilderPlatformSettingsReader
 }
 
 func (r *ServerBuildDefinitionResolver) SecretProfileCatalog(applicationID string) (builds.BuildSecretProfileCatalog, error) {
@@ -94,7 +95,14 @@ func (r *ServerBuildDefinitionResolver) ResolveBuildDefinition(ctx context.Conte
 	if err != nil {
 		return BuildDefinitionResolution{}, err
 	}
-	execution, err := r.Runtime.ExecutionSettings(port)
+	platform := builds.DefaultBuilderPlatformSettings(r.Runtime)
+	if r.Settings != nil {
+		platform, err = r.Settings.Current(ctx)
+		if err != nil {
+			return BuildDefinitionResolution{}, builds.ErrInfrastructure
+		}
+	}
+	execution, err := r.Runtime.ExecutionSettingsForPlatform(port, platform)
 	if err != nil {
 		return BuildDefinitionResolution{}, builds.ErrInfrastructure
 	}

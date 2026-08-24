@@ -34,12 +34,12 @@ type inClusterBuildResources struct {
 // NewInClusterKubernetesAdapter creates the production adapter from the
 // worker's projected ServiceAccount credential. The adapter remains pinned to
 // one configured builder namespace.
-func NewInClusterKubernetesAdapter(namespace string) (*KubernetesAdapter, error) {
+func NewInClusterKubernetesAdapter(namespace string, nodeIsolation bool) (*KubernetesAdapter, error) {
 	resources, err := newInClusterBuildResources()
 	if err != nil {
 		return nil, err
 	}
-	return newKubernetesAdapter(resources, namespace)
+	return newKubernetesAdapterWithIsolation(resources, namespace, nodeIsolation)
 }
 
 func newInClusterBuildResources() (*inClusterBuildResources, error) {
@@ -211,10 +211,7 @@ func (c *inClusterBuildResources) ListBuilderNodes(ctx context.Context, limit in
 	if limit != 100 {
 		return nil, ErrInvalid
 	}
-	query := url.Values{
-		"labelSelector": {"kuberploy.io/node-class=dind-builder"},
-		"limit":         {"100"},
-	}
+	query := url.Values{"limit": {"100"}}
 	encoded, status, err := c.request(ctx, http.MethodGet, "/api/v1/nodes?"+query.Encode(), nil)
 	if err != nil {
 		return nil, err

@@ -11,6 +11,7 @@ import type {
   GitHubInstallation,
   Team,
   TeamMember,
+  User,
   UserInvitation,
 } from "../api/types";
 import { Icon } from "../components/Icon";
@@ -48,6 +49,8 @@ export function TeamsPage() {
     null,
   );
   const [removeTarget, setRemoveTarget] = useState<TeamMember | null>(null);
+  const [deleteTeamTarget, setDeleteTeamTarget] = useState<Team | null>(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<User | null>(null);
   const [invitation, setInvitation] = useState<UserInvitation | null>(null);
 
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
@@ -103,6 +106,12 @@ export function TeamsPage() {
     signature: string;
     key: string;
   } | null>(null);
+  const deleteTeamAttempt = useRef<{ targetId: string; key: string } | null>(
+    null,
+  );
+  const deleteUserAttempt = useRef<{ targetId: string; key: string } | null>(
+    null,
+  );
   const removeTargetRef = useRef<TeamMember | null>(null);
   removeTargetRef.current = removeTarget;
 
@@ -223,6 +232,41 @@ export function TeamsPage() {
         invitationForm.reset();
         setInvitation(created);
       }
+    },
+  });
+  const deleteTeam = useMutation({
+    mutationFn: (input: { team: Team; idempotencyKey: string }) =>
+      api.deleteTeam(input.team.id, input.team.name, input.idempotencyKey),
+    onSuccess: async (_value, input) => {
+      if (
+        deleteTeamTarget?.id === input.team.id &&
+        deleteTeamAttempt.current?.key === input.idempotencyKey
+      ) {
+        deleteTeamAttempt.current = null;
+        setDeleteTeamTarget(null);
+      }
+      await queryClient.invalidateQueries({ queryKey: ["teams"] });
+    },
+  });
+  const deleteUser = useMutation({
+    mutationFn: (input: { user: User; idempotencyKey: string }) =>
+      api.deleteUser(
+        input.user.id,
+        input.user.email ?? "",
+        input.idempotencyKey,
+      ),
+    onSuccess: async (_value, input) => {
+      if (
+        deleteUserTarget?.id === input.user.id &&
+        deleteUserAttempt.current?.key === input.idempotencyKey
+      ) {
+        deleteUserAttempt.current = null;
+        setDeleteUserTarget(null);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["users"] }),
+        queryClient.invalidateQueries({ queryKey: ["teams"] }),
+      ]);
     },
   });
   const changeSharing = useMutation({
@@ -485,7 +529,22 @@ export function TeamsPage() {
               <span className="eyebrow">Membership</span>
               <h2>{selectedTeam?.name ?? "Select a team"}</h2>
             </div>
-            {selectedTeam ? <code>{selectedTeam.slug}</code> : null}
+            {selectedTeam ? (
+              <div className="cluster-actions">
+                <code>{selectedTeam.slug}</code>
+                {canManageSelectedTeam ? (
+                  <Button
+                    variant="danger"
+                    onClick={() => {
+                      deleteTeam.reset();
+                      setDeleteTeamTarget(selectedTeam);
+                    }}
+                  >
+                    Delete team
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           {!selectedTeam ? (
             <EmptyState
@@ -686,6 +745,47 @@ export function TeamsPage() {
         </Card>
       ) : null}
 
+      {me.data?.role === "platform-admin" ? (
+        <Card className="installations-card">
+          <div className="card__header card__header--inside">
+            <div>
+              <span className="eyebrow">Platform administrator</span>
+              <h2>Users</h2>
+              <p>
+                Delete login access while preserving immutable audit history.
+              </p>
+            </div>
+            <span className="count-badge">{users.data?.items.length ?? 0}</span>
+          </div>
+          <div className="member-list" aria-label="Platform users">
+            {users.data?.items.map((user) => (
+              <div className="member-row" key={user.id}>
+                <span className="user-avatar">
+                  {user.displayName.slice(0, 1).toUpperCase()}
+                </span>
+                <span>
+                  <strong>{user.displayName}</strong>
+                  <small>{user.email ?? "Email unavailable"}</small>
+                </span>
+                <span className={`member-role member-role--${user.role}`}>
+                  {user.role}
+                </span>
+                <Button
+                  variant="danger"
+                  disabled={user.id === me.data?.id || !user.email}
+                  onClick={() => {
+                    deleteUser.reset();
+                    setDeleteUserTarget(user);
+                  }}
+                >
+                  Delete user
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="installations-card">
         <div className="card__header card__header--inside">
           <div>
@@ -819,7 +919,124 @@ export function TeamsPage() {
           onConfirm={() => removeMember.mutate(removeTarget)}
         />
       ) : null}
+      {deleteTeamTarget ? (
+        <ExactDeleteConfirmation
+          kind="team"
+          label={deleteTeamTarget.name}
+          confirmation={deleteTeamTarget.name}
+          busy={deleteTeam.isPending}
+          error={deleteTeam.error}
+          onCancel={() => {
+            deleteTeam.reset();
+            setDeleteTeamTarget(null);
+          }}
+          onConfirm={() => {
+            const idempotencyKey =
+              deleteTeamAttempt.current?.targetId === deleteTeamTarget.id
+                ? deleteTeamAttempt.current.key
+                : crypto.randomUUID();
+            deleteTeamAttempt.current = {
+              targetId: deleteTeamTarget.id,
+              key: idempotencyKey,
+            };
+            deleteTeam.mutate({ team: deleteTeamTarget, idempotencyKey });
+          }}
+        />
+      ) : null}
+      {deleteUserTarget ? (
+        <ExactDeleteConfirmation
+          kind="user"
+          label={deleteUserTarget.displayName}
+          confirmation={deleteUserTarget.email ?? ""}
+          busy={deleteUser.isPending}
+          error={deleteUser.error}
+          onCancel={() => {
+            deleteUser.reset();
+            setDeleteUserTarget(null);
+          }}
+          onConfirm={() => {
+            const idempotencyKey =
+              deleteUserAttempt.current?.targetId === deleteUserTarget.id
+                ? deleteUserAttempt.current.key
+                : crypto.randomUUID();
+            deleteUserAttempt.current = {
+              targetId: deleteUserTarget.id,
+              key: idempotencyKey,
+            };
+            deleteUser.mutate({ user: deleteUserTarget, idempotencyKey });
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+export function ExactDeleteConfirmation({
+  kind,
+  label,
+  confirmation,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  kind: "user" | "team";
+  label: string;
+  confirmation: string;
+  busy: boolean;
+  error: unknown;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const exact = value === confirmation;
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onCancel()}>
+      <DialogContent
+        className="confirmation-dialog max-w-none"
+        role="alertdialog"
+        showCloseButton={false}
+      >
+        <span className="confirmation-dialog__icon">
+          <Icon name="close" />
+        </span>
+        <span className="eyebrow">Permanent access removal</span>
+        <DialogTitle>
+          Delete {kind} {label}?
+        </DialogTitle>
+        <DialogDescription>
+          {kind === "user"
+            ? "Login credentials, sessions, memberships, and grants will be removed. Audit history remains anonymized."
+            : "Only a team with no projects, GitHub installations, setup handoffs, or secret bindings can be deleted."}
+        </DialogDescription>
+        <Field label={`Type ${confirmation} to confirm`} required>
+          <input
+            autoFocus
+            value={value}
+            aria-label={`Confirm ${kind} deletion`}
+            onChange={(event) => setValue(event.target.value)}
+          />
+        </Field>
+        {error ? (
+          <div className="notice notice--error" role="alert">
+            {errorMessage(error)}
+          </div>
+        ) : null}
+        <div className="confirmation-dialog__actions">
+          <Button variant="ghost" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            busy={busy}
+            disabled={!exact}
+            onClick={onConfirm}
+          >
+            Delete {kind}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

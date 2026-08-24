@@ -32,7 +32,7 @@ spec:
     - expression: "object.spec.template.spec.restartPolicy == 'Never'"
       message: builder Pods must never restart the trusted build agent
     - expression: "(!has(object.spec.template.spec.shareProcessNamespace) || object.spec.template.spec.shareProcessNamespace == false) && !has(object.spec.template.spec.nodeName)"
-      message: builder Pods may not share process namespaces or bypass dedicated-node scheduling
+      message: builder Pods may not share process namespaces or pin a node by name
     - expression: "object.spec.template.spec.volumes.all(v, (v.name in ['workspace', 'docker-socket', 'docker-data', 'result'] && has(v.emptyDir)) || (v.name == 'request' && has(v.configMap)) || (v.name in ['source-credentials', 'registry-push-credentials', 'registry-cache-credentials', 'build-secrets', 'ssh-secrets'] && has(v.secret)))"
       message: builder Pods may use only the exact emptyDir, request ConfigMap, and separated Secret volumes
     - expression: "object.spec.template.spec.volumes.filter(v, has(v.emptyDir)).all(v, has(v.emptyDir.sizeLimit)) && object.spec.template.spec.volumes.filter(v, has(v.secret)).all(v, v.secret.defaultMode == 288) && object.spec.template.spec.volumes.filter(v, has(v.configMap)).all(v, v.configMap.defaultMode == 288)"
@@ -61,8 +61,13 @@ spec:
       message: build agent workspace must be mounted read-only
     - expression: "object.spec.template.spec.initContainers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits) && object.spec.template.spec.containers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits)"
       message: every builder container requires CPU, memory, and ephemeral-storage requests and limits
+    {{- if .Values.nodeIsolation.enabled }}
     - expression: "object.spec.template.spec.nodeSelector['kuberploy.io/node-class'] == 'dind-builder' && object.spec.template.spec.tolerations.size() == 1 && object.spec.template.spec.tolerations.exists_one(t, t.key == 'kuberploy.io/dind-builder' && t.operator == 'Equal' && t.value == 'true' && t.effect == 'NoSchedule')"
-      message: builder Pods must target and tolerate only the dedicated builder node class
+      message: isolated builder Pods must target and tolerate only the dedicated builder node class
+    {{- else }}
+    - expression: "!has(object.spec.template.spec.nodeSelector) && (!has(object.spec.template.spec.tolerations) || object.spec.template.spec.tolerations.size() == 0)"
+      message: non-isolated builder Pods must not inject node scheduling constraints
+    {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

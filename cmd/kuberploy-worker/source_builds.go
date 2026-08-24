@@ -20,6 +20,7 @@ type sourceBuildRuntime struct {
 	gitSSH    *gitssh.PostgresRepository
 	runner    *builds.WorkerRunner
 	capacity  builds.BuilderCapacityProbe
+	settings  builds.BuilderPlatformSettingsReader
 	identity  builds.SourceBuildRuntimeIdentity
 	workerID  string
 	startedAt time.Time
@@ -39,7 +40,7 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 	if err != nil {
 		return nil, err
 	}
-	kubernetes, err := builds.NewInClusterKubernetesAdapter(config.BuilderNamespace)
+	kubernetes, err := builds.NewInClusterKubernetesAdapter(config.BuilderNamespace, config.NodeIsolation)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +48,7 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 	if err != nil {
 		return nil, err
 	}
+	settings := &builds.BuilderPlatformSettingsService{Store: store, Defaults: builds.DefaultBuilderPlatformSettings(config)}
 	gitSSHEncryption, err := gitssh.EncryptionFromEnvironment()
 	if err != nil {
 		store.Close()
@@ -77,8 +79,8 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 	buildOwner := workerLeaseOwner(processIdentity, "builds")
 	releaseOwner := workerLeaseOwner(processIdentity, "release-projection")
 	const lease = 30 * time.Second
-	deliveries := &builds.WebhookService{Provider: provider, Store: store, Owner: deliveryOwner, LeaseDuration: lease, Runtime: config}
-	controller := &builds.BuildController{Store: store, Provider: provider, GitSSH: gitSSHService, Kubernetes: kubernetes, Owner: buildOwner, LeaseDuration: lease}
+	deliveries := &builds.WebhookService{Provider: provider, Store: store, Owner: deliveryOwner, LeaseDuration: lease, Runtime: config, Settings: settings}
+	controller := &builds.BuildController{Store: store, Provider: provider, GitSSH: gitSSHService, Kubernetes: kubernetes, Settings: settings, Owner: buildOwner, LeaseDuration: lease}
 	releases := &builds.ReleaseProjector{Store: store, Registry: registry, Owner: releaseOwner, LeaseDuration: lease}
 	runner := &builds.WorkerRunner{
 		Store: store, Deliveries: deliveries, Builds: controller, Releases: releases,
@@ -88,7 +90,7 @@ func newSourceBuildRuntime(ctx context.Context, databaseURL, host string, config
 			slog.Warn("GitHub source build worker iteration failed", "loop", loop, "error", err)
 		},
 	}
-	return &sourceBuildRuntime{store: store, gitSSH: gitSSHRepository, runner: runner, capacity: kubernetes, identity: runtimeIdentity,
+	return &sourceBuildRuntime{store: store, gitSSH: gitSSHRepository, runner: runner, capacity: kubernetes, settings: settings, identity: runtimeIdentity,
 		workerID: workerLeaseOwner(processIdentity, "runtime"), startedAt: time.Now().UTC()}, nil
 }
 
@@ -135,7 +137,23 @@ func (r *sourceBuildRuntime) heartbeat(ctx context.Context) error {
 }
 
 func (r *sourceBuildRuntime) observe(ctx context.Context, observedAt time.Time) error {
-	capacityReady := r.capacity != nil && r.capacity.BuilderCapacityReady(ctx) == nil
+	capacityReady := false
+	if r.capacity != nil {
+		capacityErr := r.capacity.BuilderCapacityReady(ctx)
+		if r.settings != nil {
+			settings, settingsErr := r.settings.Current(ctx)
+			if settingsErr != nil {
+				capacityErr = settingsErr
+			} else {
+				if scheduled, ok := r.capacity.(interface {
+					BuilderCapacityReadyFor(context.Context, bool) error
+				}); ok {
+					capacityErr = scheduled.BuilderCapacityReadyFor(ctx, settings.NodeIsolation)
+				}
+			}
+		}
+		capacityReady = capacityErr == nil
+	}
 	return r.store.ObserveSourceBuildWorker(ctx, builds.SourceBuildWorkerObservation{WorkerID: r.workerID,
 		SourceBuildRuntimeIdentity: r.identity, BuilderCapacityReady: capacityReady, StartedAt: r.startedAt, ObservedAt: observedAt})
 }

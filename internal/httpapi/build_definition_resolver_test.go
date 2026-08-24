@@ -26,6 +26,12 @@ type resolverCatalog struct {
 
 type unusedDefinitionResolver struct{}
 
+type staticBuilderSettings struct{ value builds.BuilderPlatformSettings }
+
+func (s staticBuilderSettings) Current(context.Context) (builds.BuilderPlatformSettings, error) {
+	return s.value, nil
+}
+
 func (unusedDefinitionResolver) ResolveBuildDefinition(context.Context, string, string, string, string) (BuildDefinitionResolution, error) {
 	return BuildDefinitionResolution{}, builds.ErrInfrastructure
 }
@@ -74,13 +80,17 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 		Repository:         "tenant/builds/projects/" + projectID + "/services/" + applicationID + "/image",
 		KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID}, target: target, policy: policy}
-	resolver := &ServerBuildDefinitionResolver{Catalog: catalog, Runtime: runtime}
+	platform := builds.DefaultBuilderPlatformSettings(runtime)
+	platform.NodeIsolation = true
+	platform.DinDResources.CPULimit = "6"
+	resolver := &ServerBuildDefinitionResolver{Catalog: catalog, Runtime: runtime, Settings: staticBuilderSettings{value: platform}}
 	resolution, err := resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resolution.Registry.Server != "registry.example.test:5000" || resolution.Registry.PushCredentialSecret != "registry-push" || resolution.Registry.CacheCredentialSecret != "registry-cache" || resolution.Execution.Namespace != "kuberploy-build-dind" ||
-		len(resolution.Execution.Egress) != 2 || resolution.Execution.Egress[1].Ports[0] != 5000 {
+		len(resolution.Execution.Egress) != 2 || resolution.Execution.Egress[1].Ports[0] != 5000 ||
+		resolution.Execution.NodeSelector["kuberploy.io/node-class"] != "dind-builder" || resolution.Execution.DinDResources.CPULimit != "6" {
 		t.Fatalf("resolution=%#v", resolution)
 	}
 	catalog.application.ProjectID = "55555555-5555-4555-8555-555555555555"

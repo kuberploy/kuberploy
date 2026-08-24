@@ -60,6 +60,10 @@ type BuilderCapacityProbe interface {
 	BuilderCapacityReady(context.Context) error
 }
 
+type scheduledBuilderCapacityProbe interface {
+	BuilderCapacityReadyFor(context.Context, bool) error
+}
+
 type BuildController struct {
 	Store    Store
 	Provider GitHubProvider
@@ -68,6 +72,7 @@ type BuildController struct {
 		PrivateKey(context.Context, gitssh.Scope, string) ([]byte, error)
 	}
 	Kubernetes    KubernetesBuildAPI
+	Settings      BuilderPlatformSettingsReader
 	Owner         string
 	LeaseDuration time.Duration
 	Now           func() time.Time
@@ -84,7 +89,15 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		return ReconcileResult{}, ErrInvalid
 	}
 	now := c.now()
-	attempt, err := c.Store.ClaimNextAttempt(ctx, c.Owner, now, c.LeaseDuration)
+	maxConcurrent := 1
+	if c.Settings != nil {
+		settings, settingsErr := c.Settings.Current(ctx)
+		if settingsErr != nil || settings.Validate() != nil {
+			return ReconcileResult{}, ErrInfrastructure
+		}
+		maxConcurrent = settings.MaxConcurrentBuilders
+	}
+	attempt, err := c.Store.ClaimNextAttempt(ctx, c.Owner, now, c.LeaseDuration, maxConcurrent)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -102,7 +115,11 @@ func (c *BuildController) ReconcileNext(ctx context.Context) (ReconcileResult, e
 		result.State = AttemptCancelled
 		return result, nil
 	}
-	if capacityErr := c.Kubernetes.BuilderCapacityReady(ctx); capacityErr != nil {
+	capacityErr := c.Kubernetes.BuilderCapacityReady(ctx)
+	if scheduled, ok := c.Kubernetes.(scheduledBuilderCapacityProbe); ok {
+		capacityErr = scheduled.BuilderCapacityReadyFor(ctx, len(attempt.PlanRequest.NodeSelector) != 0)
+	}
+	if capacityErr != nil {
 		if errors.Is(capacityErr, ErrBuilderCapacityUnavailable) {
 			// A worker may lose its lease after creating the deterministic Job
 			// but before marking the attempt running. Fence that crash window by

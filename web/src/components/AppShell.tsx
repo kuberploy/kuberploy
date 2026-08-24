@@ -271,6 +271,19 @@ export function AppShell({ user }: { user: Principal }) {
             ) : null}
             {user.role === "platform-admin" &&
             user.authentication.kind === "session" &&
+            capabilities.data?.features?.builds === true ? (
+              <Link
+                to="/settings/builders"
+                activeProps={{ className: "nav-link nav-link--active" }}
+                inactiveProps={{ className: "nav-link" }}
+                onClick={() => setMobileOpen(false)}
+              >
+                <Icon name="terminal" />
+                <span>Source builders</span>
+              </Link>
+            ) : null}
+            {user.role === "platform-admin" &&
+            user.authentication.kind === "session" &&
             capabilities.data?.features?.certificateIssuerManagement ===
               true ? (
               <Link

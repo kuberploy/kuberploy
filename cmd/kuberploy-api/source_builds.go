@@ -29,6 +29,7 @@ type sourceBuildAPI struct {
 	webhook        httpapi.GitHubWebhookBackend
 	backend        httpapi.BuildBackend
 	readiness      httpapi.ReadinessProbe
+	settings       *builds.BuilderPlatformSettingsService
 	webhookService *builds.WebhookService
 }
 
@@ -65,7 +66,8 @@ func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug stri
 	if err != nil {
 		return nil, err
 	}
-	resolver := &httpapi.ServerBuildDefinitionResolver{Catalog: catalog, Runtime: config}
+	settings := &builds.BuilderPlatformSettingsService{Store: buildStore, Defaults: builds.DefaultBuilderPlatformSettings(config)}
+	resolver := &httpapi.ServerBuildDefinitionResolver{Catalog: catalog, Runtime: config, Settings: settings}
 	backend, err := httpapi.NewBuildBackend(buildStore, resolver)
 	if err != nil {
 		buildStore.Close()
@@ -81,7 +83,7 @@ func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug stri
 		OAuthClientID: config.GitHub.ClientID, OAuthCallbackURL: callbackURL, AppID: config.GitHub.AppID, HandoffTTL: config.GitHub.HandoffTTL}
 	webhook := &builds.WebhookService{Verifier: verifier, Store: buildStore}
 	readiness := &builds.RuntimeReadinessProbe{Store: buildStore, Identity: identity, MaxAge: builds.SourceBuildHeartbeatMaxAge}
-	return &sourceBuildAPI{store: buildStore, setup: setup, webhook: webhook, webhookService: webhook, backend: backend, readiness: readiness}, nil
+	return &sourceBuildAPI{store: buildStore, setup: setup, webhook: webhook, webhookService: webhook, backend: backend, readiness: readiness, settings: settings}, nil
 }
 
 func (r *sourceBuildAPI) setGitProjectionWaker(store *gitprojection.PostgreSQLStore) {

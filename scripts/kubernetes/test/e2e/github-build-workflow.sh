@@ -63,6 +63,7 @@ kp_inspect_live_build_job() {
       --selector "kuberploy.io/build-operation=${kp_operation},kuberploy.io/build-generation=${kp_generation}" \
       -o json >"${kp_out}"
     if jq -e --argjson pool "$(jq '.workflow.sourceBuild.builderPool.nodeSelector' "${kp_scenario}")" \
+      --argjson isolated "$(jq '.workflow.sourceBuild.builderPool.nodeIsolation' "${kp_scenario}")" \
       --arg expectedPush "$(jq -r '.workflow.sourceBuild.credentials.pushSecretName' "${kp_scenario}")" \
       --arg expectedCache "$(jq -r '.workflow.sourceBuild.credentials.cacheSecretName' "${kp_scenario}")" '
     .items | length == 1 and .[0] as $job |
@@ -75,7 +76,9 @@ kp_inspect_live_build_job() {
     ([ $job.spec.template.spec.volumes[] | select(has("hostPath")) ] | length == 0) and
     ([ $job.spec.template.spec.initContainers[], $job.spec.template.spec.containers[] |
       .volumeMounts[]? | select(.mountPath == "/var/run/docker.sock") ] | length == 0) and
-    $job.spec.template.spec.nodeSelector == $pool and
+    (if $isolated then $job.spec.template.spec.nodeSelector == $pool
+      else (($job.spec.template.spec | has("nodeSelector")) == false and
+        (($job.spec.template.spec.tolerations // []) | length == 0)) end) and
     any($job.spec.template.spec.initContainers[]; .name == "dind" and .securityContext.privileged == true) and
     any($job.spec.template.spec.initContainers[]; .name == "checkout" and
       ([.volumeMounts[].name] | index("registry-push-credentials") == null and index("registry-cache-credentials") == null)) and
@@ -85,7 +88,7 @@ kp_inspect_live_build_job() {
     ' "${kp_out}" >/dev/null; then return 0; fi
     sleep 2
   done
-  kp_die "live build Job does not satisfy the isolated DinD/credential split contract"
+  kp_die "live build Job does not satisfy the configured DinD scheduling and credential split contract"
 }
 
 kp_run_github_build_workflow() {

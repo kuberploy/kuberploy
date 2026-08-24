@@ -7059,6 +7059,41 @@ CREATE TABLE public.build_release_projections (
 
 
 --
+-- Name: builder_platform_setting_mutations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.builder_platform_setting_mutations (
+    actor_id uuid NOT NULL,
+    idempotency_key text NOT NULL,
+    request_fingerprint text NOT NULL,
+    revision bigint NOT NULL,
+    created_at timestamp with time zone NOT NULL,
+    CONSTRAINT builder_platform_setting_mutations_idempotency_key_check CHECK (((length(idempotency_key) >= 1) AND (length(idempotency_key) <= 128) AND (btrim(idempotency_key) = idempotency_key))),
+    CONSTRAINT builder_platform_setting_mutations_request_fingerprint_check CHECK ((request_fingerprint ~ '^sha256:[0-9a-f]{64}$'::text)),
+    CONSTRAINT builder_platform_setting_mutations_revision_check CHECK ((revision > 0))
+);
+
+
+--
+-- Name: builder_platform_settings_revisions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.builder_platform_settings_revisions (
+    revision bigint NOT NULL,
+    node_isolation boolean DEFAULT false NOT NULL,
+    max_concurrent_builders integer DEFAULT 1 NOT NULL,
+    checkout_resources jsonb NOT NULL,
+    dind_resources jsonb NOT NULL,
+    agent_resources jsonb NOT NULL,
+    updated_by uuid NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT builder_platform_settings_revisions_revision_check CHECK ((revision > 0)),
+    CONSTRAINT builder_platform_settings_revisions_max_concurrent_builders_check CHECK (((max_concurrent_builders >= 1) AND (max_concurrent_builders <= 20))),
+    CONSTRAINT builder_platform_settings_revisions_resources_check CHECK (((jsonb_typeof(checkout_resources) = 'object'::text) AND (jsonb_typeof(dind_resources) = 'object'::text) AND (jsonb_typeof(agent_resources) = 'object'::text)))
+);
+
+
+--
 -- Name: cert_manager_issuer_observations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -10182,6 +10217,22 @@ ALTER TABLE ONLY public.build_release_projections
 
 
 --
+-- Name: builder_platform_setting_mutations builder_platform_setting_mutations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.builder_platform_setting_mutations
+    ADD CONSTRAINT builder_platform_setting_mutations_pkey PRIMARY KEY (actor_id, idempotency_key);
+
+
+--
+-- Name: builder_platform_settings_revisions builder_platform_settings_revisions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.builder_platform_settings_revisions
+    ADD CONSTRAINT builder_platform_settings_revisions_pkey PRIMARY KEY (revision);
+
+
+--
 -- Name: cert_manager_issuer_observations cert_manager_issuer_observations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -11599,6 +11650,13 @@ CREATE INDEX build_definitions_push_idx ON public.build_definitions USING btree 
 --
 
 CREATE INDEX build_release_projections_work_idx ON public.build_release_projections USING btree (available_at, created_at, attempt_id) WHERE (state = ANY (ARRAY['pending'::text, 'processing'::text]));
+
+
+--
+-- Name: builder_platform_setting_mutations_revision_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX builder_platform_setting_mutations_revision_idx ON public.builder_platform_setting_mutations USING btree (revision);
 
 
 --
@@ -13564,6 +13622,30 @@ ALTER TABLE ONLY public.build_definitions
 
 ALTER TABLE ONLY public.build_release_projections
     ADD CONSTRAINT build_release_projections_attempt_id_fkey FOREIGN KEY (attempt_id) REFERENCES public.build_attempts(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: builder_platform_setting_mutations builder_platform_setting_mutations_actor_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.builder_platform_setting_mutations
+    ADD CONSTRAINT builder_platform_setting_mutations_actor_id_fkey FOREIGN KEY (actor_id) REFERENCES public.users(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: builder_platform_setting_mutations builder_platform_setting_mutations_revision_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.builder_platform_setting_mutations
+    ADD CONSTRAINT builder_platform_setting_mutations_revision_fkey FOREIGN KEY (revision) REFERENCES public.builder_platform_settings_revisions(revision) ON DELETE RESTRICT;
+
+
+--
+-- Name: builder_platform_settings_revisions builder_platform_settings_revisions_updated_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.builder_platform_settings_revisions
+    ADD CONSTRAINT builder_platform_settings_revisions_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES public.users(id) ON DELETE RESTRICT;
 
 
 --

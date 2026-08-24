@@ -478,8 +478,9 @@ export function ApplicationOverviewPage() {
                       <strong>Builder runtime unavailable</strong>
                       <p>
                         Source configuration remains editable. Build execution
-                        resumes after a matching worker and dedicated builder
-                        node report Ready.
+                        resumes after a matching worker and an eligible builder
+                        node report Ready. Dedicated scheduling is used only
+                        when node isolation is enabled.
                       </p>
                     </div>
                   </div>

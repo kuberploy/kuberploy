@@ -344,8 +344,8 @@ export function MiddlewareProfilesPage() {
     );
 
   return (
-    <div className="settings-page">
-      <div className="page-heading">
+    <div className="page page--narrow settings-page">
+      <div className="page-header page-heading">
         <div>
           <span className="eyebrow">Application policy</span>
           <h1>Middleware profiles</h1>

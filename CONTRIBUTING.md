@@ -60,8 +60,9 @@ separate contributor license agreement.
 - Plaintext or base64-only application secrets never enter Git.
 - Tenant isolation and authorization are enforced server-side, not only in the
   UI.
-- Build Pods never mount the host Docker socket. DinD is an explicit privileged
-  builder-node boundary.
+- Build Pods never mount the host Docker socket. DinD is explicitly privileged;
+  default single-node scheduling accepts node-level risk, while optional node
+  isolation requires the exact dedicated label and taint.
 - Public inputs are bounded, validated, and fail closed.
 - A control-plane Helm upgrade must not own or mutate tenant workloads.
 

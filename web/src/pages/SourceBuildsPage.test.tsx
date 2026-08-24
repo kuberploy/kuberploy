@@ -141,7 +141,7 @@ describe("source-build workspace", () => {
     expect(api.buildAttempts).not.toHaveBeenCalled();
   });
 
-  it("keeps immutable history readable when dedicated builder capacity is unavailable", async () => {
+  it("keeps immutable history readable when builder capacity is unavailable", async () => {
     renderPage({
       features: { githubAppSetup: false, builds: false, builder: false },
       featureStates: { builds: "unavailable", builder: "unavailable" },
@@ -162,7 +162,7 @@ describe("source-build workspace", () => {
       await screen.findByText("Builder runtime unavailable"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Ready dedicated node labeled and tainted/),
+      screen.getByText(/eligible Ready builder node/),
     ).toBeInTheDocument();
     expect(await screen.findByText("Immutable history")).toBeInTheDocument();
     expect(screen.getByText("Attempt history")).toBeInTheDocument();

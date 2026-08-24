@@ -399,6 +399,77 @@ func TestInvitationTeamAndGitHubAccessContract(t *testing.T) {
 	if r.StatusCode != http.StatusCreated || project.TeamID != team.ID {
 		t.Fatalf("team project=%#v status=%d", project, r.StatusCode)
 	}
+	r = f.request("DELETE", "/v1/teams/"+team.ID, "delete-bound-team", map[string]string{"name": team.Name})
+	p = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusConflict || p.Code != "TeamDeletionBlocked" {
+		t.Fatalf("dependent team deletion status=%d problem=%#v", r.StatusCode, p)
+	}
+
+	r = f.request("POST", "/v1/teams", "deletion-team", map[string]string{"name": "Disposable", "slug": "disposable"})
+	deletionTeam := decode[domain.Team](t, r)
+	if r.StatusCode != http.StatusCreated {
+		t.Fatalf("deletion team=%#v status=%d", deletionTeam, r.StatusCode)
+	}
+	r = f.request("DELETE", "/v1/teams/"+deletionTeam.ID, "delete-team-wrong", map[string]string{"name": "Wrong"})
+	p = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusConflict || p.Code != "DeletionConfirmationMismatch" {
+		t.Fatalf("wrong team confirmation status=%d problem=%#v", r.StatusCode, p)
+	}
+	r = f.request("DELETE", "/v1/teams/"+deletionTeam.ID, "delete-team-exact", map[string]string{"name": deletionTeam.Name})
+	if r.StatusCode != http.StatusNoContent {
+		t.Fatalf("team deletion status=%d", r.StatusCode)
+	}
+	r.Body.Close()
+	r = f.request("DELETE", "/v1/teams/"+deletionTeam.ID, "delete-team-exact", map[string]string{"name": deletionTeam.Name})
+	if r.StatusCode != http.StatusNoContent || r.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("team deletion replay status=%d replay=%q", r.StatusCode, r.Header.Get("Idempotent-Replay"))
+	}
+	r.Body.Close()
+
+	loginBody, _ := json.Marshal(map[string]string{"email": developer.Email, "password": "developer correct horse battery staple"})
+	loginRequest, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/auth/login", bytes.NewReader(loginBody))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	r, err = developerClient.Do(loginRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != http.StatusOK {
+		t.Fatalf("developer relogin before deletion status=%d", r.StatusCode)
+	}
+	r.Body.Close()
+	r = f.request("DELETE", "/v1/users/"+developer.ID, "delete-user-wrong", map[string]string{"email": "wrong@example.com"})
+	p = decode[httpapi.Problem](t, r)
+	if r.StatusCode != http.StatusConflict || p.Code != "DeletionConfirmationMismatch" {
+		t.Fatalf("wrong user confirmation status=%d problem=%#v", r.StatusCode, p)
+	}
+	r = f.request("DELETE", "/v1/users/"+developer.ID, "delete-user-exact", map[string]string{"email": developer.Email})
+	if r.StatusCode != http.StatusNoContent {
+		t.Fatalf("user deletion status=%d", r.StatusCode)
+	}
+	r.Body.Close()
+	r = f.request("DELETE", "/v1/users/"+developer.ID, "delete-user-exact", map[string]string{"email": developer.Email})
+	if r.StatusCode != http.StatusNoContent || r.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("user deletion replay status=%d replay=%q", r.StatusCode, r.Header.Get("Idempotent-Replay"))
+	}
+	r.Body.Close()
+	deletedSessionRequest, _ := http.NewRequest(http.MethodGet, f.server.URL+"/v1/me", nil)
+	r, err = developerClient.Do(deletedSessionRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("deleted user session status=%d", r.StatusCode)
+	}
+	r.Body.Close()
+	r = f.request("GET", "/v1/users", "", nil)
+	directory := decode[struct {
+		Items []domain.User `json:"items"`
+	}](t, r)
+	for _, user := range directory.Items {
+		if user.ID == developer.ID {
+			t.Fatalf("deleted user remained in API directory: %#v", user)
+		}
+	}
 }
 
 func TestInvitationAcceptanceSwitchesAndRevokesExistingSession(t *testing.T) {

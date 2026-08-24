@@ -730,6 +730,7 @@ data:
   KUBERPLOY_BUILDER_AGENT_IMAGE: {{ .Values.builder.builderAgentImage | quote }}
   KUBERPLOY_BUILDER_BUILDKIT_IMAGE: {{ .Values.builder.buildKitImage | quote }}
   KUBERPLOY_BUILDER_DIND_IMAGE: {{ .Values.builder.dindImage | quote }}
+  KUBERPLOY_BUILDER_NODE_ISOLATION: {{ .Values.builder.nodeIsolation.enabled | quote }}
   KUBERPLOY_BUILDER_BUILD_SECRET: {{ .Values.builder.buildSecret.name | quote }}
   KUBERPLOY_BUILDER_SSH_SECRET: {{ .Values.builder.sshSecret.name | quote }}
   KUBERPLOY_BUILDER_BUILD_SECRET_PROFILES: {{ if .Values.builder.buildSecret.profiles }}{{ toJson .Values.builder.buildSecret.profiles | quote }}{{ else }}""{{ end }}

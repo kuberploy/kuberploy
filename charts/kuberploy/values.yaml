@@ -320,9 +320,9 @@ rbac:
   # config.argoObservation.namespace when that runtime is enabled.
   argoNamespace: ""
 
-# Release packaging embeds the hardened builder boundary under this alias and
-# injects the immutable builder-agent digest. It remains disabled until a
-# cluster administrator provisions the dedicated tainted builder node pool.
+# Release packaging embeds the privileged DinD builder boundary under this
+# alias and injects the immutable builder-agent digest. Node isolation is an
+# optional operator setting; the default supports a one-node installation.
 builder:
   enabled: false
   builderAgentImage: ""
@@ -330,6 +330,11 @@ builder:
   # operator may mirror this version into a fixed approved registry.
   buildKitImage: docker.io/moby/buildkit:v0.32.2
   dindImage: docker.io/library/docker:29.7.1-dind
+  # Revision-zero install default. false schedules privileged build Jobs on any
+  # schedulable node. Settings → Source builders becomes authoritative after
+  # bootstrap. true requires the dedicated dind-builder node label and taint.
+  nodeIsolation:
+    enabled: false
   # Optional operator-managed BuildKit secret mounts. Secret names refer to
   # pre-created Secrets in builder.namespace.name; profile metadata contains
   # only selectable IDs/labels and Secret data keys, never Secret values.

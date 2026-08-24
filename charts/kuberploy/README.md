@@ -53,11 +53,12 @@ for all five deployed release images (API, worker, web, migration, and builder-a
 `global.requireImageDigest=true`; rendering then
 fails closed if any component is not digest pinned.
 
-Published packages embed the hardened `kuberploy-builder` boundary as the
-disabled `builder` subchart and pin its builder-agent image by digest. It must
-remain disabled until a cluster administrator deliberately provisions the
-dedicated builder node pool; the source chart does not auto-install privileged
-builder resources.
+Published packages embed the `kuberploy-builder` boundary as the disabled
+`builder` subchart and pin its builder-agent image by digest. Enabling it uses
+privileged DinD. The default `builder.nodeIsolation.enabled=false` works on one
+schedulable node; enabling node isolation additionally requires the exact
+dedicated builder label and taint. The source chart does not auto-enable
+privileged builder resources.
 
 GitHub source-build recovery and reconciliation are also disabled by default.
 Enabling `config.githubApp` requires the hardened builder boundary, an immutable
@@ -105,6 +106,15 @@ loops, and reported a fresh durable heartbeat. `builder.buildKitImage` accepts
 the pinned `v0.32.2` tag or a sha256 mirror; `builder.dindImage` accepts a
 semantic-version tag or sha256 mirror and is included in the immutable runtime
 identity.
+
+`builder.nodeIsolation.enabled=false` is the revision-zero single-VM default
+and emits no node selector or toleration. After bootstrap, **Settings → Source
+builders** controls node isolation, queue concurrency, and per-container
+requests and limits for new attempts. `true` binds runtime readiness, immutable build
+definitions, generated Jobs, and admission to
+`kuberploy.io/node-class=dind-builder` plus
+`kuberploy.io/dind-builder=true:NoSchedule`. In both modes DinD remains
+privileged and never mounts the host Docker socket.
 
 Optional `builder.buildSecret` and `builder.sshSecret` values reference
 pre-created Secrets in the builder namespace. Their bounded `profiles` entries

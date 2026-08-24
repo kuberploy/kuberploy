@@ -253,7 +253,7 @@ func TestCancellationWinsConcurrentFailureAndSuccess(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow
 	createAttempt(t, store, RegistryManaged, &clock)
-	claimed, err := store.ClaimNextAttempt(context.Background(), "builder-race", clock, time.Minute)
+	claimed, err := store.ClaimNextAttempt(context.Background(), "builder-race", clock, time.Minute, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestExpiredLeaseCannotPublishResult(t *testing.T) {
 	store, _ := seedMemory(t, RegistryManaged)
 	clock := testNow
 	attempt := createAttempt(t, store, RegistryManaged, &clock)
-	claimed, err := store.ClaimNextAttempt(context.Background(), "stale-worker", clock, 5*time.Second)
+	claimed, err := store.ClaimNextAttempt(context.Background(), "stale-worker", clock, 5*time.Second, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

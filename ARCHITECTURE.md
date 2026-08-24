@@ -32,7 +32,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 | Managed runtime authoring | Guided forms plus bounded Deployment, Service, Ingress and ServiceAccount YAML overrides over one canonical `AppConfig` draft |
 | Runtime settings | Ordinary values render to versioned immutable ConfigMaps; sensitive values use write-only, versioned secret bindings |
 | Runtime secret backends | Strict namespace/name-bound Sealed Secrets first; External Secrets remains unavailable until an audited concrete remote material writer exists |
-| Source builds | Pluggable build engines: rootless BuildKit and isolated DinD |
+| Source builds | Privileged DinD with BuildKit/buildx; runs on one schedulable node by default, with optional dedicated-node isolation |
 | Build orchestration | Ephemeral Kubernetes Jobs created by the build controller |
 | Application image registry | Managed in-cluster or external OCI registry; the managed mode uses one logical repository per service and persistent storage |
 | Image retention | Keep the latest configurable `N` successful release digests per service, plus every digest still selected, running, pinned or in-flight; reclaim all other managed artifacts after a safety window |
@@ -197,8 +197,7 @@ flowchart TB
         REG_NS["kuberploy-registry namespace"]
     end
 
-    subgraph BuilderNodes["Tainted builder node pool"]
-        ROOTLESS_NS["kuberploy-build-rootless namespace"]
+    subgraph BuilderRuntime["Builder runtime"]
         DIND_NS["kuberploy-build-dind privileged namespace"]
     end
 
@@ -207,7 +206,6 @@ flowchart TB
         PROD_NS["kp-acme-prod namespace"]
     end
 
-    SYS --> ROOTLESS_NS
     SYS --> DIND_NS
     ARGO_NS --> DEV_NS
     ARGO_NS --> PROD_NS
@@ -226,11 +224,10 @@ Recommended namespaces:
 - `kuberploy-dns`: one managed external-dns Deployment per configured DNS integration.
 - `kuberploy-monitoring`: managed Prometheus Operator, Prometheus, Alertmanager, kube-state-metrics and node-exporter resources.
 - `kuberploy-registry`: optional managed OCI registry, authentication/token service if required by the selected implementation, lifecycle Job/controller and persistent storage. It is absent when an external registry is adopted.
-- `kuberploy-build-rootless`: rootless BuildKit Jobs.
 - `kuberploy-build-dind`: privileged DinD Jobs. Only the build controller can create workloads here.
 - `kp-<project>-<environment>`: ordinary application workloads with restricted Pod Security, quotas and default-deny networking.
 
-For mutually untrusted public tenants, a separate build cluster is preferred over a node pool in the production cluster. A compromised privileged builder node must not contain Kuberploy, Argo CD, PostgreSQL or production workloads.
+The starter configuration schedules privileged DinD on the installation's current schedulable node so all build features work on one VM. This means a compromised source build can compromise that node. Helm's `builder.nodeIsolation.enabled` value supplies only the revision-zero install default. After bootstrap, platform administrators manage node isolation, maximum concurrent builders, and checkout/DinD/agent requests and limits through **Settings → Source builders**. Kuberploy stores immutable settings revisions in PostgreSQL. Queue concurrency changes apply to pending work; scheduling and resources are copied into each new immutable build attempt. Operators running mutually untrusted source should enable node isolation, provision the exact builder label/taint, and keep control-plane and production workloads off those nodes. A separate installation remains the strongest isolation boundary.
 
 ## 6. Data authority and domain model
 
@@ -836,9 +833,11 @@ Requirements and controls:
 - Kubernetes 1.29 or newer for the restartable init-sidecar pattern.
 - No host Docker socket, `hostPath`, host PID, host network or host IPC.
 - Pin builder images by version and digest.
+- Read the current database-backed builder settings revision before creating an attempt. Never mutate a running Job when settings change.
+- Enforce `maxConcurrentBuilders` while claiming queued attempts across worker replicas; continue reconciling preparing, running and cancelling attempts at capacity.
 - `automountServiceAccountToken: false` and no Kubernetes RBAC for the build Pod.
-- Dedicated tainted builder nodes; production workloads cannot tolerate the taint.
-- Worker readiness requires at least one Ready, uncordoned node with the exact builder label and taint. Missing capacity disables build mutations and terminalizes an accepted attempt before source credentials or a Job are created.
+- By default, worker readiness requires one Ready, uncordoned node without an untolerated hard taint; generated Jobs contain no node selector or toleration.
+- When `builder.nodeIsolation.enabled=true`, readiness and admission require the exact `kuberploy.io/node-class=dind-builder` label and `kuberploy.io/dind-builder=true:NoSchedule` taint/toleration.
 - Per-build `emptyDir` volumes with size limits and ephemeral-storage requests/limits.
 - `activeDeadlineSeconds`, explicit attempt count and `ttlSecondsAfterFinished`.
 - Docker daemon listens on the Unix socket only.
@@ -846,7 +845,7 @@ Requirements and controls:
 - Registry cache is scoped by immutable service/platform/trust-lane identity; no shared host directory or cross-tenant Docker data volume.
 - Source-read, registry-push, GitOps-write and runtime-pull credentials are all separate.
 
-The Docker CLI container being non-root does not make the Pod unprivileged. Control of the socket means control of the privileged DinD daemon; the entire Pod and node pool are treated accordingly.
+The Docker CLI container being non-root does not make the Pod unprivileged. Control of the socket means control of the privileged DinD daemon. With default single-node scheduling, the installation accepts node compromise as an explicit availability/usability tradeoff; optional node isolation reduces the blast radius.
 
 ### Credential lifecycle
 
@@ -1582,7 +1581,7 @@ Runtime namespaces receive:
 
 P0 expresses these guardrails with Kubernetes Pod Security Admission and native `ValidatingAdmissionPolicy`/CEL so the newest supported Kubernetes minor is not held back by a policy-engine release. A later Kyverno or other policy-engine adapter is optional and may be enabled only when its published Kubernetes support range includes the target cluster; it does not replace the platform compiler or AppProject boundary.
 
-The DinD namespace necessarily permits an approved privileged shape. An admission policy allows only the build-controller ServiceAccount to create that exact Job template. Platform users receive no Kubernetes RBAC to that namespace. The controller has one cluster-scoped read permission: bounded Node listing for exact dedicated-builder capacity readiness.
+The DinD namespace necessarily permits an approved privileged shape. An admission policy allows only the build-controller ServiceAccount to create that exact Job template. Platform users receive no Kubernetes RBAC to that namespace. The controller has one cluster-scoped read permission: bounded Node listing for capacity readiness. Admission requires either no scheduling constraints in single-node mode or the exact dedicated label and taint in isolation mode.
 
 Git write access is deployment authority. Use a repository per organization or trust boundary when tenants can access Git directly. Production branches use pull requests, CODEOWNERS and required render/policy checks.
 
@@ -1622,7 +1621,7 @@ Operations use at-least-once execution with idempotency:
 | A locked chart, image or tool digest is missing or does not match | Fail the install or upgrade before mutation; never fall back to a mutable tag or an unverified artifact |
 | Duplicate or out-of-order webhook | Deduplicate by delivery ID and key builds to the exact SHA |
 | Older build finishes after a newer build | Keep the artifact, but block automatic promotion with a generation check |
-| No dedicated builder node is Ready and schedulable | Report the builder capability unavailable, retain immutable history for reads and fail an accepted attempt as `builder-capacity-unavailable` after exact attempt-resource cleanup; never schedule privileged DinD on a general-purpose node |
+| No node matching the configured builder scheduling mode is Ready and schedulable | Report the builder capability unavailable, retain immutable history for reads and fail an accepted attempt as `builder-capacity-unavailable` after exact attempt-resource cleanup |
 | DinD does not become ready | Fail the attempt after startup/deadline thresholds and create a clean retry Job |
 | Node eviction | Retry as a new attempt using registry cache |
 | Registry push succeeds but Git update fails | Preserve verified digest and retry `ConfigPending` idempotently |
@@ -2318,7 +2317,7 @@ Create project and environment
 |---|---:|---|
 | Projects, environments and applications | Yes | Core navigation and ownership model |
 | GitHub integration and push auto-deploy | Yes | GitHub App only; immutable human-managed policy revisions, exact service-account authority, verified build releases and durable run receipts |
-| Dockerfile source build | Yes | One isolated ARC-style DinD engine first; preserve the builder interface for BuildKit |
+| Dockerfile source build | Yes | Privileged ARC-style DinD with BuildKit/buildx; single-node scheduling by default and optional dedicated-node isolation |
 | Existing registry image | Yes | Resolve and deploy an immutable digest |
 | Managed local OCI registry | Yes | Optional bundled registry with persistent storage, scoped credentials, per-service last-`N` successful-release retention, dry-run preview and safe garbage collection; external registries are push/pull targets whose lifecycle remains operator-managed |
 | Registry-backed Docker build cache | Yes | Buildx registry `cache-from`/`cache-to` with `mode=max`, OCI media types, service/platform/trust-lane isolation and best-effort fallback; Kuberploy applies cache retention only to managed mode |
@@ -2373,15 +2372,18 @@ repositories or refs instead of sharing one writable platform root.
 - Project -> environment -> application organization, with environments mapped to administrator-approved namespaces and Argo projects.
 - Team membership roles, copyable 24-hour one-time invitation links that bind an
   email address without requiring an email provider and let the invitee choose
-  a display name and local password, safe
-  last-owner enforcement, and private/team sharing of verified GitHub App
-  installations.
+  a display name and local password, safe last-owner enforcement, dependency-safe
+  Team deletion, and private/team sharing of verified GitHub App installations.
+  Platform administrators can delete a human login after exact email
+  confirmation. Credentials, sessions, memberships, and direct grants are
+  removed; the immutable user ID remains as an anonymized tombstone so audit
+  and foreign-key history stay valid, and the email can be invited again.
 - Four App sources selected inside a Project Environment: existing OCI image,
   GitHub App Dockerfile build, provider-neutral Git SSH Dockerfile build, and
   approved Helm chart. Helm approval accepts OCI, classic HTTPS Helm
   repositories, and public HTTPS Git at exact immutable revisions.
 - GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
-- One ephemeral DinD Job per source build, isolated on a configured builder pool and never mounting the host Docker socket.
+- One ephemeral privileged DinD Job per source build, never mounting the host Docker socket. It runs on a single starter node by default; optional node isolation requires the exact configured builder pool.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.
 - Registry-backed Buildx cache from the first source-builder release, with two cache generations per service/platform/trust lane, seven-day unused expiry, a byte quota and cold-build fallback when cache import/export is unavailable.
 - GitOps repository bootstrap, exact diff preview, direct development commits and production pull requests.

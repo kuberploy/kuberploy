@@ -110,6 +110,8 @@ import type {
   VariableSetPreview,
   VariableSetScope,
   VariableSetSnapshot,
+  BuilderPlatformSettings,
+  BuilderPlatformSettingsInput,
 } from "./types";
 import {
   isCanonicalImmutableImage,
@@ -1884,6 +1886,12 @@ export const api = {
       headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
+  deleteUser: (userId: string, email: string, idempotencyKey?: string) =>
+    request<void>(`/v1/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: { email },
+    }),
   teams: () =>
     request<Collection<Team> | Team[]>("/v1/teams").then(asCollection),
   createTeam: (
@@ -1894,6 +1902,12 @@ export const api = {
       method: "POST",
       headers: idempotencyHeaders(idempotencyKey),
       body: input,
+    }),
+  deleteTeam: (teamId: string, name: string, idempotencyKey?: string) =>
+    request<void>(`/v1/teams/${encodeURIComponent(teamId)}`, {
+      method: "DELETE",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: { name },
     }),
   teamMembers: (teamId: string) =>
     request<Collection<TeamMember> | TeamMember[]>(
@@ -3173,6 +3187,18 @@ export const api = {
   },
   latestPlatformRelease: () =>
     request<LatestPlatformRelease>("/v1/platform/releases/latest"),
+  builderPlatformSettings: () =>
+    request<BuilderPlatformSettings>("/v1/platform/builder-settings"),
+  updateBuilderPlatformSettings: (
+    revision: number,
+    input: BuilderPlatformSettingsInput,
+    idempotencyKey: string,
+  ) =>
+    request<BuilderPlatformSettings>("/v1/platform/builder-settings", {
+      method: "PUT",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: { revision, ...input },
+    }),
   platformHelmApprovals: () =>
     request<Collection<HelmApproval>>("/v1/platform/helm/approvals").then(
       (response) => ({

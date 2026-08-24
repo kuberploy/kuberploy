@@ -82,7 +82,7 @@ elif [[ "${1:-}" == "get" && "${2:-}" == "ingressclasses.networking.k8s.io" ]]; 
 elif [[ "${1:-}" == "get" && "${2:-}" == "jobs.batch" && " $* " == *' app.kubernetes.io/component=bootstrap-token '* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"kuberploy-bootstrap-token","namespace":"kuberploy-system"}}]}'
 elif [[ "${1:-}" == "get" && "${2:-}" == "jobs.batch" && " $* " == *'kuberploy.io/build-operation=66666666666646668666666666666666,'* ]]; then
-  printf '%s\n' '{"items":[{"metadata":{"name":"build-66666666"},"spec":{"template":{"spec":{"hostNetwork":false,"hostPID":false,"hostIPC":false,"nodeSelector":{"kuberploy.io/builder-pool":"dind"},"volumes":[{"name":"registry-push-credentials","secret":{"secretName":"push-secret"}},{"name":"registry-cache-credentials","secret":{"secretName":"cache-secret"}}],"initContainers":[{"name":"checkout","volumeMounts":[]},{"name":"dind","securityContext":{"privileged":true},"volumeMounts":[]}],"containers":[{"name":"agent","volumeMounts":[{"name":"registry-push-credentials","mountPath":"/var/run/secrets/kuberploy/registry-push","readOnly":true},{"name":"registry-cache-credentials","mountPath":"/var/run/secrets/kuberploy/registry-cache","readOnly":true}]}]}}}}]}'
+  printf '%s\n' '{"items":[{"metadata":{"name":"build-66666666"},"spec":{"template":{"spec":{"hostNetwork":false,"hostPID":false,"hostIPC":false,"volumes":[{"name":"registry-push-credentials","secret":{"secretName":"push-secret"}},{"name":"registry-cache-credentials","secret":{"secretName":"cache-secret"}}],"initContainers":[{"name":"checkout","volumeMounts":[]},{"name":"dind","securityContext":{"privileged":true},"volumeMounts":[]}],"containers":[{"name":"agent","volumeMounts":[{"name":"registry-push-credentials","mountPath":"/var/run/secrets/kuberploy/registry-push","readOnly":true},{"name":"registry-cache-credentials","mountPath":"/var/run/secrets/kuberploy/registry-cache","readOnly":true}]}]}}}}]}'
 elif [[ "${1:-}" == "get" && "${2:-}" == "jobs.batch" && " $* " == *'kuberploy.io/build-operation=65656565656545658565656565656565,'* ]]; then
   if [[ -f "${KP_COMMAND_LOG}.build-cancelled" ]]; then
     printf '%s\n' '{"items":[]}'
@@ -329,7 +329,7 @@ fi
 if [[ -n "${kp_dump_header}" ]]; then
   # HTTP/2 clients commonly lowercase response header names. Keep the fixture
   # honest so the qualification driver proves portable CSRF extraction.
-  printf 'HTTP/1.1 200 OK\r\nx-csrf-token: fixture-csrf\r\nX-Kuberploy-Qualification: passed\r\n\r\n' >"${kp_dump_header}"
+  printf 'HTTP/1.1 200 OK\r\nx-csrf-token: fixture-csrf\r\nIdempotent-Replay: true\r\nX-Kuberploy-Qualification: passed\r\n\r\n' >"${kp_dump_header}"
 fi
 printf 'curl|%s|%s\n' "${kp_method}" "${kp_url}" >>"${KP_COMMAND_LOG}"
 if [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/bootstrap ]]; then
@@ -343,6 +343,9 @@ if [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/bootstrap ]]; then
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/logout ]]; then : >"${KP_COMMAND_LOG}.logged-out"; : >"${kp_output}"; printf '204'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/me && -f "${KP_COMMAND_LOG}.logged-out" ]]; then printf '{}' >"${kp_output}"; printf '401'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/me ]]; then printf '{"id":"10101010-1010-4010-8010-101010101010","role":"platform-admin","authentication":{"kind":"session"}}' >"${kp_output}"; printf '200'
+elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/login && -f "${KP_COMMAND_LOG}.developer-deleted" ]] &&
+  jq -e '.email | test("^qualification-developer-")' <<<"${kp_body}" >/dev/null; then
+  printf '{}' >"${kp_output}"; printf '401'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/auth/login ]]; then
   jq -e 'has("email") and (.email | test("^qualification-(admin|developer)-[a-z0-9-]+@example\\.test$")) and
     has("password")' <<<"${kp_body}" >/dev/null || {
@@ -371,13 +374,23 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/teams/*/members ]]; then
     '{teamId:$team,userId:.userId,role:.role}' <<<"${kp_body}" >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/*/members/20202020-2020-4020-8020-202020202020 ]]; then printf '{}' >"${kp_output}"; printf '204'
 elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/*/members/* ]]; then printf '{}' >"${kp_output}"; printf '409'
+elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/teams/30303030-3030-4030-8030-303030303030 ]]; then
+  jq -e '. == {name:"Qualification Owners"}' <<<"${kp_body}" >/dev/null
+  : >"${KP_COMMAND_LOG}.team-deleted"; printf '{}' >"${kp_output}"; printf '204'
+elif [[ "${kp_method}" == "DELETE" && "${kp_url}" == */v1/users/20202020-2020-4020-8020-202020202020 ]]; then
+  jq -e '.email | test("^qualification-developer-[a-z0-9-]+@example\\.test$")' <<<"${kp_body}" >/dev/null
+  : >"${KP_COMMAND_LOG}.developer-deleted"; printf '{}' >"${kp_output}"; printf '204'
+elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/users ]]; then
+  if [[ -n "${kp_output}" ]]; then printf '{"items":[]}' >"${kp_output}"; printf '200'; else printf '{"items":[]}'; fi
+elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/teams ]]; then
+  if [[ -n "${kp_output}" ]]; then printf '{"items":[]}' >"${kp_output}"; printf '200'; else printf '{"items":[]}'; fi
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/github/installations ]]; then printf '{"id":"40404040-4040-4040-8040-404040404040"}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/github/installations ]]; then printf '{"items":[{"id":"50505050-5050-4050-8050-505050505050","githubInstallationId":12345}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/github/installations/50505050-*/repositories ]]; then printf '{"items":[{"id":"51515151-5151-4151-8151-515151515151","installationId":"50505050-5050-4050-8050-505050505050","githubRepositoryId":67890,"lifecycle":"active"}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "PATCH" && "${kp_url}" == */sharing ]]; then
   [[ "${kp_any_idempotency}" == "true" ]]
   printf '{}' >"${kp_output}"; printf '200'
-elif [[ "${kp_method}" == "GET" && ( "${kp_url}" == */openapi.json || "${kp_url}" == */openapi.yaml ) ]]; then printf '{"openapi":"3.2.0","paths":{"/v1/auth/login":{"post":{"operationId":"loginWithLocalPassword"}}}}' >"${kp_output}"; printf '200'
+elif [[ "${kp_method}" == "GET" && ( "${kp_url}" == */openapi.json || "${kp_url}" == */openapi.yaml ) ]]; then printf '{"openapi":"3.2.0","paths":{"/v1/auth/login":{"post":{"operationId":"loginWithLocalPassword"}},"/v1/users/{id}":{"delete":{"operationId":"deleteUser"}},"/v1/teams/{id}":{"delete":{"operationId":"deleteTeam"}}}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */openapi-agent.json ]]; then printf '{"operations":[]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */arazzo.yaml ]]; then printf 'sourceDescription: fixture\n' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */docs/ ]]; then printf 'url: "/openapi.yaml"\n' >"${kp_output}"; printf '200'
@@ -748,7 +761,7 @@ export KUBERPLOY_E2E_TEARDOWN_PUBLIC_KEY_FILE="${kp_teardown_public}"
 export KUBERPLOY_E2E_SCENARIO_FILE="${kp_tmp}/scenario.json"
 
 source "${kp_root}/scripts/kubernetes/test/e2e/lib.sh"
-kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeSelector":{"kuberploy.io/builder-pool":"dind"}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"9f000000-0000-4000-8000-000000000001","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"cancellationPush":{"deliveryId":"9f000000-0000-4000-8000-000000000002","afterCommit":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
+kp_scenario='{"schemaVersion":1,"apiBaseURL":"https://api.fixture.test","teardown":{"authority":"fixture-iac","infrastructureId":"fixture-cluster-1","publicKeySHA256":"placeholder"},"workflow":{"project":{"name":"Qualification","slug":"qualification"},"directEnvironment":{"name":"Direct","slug":"direct"},"protectedEnvironment":{"name":"Protected","slug":"protected"},"application":{"name":"Probe","slug":"probe"},"directDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"directDeploymentUpdate":{"image":"registry.fixture.test/probe@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runtime":{"replicas":2}},"protectedDeployment":{"image":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","runtime":{"replicas":1}},"sourceBuild":{"builderPool":{"nodeIsolation":false,"nodeSelector":{}},"github":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","githubInstallationId":12345,"githubRepositoryId":67890,"ownerId":23456,"ownerLogin":"kuberploy","repositoryName":"qualification","senderId":34567,"senderLogin":"qualification-user"},"definition":{"installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151","registryTargetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","triggerRef":"refs/heads/main","contextPath":".","dockerfilePath":"Dockerfile","platforms":["linux/amd64"],"cacheTrustLane":"qualification","cacheImports":1,"profile":{"resource":"small","timeoutSeconds":900,"egress":"internet"},"maxAttempts":2},"push":{"deliveryId":"9f000000-0000-4000-8000-000000000001","afterCommit":"ffffffffffffffffffffffffffffffffffffffff"},"cancellationPush":{"deliveryId":"9f000000-0000-4000-8000-000000000002","afterCommit":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},"promotion":{"runtime":{"replicas":1}}},"registryCleanup":{"targetId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd"},"upgrade":{"sourceVersion":"0.1.0","targetVersion":"0.2.0"}},"stages":{}}'
 kp_scenario="$(jq -c --arg digest "${kp_teardown_key_digest}" \
   '.teardown.publicKeySHA256=$digest |
    .workflow.directDeployment.route={hostname:"http.fixture.test",dnsMode:"manual",pathPrefix:"/",tlsMode:"httpOnly"} |

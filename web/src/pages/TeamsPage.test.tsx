@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { GitHubInstallation, Team, TeamMember, User } from "../api/types";
 import {
+  ExactDeleteConfirmation,
   InvitationSecret,
   InstallationSharingConfirmation,
   RemoveMemberConfirmation,
@@ -45,6 +46,42 @@ const privateInstallation: GitHubInstallation = {
   createdAt: "2026-08-06T00:00:00Z",
   updatedAt: "2026-08-06T00:00:00Z",
 };
+
+describe("exact deletion confirmation", () => {
+  it("requires the exact user email before deletion", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ExactDeleteConfirmation
+        kind="user"
+        label="Grace Hopper"
+        confirmation="grace@example.com"
+        busy={false}
+        error={null}
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const submit = screen.getByRole("button", { name: "Delete user" });
+    expect(submit).toBeDisabled();
+    await user.type(
+      screen.getByRole("textbox", { name: "Confirm user deletion" }),
+      "Grace@example.com",
+    );
+    expect(submit).toBeDisabled();
+    await user.clear(
+      screen.getByRole("textbox", { name: "Confirm user deletion" }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Confirm user deletion" }),
+      "grace@example.com",
+    );
+    expect(submit).toBeEnabled();
+    await user.click(submit);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+});
 
 describe("copyable invitation link", () => {
   it("puts the one-time token only in a URL fragment and copies the full link", async () => {

@@ -157,7 +157,7 @@ func completedProjectionAttempt(t *testing.T, mode RegistryMode, withCache bool)
 	store, definition := seedMemory(t, mode)
 	clock := testNow
 	attempt := createAttempt(t, store, mode, &clock)
-	claimed, err := store.ClaimNextAttempt(ctx, "build-worker", clock, time.Minute)
+	claimed, err := store.ClaimNextAttempt(ctx, "build-worker", clock, time.Minute, 1)
 	if err != nil || claimed.ID != attempt.ID {
 		t.Fatalf("claim=%#v err=%v", claimed, err)
 	}

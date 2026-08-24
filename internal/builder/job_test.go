@@ -238,6 +238,27 @@ func TestJobPlanAcceptsMirroredDinDImage(t *testing.T) {
 	}
 }
 
+func TestJobPlanAllowsPrivilegedDinDWithoutDedicatedNodeScheduling(t *testing.T) {
+	request := validJobPlanRequest()
+	request.NodeSelector = nil
+	request.Toleration = TaintToleration{}
+	plan, err := PlanJob(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pod := plan.Job["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+	if _, exists := pod["nodeSelector"]; exists {
+		t.Fatalf("non-isolated builder rendered nodeSelector: %#v", pod["nodeSelector"])
+	}
+	if _, exists := pod["tolerations"]; exists {
+		t.Fatalf("non-isolated builder rendered tolerations: %#v", pod["tolerations"])
+	}
+	dind := pod["initContainers"].([]any)[1].(map[string]any)
+	if dind["securityContext"].(map[string]any)["privileged"] != true {
+		t.Fatal("single-node builder is not privileged DinD")
+	}
+}
+
 func assertRegistryCredentialProjection(t *testing.T, volumes []any, name, secretName string) {
 	t.Helper()
 	for _, raw := range volumes {

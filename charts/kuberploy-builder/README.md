@@ -30,15 +30,23 @@ version or immutable digest. The control plane binds both exact references into
 every immutable request. Tags remain supported for local/mirror functionality;
 digests are recommended when the registry is stable enough for them.
 
-Before enabling the chart, dedicate a node pool with both:
+The default `nodeIsolation.enabled=false` is the revision-zero install default
+and schedules build Jobs on any Ready, uncordoned node without an untolerated
+hard taint. This gives a one-node installation complete source-build behavior.
+After bootstrap, platform administrators use **Settings → Source builders** for
+node isolation, maximum concurrent builders, and checkout/DinD/agent requests
+and limits. Saved PostgreSQL revisions are authoritative for new attempts. A
+malicious source build can compromise its node because DinD is privileged.
+
+For a narrower blast radius, set `nodeIsolation.enabled=true` and dedicate a
+node pool with both:
 
 ```text
 label: kuberploy.io/node-class=dind-builder
 taint: kuberploy.io/dind-builder=true:NoSchedule
 ```
 
-Do not enable or test a real build on a general-purpose node. The production
-controller, durable operation store, and GitHub App installation-token broker
+The production controller, durable operation store, and GitHub App installation-token broker
 are composed by the Kuberploy API/worker; this boundary chart intentionally
 does not duplicate or deploy those control-plane processes. The trusted agent
 promotes an exported cache candidate while its mounted registry credential is
@@ -47,11 +55,12 @@ still available and publishes a typed result through the exact
 rejected before publication.
 
 The controller ServiceAccount receives one cluster-scoped read permission:
-bounded `list` on Nodes. Every readiness heartbeat and build attempt requires
-at least one Ready, uncordoned Node with the exact label and taint above and no
-additional hard taint. Missing capacity reports the builder capability as
-unavailable and fails an accepted attempt before provider credentials or build
-objects are created.
+bounded `list` on at most 100 Nodes. In default mode, at least
+one ordinary schedulable Ready node is required. In isolation mode, at least
+one node must also have the exact label and taint above and no additional hard
+taint. Missing capacity reports the builder capability as unavailable and
+fails an accepted attempt before provider credentials or build objects are
+created.
 
 The controller must put the operation, generation, and deterministic spec-hash
 labels emitted by the Job planner on the request ConfigMap, credential Secrets,

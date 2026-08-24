@@ -189,7 +189,7 @@ func (s *Store) LocalCredential(ctx context.Context, email string) (domain.User,
 	var u domain.User
 	var hash string
 	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
-		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE c.email_normalized=$1`, normalizeCredential(email)).
+		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE c.email_normalized=$1 AND u.issuer<>'kuberploy:deleted'`, normalizeCredential(email)).
 		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &hash)
 	return u, hash, classify(err)
 }
@@ -203,7 +203,7 @@ func (s *Store) CreateLoginSession(ctx context.Context, userID, expectedHash, up
 	var u domain.User
 	var current string
 	err = tx.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at,c.password_hash
-		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE u.id=$1 FOR UPDATE`, userID).
+		FROM user_password_credentials c JOIN users u ON u.id=c.user_id WHERE u.id=$1 AND u.issuer<>'kuberploy:deleted' FOR UPDATE`, userID).
 		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt, &current)
 	if err != nil || current != expectedHash || len(sessionHash) != 32 || !expires.After(time.Now()) {
 		return domain.User{}, base.ErrNotFound
@@ -221,7 +221,7 @@ func (s *Store) CreateLoginSession(ctx context.Context, userID, expectedHash, up
 
 func (s *Store) UserBySession(ctx context.Context, tokenHash []byte, now time.Time) (domain.User, error) {
 	var u domain.User
-	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.grant_revision=u.grant_revision`, tokenHash, now).
+	err := s.pool.QueryRow(ctx, `SELECT u.id,COALESCE(u.email,''),u.display_name,u.role,u.issuer,u.subject,u.grant_revision,u.created_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>$2 AND s.grant_revision=u.grant_revision AND u.issuer<>'kuberploy:deleted'`, tokenHash, now).
 		Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.Issuer, &u.Subject, &u.GrantRevision, &u.CreatedAt)
 	return u, classify(err)
 }

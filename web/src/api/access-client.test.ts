@@ -104,6 +104,34 @@ describe("teams and GitHub access API client", () => {
     expect(removeInit.body).toBeUndefined();
   });
 
+  it("deletes users and teams with exact confirmations and stable keys", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.deleteUser("user/2", "developer@example.com", "delete-user-key");
+    await api.deleteTeam("team/platform", "Platform", "delete-team-key");
+
+    const userInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const teamInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/v1/users/user%2F2");
+    expect(userInit.method).toBe("DELETE");
+    expect(new Headers(userInit.headers).get("Idempotency-Key")).toBe(
+      "delete-user-key",
+    );
+    expect(JSON.parse(String(userInit.body))).toEqual({
+      email: "developer@example.com",
+    });
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/v1/teams/team%2Fplatform");
+    expect(teamInit.method).toBe("DELETE");
+    expect(new Headers(teamInit.headers).get("Idempotency-Key")).toBe(
+      "delete-team-key",
+    );
+    expect(JSON.parse(String(teamInit.body))).toEqual({ name: "Platform" });
+  });
+
   it("patches only the selected installation sharing decision", async () => {
     const installation = {
       id: "installation_1",

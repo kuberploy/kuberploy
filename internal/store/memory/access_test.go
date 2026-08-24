@@ -193,6 +193,102 @@ func TestRemoveTeamMemberRequiresOwnerAndRevokesCurrentGrant(t *testing.T) {
 	}
 }
 
+func TestDeleteUserRevokesAccessAndPreservesReusableEmail(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	member, session := invitedUser(t, store, admin, "Developer", "delete-user")
+
+	if _, err := store.DeleteUser(ctx, admin.ID, member.ID, "wrong@example.test", "delete-user-wrong", "wrong", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("wrong confirmation err=%v", err)
+	}
+	if _, err := store.DeleteUser(ctx, admin.ID, admin.ID, admin.Email, "delete-self", "self", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("self deletion err=%v", err)
+	}
+	replay, err := store.DeleteUser(ctx, admin.ID, member.ID, member.Email, "delete-user", "exact", "request")
+	if err != nil || replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
+	}
+	replay, err = store.DeleteUser(ctx, admin.ID, member.ID, member.Email, "delete-user", "exact", "request")
+	if err != nil || !replay {
+		t.Fatalf("delete replay replay=%v err=%v", replay, err)
+	}
+	if _, err = store.UserBySession(ctx, session[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted user retained session: %v", err)
+	}
+	if _, _, err = store.LocalCredential(ctx, member.Email); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted user retained login credential: %v", err)
+	}
+	users, err := store.ListUsersForActor(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range users {
+		if user.ID == member.ID {
+			t.Fatalf("deleted user remained in directory: %#v", user)
+		}
+	}
+	token := sha256Bytes("invite-reuse-deleted-email")
+	if _, err = store.CreateUserInvitation(ctx, admin.ID, member.Email, token, time.Now().Add(time.Hour), "request"); err != nil {
+		t.Fatalf("reuse deleted email invitation: %v", err)
+	}
+	if replacement, err := store.AcceptUserInvitation(ctx, token, "Replacement", strings.Repeat("h", 64), sha256Bytes("replacement-session"), nil, time.Now().Add(time.Hour)); err != nil || replacement.ID == member.ID {
+		t.Fatalf("replacement user=%#v err=%v", replacement, err)
+	}
+}
+
+func TestDeleteTeamRequiresEmptyDependenciesAndRevokesMembershipSession(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	member, _ := invitedUser(t, store, admin, "Developer", "delete-team")
+	team, err := store.CreateTeam(ctx, admin.ID, "create-delete-team", "create-delete-team", "request", domain.CreateTeam{Name: "Disposable", Slug: "disposable"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, team.Value.ID, "add-delete-team-member", "add-delete-team-member", "request", domain.AddTeamMember{UserID: member.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteTeam(ctx, admin.ID, team.Value.ID, "Wrong", "delete-team-wrong", "wrong", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("wrong confirmation err=%v", err)
+	}
+	if _, err = store.CreateProject(ctx, admin.ID, "delete-team-project", "delete-team-project", domain.CreateProject{Name: "Bound", Slug: "bound", TeamID: team.Value.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteTeam(ctx, admin.ID, team.Value.ID, team.Value.Name, "delete-bound-team", "bound", "request"); !errors.Is(err, base.ErrConflict) {
+		t.Fatalf("dependent team deletion err=%v", err)
+	}
+
+	emptyTeam, err := store.CreateTeam(ctx, admin.ID, "create-empty-team", "create-empty-team", "request", domain.CreateTeam{Name: "Empty", Slug: "empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AddTeamMember(ctx, admin.ID, emptyTeam.Value.ID, "add-empty-team-member", "add-empty-team-member", "request", domain.AddTeamMember{UserID: member.ID, Role: "member"}); err != nil {
+		t.Fatal(err)
+	}
+	session := issueSession(t, store, member.ID, "delete-team")
+	replay, err := store.DeleteTeam(ctx, admin.ID, emptyTeam.Value.ID, emptyTeam.Value.Name, "delete-empty-team", "exact", "request")
+	if err != nil || replay {
+		t.Fatalf("delete replay=%v err=%v", replay, err)
+	}
+	replay, err = store.DeleteTeam(ctx, admin.ID, emptyTeam.Value.ID, emptyTeam.Value.Name, "delete-empty-team", "exact", "request")
+	if err != nil || !replay {
+		t.Fatalf("delete replay replay=%v err=%v", replay, err)
+	}
+	if _, err = store.UserBySession(ctx, session[:], time.Now()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("team deletion retained member session: %v", err)
+	}
+	teams, err := store.ListTeamsForActor(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listed := range teams {
+		if listed.ID == emptyTeam.Value.ID {
+			t.Fatalf("deleted team remained listed: %#v", listed)
+		}
+	}
+}
+
 func sha256Bytes(value string) []byte {
 	sum := sha256.Sum256([]byte(value))
 	return sum[:]
