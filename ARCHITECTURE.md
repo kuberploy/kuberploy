@@ -1401,6 +1401,14 @@ system of record. In the current MVP Argo CD applies the `SealedSecret` and its
 controller creates the namespace-local Secret. Argo CD never runs a render-time
 secret-decryption plugin, so plaintext does not enter generated-manifest caches.
 
+The installer is the authority for cross-namespace runtime-secret access. Its
+closed `integrations.runtimeSecrets` values enumerate exact Environment
+namespaces and pre-created fingerprint/public-certificate Secret references;
+the installer injects that configuration and adds only those namespaces to the
+control-plane AppProject. A remote child values file cannot expand this scope.
+Platform, Kubernetes-system, builder, renderer, monitoring, Argo, cert-manager,
+and Sealed Secrets namespaces are rejected as runtime-secret destinations.
+
 ```mermaid
 flowchart LR
     INPUT["Write-only secret input"] --> BROKER["Runtime secret broker"]

@@ -65,6 +65,16 @@ matching explicit release tag and may supply only bounded paths below
 `examples/installer`. Credential bytes remain in pre-existing Kubernetes
 Secrets and must never be committed to those files.
 
+`integrations.runtimeSecrets` is the installer-owned authority for runtime
+Secret and custom-certificate materialization. Enabling it requires the
+GitOps control plane and Sealed Secrets component, exact non-platform
+Environment namespaces, the fingerprint Secret/key, and the active public
+sealing-certificate Secret/key. The installer injects those fixed identities
+into the control-plane chart and adds only those exact namespaces to its Argo
+AppProject. A remote values file cannot expand this cross-namespace authority.
+Rotate the public certificate reference whenever the Sealed Secrets controller
+rotates its active key; no private sealing key enters installer values.
+
 Enabling the control plane also requires explicit PostgreSQL authority and the
 installer-owned Valkey bootstrap. When Valkey is managed, the installer owns the control-plane
 fence for the exact `api-cache`, `api-limiter`, `outbox-publisher`, and
@@ -77,7 +87,7 @@ Install the released chart only with the fixed identity and explicit version:
 ```sh
 helm upgrade --install kuberploy-installer \
   oci://ghcr.io/kuberploy/charts/kuberploy-installer \
-  --version 0.1.0-rc.335 \
+  --version 0.1.0-rc.336 \
   --namespace kuberploy-system --create-namespace \
   -f installer-values.yaml \
   --reset-values \

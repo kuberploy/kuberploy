@@ -110,8 +110,28 @@
     "integrations": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["github", "registry"],
+      "required": ["runtimeSecrets", "github", "registry"],
       "properties": {
+        "runtimeSecrets": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "namespaces", "fingerprintKeyID", "fingerprintSecretName", "fingerprintSecretKey", "sealingCertificateSecretName", "sealingCertificateSecretKey"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "namespaces": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/optionalDNSLabel" } },
+            "fingerprintKeyID": { "type": "string", "maxLength": 128, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._-]{0,127})$" },
+            "fingerprintSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "fingerprintSecretKey": { "type": "string", "maxLength": 253, "pattern": "^(?:|[A-Za-z0-9._-]{1,253})$" },
+            "sealingCertificateSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "sealingCertificateSecretKey": { "type": "string", "maxLength": 253, "pattern": "^(?:|[A-Za-z0-9._-]{1,253})$" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+              "then": { "properties": { "namespaces": { "minItems": 1 }, "fingerprintKeyID": { "minLength": 1 }, "fingerprintSecretName": { "minLength": 1 }, "fingerprintSecretKey": { "minLength": 1 }, "sealingCertificateSecretName": { "minLength": 1 }, "sealingCertificateSecretKey": { "minLength": 1 } } }
+            }
+          ]
+        },
         "github": {
           "type": "object",
           "additionalProperties": false,

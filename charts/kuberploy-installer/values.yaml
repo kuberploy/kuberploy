@@ -62,6 +62,17 @@ publicEndpoint:
 # Closed, credential-free control-plane integration inputs. Secret bytes are
 # pre-created in kuberploy-system and are never copied into Helm values.
 integrations:
+  # Runtime Secret and custom-certificate materialization through the managed
+  # Sealed Secrets controller. Secret bytes remain in pre-created Secrets;
+  # these values grant the control plane only the exact Environment namespaces.
+  runtimeSecrets:
+    enabled: false
+    namespaces: []
+    fingerprintKeyID: runtime-secrets-hmac-v1
+    fingerprintSecretName: ""
+    fingerprintSecretKey: runtime-secret-fingerprint.key
+    sealingCertificateSecretName: ""
+    sealingCertificateSecretKey: tls.crt
   github:
     enabled: false
     appID: 0

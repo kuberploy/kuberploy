@@ -178,6 +178,33 @@
   )) -}}
   {{- $childValues = mergeOverwrite $childValues $pullValues -}}
 {{- end -}}
+{{- if and (eq $item.key "controlPlane") $root.Values.integrations.runtimeSecrets.enabled -}}
+  {{- $runtimeSecrets := $root.Values.integrations.runtimeSecrets -}}
+  {{- $runtimeSecretValues := dict "config" (dict
+    "runtimeSecrets" (dict
+      "enabled" true
+      "namespaces" $runtimeSecrets.namespaces
+      "fingerprintKeyID" $runtimeSecrets.fingerprintKeyID
+      "fingerprintSecret" (dict "name" $runtimeSecrets.fingerprintSecretName "key" $runtimeSecrets.fingerprintSecretKey)
+      "sealingCertificateSecret" (dict "name" $runtimeSecrets.sealingCertificateSecretName "key" $runtimeSecrets.sealingCertificateSecretKey)
+      "pollIntervalSeconds" 5
+      "workLeaseSeconds" 45
+      "heartbeatSeconds" 10
+      "idleSeconds" 1
+      "minimumBackoffSeconds" 2
+      "maximumBackoffSeconds" 300)
+    "certificateObservation" (dict
+      "enabled" true
+      "pollIntervalSeconds" 30
+      "workLeaseSeconds" 45
+      "heartbeatSeconds" 10
+      "idleSeconds" 1
+      "minimumBackoffSeconds" 2
+      "maximumBackoffSeconds" 300
+      "maximumAgeSeconds" 90)
+  ) -}}
+  {{- $childValues = mergeOverwrite $childValues $runtimeSecretValues -}}
+{{- end -}}
 {{- if and (eq $item.key "builder") $root.Values.integrations.github.enabled -}}
   {{- $childValues = mergeOverwrite $childValues (dict "buildKitImage" $root.Values.integrations.github.buildKitImage "dindImage" $root.Values.integrations.github.dindImage) -}}
 {{- end -}}
@@ -248,6 +275,12 @@ spec:
     {{- end }}
     {{- if and (eq $item.key "controlPlane") $root.Values.integrations.registry.runtimePull.enabled }}
     {{- range uniq (sortAlpha $root.Values.integrations.registry.runtimePull.namespaces) }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ . }}
+    {{- end }}
+    {{- end }}
+    {{- if and (eq $item.key "controlPlane") $root.Values.integrations.runtimeSecrets.enabled }}
+    {{- range uniq (sortAlpha $root.Values.integrations.runtimeSecrets.namespaces) }}
     - server: https://kubernetes.default.svc
       namespace: {{ . }}
     {{- end }}

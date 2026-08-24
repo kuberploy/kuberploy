@@ -197,6 +197,15 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- end -}}
 {{- end -}}
 
+{{- $runtimeSecrets := .Values.integrations.runtimeSecrets -}}
+{{- if $runtimeSecrets.enabled -}}
+  {{- if or (not .Values.components.controlPlane.enabled) (not .Values.components.sealedSecrets.enabled) (not .Values.integrations.github.enabled) -}}{{ fail "runtime secrets require the GitOps control plane and Sealed Secrets component" }}{{- end -}}
+  {{- if or (empty $runtimeSecrets.namespaces) (ne (len $runtimeSecrets.namespaces) (len (uniq $runtimeSecrets.namespaces))) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" $runtimeSecrets.fingerprintKeyID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimeSecrets.fingerprintSecretName)) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" $runtimeSecrets.fingerprintSecretKey)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimeSecrets.sealingCertificateSecretName)) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" $runtimeSecrets.sealingCertificateSecretKey)) -}}{{ fail "runtime secret identities and namespaces are invalid" }}{{- end -}}
+  {{- range $runtimeSecrets.namespaces -}}
+    {{- if or (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" .)) (has . (list "argocd" "cert-manager" "default" "kube-node-lease" "kube-public" "kube-system" "kuberploy-build-dind" "kuberploy-helm-renderer" "kuberploy-monitoring" "kuberploy-system" "sealed-secrets")) -}}{{ fail "runtime secrets accept only exact non-platform Environment namespaces" }}{{- end -}}
+  {{- end -}}
+{{- end -}}
+
 {{- $registry := .Values.integrations.registry -}}
 {{- $runtimePull := $registry.runtimePull -}}
 {{- if $registry.enabled -}}
