@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Git SSH source builds now ship a pinned OpenSSH client and fixed runtime identity. The pre-stable PostgreSQL schema remains one canonical 001_initial migration; installations from older release candidates require a fresh database.",
+  "summary": "Source builds now default to the running Kuberploy CPU architecture while keeping multi-platform builds opt-in. Git SSH builds ship a pinned OpenSSH client and fixed runtime identity. The pre-stable PostgreSQL schema remains one canonical 001_initial migration; installations from older release candidates require a fresh database.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.347"
+  "version": "0.1.0-rc.348"
 }
