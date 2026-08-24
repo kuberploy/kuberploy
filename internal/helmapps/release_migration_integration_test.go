@@ -1732,6 +1732,69 @@ func TestPostgresProtectedPublicationStoreDisableLifecycle(t *testing.T) {
 		t.Fatalf("cascade observation claim=%+v lease=%+v err=%v",
 			observedPreflight, observationLease, err)
 	}
+	// A terminal retry must saturate its bounded failure counter. Incrementing
+	// 30 to 31 violates the database check and can strand later Helm work behind
+	// a permanently failing round-robin cascade phase.
+	retrySetup, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer retrySetup.Rollback(ctx) //nolint:errcheck
+	if _, err = retrySetup.Exec(ctx, `SET LOCAL session_replication_role='replica'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = retrySetup.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs
+		SET attempts=30,consecutive_failures=30,last_failure_code='observer-timeout'
+		WHERE cascade_preflight_id=$1 AND activation_epoch=$2
+		AND publisher_config_digest=$3 AND state='claimed'`, preflightID,
+		observationLease.ObserverActivationEpoch, observationLease.Publisher.ConfigDigest); err != nil {
+		t.Fatal(err)
+	}
+	if err = retrySetup.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	retryNow, retryAt := observationAt.Add(100*time.Millisecond), observationAt.Add(time.Second)
+	if err = store.RetryCascadeObservation(ctx, observationLease, "observer-timeout", retryAt, retryNow); err != nil {
+		t.Fatalf("terminal cascade observation retry: %v", err)
+	}
+	var retryState string
+	var retryAttempts, retryFailures int
+	if err = pool.QueryRow(ctx, `SELECT state,attempts,consecutive_failures
+		FROM public.helm_application_cascade_observation_jobs
+		WHERE cascade_preflight_id=$1 AND activation_epoch=$2 AND publisher_config_digest=$3`,
+		preflightID, observationLease.ObserverActivationEpoch, observationLease.Publisher.ConfigDigest).
+		Scan(&retryState, &retryAttempts, &retryFailures); err != nil ||
+		retryState != "failed" || retryAttempts != 30 || retryFailures != 30 {
+		t.Fatalf("terminal cascade retry state=%s attempts=%d failures=%d err=%v",
+			retryState, retryAttempts, retryFailures, err)
+	}
+	resetAt := helmPGDatabaseNow(t, ctx, pool)
+	retryReset, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer retryReset.Rollback(ctx) //nolint:errcheck
+	if _, err = retryReset.Exec(ctx, `SET LOCAL session_replication_role='replica'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = retryReset.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs SET
+		state='pending',next_attempt_at=$4,attempts=0,consecutive_failures=0,last_failure_code='',
+		lease_owner=NULL,worker_epoch=NULL,lease_until=NULL,completed_at=NULL,updated_at=$4
+		WHERE cascade_preflight_id=$1 AND activation_epoch=$2 AND publisher_config_digest=$3`,
+		preflightID, observationLease.ObserverActivationEpoch, observationLease.Publisher.ConfigDigest,
+		resetAt); err != nil {
+		t.Fatal(err)
+	}
+	if err = retryReset.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	observedPreflight, observationLease, err = store.ClaimCascadeObservation(ctx, observerWorker, 2,
+		publisher, resetAt, time.Minute)
+	if err != nil || observedPreflight.ID != preflightID {
+		t.Fatalf("reclaimed cascade observation=%+v lease=%+v err=%v",
+			observedPreflight, observationLease, err)
+	}
+	observationAt = resetAt
 	platformBinding, err := scanCascadePlatformBinding(pool.QueryRow(ctx, `SELECT id,kind,scope_id::text,
 		COALESCE(project_id::text,''),COALESCE(environment_id::text,''),
 		provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,

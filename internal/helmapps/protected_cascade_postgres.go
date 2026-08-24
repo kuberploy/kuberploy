@@ -800,7 +800,7 @@ func (s *PostgresProtectedPublicationStore) RetryCascadeObservation(ctx context.
 	}
 	result, err := s.pool.Exec(ctx, `UPDATE public.helm_application_cascade_observation_jobs SET
 		state=CASE WHEN attempts>=30 THEN 'failed' ELSE 'pending' END,
-		consecutive_failures=consecutive_failures+1,last_failure_code=$7,
+		consecutive_failures=LEAST(consecutive_failures+1,30),last_failure_code=$7,
 		next_attempt_at=CASE WHEN attempts>=30 THEN next_attempt_at ELSE $8 END,
 		lease_owner=NULL,worker_epoch=NULL,lease_until=NULL,
 		completed_at=CASE WHEN attempts>=30 THEN $9 ELSE NULL END,updated_at=$9
