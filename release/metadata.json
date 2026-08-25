@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Argo desired-state workers now use restart-unique process identities so immutable protected Helm cascade activations continue after same-Pod container restarts. Deployment rollback catalogs omit retained revisions whose current dependencies are unavailable. Source builds default to the running Kuberploy CPU architecture while dual-platform builds remain explicit. The pre-stable schema remains one 001_initial migration.",
+  "summary": "Helm Apps now pass OCI, classic repository, or Git chart sources and values directly to deterministic Argo CD Applications. The approval, offline package, and renderer pipeline is removed. The pre-stable database is rebaselined to the simplified direct Helm schema, and migration images normalize copied source permissions before running as non-root.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.356"
+  "version": "0.1.0-rc.357"
 }
