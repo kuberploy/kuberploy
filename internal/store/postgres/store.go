@@ -394,6 +394,10 @@ func (s *Store) ListEnvironments(ctx context.Context) ([]domain.Environment, err
 	return out, rows.Err()
 }
 
+func (s *Store) DeleteEnvironment(ctx context.Context, actor, environmentID, confirmationName, key, fingerprint, requestID string) (bool, error) {
+	return s.deleteNamedResource(ctx, actor, "environments", "environment", environmentID, confirmationName, key, fingerprint, requestID, base.ErrEnvironmentDeletionBlocked)
+}
+
 func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID, key, fingerprint string, in domain.CloneEnvironment) (base.Result[domain.EnvironmentCloneResult], error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -602,6 +606,64 @@ func (s *Store) ListApplications(ctx context.Context) ([]domain.Application, err
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) DeleteApplication(ctx context.Context, actor, applicationID, confirmationName, key, fingerprint, requestID string) (bool, error) {
+	return s.deleteNamedResource(ctx, actor, "applications", "application", applicationID, confirmationName, key, fingerprint, requestID, base.ErrApplicationDeletionBlocked)
+}
+
+func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceType, resourceID, confirmationName, key, fingerprint, requestID string, blocked error) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	scope := resourceType + "s.delete:" + resourceID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, scope, key)); err != nil {
+		return false, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, scope, key); findErr != nil {
+		return false, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return false, base.ErrIdempotencyConflict
+		}
+		return true, tx.Commit(ctx)
+	}
+	var name, projectID string
+	query := `SELECT name,project_id::text FROM ` + table + ` WHERE id=$1 FOR UPDATE`
+	if err = tx.QueryRow(ctx, query, resourceID).Scan(&name, &projectID); err != nil {
+		return false, classify(err)
+	}
+	if err = authorizeWith(ctx, tx, actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: projectID}); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(confirmationName) != name {
+		return false, base.ErrDeletionConfirmation
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE scope_type=$1 AND scope_id=$2`, resourceType, resourceID); err != nil {
+		return false, err
+	}
+	if err = audit(ctx, tx, actor, resourceType+".delete", resourceType, resourceID, requestID, map[string]any{"name": name}); err != nil {
+		return false, err
+	}
+	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, resourceType, resourceID, nil); err != nil {
+		return false, classify(err)
+	}
+	tag, deleteErr := tx.Exec(ctx, `DELETE FROM `+table+` WHERE id=$1`, resourceID)
+	if deleteErr != nil {
+		if errors.Is(classify(deleteErr), base.ErrConflict) {
+			return false, blocked
+		}
+		return false, deleteErr
+	}
+	if tag.RowsAffected() != 1 {
+		return false, base.ErrNotFound
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func classify(err error) error {

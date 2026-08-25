@@ -2073,6 +2073,12 @@ export const api = {
     ),
   environment: (id: string) =>
     request<Environment>(`/v1/environments/${encodeURIComponent(id)}`),
+  deleteEnvironment: (id: string, name: string, idempotencyKey?: string) =>
+    request<void>(`/v1/environments/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: { name },
+    }),
   assignedMiddlewareProfiles: (environmentId: string, applicationId: string) =>
     request<Collection<AssignedMiddlewareProfile>>(
       `/v1/middlewares?environmentId=${encodeURIComponent(environmentId)}&applicationId=${encodeURIComponent(applicationId)}`,
@@ -2186,6 +2192,12 @@ export const api = {
     ),
   application: (id: string) =>
     request<Application>(`/v1/applications/${encodeURIComponent(id)}`),
+  deleteApplication: (id: string, name: string, idempotencyKey?: string) =>
+    request<void>(`/v1/applications/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: { name },
+    }),
   helmRelease: (applicationId: string, environmentId: string) =>
     request<HelmReleaseStatus>(
       `${helmTargetPath(applicationId, environmentId)}/release`,

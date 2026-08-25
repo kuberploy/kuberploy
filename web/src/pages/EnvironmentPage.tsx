@@ -7,6 +7,7 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   PageHeader,
@@ -21,7 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/shadcn/dialog";
-import { canCreateAppInEnvironment } from "../lib/appCreationAccess";
+import {
+  canCreateAppInEnvironment,
+  canDeleteEnvironment,
+} from "../lib/appCreationAccess";
 
 function environmentAction(
   capabilities: Awaited<ReturnType<typeof api.capabilities>> | undefined,
@@ -48,11 +52,13 @@ export function EnvironmentPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [cloneName, setCloneName] = useState("");
   const [cloneProtectionPolicy, setCloneProtectionPolicy] = useState<
     "inherit" | "development" | "protected"
   >("inherit");
   const cloneAttempt = useRef<{ signature: string; key: string } | null>(null);
+  const deleteAttempt = useRef<string | null>(null);
   const environment = useQuery({
     queryKey: ["environment", environmentId],
     queryFn: () => api.environment(environmentId),
@@ -138,6 +144,24 @@ export function EnvironmentPage() {
       });
     },
   });
+  const deleteEnvironment = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.deleteEnvironment(
+        environmentId,
+        environment.data?.name ?? "",
+        idempotencyKey,
+      ),
+    onSuccess: async () => {
+      deleteAttempt.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["environments"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["environment", environmentId],
+        }),
+      ]);
+      await navigate({ to: "/projects/$projectId", params: { projectId } });
+    },
+  });
   const submitClone = () => {
     const name = cloneName.trim();
     if (!name || cloneEnvironment.isPending) return;
@@ -198,6 +222,7 @@ export function EnvironmentPage() {
     environment.data.id,
     "environments:create",
   );
+  const canDelete = canDeleteEnvironment(capabilities.data, project);
   return (
     <div className="page">
       <nav className="backline" aria-label="Breadcrumb">
@@ -239,6 +264,11 @@ export function EnvironmentPage() {
             >
               <Icon name="layers" /> Clone Environment
             </Button>
+            {canDelete ? (
+              <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+                <Icon name="close" /> Delete Environment
+              </Button>
+            ) : null}
             {canAddApp ? (
               <Link
                 to="/projects/$projectId/environments/$environmentId/apps/new"
@@ -368,6 +398,26 @@ export function EnvironmentPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {deleteOpen ? (
+        <ConfirmDialog
+          title={`Delete ${environment.data.name}?`}
+          description="Only an Environment with no deployments, Git binding, releases, variables, certificates, or integrations can be deleted. Audit history remains."
+          confirmLabel="Delete Environment"
+          confirmation={environment.data.name}
+          busy={deleteEnvironment.isPending}
+          error={deleteEnvironment.error}
+          icon="close"
+          onCancel={() => {
+            deleteEnvironment.reset();
+            setDeleteOpen(false);
+          }}
+          onConfirm={() => {
+            const key = deleteAttempt.current ?? crypto.randomUUID();
+            deleteAttempt.current = key;
+            deleteEnvironment.mutate(key);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

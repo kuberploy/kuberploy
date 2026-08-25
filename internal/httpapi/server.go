@@ -299,6 +299,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/environments", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environments))))
 	mux.Handle("POST /v1/environments", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.environments))))
 	mux.Handle("GET /v1/environments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environment))))
+	mux.Handle("DELETE /v1/environments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.deleteEnvironment))))
 	mux.Handle("GET /v1/environments/{id}/apps", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environmentApps))))
 	mux.Handle("POST /v1/environments/{id}/clone", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.cloneEnvironment))))
 	mux.Handle("GET /v1/environments/{id}/git-binding", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.environmentGitBinding)))))
@@ -325,6 +326,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/applications", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applications))))
 	mux.Handle("POST /v1/applications", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.applications))))
 	mux.Handle("GET /v1/applications/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.application))))
+	mux.Handle("DELETE /v1/applications/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.deleteApplication))))
 	mux.Handle("GET /v1/applications/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.applicationGitSSHKeys)))))
 	mux.Handle("POST /v1/applications/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.applicationGitSSHKeys))))))
 	mux.Handle("POST /v1/applications/{id}/git-ssh-keys/rotate", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.rotateApplicationGitSSHKey))))))
@@ -772,13 +774,17 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrIdempotencyConflict):
 		writeProblem(w, r, 409, "IdempotencyConflict", "Idempotency conflict", "This idempotency key was already used with different input.")
 	case errors.Is(err, store.ErrDeletionConfirmation):
-		writeProblem(w, r, 409, "DeletionConfirmationMismatch", "Confirmation does not match", "Type the exact current email or team name to confirm deletion.")
+		writeProblem(w, r, 409, "DeletionConfirmationMismatch", "Confirmation does not match", "Type the exact current name or email to confirm deletion.")
 	case errors.Is(err, store.ErrSelfDeletion):
 		writeProblem(w, r, 409, "SelfDeletionBlocked", "Current user cannot be deleted", "Sign in as another platform administrator before deleting this user.")
 	case errors.Is(err, store.ErrUserDeletionBlocked):
 		writeProblem(w, r, 409, "UserDeletionBlocked", "User still owns required access", "Transfer owned GitHub installations and final team or platform administrator roles before deleting this user.")
 	case errors.Is(err, store.ErrTeamDeletionBlocked):
 		writeProblem(w, r, 409, "TeamDeletionBlocked", "Team still owns resources", "Move or remove the team's projects, GitHub sharing, setup handoffs, and secret bindings before deleting it.")
+	case errors.Is(err, store.ErrApplicationDeletionBlocked):
+		writeProblem(w, r, 409, "ApplicationDeletionBlocked", "App still has resources", "Disable and remove the App's deployments, build configuration, releases, bindings, and policies before deleting it.")
+	case errors.Is(err, store.ErrEnvironmentDeletionBlocked):
+		writeProblem(w, r, 409, "EnvironmentDeletionBlocked", "Environment still has resources", "Remove the Environment's deployments, Git binding, releases, variables, certificates, and integrations before deleting it.")
 	case errors.Is(err, store.ErrConflict):
 		writeProblem(w, r, 409, "Conflict", "Conflict", "The request conflicts with existing state.")
 	case errors.Is(err, store.ErrForbidden):

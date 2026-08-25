@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,6 +123,7 @@ beforeEach(() => {
         scopeId: "project-payments",
         actions: [
           "environments:create",
+          "environments:delete",
           "applications:create",
           "deployments:create",
         ],
@@ -140,6 +141,35 @@ afterEach(() => {
 });
 
 describe("environment App workspace", () => {
+  it("deletes an unused Environment through typed confirmation", async () => {
+    const remove = vi.spyOn(api, "deleteEnvironment").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<EnvironmentPage />, { wrapper: wrapper() });
+
+    await user.click(
+      await screen.findByRole("button", { name: /Delete Environment/ }),
+    );
+    const confirm = screen.getByRole("button", { name: "Delete Environment" });
+    expect(confirm).toBeDisabled();
+    await user.type(
+      screen.getByRole("textbox", { name: "Confirm deletion" }),
+      "Production",
+    );
+    await user.click(confirm);
+
+    await waitFor(() => {
+      expect(remove).toHaveBeenCalledWith(
+        "environment-production",
+        "Production",
+        expect.any(String),
+      );
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId",
+        params: { projectId: "project-payments" },
+      });
+    });
+  });
+
   it("enforces Project to Environment to App navigation", async () => {
     render(<EnvironmentPage />, { wrapper: wrapper() });
 

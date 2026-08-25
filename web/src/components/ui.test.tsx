@@ -53,4 +53,27 @@ describe("ConfirmDialog", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).not.toHaveBeenCalled();
   });
+
+  it("requires an exact typed confirmation when configured", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDialog
+        title="Delete App"
+        description="Only unused Apps can be deleted."
+        confirmation="API"
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+    const confirm = screen.getByRole("button", { name: "Confirm" });
+    expect(confirm).toBeDisabled();
+    await user.type(
+      screen.getByRole("textbox", { name: "Confirm deletion" }),
+      "API",
+    );
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
 });

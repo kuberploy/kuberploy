@@ -342,6 +342,44 @@ func (s *Store) ListEnvironments(context.Context) ([]domain.Environment, error) 
 	return out, nil
 }
 
+func (s *Store) DeleteEnvironment(_ context.Context, actor, environmentID, confirmationName, key, fp, _ string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := ik(actor, "environments.delete:"+environmentID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
+	}
+	environment, exists := s.environments[environmentID]
+	if !exists {
+		return false, base.ErrNotFound
+	}
+	if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: environment.ProjectID}); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(confirmationName) != environment.Name {
+		return false, base.ErrDeletionConfirmation
+	}
+	for _, deployment := range s.deployments {
+		if deployment.EnvironmentID == environmentID {
+			return false, base.ErrEnvironmentDeletionBlocked
+		}
+	}
+	for grantID, grant := range s.accessGrants {
+		if grant.ScopeType == domain.ScopeEnvironment && grant.ScopeID == environmentID {
+			delete(s.accessGrants, grantID)
+		}
+	}
+	delete(s.environmentAppPlacements, environmentID)
+	delete(s.environments, environmentID)
+	s.idempotency[idemKey] = idemRecord{fp, "environment", environmentID, ""}
+	s.audits++
+	return false, nil
+}
+
 func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, key, fp string, in domain.CloneEnvironment) (base.Result[domain.EnvironmentCloneResult], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -512,6 +550,47 @@ func (s *Store) ListApplications(context.Context) ([]domain.Application, error) 
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
+}
+
+func (s *Store) DeleteApplication(_ context.Context, actor, applicationID, confirmationName, key, fp, _ string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := ik(actor, "applications.delete:"+applicationID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
+	}
+	application, exists := s.applications[applicationID]
+	if !exists {
+		return false, base.ErrNotFound
+	}
+	if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "project", ID: application.ProjectID}); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(confirmationName) != application.Name {
+		return false, base.ErrDeletionConfirmation
+	}
+	for _, deployment := range s.deployments {
+		if deployment.ApplicationID == applicationID {
+			return false, base.ErrApplicationDeletionBlocked
+		}
+	}
+	for environmentID, placements := range s.environmentAppPlacements {
+		delete(placements, applicationID)
+		s.environmentAppPlacements[environmentID] = placements
+	}
+	for grantID, grant := range s.accessGrants {
+		if grant.ScopeType == domain.ScopeApplication && grant.ScopeID == applicationID {
+			delete(s.accessGrants, grantID)
+		}
+	}
+	delete(s.applications, applicationID)
+	s.idempotency[idemKey] = idemRecord{fp, "application", applicationID, ""}
+	s.audits++
+	return false, nil
 }
 
 func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID string, in domain.CreateDeployment, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) (base.Result[domain.Deployment], domain.Operation, error) {

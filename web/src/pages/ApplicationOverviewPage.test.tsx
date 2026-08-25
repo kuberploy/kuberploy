@@ -16,6 +16,7 @@ const routeParams = vi.hoisted(
 const routeSearch = vi.hoisted(
   (): { tab?: string; source?: string; environmentId?: string } => ({}),
 );
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -29,6 +30,7 @@ vi.mock("@tanstack/react-router", () => ({
   ),
   useParams: () => routeParams,
   useSearch: () => routeSearch,
+  useNavigate: () => navigate,
 }));
 
 function wrapper() {
@@ -103,10 +105,51 @@ afterEach(() => {
   delete routeSearch.tab;
   delete routeSearch.source;
   delete routeSearch.environmentId;
+  navigate.mockReset();
   vi.restoreAllMocks();
 });
 
 describe("application source overview", () => {
+  it("deletes an unused App through typed confirmation", async () => {
+    vi.mocked(api.capabilities).mockResolvedValue({
+      features: { builds: false, builder: false, helmDeployments: false },
+      capabilities: [
+        {
+          role: "project-admin",
+          scopeType: "project",
+          scopeId: "project-1",
+          actions: ["applications:delete"],
+        },
+      ],
+    });
+    const remove = vi.spyOn(api, "deleteApplication").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    await user.click(await screen.findByRole("button", { name: /Delete App/ }));
+    const confirm = screen.getByRole("button", { name: "Delete App" });
+    expect(confirm).toBeDisabled();
+    await user.type(
+      screen.getByRole("textbox", { name: "Confirm deletion" }),
+      "Payments API",
+    );
+    await user.click(confirm);
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith(
+        "application-1",
+        "Payments API",
+        expect.any(String),
+      ),
+    );
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({
+        to: "/projects/$projectId",
+        params: { projectId: "project-1" },
+      }),
+    );
+  });
+
   it("restores the durable OCI source after reload without URL state", async () => {
     vi.mocked(api.application).mockResolvedValue({
       id: "application-1",

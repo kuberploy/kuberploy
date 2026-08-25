@@ -1,4 +1,9 @@
-import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from "react";
+import {
+  useState,
+  type ButtonHTMLAttributes,
+  type PropsWithChildren,
+  type ReactNode,
+} from "react";
 import { Icon, type IconName } from "./Icon";
 import { errorMessage } from "../api/client";
 import { operationTone, titleCase } from "../lib/format";
@@ -125,6 +130,8 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   icon = "settings",
   busy = false,
+  confirmation,
+  error,
   onConfirm,
   onCancel,
 }: {
@@ -134,9 +141,14 @@ export function ConfirmDialog({
   cancelLabel?: string;
   icon?: IconName;
   busy?: boolean;
+  confirmation?: string;
+  error?: unknown;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const [confirmationValue, setConfirmationValue] = useState("");
+  const confirmed =
+    confirmation === undefined || confirmationValue === confirmation;
   return (
     <Dialog
       open
@@ -155,6 +167,21 @@ export function ConfirmDialog({
         <span className="eyebrow">Confirm action</span>
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
+        {confirmation !== undefined ? (
+          <Field label={`Type ${confirmation} to confirm`} required>
+            <input
+              autoFocus
+              value={confirmationValue}
+              aria-label="Confirm deletion"
+              onChange={(event) => setConfirmationValue(event.target.value)}
+            />
+          </Field>
+        ) : null}
+        {error ? (
+          <div className="notice notice--error" role="alert">
+            {errorMessage(error)}
+          </div>
+        ) : null}
         <div className="confirmation-dialog__actions">
           <Button
             variant="secondary"
@@ -168,7 +195,7 @@ export function ConfirmDialog({
             variant="danger"
             busy={busy}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || !confirmed}
           >
             {confirmLabel}
           </Button>

@@ -594,6 +594,70 @@ func TestImageDeploymentWalkingSliceAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestApplicationAndEnvironmentDeletionLifecycle(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "delete-project", map[string]string{"name": "Delete project"}))
+	environment := decode[domain.Environment](t, f.request(http.MethodPost, "/v1/environments", "delete-environment", map[string]string{"projectId": project.ID, "name": "Disposable environment"}))
+	application := decode[domain.Application](t, f.request(http.MethodPost, "/v1/applications", "delete-application", map[string]string{
+		"projectId": project.ID, "environmentId": environment.ID, "name": "Disposable App",
+	}))
+
+	response := f.request(http.MethodDelete, "/v1/applications/"+application.ID, "delete-app-wrong", map[string]string{"name": "Wrong"})
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "DeletionConfirmationMismatch" {
+		t.Fatalf("wrong App confirmation status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID, "delete-app", map[string]string{"name": application.Name})
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete App status=%d", response.StatusCode)
+	}
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID, "delete-app", map[string]string{"name": application.Name})
+	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("delete App replay status=%d replay=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
+	}
+	if response = f.request(http.MethodGet, "/v1/applications/"+application.ID, "", nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted App remained readable: %d", response.StatusCode)
+	}
+
+	response = f.request(http.MethodDelete, "/v1/environments/"+environment.ID, "delete-environment", map[string]string{"name": environment.Name})
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("delete Environment status=%d", response.StatusCode)
+	}
+	response = f.request(http.MethodDelete, "/v1/environments/"+environment.ID, "delete-environment", map[string]string{"name": environment.Name})
+	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("delete Environment replay status=%d replay=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
+	}
+	if response = f.request(http.MethodGet, "/v1/environments/"+environment.ID, "", nil); response.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted Environment remained readable: %d", response.StatusCode)
+	}
+}
+
+func TestApplicationAndEnvironmentDeletionRejectActiveDeployment(t *testing.T) {
+	f := newAPI(t)
+	f.bootstrap()
+	project := decode[domain.Project](t, f.request(http.MethodPost, "/v1/projects", "blocked-delete-project", map[string]string{"name": "Blocked delete"}))
+	environment := decode[domain.Environment](t, f.request(http.MethodPost, "/v1/environments", "blocked-delete-environment", map[string]string{"projectId": project.ID, "name": "Production"}))
+	application := decode[domain.Application](t, f.request(http.MethodPost, "/v1/applications", "blocked-delete-application", map[string]string{"projectId": project.ID, "name": "API"}))
+	image := "registry.example.test/api@sha256:" + strings.Repeat("a", 64)
+	response := f.request(http.MethodPost, "/v1/deployments", "blocked-delete-deployment", map[string]any{
+		"environmentId": environment.ID, "applicationId": application.ID, "image": image, "port": 8080,
+	})
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("deployment status=%d", response.StatusCode)
+	}
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID, "blocked-delete-app", map[string]string{"name": application.Name})
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "ApplicationDeletionBlocked" {
+		t.Fatalf("active App deletion status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response = f.request(http.MethodDelete, "/v1/environments/"+environment.ID, "blocked-delete-env", map[string]string{"name": environment.Name})
+	problem = decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "EnvironmentDeletionBlocked" {
+		t.Fatalf("active Environment deletion status=%d problem=%#v", response.StatusCode, problem)
+	}
+}
+
 func TestDeploymentStatusSeparatesExactArgoRolloutFromGitSuccess(t *testing.T) {
 	f := newAPI(t)
 	admin := f.bootstrap()

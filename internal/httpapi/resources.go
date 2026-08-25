@@ -156,6 +156,14 @@ func (s *Server) environment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 
+type deleteResourceRequest struct {
+	Name string `json:"name"`
+}
+
+func (s *Server) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
+	deleteNamedResource(w, r, "Environment", s.store.DeleteEnvironment)
+}
+
 func (s *Server) environmentApps(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListEnvironmentAppPlacementsForActor(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"))
 	if err != nil {
@@ -276,6 +284,40 @@ func (s *Server) application(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, v)
+}
+
+func (s *Server) deleteApplication(w http.ResponseWriter, r *http.Request) {
+	deleteNamedResource(w, r, "App", s.store.DeleteApplication)
+}
+
+func deleteNamedResource(w http.ResponseWriter, r *http.Request, label string, remove func(context.Context, string, string, string, string, string, string) (bool, error)) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	resourceID := strings.TrimSpace(r.PathValue("id"))
+	if !validUUID(resourceID) {
+		writeProblem(w, r, http.StatusNotFound, "NotFound", "Not found", "The requested resource was not found.")
+		return
+	}
+	var in deleteResourceRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The exact "+label+" name is required for confirmation.")
+		return
+	}
+	replay, err := remove(r.Context(), currentUser(r.Context()).ID, resourceID, in.Name, key, fingerprint(in), requestID(r.Context()))
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type routeRequest struct {

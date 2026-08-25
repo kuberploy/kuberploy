@@ -1,6 +1,16 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { Link, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearch,
+} from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
@@ -15,6 +25,8 @@ import { gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
   Card,
+  Button,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Field,
@@ -22,6 +34,7 @@ import {
   Skeleton,
   StatusPill,
 } from "../components/ui";
+import { canDeleteApplication } from "../lib/appCreationAccess";
 
 type SourceKind = "build" | "image" | "ssh" | "helm";
 type WorkspaceTab = "overview" | "source" | "runtime";
@@ -65,6 +78,10 @@ export function ApplicationOverviewPage() {
     projectId: routeProjectId,
     environmentId: routeEnvironmentId,
   } = useParams({ strict: false });
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const deleteAttempt = useRef<string | null>(null);
   const search = useSearch({ strict: false }) as {
     tab?: string;
     source?: string;
@@ -204,6 +221,42 @@ export function ApplicationOverviewPage() {
     deployments.data?.items.filter(
       (item) => item.applicationId === applicationId,
     ) ?? [];
+  const deleteApplication = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.deleteApplication(
+        applicationId,
+        application.data?.name ?? "",
+        idempotencyKey,
+      ),
+    onSuccess: async () => {
+      deleteAttempt.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["applications"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["application", applicationId],
+        }),
+        ...applicationEnvironments.map((environment) =>
+          queryClient.invalidateQueries({
+            queryKey: ["environment-apps", environment.id],
+          }),
+        ),
+      ]);
+      if (routeEnvironmentId) {
+        await navigate({
+          to: "/projects/$projectId/environments/$environmentId",
+          params: {
+            projectId: project?.id ?? "",
+            environmentId: routeEnvironmentId,
+          },
+        });
+      } else {
+        await navigate({
+          to: "/projects/$projectId",
+          params: { projectId: project?.id ?? "" },
+        });
+      }
+    },
+  });
   const source = applicationSourceTab(application.data?.sourceKind ?? "oci");
   const activeBuildDefinition = useMemo(
     () =>
@@ -240,6 +293,7 @@ export function ApplicationOverviewPage() {
       />
     );
   }
+  const canDelete = canDeleteApplication(capabilities.data, project);
   if (
     routeEnvironmentId &&
     (routeProjectId !== application.data.projectId ||
@@ -274,13 +328,20 @@ export function ApplicationOverviewPage() {
         title={application.data.name}
         description="Manage this App's source, runtime image access, and Environment instances."
         actions={
-          <Link
-            to="/projects/$projectId"
-            params={{ projectId: project.id }}
-            className="button button--ghost"
-          >
-            Back to project
-          </Link>
+          <>
+            <Link
+              to="/projects/$projectId"
+              params={{ projectId: project.id }}
+              className="button button--ghost"
+            >
+              Back to project
+            </Link>
+            {canDelete ? (
+              <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+                <Icon name="close" /> Delete App
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -635,6 +696,26 @@ export function ApplicationOverviewPage() {
           project={project}
           enabled={features?.registry === true}
           canManage={canManageApplicationRegistry}
+        />
+      ) : null}
+      {deleteOpen ? (
+        <ConfirmDialog
+          title={`Delete ${application.data.name}?`}
+          description="Only an App with no deployments, build configuration, releases, bindings, or policies can be deleted. Audit history remains."
+          confirmLabel="Delete App"
+          confirmation={application.data.name}
+          busy={deleteApplication.isPending}
+          error={deleteApplication.error}
+          icon="close"
+          onCancel={() => {
+            deleteApplication.reset();
+            setDeleteOpen(false);
+          }}
+          onConfirm={() => {
+            const key = deleteAttempt.current ?? crypto.randomUUID();
+            deleteAttempt.current = key;
+            deleteApplication.mutate(key);
+          }}
         />
       ) : null}
     </div>

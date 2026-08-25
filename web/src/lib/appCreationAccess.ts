@@ -56,6 +56,24 @@ export function canCreateAppIdentity(
   );
 }
 
+export function canDeleteApplication(
+  capabilities: Capabilities | undefined,
+  project: Project,
+) {
+  return grants(capabilities, ["applications:delete"], (capability) =>
+    coversProject(capability, project),
+  );
+}
+
+export function canDeleteEnvironment(
+  capabilities: Capabilities | undefined,
+  project: Project,
+) {
+  return grants(capabilities, ["environments:delete"], (capability) =>
+    coversProject(capability, project),
+  );
+}
+
 export function canUseAppSource(
   source: AppSourceKind,
   capabilities: Capabilities | undefined,

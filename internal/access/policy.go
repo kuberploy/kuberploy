@@ -284,9 +284,9 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 	case domain.PermissionResourcesWrite:
 		switch scope {
 		case domain.ScopePlatform, domain.ScopeTeam:
-			return []string{"applications:create", "deployments:create", "deployments:update", "environments:create", "projects:create"}
+			return []string{"applications:create", "applications:delete", "deployments:create", "deployments:update", "environments:create", "environments:delete", "projects:create"}
 		case domain.ScopeProject:
-			return []string{"applications:create", "deployments:create", "deployments:update", "environments:create"}
+			return []string{"applications:create", "applications:delete", "deployments:create", "deployments:update", "environments:create", "environments:delete"}
 		default:
 			return []string{"deployments:create", "deployments:update"}
 		}
