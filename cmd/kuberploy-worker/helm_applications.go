@@ -61,7 +61,7 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 	// A container restart in the same Pod reuses both hostname and PID. Include
 	// the process start instant so readiness upserts cannot collide with the
 	// prior process row while its lease ages out.
-	processIdentity := helmApplicationsProcessIdentity(host, os.Getpid(), startedAt)
+	processIdentity := workerProcessIdentity(host, os.Getpid(), startedAt)
 	runtime, err := helmapps.NewRuntime(config, helmapps.RuntimeDependencies{
 		Pool: pool, OCIClient: &http.Client{}, Credentials: credentials, RendererAPI: renderer, Bindings: bindings,
 		ArgoMaterialization: helmapps.ArgoMaterializationAuthority{PolicyDigest: projection.policyDigest,
@@ -84,7 +84,7 @@ func newHelmApplicationsRuntimeFromLookup(ctx context.Context, databaseURL, host
 	return &helmApplicationsRuntime{pool: pool, runtime: runtime}, nil
 }
 
-func helmApplicationsProcessIdentity(host string, pid int, startedAt time.Time) string {
+func workerProcessIdentity(host string, pid int, startedAt time.Time) string {
 	return host + "/" + strconv.Itoa(pid) + "/" + startedAt.UTC().Format(time.RFC3339Nano)
 }
 

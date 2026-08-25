@@ -3,10 +3,21 @@ package main
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 )
+
+func TestArgoDesiredStateWorkerIDChangesAcrossSamePodRestart(t *testing.T) {
+	firstStartedAt := time.Date(2026, time.August, 25, 1, 2, 3, 4, time.UTC)
+	secondStartedAt := firstStartedAt.Add(time.Nanosecond)
+	first := argoDesiredStateWorkerID("worker-pod", 1, firstStartedAt)
+	second := argoDesiredStateWorkerID("worker-pod", 1, secondStartedAt)
+	if first == second {
+		t.Fatalf("same-pod restarts must have distinct Argo desired-state worker IDs: %q", first)
+	}
+}
 
 func TestNewArgoDesiredStateRuntimeIsStrictlyDefaultOff(t *testing.T) {
 	runtime, err := newArgoDesiredStateRuntime(t.Context(), "not-a-database-url", "worker", argo.ProductionRuntimeConfig{}, imagepull.RuntimeConfig{}, nil, nil, nil)

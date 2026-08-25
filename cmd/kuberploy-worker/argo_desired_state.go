@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/argo"
@@ -93,8 +92,8 @@ func newArgoDesiredStateRuntime(
 		Foundation:        foundation,
 		MaximumCatalogAge: config.MaximumCatalogAge,
 	}
-	processIdentity := host + "/" + strconv.Itoa(os.Getpid())
-	workerID := workerLeaseOwner(processIdentity, "argo-desired-state")
+	startedAt := time.Now().UTC()
+	workerID := argoDesiredStateWorkerID(host, os.Getpid(), startedAt)
 	writer := &argo.DesiredStateWriter{
 		Store: store, Bindings: projection.store, ClaimGate: components.ProjectionGate,
 		Provider: projection.headVerifier, Manager: projection.writeManager, RootRefresher: kubernetes,
@@ -105,7 +104,7 @@ func newArgoDesiredStateRuntime(
 		Store: store, Writer: writer,
 		Observation: argo.DesiredStateRuntimeWorkerObservation{
 			WorkerID: workerID, DesiredStateRuntimeIdentity: identity,
-			StartedAt: time.Now().UTC(), ObservedAt: time.Now().UTC(),
+			StartedAt: startedAt, ObservedAt: startedAt,
 		},
 		LeaseDuration: 2 * time.Minute, PollInterval: config.PollInterval,
 		ReportError: func(commandID, failureCode string, err error) {
@@ -121,6 +120,10 @@ func newArgoDesiredStateRuntime(
 	}
 	return &argoDesiredStateRuntime{store: store, runtime: runtime, kubernetes: kubernetes,
 		observation: worker.Observation}, nil
+}
+
+func argoDesiredStateWorkerID(host string, pid int, startedAt time.Time) string {
+	return workerLeaseOwner(workerProcessIdentity(host, pid, startedAt), "argo-desired-state")
 }
 
 func (r *argoDesiredStateRuntime) Run(ctx context.Context) error {

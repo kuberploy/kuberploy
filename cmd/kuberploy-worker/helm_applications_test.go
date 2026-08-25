@@ -103,11 +103,11 @@ func TestNewHelmApplicationsRuntimeIsStrictlyDefaultOff(t *testing.T) {
 	}
 }
 
-func TestHelmApplicationsProcessIdentityChangesAcrossSamePodRestart(t *testing.T) {
+func TestWorkerProcessIdentityChangesAcrossSamePodRestart(t *testing.T) {
 	firstStartedAt := time.Date(2026, time.August, 14, 1, 2, 3, 4, time.UTC)
 	secondStartedAt := firstStartedAt.Add(time.Nanosecond)
-	first := helmApplicationsProcessIdentity("worker-pod", 1, firstStartedAt)
-	second := helmApplicationsProcessIdentity("worker-pod", 1, secondStartedAt)
+	first := workerProcessIdentity("worker-pod", 1, firstStartedAt)
+	second := workerProcessIdentity("worker-pod", 1, secondStartedAt)
 	if first == second {
 		t.Fatalf("same-pod restarts must have distinct process identities: %q", first)
 	}
