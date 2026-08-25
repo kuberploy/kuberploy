@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm Apps now pass OCI, classic repository, or Git chart sources and values directly to deterministic Argo CD Applications. The approval, offline package, and renderer pipeline is removed. The pre-stable database is rebaselined to the simplified direct Helm schema, and migration images normalize copied source permissions before running as non-root.",
+  "summary": "Helm Apps now pass OCI, classic repository, or Git chart sources and values directly to deterministic Argo CD Applications. The approval, offline package, and renderer pipeline is removed. The pre-stable database is rebaselined to the simplified direct Helm schema. Fresh builder-enabled installs create the builder namespace before registry credentials.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.357"
+  "version": "0.1.0-rc.358"
 }
