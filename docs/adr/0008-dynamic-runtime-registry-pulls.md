@@ -29,10 +29,11 @@ A fail-closed admission policy selects only foundation-labeled managed
 Environment namespaces. It rejects every non-reserved Secret creation by the
 worker and requires the exact immutable pull-Secret name, labels, annotation,
 type, and bounded data shape. Updates and deletions of reserved pull Secrets
-remain denied. The configured Argo namespace is exempt because its existing
-repository-credential admission policy independently constrains the shared
-worker. No list, watch, update, patch, delete, or arbitrary Secret-read
-permission is granted.
+remain denied. The configured Argo namespace and, when enabled, the configured
+builder namespace are exempt because their existing dedicated admission
+policies independently constrain repository credentials and ephemeral source
+credentials written by the shared worker. No list, watch, update, patch,
+delete, or arbitrary Secret-read permission is granted.
 
 ## Consequences
 

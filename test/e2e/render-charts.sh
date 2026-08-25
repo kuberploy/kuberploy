@@ -932,6 +932,14 @@ helm template runtime-pulls "${kp_root}/charts/kuberploy" --namespace kuberploy-
 [[ "$(yq eval-all -o=json 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "runtime-pulls-registry-pulls-managed")' "${kp_tmp}/runtime-registry-pulls-managed.yaml" | jq '([.spec.validations[].expression]|join("\n")) as $expressions | ($expressions|contains("request.namespace == '\'''\''")) and ($expressions|contains("namespaceObject.metadata.labels['\''kuberploy.io/runtime-namespace'\''] == '\''true'\''")) and ($expressions|contains("request.namespace.startsWith('\''kp-'\'')"))')" == "true" ]]
 [[ "$(yq eval-all -o=json 'select(.kind == "ValidatingAdmissionPolicyBinding" and .metadata.name == "runtime-pulls-registry-pulls-managed")' "${kp_tmp}/runtime-registry-pulls-managed.yaml" | jq '(.spec | has("matchResources") | not)')" == "true" ]]
 
+yq '.builder.enabled = true |
+    .builder.builderAgentImage = "example.invalid/builder@sha256:5555555555555555555555555555555555555555555555555555555555555555" |
+    .builder.controllerServiceAccount.name = "runtime-pulls-builder-worker"' \
+  "${kp_tmp}/runtime-registry-pulls-managed-values.yaml" > "${kp_tmp}/runtime-registry-pulls-builder-values.yaml"
+helm template runtime-pulls-builder "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
+  -f "${kp_tmp}/runtime-registry-pulls-builder-values.yaml" > "${kp_tmp}/runtime-registry-pulls-builder.yaml"
+[[ "$(yq eval-all -o=json 'select(.kind == "ValidatingAdmissionPolicy" and .metadata.name == "runtime-pulls-builder-registry-pulls-managed")' "${kp_tmp}/runtime-registry-pulls-builder.yaml" | jq '[.spec.validations[].expression] | join("\n") | contains("request.namespace == '\''kuberploy-build-dind'\''")')" == "true" ]]
+
 yq '.config.runtimeRegistryPulls.readinessSeconds = 91' "${kp_tmp}/runtime-registry-pulls-values.yaml" > "${kp_tmp}/runtime-registry-pulls-changed-values.yaml"
 helm template runtime-pulls "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
   -f "${kp_tmp}/runtime-registry-pulls-changed-values.yaml" > "${kp_tmp}/runtime-registry-pulls-changed.yaml"
