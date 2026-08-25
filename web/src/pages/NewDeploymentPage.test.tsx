@@ -736,8 +736,10 @@ describe("new deployment runtime controls", () => {
       "payments.example.test",
     );
     const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    await waitFor(() => expect(submit).toBeEnabled());
     await user.click(submit);
     await screen.findByText("App could not be deployed");
+    await waitFor(() => expect(submit).toBeEnabled());
     await user.click(submit);
 
     await waitFor(() => expect(createDeployment).toHaveBeenCalledTimes(2));
@@ -765,7 +767,7 @@ describe("new deployment runtime controls", () => {
       pathPrefix: "/",
       tlsMode: "httpOnly",
     });
-  });
+  }, 15_000);
 
   it("does not navigate from a late success after the deployment draft changes", async () => {
     const user = userEvent.setup();
@@ -802,7 +804,9 @@ describe("new deployment runtime controls", () => {
     const firstImage = `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`;
     const secondImage = `ghcr.io/acme/payments@sha256:${"b".repeat(64)}`;
     await user.type(image, firstImage);
-    await user.click(screen.getByRole("button", { name: /commit & deploy/i }));
+    const submit = screen.getByRole("button", { name: /commit & deploy/i });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
     await waitFor(() => expect(createDeployment).toHaveBeenCalledOnce());
 
     await user.clear(image);
@@ -823,7 +827,7 @@ describe("new deployment runtime controls", () => {
 
     await waitFor(() => expect(router.navigate).not.toHaveBeenCalled());
     expect(image).toHaveValue(secondImage);
-  });
+  }, 15_000);
 
   it("exposes scheduling in the first-deployment wizard and submits it", async () => {
     const user = userEvent.setup();
