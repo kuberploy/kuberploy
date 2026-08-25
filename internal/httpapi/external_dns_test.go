@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
+	"github.com/kuberploy/kuberploy/internal/deploymentrollback"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
@@ -39,7 +40,8 @@ func newExternalDNSAPI(t *testing.T, observed ...bool) *externalDNSAPIFixture {
 	}
 	server := httptest.NewServer(httpapi.New(httpapi.Options{
 		Store: central, BootstrapToken: "one-time-secret", Version: "test", ExternalDNS: management,
-		EdgeReadiness: edgeProbe, EdgeFeatures: features, AppConfigRenderedPreviews: staticAppConfigRenderer{},
+		DeploymentRollbacks: &deploymentrollback.Resolver{History: central, Artifacts: central, Publications: central},
+		EdgeReadiness:       edgeProbe, EdgeFeatures: features, AppConfigRenderedPreviews: staticAppConfigRenderer{},
 		HighRiskLimiter: ratelimit.NewMemoryLimiter(10_000),
 	}))
 	jar, _ := cookiejar.New(nil)
@@ -279,6 +281,75 @@ func TestDeploymentConfigExternalDNSRequiresCatalogSlugAllowedSuffixAndRuntimeRe
 	staleSave := decode[validationWire](t, response)
 	if response.StatusCode != http.StatusUnprocessableEntity || staleSave.Valid || !hasConfigDiagnostic(staleSave.Diagnostics, "ExternalDNSRuntimeUnavailable", "/spec/routes/0/dns/integrationRef") {
 		t.Fatalf("stale integration save accepted: status=%d %#v", response.StatusCode, staleSave)
+	}
+}
+
+func TestDeploymentRollbackCatalogOmitsSourceWithUnavailableExternalDNSDependency(t *testing.T) {
+	fixture := newExternalDNSAPI(t, true)
+	response := fixture.request(http.MethodPost, "/v1/external-dns/integrations", "rollback-external-dns-create", externalDNSPayload(fixture.environment.ID))
+	readExternalDNSBody(t, response, http.StatusCreated)
+
+	image := "registry.example/api@sha256:" + strings.Repeat("a", 64)
+	response = fixture.request(http.MethodPost, "/v1/deployments", "rollback-external-dns-initial", map[string]any{
+		"environmentId": fixture.environment.ID, "applicationId": fixture.application.ID,
+		"image": image, "runtime": domain.DefaultWorkloadRuntime(8080, nil),
+	})
+	initial := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("initial deployment status=%d", response.StatusCode)
+	}
+	completeRollbackSource(t, fixture.apiFixture, initial)
+
+	configPath := "/v1/deployments/" + initial.TargetID + "/config"
+	response = fixture.request(http.MethodGet, configPath, "", nil)
+	bundle := decode[configBundleWire](t, response)
+	change := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "add", Path: "/spec/routes", Value: []any{map[string]any{
+		"host": "api.example.com", "path": "/", "port": "http",
+		"dns": map[string]any{"mode": "externalDns", "integrationRef": "public-dns"},
+		"tls": map[string]any{"mode": "httpOnly"},
+	}}}}}
+	response = configRequest(t, fixture.apiFixture, http.MethodPost, configPath+"/preview", "", change, map[string]string{"If-Match": bundle.ETag})
+	preview := decode[previewWire](t, response)
+	if response.StatusCode != http.StatusOK || preview.PreviewToken == "" {
+		t.Fatalf("preview status=%d body=%#v", response.StatusCode, preview)
+	}
+	response = configRequest(t, fixture.apiFixture, http.MethodPut, configPath, "rollback-external-dns-source", change,
+		map[string]string{"If-Match": bundle.ETag, "Preview-Token": preview.PreviewToken})
+	source := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("source status=%d operation=%#v", response.StatusCode, source)
+	}
+	completeRollbackSource(t, fixture.apiFixture, source)
+
+	response = fixture.request(http.MethodPost, "/v1/deployments", "rollback-external-dns-current", map[string]any{
+		"environmentId": fixture.environment.ID, "applicationId": fixture.application.ID,
+		"image": image, "runtime": domain.DefaultWorkloadRuntime(8080, nil),
+	})
+	current := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted {
+		t.Fatalf("current status=%d operation=%#v", response.StatusCode, current)
+	}
+	completeRollbackSource(t, fixture.apiFixture, current)
+
+	fixture.edgeProbe.err = errors.New("external DNS observation became stale")
+	response = fixture.request(http.MethodGet, "/v1/deployments/"+initial.TargetID+"/rollback-sources?limit=10", "", nil)
+	catalog := decode[struct {
+		Items []deploymentrollback.Candidate `json:"items"`
+	}](t, response)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("catalog status=%d", response.StatusCode)
+	}
+	for _, candidate := range catalog.Items {
+		if candidate.SourceOperationID == source.ID {
+			t.Fatalf("catalog exposed source with unavailable dependency: %#v", candidate)
+		}
+	}
+	foundInitial := false
+	for _, candidate := range catalog.Items {
+		foundInitial = foundInitial || candidate.SourceOperationID == initial.ID
+	}
+	if !foundInitial {
+		t.Fatalf("catalog removed dependency-free source: %#v", catalog.Items)
 	}
 }
 

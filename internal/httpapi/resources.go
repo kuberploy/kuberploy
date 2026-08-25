@@ -471,26 +471,17 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 	}
 	var exactConfigParsed map[string]any
 	if len(create.ConfigRaw) != 0 {
-		parsed, runtime, diagnostics := appconfig.ParseAndValidate(create.ConfigRaw)
-		exactImage, imageOK := appconfig.MaterializedImage(parsed)
-		if len(diagnostics) != 0 || !imageOK || exactImage != create.Image {
+		candidate, parsed, valid, available := s.resolveRetainedConfigDependencies(r.Context(), actor, create)
+		if !valid {
 			writeProblem(w, r, http.StatusServiceUnavailable, "DeploymentRollbackHistoryMismatch", "Rollback history unavailable", "The retained AppConfig snapshot is invalid or does not match the selected immutable release.")
 			return
 		}
-		hash := sha256.Sum256(create.ConfigRaw)
-		candidate := appconfig.Candidate{Raw: append([]byte(nil), create.ConfigRaw...), Parsed: parsed, Runtime: runtime, Hash: hash[:]}
-		candidate = s.materializeMiddlewareCandidate(r.Context(), actor, domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, create.ConfigRaw, candidate)
-		candidate.Diagnostics = append(candidate.Diagnostics, s.externalDNSRouteDiagnostics(r.Context(), actor,
-			domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, candidate)...)
-		sslipDiagnostics, _ := s.sslipRouteDiagnostics(r.Context(), actor,
-			domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, candidate)
-		candidate.Diagnostics = append(candidate.Diagnostics, sslipDiagnostics...)
-		if len(candidate.Diagnostics) != 0 {
+		if !available {
 			writeProblem(w, r, http.StatusConflict, "DeploymentRollbackDependencyUnavailable", "Rollback dependency unavailable", "The retained AppConfig no longer matches a current middleware, DNS, route, or edge dependency.")
 			return
 		}
 		create.Runtime = candidate.Runtime
-		exactConfigParsed = candidate.Parsed
+		exactConfigParsed = parsed
 	}
 	resolvedRuntime, schedulingErr := s.resolveSchedulingRuntime(r.Context(), actor, domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}, create.Runtime, true)
 	if schedulingErr != nil {
@@ -589,6 +580,29 @@ func (s *Server) submitDeployment(w http.ResponseWriter, r *http.Request, actor,
 		return
 	}
 	writeDeploymentAccepted(w, result, op)
+}
+
+// resolveRetainedConfigDependencies revalidates mutable authorities referenced
+// by an immutable deployment snapshot. It is read-only so rollback catalogs can
+// omit selections that submission would reject after the user chooses them.
+func (s *Server) resolveRetainedConfigDependencies(ctx context.Context, actor string, create domain.CreateDeployment) (appconfig.Candidate, map[string]any, bool, bool) {
+	if len(create.ConfigRaw) == 0 {
+		return appconfig.Candidate{Runtime: create.Runtime}, nil, true, true
+	}
+	parsed, runtime, diagnostics := appconfig.ParseAndValidate(create.ConfigRaw)
+	exactImage, imageOK := appconfig.MaterializedImage(parsed)
+	if len(diagnostics) != 0 || !imageOK || exactImage != create.Image {
+		return appconfig.Candidate{}, nil, false, false
+	}
+	hash := sha256.Sum256(create.ConfigRaw)
+	deployment := domain.Deployment{EnvironmentID: create.EnvironmentID, ApplicationID: create.ApplicationID}
+	candidate := appconfig.Candidate{Raw: append([]byte(nil), create.ConfigRaw...), Parsed: parsed, Runtime: runtime, Hash: hash[:]}
+	candidate = s.materializeMiddlewareCandidate(ctx, actor, deployment, create.ConfigRaw, candidate)
+	candidate.Diagnostics = append(candidate.Diagnostics, s.externalDNSRouteDiagnostics(ctx, actor, deployment, candidate)...)
+	sslipDiagnostics, _ := s.sslipRouteDiagnostics(ctx, actor, deployment, candidate)
+	candidate.Diagnostics = append(candidate.Diagnostics, sslipDiagnostics...)
+	candidate.Diagnostics = append(candidate.Diagnostics, s.certificateIssuerRouteDiagnostics(ctx, candidate)...)
+	return candidate, candidate.Parsed, true, len(candidate.Diagnostics) == 0
 }
 
 func mappedDeploymentGitError(w http.ResponseWriter, r *http.Request, err error, promotionCAS bool) {

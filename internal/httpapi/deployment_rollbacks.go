@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/kuberploy/kuberploy/internal/deploymentrollback"
+	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
@@ -30,13 +31,42 @@ func (s *Server) deploymentRollbackSources(resolver *deploymentrollback.Resolver
 	if !ok {
 		return
 	}
-	items, err := resolver.Catalog(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"), limit)
+	actor := currentUser(r.Context()).ID
+	items, err := resolver.Catalog(r.Context(), actor, r.PathValue("id"), 100)
 	if err != nil {
 		mappedDeploymentRollbackError(w, r, err)
 		return
 	}
+	eligible := make([]deploymentrollback.Candidate, 0, min(limit, len(items)))
+	for _, item := range items {
+		source, resolveErr := resolver.ResolveAuthorized(r.Context(), deploymentrollback.Request{
+			ActorID: actor, DeploymentID: r.PathValue("id"), SourceOperationID: item.SourceOperationID,
+		})
+		if resolveErr != nil {
+			continue
+		}
+		candidate, parsed, valid, available := s.resolveRetainedConfigDependencies(r.Context(), actor, source.Create)
+		if !valid || !available {
+			continue
+		}
+		runtime, schedulingErr := s.resolveSchedulingRuntime(r.Context(), actor, domain.Deployment{
+			EnvironmentID: source.Create.EnvironmentID, ApplicationID: source.Create.ApplicationID,
+		}, candidate.Runtime, true)
+		if schedulingErr != nil {
+			continue
+		}
+		if _, referenceErr := s.resolveAppConfigReferencePlan(r.Context(), actor, domain.Deployment{
+			EnvironmentID: source.Create.EnvironmentID, ApplicationID: source.Create.ApplicationID,
+		}, runtime, parsed); referenceErr != nil {
+			continue
+		}
+		eligible = append(eligible, item)
+		if len(eligible) == limit {
+			break
+		}
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	collection(w, items)
+	collection(w, eligible)
 }
 
 func (s *Server) rollbackDeployment(resolver *deploymentrollback.Resolver, w http.ResponseWriter, r *http.Request) {
