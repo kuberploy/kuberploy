@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "GitHub App and Git SSH build forms now default to only the running Kuberploy CPU architecture while keeping dual-platform builds explicit and optional. Helm cascade retries become terminal at the bounded failure counter, Argo observation recovers recreated desired-state Applications, and Git SSH builds include a pinned OpenSSH client. The pre-stable schema remains one 001_initial migration.",
+  "summary": "Deployment rollback catalogs now omit retained revisions whose current middleware, DNS, certificate, scheduling, or secret dependencies are unavailable. GitHub App and Git SSH builds default to the running Kuberploy CPU architecture while dual-platform builds remain explicit and optional. The pre-stable schema remains one 001_initial migration.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.353"
+  "version": "0.1.0-rc.354"
 }
