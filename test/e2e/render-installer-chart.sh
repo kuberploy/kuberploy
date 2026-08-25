@@ -196,6 +196,7 @@ kp_rollback_inventory_name="$(yq eval-all 'select(.kind == "ConfigMap" and .meta
 [[ "$(yq eval-all '[select(.kind == "Secret" and .metadata.name == "kuberploy-git-ssh" and .metadata.namespace == "kuberploy-system")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Secret" and .metadata.name == "kuberploy-git-ssh") | .data."encryption-key" | length' "${kp_tmp}/managed.yaml")" == "88" ]]
 [[ "$(yq eval-all '[select(.kind == "Namespace" and .metadata.name == "argocd")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "Namespace" and .metadata.name == "kuberploy-build-dind")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "0" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.namespace == "argocd")] | length > 0' "${kp_tmp}/managed.yaml" | tail -1)" == "true" ]]
 
 yq eval-all 'select(.kind == "Application") | .spec.sources[0].helm.valuesObject' "${kp_tmp}/managed.yaml" >"${kp_tmp}/postgresql-values.yaml"
@@ -292,6 +293,9 @@ kp_expected_applications='kuberploy-builder,kuberploy-cert-manager,kuberploy-con
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-registry") | .spec.sources[0].helm.valuesObject.auth.existingSecret' "${kp_tmp}/all-components.yaml")" == "registry-auth" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret" and .metadata.name == "registry-push" and .metadata.namespace == "kuberploy-build-dind")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret" and .metadata.name == "registry-cache" and .metadata.namespace == "kuberploy-build-dind")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "Namespace" and .metadata.name == "kuberploy-build-dind")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all 'select(.kind == "Namespace" and .metadata.name == "kuberploy-build-dind") | .metadata.annotations."helm.sh/resource-policy"' "${kp_tmp}/all-components.yaml")" == "keep" ]]
+[[ "$(yq eval-all 'select(.kind == "Namespace" and .metadata.name == "kuberploy-build-dind") | [.metadata.labels."kuberploy.io/builder-namespace",.metadata.labels."pod-security.kubernetes.io/enforce"] | join(",")' "${kp_tmp}/all-components.yaml")" == "dind,privileged" ]]
 [[ "$(yq eval-all '[select(.kind == "Secret" and .metadata.name == "registry-helm-oci" and .metadata.namespace == "argocd" and .metadata.labels."argocd.argoproj.io/secret-type" == "repository")] | length' "${kp_tmp}/all-components.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all 'select(.kind == "Secret" and .metadata.name == "registry-helm-oci") | [.stringData.type,.stringData.enableOCI,.stringData.url] | join(",")' "${kp_tmp}/all-components.yaml")" == "helm,true,registry.example.com/kuberploy" ]]
 [[ "$(yq eval-all 'select(.kind == "Secret" and .metadata.name == "registry-auth") | .data | keys | join(",")' "${kp_tmp}/all-components.yaml")" == "htpasswd,httpSecret" ]]
