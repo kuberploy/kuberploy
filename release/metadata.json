@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Helm Apps now pass OCI, classic repository, or Git chart sources and values directly to deterministic Argo CD Applications. The approval, offline package, and renderer pipeline is removed. The pre-stable database is rebaselined to the simplified direct Helm schema. Fresh builder-enabled installs create the builder namespace before registry credentials.",
+  "summary": "Apps and Environments can now be deleted from the API and dashboard with scoped authorization, exact typed confirmation, idempotent retries, dependency protection, and retained audit history.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.358"
+  "version": "0.1.0-rc.360"
 }
