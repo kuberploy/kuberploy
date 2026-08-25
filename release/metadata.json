@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Deployment rollback catalogs now omit retained revisions whose current middleware, DNS, certificate, scheduling, or secret dependencies are unavailable. GitHub App and Git SSH builds default to the running Kuberploy CPU architecture while dual-platform builds remain explicit and optional. The pre-stable schema remains one 001_initial migration.",
+  "summary": "Argo desired-state workers now use restart-unique process identities so immutable protected Helm cascade activations continue after same-Pod container restarts. Deployment rollback catalogs omit retained revisions whose current dependencies are unavailable. Source builds default to the running Kuberploy CPU architecture while dual-platform builds remain explicit. The pre-stable schema remains one 001_initial migration.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.354"
+  "version": "0.1.0-rc.355"
 }
