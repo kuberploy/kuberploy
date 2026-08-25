@@ -99,3 +99,20 @@ func TestRuntimeConfigNormalizesListsAndRejectsInvalidDurationForms(t *testing.T
 		})
 	}
 }
+
+func TestRuntimeConfigAllowsManagedNamespacePrefixes(t *testing.T) {
+	values := validRuntimeEnvironment(t)
+	values[RuntimeNamespacesEnv] = ""
+	values[RuntimeNamespacePrefixesEnv] = "kp-,preview-"
+	config, err := RuntimeConfigFromLookup(runtimeLookup(values))
+	if err != nil || len(config.Namespaces) != 0 || strings.Join(config.NamespacePrefixes, ",") != "kp-,preview-" {
+		t.Fatalf("prefix config=%#v err=%v", config, err)
+	}
+	if !config.AllowsNamespace("kp-project-production") || config.AllowsNamespace("other-production") {
+		t.Fatalf("prefix namespace policy widened: %#v", config.NamespacePrefixes)
+	}
+	values[RuntimeNamespacePrefixesEnv] = "kp"
+	if _, err = RuntimeConfigFromLookup(runtimeLookup(values)); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("non-prefix namespace accepted: %v", err)
+	}
+}

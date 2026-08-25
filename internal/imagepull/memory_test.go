@@ -66,7 +66,10 @@ func TestMemoryConfigurationReconciliationRetiresOldProfileWithoutDeletingRollba
 	if _, err := store.EnsureArtifact(t.Context(), rotated, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	retired, err := store.RetireUnconfiguredArtifacts(t.Context(), testRuntimeConfig(), now.Add(2*time.Minute))
+	config := testRuntimeConfig()
+	config.Namespaces = nil
+	config.NamespacePrefixes = []string{"tenant-a-"}
+	retired, err := store.RetireUnconfiguredArtifacts(t.Context(), config, now.Add(2*time.Minute))
 	if err != nil || retired != 1 {
 		t.Fatalf("retired=%d err=%v", retired, err)
 	}
@@ -81,7 +84,7 @@ func TestMemoryConfigurationReconciliationRetiresOldProfileWithoutDeletingRollba
 	if _, err = store.EnsureArtifact(t.Context(), current, now.Add(3*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if retained, err := store.RetireUnconfiguredArtifacts(t.Context(), testRuntimeConfig(), now.Add(4*time.Minute)); err != nil || retained != 0 {
+	if retained, err := store.RetireUnconfiguredArtifacts(t.Context(), config, now.Add(4*time.Minute)); err != nil || retained != 0 {
 		t.Fatalf("current profile was retired: count=%d err=%v", retained, err)
 	}
 	currentRow, _ := store.Artifact(t.Context(), current.ArtifactKey)

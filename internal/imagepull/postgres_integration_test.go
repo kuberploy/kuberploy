@@ -184,7 +184,7 @@ func TestPostgreSQLRuntimeRegistryPullLifecycle(t *testing.T) {
 	}
 	config := DefaultRuntimeConfig()
 	config.Enabled = true
-	config.Namespaces = []string{namespace}
+	config.NamespacePrefixes = []string{"pull-"}
 	config.Profiles = []Profile{{Name: "integration", TargetID: targetID, RegistryServer: "registry.integration.test",
 		CredentialRef: pullRef, Revision: 1, SourceSecretRef: "registry-pull-integration", SourceSecretKey: ".dockerconfigjson"}}
 	if err = config.Validate(); err != nil {

@@ -129,8 +129,8 @@
   {{- if not .Values.config.gitProjection.enabled -}}
   {{- fail "runtime registry pulls require config.gitProjection.enabled" -}}
   {{- end -}}
-  {{- if or (empty .Values.config.runtimeRegistryPulls.namespaces) (empty .Values.config.runtimeRegistryPulls.profiles) -}}
-  {{- fail "runtime registry pulls require explicit namespaces and profiles" -}}
+  {{- if or (and (empty .Values.config.runtimeRegistryPulls.namespaces) (empty .Values.config.runtimeRegistryPulls.namespacePrefixes)) (empty .Values.config.runtimeRegistryPulls.profiles) -}}
+  {{- fail "runtime registry pulls require an exact namespace or managed Environment namespace prefix and profiles" -}}
   {{- end -}}
   {{- $seenTargets := dict -}}
   {{- $seenNames := dict -}}
@@ -542,6 +542,7 @@ data:
   KUBERPLOY_RUNTIME_REGISTRY_PULLS_ENABLED: {{ .Values.config.runtimeRegistryPulls.enabled | quote }}
   {{- if .Values.config.runtimeRegistryPulls.enabled }}
   KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACES: {{ join "," (uniq (sortAlpha .Values.config.runtimeRegistryPulls.namespaces)) | quote }}
+  KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACE_PREFIXES: {{ join "," (uniq (sortAlpha .Values.config.runtimeRegistryPulls.namespacePrefixes)) | quote }}
   KUBERPLOY_RUNTIME_REGISTRY_PULL_PROFILES: {{ toJson $runtimeRegistryPullProfilesNormalized | quote }}
   KUBERPLOY_RUNTIME_REGISTRY_PULL_POLL_SECONDS: {{ .Values.config.runtimeRegistryPulls.pollIntervalSeconds | quote }}
   KUBERPLOY_RUNTIME_REGISTRY_PULL_WORK_LEASE_SECONDS: {{ .Values.config.runtimeRegistryPulls.workLeaseSeconds | quote }}

@@ -337,10 +337,11 @@
         "runtimeRegistryPulls": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "namespaces", "profiles", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "readinessSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
+          "required": ["enabled", "namespaces", "namespacePrefixes", "profiles", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "readinessSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
           "properties": {
             "enabled": { "type": "boolean" },
             "namespaces": { "$ref": "#/$defs/namespaces" },
+            "namespacePrefixes": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$" } },
             "profiles": {
               "type": "array",
               "maxItems": 32,
@@ -369,7 +370,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "namespaces": { "minItems": 1 }, "profiles": { "minItems": 1 } } }
+              "then": { "properties": { "profiles": { "minItems": 1 } } }
             }
           ]
         },

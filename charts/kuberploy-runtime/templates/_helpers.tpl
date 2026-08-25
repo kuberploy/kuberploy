@@ -96,7 +96,7 @@ can override inherited ordinary values. */}}
 {{- end -}}
 
 {{- define "kuberploy-runtime.imagePullSecretName" -}}
-{{- $namespace := required "a release namespace is required" .Release.Namespace -}}
+{{- $_ := required "a release namespace is required" .Release.Namespace -}}
 {{- $pull := required "spec.delivery.registryPull is required" .Values.spec.delivery.registryPull -}}
 {{- $targetID := required "spec.delivery.registryPull.targetId is required" $pull.targetId -}}
 {{- $profileName := required "spec.delivery.registryPull.profileName is required" $pull.profileName -}}
@@ -104,7 +104,7 @@ can override inherited ordinary values. */}}
 {{- if or (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $profileName)) (lt $revision 1) -}}
   {{- fail "spec.delivery.registryPull profile metadata is invalid" -}}
 {{- end -}}
-{{- $identity := printf "kuberploy-runtime-pull-v1%c%s%c%s%c%d" 0 $namespace 0 $targetID 0 $revision -}}
+{{- $identity := printf "kuberploy-runtime-pull-v2%c%s%c%d" 0 $targetID 0 $revision -}}
 {{- printf "kuberploy-pull-%s" (sha256sum $identity | trunc 24) -}}
 {{- end -}}
 

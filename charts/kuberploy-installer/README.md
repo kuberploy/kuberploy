@@ -258,10 +258,11 @@ configuration.
 Set `integrations.registry.runtimePull.enabled` when services should select
 this private registry through the project credential catalog. Supply the exact
 operator registry target ID, one readable profile/revision, the allowed
-workload namespaces, and a pre-created Docker config JSON Secret/key in
+workload namespaces or a managed Environment namespace prefix such as `kp-`,
+and a pre-created Docker config JSON Secret/key in
 `kuberploy-system`. The installer passes only those references into the
 control plane and grants its worker access only to the derived Secret names in
-the listed namespaces; credential bytes never enter Helm values, Argo, Git, or
+the allowed namespaces; credential bytes never enter Helm values, Argo, Git, or
 the API.
 Cloudflare registry DNS defaults to DNS-only. Set
 `integrations.registry.cloudflareProxied: true` only for bounded test images;

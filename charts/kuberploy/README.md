@@ -231,9 +231,9 @@ same policy before a commit can become deployable.
 
 `config.runtimeRegistryPulls.enabled` separately enables revisioned private
 registry pull credentials for both managed and external registry targets. It is
-false by default and requires Git projection. Namespace and profile lists are
-normalized and exact duplicates are removed; conflicting identities still
-fail. Disabled configuration ignores dormant settings.
+false by default and requires Git projection. Exact namespace lists and managed
+Environment namespace prefixes are normalized; at least one is required.
+Conflicting identities fail. Disabled configuration ignores dormant settings.
 
 Each profile binds one durable registry target ID and registry server to an
 opaque pull-credential reference, a positive revision, and one existing source
@@ -251,20 +251,21 @@ Credential bytes are projected only into the worker, read-only with mode
 never enter chart values, the generated ConfigMap, API or web Pods, Git,
 responses, or logs. Git AppConfig stores only the server-derived
 `targetId`/`profileName`/`profileRevision` tuple. The workload chart derives the
-namespace-local Secret name from that tuple and the destination namespace; an
+namespace-local Secret name from that tuple; an
 API caller cannot choose an `imagePullSecret` name.
 
-For each allowed destination namespace the chart grants the worker `get` only
-on the exact derived Secret names and `create` on Secrets. Kubernetes cannot
-scope `create` by `resourceNames`, so the worker's closed Secret client and a
+For exact destination namespaces the chart renders namespaced Roles. For a
+managed namespace prefix it renders a ClusterRole whose `get` permission is
+restricted to the finite profile-derived Secret names. Kubernetes cannot scope
+`create` by `resourceNames`, so the worker's closed Secret client and a
 fail-closed `ValidatingAdmissionPolicy` enforce the remaining boundary. The
-policy admits reserved `kuberploy-pull-*` creation only from this release's
-exact worker ServiceAccount, in its exact configured namespace, with the exact
+prefix policy selects only foundation-labeled managed Environment namespaces
+and also forbids the worker from creating any non-reserved Secret. Reserved
+creation requires this release's exact worker ServiceAccount, exact
 name/profile/credential tuple, five strict labels, one credential-reference
 annotation, and one bounded immutable `kubernetes.io/dockerconfigjson` data
-key. Reserved updates and deletes are denied. No pull runtime Role grants
-`list`, `watch`, `update`, `patch`, or `delete`, and no pull ClusterRole is
-rendered.
+key. Reserved updates and deletes are denied. No pull permission grants `list`,
+`watch`, `update`, `patch`, or `delete`.
 
 The worker validates source material locally and creates or exactly adopts the
 immutable namespace-local Secret through the Kubernetes API; kubelets, not the

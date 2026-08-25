@@ -22,6 +22,10 @@
 {{- printf "%s-registry-pulls-%s" (include "kuberploy.fullname" .root) (.namespace | sha256sum | trunc 10) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "kuberploy.runtimeRegistryPullManagedAdmissionPolicyName" -}}
+{{- printf "%s-registry-pulls-managed" (include "kuberploy.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "kuberploy.runtimeRegistryPullWorkerUsername" -}}
 {{- printf "system:serviceaccount:%s:%s" .Release.Namespace (include "kuberploy.componentName" (dict "root" . "component" "worker")) -}}
 {{- end -}}
@@ -51,10 +55,9 @@
 {{- end -}}
 
 {{- define "kuberploy.runtimeRegistryPullSecretName" -}}
-{{- $namespace := required "runtime registry pull namespace is required" .namespace -}}
 {{- $targetID := required "runtime registry pull target ID is required" .profile.targetId -}}
 {{- $revision := int64 (required "runtime registry pull profile revision is required" .profile.revision) -}}
-{{- $identity := printf "kuberploy-runtime-pull-v1%c%s%c%s%c%d" 0 $namespace 0 $targetID 0 $revision -}}
+{{- $identity := printf "kuberploy-runtime-pull-v2%c%s%c%d" 0 $targetID 0 $revision -}}
 {{- printf "kuberploy-pull-%s" (sha256sum $identity | trunc 24) -}}
 {{- end -}}
 

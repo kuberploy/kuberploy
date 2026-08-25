@@ -139,6 +139,8 @@ integrations:
       sourceSecretName: ""
       sourceSecretKey: ""
       namespaces: []
+      namespacePrefixes:
+        - kp-
 
 components:
   controlPlane: &disabledComponent

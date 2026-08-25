@@ -864,7 +864,8 @@ The Docker CLI container being non-root does not make the Pod unprivileged. Cont
 For a private runtime image, protected AppConfig contains only locked
 `delivery.registryPull` target/profile/revision metadata. The runtime chart
 derives the namespace-local immutable `imagePullSecret` name from the exact
-globally unique environment namespace, target, and profile revision; callers never submit a Secret name
+target and profile revision; Kubernetes namespace scope keeps each copy local,
+and callers never submit a Secret name
 or credential reference. A worker reads one operator-projected, single-origin
 Docker config, validates it before publishing readiness, and creates/adopts only
 that exact `kubernetes.io/dockerconfigjson` Secret. Runtime-pull credentials

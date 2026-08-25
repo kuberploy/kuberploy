@@ -555,7 +555,6 @@ kp_registry_pull_args=(
   --set integrations.registry.runtimePull.revision=1
   --set-string integrations.registry.runtimePull.sourceSecretName=registry-pull-source
   --set-string integrations.registry.runtimePull.sourceSecretKey=dockerconfigjson
-  --set-string integrations.registry.runtimePull.namespaces[0]=kp-example-development
 )
 helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \
@@ -573,7 +572,7 @@ kp_child_registry_config_map="$(yq eval-all 'select(.kind == "ConfigMap") | .met
 [[ -n "${kp_installer_registry_config_map}" && "${kp_installer_registry_config_map}" == "${kp_child_registry_config_map}" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.enabled' "${kp_tmp}/registry-pull-platform.yaml")" == "true" ]]
 [[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.profiles[0].targetId' "${kp_tmp}/registry-pull-platform.yaml")" == "55555555-5555-4555-8555-555555555555" ]]
-[[ "$(yq eval-all 'select(.kind == "AppProject" and .metadata.name == "kuberploy-control-plane") | .spec.destinations[] | select(.namespace == "kp-example-development") | .namespace' "${kp_tmp}/registry-pull-platform.yaml")" == "kp-example-development" ]]
+[[ "$(yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject.config.runtimeRegistryPulls.namespacePrefixes | join(",")' "${kp_tmp}/registry-pull-platform.yaml")" == "kp-" ]]
 yq eval-all 'select(.kind == "Application" and .metadata.name == "kuberploy-control-plane") | .spec.sources[0].helm.valuesObject' \
   "${kp_tmp}/registry-pull-platform.yaml" >"${kp_tmp}/registry-pull-control-values.yaml"
 helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-system \
@@ -583,7 +582,7 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
   --set-string components.web.image.reference=example.invalid/web@sha256:3333333333333333333333333333333333333333333333333333333333333333 \
   --set-string builder.builderAgentImage=example.invalid/builder@sha256:5555555555555555555555555555555555555555555555555555555555555555 \
   >"${kp_tmp}/registry-pull-control.yaml"
-[[ "$(yq eval-all '[select(.kind == "Role" and .metadata.namespace == "kp-example-development") | .rules[] | select((.resources | join(",")) == "secrets" and (.verbs | join(",")) == "create")] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "ClusterRole" and (.metadata.name | test("runtime-registry-pulls-managed$"))) | .rules[] | select((.resources | join(",")) == "secrets" and (.verbs | join(",")) == "create")] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
 if helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \
   --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \

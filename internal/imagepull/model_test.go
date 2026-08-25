@@ -40,7 +40,8 @@ func TestRuntimeConfigIsCanonicalBoundedAndSecretFree(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*RuntimeConfig){
-		"unsorted namespaces": func(value *RuntimeConfig) { value.Namespaces = []string{"z", "a"} },
+		"unsorted namespaces":      func(value *RuntimeConfig) { value.Namespaces = []string{"z", "a"} },
+		"invalid namespace prefix": func(value *RuntimeConfig) { value.NamespacePrefixes = []string{"tenant"} },
 		"duplicate target": func(value *RuntimeConfig) {
 			other := value.Profiles[0]
 			other.Name = "second"
@@ -90,8 +91,14 @@ func TestDesiredArtifactIsServerDerivedAndRevisioned(t *testing.T) {
 		t.Fatalf("rotation did not produce a distinct exact name: next=%#v err=%v", next, err)
 	}
 	otherNamespace, err := Desired(config, testEnvironmentID, "tenant-a-prod", testTargetID)
-	if err != nil || otherNamespace.SecretName == desired.SecretName {
-		t.Fatalf("namespace did not produce a distinct exact name: next=%#v err=%v", otherNamespace, err)
+	if err != nil || otherNamespace.SecretName != desired.SecretName {
+		t.Fatalf("namespaced copies did not retain one resourceNames-safe identity: next=%#v err=%v", otherNamespace, err)
+	}
+	prefixConfig := config
+	prefixConfig.Namespaces = nil
+	prefixConfig.NamespacePrefixes = []string{"kp-"}
+	if prefixed, prefixErr := Desired(prefixConfig, testEnvironmentID, "kp-project-prod", testTargetID); prefixErr != nil || prefixed.SecretName != desired.SecretName {
+		t.Fatalf("managed namespace prefix was not accepted exactly: desired=%#v err=%v", prefixed, prefixErr)
 	}
 	for _, input := range []struct{ environment, namespace, target string }{
 		{"invalid", "tenant-a-dev", testTargetID},

@@ -229,10 +229,13 @@ kuberploy.io/ownership-boundary: bootstrap-applications-only
   {{- end -}}
   {{- if $runtimePull.enabled -}}
     {{- if or (not .Values.components.controlPlane.enabled) (not .Values.integrations.github.enabled) -}}{{ fail "managed registry runtime pull requires the GitOps control plane" }}{{- end -}}
-    {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $runtimePull.targetID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.profileName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$" $runtimePull.credentialRef)) (le (int64 $runtimePull.revision) 0) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.sourceSecretName)) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" $runtimePull.sourceSecretKey)) (empty $runtimePull.namespaces) -}}{{ fail "managed registry runtime pull identities are invalid" }}{{- end -}}
+    {{- if or (not (regexMatch "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" $runtimePull.targetID)) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.profileName)) (not (regexMatch "^[A-Za-z0-9][A-Za-z0-9._:/+\\-]{0,255}$" $runtimePull.credentialRef)) (le (int64 $runtimePull.revision) 0) (not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" $runtimePull.sourceSecretName)) (not (regexMatch "^[A-Za-z0-9._-]{1,253}$" $runtimePull.sourceSecretKey)) (and (empty $runtimePull.namespaces) (empty $runtimePull.namespacePrefixes)) -}}{{ fail "managed registry runtime pull identities are invalid" }}{{- end -}}
     {{- if or (ne $runtimePull.targetID $registry.targetID) (ne $runtimePull.credentialRef $registry.pullCredentialRef) -}}{{ fail "managed registry runtime pull must use the operator-owned target and pull credential" }}{{- end -}}
     {{- range $runtimePull.namespaces -}}
       {{- if not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$" .) -}}{{ fail "managed registry runtime pull namespace is invalid" }}{{- end -}}
+    {{- end -}}
+    {{- range $runtimePull.namespacePrefixes -}}
+      {{- if not (regexMatch "^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$" .) -}}{{ fail "managed registry runtime pull namespace prefix is invalid" }}{{- end -}}
     {{- end -}}
   {{- end -}}
 {{- end -}}

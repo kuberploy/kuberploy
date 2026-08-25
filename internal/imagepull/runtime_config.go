@@ -14,6 +14,7 @@ import (
 const (
 	RuntimeEnabledEnv           = "KUBERPLOY_RUNTIME_REGISTRY_PULLS_ENABLED"
 	RuntimeNamespacesEnv        = "KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACES"
+	RuntimeNamespacePrefixesEnv = "KUBERPLOY_RUNTIME_REGISTRY_PULL_NAMESPACE_PREFIXES"
 	RuntimeProfilesEnv          = "KUBERPLOY_RUNTIME_REGISTRY_PULL_PROFILES"
 	RuntimePollSecondsEnv       = "KUBERPLOY_RUNTIME_REGISTRY_PULL_POLL_SECONDS"
 	RuntimeWorkLeaseSecondsEnv  = "KUBERPLOY_RUNTIME_REGISTRY_PULL_WORK_LEASE_SECONDS"
@@ -38,14 +39,21 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	if enabled != "true" {
 		return RuntimeConfig{}, ErrInvalid
 	}
-	namespaceValue, ok := exactEnvironment(lookup, RuntimeNamespacesEnv)
-	if !ok {
+	namespaceValue, namespacePresent := lookup(RuntimeNamespacesEnv)
+	if namespacePresent && namespaceValue != "" && (strings.TrimSpace(namespaceValue) != namespaceValue || strings.ContainsAny(namespaceValue, "\x00\r\n")) {
 		return RuntimeConfig{}, ErrInvalid
 	}
-	namespaces := strings.Split(namespaceValue, ",")
+	prefixValue, prefixPresent := lookup(RuntimeNamespacePrefixesEnv)
+	if prefixPresent && prefixValue != "" && (strings.TrimSpace(prefixValue) != prefixValue || strings.ContainsAny(prefixValue, "\x00\r\n")) {
+		return RuntimeConfig{}, ErrInvalid
+	}
+	namespaces := splitOptional(namespaceValue)
 	slices.Sort(namespaces)
 	namespaces = slices.Compact(namespaces)
-	if len(namespaces) == 0 || slices.Contains(namespaces, "") {
+	prefixes := splitOptional(prefixValue)
+	slices.Sort(prefixes)
+	prefixes = slices.Compact(prefixes)
+	if len(namespaces)+len(prefixes) == 0 {
 		return RuntimeConfig{}, ErrInvalid
 	}
 	profileValue, ok := exactEnvironment(lookup, RuntimeProfilesEnv)
@@ -61,6 +69,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	config := DefaultRuntimeConfig()
 	config.Enabled = true
 	config.Namespaces = namespaces
+	config.NamespacePrefixes = prefixes
 	config.Profiles = profiles
 	for name, target := range map[string]*time.Duration{
 		RuntimePollSecondsEnv:       &config.PollInterval,
@@ -87,6 +96,13 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrInvalid
 	}
 	return config, nil
+}
+
+func splitOptional(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, ",")
 }
 
 func exactEnvironment(lookup func(string) (string, bool), name string) (string, bool) {

@@ -38,6 +38,7 @@ var (
 		`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?::[1-9][0-9]{0,4})?$`,
 	)
 	resourceVersionPattern = regexp.MustCompile(`^[A-Za-z0-9._:/+-]{1,128}$`)
+	namespacePrefixPattern = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$`)
 	failureCodePattern     = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,62}$`)
 	workerIDPattern        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
 )
@@ -81,6 +82,7 @@ func (p Profile) SourcePath() string {
 type RuntimeConfig struct {
 	Enabled           bool
 	Namespaces        []string
+	NamespacePrefixes []string
 	Profiles          []Profile
 	PollInterval      time.Duration
 	WorkLease         time.Duration
@@ -100,13 +102,13 @@ func DefaultRuntimeConfig() RuntimeConfig {
 
 func (c RuntimeConfig) Validate() error {
 	if !c.Enabled {
-		if len(c.Namespaces) != 0 || len(c.Profiles) != 0 || c.PollInterval != 0 || c.WorkLease != 0 ||
+		if len(c.Namespaces) != 0 || len(c.NamespacePrefixes) != 0 || len(c.Profiles) != 0 || c.PollInterval != 0 || c.WorkLease != 0 ||
 			c.HeartbeatInterval != 0 || c.ReadinessMaxAge != 0 || c.MinimumBackoff != 0 || c.MaximumBackoff != 0 {
 			return ErrInvalid
 		}
 		return nil
 	}
-	if len(c.Namespaces) == 0 || len(c.Namespaces) > 256 || len(c.Profiles) == 0 || len(c.Profiles) > MaximumProfiles ||
+	if len(c.Namespaces)+len(c.NamespacePrefixes) == 0 || len(c.Namespaces) > 256 || len(c.NamespacePrefixes) > 16 || len(c.Profiles) == 0 || len(c.Profiles) > MaximumProfiles ||
 		c.PollInterval < 5*time.Second || c.PollInterval > time.Hour ||
 		c.WorkLease < 30*time.Second || c.WorkLease > 15*time.Minute ||
 		c.HeartbeatInterval < 5*time.Second || c.HeartbeatInterval*2 >= c.WorkLease ||
@@ -116,6 +118,11 @@ func (c RuntimeConfig) Validate() error {
 	}
 	for index, namespace := range c.Namespaces {
 		if !dnsLabelPattern.MatchString(namespace) || index > 0 && c.Namespaces[index-1] >= namespace {
+			return ErrInvalid
+		}
+	}
+	for index, prefix := range c.NamespacePrefixes {
+		if !namespacePrefixPattern.MatchString(prefix) || index > 0 && c.NamespacePrefixes[index-1] >= prefix {
 			return ErrInvalid
 		}
 	}
@@ -151,6 +158,7 @@ func (c RuntimeConfig) Digest() (string, error) {
 	encoded, err := json.Marshal(struct {
 		Contract          string    `json:"contract"`
 		Namespaces        []string  `json:"namespaces"`
+		NamespacePrefixes []string  `json:"namespacePrefixes"`
 		Profiles          []Profile `json:"profiles"`
 		PollSeconds       int64     `json:"pollSeconds"`
 		WorkLeaseSeconds  int64     `json:"workLeaseSeconds"`
@@ -158,7 +166,7 @@ func (c RuntimeConfig) Digest() (string, error) {
 		ReadinessSeconds  int64     `json:"readinessSeconds"`
 		MinimumBackoffSec int64     `json:"minimumBackoffSeconds"`
 		MaximumBackoffSec int64     `json:"maximumBackoffSeconds"`
-	}{RuntimeContract, slices.Clone(c.Namespaces), slices.Clone(c.Profiles), int64(c.PollInterval.Seconds()),
+	}{RuntimeContract, slices.Clone(c.Namespaces), slices.Clone(c.NamespacePrefixes), slices.Clone(c.Profiles), int64(c.PollInterval.Seconds()),
 		int64(c.WorkLease.Seconds()), int64(c.HeartbeatInterval.Seconds()), int64(c.ReadinessMaxAge.Seconds()),
 		int64(c.MinimumBackoff.Seconds()), int64(c.MaximumBackoff.Seconds())})
 	if err != nil {
@@ -186,7 +194,15 @@ func (c RuntimeConfig) AllowsNamespace(namespace string) bool {
 		return false
 	}
 	_, found := slices.BinarySearch(c.Namespaces, namespace)
-	return found
+	if found {
+		return true
+	}
+	for _, prefix := range c.NamespacePrefixes {
+		if strings.HasPrefix(namespace, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 type ArtifactKey struct {
@@ -228,15 +244,15 @@ func (d DesiredArtifact) Validate() error {
 	return nil
 }
 
-// SecretName derives an exact resource name from the immutable, globally
-// unique environment namespace and operator-owned target profile revision.
-// Using the namespace instead of an opaque environment ID lets Helm emit
-// resourceNames-restricted RBAC before any artifact exists.
+// SecretName derives one exact resource name from operator-owned target profile
+// identity. Kubernetes namespaces already scope names; keeping the same name
+// in every managed Environment lets Helm emit resourceNames-restricted RBAC
+// before dynamically created Environment namespaces exist.
 func SecretName(namespace, targetID string, revision int64) string {
 	if !dnsLabelPattern.MatchString(namespace) || !uuidPattern.MatchString(targetID) || revision <= 0 {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(fmt.Sprintf("kuberploy-runtime-pull-v1\x00%s\x00%s\x00%d", namespace, targetID, revision)))
+	sum := sha256.Sum256([]byte(fmt.Sprintf("kuberploy-runtime-pull-v2\x00%s\x00%d", targetID, revision)))
 	return "kuberploy-pull-" + hex.EncodeToString(sum[:12])
 }
 

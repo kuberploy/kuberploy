@@ -210,7 +210,7 @@
             "runtimePull": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["enabled", "targetID", "profileName", "credentialRef", "revision", "sourceSecretName", "sourceSecretKey", "namespaces"],
+              "required": ["enabled", "targetID", "profileName", "credentialRef", "revision", "sourceSecretName", "sourceSecretKey", "namespaces", "namespacePrefixes"],
               "properties": {
                 "enabled": { "type": "boolean" },
                 "targetID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
@@ -219,12 +219,13 @@
                 "revision": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
                 "sourceSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
                 "sourceSecretKey": { "type": "string", "maxLength": 253, "pattern": "^(?:|[A-Za-z0-9._-]{1,253})$" },
-                "namespaces": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/optionalDNSLabel" } }
+                "namespaces": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/optionalDNSLabel" } },
+                "namespacePrefixes": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$" } }
               },
               "allOf": [
                 {
                   "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-                  "then": { "properties": { "targetID": { "minLength": 36 }, "profileName": { "minLength": 1 }, "credentialRef": { "minLength": 1 }, "revision": { "minimum": 1 }, "sourceSecretName": { "minLength": 1 }, "sourceSecretKey": { "minLength": 1 }, "namespaces": { "minItems": 1 } } }
+                  "then": { "properties": { "targetID": { "minLength": 36 }, "profileName": { "minLength": 1 }, "credentialRef": { "minLength": 1 }, "revision": { "minimum": 1 }, "sourceSecretName": { "minLength": 1 }, "sourceSecretKey": { "minLength": 1 } } }
                 }
               ]
             }

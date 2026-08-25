@@ -26,6 +26,11 @@ spec:
         scope: Namespaced
   validations:
     - expression: >-
+        request.userInfo.username != '{{ include "kuberploy.runtimeRegistryPullWorkerUsername" $ }}' ||
+        (request.operation == 'CREATE' && object.metadata.name.startsWith('kuberploy-pull-') &&
+        request.namespace == '{{ $namespace }}')
+      message: the Kuberploy runtime-pull worker may create only reserved runtime image-pull Secrets
+    - expression: >-
         request.operation == 'CREATE' ?
         (!object.metadata.name.startsWith('kuberploy-pull-') ||
         (request.userInfo.username == '{{ include "kuberploy.runtimeRegistryPullWorkerUsername" $ }}' &&
@@ -76,4 +81,87 @@ spec:
       matchLabels:
         kubernetes.io/metadata.name: {{ $namespace }}
 {{- end }}
+{{- end }}
+{{- if and .Values.config.runtimeRegistryPulls.enabled .Values.config.runtimeRegistryPulls.namespacePrefixes }}
+{{- $allowedNames := list -}}
+{{- $profileChecks := list -}}
+{{- $namespaceChecks := list -}}
+{{- range $prefix := .Values.config.runtimeRegistryPulls.namespacePrefixes -}}
+  {{- $namespaceChecks = append $namespaceChecks (printf "request.namespace.startsWith('%s')" $prefix) -}}
+{{- end }}
+{{- range $profile := .Values.config.runtimeRegistryPulls.profiles -}}
+  {{- $secretName := include "kuberploy.runtimeRegistryPullSecretName" (dict "profile" $profile) -}}
+  {{- $allowedNames = append $allowedNames $secretName -}}
+  {{- $profileChecks = append $profileChecks (printf "(object.metadata.name == '%s' && object.metadata.labels['kuberploy.io/registry-target-id'] == '%s' && object.metadata.labels['kuberploy.io/profile-revision'] == '%d' && object.metadata.annotations['kuberploy.io/pull-credential-ref'] == '%s')" $secretName $profile.targetId (int64 $profile.revision) $profile.credentialRef) -}}
+{{- end }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "kuberploy.runtimeRegistryPullManagedAdmissionPolicyName" . }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime-registry-pulls-admission
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["secrets"]
+        scope: Namespaced
+  validations:
+    - expression: >-
+        request.userInfo.username != '{{ include "kuberploy.runtimeRegistryPullWorkerUsername" . }}' ||
+        (request.operation == 'CREATE' && object.metadata.name.startsWith('kuberploy-pull-') &&
+        has(namespaceObject.metadata.labels) &&
+        namespaceObject.metadata.labels['kuberploy.io/runtime-namespace'] == 'true' &&
+        ({{ join " || " $namespaceChecks }}))
+      message: the Kuberploy runtime-pull worker may create only reserved runtime image-pull Secrets
+    - expression: >-
+        request.operation == 'CREATE' ?
+        (!object.metadata.name.startsWith('kuberploy-pull-') ||
+        (request.userInfo.username == '{{ include "kuberploy.runtimeRegistryPullWorkerUsername" . }}' &&
+        object.apiVersion == 'v1' && object.kind == 'Secret' &&
+        object.metadata.namespace == request.namespace &&
+        object.metadata.name in {{ toJson $allowedNames }} &&
+        (!has(object.metadata.generateName) || object.metadata.generateName == '') &&
+        (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.size() == 0) &&
+        (!has(object.metadata.finalizers) || object.metadata.finalizers.size() == 0) &&
+        !has(object.metadata.deletionTimestamp))) :
+        !oldObject.metadata.name.startsWith('kuberploy-pull-')
+      message: reserved runtime image-pull Secrets may only be created by the exact Kuberploy worker and are immutable lifecycle artifacts
+    - expression: >-
+        request.operation != 'CREATE' || !object.metadata.name.startsWith('kuberploy-pull-') ||
+        (has(object.metadata.labels) && object.metadata.labels.size() == 5 &&
+        object.metadata.labels['app.kubernetes.io/managed-by'] == 'kuberploy' &&
+        object.metadata.labels['app.kubernetes.io/component'] == 'runtime-registry-pull' &&
+        object.metadata.labels['kuberploy.io/environment-id'].matches('^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') &&
+        object.metadata.labels['kuberploy.io/registry-target-id'].matches('^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$') &&
+        object.metadata.labels['kuberploy.io/profile-revision'].matches('^[1-9][0-9]{0,18}$') &&
+        has(object.metadata.annotations) && object.metadata.annotations.size() == 1 &&
+        ({{ join " || " $profileChecks }}))
+      message: runtime image-pull Secrets require one exact operator profile identity envelope
+    - expression: >-
+        request.operation != 'CREATE' || !object.metadata.name.startsWith('kuberploy-pull-') ||
+        (has(object.immutable) && object.immutable == true &&
+        object.type == 'kubernetes.io/dockerconfigjson' &&
+        has(object.data) && object.data.size() == 1 &&
+        '.dockerconfigjson' in object.data &&
+        object.data['.dockerconfigjson'].size() >= 4 &&
+        object.data['.dockerconfigjson'].size() <= 87384 &&
+        (!has(object.stringData) || object.stringData.size() == 0))
+      message: runtime image-pull Secrets must contain one bounded immutable dockerconfigjson value
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kuberploy.runtimeRegistryPullManagedAdmissionPolicyName" . }}
+  labels:
+    {{- include "kuberploy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runtime-registry-pulls-admission
+spec:
+  policyName: {{ include "kuberploy.runtimeRegistryPullManagedAdmissionPolicyName" . }}
+  validationActions: [Deny]
 {{- end }}

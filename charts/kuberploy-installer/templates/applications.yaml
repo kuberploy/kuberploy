@@ -161,6 +161,7 @@
   {{- $pullValues := dict "config" (dict "runtimeRegistryPulls" (dict
     "enabled" true
     "namespaces" $pull.namespaces
+    "namespacePrefixes" $pull.namespacePrefixes
     "profiles" (list (dict
       "name" $pull.profileName
       "targetId" $pull.targetID

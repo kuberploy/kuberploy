@@ -347,6 +347,43 @@ roleRef:
   name: {{ include "kuberploy.fullname" $ }}-runtime-registry-pulls
 {{- end }}
 {{- end }}
+{{- if and .Values.config.runtimeRegistryPulls.enabled .Values.config.runtimeRegistryPulls.namespacePrefixes }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-registry-pulls-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "runtime-registry-pulls") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames:
+      {{- range $profile := .Values.config.runtimeRegistryPulls.profiles }}
+      - {{ include "kuberploy.runtimeRegistryPullSecretName" (dict "profile" $profile) }}
+      {{- end }}
+  # Creation is constrained by the fail-closed admission policy to the exact
+  # worker, managed Environment namespaces, derived names, and immutable shape.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-registry-pulls-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "runtime-registry-pulls") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kuberploy.fullname" . }}-runtime-registry-pulls-managed
+{{- end }}
 {{- if .Values.config.argoObservation.enabled }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

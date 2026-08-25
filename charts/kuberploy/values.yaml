@@ -132,6 +132,7 @@ config:
   runtimeRegistryPulls:
     enabled: false
     namespaces: []
+    namespacePrefixes: []
     profiles: []
     pollIntervalSeconds: 30
     workLeaseSeconds: 120
