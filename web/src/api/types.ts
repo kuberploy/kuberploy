@@ -490,89 +490,20 @@ export type GitSSHKey = {
   fingerprint: string;
 };
 
-export type HelmApprovalKey = {
-  id: string;
-  revision: number;
-};
-
-export type HelmApproval = HelmApprovalKey & {
-  sourceKind: "oci" | "helm-repository" | "git";
-  repository: string;
-  chartName: string;
-  version: string;
-  sourceRevision?: string;
-  chartPath?: string;
-  manifestDigest: string;
-  packageDigest: string;
-  valuesSchemaDigest: string;
-  rendererImage: string;
-  rendererVersion: "4.2.3";
-  policyVersion: "external-helm-p0.v1";
-  documentsDigest: string;
-  valuesSchema: Record<string, unknown>;
-  defaultValuesYaml: string;
-  createdAt: string;
-};
-
-type CreateHelmApprovalCommon = {
-  repository: string;
-  version: string;
-  manifestDigest?: string;
-  packageDigest?: string;
-  valuesSchemaDigest?: string;
-};
-
-export type CreateHelmApproval =
-  | (CreateHelmApprovalCommon & {
-      sourceKind: "oci";
-    })
-  | (CreateHelmApprovalCommon & {
-      sourceKind: "helm-repository";
-      chartName: string;
-    })
-  | (CreateHelmApprovalCommon & {
-      sourceKind: "git";
-      chartName: string;
-      sourceRevision: string;
-      chartPath: string;
-    });
-
-export type HelmRenderedResource = {
-  apiVersion: string;
-  kind: string;
-  namespace: string;
-  name: string;
-  sanitizedYaml?: string;
-  previewOmitted: boolean;
-};
-
-export type HelmRenderedPreview = {
-  releaseRevisionId: string;
-  generation: number;
-  manifestDigest: string;
-  inventoryDigest: string;
-  resourceCount: number;
-  previewBytes: number;
-  resources: HelmRenderedResource[];
+export type HelmSource = {
+  kind: "oci" | "helm-repository" | "git";
+  repositoryUrl: string;
+  chart?: string;
+  targetRevision: string;
+  path?: string;
 };
 
 export type HelmValuesInput = {
-  approvalId: string;
-  approvalRevision: number;
+  source: HelmSource;
   valuesYaml: string;
 };
 
-export type HelmValuesPreview = {
-  approval: HelmApprovalKey;
-  normalizedValuesYaml: string;
-  valuesDigest: string;
-  currentValuesDigest?: string;
-  effectiveValues: Record<string, unknown>;
-  changedPaths: string[];
-};
-
-export type HelmReleaseAction =
-  "initial" | "update" | "retry" | "disable" | "rollback";
+export type HelmReleaseAction = "deploy" | "retry" | "disable" | "rollback";
 
 export type HelmReleaseRevision = {
   id: string;
@@ -582,39 +513,17 @@ export type HelmReleaseRevision = {
   desiredEnabled: boolean;
   parentRevisionId?: string;
   rollbackSourceRevisionId?: string;
-  approval: HelmApprovalKey;
-  renderCommandId?: string;
+  source: HelmSource;
+  valuesYaml: string;
   valuesDigest: string;
-  intentDigest: string;
+  state: "pending" | "applied" | "failed";
+  failureCode?: string;
   requestId: string;
   createdAt: string;
+  updatedAt: string;
 };
 
-export type HelmReleasePhase =
-  | "rendering"
-  | "render-failed"
-  | "payload-pending"
-  | "payload-committed"
-  | "payload-verified"
-  | "application-pending"
-  | "application-committed"
-  | "published"
-  | "failed";
-
-export type HelmReleaseStatus = {
-  revision: HelmReleaseRevision;
-  phase: HelmReleasePhase;
-  renderState?: "queued" | "processing" | "succeeded" | "failed";
-  payloadIntentId?: string;
-  payloadState?: string;
-  payloadRevision?: string;
-  cascadeState?: string;
-  cascadeObservationState?: string;
-  applicationIntentId?: string;
-  applicationState?: string;
-  applicationRevision?: string;
-  failureCode?: string;
-};
+export type HelmReleaseStatus = HelmReleaseRevision;
 
 export type HelmMutationResult = {
   revision: HelmReleaseRevision;

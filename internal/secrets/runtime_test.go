@@ -63,6 +63,7 @@ func TestRuntimeConfigIdentityIsExactAndNamespaceAllowlisted(t *testing.T) {
 	}
 	mutations := []func(*RuntimeConfig){
 		func(value *RuntimeConfig) { value.Namespaces = []string{"other"} },
+		func(value *RuntimeConfig) { value.NamespacePrefixes = []string{"kp-"} },
 		func(value *RuntimeConfig) { value.FingerprintSecretRef = "other-hmac" },
 		func(value *RuntimeConfig) { value.FingerprintSecretKey = "other.key" },
 		func(value *RuntimeConfig) { value.FingerprintKeyID = "other-key" },
@@ -78,6 +79,7 @@ func TestRuntimeConfigIdentityIsExactAndNamespaceAllowlisted(t *testing.T) {
 	for index, mutate := range mutations {
 		changed := config
 		changed.Namespaces = append([]string(nil), config.Namespaces...)
+		changed.NamespacePrefixes = append([]string(nil), config.NamespacePrefixes...)
 		mutate(&changed)
 		actual := testRuntimeIdentity(t, changed)
 		if actual.ConfigDigest == identity.ConfigDigest {
@@ -93,6 +95,12 @@ func TestRuntimeConfigIdentityIsExactAndNamespaceAllowlisted(t *testing.T) {
 	invalid.Namespaces = []string{"z-runtime", "a-runtime"}
 	if invalid.Validate() == nil {
 		t.Fatal("unsorted namespaces accepted")
+	}
+	prefixOnly := config
+	prefixOnly.Namespaces = nil
+	prefixOnly.NamespacePrefixes = []string{"kp-"}
+	if prefixOnly.Validate() != nil || !prefixOnly.AllowsNamespace("kp-project-production") || prefixOnly.AllowsNamespace("kube-system") || prefixOnly.AllowsNamespace("kp-") {
+		t.Fatalf("managed Environment prefix policy failed: %#v", prefixOnly)
 	}
 	if _, err := RuntimeIdentityForConfig(config, "sha256:"+strings.Repeat("e", 63)); !errors.Is(err, ErrRuntimeUnavailable) {
 		t.Fatalf("invalid public key fingerprint: %v", err)
@@ -160,15 +168,15 @@ func TestMemoryRuntimeCrashReclaimAndEpochFence(t *testing.T) {
 	created := createAwaitingSealed(t, store, provider, "database", "runtime-crash-0001")
 	config, now := testRuntimeConfig(), testTime.Add(time.Second)
 	identity := testRuntimeIdentity(t, config)
-	first, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, now, config.WorkLease)
+	first, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, config.NamespacePrefixes, now, config.WorkLease)
 	if err != nil || first.Lease.Epoch != 1 || first.Version.ID != created.Version.ID {
 		t.Fatalf("first=%#v err=%v", first, err)
 	}
-	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, now.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, config.NamespacePrefixes, now.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("concurrent claim: %v", err)
 	}
 	reclaimedAt := first.Lease.Until.Add(time.Second)
-	second, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, reclaimedAt, config.WorkLease)
+	second, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, config.NamespacePrefixes, reclaimedAt, config.WorkLease)
 	if err != nil || second.Lease.Epoch != first.Lease.Epoch+1 || second.Lease.Owner == first.Lease.Owner {
 		t.Fatalf("reclaimed=%#v err=%v", second, err)
 	}
@@ -195,7 +203,7 @@ func TestMemoryRuntimePendingBackoffReleaseAndStaleHeartbeat(t *testing.T) {
 	created := createAwaitingSealed(t, store, &fakeProviders{}, "queue", "runtime-backoff-001")
 	config, now := testRuntimeConfig(), testTime.Add(time.Second)
 	identity := testRuntimeIdentity(t, config)
-	first, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, now, config.WorkLease)
+	first, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, config.NamespacePrefixes, now, config.WorkLease)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,10 +212,10 @@ func TestMemoryRuntimePendingBackoffReleaseAndStaleHeartbeat(t *testing.T) {
 		RuntimePendingOutcome{FailureCode: "provider-observe-failed", NextAt: nextAt}, now.Add(time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, nextAt.Add(-time.Millisecond), config.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, config.NamespacePrefixes, nextAt.Add(-time.Millisecond), config.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("claimed before backoff: %v", err)
 	}
-	second, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, nextAt, config.WorkLease)
+	second, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-beta1", config.Namespaces, config.NamespacePrefixes, nextAt, config.WorkLease)
 	if err != nil || second.Lease.Epoch != 2 || second.ConsecutiveFailures != 1 || second.Version.ID != created.Version.ID {
 		t.Fatalf("second=%#v err=%v", second, err)
 	}
@@ -238,10 +246,10 @@ func TestMemoryRuntimeClaimsOnlyStrictSealedSecretsInAllowedNamespace(t *testing
 	}
 	config, now := testRuntimeConfig(), testTime.Add(time.Second)
 	identity := testRuntimeIdentity(t, config)
-	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", []string{"other-namespace"}, now, config.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", []string{"other-namespace"}, nil, now, config.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross namespace claim: %v", err)
 	}
-	work, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, now, config.WorkLease)
+	work, err := store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, config.NamespacePrefixes, now, config.WorkLease)
 	if err != nil || work.Version.Provider != ProviderSealedSecrets {
 		t.Fatalf("work=%#v err=%v", work, err)
 	}
@@ -252,7 +260,7 @@ func TestMemoryRuntimeClaimsOnlyStrictSealedSecretsInAllowedNamespace(t *testing
 	if err != nil || version.State != VersionFailed || version.FailureCode != "sealed-secret-sync-failed" {
 		t.Fatalf("version=%#v err=%v", version, err)
 	}
-	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, failedAt.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(context.Background(), identity, "runtime-worker-alpha", config.Namespaces, config.NamespacePrefixes, failedAt.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("external secret entered strict runtime: %v", err)
 	}
 }

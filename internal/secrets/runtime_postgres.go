@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *PostgreSQLStore) ClaimRuntimeSecret(ctx context.Context, identity RuntimeIdentity, owner string, namespaces []string, now time.Time, duration time.Duration) (RuntimeWork, error) {
-	if identity.Validate() != nil || !runtimeSecretWorkerIDRE.MatchString(owner) || !exactRuntimeNamespaces(namespaces) ||
+func (s *PostgreSQLStore) ClaimRuntimeSecret(ctx context.Context, identity RuntimeIdentity, owner string, namespaces, namespacePrefixes []string, now time.Time, duration time.Duration) (RuntimeWork, error) {
+	if identity.Validate() != nil || !runtimeSecretWorkerIDRE.MatchString(owner) || !exactRuntimeNamespaces(namespaces) || !exactRuntimeNamespacePrefixes(namespacePrefixes) || len(namespaces)+len(namespacePrefixes) == 0 ||
 		now.IsZero() || duration < 20*time.Second || duration > time.Hour {
 		return RuntimeWork{}, ErrInvalid
 	}
@@ -26,10 +26,11 @@ func (s *PostgreSQLStore) ClaimRuntimeSecret(ctx context.Context, identity Runti
 		JOIN secret_binding_versions v ON v.id=r.version_id AND v.binding_id=r.binding_id
 		JOIN secret_bindings b ON b.id=r.binding_id
 		WHERE r.runtime_state='awaiting' AND v.state='awaiting-readiness' AND v.provider='sealed-secrets'
-		  AND b.provider='sealed-secrets' AND b.target_namespace=ANY($1::text[])
-		  AND r.next_attempt_at<=$2 AND (r.lease_until IS NULL OR r.lease_until<=$2)
+		  AND b.provider='sealed-secrets' AND (b.target_namespace=ANY($1::text[])
+		    OR EXISTS (SELECT 1 FROM unnest($2::text[]) prefix WHERE b.target_namespace LIKE prefix || '%' AND length(b.target_namespace)>length(prefix)))
+		  AND r.next_attempt_at<=$3 AND (r.lease_until IS NULL OR r.lease_until<=$3)
 		ORDER BY r.next_attempt_at,r.version_id
-		FOR UPDATE OF r,v,b SKIP LOCKED LIMIT 1`, namespaces, now.UTC()).Scan(&versionID, &bindingID, &failures, &epoch)
+		FOR UPDATE OF r,v,b SKIP LOCKED LIMIT 1`, namespaces, namespacePrefixes, now.UTC()).Scan(&versionID, &bindingID, &failures, &epoch)
 	if err != nil {
 		return RuntimeWork{}, classifyPostgres(err)
 	}

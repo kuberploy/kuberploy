@@ -26,7 +26,6 @@ import (
 	"github.com/kuberploy/kuberploy/internal/externaldns"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitssh"
-	"github.com/kuberploy/kuberploy/internal/helmapps"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
@@ -348,8 +347,6 @@ func run() error {
 	var certificateReadiness httpapi.ReadinessProbe
 	var certificateReferences httpapi.CertificateReferenceBackend
 	var helmApplicationBackend httpapi.HelmApplicationBackend
-	var helmApprovalBackend httpapi.HelmApprovalAdmissionBackend
-	var helmPreviewBackend httpapi.HelmRenderedManifestPreviewBackend
 	if sourceBuilds != nil {
 		githubSetup, githubWebhook, buildBackend, buildReadiness, builderSettings = sourceBuilds.setup, sourceBuilds.webhook, sourceBuilds.backend, sourceBuilds.readiness, sourceBuilds.settings
 		buildPromotions = &buildpromotion.Resolver{Projections: sourceBuilds.store, Releases: db, Resources: db, Access: db}
@@ -379,8 +376,6 @@ func run() error {
 	}
 	if helmApplications != nil {
 		helmApplicationBackend = helmApplications.runtime
-		helmApprovalBackend = helmApplications.approvals
-		helmPreviewBackend = helmApplications.previews
 	}
 	managedRegistryConfig, err := registry.RuntimeConfigFromEnvironment()
 	if err != nil {
@@ -409,7 +404,7 @@ func run() error {
 		appConfigRenderedPreviews, err = appconfigpreview.NewProduction(appconfigpreview.Identity{
 			Contract: appconfigpreview.Contract, ChartName: lock.ChartName, ChartVersion: lock.ChartVersion,
 			ChartDigest: lock.ChartDigest, RendererImage: appconfigpreview.RendererImage,
-			RendererVersion: appconfigpreview.RendererVersion, PolicyVersion: helmapps.PolicyVersion,
+			RendererVersion: appconfigpreview.RendererVersion, PolicyVersion: appconfigpreview.PolicyVersion,
 		})
 		if err != nil {
 			return err
@@ -426,7 +421,6 @@ func run() error {
 		EdgeReadiness:   edgeReadiness, EdgeFeatures: edgeFeatures, SSLIP: edgeHTTPSSLIP(edgeAPI),
 		Registry: managedRegistry.management, RegistryReadiness: managedRegistry.readiness,
 		ExternalDNS: externalDNSManagement, HelmApplications: helmApplicationBackend,
-		HelmApprovals: helmApprovalBackend, HelmRenderedPreviews: helmPreviewBackend,
 		GitSSHKeys:          gitSSHKeys,
 		MiddlewareProfiles:  middlewareProfiles,
 		DeploymentRollbacks: deploymentRollbacks,
@@ -443,6 +437,12 @@ func run() error {
 				Owner: "api-auto-deploy-" + id.New(), LeaseDuration: autodeploy.RuntimeRunLease}}
 		go func() { runtimeDone <- runtime.Run(ctx) }()
 	}
+	var helmRuntimeDone <-chan error
+	if helmApplications != nil {
+		runtimeDone := make(chan error, 1)
+		helmRuntimeDone = runtimeDone
+		go func() { runtimeDone <- helmApplications.Run(ctx) }()
+	}
 	srv := &http.Server{Addr: config.Get("KUBERPLOY_LISTEN_ADDR", ":8080"), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	done := make(chan error, 1)
 	go func() {
@@ -456,6 +456,14 @@ func run() error {
 		}
 		return err
 	case err = <-autoDeployRuntimeDone:
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+			return nil
+		}
+		return err
+	case err = <-helmRuntimeDone:
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)

@@ -119,7 +119,7 @@ func (c *ObservationController) Reconcile(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	now := c.now()
-	work, err := c.Store.ClaimCertificateObservation(ctx, c.Identity, c.WorkerID, c.Config.Namespaces, now, c.Config.WorkLease)
+	work, err := c.Store.ClaimCertificateObservation(ctx, c.Identity, c.WorkerID, c.Config.Namespaces, c.Config.NamespacePrefixes, now, c.Config.WorkLease)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 		return false, nil
 	}

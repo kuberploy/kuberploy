@@ -17,7 +17,6 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/appconfigpreview"
 	"github.com/kuberploy/kuberploy/internal/domain"
-	"github.com/kuberploy/kuberploy/internal/helmapps"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 	"github.com/kuberploy/kuberploy/internal/ratelimit"
 	"github.com/kuberploy/kuberploy/internal/releases"
@@ -48,7 +47,7 @@ type staticAppConfigRenderer struct{ identityDigest string }
 func (staticAppConfigRenderer) Identity() (appconfigpreview.Identity, string, error) {
 	identity := appconfigpreview.Identity{Contract: appconfigpreview.Contract, ChartName: "kuberploy-runtime", ChartVersion: "1.2.3",
 		ChartDigest: "sha256:" + strings.Repeat("a", 64), RendererImage: appconfigpreview.RendererImage,
-		RendererVersion: appconfigpreview.RendererVersion, PolicyVersion: helmapps.PolicyVersion}
+		RendererVersion: appconfigpreview.RendererVersion, PolicyVersion: appconfigpreview.PolicyVersion}
 	digest, err := identity.Digest()
 	return identity, digest, err
 }

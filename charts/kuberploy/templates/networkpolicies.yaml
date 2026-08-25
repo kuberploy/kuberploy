@@ -90,16 +90,6 @@ spec:
   {{- $_ := set $externalPorts "9418" true -}}
 {{- end -}}
 {{- $_ := set $externalPorts "443" true -}}
-{{- if and $.Values.config.helmApplications.enabled (or (eq $component "api") (eq $component "worker")) -}}
-  {{- range $host := concat $.Values.config.helmApplications.ociRegistryHosts $.Values.config.helmApplications.ociAuthHosts $.Values.config.helmApplications.ociRedirectHosts -}}
-    {{- $parts := splitList ":" $host -}}
-    {{- $port := "443" -}}
-    {{- if eq (len $parts) 2 -}}
-      {{- $port = index $parts 1 -}}
-    {{- end -}}
-    {{- $_ := set $externalPorts $port true -}}
-  {{- end -}}
-{{- end }}
 {{- if eq $component "api" -}}
   {{- range $profile := $.Values.config.runtimeRegistryPulls.profiles -}}
     {{- $parts := splitList ":" $profile.registryServer -}}
@@ -380,26 +370,6 @@ spec:
       app.kubernetes.io/name: kuberploy
       app.kubernetes.io/component: registry-maintenance
       kuberploy.io/registry-target: {{ .Values.config.managedRegistry.targetID | quote }}
-  policyTypes: ["Ingress", "Egress"]
-  ingress: []
-  egress: []
-{{- end }}
-{{- if .Values.config.helmApplications.enabled }}
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: {{ include "kuberploy.fullname" . }}-helm-renderer-default-deny
-  namespace: {{ .Values.config.helmApplications.rendererNamespace }}
-  labels:
-    {{- include "kuberploy.labels" . | nindent 4 }}
-    app.kubernetes.io/component: helm-renderer
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: kuberploy-worker
-      app.kubernetes.io/component: helm-renderer
-      app.kubernetes.io/managed-by: kuberploy
   policyTypes: ["Ingress", "Egress"]
   ingress: []
   egress: []

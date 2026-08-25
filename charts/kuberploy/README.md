@@ -364,41 +364,27 @@ removed. Namespaced RBAC is paired with fail-closed admission that rejects any
 spec, identity, label, owner, finalizer, unrelated annotation, namespace, or
 name mutation.
 
-`config.helmApplications.enabled` is the final default-off approved external
-Helm/OCI runtime. It can be enabled only after Git projection, GitHub App,
-environment foundations, and protected Argo desired state are enabled. The
-operator supplies one dedicated renderer namespace, OCI registry and
-token-service host allowlists, bounded render/publication/readiness timings,
-and a bounded package cache. Host lists are normalized. OCI registry, auth,
-redirect, and credential authorities
-remain exact host allowlists in the application layer. Every value participates
-in the immutable ConfigMap name and therefore in the renderer/publisher operator
-digest.
+`config.helmApplications.enabled` enables direct Argo CD Helm Apps. It requires
+protected Argo desired state so the chart has one exact Argo namespace. The API
+stores immutable source-and-values revisions and reconciles deterministic
+`kp-h-<application UUID>` Argo `Application` objects. Argo CD resolves, renders,
+syncs, and observes OCI, classic Helm repository, and Git chart sources; the
+control plane has no chart downloader, approval catalog, package cache, or
+renderer Job.
 
-Private OCI access is optional and remains operator-owned. Each
-`ociCredentialProfiles` entry maps one exact registry host to one unique
-profile, one exact auth host, and either a Basic username/password Secret pair
-or one Bearer identity-token key. Profiles and host lists are normalized;
-hosts must already belong to the registry/auth allowlists. The chart projects
-only those exact Secret keys, mode `0440`, beneath
-`/var/run/secrets/kuberploy/helm-oci/<profile>` in the API and worker. It adds
-no Secret RBAC. API and worker NetworkPolicies derive every explicit HTTPS
-port from the same sorted registry/auth host allowlists (defaulting to 443),
-so a private registry on a non-default port is not silently denied. The
-ConfigMap carries only the safe host/profile/mode map plus
-an irreversible projection-identity digest; Secret names, keys, and values are
-not exposed there. Changing any projection identity changes the immutable
-ConfigMap and complete Helm operator digest. Public hosts without a profile
-continue to use anonymous token exchange.
+The chart grants the API only `get`, `create`, `patch`, and `delete` for Argo
+Applications in the configured Argo namespace. A matching admission policy
+limits this identity to deterministic Kuberploy Helm App names, labels,
+finalizer, in-cluster destination, automated synchronization, and immutable
+project/destination identity. The Environment AppProject fixes the destination
+namespace, accepts external source repositories and arbitrary namespaced chart
+resources, and denies cluster-scoped resources.
 
-The chart creates a tokenless renderer ServiceAccount in that dedicated
-namespace and grants only the worker the ConfigMap, Job, Pod-log, and
-NetworkPolicy verbs required by the closed renderer. It grants no Secret
-access and no update or patch authority. Renderer Pods receive already-fetched
-chart bytes, no registry credentials and no Kubernetes token, and match both a
-permanent and per-Job deny-all ingress/egress policy. Deployment and rollback
-capabilities remain false until the exact renderer, protected publisher, and
-protected Argo readiness leases are simultaneously fresh.
+Private source credentials remain operator-owned Argo CD repository Secrets;
+the API receives no provider credential or Secret read permission. The managed
+registry installer can create its exact OCI repository Secret directly in the
+Argo namespace. Other private repositories use the normal Argo CD repository
+credential mechanism.
 
 That namespace-local Role grants exact-name `get` only for the installer-owned
 root Application. It grants no Secret `get`, `list`, or `watch`; repository

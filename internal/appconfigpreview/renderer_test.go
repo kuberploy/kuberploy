@@ -8,14 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/kuberploy/kuberploy/internal/helmapps"
 )
 
 func testIdentity() Identity {
 	return Identity{Contract: Contract, ChartName: "kuberploy-runtime", ChartVersion: "1.2.3",
 		ChartDigest: "sha256:" + strings.Repeat("a", 64), RendererImage: RendererImage,
-		RendererVersion: RendererVersion, PolicyVersion: helmapps.PolicyVersion}
+		RendererVersion: RendererVersion, PolicyVersion: PolicyVersion}
 }
 
 func TestRendererProducesDeterministicBoundedRedactedDiff(t *testing.T) {
@@ -28,7 +26,7 @@ func TestRendererProducesDeterministicBoundedRedactedDiff(t *testing.T) {
 		calls++
 		if binary != ProductionHelmPath || len(arguments) != 15 || arguments[0] != "template" || arguments[2] != ProductionChartPath ||
 			arguments[3] != "--namespace" || arguments[4] != request.Namespace || arguments[5] != "--values" ||
-			arguments[7] != "--kube-version" || arguments[8] != helmapps.RendererKubeVersion ||
+			arguments[7] != "--kube-version" || arguments[8] != RendererKubeVersion ||
 			arguments[9] != "--set-string" || arguments[10] != "kuberployExpectedIdentity.projectId="+request.ProjectID ||
 			arguments[11] != "--set-string" || arguments[12] != "kuberployExpectedIdentity.environmentId="+request.EnvironmentID ||
 			arguments[13] != "--set-string" || arguments[14] != "kuberployExpectedIdentity.applicationId="+request.ApplicationID {

@@ -222,36 +222,6 @@ spec:
                 configMapKeyRef:
                   name: {{ include "kuberploy.configName" $ }}
                   key: KUBERPLOY_HELM_APPLICATIONS_ENABLED
-            {{- if $.Values.config.helmApplications.enabled }}
-            {{- range $name := list "KUBERPLOY_HELM_RENDERER_NAMESPACE" "KUBERPLOY_HELM_RENDERER_SERVICE_ACCOUNT" "KUBERPLOY_HELM_RENDERER_POLL_MILLISECONDS" "KUBERPLOY_HELM_WORK_POLL_MILLISECONDS" "KUBERPLOY_HELM_RENDER_LEASE_SECONDS" "KUBERPLOY_HELM_PUBLISH_LEASE_SECONDS" "KUBERPLOY_HELM_READINESS_LEASE_SECONDS" "KUBERPLOY_HELM_OCI_REQUEST_SECONDS" "KUBERPLOY_HELM_OCI_REGISTRY_HOSTS" "KUBERPLOY_HELM_PACKAGE_CACHE_BYTES" "KUBERPLOY_HELM_ARGO_NAMESPACE" }}
-            - name: {{ $name }}
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: {{ $name }}
-            {{- end }}
-            {{- if $.Values.config.helmApplications.ociAuthHosts }}
-            - name: KUBERPLOY_HELM_OCI_AUTH_HOSTS
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_HELM_OCI_AUTH_HOSTS
-            {{- end }}
-            {{- if or $.Values.config.helmApplications.ociRedirectHosts (has "ghcr.io" $.Values.config.helmApplications.ociRegistryHosts) }}
-            - name: KUBERPLOY_HELM_OCI_REDIRECT_HOSTS
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_HELM_OCI_REDIRECT_HOSTS
-            {{- end }}
-            {{- if $.Values.config.helmApplications.ociCredentialProfiles }}
-            - name: KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON
-              valueFrom:
-                configMapKeyRef:
-                  name: {{ include "kuberploy.configName" $ }}
-                  key: KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON
-            {{- end }}
-            {{- end }}
             {{- end }}
             {{- if eq $component "api" }}
             - name: KUBERPLOY_LISTEN_ADDR
@@ -626,11 +596,6 @@ spec:
               mountPath: /var/run/secrets/kuberploy-system/sealed-secrets
               readOnly: true
             {{- end }}
-            {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.helmApplications.ociCredentialProfiles }}
-            - name: helm-oci-credentials
-              mountPath: /var/run/secrets/kuberploy/helm-oci
-              readOnly: true
-            {{- end }}
             {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
             - name: runtime-registry-pull-credentials
               mountPath: /var/run/secrets/kuberploy/registry-pulls
@@ -710,26 +675,6 @@ spec:
             items:
               - key: {{ $.Values.config.runtimeSecrets.sealingCertificateSecret.key }}
                 path: tls.crt
-        {{- end }}
-        {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.helmApplications.ociCredentialProfiles }}
-        - name: helm-oci-credentials
-          projected:
-            defaultMode: 288
-            sources:
-              {{- range $profile := $.Values.config.helmApplications.ociCredentialProfiles }}
-              - secret:
-                  name: {{ $profile.secretRef.name }}
-                  items:
-                    {{- if eq $profile.mode "basic" }}
-                    - key: {{ $profile.secretRef.usernameKey }}
-                      path: {{ printf "%s/username" $profile.name | quote }}
-                    - key: {{ $profile.secretRef.passwordKey }}
-                      path: {{ printf "%s/password" $profile.name | quote }}
-                    {{- else }}
-                    - key: {{ $profile.secretRef.tokenKey }}
-                      path: {{ printf "%s/token" $profile.name | quote }}
-                    {{- end }}
-              {{- end }}
         {{- end }}
         {{- if and (or (eq $component "api") (eq $component "worker")) $.Values.config.runtimeRegistryPulls.enabled }}
         - name: runtime-registry-pull-credentials

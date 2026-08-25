@@ -48,11 +48,7 @@ describe("Helm effective access", () => {
           {
             scopeType: "platform",
             scopeId: "platform",
-            actions: [
-              "helm-approvals:read",
-              "helm-releases:read",
-              "helm-values:preview",
-            ],
+            actions: ["helm-releases:read"],
           },
         ],
         "helm.read",

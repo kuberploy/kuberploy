@@ -210,40 +210,6 @@ describe("application scheduling navigation", () => {
   });
 });
 
-describe("Helm approval navigation", () => {
-  const exactGrant: Capabilities = {
-    features: { helmApprovals: true },
-    capabilities: [
-      {
-        scopeType: "platform",
-        scopeId: "platform",
-        actions: ["helm-approvals:manage"],
-      },
-    ],
-  };
-
-  it("requires the exact feature, platform grant, and human session", async () => {
-    renderShell(exactGrant, "platform-admin", "session");
-    expect(
-      await screen.findByRole("link", { name: "Helm approvals" }),
-    ).toHaveAttribute("href", "/settings/helm-approvals");
-
-    cleanup();
-    renderShell(exactGrant, "platform-admin", "service-account");
-    await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
-    expect(screen.queryByRole("link", { name: "Helm approvals" })).toBeNull();
-
-    cleanup();
-    renderShell(
-      { features: { helmApprovals: true }, actions: ["helm-approvals:manage"] },
-      "platform-admin",
-      "session",
-    );
-    await waitFor(() => expect(api.capabilities).toHaveBeenCalled());
-    expect(screen.queryByRole("link", { name: "Helm approvals" })).toBeNull();
-  });
-});
-
 describe("monitoring navigation", () => {
   it("stays hidden when only coarse actions and feature flags advertise metrics", async () => {
     const response: Capabilities = {

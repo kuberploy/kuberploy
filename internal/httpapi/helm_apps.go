@@ -14,276 +14,65 @@ import (
 	"unicode/utf8"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
-	"github.com/kuberploy/kuberploy/internal/helmapps"
+	"github.com/kuberploy/kuberploy/internal/helmdirect"
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
 type HelmApplicationBackend interface {
-	helmapps.ReleaseService
-	helmapps.ReleaseValuesService
-	Capabilities(context.Context) (helmapps.Capabilities, error)
+	Deploy(context.Context, helmdirect.DeployRequest, time.Time) (helmdirect.Revision, bool, error)
+	Retry(context.Context, helmdirect.MutationRequest, time.Time) (helmdirect.Revision, bool, error)
+	Disable(context.Context, helmdirect.MutationRequest, time.Time) (helmdirect.Revision, bool, error)
+	Rollback(context.Context, helmdirect.MutationRequest, time.Time) (helmdirect.Revision, bool, error)
+	Head(context.Context, helmdirect.Target) (helmdirect.Revision, error)
+	History(context.Context, helmdirect.Target, int) ([]helmdirect.Revision, error)
+	Capabilities(context.Context) (helmdirect.Capabilities, error)
 }
 
-type HelmApprovalAdmissionBackend interface {
-	Catalog(context.Context, int) ([]helmapps.ApprovalDocument, error)
-	Admit(context.Context, helmapps.ApprovalAdmissionRequest) (helmapps.ApprovalDocument, bool, error)
-}
-
-type HelmRenderedManifestPreviewBackend interface {
-	Preview(context.Context, helmapps.ReleaseTarget) (helmapps.RenderedManifestPreview, error)
-}
-
-type helmApprovalKeyView struct {
-	ID       string `json:"id"`
-	Revision int64  `json:"revision"`
-}
-
-type helmApprovalView struct {
-	ID                 string          `json:"id"`
-	Revision           int64           `json:"revision"`
-	SourceKind         string          `json:"sourceKind"`
-	Repository         string          `json:"repository"`
-	ChartName          string          `json:"chartName"`
-	Version            string          `json:"version"`
-	SourceRevision     string          `json:"sourceRevision,omitempty"`
-	ChartPath          string          `json:"chartPath,omitempty"`
-	ManifestDigest     string          `json:"manifestDigest"`
-	PackageDigest      string          `json:"packageDigest"`
-	ValuesSchemaDigest string          `json:"valuesSchemaDigest"`
-	RendererImage      string          `json:"rendererImage"`
-	RendererVersion    string          `json:"rendererVersion"`
-	PolicyVersion      string          `json:"policyVersion"`
-	DocumentsDigest    string          `json:"documentsDigest"`
-	ValuesSchema       json.RawMessage `json:"valuesSchema"`
-	DefaultValuesYAML  string          `json:"defaultValuesYaml"`
-	CreatedAt          time.Time       `json:"createdAt"`
+type helmSourceView struct {
+	Kind           string `json:"kind"`
+	RepositoryURL  string `json:"repositoryUrl"`
+	Chart          string `json:"chart,omitempty"`
+	TargetRevision string `json:"targetRevision"`
+	Path           string `json:"path,omitempty"`
 }
 
 type helmReleaseRevisionView struct {
-	ID                       string              `json:"id"`
-	Generation               int64               `json:"generation"`
-	ReleaseName              string              `json:"releaseName"`
-	Action                   string              `json:"action"`
-	DesiredEnabled           bool                `json:"desiredEnabled"`
-	ParentRevisionID         string              `json:"parentRevisionId,omitempty"`
-	RollbackSourceRevisionID string              `json:"rollbackSourceRevisionId,omitempty"`
-	Approval                 helmApprovalKeyView `json:"approval"`
-	RenderCommandID          string              `json:"renderCommandId,omitempty"`
-	ValuesDigest             string              `json:"valuesDigest"`
-	IntentDigest             string              `json:"intentDigest"`
-	RequestID                string              `json:"requestId"`
-	CreatedAt                time.Time           `json:"createdAt"`
+	ID                       string         `json:"id"`
+	Generation               int64          `json:"generation"`
+	ReleaseName              string         `json:"releaseName"`
+	Action                   string         `json:"action"`
+	DesiredEnabled           bool           `json:"desiredEnabled"`
+	ParentRevisionID         string         `json:"parentRevisionId,omitempty"`
+	RollbackSourceRevisionID string         `json:"rollbackSourceRevisionId,omitempty"`
+	Source                   helmSourceView `json:"source"`
+	ValuesYAML               string         `json:"valuesYaml"`
+	ValuesDigest             string         `json:"valuesDigest"`
+	State                    string         `json:"state"`
+	FailureCode              string         `json:"failureCode,omitempty"`
+	RequestID                string         `json:"requestId"`
+	CreatedAt                time.Time      `json:"createdAt"`
+	UpdatedAt                time.Time      `json:"updatedAt"`
 }
 
-type helmReleaseStatusView struct {
-	Revision            helmReleaseRevisionView `json:"revision"`
-	Phase               string                  `json:"phase"`
-	RenderState         string                  `json:"renderState,omitempty"`
-	PayloadIntentID     string                  `json:"payloadIntentId,omitempty"`
-	PayloadState        string                  `json:"payloadState,omitempty"`
-	PayloadRevision     string                  `json:"payloadRevision,omitempty"`
-	ApplicationIntentID string                  `json:"applicationIntentId,omitempty"`
-	ApplicationState    string                  `json:"applicationState,omitempty"`
-	ApplicationRevision string                  `json:"applicationRevision,omitempty"`
-	FailureCode         string                  `json:"failureCode,omitempty"`
-}
-
-type helmRenderedResourceView struct {
-	APIVersion     string `json:"apiVersion"`
-	Kind           string `json:"kind"`
-	Namespace      string `json:"namespace"`
-	Name           string `json:"name"`
-	SanitizedYAML  string `json:"sanitizedYaml,omitempty"`
-	PreviewOmitted bool   `json:"previewOmitted"`
-}
-
-type helmRenderedManifestPreviewView struct {
-	ReleaseRevisionID string                     `json:"releaseRevisionId"`
-	Generation        int64                      `json:"generation"`
-	ManifestDigest    string                     `json:"manifestDigest"`
-	InventoryDigest   string                     `json:"inventoryDigest"`
-	ResourceCount     int                        `json:"resourceCount"`
-	PreviewBytes      int                        `json:"previewBytes"`
-	Resources         []helmRenderedResourceView `json:"resources"`
-}
-
-func helmApprovalDocumentView(document helmapps.ApprovalDocument) helmApprovalView {
-	approval := document.Approval
-	source, _ := approval.CanonicalSource()
-	chartName, _, _ := source.ChartIdentity()
-	sourceRevision, chartPath := "", ""
-	if source.Kind == helmapps.ChartSourceKindGit {
-		sourceRevision, chartPath = source.Git.Revision, source.Git.ChartPath
-	}
-	return helmApprovalView{ID: approval.ID, Revision: approval.Revision,
-		SourceKind: string(source.Kind), Repository: source.DisplayRepository(), ChartName: chartName,
-		Version: approval.ChartVersion, SourceRevision: sourceRevision, ChartPath: chartPath,
-		ManifestDigest: approval.ManifestDigest, PackageDigest: approval.PackageDigest,
-		ValuesSchemaDigest: approval.ValuesSchemaDigest, RendererImage: approval.RendererImage,
-		RendererVersion: approval.RendererVersion, PolicyVersion: approval.PolicyVersion,
-		DocumentsDigest: document.DocumentsDigest, ValuesSchema: append(json.RawMessage(nil), document.ValuesSchemaJSON...),
-		DefaultValuesYAML: string(document.DefaultValuesYAML), CreatedAt: document.CreatedAt}
-}
-
-func helmReleaseView(value helmapps.ReleaseRevision) helmReleaseRevisionView {
-	return helmReleaseRevisionView{ID: value.ID, Generation: value.Generation,
-		ReleaseName: value.ReleaseName, Action: string(value.Action), DesiredEnabled: value.DesiredEnabled,
-		ParentRevisionID: value.ParentRevisionID, RollbackSourceRevisionID: value.RollbackSourceRevisionID,
-		Approval:        helmApprovalKeyView{ID: value.Approval.ID, Revision: value.Approval.Revision},
-		RenderCommandID: value.RenderCommandID, ValuesDigest: value.ValuesDigest,
-		IntentDigest: value.IntentDigest, RequestID: value.RequestID, CreatedAt: value.CreatedAt}
-}
-
-func helmStatusView(value helmapps.ReleaseStatus) helmReleaseStatusView {
-	return helmReleaseStatusView{Revision: helmReleaseView(value.Revision), Phase: string(value.Phase),
-		RenderState: value.RenderState, PayloadIntentID: value.PayloadIntentID,
-		PayloadState: value.PayloadState, PayloadRevision: value.PayloadRevision,
-		ApplicationIntentID: value.ApplicationIntentID, ApplicationState: value.ApplicationState,
-		ApplicationRevision: value.ApplicationRevision, FailureCode: value.FailureCode}
-}
-
-func (s *Server) helmApprovalCatalog(w http.ResponseWriter, r *http.Request) {
-	_, target, ok := s.authorizedHelmTarget(w, r, domain.PermissionHelmRead)
-	if !ok || !s.helmConfigured(w, r) {
-		return
-	}
-	_ = target
-	limit, ok := parseHelmLimit(w, r, 50)
-	if !ok {
-		return
-	}
-	documents, err := s.helmApplications.ApprovalCatalog(r.Context(), limit)
-	if err != nil {
-		writeHelmError(w, r, err)
-		return
-	}
-	items := make([]helmApprovalView, 0, len(documents))
-	for _, document := range documents {
-		if document.Validate() != nil {
-			writeHelmError(w, r, helmapps.ErrConflict)
-			return
-		}
-		items = append(items, helmApprovalDocumentView(document))
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	collection(w, items)
-}
-
-func (s *Server) platformHelmApprovals(w http.ResponseWriter, r *http.Request) {
-	if s.helmApprovals == nil {
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmApprovalAdmissionUnavailable", "Helm approval admission unavailable", "The verified OCI Helm approval boundary is not configured.")
-		return
-	}
-	if r.Method == http.MethodGet {
-		limit, ok := parseHelmLimit(w, r, 50)
-		if !ok {
-			return
-		}
-		documents, err := s.helmApprovals.Catalog(r.Context(), limit)
-		if err != nil {
-			writeHelmError(w, r, err)
-			return
-		}
-		items := make([]helmApprovalView, 0, len(documents))
-		for _, document := range documents {
-			if document.Validate() != nil {
-				writeHelmError(w, r, helmapps.ErrConflict)
-				return
-			}
-			items = append(items, helmApprovalDocumentView(document))
-		}
-		w.Header().Set("Cache-Control", "private, no-store")
-		collection(w, items)
-		return
-	}
-	key, ok := helmIdempotencyKey(w, r)
-	if !ok {
-		return
-	}
-	var input struct {
-		SourceKind         string `json:"sourceKind"`
-		Repository         string `json:"repository"`
-		ChartName          string `json:"chartName"`
-		Version            string `json:"version"`
-		SourceRevision     string `json:"sourceRevision"`
-		ChartPath          string `json:"chartPath"`
-		ManifestDigest     string `json:"manifestDigest"`
-		PackageDigest      string `json:"packageDigest"`
-		ValuesSchemaDigest string `json:"valuesSchemaDigest"`
-	}
-	if !decodeHelmRequest(w, r, &input) {
-		return
-	}
-	source, sourceErr := helmApprovalSource(input.SourceKind, input.Repository, input.ChartName,
-		input.Version, input.SourceRevision, input.ChartPath, input.ManifestDigest)
-	if sourceErr != nil {
-		writeHelmError(w, r, sourceErr)
-		return
-	}
-	document, replay, err := s.helmApprovals.Admit(r.Context(), helmapps.ApprovalAdmissionRequest{
-		ActorID: currentUser(r.Context()).ID, IdempotencyKey: key,
-		Source: source, OCIRepository: strings.TrimSpace(input.Repository), ChartVersion: strings.TrimSpace(input.Version),
-		ManifestDigest: input.ManifestDigest, PackageDigest: input.PackageDigest,
-		ValuesSchemaDigest: input.ValuesSchemaDigest})
-	if err != nil {
-		writeHelmError(w, r, err)
-		return
-	}
-	if replay {
-		w.Header().Set("Idempotent-Replay", "true")
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	writeJSON(w, http.StatusCreated, helmApprovalDocumentView(document))
-}
-
-func helmApprovalSource(kind, repository, chartName, version, revision, chartPath, digest string) (helmapps.ChartSource, error) {
-	switch helmapps.ChartSourceKind(strings.TrimSpace(kind)) {
-	case "", helmapps.ChartSourceKindOCI:
-		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindOCI, OCI: &helmapps.OCIChartSource{
-			Repository: strings.TrimSpace(repository), Version: strings.TrimSpace(version), Digest: strings.TrimSpace(digest),
-		}}
-		return source, source.Validate()
-	case helmapps.ChartSourceKindHelmRepository:
-		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindHelmRepository,
-			HelmRepository: &helmapps.HelmRepositoryChartSource{RepositoryURL: strings.TrimSpace(repository),
-				ChartName: strings.TrimSpace(chartName), Version: strings.TrimSpace(version)}}
-		return source, source.Validate()
-	case helmapps.ChartSourceKindGit:
-		source := helmapps.ChartSource{Kind: helmapps.ChartSourceKindGit,
-			Git: &helmapps.GitChartSource{RepositoryURL: strings.TrimSpace(repository), Revision: strings.TrimSpace(revision),
-				ChartPath: strings.TrimSpace(chartPath), ChartName: strings.TrimSpace(chartName), Version: strings.TrimSpace(version)}}
-		return source, source.Validate()
-	default:
-		return helmapps.ChartSource{}, helmapps.ErrInvalid
-	}
+func helmReleaseView(value helmdirect.Revision) helmReleaseRevisionView {
+	return helmReleaseRevisionView{ID: value.ID, Generation: value.Generation, ReleaseName: value.ReleaseName,
+		Action: string(value.Action), DesiredEnabled: value.DesiredEnabled, ParentRevisionID: value.ParentRevisionID,
+		RollbackSourceRevisionID: value.RollbackSourceRevisionID,
+		Source: helmSourceView{Kind: string(value.Source.Kind), RepositoryURL: value.Source.RepositoryURL,
+			Chart: value.Source.Chart, TargetRevision: value.Source.TargetRevision, Path: value.Source.Path}, ValuesYAML: string(value.ValuesYAML),
+		ValuesDigest: value.ValuesDigest, State: string(value.State), FailureCode: value.FailureCode,
+		RequestID: value.RequestID, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt}
 }
 
 type helmValuesInput struct {
-	ApprovalID       string `json:"approvalId"`
-	ApprovalRevision int64  `json:"approvalRevision"`
-	ValuesYAML       string `json:"valuesYaml"`
-}
-
-func (s *Server) helmValuesPreview(w http.ResponseWriter, r *http.Request) {
-	target, _, ok := s.authorizedHelmTarget(w, r, domain.PermissionHelmRead)
-	if !ok || !s.helmConfigured(w, r) {
-		return
-	}
-	var input helmValuesInput
-	if !decodeHelmRequest(w, r, &input) {
-		return
-	}
-	preview, err := s.helmApplications.PreviewValues(r.Context(), target,
-		helmapps.ApprovalKey{ID: strings.TrimSpace(input.ApprovalID), Revision: input.ApprovalRevision}, []byte(input.ValuesYAML))
-	if err != nil {
-		writeHelmError(w, r, err)
-		return
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"approval": helmApprovalKeyView{ID: preview.Approval.ID, Revision: preview.Approval.Revision},
-		"normalizedValuesYaml": preview.NormalizedValuesYAML, "valuesDigest": preview.ValuesDigest,
-		"currentValuesDigest": preview.CurrentValuesDigest, "effectiveValues": preview.EffectiveValues,
-		"changedPaths": preview.ChangedPaths})
+	Source struct {
+		Kind           string `json:"kind"`
+		RepositoryURL  string `json:"repositoryUrl"`
+		Chart          string `json:"chart"`
+		TargetRevision string `json:"targetRevision"`
+		Path           string `json:"path"`
+	} `json:"source"`
+	ValuesYAML string `json:"valuesYaml"`
 }
 
 func (s *Server) helmUpsert(w http.ResponseWriter, r *http.Request) {
@@ -299,9 +88,10 @@ func (s *Server) helmUpsert(w http.ResponseWriter, r *http.Request) {
 	if !decodeHelmRequest(w, r, &input) {
 		return
 	}
-	value, replay, err := s.helmApplications.Upsert(r.Context(), helmapps.UpsertReleaseRequest{
-		Target: target, Actor: helmActor(r, key), Approval: helmapps.ApprovalKey{ID: strings.TrimSpace(input.ApprovalID), Revision: input.ApprovalRevision},
-		ValuesYAML: []byte(input.ValuesYAML)}, time.Now().UTC())
+	value, replay, err := s.helmApplications.Deploy(r.Context(), helmdirect.DeployRequest{Target: target,
+		Actor: helmActor(r, key), Source: helmdirect.Source{Kind: helmdirect.SourceKind(input.Source.Kind),
+			RepositoryURL: input.Source.RepositoryURL, Chart: input.Source.Chart, TargetRevision: input.Source.TargetRevision,
+			Path: input.Source.Path}, Values: []byte(input.ValuesYAML)}, time.Now().UTC())
 	s.writeHelmMutation(w, r, value, replay, err)
 }
 
@@ -310,13 +100,13 @@ func (s *Server) helmHead(w http.ResponseWriter, r *http.Request) {
 	if !ok || !s.helmConfigured(w, r) {
 		return
 	}
-	status, err := s.helmApplications.Head(r.Context(), target)
+	value, err := s.helmApplications.Head(r.Context(), target)
 	if err != nil {
 		writeHelmError(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	writeJSON(w, http.StatusOK, helmStatusView(status))
+	writeJSON(w, http.StatusOK, helmReleaseView(value))
 }
 
 func (s *Server) helmHistory(w http.ResponseWriter, r *http.Request) {
@@ -333,88 +123,37 @@ func (s *Server) helmHistory(w http.ResponseWriter, r *http.Request) {
 		writeHelmError(w, r, err)
 		return
 	}
-	items := make([]helmReleaseStatusView, len(history))
+	items := make([]helmReleaseRevisionView, len(history))
 	for index := range history {
-		items[index] = helmStatusView(history[index])
+		items[index] = helmReleaseView(history[index])
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	collection(w, items)
 }
 
-func (s *Server) helmRenderedPreview(w http.ResponseWriter, r *http.Request) {
-	target, _, ok := s.authorizedHelmTarget(w, r, domain.PermissionHelmRead)
-	if !ok {
-		return
-	}
-	if s.helmRenderedPreviews == nil {
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRenderedPreviewUnavailable", "Helm rendered preview unavailable", "The bounded rendered-resource preview is not configured.")
-		return
-	}
-	preview, err := s.helmRenderedPreviews.Preview(r.Context(), target)
-	if err != nil {
-		writeHelmError(w, r, err)
-		return
-	}
-	previewBytes := 0
-	if preview.ResourceCount != len(preview.Resources) || preview.ResourceCount < 1 ||
-		preview.ResourceCount > helmapps.MaximumResources {
-		writeHelmError(w, r, helmapps.ErrConflict)
-		return
-	}
-	for _, resource := range preview.Resources {
-		if resource.PreviewOmitted {
-			if resource.SanitizedYAML != "" {
-				writeHelmError(w, r, helmapps.ErrConflict)
-				return
-			}
-			continue
-		}
-		if resource.SanitizedYAML == "" || len(resource.SanitizedYAML) > helmapps.MaximumSanitizedResourcePreviewBytes {
-			writeHelmError(w, r, helmapps.ErrConflict)
-			return
-		}
-		previewBytes += len(resource.SanitizedYAML)
-	}
-	if previewBytes != preview.PreviewBytes || previewBytes > helmapps.MaximumSanitizedManifestPreviewBytes {
-		writeHelmError(w, r, helmapps.ErrConflict)
-		return
-	}
-	resources := make([]helmRenderedResourceView, len(preview.Resources))
-	for index, resource := range preview.Resources {
-		resources[index] = helmRenderedResourceView{APIVersion: resource.APIVersion,
-			Kind: resource.Kind, Namespace: resource.Namespace, Name: resource.Name,
-			SanitizedYAML: resource.SanitizedYAML, PreviewOmitted: resource.PreviewOmitted}
-	}
-	w.Header().Set("Cache-Control", "private, no-store")
-	writeJSON(w, http.StatusOK, helmRenderedManifestPreviewView{
-		ReleaseRevisionID: preview.ReleaseRevisionID, Generation: preview.Generation,
-		ManifestDigest: preview.ManifestDigest, InventoryDigest: preview.InventoryDigest,
-		ResourceCount: preview.ResourceCount, PreviewBytes: preview.PreviewBytes, Resources: resources})
-}
-
 func (s *Server) helmRetry(w http.ResponseWriter, r *http.Request) {
-	target, _, ok := s.authorizedHelmTarget(w, r, domain.PermissionHelmRetry)
-	if !ok || !s.helmMutationReady(w, r, false) {
-		return
-	}
-	key, ok := helmIdempotencyKey(w, r)
-	if !ok || !decodeHelmEmptyRequest(w, r) {
-		return
-	}
-	value, replay, err := s.helmApplications.Retry(r.Context(), helmapps.RetryReleaseRequest{Target: target, Actor: helmActor(r, key)}, time.Now().UTC())
-	s.writeHelmMutation(w, r, value, replay, err)
+	s.helmMutation(w, r, domain.PermissionHelmRetry, false, func(target helmdirect.Target, actor helmdirect.Actor) (helmdirect.Revision, bool, error) {
+		return s.helmApplications.Retry(r.Context(), helmdirect.MutationRequest{Target: target, Actor: actor}, time.Now().UTC())
+	})
 }
 
 func (s *Server) helmDisable(w http.ResponseWriter, r *http.Request) {
-	target, _, ok := s.authorizedHelmTarget(w, r, domain.PermissionHelmDeploy)
-	if !ok || !s.helmMutationReady(w, r, false) {
+	s.helmMutation(w, r, domain.PermissionHelmDeploy, false, func(target helmdirect.Target, actor helmdirect.Actor) (helmdirect.Revision, bool, error) {
+		return s.helmApplications.Disable(r.Context(), helmdirect.MutationRequest{Target: target, Actor: actor}, time.Now().UTC())
+	})
+}
+
+func (s *Server) helmMutation(w http.ResponseWriter, r *http.Request, permission domain.Permission, rollback bool,
+	mutation func(helmdirect.Target, helmdirect.Actor) (helmdirect.Revision, bool, error)) {
+	target, _, ok := s.authorizedHelmTarget(w, r, permission)
+	if !ok || !s.helmMutationReady(w, r, rollback) {
 		return
 	}
 	key, ok := helmIdempotencyKey(w, r)
 	if !ok || !decodeHelmEmptyRequest(w, r) {
 		return
 	}
-	value, replay, err := s.helmApplications.Disable(r.Context(), helmapps.DisableReleaseRequest{Target: target, Actor: helmActor(r, key)}, time.Now().UTC())
+	value, replay, err := mutation(target, helmActor(r, key))
 	s.writeHelmMutation(w, r, value, replay, err)
 }
 
@@ -433,44 +172,44 @@ func (s *Server) helmRollback(w http.ResponseWriter, r *http.Request) {
 	if !decodeHelmRequest(w, r, &input) {
 		return
 	}
-	value, replay, err := s.helmApplications.Rollback(r.Context(), helmapps.RollbackReleaseRequest{
-		Target: target, Actor: helmActor(r, key), SourceRevisionID: strings.TrimSpace(input.SourceRevisionID)}, time.Now().UTC())
+	value, replay, err := s.helmApplications.Rollback(r.Context(), helmdirect.MutationRequest{Target: target,
+		Actor: helmActor(r, key), RollbackSourceID: strings.TrimSpace(input.SourceRevisionID)}, time.Now().UTC())
 	s.writeHelmMutation(w, r, value, replay, err)
 }
 
-func (s *Server) authorizedHelmTarget(w http.ResponseWriter, r *http.Request, permission domain.Permission) (helmapps.ReleaseTarget, domain.AccessTarget, bool) {
+func (s *Server) authorizedHelmTarget(w http.ResponseWriter, r *http.Request, permission domain.Permission) (helmdirect.Target, domain.AccessTarget, bool) {
 	applicationID, environmentID := strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("environmentId"))
 	if !validUUID(applicationID) || !validUUID(environmentID) {
 		mappedError(w, r, store.ErrNotFound)
-		return helmapps.ReleaseTarget{}, domain.AccessTarget{}, false
+		return helmdirect.Target{}, domain.AccessTarget{}, false
 	}
 	application, err := s.store.GetApplication(r.Context(), applicationID)
 	if err != nil {
 		mappedError(w, r, err)
-		return helmapps.ReleaseTarget{}, domain.AccessTarget{}, false
+		return helmdirect.Target{}, domain.AccessTarget{}, false
 	}
 	environment, err := s.store.GetEnvironment(r.Context(), environmentID)
-	if err != nil || application.ProjectID == "" || application.ProjectID != environment.ProjectID {
+	if err != nil || application.ProjectID == "" || application.ProjectID != environment.ProjectID || application.SourceKind != domain.ApplicationSourceHelm {
 		mappedError(w, r, store.ErrNotFound)
-		return helmapps.ReleaseTarget{}, domain.AccessTarget{}, false
+		return helmdirect.Target{}, domain.AccessTarget{}, false
 	}
 	project, err := s.store.GetProject(r.Context(), application.ProjectID)
 	if err != nil {
 		mappedError(w, r, err)
-		return helmapps.ReleaseTarget{}, domain.AccessTarget{}, false
+		return helmdirect.Target{}, domain.AccessTarget{}, false
 	}
 	accessTarget := domain.AccessTarget{Type: "application", ID: application.ID, TeamID: project.TeamID,
 		ProjectID: project.ID, EnvironmentID: environment.ID, Namespace: environment.Namespace, ApplicationID: application.ID}
 	if err = s.store.Authorize(r.Context(), currentUser(r.Context()).ID, permission, accessTarget); err != nil {
 		mappedError(w, r, err)
-		return helmapps.ReleaseTarget{}, domain.AccessTarget{}, false
+		return helmdirect.Target{}, domain.AccessTarget{}, false
 	}
-	return helmapps.ReleaseTarget{ProjectID: project.ID, EnvironmentID: environment.ID, ApplicationID: application.ID}, accessTarget, true
+	return helmdirect.Target{ProjectID: project.ID, EnvironmentID: environment.ID, ApplicationID: application.ID}, accessTarget, true
 }
 
 func (s *Server) helmConfigured(w http.ResponseWriter, r *http.Request) bool {
 	if s.helmApplications == nil {
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmApplicationsUnavailable", "Helm applications unavailable", "Approved external Helm applications are not configured.")
+		writeProblem(w, r, http.StatusServiceUnavailable, "HelmApplicationsUnavailable", "Helm Apps unavailable", "Direct Argo CD Helm App reconciliation is not configured.")
 		return false
 	}
 	return true
@@ -482,17 +221,17 @@ func (s *Server) helmMutationReady(w http.ResponseWriter, r *http.Request, rollb
 	}
 	capabilities, err := s.helmApplications.Capabilities(r.Context())
 	if err != nil || !capabilities.HelmDeployments || rollback && !capabilities.HelmRollbacks {
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRuntimeNotReady", "Helm runtime not ready", "The exact renderer, protected publisher, and Argo readiness fences are not all fresh.")
+		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRuntimeNotReady", "Helm Apps not ready", "Direct Argo CD Helm App reconciliation is unavailable.")
 		return false
 	}
 	return true
 }
 
-func helmActor(r *http.Request, key string) helmapps.ReleaseActor {
-	return helmapps.ReleaseActor{ID: currentUser(r.Context()).ID, IdempotencyKey: key, RequestID: requestID(r.Context())}
+func helmActor(r *http.Request, key string) helmdirect.Actor {
+	return helmdirect.Actor{ID: currentUser(r.Context()).ID, IdempotencyKey: key, RequestID: requestID(r.Context())}
 }
 
-func (s *Server) writeHelmMutation(w http.ResponseWriter, r *http.Request, value helmapps.ReleaseRevision, replay bool, err error) {
+func (s *Server) writeHelmMutation(w http.ResponseWriter, r *http.Request, value helmdirect.Revision, replay bool, err error) {
 	if err != nil {
 		writeHelmError(w, r, err)
 		return
@@ -565,21 +304,19 @@ func decodeHelmRequest(w http.ResponseWriter, r *http.Request, output any) bool 
 	return true
 }
 
-const MaximumHelmHTTPRequestBytes = helmapps.MaximumValuesSize + 16<<10
+const MaximumHelmHTTPRequestBytes = helmdirect.MaximumValuesBytes + 16<<10
 
 func writeHelmError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, helmapps.ErrNotFound):
-		writeProblem(w, r, http.StatusNotFound, "HelmReleaseNotFound", "Helm release not found", "The requested approved Helm release was not found.")
-	case errors.Is(err, helmapps.ErrConflict), errors.Is(err, helmapps.ErrLeaseLost):
-		writeProblem(w, r, http.StatusConflict, "HelmReleaseConflict", "Helm release conflict", "The desired release conflicts with the current immutable history or publication state.")
-	case errors.Is(err, helmapps.ErrInvalid), errors.Is(err, helmapps.ErrUnsafeYAML), errors.Is(err, helmapps.ErrUnsafeChart):
-		writeProblem(w, r, http.StatusUnprocessableEntity, "HelmValidationFailed", "Helm validation failed", "The approval, values.yaml, or requested transition violates the approved Helm contract.")
-	case errors.Is(err, helmapps.ErrUnavailable):
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRuntimeNotReady", "Helm runtime not ready", "The approved Helm runtime is unavailable.")
-	case errors.Is(err, helmapps.ErrOCIUnauthorized), errors.Is(err, helmapps.ErrOCIUnavailable):
-		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRegistryUnavailable", "Helm registry unavailable", "The approved OCI registry or its operator-owned credentials are unavailable.")
+	case errors.Is(err, helmdirect.ErrNotFound):
+		writeProblem(w, r, http.StatusNotFound, "HelmAppNotFound", "Helm App not found", "The requested Helm App was not found.")
+	case errors.Is(err, helmdirect.ErrConflict):
+		writeProblem(w, r, http.StatusConflict, "HelmAppConflict", "Helm App conflict", "The requested change conflicts with current Helm App history.")
+	case errors.Is(err, helmdirect.ErrInvalid):
+		writeProblem(w, r, http.StatusUnprocessableEntity, "HelmValidationFailed", "Helm validation failed", "The source, revision, chart path, credential selection, or values YAML is invalid.")
+	case errors.Is(err, helmdirect.ErrUnavailable):
+		writeProblem(w, r, http.StatusServiceUnavailable, "HelmRuntimeNotReady", "Helm Apps not ready", "Direct Argo CD Helm App reconciliation is unavailable.")
 	default:
-		writeProblem(w, r, http.StatusInternalServerError, "HelmPersistenceFailed", "Helm request failed", "The approved Helm request could not be completed.")
+		writeProblem(w, r, http.StatusInternalServerError, "HelmPersistenceFailed", "Helm request failed", "The Helm App request could not be completed.")
 	}
 }

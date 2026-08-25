@@ -313,7 +313,6 @@ describe("app-centric routes", () => {
       ],
       ["/settings/releases", "/settings/releases"],
       ["/settings/argo-git", "/settings/argo-git"],
-      ["/settings/helm-approvals", "/settings/helm-approvals"],
       ["/settings/middleware-profiles", "/settings/middleware-profiles"],
       ["/settings/certificate-issuers", "/settings/certificate-issuers"],
     ];

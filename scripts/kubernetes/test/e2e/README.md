@@ -16,7 +16,7 @@ also fails.
 | `10-one-chart-install` | One installer entrypoint, independent Applications, immutable source and package digests |
 | `20-postgresql-valkey` | PostgreSQL restart durability plus exact managed-Valkey PVC dataset deletion, durable outbox reconstruction, exactly-once operation convergence, and Deployment restoration |
 | `30-git-argo` | Direct projection, protected PR, and a new rollback intent |
-| `40-source-build` | Signed/deduplicated delivery, safety-poll mode, isolated credential lanes, live build cancellation with exact Job deletion and successful retry, actual second-build cache hit, cache-only cold degradation, terminal push-only failure, durable auto-deploy receipt, immutable promotion, and approved Helm OCI |
+| `40-source-build` | Signed/deduplicated delivery, safety-poll mode, isolated credential lanes, live build cancellation with exact Job deletion and successful retry, actual second-build cache hit, cache-only cold degradation, terminal push-only failure, durable auto-deploy receipt, immutable promotion, and direct Argo CD Helm OCI |
 | `50-runtime-edge` | Middleware attachment through AppConfig plus the exact HTTP hostname/path |
 | `60-local-tls` | Custom certificate plus local ACME issue and renewal without a public ACME request |
 | `70-registry-retention` | One execution that preserves protected entries and removes eligible entries |

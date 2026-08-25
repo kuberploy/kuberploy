@@ -823,9 +823,6 @@ for kp_argo_desired_mutation in \
 done
 
 yq '.config.helmApplications.enabled = true |
-    .config.helmApplications.rendererNamespace = "kuberploy-helm-renderer" |
-    .config.helmApplications.ociRegistryHosts = ["ghcr.io"] |
-    .config.helmApplications.ociAuthHosts = ["ghcr.io"] |
     .builder.controllerServiceAccount.name = "helm-applications-worker"' \
   "${kp_tmp}/argo-desired-state-values.yaml" > "${kp_tmp}/helm-applications-values.yaml"
 helm template helm-applications "${kp_root}/charts/kuberploy" \
@@ -837,94 +834,32 @@ helm template helm-applications "${kp_root}/charts/kuberploy" \
 diff -u "${kp_tmp}/helm-applications.yaml" "${kp_tmp}/helm-applications-again.yaml"
 yq eval-all 'true' "${kp_tmp}/helm-applications.yaml" >/dev/null
 
-[[ "$(yq eval-all 'select(.kind == "Namespace" and .metadata.name == "kuberploy-helm-renderer") | [.metadata.labels."app.kubernetes.io/component",.metadata.labels."pod-security.kubernetes.io/enforce"] | join(",")' "${kp_tmp}/helm-applications.yaml")" == "helm-renderer,restricted" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | [.data.KUBERPLOY_HELM_APPLICATIONS_ENABLED,.data.KUBERPLOY_HELM_RENDERER_NAMESPACE,.data.KUBERPLOY_HELM_RENDERER_SERVICE_ACCOUNT,.data.KUBERPLOY_HELM_RENDERER_POLL_MILLISECONDS,.data.KUBERPLOY_HELM_WORK_POLL_MILLISECONDS,.data.KUBERPLOY_HELM_RENDER_LEASE_SECONDS,.data.KUBERPLOY_HELM_PUBLISH_LEASE_SECONDS,.data.KUBERPLOY_HELM_READINESS_LEASE_SECONDS,.data.KUBERPLOY_HELM_OCI_REQUEST_SECONDS,.data.KUBERPLOY_HELM_OCI_REGISTRY_HOSTS,.data.KUBERPLOY_HELM_OCI_AUTH_HOSTS,.data.KUBERPLOY_HELM_OCI_REDIRECT_HOSTS,.data.KUBERPLOY_HELM_ARGO_NAMESPACE] | join(",")' "${kp_tmp}/helm-applications.yaml")" == "true,kuberploy-helm-renderer,helm-applications-helm-renderer,250,1000,60,90,30,15,ghcr.io,ghcr.io,pkg-containers.githubusercontent.com,kuberploy-e2e-render" ]]
-[[ "$(yq eval-all -o=json 'select(.kind == "ConfigMap" and .data.KUBERPLOY_HELM_PACKAGE_CACHE_BYTES != null)' "${kp_tmp}/helm-applications.yaml" | jq -r '.data.KUBERPLOY_HELM_PACKAGE_CACHE_BYTES')" == "67108864" ]]
-for kp_component in api worker; do
-  [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.containers[0].env[] | select(.name | test("^KUBERPLOY_HELM_"))] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "14" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_HELM_APPLICATIONS_ENABLED' "${kp_tmp}/helm-applications.yaml")" == "true" ]]
+for kp_component in api worker web; do
+  kp_expected_helm_env=0
+  [[ "${kp_component}" == api || "${kp_component}" == worker ]] && kp_expected_helm_env=1
+  [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_HELM_APPLICATIONS_ENABLED")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "${kp_expected_helm_env}" ]]
 done
-[[ "$(yq eval-all 'select(.kind == "ServiceAccount" and .metadata.labels."app.kubernetes.io/component" == "helm-renderer") | .metadata.namespace + "," + .metadata.name + "," + (.automountServiceAccountToken | tostring)' "${kp_tmp}/helm-applications.yaml")" == "kuberploy-helm-renderer,helm-applications-helm-renderer,false" ]]
-[[ "$(yq eval-all 'select(.kind == "Role" and (.metadata.name | test("-helm-renderer$"))) | .metadata.namespace' "${kp_tmp}/helm-applications.yaml")" == "kuberploy-helm-renderer" ]]
-[[ "$(yq eval-all '[select(.kind == "Role" and (.metadata.name | test("-helm-renderer$"))) | .rules[] | select(.resources[] == "secrets" or .verbs[] == "patch" or .verbs[] == "update")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all -o=json -I=0 'select(.kind == "RoleBinding" and (.metadata.name | test("-helm-renderer$"))) | .subjects' "${kp_tmp}/helm-applications.yaml")" == '[{"kind":"ServiceAccount","name":"helm-applications-worker","namespace":"kuberploy-e2e-render"}]' ]]
-[[ "$(yq eval-all -o=json 'select(.kind == "NetworkPolicy" and (.metadata.name | test("-helm-renderer-default-deny$")))' "${kp_tmp}/helm-applications.yaml" | jq '.metadata.namespace == "kuberploy-helm-renderer" and ([.spec.ingress[]?] | length) == 0 and ([.spec.egress[]?] | length) == 0')" == "true" ]]
-
-yq '.config.helmApplications.ociRegistryHosts = ["ghcr.io","registry.example.test:5443"] |
-    .config.helmApplications.ociAuthHosts = ["ghcr.io","registry.example.test:5443"] |
-    .builder.controllerServiceAccount.name = "helm-private-oci-worker" |
-    .config.helmApplications.ociCredentialProfiles = [
-      {"registryHost":"ghcr.io","authHost":"ghcr.io","name":"ghcr-private","mode":"basic","secretRef":{"name":"helm-ghcr","usernameKey":"username","passwordKey":"password","tokenKey":""}},
-      {"registryHost":"registry.example.test:5443","authHost":"registry.example.test:5443","name":"registry-private","mode":"bearer","secretRef":{"name":"helm-registry","usernameKey":"","passwordKey":"","tokenKey":"token"}}
-    ]' "${kp_tmp}/helm-applications-values.yaml" > "${kp_tmp}/helm-private-oci-values.yaml"
-helm template helm-private-oci "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
-  -f "${kp_tmp}/helm-private-oci-values.yaml" > "${kp_tmp}/helm-private-oci.yaml"
-kp_helm_oci_profiles="$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON' "${kp_tmp}/helm-private-oci.yaml")"
-jq -e 'length == 2 and .[0].registryHost == "ghcr.io" and .[0].authHost == "ghcr.io" and .[0].name == "ghcr-private" and .[0].mode == "basic" and (.[0].projectionDigest | test("^sha256:[a-f0-9]{64}$")) and .[1].mode == "bearer" and (.[1].projectionDigest | test("^sha256:[a-f0-9]{64}$"))' <<<"${kp_helm_oci_profiles}" >/dev/null
-[[ "${kp_helm_oci_profiles}" != *"helm-ghcr"* && "${kp_helm_oci_profiles}" != *"usernameKey"* && "${kp_helm_oci_profiles}" != *"tokenKey"* ]]
-for kp_component in api worker; do
-  [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.containers[0].volumeMounts[] | select(.name == "helm-oci-credentials" and .mountPath == "/var/run/secrets/kuberploy/helm-oci" and .readOnly == true)] | length' "${kp_tmp}/helm-private-oci.yaml" | tail -1)" == "1" ]]
-  [[ "$(kp_component="${kp_component}" yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.volumes[] | select(.name == "helm-oci-credentials") | .projected.defaultMode' "${kp_tmp}/helm-private-oci.yaml")" == "288" ]]
-  [[ "$(kp_component="${kp_component}" yq eval-all 'select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.template.spec.volumes[] | select(.name == "helm-oci-credentials") | [.projected.sources[] | .secret.name + ":" + ([.secret.items[] | .key + "=" + .path] | join(";"))] | join(",")' "${kp_tmp}/helm-private-oci.yaml")" == "helm-ghcr:username=ghcr-private/username;password=ghcr-private/password,helm-registry:token=registry-private/token" ]]
-done
-[[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "web") | .spec.template.spec.volumes[]? | select(.name == "helm-oci-credentials")] | length' "${kp_tmp}/helm-private-oci.yaml" | tail -1)" == "0" ]]
-[[ "$(yq eval-all '[select((.kind == "Role" or .kind == "ClusterRole") and (.metadata.name | test("helm-oci")))] | length' "${kp_tmp}/helm-private-oci.yaml" | tail -1)" == "0" ]]
-for kp_component in api worker; do
-  [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.egress[] | select(.ports[]?.port == 443)] | length > 0' "${kp_tmp}/helm-private-oci.yaml" | tail -1)" == "true" ]]
-  [[ "$(kp_component="${kp_component}" yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.labels."app.kubernetes.io/component" == strenv(kp_component)) | .spec.egress[] | select(.ports[]?.port == 5443)] | length' "${kp_tmp}/helm-private-oci.yaml" | tail -1)" == "1" ]]
-done
-kp_helm_private_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/helm-private-oci.yaml")"
-kp_helm_public_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/helm-applications.yaml")"
-[[ "${kp_helm_private_config_name}" != "${kp_helm_public_config_name}" ]] || { printf 'Helm OCI credential projection identity did not change immutable config\n' >&2; exit 1; }
-
-yq '.config.helmApplications.ociRedirectHosts = ["cdn.example.test"]' "${kp_tmp}/helm-applications-values.yaml" > "${kp_tmp}/helm-redirect-values.yaml"
-helm template helm-applications "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
-  -f "${kp_tmp}/helm-redirect-values.yaml" > "${kp_tmp}/helm-redirect.yaml"
-[[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_HELM_OCI_REDIRECT_HOSTS' "${kp_tmp}/helm-redirect.yaml")" == "cdn.example.test,pkg-containers.githubusercontent.com" ]]
-kp_helm_redirect_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/helm-redirect.yaml")"
-[[ "${kp_helm_redirect_config_name}" != "${kp_helm_public_config_name}" ]] || { printf 'Helm OCI redirect policy did not change immutable config\n' >&2; exit 1; }
-
-yq '.config.helmApplications.workPollMilliseconds = 1100' "${kp_tmp}/helm-applications-values.yaml" > "${kp_tmp}/helm-applications-changed-values.yaml"
-helm template helm-applications "${kp_root}/charts/kuberploy" --namespace kuberploy-e2e-render \
-  -f "${kp_tmp}/helm-applications-changed-values.yaml" > "${kp_tmp}/helm-applications-changed.yaml"
-kp_helm_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/helm-applications.yaml")"
-kp_helm_changed_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/helm-applications-changed.yaml")"
-[[ "${kp_helm_config_name}" != "${kp_helm_changed_config_name}" ]] || { printf 'Helm operator config mutation did not produce a new immutable ConfigMap name\n' >&2; exit 1; }
+[[ "$(yq eval-all '[select(.kind == "Namespace" and .metadata.name == "kuberploy-helm-renderer")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "ServiceAccount" and .metadata.labels."app.kubernetes.io/component" == "helm-renderer")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "0" ]]
+[[ "$(yq eval-all '[select(.kind == "Role" and .metadata.name == "helm-applications-helm-applications") | .rules[] | select(.apiGroups[0] == "argoproj.io" and .resources[0] == "applications" and (.verbs | contains(["get", "create", "patch", "delete"])))] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "RoleBinding" and .metadata.name == "helm-applications-helm-applications") | .subjects[] | select(.name == "helm-applications-api" and .namespace == "kuberploy-e2e-render")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-helm-applications-"))) | .spec.matchConstraints.resourceRules[] | select(.resources[0] == "applications")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
 
 for kp_helm_mutation in \
-  '.config.helmApplications.rendererNamespace = "kuberploy-e2e-render"' \
-  '.config.helmApplications.ociRegistryHosts = []' \
-  '.config.helmApplications.ociAuthHosts = ["ghcr.io","ghcr.io"]' \
-  '.config.helmApplications.ociRedirectHosts = ["cdn.example.test","cdn.example.test"]' \
-  '.config.helmApplications.ociRedirectHosts = ["https://cdn.example.test/path?query=1"]' \
-  '.config.helmApplications.ociRegistryHosts = ["ghcr.io:65536"]' \
-  '.config.helmApplications.ociRegistryHosts = ["bad..example.test"]' \
-  '.config.helmApplications.renderLeaseSeconds = 30' \
-  '.config.helmApplications.workPollMilliseconds = 30000 | .config.helmApplications.readinessLeaseSeconds = 30' \
-  '.config.helmApplications.packageCacheBytes = 1024' \
-  '.config.helmApplications.attackerCredentialSecret = "caller-secret"' \
-  '.config.helmApplications.ociCredentialProfiles = [{"registryHost":"unknown.example.test","authHost":"ghcr.io","name":"private","mode":"basic","secretRef":{"name":"helm-private","usernameKey":"username","passwordKey":"password","tokenKey":""}}]' \
-  '.config.helmApplications.ociCredentialProfiles = [{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"same","mode":"basic","secretRef":{"name":"one","usernameKey":"username","passwordKey":"password","tokenKey":""}},{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"same","mode":"bearer","secretRef":{"name":"two","usernameKey":"","passwordKey":"","tokenKey":"token"}}]' \
-  '.config.helmApplications.ociRegistryHosts = ["ghcr.io","registry.example.test"] | .config.helmApplications.ociAuthHosts = ["ghcr.io","registry.example.test"] | .config.helmApplications.ociCredentialProfiles = [{"registryHost":"registry.example.test","authHost":"registry.example.test","name":"second","mode":"bearer","secretRef":{"name":"two","usernameKey":"","passwordKey":"","tokenKey":"token"}},{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"first","mode":"basic","secretRef":{"name":"one","usernameKey":"username","passwordKey":"password","tokenKey":""}}]' \
-  '.config.helmApplications.ociRegistryHosts = ["ghcr.io","registry.example.test"] | .config.helmApplications.ociAuthHosts = ["ghcr.io","registry.example.test"] | .config.helmApplications.ociCredentialProfiles = [{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"same","mode":"basic","secretRef":{"name":"one","usernameKey":"username","passwordKey":"password","tokenKey":""}},{"registryHost":"registry.example.test","authHost":"registry.example.test","name":"same","mode":"bearer","secretRef":{"name":"two","usernameKey":"","passwordKey":"","tokenKey":"token"}}]' \
-  '.config.helmApplications.ociCredentialProfiles = [{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"private","mode":"basic","secretRef":{"name":"helm-private","usernameKey":"username","passwordKey":"password","tokenKey":"token"}}]' \
-  '.config.helmApplications.ociCredentialProfiles = [{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"private","mode":"bearer","secretRef":{"name":"helm-private","usernameKey":"","passwordKey":"","tokenKey":"../token"}}]' \
-  '.config.helmApplications.ociCredentialProfiles = [{"registryHost":"ghcr.io","authHost":"ghcr.io","name":"private","mode":"bearer","secretRef":{"name":"helm-private","usernameKey":"","passwordKey":"","tokenKey":"token"},"callerCredential":"bad"}]' \
-  '.config.gitProjection.enabled = false' \
-  '.config.argoDesiredState.enabled = false' \
-  '.config.environmentFoundation.enabled = false' \
-  '.networkPolicy.externalEgressCIDRs = ["10.0.0.0/7"]' \
-  '.networkPolicy.kubeAPIServerCIDRs = ["10.43.0.0/24"]' \
-  '.config.helmApplications.ociRegistryHosts = []'; do
+  '.config.helmApplications.rendererNamespace = "attacker"' \
+  '.config.helmApplications.ociRegistryHosts = ["ghcr.io"]' \
+  '.config.argoDesiredState.enabled = false'; do
   yq "${kp_helm_mutation}" "${kp_tmp}/helm-applications-values.yaml" > "${kp_tmp}/helm-applications-invalid.yaml"
   if helm template invalid-helm-applications "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/helm-applications-invalid.yaml" >/dev/null 2>&1; then
-    printf 'platform chart accepted invalid approved Helm application settings: %s\n' "${kp_helm_mutation}" >&2
+    printf 'platform chart accepted invalid direct Helm App settings: %s\n' "${kp_helm_mutation}" >&2
     exit 1
   fi
   if helm template invalid-helm-applications "${kp_root}/charts/kuberploy" \
     --namespace kuberploy-e2e-render -f "${kp_tmp}/helm-applications-invalid.yaml" \
     --skip-schema-validation >/dev/null 2>&1; then
-    printf 'approved Helm template accepted invalid settings with schema validation bypassed: %s\n' "${kp_helm_mutation}" >&2
+    printf 'direct Helm App template accepted invalid settings with schema validation bypassed: %s\n' "${kp_helm_mutation}" >&2
     exit 1
   fi
 done

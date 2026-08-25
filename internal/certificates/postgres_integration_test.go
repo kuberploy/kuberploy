@@ -171,7 +171,7 @@ func TestPostgreSQLCertificateAttestationContract(t *testing.T) {
 	}
 	observationNow := testNow.Add(3 * time.Minute)
 	workerID := "certificate-observer:" + suffix
-	work, err := certificateStore.ClaimCertificateObservation(ctx, identity, workerID, observationConfig.Namespaces,
+	work, err := certificateStore.ClaimCertificateObservation(ctx, identity, workerID, observationConfig.Namespaces, observationConfig.NamespacePrefixes,
 		observationNow, observationConfig.WorkLease)
 	if err != nil || work.Validate() != nil || work.Binding.ID != created.Binding.ID || work.SecretVersion.ID != created.Version.ID {
 		t.Fatalf("observation work=%#v err=%v", work, err)

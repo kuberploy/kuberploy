@@ -91,6 +91,7 @@ config:
   runtimeSecrets:
     enabled: false
     namespaces: []
+    namespacePrefixes: []
     fingerprintKeyID: runtime-secrets-hmac-v1
     fingerprintSecret:
       name: ""
@@ -202,26 +203,10 @@ config:
     runtimeChartDigest: ""
     pollIntervalSeconds: 1
     catalogMaxAgeSeconds: 900
-  # Approved external Helm applications render offline in a dedicated
-  # namespace through a tokenless ServiceAccount and per-Job deny-all policy.
+  # Helm Apps are represented directly as Argo CD Applications. Argo resolves
+  # Git, classic Helm repository, and OCI chart sources and applies values.
   helmApplications:
     enabled: false
-    rendererNamespace: ""
-    rendererPollMilliseconds: 250
-    workPollMilliseconds: 1000
-    renderLeaseSeconds: 60
-    publishLeaseSeconds: 90
-    readinessLeaseSeconds: 30
-    ociRequestSeconds: 15
-    ociRegistryHosts: []
-    ociAuthHosts: []
-    # Exact HTTPS hosts allowed for one immutable chart-blob redirect. GHCR's
-    # CDN host is added automatically only when ghcr.io is configured.
-    ociRedirectHosts: []
-    # Optional operator-owned host profiles. Secret names/keys are projected
-    # into API and worker only; callers and renderer Jobs never receive them.
-    ociCredentialProfiles: []
-    packageCacheBytes: 67108864
   # One operator-owned Distribution registry may be reconciled by the worker.
   # External registry targets remain observation-only and are never eligible
   # for manifest deletion or offline garbage collection.

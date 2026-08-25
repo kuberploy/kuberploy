@@ -15,7 +15,7 @@ kp_qualification_stage_catalog() {
 20-postgresql-valkey|true|postgresql-durable,reset-recovery,multi-scope-grants,service-account-token-lifecycle
 25-config-edge|true|variables-inherited-configmap,guided-yaml-rendered-diff,direct-scheduling-podspec,sslip-canonical-public-ip,external-dns-rfc2136
 30-git-argo|true|git-direct-projection,git-protected-pr,rollback-new-intent
-40-source-build|true|github-webhook-delivery,webhook-safety-poll,build-job-isolation,build-cancel-job-deleted,second-build-cache-hit,cache-cold-degrade,push-failure-terminal,auto-deploy-receipt,source-build-digest-promotion,approved-helm-oci
+40-source-build|true|github-webhook-delivery,webhook-safety-poll,build-job-isolation,build-cancel-job-deleted,second-build-cache-hit,cache-cold-degrade,push-failure-terminal,auto-deploy-receipt,source-build-digest-promotion,direct-helm-oci
 50-runtime-edge|true|middleware,http-route
 60-local-tls|true|custom-certificate,local-acme-certificate,local-acme-renewal,no-public-acme
 70-registry-retention|true|existing-image-tag-resolution,retention-removes-only-eligible
@@ -219,7 +219,7 @@ kp_qualification_expected_probe() {
     installer-single-entrypoint) printf '%s\n' helm-install ;;
     browser-ui-workflow) printf '%s\n' browser-proof ;;
     independent-applications-created|immutable-source-revision|package-digests-attested|bootstrap-job-auth|recurring-login|invitation-login|sole-owner-denial|github-installation-sharing|contract-identities) printf '%s\n' installer-proof ;;
-    postgresql-durable|reset-recovery|multi-scope-grants|service-account-token-lifecycle|variables-inherited-configmap|guided-yaml-rendered-diff|direct-scheduling-podspec|sslip-canonical-public-ip|external-dns-rfc2136|git-direct-projection|git-protected-pr|argo-synced-healthy|rollback-new-intent|rollback-immutable-input|github-webhook-delivery|webhook-safety-poll|build-job-isolation|build-cancel-job-deleted|second-build-cache-hit|cache-cold-degrade|push-failure-terminal|auto-deploy-receipt|source-build-digest-promotion|approved-helm-oci|runtime-chart|traefik-route|middleware|local-acme-certificate|local-acme-renewal|no-public-acme|current-protected|rollback-set-protected|existing-image-tag-resolution|retention-removes-only-eligible|logs-authorized|events-authorized|prometheus-query|tenant-filtered|namespace-rbac|admission-deny|resource-quota|network-isolation|secret-nondisclosure|cross-tenant-deny|audit-timeline|ordered-upgrade|health-gate|rollback-intent|rollback-result) printf '%s\n' workflow-proof ;;
+    postgresql-durable|reset-recovery|multi-scope-grants|service-account-token-lifecycle|variables-inherited-configmap|guided-yaml-rendered-diff|direct-scheduling-podspec|sslip-canonical-public-ip|external-dns-rfc2136|git-direct-projection|git-protected-pr|argo-synced-healthy|rollback-new-intent|rollback-immutable-input|github-webhook-delivery|webhook-safety-poll|build-job-isolation|build-cancel-job-deleted|second-build-cache-hit|cache-cold-degrade|push-failure-terminal|auto-deploy-receipt|source-build-digest-promotion|direct-helm-oci|runtime-chart|traefik-route|middleware|local-acme-certificate|local-acme-renewal|no-public-acme|current-protected|rollback-set-protected|existing-image-tag-resolution|retention-removes-only-eligible|logs-authorized|events-authorized|prometheus-query|tenant-filtered|namespace-rbac|admission-deny|resource-quota|network-isolation|secret-nondisclosure|cross-tenant-deny|audit-timeline|ordered-upgrade|health-gate|rollback-intent|rollback-result) printf '%s\n' workflow-proof ;;
     http-route) printf '%s\n' http ;;
     custom-certificate|public-acme) printf '%s\n' tls ;;
     public-dns|public-hostname-resolves) printf '%s\n' dns ;;
@@ -311,9 +311,12 @@ kp_qualification_validate_scenario() {
       else (.workflow.sourceBuild.builderPool.nodeSelector | length == 0) end)
     and (.workflow.sourceBuild.definition | type == "object")
     and (.workflow.sourceBuild.promotion | type == "object")
-    and ((.workflow.helm | keys | sort) == ["approvalId","approvalRevision","valuesYaml"])
-    and (.workflow.helm.approvalId | type == "string" and test("^[a-f0-9-]{36}$"))
-    and (.workflow.helm.approvalRevision | type == "number" and floor == . and . >= 1)
+    and ((.workflow.helm | keys | sort) == ["source","valuesYaml"])
+    and ((.workflow.helm.source | keys | sort) == ["chart","kind","repositoryUrl","targetRevision"])
+    and (.workflow.helm.source.kind == "oci")
+    and (.workflow.helm.source.repositoryUrl | type == "string" and length > 0)
+    and (.workflow.helm.source.chart | type == "string" and length > 0)
+    and (.workflow.helm.source.targetRevision | type == "string" and length > 0)
     and (.workflow.helm.valuesYaml | type == "string" and length > 0 and length <= 262144)
     and (.workflow.registryCleanup.targetId | type == "string" and test("^[a-f0-9-]{36}$"))
     and ((.workflow.upgrade | keys | sort) == ["sourceVersion","targetVersion"])
@@ -503,13 +506,13 @@ kp_qualification_validate_semantic_proof() {
           "buildCancellationRetrySucceeded","buildDefinitionId","buildPromotionOperationId",
           "cacheColdDegradedPushSucceeded","cacheDegradedBuildId","cacheHitBuildId","cancelRetryBuildId",
           "cancelledBuildId","credentialValuesExcluded","duplicateDeliveryDeduplicated",
-          "durableDeliveryPollingConverged","helmApplicationRevision","helmArgoSyncedHealthy",
-          "helmReleaseId","helmRenderedPreviewSanitized","invalidWebhookRejected",
+          "durableDeliveryPollingConverged","helmApplicationId","helmArgoSyncedHealthy",
+          "helmReleaseId","helmTargetRevision","helmValuesForwarded","invalidWebhookRejected",
           "liveBuildJobCredentialSplit","mutation","pushFailureBuildId",
           "pushFailureTerminal","safetyPollRetained","secondBuildCacheHit","signedWebhookAccepted",
           "successfulBuildId","webhookWakeDisabled"] and
-        .mutation == "github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-approved-helm" and
-        all(.successfulBuildId,.buildDefinitionId,.buildPromotionOperationId,.helmReleaseId,
+        .mutation == "github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-direct-helm" and
+        all(.successfulBuildId,.buildDefinitionId,.buildPromotionOperationId,.helmApplicationId,.helmReleaseId,
           .autoDeployPolicyId,.autoDeployOperationId,.autoDeployDeploymentId,.cacheHitBuildId,.cacheDegradedBuildId,
           .pushFailureBuildId,.cancelledBuildId,.cancelRetryBuildId; test($uuid)) and
         .signedWebhookAccepted == true and .invalidWebhookRejected == true and
@@ -520,8 +523,8 @@ kp_qualification_validate_semantic_proof() {
         .autoDeployReceiptSubmitted == true and .credentialValuesExcluded == true and
         .buildCancellationAccepted == true and .buildCancellationJobDeleted == true and
         .buildCancellationRetrySucceeded == true and .cancelRetryBuildId == .cacheHitBuildId and
-        (.helmApplicationRevision | test("^[a-f0-9]{40}$")) and
-        .helmRenderedPreviewSanitized == true and .helmArgoSyncedHealthy == true
+        (.helmTargetRevision | type == "string" and length > 0) and
+        .helmValuesForwarded == true and .helmArgoSyncedHealthy == true
       ' "${kp_proof}" >/dev/null ;;
     50-runtime-edge)
       jq -e --arg uuid "${kp_uuid}" --arg hostname "${KUBERPLOY_E2E_HTTP_HOSTNAME}" '

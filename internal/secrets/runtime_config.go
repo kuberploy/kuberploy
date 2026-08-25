@@ -10,6 +10,7 @@ import (
 const (
 	RuntimeSecretsEnabledEnv                    = "KUBERPLOY_RUNTIME_SECRETS_ENABLED"
 	RuntimeSecretNamespacesEnv                  = "KUBERPLOY_RUNTIME_SECRET_NAMESPACES"
+	RuntimeSecretNamespacePrefixesEnv           = "KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES"
 	RuntimeSecretFingerprintSecretRefEnv        = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF"
 	RuntimeSecretFingerprintSecretKeyEnv        = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY"
 	RuntimeSecretFingerprintKeyIDEnv            = "KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID"
@@ -44,13 +45,15 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 
-	namespaceValue, ok := exactRuntimeSecretEnv(lookup, RuntimeSecretNamespacesEnv, true)
-	if !ok {
-		return RuntimeConfig{}, ErrRuntimeUnavailable
-	}
-	namespaces := strings.Split(namespaceValue, ",")
+	namespaceValue, _ := exactRuntimeSecretEnv(lookup, RuntimeSecretNamespacesEnv, false)
+	namespaces := splitOptionalRuntimeList(namespaceValue)
 	normalized, err := NormalizeRuntimeNamespaces(namespaces)
 	if err != nil {
+		return RuntimeConfig{}, ErrRuntimeUnavailable
+	}
+	prefixValue, _ := exactRuntimeSecretEnv(lookup, RuntimeSecretNamespacePrefixesEnv, false)
+	prefixes, err := NormalizeRuntimeNamespacePrefixes(splitOptionalRuntimeList(prefixValue))
+	if err != nil || len(normalized)+len(prefixes) == 0 {
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 	fingerprintRef, ok := exactRuntimeSecretEnv(lookup, RuntimeSecretFingerprintSecretRefEnv, true)
@@ -77,6 +80,7 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 	config := DefaultRuntimeConfig()
 	config.Enabled = true
 	config.Namespaces = normalized
+	config.NamespacePrefixes = prefixes
 	config.FingerprintSecretRef = fingerprintRef
 	config.FingerprintSecretKey = fingerprintSecretKey
 	config.FingerprintKeyID = fingerprintKeyID
@@ -107,6 +111,13 @@ func RuntimeConfigFromLookup(lookup func(string) (string, bool)) (RuntimeConfig,
 		return RuntimeConfig{}, ErrRuntimeUnavailable
 	}
 	return config, nil
+}
+
+func splitOptionalRuntimeList(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return strings.Split(value, ",")
 }
 
 func exactRuntimeSecretEnv(lookup func(string) (string, bool), name string, required bool) (string, bool) {

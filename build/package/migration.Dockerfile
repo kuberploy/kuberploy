@@ -11,6 +11,7 @@ COPY migrations/prisma.config.ts ./prisma.config.ts
 COPY migrations/check-schema-drift.mjs ./check-schema-drift.mjs
 COPY migrations/run.mjs ./run.mjs
 COPY migrations/prisma ./prisma
+RUN chmod -R a+rX /opt/kuberploy/migrations
 
 ARG VERSION=dev
 ARG REVISION=unknown

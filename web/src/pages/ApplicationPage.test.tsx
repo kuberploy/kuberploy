@@ -398,50 +398,6 @@ describe("application custom-certificate navigation", () => {
   });
 });
 
-describe("application approved-Helm navigation", () => {
-  it("hides Helm when readiness is false or only broad actions exist", async () => {
-    const helmApprovals = vi.spyOn(api, "helmApprovals");
-    const queryClient = renderApplication({
-      actions: ["helm.read"],
-      features: { helmDeployments: false },
-      capabilities: [],
-    });
-    await waitFor(() =>
-      expect(queryClient.getQueryData(["capabilities"])).toBeDefined(),
-    );
-    expect(
-      screen.queryByRole("button", { name: "Helm" }),
-    ).not.toBeInTheDocument();
-    expect(helmApprovals).not.toHaveBeenCalled();
-  });
-
-  it("opens the exact deployment environment panel after a scoped read grant", async () => {
-    const user = userEvent.setup();
-    vi.spyOn(api, "helmApprovals").mockResolvedValue({ items: [] });
-    vi.spyOn(api, "helmRelease").mockRejectedValue(
-      Object.assign(new Error("missing"), { status: 404 }),
-    );
-    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({ items: [] });
-    renderApplication({
-      features: { helmDeployments: true, helmRollbacks: true },
-      capabilities: [
-        {
-          scopeType: "environment",
-          scopeId: "environment-production",
-          actions: ["helm.read"],
-        },
-      ],
-    });
-    await user.click(await screen.findByRole("button", { name: "Helm" }));
-    expect(await screen.findByText("No approved Helm charts")).toBeVisible();
-    expect(api.helmApprovals).toHaveBeenCalledWith(
-      "application-payments",
-      "environment-production",
-      50,
-    );
-  });
-});
-
 describe("application registry navigation", () => {
   it("hides artifacts while the registry feature is false", async () => {
     const queryClient = renderApplication({

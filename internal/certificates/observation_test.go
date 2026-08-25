@@ -119,15 +119,15 @@ func TestObservationMemoryStoreFencesLeasesResultsAndFreshReadiness(t *testing.T
 	if err := store.UpsertActiveCertificate(binding, secretVersion, attestation, now); err != nil {
 		t.Fatal(err)
 	}
-	first, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerOne, config.Namespaces, now, config.WorkLease)
+	first, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerOne, config.Namespaces, config.NamespacePrefixes, now, config.WorkLease)
 	if err != nil || first.Validate() != nil {
 		t.Fatalf("first=%#v err=%v", first, err)
 	}
-	if _, err = store.ClaimCertificateObservation(t.Context(), identity, observationWorkerTwo, config.Namespaces, now.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimCertificateObservation(t.Context(), identity, observationWorkerTwo, config.Namespaces, config.NamespacePrefixes, now.Add(time.Second), config.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("active lease was stolen: %v", err)
 	}
 	reclaimedAt := first.Lease.Until.Add(time.Millisecond)
-	second, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerTwo, config.Namespaces, reclaimedAt, config.WorkLease)
+	second, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerTwo, config.Namespaces, config.NamespacePrefixes, reclaimedAt, config.WorkLease)
 	if err != nil || second.Lease.Epoch != first.Lease.Epoch+1 {
 		t.Fatalf("second=%#v err=%v", second, err)
 	}
@@ -159,7 +159,7 @@ func TestObservationMemoryStoreFencesLeasesResultsAndFreshReadiness(t *testing.T
 	}
 
 	due := readyAt.Add(config.PollInterval)
-	work, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerOne, config.Namespaces, due, config.WorkLease)
+	work, err := store.ClaimCertificateObservation(t.Context(), identity, observationWorkerOne, config.Namespaces, config.NamespacePrefixes, due, config.WorkLease)
 	if err != nil {
 		t.Fatal(err)
 	}

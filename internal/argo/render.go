@@ -130,32 +130,16 @@ func RenderAppProjectAuthority(authority AppProjectAuthority) ([]byte, error) {
 	if authority.Validate() != nil {
 		return nil, ErrInvalid
 	}
-	gitRemote, err := authority.EnvironmentRepository.CanonicalRemote()
-	if err != nil {
-		return nil, err
-	}
-	platformRemote, err := authority.PlatformRepository.CanonicalRemote()
-	if err != nil {
-		return nil, err
-	}
 	manifest := appProjectManifest{typeMeta: typeMeta{"argoproj.io/v1alpha1", "AppProject"}, Metadata: objectMeta{Name: authority.ArgoProject, Namespace: authority.ArgoNamespace,
 		Labels: map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/project-id": authority.ProjectID, "kuberploy.io/environment-id": authority.EnvironmentID},
 		Annotations: map[string]string{"argocd.argoproj.io/sync-options": "PruneLast=true", "argocd.argoproj.io/sync-wave": "-10", "kuberploy.io/git-binding-id": authority.EnvironmentBindingID,
 			"kuberploy.io/runtime-chart-digest": authority.Runtime.ChartDigest, "kuberploy.io/renderer-image": authority.Runtime.RendererImage}}}
-	manifest.Spec.SourceRepos = []string{gitRemote}
-	if platformRemote != gitRemote {
-		manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, platformRemote)
-	}
-	manifest.Spec.SourceRepos = append(manifest.Spec.SourceRepos, chartRepoForArgo(authority.Runtime))
+	// Environment Apps may use Git, classic Helm repositories, or OCI sources.
+	// Destination and cluster-resource fences remain authoritative.
+	manifest.Spec.SourceRepos = []string{"*"}
 	manifest.Spec.Destinations = []map[string]string{{"server": InClusterServer, "namespace": authority.Namespace}}
 	manifest.Spec.ClusterResourceWhitelist = []map[string]string{}
-	manifest.Spec.NamespaceResourceWhitelist = []map[string]string{
-		{"group": "", "kind": "ConfigMap"}, {"group": "", "kind": "PersistentVolumeClaim"}, {"group": "", "kind": "Service"}, {"group": "", "kind": "ServiceAccount"},
-		{"group": "apps", "kind": "Deployment"}, {"group": "apps", "kind": "StatefulSet"}, {"group": "autoscaling", "kind": "HorizontalPodAutoscaler"},
-		{"group": "batch", "kind": "CronJob"}, {"group": "batch", "kind": "Job"},
-		{"group": "networking.k8s.io", "kind": "Ingress"}, {"group": "networking.k8s.io", "kind": "NetworkPolicy"},
-		{"group": "policy", "kind": "PodDisruptionBudget"}, {"group": "traefik.io", "kind": "Middleware"},
-	}
+	manifest.Spec.NamespaceResourceWhitelist = []map[string]string{{"group": "*", "kind": "*"}}
 	manifest.Spec.OrphanedResources = map[string]bool{"warn": true}
 	return yaml.Marshal(manifest)
 }

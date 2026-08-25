@@ -17,9 +17,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
-	"github.com/kuberploy/kuberploy/internal/helmapps"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -29,9 +29,11 @@ const (
 	ProductionChartPath  = "/opt/kuberploy/charts/kuberploy-runtime"
 	ProductionHelmPath   = "/usr/local/bin/helm"
 	MaximumInputBytes    = 256 << 10
-	MaximumManifestBytes = helmapps.MaximumOutputSize
-	MaximumResources     = helmapps.MaximumResources
-	RenderTimeout        = helmapps.RenderTimeout
+	MaximumManifestBytes = 2 << 20
+	MaximumResources     = 128
+	RenderTimeout        = 30 * time.Second
+	RendererKubeVersion  = "1.36.3"
+	PolicyVersion        = "appconfig-render-policy.v1"
 )
 
 // RendererVersion is replaced from the selected Helm binary at image build
@@ -58,7 +60,7 @@ type Identity struct {
 func (i Identity) Validate() error {
 	if i.Contract != Contract || i.ChartName != "kuberploy-runtime" || i.ChartVersion == "" || len(i.ChartVersion) > 64 ||
 		!digestRE.MatchString(i.ChartDigest) || i.RendererImage != RendererImage ||
-		i.RendererVersion != RendererVersion || i.PolicyVersion != helmapps.PolicyVersion {
+		i.RendererVersion != RendererVersion || i.PolicyVersion != PolicyVersion {
 		return ErrInvalid
 	}
 	return nil
@@ -193,7 +195,7 @@ func (s *Service) renderDeterministic(parent context.Context, request Request, v
 		return nil, ErrUnavailable
 	}
 	args := []string{"template", request.ReleaseName, s.chartPath, "--namespace", request.Namespace,
-		"--values", valuesPath, "--kube-version", helmapps.RendererKubeVersion,
+		"--values", valuesPath, "--kube-version", RendererKubeVersion,
 		"--set-string", "kuberployExpectedIdentity.projectId=" + request.ProjectID,
 		"--set-string", "kuberployExpectedIdentity.environmentId=" + request.EnvironmentID,
 		"--set-string", "kuberployExpectedIdentity.applicationId=" + request.ApplicationID}

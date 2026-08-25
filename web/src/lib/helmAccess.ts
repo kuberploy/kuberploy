@@ -9,11 +9,7 @@ export type HelmAction =
   "helm.read" | "helm.deploy" | "helm.retry" | "helm.rollback";
 
 const apiActions: Record<HelmAction, readonly string[]> = {
-  "helm.read": [
-    "helm-approvals:read",
-    "helm-releases:read",
-    "helm-values:preview",
-  ],
+  "helm.read": ["helm-releases:read"],
   "helm.deploy": ["helm-releases:deploy", "helm-releases:disable"],
   "helm.retry": ["helm-releases:retry"],
   "helm.rollback": ["helm-releases:rollback"],

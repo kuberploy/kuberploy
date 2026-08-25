@@ -50,14 +50,10 @@ import type {
   GitHubInstallation,
   GitHubRepository,
   GitSSHKey,
-  HelmApproval,
-  CreateHelmApproval,
   HelmMutationResult,
   HelmReleaseRevision,
   HelmReleaseStatus,
-  HelmRenderedPreview,
   HelmValuesInput,
-  HelmValuesPreview,
   LinkedGitHubSetup,
   LogSnapshot,
   LatestPlatformRelease,
@@ -1632,29 +1628,6 @@ function boundedHelmLimit(value: number) {
   return value;
 }
 
-function safeHelmApproval(value: HelmApproval): HelmApproval {
-  return {
-    id: value.id,
-    revision: value.revision,
-    sourceKind: value.sourceKind,
-    repository: value.repository,
-    chartName: value.chartName,
-    version: value.version,
-    sourceRevision: value.sourceRevision,
-    chartPath: value.chartPath,
-    manifestDigest: value.manifestDigest,
-    packageDigest: value.packageDigest,
-    valuesSchemaDigest: value.valuesSchemaDigest,
-    rendererImage: value.rendererImage,
-    rendererVersion: value.rendererVersion,
-    policyVersion: value.policyVersion,
-    documentsDigest: value.documentsDigest,
-    valuesSchema: value.valuesSchema,
-    defaultValuesYaml: value.defaultValuesYaml,
-    createdAt: value.createdAt,
-  };
-}
-
 function safeAssignedMiddlewareProfile(
   value: AssignedMiddlewareProfile,
 ): AssignedMiddlewareProfile {
@@ -1665,99 +1638,6 @@ function safeAssignedMiddlewareProfile(
     specDigest: value.specDigest,
     assignmentsDigest: value.assignmentsDigest,
     spec: structuredClone(value.spec),
-  };
-}
-
-function safeHelmRenderedPreview(
-  value: HelmRenderedPreview,
-): HelmRenderedPreview {
-  const resources = Array.isArray(value.resources) ? value.resources : [];
-  if (
-    !Number.isSafeInteger(value.generation) ||
-    value.generation < 1 ||
-    !Number.isSafeInteger(value.resourceCount) ||
-    value.resourceCount < 0 ||
-    value.resourceCount > 128 ||
-    !Number.isSafeInteger(value.previewBytes) ||
-    value.previewBytes < 0 ||
-    value.previewBytes > 262_144 ||
-    resources.length !== value.resourceCount
-  ) {
-    throw new ApiError(502, {
-      title: "Invalid rendered inventory",
-      detail:
-        "The rendered inventory response failed its bounded consistency checks.",
-    });
-  }
-  let sanitizedBytes = 0;
-  for (const resource of resources) {
-    const yaml = resource.sanitizedYaml;
-    if (
-      typeof resource.previewOmitted !== "boolean" ||
-      (resource.previewOmitted && yaml !== undefined && yaml !== "") ||
-      (!resource.previewOmitted &&
-        (typeof yaml !== "string" ||
-          yaml.length === 0 ||
-          new TextEncoder().encode(yaml).byteLength > 32_768))
-    ) {
-      throw new ApiError(502, {
-        title: "Invalid rendered preview",
-        detail: "A rendered resource violated the sanitized YAML boundary.",
-      });
-    }
-    if (!resource.previewOmitted && yaml) {
-      sanitizedBytes += new TextEncoder().encode(yaml).byteLength;
-    }
-  }
-  if (sanitizedBytes !== value.previewBytes) {
-    throw new ApiError(502, {
-      title: "Invalid rendered preview",
-      detail: "The rendered preview byte count failed its consistency check.",
-    });
-  }
-  return {
-    releaseRevisionId: value.releaseRevisionId,
-    generation: value.generation,
-    manifestDigest: value.manifestDigest,
-    inventoryDigest: value.inventoryDigest,
-    resourceCount: value.resourceCount,
-    previewBytes: value.previewBytes,
-    resources: resources.map((resource) => ({
-      apiVersion: resource.apiVersion,
-      kind: resource.kind,
-      namespace: resource.namespace,
-      name: resource.name,
-      sanitizedYaml: resource.previewOmitted
-        ? undefined
-        : resource.sanitizedYaml,
-      previewOmitted: Boolean(resource.previewOmitted),
-    })),
-  };
-}
-
-function safeCreateHelmApproval(value: CreateHelmApproval): CreateHelmApproval {
-  const common = {
-    sourceKind: value.sourceKind,
-    repository: value.repository,
-    version: value.version,
-    manifestDigest: value.manifestDigest,
-    packageDigest: value.packageDigest,
-    valuesSchemaDigest: value.valuesSchemaDigest,
-  };
-  if (value.sourceKind === "oci") return { ...common, sourceKind: "oci" };
-  if (value.sourceKind === "helm-repository") {
-    return {
-      ...common,
-      sourceKind: "helm-repository",
-      chartName: value.chartName,
-    };
-  }
-  return {
-    ...common,
-    sourceKind: "git",
-    chartName: value.chartName,
-    sourceRevision: value.sourceRevision,
-    chartPath: value.chartPath,
   };
 }
 
@@ -1772,30 +1652,25 @@ function safeHelmReleaseRevision(
     desiredEnabled: value.desiredEnabled,
     parentRevisionId: value.parentRevisionId,
     rollbackSourceRevisionId: value.rollbackSourceRevisionId,
-    approval: { id: value.approval.id, revision: value.approval.revision },
-    renderCommandId: value.renderCommandId,
+    source: {
+      kind: value.source.kind,
+      repositoryUrl: value.source.repositoryUrl,
+      chart: value.source.chart,
+      targetRevision: value.source.targetRevision,
+      path: value.source.path,
+    },
+    valuesYaml: value.valuesYaml,
     valuesDigest: value.valuesDigest,
-    intentDigest: value.intentDigest,
+    state: value.state,
+    failureCode: value.failureCode,
     requestId: value.requestId,
     createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
   };
 }
 
 function safeHelmReleaseStatus(value: HelmReleaseStatus): HelmReleaseStatus {
-  return {
-    revision: safeHelmReleaseRevision(value.revision),
-    phase: value.phase,
-    renderState: value.renderState,
-    payloadIntentId: value.payloadIntentId,
-    payloadState: value.payloadState,
-    payloadRevision: value.payloadRevision,
-    cascadeState: value.cascadeState,
-    cascadeObservationState: value.cascadeObservationState,
-    applicationIntentId: value.applicationIntentId,
-    applicationState: value.applicationState,
-    applicationRevision: value.applicationRevision,
-    failureCode: value.failureCode,
-  };
+  return safeHelmReleaseRevision(value);
 }
 
 function safeHelmValuesInput(value: HelmValuesInput): HelmValuesInput {
@@ -1809,8 +1684,13 @@ function safeHelmValuesInput(value: HelmValuesInput): HelmValuesInput {
     });
   }
   return {
-    approvalId: value.approvalId,
-    approvalRevision: value.approvalRevision,
+    source: {
+      kind: value.source.kind,
+      repositoryUrl: value.source.repositoryUrl.trim(),
+      chart: value.source.chart?.trim(),
+      targetRevision: value.source.targetRevision.trim(),
+      path: value.source.path?.trim(),
+    },
     valuesYaml: value.valuesYaml,
   };
 }
@@ -2306,45 +2186,10 @@ export const api = {
     ),
   application: (id: string) =>
     request<Application>(`/v1/applications/${encodeURIComponent(id)}`),
-  helmApprovals: (
-    applicationId: string,
-    environmentId: string,
-    requestedLimit = 50,
-  ) => {
-    const limit = boundedHelmLimit(requestedLimit);
-    return request<Collection<HelmApproval>>(
-      `${helmTargetPath(applicationId, environmentId)}/approvals?limit=${limit}`,
-    ).then((response) => ({
-      items: (response.items ?? []).slice(0, limit).map(safeHelmApproval),
-    }));
-  },
-  previewHelmValues: (
-    applicationId: string,
-    environmentId: string,
-    input: HelmValuesInput,
-  ) =>
-    request<HelmValuesPreview>(
-      `${helmTargetPath(applicationId, environmentId)}/values-preview`,
-      { method: "POST", body: safeHelmValuesInput(input) },
-    ).then((value) => ({
-      approval: {
-        id: value.approval.id,
-        revision: value.approval.revision,
-      },
-      normalizedValuesYaml: value.normalizedValuesYaml,
-      valuesDigest: value.valuesDigest,
-      currentValuesDigest: value.currentValuesDigest,
-      effectiveValues: value.effectiveValues,
-      changedPaths: (value.changedPaths ?? []).slice(0, 512),
-    })),
   helmRelease: (applicationId: string, environmentId: string) =>
     request<HelmReleaseStatus>(
       `${helmTargetPath(applicationId, environmentId)}/release`,
     ).then(safeHelmReleaseStatus),
-  helmRenderedPreview: (applicationId: string, environmentId: string) =>
-    request<HelmRenderedPreview>(
-      `${helmTargetPath(applicationId, environmentId)}/rendered-preview`,
-    ).then(safeHelmRenderedPreview),
   helmReleaseHistory: (
     applicationId: string,
     environmentId: string,
@@ -3199,21 +3044,6 @@ export const api = {
       headers: { "Idempotency-Key": idempotencyKey },
       body: { revision, ...input },
     }),
-  platformHelmApprovals: () =>
-    request<Collection<HelmApproval>>("/v1/platform/helm/approvals").then(
-      (response) => ({
-        items: (response.items ?? []).slice(0, 1_000).map(safeHelmApproval),
-      }),
-    ),
-  createPlatformHelmApproval: (
-    input: CreateHelmApproval,
-    idempotencyKey: string,
-  ) =>
-    request<HelmApproval>("/v1/platform/helm/approvals", {
-      method: "POST",
-      headers: { "Idempotency-Key": idempotencyKey },
-      body: safeCreateHelmApproval(input),
-    }).then(safeHelmApproval),
 };
 
 export function isUnauthorized(error: unknown): boolean {

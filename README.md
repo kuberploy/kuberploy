@@ -18,7 +18,8 @@ workloads, and PostgreSQL holds durable operations and recovery state.
 
 ## Highlights
 
-- Deploy an existing OCI image, build from GitHub, or publish an approved Helm
+- Deploy an existing OCI image, build from GitHub or Git SSH, or create a Helm
+  App from an OCI registry, classic Helm repository, or Git chart
   application.
 - Direct Git publication for development and protected pull-request publication
   for reviewed environments.

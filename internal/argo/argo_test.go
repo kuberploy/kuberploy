@@ -7,7 +7,6 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -197,33 +196,17 @@ func TestArgoManifestsAreDeterministicAndDestinationsAreServerOwned(t *testing.T
 		}
 		actualWhitelist = append(actualWhitelist, group+"/"+kind)
 	}
-	expectedWhitelist := []string{
-		"/ConfigMap", "/PersistentVolumeClaim", "/Service", "/ServiceAccount",
-		"apps/Deployment", "apps/StatefulSet", "autoscaling/HorizontalPodAutoscaler",
-		"batch/CronJob", "batch/Job", "networking.k8s.io/Ingress",
-		"networking.k8s.io/NetworkPolicy", "policy/PodDisruptionBudget", "traefik.io/Middleware",
-	}
-	if !reflect.DeepEqual(actualWhitelist, expectedWhitelist) {
-		t.Fatalf("AppProject namespace whitelist is not the exact runtime/Helm union: got=%v want=%v", actualWhitelist, expectedWhitelist)
-	}
-	if strings.Contains(string(project), "kind: Secret\n") {
-		t.Fatal("AppProject permits tenant Secret materialization")
+	if len(actualWhitelist) != 1 || actualWhitelist[0] != "*/*" {
+		t.Fatalf("AppProject does not allow arbitrary namespaced chart resources: %v", actualWhitelist)
 	}
 	if !strings.Contains(string(project), "clusterResourceWhitelist: []") {
 		t.Fatalf("cluster resources were not denied:\n%s", project)
 	}
 	for _, required := range []string{
-		"https://github.com/kuberploy/environments.git",
-		"https://github.com/kuberploy/platform.git",
-		"kind: PersistentVolumeClaim", "kind: StatefulSet", "kind: Job", "kind: CronJob",
+		"sourceRepos:\n        - '*'", "kind: '*'", "group: '*'",
 	} {
 		if !strings.Contains(string(project), required) {
 			t.Fatalf("AppProject is missing exact Helm source/RBAC %q:\n%s", required, project)
-		}
-	}
-	for _, forbidden := range []string{"repoURL: '*'", "- '*'", "kind: '*'", "group: '*'"} {
-		if strings.Contains(string(project), forbidden) {
-			t.Fatalf("AppProject contains wildcard authority %q:\n%s", forbidden, project)
 		}
 	}
 	if !strings.Contains(string(project), "argocd.argoproj.io/sync-wave: \"-10\"") {
@@ -286,19 +269,15 @@ func TestEachEnvironmentOwnsOneDistinctAppProject(t *testing.T) {
 	}
 }
 
-func TestAppProjectDeduplicatesExactGitSource(t *testing.T) {
+func TestAppProjectAcceptsExternalHelmSources(t *testing.T) {
 	target, _ := desiredTargetFixture(t)
 	target.PlatformBinding.Repository = target.Environment.Binding.Repository
 	manifest, err := argo.RenderAppProject(target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote, err := target.Environment.Binding.Repository.CanonicalRemote()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(manifest), remote) != 1 {
-		t.Fatalf("same exact environment/platform Git source was not deduplicated:\n%s", manifest)
+	if !strings.Contains(string(manifest), "sourceRepos:\n        - '*'") {
+		t.Fatalf("external Helm source authority missing:\n%s", manifest)
 	}
 }
 

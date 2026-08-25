@@ -2,7 +2,6 @@ package secrets
 
 import (
 	"context"
-	"slices"
 	"time"
 )
 
@@ -20,8 +19,8 @@ type memoryRuntimeReconciliation struct {
 	CompletedAt         time.Time
 }
 
-func (s *MemoryStore) ClaimRuntimeSecret(_ context.Context, identity RuntimeIdentity, owner string, namespaces []string, now time.Time, duration time.Duration) (RuntimeWork, error) {
-	if identity.Validate() != nil || !runtimeSecretWorkerIDRE.MatchString(owner) || !exactRuntimeNamespaces(namespaces) ||
+func (s *MemoryStore) ClaimRuntimeSecret(_ context.Context, identity RuntimeIdentity, owner string, namespaces, namespacePrefixes []string, now time.Time, duration time.Duration) (RuntimeWork, error) {
+	if identity.Validate() != nil || !runtimeSecretWorkerIDRE.MatchString(owner) || !exactRuntimeNamespaces(namespaces) || !exactRuntimeNamespacePrefixes(namespacePrefixes) || len(namespaces)+len(namespacePrefixes) == 0 ||
 		now.IsZero() || duration < 20*time.Second || duration > time.Hour {
 		return RuntimeWork{}, ErrInvalid
 	}
@@ -31,7 +30,7 @@ func (s *MemoryStore) ClaimRuntimeSecret(_ context.Context, identity RuntimeIden
 	for versionID, cursor := range s.runtime {
 		version, versionExists := s.versions[versionID]
 		binding, bindingExists := s.bindings[cursor.BindingID]
-		_, namespaceAllowed := slices.BinarySearch(namespaces, binding.Scope.Namespace)
+		namespaceAllowed := runtimeNamespaceAllowed(namespaces, namespacePrefixes, binding.Scope.Namespace)
 		if !versionExists || !bindingExists || !namespaceAllowed || cursor.State != "" && cursor.State != "awaiting" ||
 			version.State != VersionAwaitingReadiness || version.Provider != ProviderSealedSecrets || cursor.NextAt.After(now) ||
 			!cursor.Lease.Until.IsZero() && cursor.Lease.Until.After(now) {

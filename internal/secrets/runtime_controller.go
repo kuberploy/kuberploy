@@ -132,7 +132,7 @@ func (c *RuntimeController) Reconcile(ctx context.Context) (bool, error) {
 	if err := c.validatePrerequisites(ctx); err != nil {
 		return false, err
 	}
-	work, err := c.Store.ClaimRuntimeSecret(ctx, c.Identity, c.WorkerID, c.Config.Namespaces, c.now(), c.Config.WorkLease)
+	work, err := c.Store.ClaimRuntimeSecret(ctx, c.Identity, c.WorkerID, c.Config.Namespaces, c.Config.NamespacePrefixes, c.now(), c.Config.WorkLease)
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
 		return false, nil
 	}

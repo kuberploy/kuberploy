@@ -27,7 +27,6 @@ import { SourceBuildsPage } from "./pages/SourceBuildsPage";
 import { BuildDetailPage } from "./pages/BuildDetailPage";
 import { GitHubSetupCompletePage } from "./pages/GitHubSetupCompletePage";
 import { PlatformArgoGitBindingPage } from "./pages/PlatformArgoGitBindingPage";
-import { HelmApprovalsPage } from "./pages/HelmApprovalsPage";
 import { MiddlewareProfilesPage } from "./pages/MiddlewareProfilesPage";
 import { VariableSetsPage } from "./pages/VariableSetsPage";
 import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
@@ -215,11 +214,6 @@ const platformArgoGitBindingRoute = createRoute({
   path: "/settings/argo-git",
   component: PlatformArgoGitBindingPage,
 });
-const helmApprovalsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/settings/helm-approvals",
-  component: HelmApprovalsPage,
-});
 const middlewareProfilesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/middleware-profiles",
@@ -259,7 +253,6 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   platformReleasesRoute,
   platformArgoGitBindingRoute,
-  helmApprovalsRoute,
   middlewareProfilesRoute,
   certificateIssuersRoute,
   builderSettingsRoute,

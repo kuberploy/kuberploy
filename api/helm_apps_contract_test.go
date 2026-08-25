@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testing.T) {
+func TestDirectHelmApplicationContractIsClosedScopedAndAgentReadable(t *testing.T) {
 	type operation struct {
 		OperationID string   `json:"operationId"`
-		Summary     string   `json:"summary"`
 		Permission  string   `json:"x-kuberploy-permission"`
 		Effect      string   `json:"x-kuberploy-effect"`
 		Automation  string   `json:"x-kuberploy-automation-scope"`
@@ -30,15 +29,12 @@ func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testin
 	expected := map[string]struct {
 		method, permission, effect, automation string
 	}{
-		"/v1/applications/{id}/environments/{environmentId}/helm/approvals":        {"get", "helm.read", "read", "app.read"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/values-preview":   {"post", "helm.read", "validate", "app.read"},
 		"/v1/applications/{id}/environments/{environmentId}/helm/release":          {"get", "helm.read", "read", "app.read"},
 		"/v1/applications/{id}/environments/{environmentId}/helm/releases":         {"get", "helm.read", "read", "app.read"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/rendered-preview": {"get", "helm.read", "read", "app.read"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/release#upsert":   {"put", "helm.deploy", "git-write", "app.edit"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/release/retry":    {"post", "helm.retry", "git-write", "app.edit"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/release/disable":  {"post", "helm.deploy", "git-delete", "app.edit"},
-		"/v1/applications/{id}/environments/{environmentId}/helm/release/rollback": {"post", "helm.rollback", "git-write", "app.edit"},
+		"/v1/applications/{id}/environments/{environmentId}/helm/release#upsert":   {"put", "helm.deploy", "argo-application-write", "app.edit"},
+		"/v1/applications/{id}/environments/{environmentId}/helm/release/retry":    {"post", "helm.retry", "argo-application-write", "app.edit"},
+		"/v1/applications/{id}/environments/{environmentId}/helm/release/disable":  {"post", "helm.deploy", "argo-application-delete", "app.edit"},
+		"/v1/applications/{id}/environments/{environmentId}/helm/release/rollback": {"post", "helm.rollback", "argo-application-write", "app.edit"},
 	}
 	operationIDs := make(map[string]struct{}, len(expected))
 	for key, want := range expected {
@@ -54,8 +50,19 @@ func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testin
 		operationIDs[got.OperationID] = struct{}{}
 	}
 	rollback := document.Paths["/v1/applications/{id}/environments/{environmentId}/helm/release/rollback"]["post"]
-	if !strings.Contains(rollback.Summary, "new Git intent") || !strings.Contains(rollback.Description, "never rewritten") || !strings.Contains(rollback.Description, "no imperative") {
-		t.Fatalf("rollback is not documented as immutable rollback-as-new-intent: summary=%q description=%q", rollback.Summary, rollback.Description)
+	if !strings.Contains(rollback.Description, "new immutable desired revision") || !strings.Contains(rollback.Description, "never rewritten") {
+		t.Fatalf("rollback is not documented as immutable rollback-as-new-revision: %q", rollback.Description)
+	}
+
+	for _, removed := range []string{
+		"/v1/applications/{id}/environments/{environmentId}/helm/approvals",
+		"/v1/applications/{id}/environments/{environmentId}/helm/values-preview",
+		"/v1/applications/{id}/environments/{environmentId}/helm/rendered-preview",
+		"/v1/platform/helm/approvals",
+	} {
+		if _, exists := document.Paths[removed]; exists {
+			t.Fatalf("removed Helm approval path remains: %s", removed)
+		}
 	}
 
 	assertClosedFields := func(name string, want []string) {
@@ -77,21 +84,23 @@ func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testin
 			t.Fatalf("%s fields=%#v additional=%t", name, fields, schema.Additional)
 		}
 	}
-	assertClosedFields("HelmValuesInput", []string{"approvalId", "approvalRevision", "valuesYaml"})
+	assertClosedFields("HelmValuesInput", []string{"source", "valuesYaml"})
 	assertClosedFields("HelmRollbackInput", []string{"sourceRevisionId"})
+	assertClosedFields("HelmReleaseRevision", []string{"action", "createdAt", "desiredEnabled", "failureCode", "generation", "id", "parentRevisionId", "releaseName", "requestId", "rollbackSourceRevisionId", "source", "state", "updatedAt", "valuesDigest", "valuesYaml"})
+
 	var sourceUnion struct {
 		OneOf []struct {
 			Additional bool                       `json:"additionalProperties"`
 			Properties map[string]json.RawMessage `json:"properties"`
 		} `json:"oneOf"`
 	}
-	if err := json.Unmarshal(document.Components.Schemas["CreateHelmApproval"], &sourceUnion); err != nil || len(sourceUnion.OneOf) != 3 {
-		t.Fatalf("CreateHelmApproval source union: variants=%d err=%v", len(sourceUnion.OneOf), err)
+	if err := json.Unmarshal(document.Components.Schemas["HelmSource"], &sourceUnion); err != nil || len(sourceUnion.OneOf) != 3 {
+		t.Fatalf("HelmSource union: variants=%d err=%v", len(sourceUnion.OneOf), err)
 	}
 	wantSourceFields := [][]string{
-		{"sourceKind", "repository", "version", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
-		{"sourceKind", "repository", "chartName", "version", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
-		{"sourceKind", "repository", "chartName", "version", "sourceRevision", "chartPath", "manifestDigest", "packageDigest", "valuesSchemaDigest"},
+		{"kind", "repositoryUrl", "chart", "targetRevision"},
+		{"kind", "repositoryUrl", "chart", "targetRevision"},
+		{"kind", "repositoryUrl", "path", "targetRevision"},
 	}
 	for index, variant := range sourceUnion.OneOf {
 		fields := make([]string, 0, len(variant.Properties))
@@ -101,30 +110,13 @@ func TestApprovedHelmApplicationContractIsClosedScopedAndAgentReadable(t *testin
 		sort.Strings(fields)
 		sort.Strings(wantSourceFields[index])
 		if variant.Additional || strings.Join(fields, ",") != strings.Join(wantSourceFields[index], ",") {
-			t.Fatalf("CreateHelmApproval variant %d fields=%#v additional=%t", index, fields, variant.Additional)
+			t.Fatalf("HelmSource variant %d fields=%#v additional=%t", index, fields, variant.Additional)
 		}
 	}
-	assertClosedFields("HelmRenderedResource", []string{"apiVersion", "kind", "namespace", "name", "sanitizedYaml", "previewOmitted"})
-	assertClosedFields("HelmRenderedManifestPreview", []string{"releaseRevisionId", "generation", "manifestDigest", "inventoryDigest", "resourceCount", "previewBytes", "resources"})
 
-	platformGet := document.Paths["/v1/platform/helm/approvals"]["get"]
-	platformPost := document.Paths["/v1/platform/helm/approvals"]["post"]
-	if platformGet.OperationID != "listPlatformHelmApprovals" || platformPost.OperationID != "admitPlatformHelmApproval" ||
-		platformGet.Permission != "platform.admin" || platformPost.Permission != "platform.admin" ||
-		contains(platformGet.Audience, "agent") || contains(platformPost.Audience, "agent") ||
-		platformPost.Effect != "helm-approval-admit" || platformPost.Automation != "" {
-		t.Fatalf("platform Helm approval boundary drifted: get=%#v post=%#v", platformGet, platformPost)
-	}
-
-	var approval struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if err := json.Unmarshal(document.Components.Schemas["HelmApproval"], &approval); err != nil {
-		t.Fatal(err)
-	}
-	for _, forbidden := range []string{"credential", "credentials", "credentialRef", "password", "token", "username", "secret", "registryAuth"} {
-		if _, exposed := approval.Properties[forbidden]; exposed {
-			t.Fatalf("approval catalog exposes %q", forbidden)
+	for _, removed := range []string{"CreateHelmApproval", "HelmApproval", "HelmValuesPreview", "HelmRenderedManifestPreview"} {
+		if _, exists := document.Components.Schemas[removed]; exists {
+			t.Fatalf("removed Helm approval schema remains: %s", removed)
 		}
 	}
 

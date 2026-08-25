@@ -7,7 +7,6 @@ import { hasMonitoringNavigationAccess } from "../lib/monitoringAccess";
 import { hasRegistryPlatformCapability } from "../lib/registryAccess";
 import { hasExternalDNSPlatformCapability } from "../lib/externalDNSAccess";
 import { hasPotentialBuildAccess } from "../lib/buildAccess";
-import { hasHelmApprovalManagementAccess } from "../lib/helmApprovalAccess";
 import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 import {
   applyThemePreference,
@@ -240,21 +239,6 @@ export function AppShell({ user }: { user: Principal }) {
               >
                 <Icon name="route" />
                 <span>Argo Git authority</span>
-              </Link>
-            ) : null}
-            {hasHelmApprovalManagementAccess(
-              user,
-              capabilities.data?.features,
-              capabilities.data?.capabilities ?? [],
-            ) ? (
-              <Link
-                to="/settings/helm-approvals"
-                activeProps={{ className: "nav-link nav-link--active" }}
-                inactiveProps={{ className: "nav-link" }}
-                onClick={() => setMobileOpen(false)}
-              >
-                <Icon name="layers" />
-                <span>Helm approvals</span>
               </Link>
             ) : null}
             {user.authentication.kind === "session" &&

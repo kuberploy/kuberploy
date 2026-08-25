@@ -327,7 +327,7 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 	case domain.PermissionBuildsRetry:
 		return []string{"builds:retry"}
 	case domain.PermissionHelmRead:
-		return []string{"helm-approvals:read", "helm-releases:read", "helm-values:preview"}
+		return []string{"helm-releases:read"}
 	case domain.PermissionHelmDeploy:
 		return []string{"helm-releases:deploy", "helm-releases:disable"}
 	case domain.PermissionHelmRetry:
@@ -359,7 +359,7 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 		}
 		return []string{"access-grants:create", "access-grants:delete"}
 	case domain.PermissionPlatformAdmin:
-		return []string{"github-installations:setup", "helm-approvals:manage", "platform-releases:read", "team-members:write", "teams:create", "teams:read", "user-invitations:create", "users:read"}
+		return []string{"github-installations:setup", "platform-releases:read", "team-members:write", "teams:create", "teams:read", "user-invitations:create", "users:read"}
 	default:
 		return nil
 	}

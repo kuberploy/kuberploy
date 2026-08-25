@@ -89,6 +89,17 @@ func TestRuntimeSecretConfigParsesCanonicalAllowlistAndDefaults(t *testing.T) {
 	}
 }
 
+func TestRuntimeSecretConfigAcceptsManagedEnvironmentPrefix(t *testing.T) {
+	values := validRuntimeSecretEnvironment()
+	delete(values, RuntimeSecretNamespacesEnv)
+	values[RuntimeSecretNamespacePrefixesEnv] = "kp-"
+	config, err := RuntimeConfigFromLookup(runtimeSecretLookup(values))
+	if err != nil || len(config.Namespaces) != 0 || !reflect.DeepEqual(config.NamespacePrefixes, []string{"kp-"}) ||
+		!config.AllowsNamespace("kp-project-production") || config.AllowsNamespace("kube-system") {
+		t.Fatalf("prefix config=%#v err=%v", config, err)
+	}
+}
+
 func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 	mutations := map[string]string{
 		RuntimeSecretFingerprintSecretRefEnv:        "other/secret",
@@ -124,6 +135,14 @@ func TestRuntimeSecretConfigRejectsAmbiguousOrUnsafeValues(t *testing.T) {
 		values[RuntimeSecretNamespacesEnv] = namespaces
 		if _, err := RuntimeConfigFromLookup(runtimeSecretLookup(values)); !errors.Is(err, ErrRuntimeUnavailable) {
 			t.Fatalf("namespaces=%q accepted: %v", namespaces, err)
+		}
+	}
+	for _, prefixes := range []string{"kp", "kp-*", "Kp-", "kp--"} {
+		values := validRuntimeSecretEnvironment()
+		delete(values, RuntimeSecretNamespacesEnv)
+		values[RuntimeSecretNamespacePrefixesEnv] = prefixes
+		if _, err := RuntimeConfigFromLookup(runtimeSecretLookup(values)); !errors.Is(err, ErrRuntimeUnavailable) {
+			t.Fatalf("namespace prefixes=%q accepted: %v", prefixes, err)
 		}
 	}
 	for _, missing := range []string{

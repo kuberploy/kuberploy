@@ -42,8 +42,12 @@
 {{- printf "system:serviceaccount:%s:%s" .Release.Namespace (include "kuberploy.componentName" (dict "root" . "component" "worker")) -}}
 {{- end -}}
 
-{{- define "kuberploy.helmRendererServiceAccount" -}}
-{{- printf "%s-helm-renderer" (include "kuberploy.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- define "kuberploy.helmApplicationsAPIUsername" -}}
+{{- printf "system:serviceaccount:%s:%s" .Release.Namespace (include "kuberploy.componentName" (dict "root" . "component" "api")) -}}
+{{- end -}}
+
+{{- define "kuberploy.helmApplicationsAdmissionPolicyName" -}}
+{{- printf "%s-helm-applications-%s" (include "kuberploy.fullname" .) (.Release.Namespace | sha256sum | trunc 10) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "kuberploy.runtimeRegistryPullSecretName" -}}

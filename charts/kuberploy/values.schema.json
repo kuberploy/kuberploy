@@ -253,10 +253,11 @@
         "runtimeSecrets": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "namespaces", "fingerprintKeyID", "fingerprintSecret", "sealingCertificateSecret", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "idleSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
+          "required": ["enabled", "namespaces", "namespacePrefixes", "fingerprintKeyID", "fingerprintSecret", "sealingCertificateSecret", "pollIntervalSeconds", "workLeaseSeconds", "heartbeatSeconds", "idleSeconds", "minimumBackoffSeconds", "maximumBackoffSeconds"],
           "properties": {
             "enabled": { "type": "boolean" },
             "namespaces": { "$ref": "#/$defs/namespaces" },
+            "namespacePrefixes": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$" } },
             "fingerprintKeyID": { "const": "runtime-secrets-hmac-v1" },
             "fingerprintSecret": {
               "type": "object",
@@ -288,7 +289,6 @@
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
               "then": {
                 "properties": {
-                  "namespaces": { "minItems": 1 },
                   "fingerprintSecret": { "properties": { "name": { "minLength": 1 } } },
                   "sealingCertificateSecret": { "properties": { "name": { "minLength": 1 } } }
                 }
@@ -536,63 +536,10 @@
         "helmApplications": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "rendererNamespace", "rendererPollMilliseconds", "workPollMilliseconds", "renderLeaseSeconds", "publishLeaseSeconds", "readinessLeaseSeconds", "ociRequestSeconds", "ociRegistryHosts", "ociAuthHosts", "ociRedirectHosts", "ociCredentialProfiles", "packageCacheBytes"],
+          "required": ["enabled"],
           "properties": {
-            "enabled": { "type": "boolean" },
-            "rendererNamespace": { "$ref": "#/$defs/optionalDNSLabel" },
-            "rendererPollMilliseconds": { "type": "integer", "minimum": 10, "maximum": 2000 },
-            "workPollMilliseconds": { "type": "integer", "minimum": 100, "maximum": 30000 },
-            "renderLeaseSeconds": { "type": "integer", "minimum": 35, "maximum": 900 },
-            "publishLeaseSeconds": { "type": "integer", "minimum": 15, "maximum": 300 },
-            "readinessLeaseSeconds": { "type": "integer", "minimum": 5, "maximum": 300 },
-            "ociRequestSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
-            "ociRegistryHosts": {
-              "type": "array", "maxItems": 64,
-              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
-            },
-            "ociAuthHosts": {
-              "type": "array", "maxItems": 64,
-              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
-            },
-            "ociRedirectHosts": {
-              "type": "array", "maxItems": 64,
-              "items": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" }
-            },
-            "ociCredentialProfiles": {
-              "type": "array", "maxItems": 64,
-              "items": {
-                "type": "object", "additionalProperties": false,
-                "required": ["registryHost", "authHost", "name", "mode", "secretRef"],
-                "properties": {
-                  "registryHost": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" },
-                  "authHost": { "type": "string", "minLength": 3, "maxLength": 253, "pattern": "^[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?(?::[1-9][0-9]{0,4})?$" },
-                  "name": { "$ref": "#/$defs/dnsLabel" },
-                  "mode": { "type": "string", "enum": ["basic", "bearer"] },
-                  "secretRef": {
-                    "type": "object", "additionalProperties": false,
-                    "required": ["name", "usernameKey", "passwordKey", "tokenKey"],
-                    "properties": {
-                      "name": { "$ref": "#/$defs/dnsLabel" },
-                      "usernameKey": { "type": "string", "maxLength": 253 },
-                      "passwordKey": { "type": "string", "maxLength": 253 },
-                      "tokenKey": { "type": "string", "maxLength": 253 }
-                    }
-                  }
-                },
-                "allOf": [
-                  { "if": { "properties": { "mode": { "const": "basic" } } }, "then": { "properties": { "secretRef": { "properties": { "usernameKey": { "minLength": 1 }, "passwordKey": { "minLength": 1 }, "tokenKey": { "const": "" } } } } } },
-                  { "if": { "properties": { "mode": { "const": "bearer" } } }, "then": { "properties": { "secretRef": { "properties": { "usernameKey": { "const": "" }, "passwordKey": { "const": "" }, "tokenKey": { "minLength": 1 } } } } } }
-                ]
-              }
-            },
-            "packageCacheBytes": { "type": "integer", "minimum": 8388608, "maximum": 1073741824 }
-          },
-          "allOf": [
-            {
-              "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "rendererNamespace": { "minLength": 1 }, "ociRegistryHosts": { "minItems": 1 } } }
-            }
-          ]
+            "enabled": { "type": "boolean" }
+          }
         },
         "managedRegistry": {
           "type": "object",
@@ -866,12 +813,9 @@
         "properties": {
           "config": {
             "properties": {
-              "gitProjection": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "githubApp": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "environmentFoundation": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
+              "argoDesiredState": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] }
             },
-            "required": ["gitProjection", "githubApp", "argoDesiredState", "environmentFoundation"]
+            "required": ["argoDesiredState"]
           }
         }
       }

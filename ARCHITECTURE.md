@@ -888,13 +888,25 @@ The API authenticates to the registry, resolves a tag to its manifest digest, va
 
 ### Helm chart
 
-An administrator approves a chart from OCI, a classic HTTPS Helm repository, or a public HTTPS Git repository at one exact version/revision. Kuberploy resolves the source once, captures and rehashes the immutable package in PostgreSQL, and gives render workers only that captured package. Workers never poll chart providers or receive provider credentials. SSH/private Git chart approval remains unavailable until it has an explicit project/application credential binding; ambient Git credentials are never used.
+The App UI accepts one of three Argo CD source forms: OCI registry, classic
+HTTPS Helm repository, or Git repository plus chart path. It also exposes one
+raw `values.yaml` editor. Kuberploy validates and stores an immutable desired
+revision, then creates or updates one deterministic Argo CD `Application`.
+Argo CD owns provider access, chart resolution, rendering, synchronization,
+health, and drift repair. Kuberploy does not download or repackage charts and
+has no separate chart-approval or renderer-worker pipeline.
 
-The App UI exposes one raw `values.yaml` editor. Before publication, Kuberploy validates the values against the captured schema, renders the exact package offline, shows a redacted manifest preview, and applies resource policy. Protected Git stores the server-owned chart descriptor and user-owned values. Argo CD owns reconciliation and lifecycle; this is not ordinary Helm release-state management.
+The generated `Application` is locked to the App's persisted Argo project and
+Environment namespace. Its AppProject accepts external sources and arbitrary
+namespaced chart resources but denies cluster-scoped resources. Charts that
+require CRDs, ClusterRoles, or other cluster-scoped installation are therefore
+not tenant Helm Apps; platform operators install those foundations separately.
 
-Arbitrary charts are initially admin-approved because they can render CRDs, RBAC, admission webhooks or privileged Pods. AppProject source/destination allowlists, resource allowlists and admission policies enforce the boundary.
-
-An approved chart must expose a supported `existingSecret`/Secret-key reference or be wrapped by an administrator-owned adapter chart that does. Kuberploy never places a password, token or private key directly in tenant `values.yaml`; a chart that only accepts inline secret values is rejected because it cannot satisfy the platform secret invariant. Policy also rejects tenant-chart-rendered `Secret.data` or `Secret.stringData`; only protected Kuberploy secret-materialization paths may produce those delivery objects.
+Private source credentials are ordinary operator-managed Argo CD repository
+Secrets. Kuberploy never accepts repository passwords or keys in the Helm App
+request. Values are stored as configuration, not secret storage; users must
+reference platform-managed Secrets through chart-supported existing-Secret
+settings instead of entering secret plaintext in `values.yaml`.
 
 ## 10. Built-in Traefik edge
 
@@ -1325,7 +1337,12 @@ Every preview runs steps 1-7; a save continues through the Git/Argo steps:
 
 If Git changes after the draft was opened, the save returns a three-way conflict view and never force-pushes. If an environment requires Argo/server validation and that path is unavailable, its PR check remains pending and the protected branch cannot merge. An explicitly unprotected development environment may rely on the full offline suite before direct commit, but the UI never labels that result server-validated.
 
-External Helm applications follow the same source-of-truth principle but not the runtime Deployment/Service schema. P0 offers one raw Helm `values.yaml` document and a read-only rendered-manifests tab. P1 can generate guided controls from a sufficiently complete pinned chart `values.schema.json`; raw YAML remains available. Chart schema validates value shape, not workload safety, so every exact pinned-chart render still passes resource policy. Tenant settings cannot enable schema skipping, credential forwarding, CRDs, unsafe hooks or cluster-scoped resources, and chart approval checks for nondeterministic random output that would cause permanent drift.
+External Helm Apps use direct Argo CD desired state rather than the managed
+runtime Deployment/Service schema. The UI provides source coordinates and one
+raw Helm `values.yaml` document. Argo CD resolves and renders the source, while
+the AppProject and admission boundaries fix the destination and deny
+cluster-scoped resources. Kuberploy does not claim an offline rendered preview;
+Argo sync and health are the observed deployment truth.
 
 Fully arbitrary Kubernetes manifests or Kustomize bases are a separate later, administrator-only application source, not a toggle inside the managed runtime editor. They cannot be losslessly round-tripped into opinionated forms and can bypass platform assumptions; they require fixed namespaces, kind allowlists, full resource/admission policy and a read-only resource summary instead of pretending the form owns those manifests.
 
@@ -1405,10 +1422,14 @@ secret-decryption plugin, so plaintext does not enter generated-manifest caches.
 
 The installer is the authority for cross-namespace runtime-secret access. Its
 closed `integrations.runtimeSecrets` values enumerate exact Environment
-namespaces and pre-created fingerprint/public-certificate Secret references;
-the installer injects that configuration and adds only those namespaces to the
+namespaces and managed Environment namespace prefixes plus pre-created
+fingerprint/public-certificate Secret references. The default `kp-` prefix
+covers Environments created after installation without a control-plane restart.
+API authorization still resolves every target from persisted Project and
+Environment ownership before the prefix policy is consulted. The installer
+injects that configuration and adds only those destinations to the
 control-plane AppProject. A remote child values file cannot expand this scope.
-Platform, Kubernetes-system, builder, renderer, monitoring, Argo, cert-manager,
+Platform, Kubernetes-system, builder, monitoring, Argo, cert-manager,
 and Sealed Secrets namespaces are rejected as runtime-secret destinations.
 
 ```mermaid
@@ -1752,7 +1773,7 @@ GitHub and registry webhook receivers use separately documented signature scheme
 The Arazzo document and matching human guides define at least these bounded workflows:
 
 1. Discover identity capabilities and list visible projects/environments.
-2. Create a logical application, then bind an explicit environment DeploymentSpec using GitHub, an existing image or an approved Helm chart.
+2. Create a logical App inside an Environment, then configure an existing image, GitHub, Git SSH, or direct Argo CD Helm source.
 3. Read config -> validate -> preview -> conditionally save -> poll the Operation and projection revision -> inspect Argo sync and rollout health.
 4. Start a source build -> poll build and operation -> verify the immutable release -> deploy or promote it.
 5. Add a route with manual or automatic DNS and HTTP-only, Let's Encrypt or custom-certificate TLS.
@@ -2241,46 +2262,15 @@ optional integration may be configured off, but its managed/adopted feature path
 must exist and pass its own enabled-mode tests. A placeholder screen, metadata-
 only registration or architecture document does not satisfy the gate.
 
-Current implementation status (2026-08-22, RC308): the production code paths now
-include protected Argo desired-state publication with exact GitHub
-branch/ruleset attestation, deterministic repository credentials and root
-Application observation; two-phase protected Helm publication; ordinary
-deployment rollback as a new environment-policy-governed Git intent; server-side existing-image
-tag-to-digest resolution; reusable typed middleware profiles; human Git-backed
-project/environment VariableSet management; durable push auto-deploy policy UI,
-run history and readiness; verified push wake plus safety-poll repair; and
-server-derived `sslip.io` routes; email-only local authentication with separate
-display names; shadcn/Base confirmation dialogs; and startup retirement of
-unconfigured registry-pull artifacts while preserving rollback metadata; bounded
-build-log scope diagnostics that retain the safe Kubernetes verification stage
-without exposing provider details; and Helm OCI no-change publication that
-reuses immutable verified desired-state commands while retaining current
-materialization policy authority; and worker delivery recovery that
-acknowledges only stale queue references after durable operation cleanup; and
-deterministic rendered previews that accept both supported Deployment and
-StatefulSet runtime kinds; and projection-race recovery that retires a claimed
-desired-state command as superseded when its exact active generation advances
-before a durable Git write-base exists, while retaining immutable write-base
-recovery once Git may have been mutated; and exact same-projection
-rematerialization after a pre-write supersession so transient claim races do
-not strand otherwise Ready desired state. Protected Helm cascade observation
-also validates provider receipt time against a post-resolution clock bound, so
-normal network latency cannot invalidate a freshly resolved private OCI head,
-and it admits only Argo's exact controller-derived tracking annotation when
-matching the live child Application. Direct Git path-reservation recovery also
-requeues after proving an expired candidate absent, then revalidates the exact
-path and dependency blobs against the newly indexed head so an unrelated
-remote-ref race cannot terminalize an otherwise safe write. The
-migration entrypoint also rejects unsupported schema drift after applying the
-ordered migration history. AppConfig mutation admission resolves stale ETags
-and exact idempotent replays against current indexed Git authority before
-consulting transient Argo readiness, while still requiring fresh Argo authority
-for every new current-ETag mutation. Automatic appearance uses one app-lifetime
-persisted-preference guard, so login, invitation, bootstrap, and authenticated
-surfaces all follow operating-system theme changes without overriding explicit
-light or dark choices. Those paths are default-off where applicable and remain
-capability-gated by their exact configuration and fresh runtime observations;
-they are not the unwired blockers described in earlier drafts.
+Implementation status is tracked by the release-candidate qualification
+checklist rather than frozen RC claims in this architecture document. The
+implemented production paths include Git/Argo desired state, existing-image
+digest resolution, GitHub and Git SSH source builds, auto-deploy, rollback,
+runtime configuration and secrets, managed ingress/DNS/TLS, registry lifecycle,
+and direct Argo CD Helm Apps. Default-off integrations remain capability-gated
+by exact configuration and live runtime observations. A path is complete only
+after its current RC passes the corresponding local gates and exact remote
+staging use case.
 
 The remaining external proof is a full enabled-stack run on an explicitly
 selected, non-production conforming cluster. It requires operator-supplied
@@ -2380,8 +2370,8 @@ repositories or refs instead of sharing one writable platform root.
   and foreign-key history stay valid, and the email can be invited again.
 - Four App sources selected inside a Project Environment: existing OCI image,
   GitHub App Dockerfile build, provider-neutral Git SSH Dockerfile build, and
-  approved Helm chart. Helm approval accepts OCI, classic HTTPS Helm
-  repositories, and public HTTPS Git at exact immutable revisions.
+  Helm. Helm Apps pass OCI, classic HTTPS Helm repository, or Git chart source
+  coordinates plus values directly to a deterministic Argo CD Application.
 - GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
 - One ephemeral privileged DinD Job per source build, never mounting the host Docker socket. It runs on a single starter node by default; optional node isolation requires the exact configured builder pool.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.
@@ -2392,8 +2382,8 @@ repositories or refs instead of sharing one writable platform root.
 - Supported `/v1` API with bundled OpenAPI 3.2.0 JSON/YAML, self-hosted Swagger UI, a derived agent profile, Arazzo workflows, scoped expiring service-account credentials and CI-enforced compatibility tests.
 - A platform runtime chart for one HTTP web service.
 - Guided Deployment/Service forms plus an Advanced AppConfig YAML editor sharing one draft, validation pipeline and Git diff.
-- Approved external Helm Apps receive one raw values YAML editor with schema
-  diagnostics and a redacted read-only rendered-manifests preview in P0.
+- External Helm Apps receive source controls and one raw values YAML editor;
+  Argo CD reports synchronization, health, and rendered workload state.
 - Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned immutable ConfigMaps, plus container port, replicas, CPU/memory and health probes.
 - Per-App resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
 - Write-only versioned runtime-secret creation/rotation with strict Sealed Secrets, exact binding/application scope, environment/file delivery, readiness-gated rollout and metadata-only UI/API reads; External Secrets remains unavailable until an audited concrete remote material writer exists.

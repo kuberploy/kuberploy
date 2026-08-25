@@ -132,8 +132,7 @@
   {{- if $root.Values.integrations.github.enabled -}}
     {{- $externalEgress = concat $root.Values.integrations.github.controlPlaneEgressCIDRs $externalEgress | uniq | sortAlpha -}}
   {{- end -}}
-  {{- $managedRegistryValues := dict
-    "config" (dict "managedRegistry" (dict
+  {{- $managedRegistryConfig := dict "managedRegistry" (dict
       "enabled" true
       "targetID" $registry.targetID
       "targetName" $registry.targetName
@@ -150,7 +149,9 @@
       "registryConfigMap" $registryConfigMap
       "credentialSecret" (dict "name" $registry.lifecycleCredentialSecretName "usernameKey" "username" "passwordKey" "password")
       "observationIntervalSeconds" 300
-    ))
+    ) -}}
+  {{- $managedRegistryValues := dict
+    "config" $managedRegistryConfig
     "networkPolicy" (dict "enabled" $networkPolicyEnabled "kubeAPIServerCIDRs" $root.Values.cluster.kubeAPIServerCIDRs "externalEgressCIDRs" $externalEgress)
   -}}
   {{- $childValues = mergeOverwrite $childValues $managedRegistryValues -}}
@@ -184,6 +185,7 @@
     "runtimeSecrets" (dict
       "enabled" true
       "namespaces" $runtimeSecrets.namespaces
+      "namespacePrefixes" $runtimeSecrets.namespacePrefixes
       "fingerprintKeyID" $runtimeSecrets.fingerprintKeyID
       "fingerprintSecret" (dict "name" $runtimeSecrets.fingerprintSecretName "key" $runtimeSecrets.fingerprintSecretKey)
       "sealingCertificateSecret" (dict "name" $runtimeSecrets.sealingCertificateSecretName "key" $runtimeSecrets.sealingCertificateSecretKey)
@@ -257,14 +259,6 @@ spec:
     - server: https://kubernetes.default.svc
       namespace: cert-manager
     {{- end }}
-    {{- if eq $item.key "controlPlane" }}
-    # Approved Helm rendering uses one fixed, tokenless namespace. The remote
-    # value file may enable this default-off runtime, so installer authority
-    # must permit only this exact destination without trusting that file to
-    # expand AppProject scope.
-    - server: https://kubernetes.default.svc
-      namespace: kuberploy-helm-renderer
-    {{- end }}
     {{- if and (eq $item.key "controlPlane") $root.Values.integrations.github.enabled }}
     # The control-plane chart owns only the worker's namespaced build-control
     # Role/Binding; builder Pods remain owned by the builder Application.
@@ -283,6 +277,10 @@ spec:
     {{- range uniq (sortAlpha $root.Values.integrations.runtimeSecrets.namespaces) }}
     - server: https://kubernetes.default.svc
       namespace: {{ . }}
+    {{- end }}
+    {{- range uniq (sortAlpha $root.Values.integrations.runtimeSecrets.namespacePrefixes) }}
+    - server: https://kubernetes.default.svc
+      namespace: {{ printf "%s*" . }}
     {{- end }}
     {{- end }}
     {{- if eq $item.key "builder" }}

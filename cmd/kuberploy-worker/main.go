@@ -392,43 +392,6 @@ func run() error {
 		}
 		return err
 	}
-	helmApplications, err := newHelmApplicationsRuntime(ctx, databaseURL, host, gitProjection, argoDesiredState)
-	if err != nil {
-		if argoDesiredState != nil {
-			argoDesiredState.Close()
-		}
-		if foundationRuntime != nil {
-			foundationRuntime.Close()
-		}
-		if edgeManagedRuntime != nil {
-			edgeManagedRuntime.Close()
-		}
-		if externalDNSOperational != nil {
-			externalDNSOperational.Close()
-		}
-		if managedRegistry != nil {
-			managedRegistry.Close()
-		}
-		if runtimeRegistryPulls != nil {
-			runtimeRegistryPulls.Close()
-		}
-		if runtimeSecrets != nil {
-			runtimeSecrets.Close()
-		}
-		if argoObservation != nil {
-			argoObservation.Close()
-		}
-		if gitProjection != nil {
-			gitProjection.Close()
-		}
-		if certificateObservation != nil {
-			certificateObservation.Close()
-		}
-		if sourceBuilds != nil {
-			sourceBuilds.Close()
-		}
-		return err
-	}
 	var operationWriter worker.GitWriter = legacyGitOperationWriter{writer: writer}
 	if gitProjection != nil {
 		operationWriter = gitProjection.writer
@@ -461,9 +424,6 @@ func run() error {
 	}
 	if argoDesiredState != nil {
 		runtimes = append(runtimes, argoDesiredState)
-	}
-	if helmApplications != nil {
-		runtimes = append(runtimes, helmApplications)
 	}
 	if certificateObservation != nil {
 		runtimes = append(runtimes, certificateObservation)
@@ -504,9 +464,6 @@ func run() error {
 		}
 		if _, isArgoDesiredState := runtime.(*argoDesiredStateRuntime); isArgoDesiredState {
 			name = "argo-desired-state"
-		}
-		if _, isHelmApplications := runtime.(*helmApplicationsRuntime); isHelmApplications {
-			name = "helm-applications"
 		}
 		if _, isFoundation := runtime.(*environmentFoundationRuntime); isFoundation {
 			name = "environment-foundation"

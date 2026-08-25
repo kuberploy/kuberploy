@@ -193,15 +193,15 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 	runtimeConfig := testRuntimeConfig()
 	runtimeIdentity := testRuntimeIdentity(t, runtimeConfig)
 	claimAt := testTime.Add(10 * time.Minute)
-	firstLease, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-one", runtimeConfig.Namespaces, claimAt, runtimeConfig.WorkLease)
+	firstLease, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-one", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, claimAt, runtimeConfig.WorkLease)
 	if err != nil || firstLease.Version.ID != runtimeCreated.Version.ID || firstLease.Lease.Epoch != 1 {
 		t.Fatalf("first runtime claim=%#v err=%v", firstLease, err)
 	}
-	if _, err = store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, claimAt.Add(time.Second), runtimeConfig.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, claimAt.Add(time.Second), runtimeConfig.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("concurrent runtime claim: %v", err)
 	}
 	takeoverAt := firstLease.Lease.Until.Add(time.Second)
-	secondLease, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, takeoverAt, runtimeConfig.WorkLease)
+	secondLease, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, takeoverAt, runtimeConfig.WorkLease)
 	if err != nil || secondLease.Lease.Epoch != 2 {
 		t.Fatalf("runtime takeover=%#v err=%v", secondLease, err)
 	}
@@ -236,7 +236,7 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	backoffAt := readyAt.Add(time.Minute)
-	backoffWork, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-one", runtimeConfig.Namespaces, backoffAt, runtimeConfig.WorkLease)
+	backoffWork, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-one", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, backoffAt, runtimeConfig.WorkLease)
 	if err != nil || backoffWork.Version.ID != backoffCreated.Version.ID {
 		t.Fatalf("backoff claim=%#v err=%v", backoffWork, err)
 	}
@@ -252,10 +252,10 @@ func TestPostgreSQLRuntimeSecretContract(t *testing.T) {
 		RuntimePendingOutcome{FailureCode: "provider-observe-failed", NextAt: nextAttempt}, backoffAt.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, nextAttempt.Add(-time.Millisecond), runtimeConfig.WorkLease); !errors.Is(err, ErrNotFound) {
+	if _, err = store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, nextAttempt.Add(-time.Millisecond), runtimeConfig.WorkLease); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("backoff claimed early: %v", err)
 	}
-	backoffRetry, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, nextAttempt, runtimeConfig.WorkLease)
+	backoffRetry, err := store.ClaimRuntimeSecret(ctx, runtimeIdentity, "runtime-pg-worker-two", runtimeConfig.Namespaces, runtimeConfig.NamespacePrefixes, nextAttempt, runtimeConfig.WorkLease)
 	if err != nil || backoffRetry.Lease.Epoch != 2 || backoffRetry.ConsecutiveFailures != 1 {
 		t.Fatalf("backoff retry=%#v err=%v", backoffRetry, err)
 	}

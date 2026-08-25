@@ -8,6 +8,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/secrets"
@@ -68,6 +69,7 @@ func (c ObservationFailureCode) valid() bool {
 type ObservationConfig struct {
 	Enabled               bool
 	Namespaces            []string
+	NamespacePrefixes     []string
 	PollInterval          time.Duration
 	WorkLease             time.Duration
 	HeartbeatInterval     time.Duration
@@ -87,7 +89,7 @@ func DefaultObservationConfig() ObservationConfig {
 }
 
 func NormalizeObservationNamespaces(input []string) ([]string, error) {
-	if len(input) == 0 || len(input) > maximumCertificateObservationNamespaces {
+	if len(input) > maximumCertificateObservationNamespaces {
 		return nil, ErrObservationUnavailable
 	}
 	result := append([]string(nil), input...)
@@ -104,9 +106,19 @@ func NormalizeObservationNamespaces(input []string) ([]string, error) {
 	return result, nil
 }
 
+func NormalizeObservationNamespacePrefixes(input []string) ([]string, error) {
+	prefixes, err := secrets.NormalizeRuntimeNamespacePrefixes(input)
+	if err != nil || len(prefixes) > maximumCertificateObservationNamespaces {
+		return nil, ErrObservationUnavailable
+	}
+	return prefixes, nil
+}
+
 func (c ObservationConfig) Validate() error {
 	namespaces, err := NormalizeObservationNamespaces(c.Namespaces)
-	if err != nil || !c.Enabled || !slices.Equal(namespaces, c.Namespaces) ||
+	prefixes, prefixErr := NormalizeObservationNamespacePrefixes(c.NamespacePrefixes)
+	if err != nil || prefixErr != nil || len(namespaces)+len(prefixes) == 0 || !c.Enabled ||
+		!slices.Equal(namespaces, c.Namespaces) || !slices.Equal(prefixes, c.NamespacePrefixes) ||
 		c.PollInterval < 5*time.Second || c.PollInterval > 10*time.Minute ||
 		c.WorkLease < 20*time.Second || c.WorkLease > time.Hour ||
 		c.HeartbeatInterval < time.Second || c.HeartbeatInterval >= c.WorkLease/2 || c.HeartbeatInterval >= CertificateObservationReadinessLease/2 ||
@@ -122,8 +134,30 @@ func (c ObservationConfig) AllowsNamespace(namespace string) bool {
 	if c.Validate() != nil || !observationKubeNameRE.MatchString(namespace) {
 		return false
 	}
-	_, found := slices.BinarySearch(c.Namespaces, namespace)
-	return found
+	if _, found := slices.BinarySearch(c.Namespaces, namespace); found {
+		return true
+	}
+	for _, prefix := range c.NamespacePrefixes {
+		if len(namespace) > len(prefix) && strings.HasPrefix(namespace, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func observationNamespaceAllowed(namespaces, prefixes []string, namespace string) bool {
+	if !observationKubeNameRE.MatchString(namespace) {
+		return false
+	}
+	if _, found := slices.BinarySearch(namespaces, namespace); found {
+		return true
+	}
+	for _, prefix := range prefixes {
+		if len(namespace) > len(prefix) && strings.HasPrefix(namespace, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 type ObservationIdentity struct {
@@ -142,6 +176,7 @@ func ObservationIdentityForConfig(config ObservationConfig) (ObservationIdentity
 		Purpose              secrets.BindingPurpose   `json:"purpose"`
 		TargetSecretType     secrets.TargetSecretType `json:"targetSecretType"`
 		Namespaces           []string                 `json:"namespaces"`
+		NamespacePrefixes    []string                 `json:"namespacePrefixes"`
 		PollIntervalNanos    int64                    `json:"pollIntervalNanos"`
 		WorkLeaseNanos       int64                    `json:"workLeaseNanos"`
 		HeartbeatNanos       int64                    `json:"heartbeatNanos"`
@@ -155,7 +190,7 @@ func ObservationIdentityForConfig(config ObservationConfig) (ObservationIdentity
 	}{
 		ContractVersion: CertificateObservationContract, ProviderContract: secrets.RuntimeSecretWorkerContract,
 		Provider: secrets.ProviderSealedSecrets, Purpose: secrets.PurposeTLSCertificate, TargetSecretType: secrets.TargetSecretTLS,
-		Namespaces: append([]string(nil), config.Namespaces...), PollIntervalNanos: int64(config.PollInterval),
+		Namespaces: append([]string(nil), config.Namespaces...), NamespacePrefixes: append([]string(nil), config.NamespacePrefixes...), PollIntervalNanos: int64(config.PollInterval),
 		WorkLeaseNanos: int64(config.WorkLease), HeartbeatNanos: int64(config.HeartbeatInterval), IdleDelayNanos: int64(config.IdleDelay),
 		MinimumBackoffNanos: int64(config.MinimumBackoff), MaximumBackoffNanos: int64(config.MaximumBackoff),
 		MaximumAgeNanos: int64(config.MaximumObservationAge), ReadinessLeaseNanos: int64(CertificateObservationReadinessLease),
@@ -310,7 +345,7 @@ func validateObservationTime(observedAt, nextAt, now, claimedAt time.Time) error
 }
 
 type ObservationStore interface {
-	ClaimCertificateObservation(context.Context, ObservationIdentity, string, []string, time.Time, time.Duration) (ObservationWork, error)
+	ClaimCertificateObservation(context.Context, ObservationIdentity, string, []string, []string, time.Time, time.Duration) (ObservationWork, error)
 	HeartbeatCertificateObservation(context.Context, ObservationLease, time.Time, time.Duration) (ObservationLease, error)
 	ApplyCertificateObservationReady(context.Context, ObservationLease, ObservationReadyOutcome, time.Time) error
 	ApplyCertificateObservationDegraded(context.Context, ObservationLease, ObservationDegradedOutcome, time.Time) error

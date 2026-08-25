@@ -2,147 +2,66 @@ package main
 
 import (
 	"context"
-	"net/http"
+	"errors"
 	"os"
-	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/kuberploy/kuberploy/internal/argo"
-	"github.com/kuberploy/kuberploy/internal/helmapps"
-	"github.com/kuberploy/kuberploy/internal/id"
+	"github.com/kuberploy/kuberploy/internal/helmdirect"
+)
+
+const (
+	helmApplicationsEnabledEnv = "KUBERPLOY_HELM_APPLICATIONS_ENABLED"
+	helmArgoNamespaceEnv       = "KUBERPLOY_ARGO_NAMESPACE"
 )
 
 type helmApplicationsAPI struct {
-	pool      *pgxpool.Pool
-	runtime   *helmapps.APIRuntime
-	approvals *helmapps.ApprovalAdmissionService
-	previews  *helmapps.PostgresRenderedManifestPreviewService
+	pool    *pgxpool.Pool
+	runtime *helmdirect.Service
 }
 
-func newHelmApplicationsAPI(ctx context.Context, databaseURL string, projection *gitProjectionAPI,
-	argoRuntime *argoDesiredStateAPI) (*helmApplicationsAPI, error) {
-	return newHelmApplicationsAPIFromLookup(ctx, databaseURL, projection, argoRuntime, os.LookupEnv)
+func newHelmApplicationsAPI(ctx context.Context, databaseURL string, _ *gitProjectionAPI,
+	_ *argoDesiredStateAPI) (*helmApplicationsAPI, error) {
+	return newHelmApplicationsAPIFromLookup(ctx, databaseURL, nil, nil, os.LookupEnv)
 }
 
-func newHelmApplicationsAPIFromLookup(ctx context.Context, databaseURL string, projection *gitProjectionAPI,
-	argoRuntime *argoDesiredStateAPI, lookup func(string) (string, bool)) (*helmApplicationsAPI, error) {
-	config, err := protectedHelmRuntimeConfigForAPI(projection, lookup)
-	if err != nil {
-		return nil, err
-	}
-	if !config.Enabled {
+func newHelmApplicationsAPIFromLookup(ctx context.Context, databaseURL string, _ *gitProjectionAPI,
+	_ *argoDesiredStateAPI, lookup func(string) (string, bool)) (*helmApplicationsAPI, error) {
+	value, present := lookup(helmApplicationsEnabledEnv)
+	if !present || strings.TrimSpace(value) == "" || strings.EqualFold(strings.TrimSpace(value), "false") {
 		return nil, nil
 	}
-	identity, err := validateHelmAPIAuthorities(config, projection, argoRuntime)
-	if err != nil {
-		return nil, err
+	if !strings.EqualFold(strings.TrimSpace(value), "true") {
+		return nil, errors.New("KUBERPLOY_HELM_APPLICATIONS_ENABLED must be true or false")
 	}
-	credentials, err := helmapps.RuntimeOCICredentialProvider(ctx, config)
-	if err != nil {
-		return nil, err
-	}
-	readiness, err := helmapps.NewProductionProtectedArgoReadiness(argoRuntime.readiness,
-		helmapps.ProductionProtectedArgoReadinessConfig{
-			PlatformBindingID: identity.PlatformBindingID,
-			Application:       config.Application, Publisher: config.Publisher,
-		})
-	if err != nil {
-		return nil, err
+	argoNamespace, present := lookup(helmArgoNamespaceEnv)
+	argoNamespace = strings.TrimSpace(argoNamespace)
+	if !present || argoNamespace == "" {
+		return nil, errors.New("KUBERPLOY_ARGO_NAMESPACE is required when Helm Apps are enabled")
 	}
 	pool, err := openHelmAPIPool(ctx, databaseURL)
 	if err != nil {
 		return nil, err
 	}
-	runtime, err := helmapps.NewAPIRuntime(config, helmapps.APIRuntimeDependencies{
-		Pool: pool, Argo: readiness, Now: func() time.Time { return time.Now().UTC() },
-	})
+	store, err := helmdirect.NewPostgresStore(pool)
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	admissionStore, err := helmapps.NewPostgresApprovalAdmissionStore(pool)
+	api, err := helmdirect.NewInClusterApplicationAPI()
 	if err != nil {
 		pool.Close()
 		return nil, err
 	}
-	client := &http.Client{Timeout: config.OCIRequestTimeout}
-	ociPackages := &helmapps.CachedChartPackageSource{Upstream: helmapps.OCIHTTPPackageSource{
-		Client: client, AllowedRegistryHosts: append([]string(nil), config.OCIRegistryHosts...),
-		AllowedAuthHosts:     append([]string(nil), config.OCIAuthHosts...),
-		AllowedRedirectHosts: append([]string(nil), config.OCIRedirectHosts...), Credentials: credentials}, MaxBytes: config.PackageCacheBytes}
-	gitPath, gitErr := exec.LookPath("git")
-	helmPath, helmErr := exec.LookPath("helm")
-	if gitErr != nil || helmErr != nil {
-		pool.Close()
-		return nil, helmapps.ErrUnavailable
-	}
-	packages := helmapps.UniversalChartPackageSource{OCI: ociPackages, HTTP: client,
-		GitPath: gitPath, HelmPath: helmPath, Timeout: config.OCIRequestTimeout}
-	approvals := &helmapps.ApprovalAdmissionService{Store: admissionStore, Packages: packages,
-		Now: func() time.Time { return time.Now().UTC() }, NewID: id.New}
-	if approvals.Validate() != nil {
-		pool.Close()
-		return nil, helmapps.ErrInvalid
-	}
-	previews, err := helmapps.NewPostgresRenderedManifestPreviewService(pool)
-	if err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return &helmApplicationsAPI{pool: pool, runtime: runtime, approvals: approvals, previews: previews}, nil
-}
-
-func protectedHelmRuntimeConfigForAPI(projection *gitProjectionAPI,
-	lookup func(string) (string, bool)) (helmapps.RuntimeConfig, error) {
-	if projection == nil || projection.readiness == nil || projection.readiness.Identity.Validate() != nil {
-		config, err := helmapps.RuntimeConfigFromLookup(lookup, helmapps.ProtectedPublisherIdentity{})
-		return config, err
-	}
-	baseDigest := projection.readiness.Identity.ConfigDigest
-	seed := helmapps.ProtectedPublisherIdentity{Contract: helmapps.ProtectedPublisherContract,
-		PolicyVersion: helmapps.ProtectedGitPolicy, ConfigDigest: baseDigest}
-	config, err := helmapps.RuntimeConfigFromLookup(lookup, seed)
-	if err != nil || !config.Enabled {
-		return config, err
-	}
-	publisher, err := helmapps.ProtectedPublisherIdentityForRuntime(projection.readiness.Identity, config)
-	if err != nil {
-		return helmapps.RuntimeConfig{}, err
-	}
-	config.Publisher = publisher
-	return config, config.Validate()
-}
-
-func validateHelmAPIAuthorities(config helmapps.RuntimeConfig, projection *gitProjectionAPI,
-	argoRuntime *argoDesiredStateAPI) (argo.DesiredStateRuntimeIdentity, error) {
-	if config.Validate() != nil || !config.Enabled || projection == nil || projection.store == nil ||
-		projection.backend == nil || projection.readiness == nil || projection.readiness.Store == nil ||
-		projection.readiness.Identity.Validate() != nil ||
-		argoRuntime == nil || argoRuntime.store == nil || argoRuntime.readiness == nil ||
-		argoRuntime.readiness.Store == nil {
-		return argo.DesiredStateRuntimeIdentity{}, helmapps.ErrInvalid
-	}
-	expectedPublisher, err := helmapps.ProtectedPublisherIdentityForRuntime(
-		projection.readiness.Identity, config)
-	if err != nil || config.Publisher != expectedPublisher {
-		return argo.DesiredStateRuntimeIdentity{}, helmapps.ErrInvalid
-	}
-	identity := argoRuntime.readiness.Identity
-	if identity.Validate() != nil || identity.GitHubAppID != projection.readiness.Identity.GitHubAppID ||
-		identity.ArgoNamespace != config.Application.ArgoNamespace ||
-		identity.RootApplicationName != argo.PlatformRootApplicationName ||
-		identity.Runtime.ChartName != argo.RuntimeChartName ||
-		identity.DigestEnforcement != argo.ChartDigestNativeOCI {
-		return argo.DesiredStateRuntimeIdentity{}, helmapps.ErrInvalid
-	}
-	return identity, nil
+	service := &helmdirect.Service{Store: store, Reconciler: helmdirect.ArgoReconciler{API: api, Namespace: argoNamespace}}
+	return &helmApplicationsAPI{pool: pool, runtime: service}, nil
 }
 
 func openHelmAPIPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, helmapps.ErrInvalid
+		return nil, helmdirect.ErrInvalid
 	}
 	config.ConnConfig.RuntimeParams["application_name"] = "kuberploy-helm-applications-api"
 	pool, err := pgxpool.NewWithConfig(ctx, config)
@@ -159,5 +78,23 @@ func openHelmAPIPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, er
 func (a *helmApplicationsAPI) Close() {
 	if a != nil && a.pool != nil {
 		a.pool.Close()
+	}
+}
+
+func (a *helmApplicationsAPI) Run(ctx context.Context) error {
+	if a == nil || a.runtime == nil {
+		return helmdirect.ErrUnavailable
+	}
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	for {
+		if err := a.runtime.ReconcilePending(ctx, 25, time.Now().UTC()); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }

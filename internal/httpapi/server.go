@@ -150,8 +150,6 @@ type Options struct {
 	RegistryReadiness                  ReadinessProbe
 	ExternalDNS                        ExternalDNSManagementService
 	HelmApplications                   HelmApplicationBackend
-	HelmApprovals                      HelmApprovalAdmissionBackend
-	HelmRenderedPreviews               HelmRenderedManifestPreviewBackend
 	GitSSHKeys                         GitSSHKeyBackend
 	MiddlewareProfiles                 middlewareProfileBackend
 	DeploymentRollbacks                *deploymentrollback.Resolver
@@ -209,8 +207,6 @@ type Server struct {
 	registry                          *registryHTTP
 	externalDNS                       *externalDNSHTTP
 	helmApplications                  HelmApplicationBackend
-	helmApprovals                     HelmApprovalAdmissionBackend
-	helmRenderedPreviews              HelmRenderedManifestPreviewBackend
 	gitSSHKeys                        GitSSHKeyBackend
 	middleware                        middlewareProfileBackend
 	deploymentRollbacks               *deploymentrollback.Resolver
@@ -226,7 +222,7 @@ func New(o Options) *Server {
 	if defaultBuildPlatform == "" {
 		defaultBuildPlatform = "linux/" + runtime.GOARCH
 	}
-	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, defaultBuildPlatform: defaultBuildPlatform, builderSettings: o.BuilderSettings, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, helmApprovals: o.HelmApprovals, helmRenderedPreviews: o.HelmRenderedPreviews, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
+	s := &Server{store: o.Store, version: o.Version, publicURL: strings.TrimSuffix(o.PublicURL, "/"), monitoringMode: strings.TrimSpace(o.MonitoringMode), sessionTTL: o.SessionTTL, secureCookie: o.SecureCookie, releases: o.Releases, metrics: o.Metrics, runtime: o.Runtime, runtimeReadiness: o.RuntimeReadiness, runtimeSecrets: o.RuntimeSecrets, runtimeSecretReadiness: o.RuntimeSecretReadiness, certificates: o.Certificates, certificateReadiness: o.CertificateReadiness, certificateReferences: o.CertificateReferences, certificateIssuers: o.CertificateIssuers, certificateIssuerAdmin: o.CertificateIssuerAdmin, certificateIssuerRuntimeReadiness: o.CertificateIssuerRuntimeReadiness, registryPullReadiness: o.RegistryPullReadiness, registryPulls: o.RegistryPulls, registryPullConfig: o.RegistryPullConfig, imageResolution: o.ImageResolution, githubSetup: o.GitHubSetup, githubWebhookBackend: o.GitHubWebhook, builds: o.Builds, buildPromotions: o.BuildPromotions, buildLogs: o.BuildLogs, gitBindingRepositories: o.GitBindingRepositories, platformGitBinding: o.PlatformGitBinding, buildReadiness: o.BuildReadiness, defaultBuildPlatform: defaultBuildPlatform, builderSettings: o.BuilderSettings, buildLogReadiness: o.BuildLogReadiness, valkeyReadiness: o.ValkeyReadiness, operationCache: o.OperationCache, appConfigRenderedPreviews: o.AppConfigRenderedPreviews, gitProjection: o.GitProjection, gitReadiness: o.GitProjectionReadiness, argoReadiness: o.ArgoReadiness, edgeReadiness: o.EdgeReadiness, edgeFeatures: o.EdgeFeatures, sslip: o.SSLIP, registryReadiness: o.RegistryReadiness, registry: newRegistryHTTP(o.Registry, o.RegistryReadiness), externalDNS: newExternalDNSHTTP(o.ExternalDNS, o.EdgeReadiness, o.EdgeFeatures.ExternalDNS), helmApplications: o.HelmApplications, gitSSHKeys: o.GitSSHKeys, middleware: o.MiddlewareProfiles, deploymentRollbacks: o.DeploymentRollbacks, autoDeployService: o.AutoDeployService, autoDeployPolicies: o.AutoDeployPolicies, autoDeployReadiness: o.AutoDeployReadiness, highRiskLimiter: o.HighRiskLimiter}
 	s.imageResolutionCatalog, _ = o.Store.(imageresolution.Catalog)
 	if s.gitBindingRepositories == nil {
 		if resolver, ok := o.Builds.(GitBindingRepositoryResolver); ok {
@@ -312,8 +308,6 @@ func New(o Options) *Server {
 	mux.Handle("PUT /v1/environments/{id}/variable-sets/{scope}", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(variableSetMutationLimit, http.HandlerFunc(s.saveVariableSet))))))
 	mux.Handle("GET /v1/platform/argo/git-binding", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.platformArgoGitBinding))))))
 	mux.Handle("POST /v1/platform/argo/git-binding", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(platformGitBindingLimit, http.HandlerFunc(s.platformArgoGitBinding)))))))
-	mux.Handle("GET /v1/platform/helm/approvals", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.platformHelmApprovals))))))
-	mux.Handle("POST /v1/platform/helm/approvals", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(helmApprovalLimit, http.HandlerFunc(s.platformHelmApprovals)))))))
 	mux.Handle("GET /v1/platform/certificate-issuers", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(http.HandlerFunc(s.platformCertificateIssuers))))))
 	mux.Handle("POST /v1/platform/certificate-issuers", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.platformCertificateIssuers)))))))
 	mux.Handle("PUT /v1/platform/certificate-issuers/{id}", s.secretNoStore(s.protect(s.humanOnly(s.adminOnly(s.highRiskActor(accessControlLimit, http.HandlerFunc(s.platformCertificateIssuer)))))))
@@ -341,12 +335,9 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/applications/{id}/external-dns-integrations", externalDNSNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.externalDNS.applicationCatalog)))))
 	mux.Handle("GET /v1/applications/{id}/sslip-hostname", s.sslipNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, s.sslipReady(http.HandlerFunc(s.sslipHostname))))))
 	mux.Handle("GET /v1/applications/{id}/certificate-issuers", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationCertificateIssuerCatalog)))))
-	mux.Handle("GET /v1/applications/{id}/environments/{environmentId}/helm/approvals", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.helmApprovalCatalog)))))
-	mux.Handle("POST /v1/applications/{id}/environments/{environmentId}/helm/values-preview", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.helmValuesPreview)))))
 	mux.Handle("PUT /v1/applications/{id}/environments/{environmentId}/helm/release", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.helmUpsert)))))
 	mux.Handle("GET /v1/applications/{id}/environments/{environmentId}/helm/release", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.helmHead)))))
 	mux.Handle("GET /v1/applications/{id}/environments/{environmentId}/helm/releases", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.helmHistory)))))
-	mux.Handle("GET /v1/applications/{id}/environments/{environmentId}/helm/rendered-preview", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.helmRenderedPreview)))))
 	mux.Handle("POST /v1/applications/{id}/environments/{environmentId}/helm/release/retry", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.helmRetry)))))
 	mux.Handle("POST /v1/applications/{id}/environments/{environmentId}/helm/release/disable", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.helmDisable)))))
 	mux.Handle("POST /v1/applications/{id}/environments/{environmentId}/helm/release/rollback", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.helmRollback)))))

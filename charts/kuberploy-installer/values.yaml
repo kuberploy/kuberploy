@@ -68,6 +68,8 @@ integrations:
   runtimeSecrets:
     enabled: false
     namespaces: []
+    namespacePrefixes:
+      - kp-
     fingerprintKeyID: runtime-secrets-hmac-v1
     fingerprintSecretName: ""
     fingerprintSecretKey: runtime-secret-fingerprint.key
@@ -95,6 +97,9 @@ integrations:
     registryEgressCIDRs: []
   registry:
     enabled: false
+    # Starter installs generate separate registry identities and preserve them
+    # across upgrades. Disable only when every referenced Secret is operator-managed.
+    generateCredentials: true
     targetID: ""
     targetName: ""
     repositoryPrefix: ""
@@ -106,6 +111,8 @@ integrations:
     # Optional exact-host narrowing for the public managed-registry endpoint.
     controlPlaneEgressCIDRs: []
     authSecretName: ""
+    # Argo CD repository Secret used for Helm OCI pulls from this registry.
+    helmCredentialSecretName: registry-helm-oci
     secretRevision: ""
     exposureMode: internal
     # Disable when tlsSecretName already contains an operator-owned certificate.

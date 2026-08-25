@@ -16,12 +16,14 @@ func (s *PostgreSQLStore) ClaimCertificateObservation(
 	identity ObservationIdentity,
 	owner string,
 	namespaces []string,
+	namespacePrefixes []string,
 	now time.Time,
 	duration time.Duration,
 ) (ObservationWork, error) {
 	normalized, err := NormalizeObservationNamespaces(namespaces)
+	normalizedPrefixes, prefixErr := NormalizeObservationNamespacePrefixes(namespacePrefixes)
 	if s == nil || s.pool == nil || identity.Validate() != nil || !observationWorkerIDRE.MatchString(owner) ||
-		err != nil || !slices.Equal(normalized, namespaces) || now.IsZero() || duration < 20*time.Second || duration > time.Hour {
+		err != nil || prefixErr != nil || len(namespaces)+len(namespacePrefixes) == 0 || !slices.Equal(normalized, namespaces) || !slices.Equal(normalizedPrefixes, namespacePrefixes) || now.IsZero() || duration < 20*time.Second || duration > time.Hour {
 		return ObservationWork{}, ErrInvalid
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -39,10 +41,10 @@ func (s *PostgreSQLStore) ClaimCertificateObservation(
 		LEFT JOIN tls_certificate_observations o ON o.version_id=v.id AND o.binding_id=b.id
 		WHERE b.purpose='tls-certificate' AND b.provider='sealed-secrets' AND b.state='ready'
 		  AND v.provider='sealed-secrets' AND v.target_secret_type='kubernetes.io/tls' AND v.state='active'
-		  AND b.target_namespace=ANY($1::text[])
-		  AND (o.version_id IS NULL OR (o.next_observation_at<=$2 AND (o.lease_until IS NULL OR o.lease_until<=$2)))
+		  AND (b.target_namespace=ANY($1::text[]) OR EXISTS (SELECT 1 FROM unnest($2::text[]) prefix WHERE b.target_namespace LIKE prefix || '%' AND length(b.target_namespace)>length(prefix)))
+		  AND (o.version_id IS NULL OR (o.next_observation_at<=$3 AND (o.lease_until IS NULL OR o.lease_until<=$3)))
 		ORDER BY COALESCE(o.next_observation_at,c.created_at),v.id
-		FOR UPDATE OF b,v SKIP LOCKED LIMIT 1`, namespaces, now.UTC()).Scan(
+		FOR UPDATE OF b,v SKIP LOCKED LIMIT 1`, namespaces, namespacePrefixes, now.UTC()).Scan(
 		&bindingID, &versionID, &versionNumber, &observationVersion,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {

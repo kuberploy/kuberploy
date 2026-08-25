@@ -100,9 +100,10 @@ func (s *ObservationMemoryStore) Observation(versionID string) (ObservationSnaps
 	return record.snapshot, nil
 }
 
-func (s *ObservationMemoryStore) ClaimCertificateObservation(_ context.Context, identity ObservationIdentity, owner string, namespaces []string, now time.Time, duration time.Duration) (ObservationWork, error) {
+func (s *ObservationMemoryStore) ClaimCertificateObservation(_ context.Context, identity ObservationIdentity, owner string, namespaces, namespacePrefixes []string, now time.Time, duration time.Duration) (ObservationWork, error) {
 	normalized, err := NormalizeObservationNamespaces(namespaces)
-	if s == nil || identity.Validate() != nil || !observationWorkerIDRE.MatchString(owner) || err != nil || !slices.Equal(normalized, namespaces) ||
+	normalizedPrefixes, prefixErr := NormalizeObservationNamespacePrefixes(namespacePrefixes)
+	if s == nil || identity.Validate() != nil || !observationWorkerIDRE.MatchString(owner) || err != nil || prefixErr != nil || len(namespaces)+len(namespacePrefixes) == 0 || !slices.Equal(normalized, namespaces) || !slices.Equal(normalizedPrefixes, namespacePrefixes) ||
 		now.IsZero() || duration < 20*time.Second || duration > time.Hour {
 		return ObservationWork{}, ErrInvalid
 	}
@@ -113,7 +114,7 @@ func (s *ObservationMemoryStore) ClaimCertificateObservation(_ context.Context, 
 		if candidate.snapshot.NextAt.After(now) || !candidate.lease.Until.IsZero() && candidate.lease.Until.After(now) {
 			continue
 		}
-		if _, allowed := slices.BinarySearch(namespaces, candidate.binding.Scope.Namespace); !allowed {
+		if !observationNamespaceAllowed(namespaces, namespacePrefixes, candidate.binding.Scope.Namespace) {
 			continue
 		}
 		digest, digestErr := CertificateObservationTargetDigest(candidate.binding, candidate.secretVersion, candidate.attestation)

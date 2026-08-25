@@ -274,7 +274,7 @@ func TestHelmPermissionsAreClosedByRoleAndScope(t *testing.T) {
 		t.Fatal("Helm rollback crossed an application-scoped grant")
 	}
 	for permission, want := range map[domain.Permission][]string{
-		domain.PermissionHelmRead:     {"helm-approvals:read", "helm-releases:read", "helm-values:preview"},
+		domain.PermissionHelmRead:     {"helm-releases:read"},
 		domain.PermissionHelmDeploy:   {"helm-releases:deploy", "helm-releases:disable"},
 		domain.PermissionHelmRetry:    {"helm-releases:retry"},
 		domain.PermissionHelmRollback: {"helm-releases:rollback"},
@@ -355,20 +355,5 @@ func TestExternalDNSReadIsScopedAndManagementIsPlatformOnly(t *testing.T) {
 	narrow := domain.AccessBinding{Role: domain.RoleViewer, ScopeType: domain.ScopeApplication, ScopeID: "app-a"}
 	if HasPermission([]domain.AccessBinding{narrow}, domain.AccessTarget{ApplicationID: "app-b", ProjectID: "project-a"}, domain.PermissionExternalDNSRead) {
 		t.Fatal("application catalog permission crossed scope")
-	}
-}
-
-func TestHelmApprovalManagementIsPlatformOnly(t *testing.T) {
-	platform := domain.AccessBinding{Role: domain.RolePlatformAdmin, ScopeType: domain.ScopePlatform, ScopeID: "platform"}
-	if !slices.Contains(Actions(platform), "helm-approvals:manage") {
-		t.Fatalf("platform capability omitted Helm approval management: %#v", Actions(platform))
-	}
-	for _, binding := range []domain.AccessBinding{
-		{Role: domain.RoleOrganizationAdmin, ScopeType: domain.ScopePlatform, ScopeID: "platform"},
-		{Role: domain.RoleProjectAdmin, ScopeType: domain.ScopeApplication, ScopeID: "app-a"},
-	} {
-		if slices.Contains(Actions(binding), "helm-approvals:manage") {
-			t.Fatalf("non-platform-admin binding gained Helm approval management: %#v", binding)
-		}
 	}
 }

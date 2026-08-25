@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/kuberploy/kuberploy/internal/argo"
@@ -124,6 +125,10 @@ func newArgoDesiredStateRuntime(
 
 func argoDesiredStateWorkerID(host string, pid int, startedAt time.Time) string {
 	return workerLeaseOwner(workerProcessIdentity(host, pid, startedAt), "argo-desired-state")
+}
+
+func workerProcessIdentity(host string, pid int, startedAt time.Time) string {
+	return host + "/" + strconv.Itoa(pid) + "/" + startedAt.UTC().Format(time.RFC3339Nano)
 }
 
 func (r *argoDesiredStateRuntime) Run(ctx context.Context) error {

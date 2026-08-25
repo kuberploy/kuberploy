@@ -60,8 +60,8 @@
   {{- if not .Values.config.gitProjection.enabled -}}
   {{- fail "config.runtimeSecrets.enabled requires config.gitProjection.enabled" -}}
   {{- end -}}
-  {{- if empty .Values.config.runtimeSecrets.namespaces -}}
-  {{- fail "runtime secrets require at least one explicit namespace" -}}
+  {{- if and (empty .Values.config.runtimeSecrets.namespaces) (empty .Values.config.runtimeSecrets.namespacePrefixes) -}}
+  {{- fail "runtime secrets require an exact namespace or managed Environment namespace prefix" -}}
   {{- end -}}
   {{- if or (not .Values.config.runtimeSecrets.fingerprintSecret.name) (not .Values.config.runtimeSecrets.sealingCertificateSecret.name) -}}
   {{- fail "runtime secrets require existing HMAC and Sealed Secrets certificate Secret names" -}}
@@ -437,89 +437,12 @@
 {{- if and .Values.config.autoDeploy.enabled (or (not .Values.config.githubApp.enabled) (not .Values.config.gitProjection.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled)) -}}
 {{- fail "auto-deploy requires source builds, Git projection, protected Argo desired state, and environment foundations" -}}
 {{- end -}}
-{{- if ne (join "," (sortAlpha (keys .Values.config.helmApplications))) "enabled,ociAuthHosts,ociCredentialProfiles,ociRedirectHosts,ociRegistryHosts,ociRequestSeconds,packageCacheBytes,publishLeaseSeconds,readinessLeaseSeconds,renderLeaseSeconds,rendererNamespace,rendererPollMilliseconds,workPollMilliseconds" -}}
-{{- fail "config.helmApplications accepts only the closed production runtime contract" -}}
+{{- if ne (join "," (sortAlpha (keys .Values.config.helmApplications))) "enabled" -}}
+{{- fail "config.helmApplications accepts only enabled" -}}
 {{- end -}}
-{{- $helmCredentialProfilesNormalized := list -}}
 {{- if .Values.config.helmApplications.enabled -}}
-  {{- if or (not .Values.config.gitProjection.enabled) (not .Values.config.githubApp.enabled) (not .Values.config.argoDesiredState.enabled) (not .Values.config.environmentFoundation.enabled) -}}
-  {{- fail "approved Helm applications require Git projection, GitHub App, protected Argo desired state, and environment foundations" -}}
-  {{- end -}}
-  {{- if or (not .Values.config.helmApplications.rendererNamespace) (eq .Values.config.helmApplications.rendererNamespace .Release.Namespace) -}}
-  {{- fail "approved Helm rendering requires one dedicated namespace distinct from the control plane" -}}
-  {{- end -}}
-  {{- if empty .Values.config.helmApplications.ociRegistryHosts -}}
-  {{- fail "approved Helm applications require at least one exact OCI registry host" -}}
-  {{- end -}}
-  {{- range $hosts := list .Values.config.helmApplications.ociRegistryHosts .Values.config.helmApplications.ociAuthHosts .Values.config.helmApplications.ociRedirectHosts -}}
-    {{- range $host := $hosts -}}
-      {{- $parts := splitList ":" $host -}}
-      {{- if or (lt (len $parts) 1) (gt (len $parts) 2) (gt (len $host) 255) (not (regexMatch `^(?:[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$` (index $parts 0))) -}}
-      {{- fail "approved Helm OCI hosts must be canonical lowercase DNS hosts with an optional port" -}}
-      {{- end -}}
-      {{- if eq (len $parts) 2 -}}
-        {{- $port := index $parts 1 -}}
-        {{- if or (not (regexMatch `^[1-9][0-9]{0,4}$` $port)) (gt (atoi $port) 65535) -}}
-        {{- fail "approved Helm OCI host ports must be canonical integers from 1 through 65535" -}}
-        {{- end -}}
-      {{- end -}}
-    {{- end -}}
-  {{- end -}}
-  {{- $credentialRegistryHosts := list -}}
-  {{- $credentialProfileNames := list -}}
-  {{- $helmCredentialProfilesByIdentity := dict -}}
-  {{- range $profile := .Values.config.helmApplications.ociCredentialProfiles -}}
-    {{- $identity := printf "%s/%s" $profile.registryHost $profile.name -}}
-    {{- if hasKey $helmCredentialProfilesByIdentity $identity -}}
-      {{- if not (deepEqual (get $helmCredentialProfilesByIdentity $identity) $profile) -}}
-      {{- fail (printf "approved Helm OCI credential identity %s has conflicting profiles" $identity) -}}
-      {{- end -}}
-    {{- else -}}
-      {{- $_ := set $helmCredentialProfilesByIdentity $identity $profile -}}
-    {{- end -}}
-  {{- end -}}
-  {{- range $identity := sortAlpha (keys $helmCredentialProfilesByIdentity) -}}
-    {{- $helmCredentialProfilesNormalized = append $helmCredentialProfilesNormalized (get $helmCredentialProfilesByIdentity $identity) -}}
-  {{- end -}}
-  {{- range $profile := $helmCredentialProfilesNormalized -}}
-    {{- if ne (join "," (sortAlpha (keys $profile))) "authHost,mode,name,registryHost,secretRef" -}}
-    {{- fail "approved Helm OCI credential profiles accept only host, name, mode, and Secret projection identity" -}}
-    {{- end -}}
-    {{- if ne (join "," (sortAlpha (keys $profile.secretRef))) "name,passwordKey,tokenKey,usernameKey" -}}
-    {{- fail "approved Helm OCI credential Secret references accept only exact projected keys" -}}
-    {{- end -}}
-    {{- if or (not (has $profile.registryHost $.Values.config.helmApplications.ociRegistryHosts)) (not (has $profile.authHost $.Values.config.helmApplications.ociAuthHosts)) -}}
-    {{- fail "approved Helm OCI credential profile hosts must belong to the exact registry and auth allowlists" -}}
-    {{- end -}}
-    {{- if or (not (regexMatch `^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$` $profile.name)) (not (regexMatch `^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$` $profile.secretRef.name)) -}}
-    {{- fail "approved Helm OCI credential profile and Secret names must be canonical DNS labels" -}}
-    {{- end -}}
-    {{- if eq $profile.mode "basic" -}}
-      {{- if or (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.usernameKey)) (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.passwordKey)) $profile.secretRef.tokenKey -}}
-      {{- fail "basic Helm OCI profiles require only canonical username and password keys" -}}
-      {{- end -}}
-    {{- else if eq $profile.mode "bearer" -}}
-      {{- if or $profile.secretRef.usernameKey $profile.secretRef.passwordKey (not (regexMatch `^[A-Za-z0-9._-]{1,253}$` $profile.secretRef.tokenKey)) -}}
-      {{- fail "bearer Helm OCI profiles require only one canonical token key" -}}
-      {{- end -}}
-    {{- else -}}
-    {{- fail "approved Helm OCI credential profile mode must be basic or bearer" -}}
-    {{- end -}}
-    {{- $credentialRegistryHosts = append $credentialRegistryHosts $profile.registryHost -}}
-    {{- $credentialProfileNames = append $credentialProfileNames $profile.name -}}
-  {{- end -}}
-  {{- if or (ne (len $credentialRegistryHosts) (len (uniq $credentialRegistryHosts))) (ne (len $credentialProfileNames) (len (uniq $credentialProfileNames))) -}}
-  {{- fail "approved Helm OCI credential profiles must use unique hosts and names" -}}
-  {{- end -}}
-  {{- $rendererPoll := int64 .Values.config.helmApplications.rendererPollMilliseconds -}}
-  {{- $workPoll := int64 .Values.config.helmApplications.workPollMilliseconds -}}
-  {{- $renderLease := int64 .Values.config.helmApplications.renderLeaseSeconds -}}
-  {{- $publishLease := int64 .Values.config.helmApplications.publishLeaseSeconds -}}
-  {{- $readinessLeaseMillis := mul (int64 .Values.config.helmApplications.readinessLeaseSeconds) 1000 -}}
-  {{- $ociRequest := int64 .Values.config.helmApplications.ociRequestSeconds -}}
-  {{- $cacheBytes := int64 .Values.config.helmApplications.packageCacheBytes -}}
-  {{- if or (lt $rendererPoll 10) (gt $rendererPoll 2000) (lt $workPoll 100) (gt $workPoll 30000) (lt $renderLease 35) (gt $renderLease 900) (lt $publishLease 15) (gt $publishLease 300) (lt $readinessLeaseMillis 5000) (gt $readinessLeaseMillis 300000) (gt (mul $workPoll 2) $readinessLeaseMillis) (lt $ociRequest 1) (gt $ociRequest 60) (lt $cacheBytes 8388608) (gt $cacheBytes 1073741824) -}}
-  {{- fail "approved Helm application timings or cache bounds are outside the production contract" -}}
+  {{- if not .Values.config.argoDesiredState.enabled -}}
+  {{- fail "Helm Apps require Argo CD desired state" -}}
   {{- end -}}
 {{- end -}}
 {{- if and .Values.config.githubApp.enabled (ne .Values.builder.controllerServiceAccount.name (include "kuberploy.componentName" (dict "root" . "component" "worker"))) -}}
@@ -583,6 +506,7 @@ data:
   KUBERPLOY_RUNTIME_SECRETS_ENABLED: {{ .Values.config.runtimeSecrets.enabled | quote }}
   {{- if .Values.config.runtimeSecrets.enabled }}
   KUBERPLOY_RUNTIME_SECRET_NAMESPACES: {{ join "," (uniq (sortAlpha .Values.config.runtimeSecrets.namespaces)) | quote }}
+  KUBERPLOY_RUNTIME_SECRET_NAMESPACE_PREFIXES: {{ join "," (uniq (sortAlpha .Values.config.runtimeSecrets.namespacePrefixes)) | quote }}
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_REF: {{ .Values.config.runtimeSecrets.fingerprintSecret.name | quote }}
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_SECRET_KEY: {{ .Values.config.runtimeSecrets.fingerprintSecret.key | quote }}
   KUBERPLOY_RUNTIME_SECRET_FINGERPRINT_KEY_ID: {{ .Values.config.runtimeSecrets.fingerprintKeyID | quote }}
@@ -660,37 +584,6 @@ data:
   KUBERPLOY_ARGO_DESIRED_STATE_ENABLED: {{ .Values.config.argoDesiredState.enabled | quote }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_ENABLED: {{ .Values.config.environmentFoundation.enabled | quote }}
   KUBERPLOY_HELM_APPLICATIONS_ENABLED: {{ .Values.config.helmApplications.enabled | quote }}
-  {{- if .Values.config.helmApplications.enabled }}
-  KUBERPLOY_HELM_RENDERER_NAMESPACE: {{ .Values.config.helmApplications.rendererNamespace | quote }}
-  KUBERPLOY_HELM_RENDERER_SERVICE_ACCOUNT: {{ include "kuberploy.helmRendererServiceAccount" . | quote }}
-  KUBERPLOY_HELM_RENDERER_POLL_MILLISECONDS: {{ .Values.config.helmApplications.rendererPollMilliseconds | quote }}
-  KUBERPLOY_HELM_WORK_POLL_MILLISECONDS: {{ .Values.config.helmApplications.workPollMilliseconds | quote }}
-  KUBERPLOY_HELM_RENDER_LEASE_SECONDS: {{ .Values.config.helmApplications.renderLeaseSeconds | quote }}
-  KUBERPLOY_HELM_PUBLISH_LEASE_SECONDS: {{ .Values.config.helmApplications.publishLeaseSeconds | quote }}
-  KUBERPLOY_HELM_READINESS_LEASE_SECONDS: {{ .Values.config.helmApplications.readinessLeaseSeconds | quote }}
-  KUBERPLOY_HELM_OCI_REQUEST_SECONDS: {{ .Values.config.helmApplications.ociRequestSeconds | quote }}
-  KUBERPLOY_HELM_OCI_REGISTRY_HOSTS: {{ join "," (uniq (sortAlpha .Values.config.helmApplications.ociRegistryHosts)) | quote }}
-  {{- if .Values.config.helmApplications.ociAuthHosts }}
-  KUBERPLOY_HELM_OCI_AUTH_HOSTS: {{ join "," (uniq (sortAlpha .Values.config.helmApplications.ociAuthHosts)) | quote }}
-  {{- end }}
-  {{- $ociRedirectHosts := .Values.config.helmApplications.ociRedirectHosts -}}
-  {{- if has "ghcr.io" .Values.config.helmApplications.ociRegistryHosts -}}
-    {{- $ociRedirectHosts = uniq (sortAlpha (append $ociRedirectHosts "pkg-containers.githubusercontent.com")) -}}
-  {{- end }}
-  {{- if $ociRedirectHosts }}
-  KUBERPLOY_HELM_OCI_REDIRECT_HOSTS: {{ join "," $ociRedirectHosts | quote }}
-  {{- end }}
-  {{- if $helmCredentialProfilesNormalized }}
-  {{- $runtimeCredentialProfiles := list -}}
-  {{- range $profile := $helmCredentialProfilesNormalized -}}
-    {{- $projectionIdentity := printf "helm-oci-projection.v1%c%s%c%s%c%s%c%s%c%s%c%s%c%s%c%s" 0 $profile.registryHost 0 $profile.authHost 0 $profile.name 0 $profile.mode 0 $profile.secretRef.name 0 $profile.secretRef.usernameKey 0 $profile.secretRef.passwordKey 0 $profile.secretRef.tokenKey -}}
-    {{- $runtimeCredentialProfiles = append $runtimeCredentialProfiles (dict "registryHost" $profile.registryHost "authHost" $profile.authHost "name" $profile.name "mode" $profile.mode "projectionDigest" (printf "sha256:%s" (sha256sum $projectionIdentity))) -}}
-  {{- end }}
-  KUBERPLOY_HELM_OCI_CREDENTIAL_PROFILES_JSON: {{ toJson $runtimeCredentialProfiles | quote }}
-  {{- end }}
-  KUBERPLOY_HELM_PACKAGE_CACHE_BYTES: {{ int64 .Values.config.helmApplications.packageCacheBytes | quote }}
-  KUBERPLOY_HELM_ARGO_NAMESPACE: {{ .Values.config.argoDesiredState.namespace | quote }}
-  {{- end }}
   {{- if .Values.config.environmentFoundation.enabled }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_PLATFORM_BINDING_ID: {{ .Values.config.environmentFoundation.platformBindingID | quote }}
   KUBERPLOY_ENVIRONMENT_FOUNDATION_PSA_VERSION: {{ .Values.config.environmentFoundation.psaVersion | quote }}

@@ -52,12 +52,14 @@ func ObservationConfigFromLookup(lookup func(string) (string, bool), runtimeSecr
 	}
 
 	namespaces, err := NormalizeObservationNamespaces(runtimeSecrets.Namespaces)
-	if err != nil || !slices.Equal(namespaces, runtimeSecrets.Namespaces) {
+	prefixes, prefixErr := NormalizeObservationNamespacePrefixes(runtimeSecrets.NamespacePrefixes)
+	if err != nil || prefixErr != nil || !slices.Equal(namespaces, runtimeSecrets.Namespaces) || !slices.Equal(prefixes, runtimeSecrets.NamespacePrefixes) {
 		return ObservationConfig{}, ErrObservationUnavailable
 	}
 	config := DefaultObservationConfig()
 	config.Enabled = true
 	config.Namespaces = append([]string(nil), namespaces...)
+	config.NamespacePrefixes = append([]string(nil), prefixes...)
 	for name, destination := range map[string]*time.Duration{
 		CertificateObservationPollSecondsEnv:           &config.PollInterval,
 		CertificateObservationWorkLeaseSecondsEnv:      &config.WorkLease,
@@ -92,7 +94,7 @@ func ObservationConfigFromLookup(lookup func(string) (string, bool), runtimeSecr
 // certificate projection metadata without exposing any key material.
 func ObservationPolicyDigest(config ObservationConfig) (string, error) {
 	if !config.Enabled {
-		if len(config.Namespaces) != 0 || config.PollInterval != 0 || config.WorkLease != 0 ||
+		if len(config.Namespaces) != 0 || len(config.NamespacePrefixes) != 0 || config.PollInterval != 0 || config.WorkLease != 0 ||
 			config.HeartbeatInterval != 0 || config.IdleDelay != 0 || config.MinimumBackoff != 0 ||
 			config.MaximumBackoff != 0 || config.MaximumObservationAge != 0 {
 			return "", ErrObservationUnavailable

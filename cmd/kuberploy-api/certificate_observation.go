@@ -116,6 +116,7 @@ func newCertificateAPI(
 func validateCertificateRuntimeCoupling(runtimeSecrets secrets.RuntimeConfig, observations certificates.ObservationConfig) error {
 	if runtimeSecrets.Validate() != nil || observations.Validate() != nil ||
 		!slices.Equal(runtimeSecrets.Namespaces, observations.Namespaces) ||
+		!slices.Equal(runtimeSecrets.NamespacePrefixes, observations.NamespacePrefixes) ||
 		runtimeSecrets.SealingCertificateSecretRef == "" || runtimeSecrets.SealingCertificateSecretKey == "" {
 		return certificates.ErrObservationUnavailable
 	}

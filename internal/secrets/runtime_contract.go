@@ -8,6 +8,7 @@ import (
 	"errors"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -34,8 +35,9 @@ const (
 )
 
 var (
-	runtimeSecretWorkerIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
-	runtimeSecretContractRE = regexp.MustCompile(`^[a-z][a-z0-9.-]{7,63}$`)
+	runtimeSecretWorkerIDRE  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$`)
+	runtimeSecretContractRE  = regexp.MustCompile(`^[a-z][a-z0-9.-]{7,63}$`)
+	runtimeNamespacePrefixRE = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$`)
 )
 
 // RuntimeConfig is the complete operator-owned worker contract. Namespaces
@@ -44,6 +46,7 @@ var (
 type RuntimeConfig struct {
 	Enabled                     bool
 	Namespaces                  []string
+	NamespacePrefixes           []string
 	FingerprintSecretRef        string
 	FingerprintSecretKey        string
 	FingerprintKeyID            string
@@ -68,7 +71,7 @@ func DefaultRuntimeConfig() RuntimeConfig {
 }
 
 func NormalizeRuntimeNamespaces(input []string) ([]string, error) {
-	if len(input) == 0 || len(input) > maximumRuntimeSecretNamespaces {
+	if len(input) > maximumRuntimeSecretNamespaces {
 		return nil, ErrRuntimeUnavailable
 	}
 	result := append([]string(nil), input...)
@@ -82,9 +85,27 @@ func NormalizeRuntimeNamespaces(input []string) ([]string, error) {
 	return result, nil
 }
 
+func NormalizeRuntimeNamespacePrefixes(input []string) ([]string, error) {
+	if len(input) > maximumRuntimeSecretNamespaces {
+		return nil, ErrRuntimeUnavailable
+	}
+	result := append([]string(nil), input...)
+	for _, prefix := range result {
+		if !runtimeNamespacePrefixRE.MatchString(prefix) {
+			return nil, ErrRuntimeUnavailable
+		}
+	}
+	slices.Sort(result)
+	result = slices.Compact(result)
+	return result, nil
+}
+
 func (c RuntimeConfig) Validate() error {
 	namespaces, err := NormalizeRuntimeNamespaces(c.Namespaces)
-	if err != nil || !c.Enabled || !slices.Equal(namespaces, c.Namespaces) ||
+	prefixes, prefixErr := NormalizeRuntimeNamespacePrefixes(c.NamespacePrefixes)
+	if err != nil || prefixErr != nil || len(namespaces)+len(prefixes) == 0 ||
+		len(namespaces)+len(prefixes) > maximumRuntimeSecretNamespaces || !c.Enabled ||
+		!slices.Equal(namespaces, c.Namespaces) || !slices.Equal(prefixes, c.NamespacePrefixes) ||
 		!kubeNameRE.MatchString(c.FingerprintSecretRef) || !keyIDRE.MatchString(c.FingerprintKeyID) ||
 		!secretKeyRE.MatchString(c.FingerprintSecretKey) || !kubeNameRE.MatchString(c.SealingCertificateSecretRef) ||
 		!secretKeyRE.MatchString(c.SealingCertificateSecretKey) ||
@@ -102,8 +123,15 @@ func (c RuntimeConfig) AllowsNamespace(namespace string) bool {
 	if c.Validate() != nil || !dnsLabelRE.MatchString(namespace) {
 		return false
 	}
-	_, found := slices.BinarySearch(c.Namespaces, namespace)
-	return found
+	if _, found := slices.BinarySearch(c.Namespaces, namespace); found {
+		return true
+	}
+	for _, prefix := range c.NamespacePrefixes {
+		if len(namespace) > len(prefix) && strings.HasPrefix(namespace, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // RuntimePolicyDigest returns a canonical metadata-only digest shared by the
@@ -112,7 +140,7 @@ func (c RuntimeConfig) AllowsNamespace(namespace string) bool {
 // exact zero value produced by RuntimeConfigFromEnvironment.
 func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 	if !config.Enabled {
-		if len(config.Namespaces) != 0 || config.FingerprintSecretRef != "" || config.FingerprintSecretKey != "" ||
+		if len(config.Namespaces) != 0 || len(config.NamespacePrefixes) != 0 || config.FingerprintSecretRef != "" || config.FingerprintSecretKey != "" ||
 			config.FingerprintKeyID != "" || config.SealingCertificateSecretRef != "" || config.SealingCertificateSecretKey != "" ||
 			config.PollInterval != 0 || config.WorkLease != 0 || config.HeartbeatInterval != 0 || config.IdleDelay != 0 ||
 			config.MinimumBackoff != 0 || config.MaximumBackoff != 0 {
@@ -132,6 +160,7 @@ func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 		Contract                  string       `json:"contract"`
 		Enabled                   bool         `json:"enabled"`
 		Namespaces                []string     `json:"namespaces"`
+		NamespacePrefixes         []string     `json:"namespacePrefixes"`
 		Provider                  ProviderKind `json:"provider"`
 		FingerprintSecretRef      string       `json:"fingerprintSecretRef"`
 		FingerprintSecretKey      string       `json:"fingerprintSecretKey"`
@@ -148,7 +177,7 @@ func RuntimePolicyDigest(config RuntimeConfig) (string, error) {
 		MaximumBackoffNanos       int64        `json:"maximumBackoffNanos"`
 	}{
 		Contract: RuntimeSecretReferencePolicyContract, Enabled: true,
-		Namespaces: append([]string(nil), config.Namespaces...), Provider: ProviderSealedSecrets,
+		Namespaces: append([]string(nil), config.Namespaces...), NamespacePrefixes: append([]string(nil), config.NamespacePrefixes...), Provider: ProviderSealedSecrets,
 		FingerprintSecretRef: config.FingerprintSecretRef, FingerprintSecretKey: config.FingerprintSecretKey,
 		FingerprintKeyID: config.FingerprintKeyID, FingerprintProjectionPath: DefaultFingerprintKeyPath,
 		CertificateSecretRef: config.SealingCertificateSecretRef, CertificateSecretKey: config.SealingCertificateSecretKey,
@@ -181,6 +210,7 @@ func RuntimeIdentityForConfig(config RuntimeConfig, sealingKeyFingerprint string
 	canonical := struct {
 		ContractVersion           string   `json:"contractVersion"`
 		Namespaces                []string `json:"namespaces"`
+		NamespacePrefixes         []string `json:"namespacePrefixes"`
 		FingerprintSecretRef      string   `json:"fingerprintSecretRef"`
 		FingerprintSecretKey      string   `json:"fingerprintSecretKey"`
 		FingerprintKeyID          string   `json:"fingerprintKeyId"`
@@ -196,7 +226,7 @@ func RuntimeIdentityForConfig(config RuntimeConfig, sealingKeyFingerprint string
 		MinimumBackoffNanos       int64    `json:"minimumBackoffNanos"`
 		MaximumBackoffNanos       int64    `json:"maximumBackoffNanos"`
 	}{
-		ContractVersion: RuntimeSecretWorkerContract, Namespaces: append([]string(nil), config.Namespaces...),
+		ContractVersion: RuntimeSecretWorkerContract, Namespaces: append([]string(nil), config.Namespaces...), NamespacePrefixes: append([]string(nil), config.NamespacePrefixes...),
 		FingerprintSecretRef: config.FingerprintSecretRef, FingerprintSecretKey: config.FingerprintSecretKey,
 		FingerprintKeyID:          config.FingerprintKeyID,
 		FingerprintProjectionPath: DefaultFingerprintKeyPath,
@@ -313,7 +343,7 @@ func (o RuntimePendingOutcome) validate(now time.Time) error {
 }
 
 type RuntimeStore interface {
-	ClaimRuntimeSecret(context.Context, RuntimeIdentity, string, []string, time.Time, time.Duration) (RuntimeWork, error)
+	ClaimRuntimeSecret(context.Context, RuntimeIdentity, string, []string, []string, time.Time, time.Duration) (RuntimeWork, error)
 	HeartbeatRuntimeSecret(context.Context, RuntimeLease, time.Time, time.Duration) (RuntimeLease, error)
 	ApplyRuntimeSecretPending(context.Context, RuntimeLease, RuntimePendingOutcome, time.Time) error
 	ApplyRuntimeSecretReady(context.Context, RuntimeLease, Event, time.Time) (Binding, Version, error)
@@ -392,6 +422,26 @@ func (p *RuntimeReadinessProbe) Probe(ctx context.Context) error {
 func exactRuntimeNamespaces(input []string) bool {
 	normalized, err := NormalizeRuntimeNamespaces(input)
 	return err == nil && slices.Equal(normalized, input)
+}
+
+func exactRuntimeNamespacePrefixes(input []string) bool {
+	normalized, err := NormalizeRuntimeNamespacePrefixes(input)
+	return err == nil && slices.Equal(normalized, input)
+}
+
+func runtimeNamespaceAllowed(namespaces, prefixes []string, namespace string) bool {
+	if !dnsLabelRE.MatchString(namespace) {
+		return false
+	}
+	if _, found := slices.BinarySearch(namespaces, namespace); found {
+		return true
+	}
+	for _, prefix := range prefixes {
+		if len(namespace) > len(prefix) && strings.HasPrefix(namespace, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeIdentityEqual(left, right RuntimeIdentity) bool {

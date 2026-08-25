@@ -882,65 +882,44 @@ kp_run_source_build_workflow() {
 }
 
 kp_run_helm_workflow() {
-  local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_state_file kp_application kp_environment
-  local kp_path kp_body kp_actual kp_release_id kp_application_revision kp_argo_name
+  local kp_dir="${KUBERPLOY_E2E_STAGE_DIR}/evidence" kp_state_file kp_project kp_application kp_environment
+  local kp_path kp_body kp_actual kp_release_id kp_target_revision kp_argo_name
   kp_state_file="${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json"
-  kp_application="$(jq -er '.applicationId' "${kp_state_file}")"
+  kp_project="$(jq -er '.projectId' "${kp_state_file}")"
   kp_environment="$(jq -er '.protectedEnvironmentId' "${kp_state_file}")"
+  kp_body="$(jq -cn --arg project "${kp_project}" --arg environment "${kp_environment}" \
+    --arg run "${KUBERPLOY_E2E_RUN_ID}" '{projectId:$project,environmentId:$environment,name:("Helm "+$run),slug:("helm-"+$run),sourceKind:"helm"}')"
+  kp_human_post create-helm-application /v1/applications "${kp_body}" 201 \
+    "${kp_dir}/workflow-helm-application.json"
+  kp_application="$(jq -er '.id | select(test("^[a-f0-9-]{36}$"))' "${kp_dir}/workflow-helm-application.json")"
   kp_path="/v1/applications/${kp_application}/environments/${kp_environment}/helm"
   kp_body="$(jq -c '.workflow.helm' "${kp_scenario}")"
-  kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-helm-values-preview.json" \
-    --write-out '%{http_code}' --request POST \
-    --header "$(<"${KUBERPLOY_E2E_HUMAN_COOKIE_HEADER_FILE}")" \
-    --header "X-CSRF-Token: $(<"${KUBERPLOY_E2E_CSRF_TOKEN_FILE}")" \
-    --header 'Content-Type: application/json' --data-binary "${kp_body}" \
-    "$(jq -r '.apiBaseURL' "${kp_scenario}")${kp_path}/values-preview")"
-  [[ "${kp_actual}" == "200" ]]
-  jq -e --argjson approval "$(jq '.approvalRevision' <<<"${kp_body}")" \
-    --arg id "$(jq -r '.approvalId' <<<"${kp_body}")" '
-    .approval.id == $id and .approval.revision == $approval and
-    (.normalizedValuesYaml | type == "string" and length > 0) and
-    (.valuesDigest | test("^sha256:[a-f0-9]{64}$")) and
-    (.changedPaths | type == "array")
-  ' "${kp_dir}/workflow-helm-values-preview.json" >/dev/null
   kp_human_put helm-release "${kp_path}/release" "${kp_body}" 202 \
     "${kp_dir}/workflow-helm-release.json"
   kp_release_id="$(jq -er '.id | select(test("^[a-f0-9-]{36}$"))' "${kp_dir}/workflow-helm-release.json")"
+  kp_target_revision="$(jq -er '.source.targetRevision' "${kp_dir}/workflow-helm-release.json")"
   for _ in {1..120}; do
     kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-helm-status.json" \
       --write-out '%{http_code}' --request GET --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
       "$(jq -r '.apiBaseURL' "${kp_scenario}")${kp_path}/release")"
     [[ "${kp_actual}" == "200" ]]
     if jq -e --arg release "${kp_release_id}" '
-      .revision.id == $release and .phase == "published" and .renderState == "succeeded" and
-      .payloadState == "verified" and .applicationState == "verified" and
-      (.payloadRevision | test("^[a-f0-9]{40}$")) and
-      (.applicationRevision | test("^[a-f0-9]{40}$"))
+      .id == $release and .state == "applied" and .desiredEnabled == true and
+      (.valuesDigest | test("^sha256:[a-f0-9]{64}$")) and
+      (.valuesYaml | type == "string" and length > 0)
     ' "${kp_dir}/workflow-helm-status.json" >/dev/null; then break; fi
     sleep 5
   done
-  kp_application_revision="$(jq -er '.applicationRevision | select(test("^[a-f0-9]{40}$"))' "${kp_dir}/workflow-helm-status.json")"
-  kp_actual="$(curl --silent --show-error --output "${kp_dir}/workflow-helm-rendered-preview.json" \
-    --write-out '%{http_code}' --request GET --header "$(<"${KUBERPLOY_E2E_API_AUTH_HEADER_FILE}")" \
-    "$(jq -r '.apiBaseURL' "${kp_scenario}")${kp_path}/rendered-preview")"
-  [[ "${kp_actual}" == "200" ]]
-  jq -e --arg release "${kp_release_id}" '
-    .releaseRevisionId == $release and (.manifestDigest | test("^sha256:[a-f0-9]{64}$")) and
-    (.inventoryDigest | test("^sha256:[a-f0-9]{64}$")) and .resourceCount == (.resources|length) and
-    .resourceCount > 0 and all(.resources[];
-      (has("sanitizedYaml") | not) or
-      (.sanitizedYaml | test("(^|\\n)(data|stringData):[[:space:]]") | not))
-  ' "${kp_dir}/workflow-helm-rendered-preview.json" >/dev/null
   kp_argo_name="kp-h-${kp_application//-/}"
   for _ in {1..120}; do
     if "${KUBERPLOY_E2E_KUBECTL}" get application "${kp_argo_name}" --namespace argocd -o json \
         >"${kp_dir}/workflow-helm-argo-application.json" 2>/dev/null &&
       jq -e --arg application "${kp_application}" --arg environment "${kp_environment}" \
-        --arg release "${kp_release_id}" --arg revision "${kp_application_revision}" '
-        .metadata.labels["app.kubernetes.io/component"] == "approved-helm-application" and
+        --arg release "${kp_release_id}" --arg revision "${kp_target_revision}" '
+        .metadata.labels["app.kubernetes.io/component"] == "helm-application" and
         .metadata.labels["kuberploy.io/application-id"] == $application and
         .metadata.labels["kuberploy.io/environment-id"] == $environment and
-        .metadata.annotations["kuberploy.io/helm-release-revision"] == $release and
+        .metadata.annotations["kuberploy.io/helm-revision-id"] == $release and
         .spec.source.targetRevision == $revision and .status.sync.status == "Synced" and
         .status.health.status == "Healthy" and
         any(.status.resources[]; .status == "Synced" and .health.status == "Healthy")
@@ -948,9 +927,9 @@ kp_run_helm_workflow() {
     sleep 5
   done
   jq -e '.status.sync.status == "Synced" and .status.health.status == "Healthy"' \
-    "${kp_dir}/workflow-helm-argo-application.json" >/dev/null || kp_die "approved Helm Argo Application did not converge"
-  jq --arg release "${kp_release_id}" --arg revision "${kp_application_revision}" \
-    '. + {helmReleaseId:$release,helmApplicationRevision:$revision}' "${kp_state_file}" >"${kp_state_file}.tmp"
+    "${kp_dir}/workflow-helm-argo-application.json" >/dev/null || kp_die "direct Helm Argo Application did not converge"
+  jq --arg application "${kp_application}" --arg release "${kp_release_id}" --arg revision "${kp_target_revision}" \
+    '. + {helmApplicationId:$application,helmReleaseId:$release,helmTargetRevision:$revision}' "${kp_state_file}" >"${kp_state_file}.tmp"
   chmod 600 "${kp_state_file}.tmp"; mv -- "${kp_state_file}.tmp" "${kp_state_file}"
 }
 
@@ -1354,7 +1333,7 @@ kp_require_stage_capabilities() {
       kp_actions='["environments:create","deployments:create","deployments:update","operations:read"]' ;;
     40-source-build)
       kp_features='["builder","builds","autoDeploy","git","gitops","argo","argoCD","helmDeployments","githubAppSetup"]'
-      kp_actions='["builds:read","builds:cancel","builds:retry","build-definitions:write","deployments:create","operations:read","helm-values:preview","helm-releases:read","helm-releases:deploy"]' ;;
+      kp_actions='["builds:read","builds:cancel","builds:retry","build-definitions:write","deployments:create","operations:read","helm-releases:read","helm-releases:deploy"]' ;;
     50-runtime-edge)
       kp_features='["git","gitops","argo","argoCD","edge","traefik","traefikMiddlewares","middlewareProfiles"]'
       kp_actions='["deployment-config:read","deployment-config:preview","deployment-config:write","operations:read"]' ;;
@@ -1645,8 +1624,8 @@ kp_write_workflow_proof() {
          argoSyncedHealthy:true,runtimeDigestVerified:true}' \
         "${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json" >"${kp_out}" ;;
     40-source-build)
-      jq '{mutation:"github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-approved-helm",successfulBuildId,
-        buildDefinitionId,buildPromotionOperationId,helmReleaseId,helmApplicationRevision,
+      jq '{mutation:"github-webhook-build-cancel-cache-fault-auto-deploy-promotion-and-direct-helm",successfulBuildId,
+        buildDefinitionId,buildPromotionOperationId,helmApplicationId,helmReleaseId,helmTargetRevision,
         autoDeployPolicyId,autoDeployOperationId,autoDeployDeploymentId,
         cancelledBuildId,cancelRetryBuildId,cacheHitBuildId,cacheDegradedBuildId,pushFailureBuildId,
         signedWebhookAccepted:true,invalidWebhookRejected:true,
@@ -1655,7 +1634,7 @@ kp_write_workflow_proof() {
         webhookWakeDisabled:true,safetyPollRetained:true,durableDeliveryPollingConverged:true,
         secondBuildCacheHit:true,cacheColdDegradedPushSucceeded:true,pushFailureTerminal:true,
         autoDeployReceiptSubmitted:true,credentialValuesExcluded:true,
-        helmRenderedPreviewSanitized:true,helmArgoSyncedHealthy:true}' \
+        helmValuesForwarded:true,helmArgoSyncedHealthy:true}' \
         "${KUBERPLOY_E2E_ARTIFACT_DIR}/workflow-state.json" >"${kp_out}" ;;
     50-runtime-edge)
       jq -n --arg hostname "${KUBERPLOY_E2E_HTTP_HOSTNAME}" \

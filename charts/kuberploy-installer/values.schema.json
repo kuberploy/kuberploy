@@ -115,10 +115,11 @@
         "runtimeSecrets": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "namespaces", "fingerprintKeyID", "fingerprintSecretName", "fingerprintSecretKey", "sealingCertificateSecretName", "sealingCertificateSecretKey"],
+          "required": ["enabled", "namespaces", "namespacePrefixes", "fingerprintKeyID", "fingerprintSecretName", "fingerprintSecretKey", "sealingCertificateSecretName", "sealingCertificateSecretKey"],
           "properties": {
             "enabled": { "type": "boolean" },
             "namespaces": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/optionalDNSLabel" } },
+            "namespacePrefixes": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9](?:[-a-z0-9]{0,60}[a-z0-9])?-$" } },
             "fingerprintKeyID": { "type": "string", "maxLength": 128, "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._-]{0,127})$" },
             "fingerprintSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
             "fingerprintSecretKey": { "type": "string", "maxLength": 253, "pattern": "^(?:|[A-Za-z0-9._-]{1,253})$" },
@@ -128,7 +129,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "namespaces": { "minItems": 1 }, "fingerprintKeyID": { "minLength": 1 }, "fingerprintSecretName": { "minLength": 1 }, "fingerprintSecretKey": { "minLength": 1 }, "sealingCertificateSecretName": { "minLength": 1 }, "sealingCertificateSecretKey": { "minLength": 1 } } }
+              "then": { "properties": { "fingerprintKeyID": { "minLength": 1 }, "fingerprintSecretName": { "minLength": 1 }, "fingerprintSecretKey": { "minLength": 1 }, "sealingCertificateSecretName": { "minLength": 1 }, "sealingCertificateSecretKey": { "minLength": 1 } } }
             }
           ]
         },
@@ -165,9 +166,10 @@
         "registry": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["enabled", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "secretRevision", "exposureMode", "manageCertificate", "cloudflareProxied", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
+          "required": ["enabled", "generateCredentials", "targetID", "targetName", "repositoryPrefix", "lifecycleCredentialRef", "lifecycleCredentialSecretName", "pullCredentialRef", "pushCredentialRef", "cacheCredentialRef", "controlPlaneEgressCIDRs", "authSecretName", "helmCredentialSecretName", "secretRevision", "exposureMode", "manageCertificate", "cloudflareProxied", "endpoint", "tlsSecretName", "clusterIssuerName", "loadBalancer", "runtimePull"],
           "properties": {
             "enabled": { "type": "boolean" },
+            "generateCredentials": { "type": "boolean" },
             "targetID": { "type": "string", "pattern": "^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$" },
             "targetName": { "type": "string", "maxLength": 100, "pattern": "^(?:|[^\\s].*[^\\s]|[^\\s])$" },
             "repositoryPrefix": { "type": "string", "maxLength": 255, "pattern": "^(?:|[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*)$" },
@@ -178,6 +180,7 @@
             "cacheCredentialRef": { "$ref": "#/$defs/optionalDNSLabel" },
             "controlPlaneEgressCIDRs": { "$ref": "#/$defs/hostCIDRs" },
             "authSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
+            "helmCredentialSecretName": { "$ref": "#/$defs/optionalDNSLabel" },
             "secretRevision": {
               "type": "string",
               "maxLength": 128,
@@ -229,7 +232,7 @@
           "allOf": [
             {
               "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
-              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "authSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 } } }
+              "then": { "properties": { "targetID": { "minLength": 36 }, "targetName": { "minLength": 1 }, "repositoryPrefix": { "minLength": 1 }, "lifecycleCredentialRef": { "minLength": 1 }, "lifecycleCredentialSecretName": { "minLength": 1 }, "pullCredentialRef": { "minLength": 1 }, "pushCredentialRef": { "minLength": 1 }, "cacheCredentialRef": { "minLength": 1 }, "authSecretName": { "minLength": 1 }, "helmCredentialSecretName": { "minLength": 1 }, "secretRevision": { "minLength": 1 }, "exposureMode": { "enum": ["ingress", "loadBalancer"] }, "endpoint": { "minLength": 1 }, "tlsSecretName": { "minLength": 1 } } }
             },
             {
               "if": { "properties": { "enabled": { "const": true }, "manageCertificate": { "const": true } }, "required": ["enabled", "manageCertificate"] },

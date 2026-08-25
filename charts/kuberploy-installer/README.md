@@ -52,10 +52,11 @@ by default; operators can add bounded CIDRs when infrastructure hardening is
 ready.
 
 Managed Argo CD uses the installer-owned direct Valkey dependency, closing the
-former empty-cluster bootstrap cycle. The installer generates only the exact
-Valkey, PostgreSQL, and Argo bootstrap Secrets, preserving their values through
-Helm `lookup` on upgrades. It creates no privileged in-cluster Helm Job, shell,
-temporary shared cache, or reusable cluster credential.
+former empty-cluster bootstrap cycle. The installer generates the exact Valkey,
+PostgreSQL, Argo, Git SSH, and optional managed-registry bootstrap Secrets,
+preserving their values through Helm `lookup` on upgrades. It creates no
+privileged in-cluster Helm Job, shell, temporary shared cache, or reusable
+cluster credential.
 
 The installer never accepts arbitrary inline child values. Every Application
 executes the release-packaged OCI chart selected by
@@ -68,10 +69,14 @@ Secrets and must never be committed to those files.
 `integrations.runtimeSecrets` is the installer-owned authority for runtime
 Secret and custom-certificate materialization. Enabling it requires the
 GitOps control plane and Sealed Secrets component, exact non-platform
-Environment namespaces, the fingerprint Secret/key, and the active public
+Environment namespaces or the installer-owned `kp-` Environment namespace
+prefix, the fingerprint Secret/key, and the active public
 sealing-certificate Secret/key. The installer injects those fixed identities
-into the control-plane chart and adds only those exact namespaces to its Argo
-AppProject. A remote values file cannot expand this cross-namespace authority.
+into the control-plane chart and adds only the exact namespaces and managed
+Environment prefix to its Argo AppProject. API authorization still derives the
+destination namespace from the persisted Project and Environment; callers
+cannot submit an arbitrary namespace. A remote values file cannot expand this
+cross-namespace authority.
 Rotate the public certificate reference whenever the Sealed Secrets controller
 rotates its active key; no private sealing key enters installer values.
 
@@ -230,11 +235,16 @@ endpoint, repository prefix and separate pull/push/cache credential references
 as the operator-owned `Managed` registry target; no UI create step or
 metadata-only `External` placeholder is needed. API and worker both reconcile
 that row idempotently and reject a conflicting admin redefinition.
-Set `authSecretName` to a pre-created Secret in
-`kuberploy-system` containing the registry chart's exact `htpasswd` and
-`httpSecret` keys, and advance the readable `secretRevision` whenever those
-values rotate. The separate `lifecycleCredentialSecretName` contains only the
-username/password used for bounded observation and cleanup. Select
+Starter installs keep `generateCredentials: true`. The installer creates
+separate lifecycle, builder-push, build-cache, Helm-OCI, and runtime-pull
+identities, builds the registry `htpasswd`, and preserves the credential state
+through Helm upgrades. Set `generateCredentials: false` only when the named
+Secrets are pre-created and operator-managed; advance the readable
+`secretRevision` whenever registry authentication rotates. The separate
+`lifecycleCredentialSecretName` contains only the username/password used for
+bounded observation and cleanup. The Helm-OCI identity is installed as an Argo
+CD repository Secret in the Argo namespace, so direct Helm Apps use Argo's
+native OCI pull path; it is never mounted into the Kuberploy API or worker. Select
 shared-Ingress or dedicated-LoadBalancer exposure and set
 the registry endpoint and TLS Secret. LoadBalancer mode supports bounded
 provider annotations, an LB class, requested IP, and optional source ranges;
