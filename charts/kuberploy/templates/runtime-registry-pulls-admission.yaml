@@ -114,6 +114,7 @@ spec:
   validations:
     - expression: >-
         request.userInfo.username != '{{ include "kuberploy.runtimeRegistryPullWorkerUsername" . }}' ||
+        request.namespace == '{{ .Values.config.argoDesiredState.namespace }}' ||
         (request.operation == 'CREATE' && object.metadata.name.startsWith('kuberploy-pull-') &&
         has(namespaceObject.metadata.labels) &&
         namespaceObject.metadata.labels['kuberploy.io/runtime-namespace'] == 'true' &&

@@ -266,6 +266,9 @@ name/profile/credential tuple, five strict labels, one credential-reference
 annotation, and one bounded immutable `kubernetes.io/dockerconfigjson` data
 key. Reserved updates and deletes are denied. No pull permission grants `list`,
 `watch`, `update`, `patch`, or `delete`.
+The configured Argo namespace is exempt from this runtime-pull policy because
+its separate fail-closed repository-credential admission policy already
+constrains the same worker's exact `kuberploy-repo-*` Secret lifecycle.
 
 The worker validates source material locally and creates or exactly adopts the
 immutable namespace-local Secret through the Kubernetes API; kubelets, not the

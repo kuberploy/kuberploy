@@ -583,6 +583,7 @@ helm template kuberploy "${kp_root}/charts/kuberploy" --namespace kuberploy-syst
   --set-string builder.builderAgentImage=example.invalid/builder@sha256:5555555555555555555555555555555555555555555555555555555555555555 \
   >"${kp_tmp}/registry-pull-control.yaml"
 [[ "$(yq eval-all '[select(.kind == "ClusterRole" and (.metadata.name | test("runtime-registry-pulls-managed$"))) | .rules[] | select((.resources | join(",")) == "secrets" and (.verbs | join(",")) == "create")] | length' "${kp_tmp}/registry-pull-control.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all -o=json 'select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("registry-pulls-managed$")))' "${kp_tmp}/registry-pull-control.yaml" | jq '[.spec.validations[].expression] | join("\n") | contains("request.namespace == '\''argocd'\''")')" == "true" ]]
 if helm template kuberploy-installer "${kp_chart}" --namespace kuberploy-system -f "${kp_managed}" "${kp_platform_args[@]}" \
   --set publicEndpoint.tls.enabled=true \
   --set-string publicEndpoint.tls.secretName=kuberploy-platform-tls \
