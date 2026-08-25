@@ -163,6 +163,50 @@ func TestProtectedGitPublisherSerializesTwoIntentsFromOnePlannedHead(t *testing.
 	}
 }
 
+func TestProtectedGitPublisherDeletesExactPublishedFoundation(t *testing.T) {
+	fixture := newPublisherFixture(t)
+	ctx := context.Background()
+	receipt, err := fixture.publisher.Publish(ctx, fixture.lease, fixture.request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := fixture.store.Intent(ctx, fixture.lease.Intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.lease.Intent = current
+	if _, err = fixture.store.RecordReady(ctx, fixture.lease, receipt, fixture.now.Add(6*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	updated := fixture.now.Add(7 * time.Second)
+	until := updated.Add(time.Minute)
+	deletion := Deletion{ID: testIntentID2, EnvironmentID: current.EnvironmentID, ProjectID: current.ProjectID,
+		Namespace: current.Namespace, ArgoProject: current.ArgoProject, BindingID: current.Authority.BindingID,
+		TargetRef: current.Authority.TargetRef, RequiredAncestor: receipt.CommittedRevision, Path: current.Path,
+		ExpectedManifestDigest: current.ManifestDigest, State: DeletionClaimed, Attempts: 1,
+		LeaseOwner: testWorker1, LeaseEpoch: 1, LeaseUntil: &until, NextAttemptAt: updated,
+		CreatedAt: fixture.now, UpdatedAt: updated}
+	fixture.publisher.Now = func() time.Time { return fixture.now.Add(10 * time.Second) }
+	deleted, err := fixture.publisher.Delete(ctx, DeletionLease{Deletion: deletion, Owner: testWorker1, Epoch: 1, Until: until})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleted.CommittedRevision == receipt.CommittedRevision || deleted.Path != current.Path {
+		t.Fatalf("unexpected deletion receipt: %#v", deleted)
+	}
+	command := exec.Command("git", "--git-dir", fixture.verifier.remote, "show", deleted.CommittedRevision+":"+current.Path)
+	if output, showErr := command.CombinedOutput(); showErr == nil {
+		t.Fatalf("foundation path still exists: %s", output)
+	}
+	// Recovery observes the already absent exact path and returns a stable no-op receipt.
+	fixture.verifier.now = fixture.now.Add(11 * time.Second)
+	fixture.publisher.Now = func() time.Time { return fixture.now.Add(12 * time.Second) }
+	replayed, err := fixture.publisher.Delete(ctx, DeletionLease{Deletion: deletion, Owner: testWorker1, Epoch: 1, Until: until})
+	if err != nil || replayed.CommittedRevision != deleted.CommittedRevision {
+		t.Fatalf("replay=%#v err=%v", replayed, err)
+	}
+}
+
 func TestProtectedGitPublisherRotatesProfileOnlyFromExactPublishedPreimage(t *testing.T) {
 	fixture := newPublisherFixture(t)
 	ctx := context.Background()

@@ -9029,6 +9029,56 @@ CREATE TABLE public.helm_app_heads (
       REFERENCES public.helm_app_revisions(id,project_id,environment_id,application_id,generation) ON DELETE RESTRICT
 );
 
+CREATE TABLE public.environment_foundation_deletions (
+    id uuid PRIMARY KEY,
+    environment_id uuid NOT NULL UNIQUE,
+    project_id uuid NOT NULL,
+    namespace text NOT NULL,
+    argo_project text NOT NULL,
+    platform_binding_id uuid NOT NULL,
+    target_ref text NOT NULL,
+    required_ancestor text NOT NULL,
+    manifest_path text NOT NULL,
+    expected_manifest_digest text NOT NULL,
+    state text NOT NULL DEFAULT 'pending',
+    attempts integer NOT NULL DEFAULT 0,
+    last_failure_code text NOT NULL DEFAULT '',
+    lease_owner text,
+    lease_epoch bigint NOT NULL DEFAULT 0,
+    lease_until timestamp with time zone,
+    next_attempt_at timestamp with time zone NOT NULL,
+    committed_revision text NOT NULL DEFAULT '',
+    provider_request text NOT NULL DEFAULT '',
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone NOT NULL,
+    CONSTRAINT environment_foundation_deletions_binding_fkey FOREIGN KEY (platform_binding_id)
+      REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT,
+    CONSTRAINT environment_foundation_deletions_state_check CHECK (state IN ('pending','claimed','ready','failed')),
+    CONSTRAINT environment_foundation_deletions_attempts_check CHECK (attempts BETWEEN 0 AND 30),
+    CONSTRAINT environment_foundation_deletions_path_check CHECK
+      (manifest_path = 'platform/argocd/foundations/' || environment_id::text || '.yaml'),
+    CONSTRAINT environment_foundation_deletions_digest_check CHECK
+      (expected_manifest_digest ~ '^sha256:[0-9a-f]{64}$'),
+    CONSTRAINT environment_foundation_deletions_ref_check CHECK
+      (target_ref ~ '^refs/heads/[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$' AND target_ref !~ '(\.\.|//)'),
+    CONSTRAINT environment_foundation_deletions_ancestor_check CHECK
+      (required_ancestor ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'),
+    CONSTRAINT environment_foundation_deletions_revision_check CHECK
+      (committed_revision = '' OR committed_revision ~ '^(?:[0-9a-f]{40}|[0-9a-f]{64})$'),
+    CONSTRAINT environment_foundation_deletions_lease_check CHECK
+      ((state = 'claimed' AND lease_owner IS NOT NULL AND lease_epoch > 0 AND lease_until > updated_at) OR
+       (state <> 'claimed' AND lease_owner IS NULL AND lease_until IS NULL)),
+    CONSTRAINT environment_foundation_deletions_completion_check CHECK
+      ((state = 'ready' AND completed_at IS NOT NULL) OR (state <> 'ready' AND completed_at IS NULL)),
+    CONSTRAINT environment_foundation_deletions_time_check CHECK
+      (updated_at >= created_at AND next_attempt_at >= created_at)
+);
+
+CREATE INDEX environment_foundation_deletions_due_idx
+  ON public.environment_foundation_deletions(next_attempt_at,id)
+  WHERE state IN ('pending','claimed');
+
 --
 -- PostgreSQL database dump complete
 --

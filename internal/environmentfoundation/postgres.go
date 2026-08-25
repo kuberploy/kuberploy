@@ -52,6 +52,37 @@ const intentColumns = `id::text,environment_id::text,project_id::text,namespace,
 
 type rowScanner interface{ Scan(...any) error }
 
+const deletionColumns = `d.id::text,d.environment_id::text,d.project_id::text,d.namespace,d.argo_project,
+	d.platform_binding_id::text,d.target_ref,d.required_ancestor,d.manifest_path,d.expected_manifest_digest,
+	d.state,d.attempts,d.last_failure_code,COALESCE(d.lease_owner,''),d.lease_epoch,d.lease_until,d.next_attempt_at,
+	d.committed_revision,d.provider_request,d.completed_at,d.created_at,d.updated_at`
+
+func scanDeletion(row rowScanner) (Deletion, error) {
+	var value Deletion
+	err := row.Scan(&value.ID, &value.EnvironmentID, &value.ProjectID, &value.Namespace, &value.ArgoProject,
+		&value.BindingID, &value.TargetRef, &value.RequiredAncestor, &value.Path, &value.ExpectedManifestDigest,
+		&value.State, &value.Attempts, &value.LastFailureCode, &value.LeaseOwner, &value.LeaseEpoch, &value.LeaseUntil,
+		&value.NextAttemptAt, &value.CommittedRevision, &value.ProviderRequest, &value.CompletedAt, &value.CreatedAt, &value.UpdatedAt)
+	if err != nil {
+		return Deletion{}, mapPG(err)
+	}
+	value.NextAttemptAt = value.NextAttemptAt.UTC()
+	value.CreatedAt = value.CreatedAt.UTC()
+	value.UpdatedAt = value.UpdatedAt.UTC()
+	if value.LeaseUntil != nil {
+		x := value.LeaseUntil.UTC()
+		value.LeaseUntil = &x
+	}
+	if value.CompletedAt != nil {
+		x := value.CompletedAt.UTC()
+		value.CompletedAt = &x
+	}
+	if value.Validate() != nil {
+		return Deletion{}, ErrConflict
+	}
+	return value, nil
+}
+
 func scanIntent(row rowScanner) (Intent, error) {
 	var v Intent
 	err := row.Scan(&v.ID, &v.EnvironmentID, &v.ProjectID, &v.Namespace, &v.ArgoProject,
@@ -386,7 +417,7 @@ func (s *PostgresStore) ExactReady(ctx context.Context, profile, publisher strin
 	if !digestRE.MatchString(profile) || !digestRE.MatchString(publisher) || count < 0 || count > 10000 || now.IsZero() {
 		return ErrInvalid
 	}
-	var environments, active, ready int
+	var environments, active, ready, pendingDeletions int
 	var found bool
 	err := s.pool.QueryRow(ctx, `SELECT
 		(SELECT count(*) FROM environments),
@@ -394,15 +425,79 @@ func (s *PostgresStore) ExactReady(ctx context.Context, profile, publisher strin
 		EXISTS(SELECT 1 FROM runtime_readiness WHERE runtime_kind='environment-foundation' AND scope_key='global'
 		  AND contract_version=$1 AND identity->>'profileDigest'=$2 AND config_digest=$3
 		  AND (observation->>'activeIntentCount')::integer=$4
-		  AND observed_at<=$5 AND lease_until>$5)
+		  AND observed_at<=$5 AND lease_until>$5),
+		(SELECT count(*) FROM environment_foundation_deletions WHERE state<>'ready')
 		FROM environment_foundation_intents
 		WHERE active AND profile_digest=$2 AND publisher_config_digest=$3`,
-		Contract, profile, publisher, count, now).Scan(&environments, &active, &ready, &found)
+		Contract, profile, publisher, count, now).Scan(&environments, &active, &ready, &found, &pendingDeletions)
 	if err != nil {
 		return mapPG(err)
 	}
-	if environments != count || active != count || ready != count || !found {
+	if environments != count || active != count || ready != count || pendingDeletions != 0 || !found {
 		return ErrUnavailable
+	}
+	return nil
+}
+
+func (s *PostgresStore) ClaimDeletion(ctx context.Context, owner string, now time.Time, duration time.Duration) (DeletionLease, bool, error) {
+	if !workerIDRE.MatchString(owner) || now.IsZero() || duration < MinimumLease || duration > MaximumLease {
+		return DeletionLease{}, false, ErrInvalid
+	}
+	now, until := now.UTC(), now.UTC().Add(duration)
+	value, err := scanDeletion(s.pool.QueryRow(ctx, `WITH candidate AS (
+		SELECT id FROM environment_foundation_deletions
+		WHERE (state='pending' OR (state='claimed' AND lease_until<=$1)) AND next_attempt_at<=$1
+		ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1
+	) UPDATE environment_foundation_deletions d SET state='claimed',lease_owner=$2,
+		lease_epoch=d.lease_epoch+1,lease_until=$3,attempts=d.attempts+1,updated_at=$1
+	FROM candidate WHERE d.id=candidate.id RETURNING `+deletionColumns, now, owner, until))
+	if errors.Is(err, ErrNotFound) {
+		return DeletionLease{}, false, nil
+	}
+	if err != nil {
+		return DeletionLease{}, false, err
+	}
+	return DeletionLease{Deletion: value, Owner: owner, Epoch: value.LeaseEpoch, Until: *value.LeaseUntil}, true, nil
+}
+
+func (s *PostgresStore) RecordDeletionReady(ctx context.Context, lease DeletionLease, receipt DeletionReceipt, now time.Time) error {
+	if lease.Deletion.Validate() != nil || lease.Owner != lease.Deletion.LeaseOwner || lease.Epoch != lease.Deletion.LeaseEpoch ||
+		receipt.OperationID != lease.Deletion.ID || receipt.BindingID != lease.Deletion.BindingID ||
+		receipt.TargetRef != lease.Deletion.TargetRef || receipt.Path != lease.Deletion.Path ||
+		!gitCommitRE.MatchString(receipt.CommittedRevision) || !requestRE.MatchString(receipt.ProviderRequest) || now.IsZero() {
+		return ErrInvalid
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE environment_foundation_deletions SET state='ready',lease_owner=NULL,
+		lease_until=NULL,committed_revision=$5,provider_request=$6,completed_at=$7,updated_at=$7
+		WHERE id=$1 AND state='claimed' AND lease_owner=$2 AND lease_epoch=$3 AND lease_until=$4`,
+		lease.Deletion.ID, lease.Owner, lease.Epoch, lease.Until, receipt.CommittedRevision, receipt.ProviderRequest, now.UTC())
+	if err != nil {
+		return mapPG(err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrLeaseLost
+	}
+	return nil
+}
+
+func (s *PostgresStore) RecordDeletionRetry(ctx context.Context, lease DeletionLease, code string, permanent bool, next, now time.Time) error {
+	if lease.Deletion.Validate() != nil || lease.Owner != lease.Deletion.LeaseOwner || lease.Epoch != lease.Deletion.LeaseEpoch ||
+		!failureRE.MatchString(code) || next.Before(now) || now.IsZero() {
+		return ErrInvalid
+	}
+	state := DeletionPending
+	if permanent || lease.Deletion.Attempts >= MaximumAttempts {
+		state = DeletionFailed
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE environment_foundation_deletions SET state=$5,lease_owner=NULL,
+		lease_until=NULL,last_failure_code=$6,next_attempt_at=$7,updated_at=$8
+		WHERE id=$1 AND state='claimed' AND lease_owner=$2 AND lease_epoch=$3 AND lease_until=$4`,
+		lease.Deletion.ID, lease.Owner, lease.Epoch, lease.Until, state, code, next.UTC(), now.UTC())
+	if err != nil {
+		return mapPG(err)
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrLeaseLost
 	}
 	return nil
 }

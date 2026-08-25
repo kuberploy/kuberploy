@@ -41,7 +41,10 @@ func newEnvironmentFoundationRuntime(ctx context.Context, databaseURL, host stri
 	controller := &environmentfoundation.Controller{Store: store, Publisher: publisher, Profile: config.Profile,
 		WorkerID: workerID, WorkerEpoch: 1, WorkLease: 2 * time.Minute,
 		MinimumBackoff: 5 * time.Second, MaximumBackoff: 5 * time.Minute, Now: now}
+	deletions := &environmentfoundation.DeletionController{Store: store, Deleter: publisher, WorkerID: workerID,
+		WorkLease: 2 * time.Minute, MinimumBackoff: 5 * time.Second, MaximumBackoff: 5 * time.Minute, Now: now}
 	runtime := &environmentfoundation.Runtime{Store: store, Catalog: store, Controller: controller, Config: config,
+		Deletions:   deletions,
 		WorkerEpoch: 1, StartedAt: startedAt, Now: now,
 		ReportError: func(err error) { slog.Warn("environment foundation reconciliation failed", "error", err) }}
 	if runtime.Validate() != nil {

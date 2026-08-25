@@ -32,6 +32,14 @@ base before pushing. A retry recovers only the exact operation and authority
 trailers, direct parent, path, and bytes. It uses the shared hardened mirror,
 credential broker, and normal fast-forward writer; there is no second writer.
 
+Deleting an otherwise unused Environment transactionally snapshots its exact
+ready foundation publication into `environment_foundation_deletions`, removes
+the Environment and its intent, and leaves a durable protected-Git cleanup for
+the worker. The cleanup deletes only the server-derived foundation path with
+an exact manifest-digest CAS precondition and preserved Git history. Runtime
+readiness remains unavailable until every queued cleanup is complete, so an
+orphan namespace cannot be reported as reconciled success.
+
 ## Fixed manifest inventory
 
 The deterministic bundle is written only to:

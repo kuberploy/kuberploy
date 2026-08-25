@@ -654,6 +654,34 @@ model environment_foundation_intents {
   @@index([profile_digest, publisher_config_digest, state], map: "environment_foundation_exact_ready_idx", where: raw("active"))
 }
 
+/// Durable protected-Git cleanup queued when an Environment is deleted.
+model environment_foundation_deletions {
+  id                       String    @id @db.Uuid
+  environment_id           String    @unique @db.Uuid
+  project_id               String    @db.Uuid
+  namespace                String
+  argo_project             String
+  platform_binding_id      String    @db.Uuid
+  target_ref               String
+  required_ancestor        String
+  manifest_path            String
+  expected_manifest_digest String
+  state                    String    @default("pending")
+  attempts                 Int       @default(0)
+  last_failure_code        String    @default("")
+  lease_owner              String?
+  lease_epoch              BigInt    @default(0)
+  lease_until              DateTime? @db.Timestamptz(6)
+  next_attempt_at          DateTime  @db.Timestamptz(6)
+  committed_revision       String    @default("")
+  provider_request         String    @default("")
+  completed_at             DateTime? @db.Timestamptz(6)
+  created_at               DateTime  @db.Timestamptz(6)
+  updated_at               DateTime  @db.Timestamptz(6)
+
+  @@index([next_attempt_at, id], map: "environment_foundation_deletions_due_idx", where: raw("(state = ANY (ARRAY['pending'::text, 'claimed'::text]))"))
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model environments {
   id                String   @id @db.Uuid

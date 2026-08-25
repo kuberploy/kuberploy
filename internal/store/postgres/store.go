@@ -641,6 +641,41 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 	if strings.TrimSpace(confirmationName) != name {
 		return false, base.ErrDeletionConfirmation
 	}
+	if resourceType == "environment" {
+		var bindingID, targetRef, requiredAncestor, manifestPath, manifestDigest, state string
+		foundationErr := tx.QueryRow(ctx, `SELECT platform_binding_id::text,target_ref,committed_revision,
+			manifest_path,manifest_digest,state FROM environment_foundation_intents
+			WHERE environment_id=$1 AND active FOR UPDATE`, resourceID).Scan(
+			&bindingID, &targetRef, &requiredAncestor, &manifestPath, &manifestDigest, &state)
+		switch {
+		case foundationErr == nil:
+			if state != "ready" || requiredAncestor == "" {
+				return false, blocked
+			}
+			now := time.Now().UTC()
+			if _, err = tx.Exec(ctx, `INSERT INTO environment_foundation_deletions(
+				id,environment_id,project_id,namespace,argo_project,platform_binding_id,target_ref,
+				required_ancestor,manifest_path,expected_manifest_digest,state,next_attempt_at,created_at,updated_at)
+				SELECT $2,e.id,e.project_id,e.namespace,e.argo_project,$3::uuid,$4,$5,$6,$7,'pending',$8,$8,$8
+				FROM environments e WHERE e.id=$1`, resourceID, id.New(), bindingID, targetRef,
+				requiredAncestor, manifestPath, manifestDigest, now); err != nil {
+				return false, classify(err)
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM environment_foundation_intents WHERE environment_id=$1`, resourceID); err != nil {
+				return false, err
+			}
+		case errors.Is(foundationErr, pgx.ErrNoRows):
+			var anyFoundation bool
+			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environment_foundation_intents WHERE environment_id=$1)`, resourceID).Scan(&anyFoundation); err != nil {
+				return false, err
+			}
+			if anyFoundation {
+				return false, blocked
+			}
+		default:
+			return false, foundationErr
+		}
+	}
 	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE scope_type=$1 AND scope_id=$2`, resourceType, resourceID); err != nil {
 		return false, err
 	}

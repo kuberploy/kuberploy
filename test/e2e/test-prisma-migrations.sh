@@ -61,7 +61,8 @@ docker run --detach \
   "${kp_image}" >/dev/null
 kp_waiter_announced=false
 for _ in $(seq 1 30); do
-  if docker logs "${kp_waiter}" 2>&1 | grep -q 'Waiting for the configured PostgreSQL endpoint'; then
+  kp_waiter_logs="$(docker logs "${kp_waiter}" 2>&1)"
+  if grep -q 'Waiting for the configured PostgreSQL endpoint' <<<"${kp_waiter_logs}"; then
     kp_waiter_announced=true
     break
   fi
@@ -89,7 +90,8 @@ if [[ "${kp_waiter_status}" != "0" ]]; then
   printf 'Delayed migration image exited with status %s\n' "${kp_waiter_status}" >&2
   exit 1
 fi
-docker logs "${kp_waiter}" 2>&1 | grep -q 'successfully applied'
+kp_waiter_logs="$(docker logs "${kp_waiter}" 2>&1)"
+grep -q 'successfully applied' <<<"${kp_waiter_logs}"
 
 docker run --detach --rm \
   --name "${kp_postgres}" \
@@ -142,7 +144,7 @@ kp_counts="$(docker exec "${kp_postgres}" psql --username postgres --dbname fres
   SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public' AND c.condeferrable;
   SELECT count(*) FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND i.indexprs IS NOT NULL;
 ")"
-kp_expected_counts=$'1\n97\n63\n68\n644\n9\n2'
+kp_expected_counts=$'1\n98\n63\n68\n654\n9\n2'
 if [[ "${kp_counts}" != "${kp_expected_counts}" ]]; then
   printf 'Unexpected fresh-schema authority counts:\n%s\n' "${kp_counts}" >&2
   exit 1

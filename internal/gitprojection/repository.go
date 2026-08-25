@@ -815,6 +815,32 @@ func (p *PreparedRepository) ProtectedCertificateIssuerPreimage(ctx context.Cont
 	return true, `"` + value + `"`, value, nil
 }
 
+// ProtectedFoundationPreimage returns the digest-only CAS receipt for one
+// exact Environment foundation path. It cannot read sibling platform files.
+func (p *PreparedRepository) ProtectedFoundationPreimage(ctx context.Context, documentPath, revision string) (bool, string, string, error) {
+	if ctx == nil || p == nil || p.manager == nil || p.Binding.Validate() != nil || p.Head.ValidateFor(p.Binding) != nil ||
+		!commitRE.MatchString(revision) || !validFoundationPath(p.Binding, documentPath) {
+		return false, "", "", ErrInvalid
+	}
+	if _, err := p.manager.git(ctx, p.MirrorPath, "merge-base", "--is-ancestor", revision, p.Head.Commit); err != nil {
+		return false, "", "", fmt.Errorf("%w: foundation preimage revision is not in verified ancestry", ErrConflict)
+	}
+	present, err := p.pathExists(ctx, revision, documentPath)
+	if err != nil || !present {
+		return present, "", "", err
+	}
+	content, err := p.manager.git(ctx, p.MirrorPath, "cat-file", "blob", revision+":"+documentPath)
+	if err != nil {
+		return false, "", "", err
+	}
+	if len(content) == 0 || len(content) > MaxProtectedFoundationBytes {
+		return false, "", "", ErrInvalid
+	}
+	digest := sha256.Sum256([]byte(content))
+	value := "sha256:" + hex.EncodeToString(digest[:])
+	return true, `"` + value + `"`, value, nil
+}
+
 // validProtectedDocumentPath closes read-side receipt proofs to the same
 // server-owned document families used by the environment AppConfig writer and
 // protected Argo desired-state writer. A merely prefix-contained sibling is

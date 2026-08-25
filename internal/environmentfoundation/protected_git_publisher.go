@@ -126,6 +126,93 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 	return p.verifyReceipt(ctx, binding, committed, request, mutation.BaseRevision, committed)
 }
 
+func (p *ProtectedGitPublisher) Delete(ctx context.Context, lease DeletionLease) (DeletionReceipt, error) {
+	deletion := lease.Deletion
+	if ctx == nil || p.Validate() != nil || deletion.Validate() != nil || lease.Owner != deletion.LeaseOwner ||
+		lease.Epoch != deletion.LeaseEpoch || !lease.Until.Equal(*deletion.LeaseUntil) {
+		return DeletionReceipt{}, ErrInvalid
+	}
+	binding, err := p.Bindings.Binding(ctx, deletion.BindingID)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	if binding.Validate() != nil || binding.Kind != gitprojection.BindingPlatform || binding.TargetRef != deletion.TargetRef ||
+		binding.Prefix != gitprojection.PlatformPrefix() {
+		return DeletionReceipt{}, ErrInvalid
+	}
+	head, err := p.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	if head.ValidateFor(binding) != nil || head.Source != gitprojection.ObservationWrite || head.ObservedAt.After(p.now()) {
+		return DeletionReceipt{}, ErrInvalid
+	}
+	if err = p.Manager.CleanupOperation(ctx, binding.ID, deletion.ID); err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	prepared, err := p.Manager.Prepare(ctx, binding, head, deletion.ID)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	defer func() {
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), foundationCleanupTimeout)
+		defer cancel()
+		_ = prepared.Close(cleanup)
+	}()
+	if err = prepared.VerifyAncestor(ctx, deletion.RequiredAncestor); err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	present, etag, existingDigest, err := prepared.ProtectedFoundationPreimage(ctx, deletion.Path, head.Commit)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	if !present {
+		return p.verifyDeletionReceipt(ctx, binding, head.Commit, head.Commit, deletion)
+	}
+	if existingDigest != deletion.ExpectedManifestDigest {
+		return DeletionReceipt{}, errors.Join(ErrConflict, errors.New("foundation delete preimage differs from the exact published Environment manifest"))
+	}
+	mutation := gitprojection.Mutation{BindingID: binding.ID, OperationID: deletion.ID, Path: deletion.Path,
+		BaseRevision: head.Commit, Precondition: gitprojection.MutationMatchETag, ExpectedETag: etag,
+		Message: "delete environment foundation " + deletion.EnvironmentID, Action: gitprojection.MutationDelete,
+		Authority:     gitprojection.MutationAuthorityFoundation,
+		CommitTrailer: "Kuberploy-Environment-Foundation-Intent: " + deletion.ID, RequiredAncestor: deletion.RequiredAncestor}
+	if mutation.Validate(binding) != nil {
+		return DeletionReceipt{}, ErrInvalid
+	}
+	committed, found, err := prepared.FindOperationCommit(ctx, mutation)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	if found {
+		if err = prepared.VerifyProtectedMutationPostimage(ctx, mutation); err != nil {
+			return DeletionReceipt{}, classifyFoundationGit(err)
+		}
+		return p.verifyDeletionReceipt(ctx, binding, head.Commit, committed, deletion)
+	}
+	if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	committed, err = prepared.Commit(ctx, mutation)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	return p.verifyDeletionReceipt(ctx, binding, head.Commit, committed, deletion)
+}
+
+func (p *ProtectedGitPublisher) verifyDeletionReceipt(ctx context.Context, binding gitprojection.Binding, parent, committed string, deletion Deletion) (DeletionReceipt, error) {
+	verified, err := p.Provider.VerifyTargetHead(ctx, binding, gitprojection.ObservationWrite)
+	if err != nil {
+		return DeletionReceipt{}, classifyFoundationGit(err)
+	}
+	if verified.ValidateFor(binding) != nil || verified.Source != gitprojection.ObservationWrite || verified.ObservedAt.After(p.now()) || verified.Commit != committed {
+		return DeletionReceipt{}, errors.Join(ErrConflict, gitprojection.ErrProviderMismatch)
+	}
+	return DeletionReceipt{OperationID: deletion.ID, BindingID: binding.ID, TargetRef: binding.TargetRef,
+		Path: deletion.Path, ParentRevision: parent, CommittedRevision: committed,
+		ProviderRequest: verified.ProviderRequest, ObservedAt: p.notBefore(verified.ObservedAt)}, nil
+}
+
 func foundationMutation(request PublicationRequest, base, expectedPreimage string, hasPreimage bool) gitprojection.Mutation {
 	mutation := gitprojection.Mutation{
 		BindingID: request.BindingID, OperationID: request.IntentID,

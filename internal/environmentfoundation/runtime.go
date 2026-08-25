@@ -19,6 +19,7 @@ type Runtime struct {
 	Store       Store
 	Catalog     EnvironmentCatalog
 	Controller  *Controller
+	Deletions   *DeletionController
 	Config      RuntimeConfig
 	WorkerEpoch int64
 	StartedAt   time.Time
@@ -73,6 +74,11 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 		return errors.Join(ErrUnavailable, err)
 	}
 	now := r.now()
+	if r.Deletions != nil {
+		if _, deletionErr := r.Deletions.Reconcile(ctx); deletionErr != nil && !errors.Is(deletionErr, ErrUnavailable) {
+			return deletionErr
+		}
+	}
 	profileDigest, err := r.Config.Profile.Digest()
 	if err != nil {
 		return err
