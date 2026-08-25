@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Apps and Environments can now be deleted from the API and dashboard with typed confirmation, idempotent retries, dependency protection, retained audit history, and durable protected-Git cleanup of Environment foundations.",
+  "summary": "Private images built for dynamically created Environment namespaces now deploy through the managed registry with exact pull-Secret identity, bounded worker access, and fail-closed admission.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.361"
+  "version": "0.1.0-rc.362"
 }
