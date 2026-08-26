@@ -8,7 +8,9 @@ of the Kuberploy control-plane release.
 Managed mode creates the fixed namespace when absent and leaves an existing
 operator-created namespace untouched. Operators can therefore deliver the
 required Secrets before the first installer invocation without manually
-transferring namespace ownership to Helm.
+transferring namespace ownership to Helm. On upgrades, a namespace already
+owned by the same Helm release remains in the rendered manifest and is never
+removed as a side effect of the pre-created namespace path.
 
 Managed mode uses an operator-selected compatible Argo CD image, retained CRDs,
 restricted containers, tunable resource bounds, optional default-deny ingress

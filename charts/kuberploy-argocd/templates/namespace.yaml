@@ -1,6 +1,14 @@
 {{- include "kuberploy-argocd.validate" . -}}
 {{- $existingNamespace := lookup "v1" "Namespace" "" "argocd" -}}
-{{- if and .Values.argoFoundation.namespace.create .Values.argoFoundation.argoCD.managed (empty $existingNamespace) }}
+{{- $existingAnnotations := dict -}}
+{{- if not (empty $existingNamespace) -}}
+  {{- $existingAnnotations = default dict $existingNamespace.metadata.annotations -}}
+{{- end -}}
+{{- $ownedByRelease := and
+  (eq (get $existingAnnotations "meta.helm.sh/release-name") .Release.Name)
+  (eq (get $existingAnnotations "meta.helm.sh/release-namespace") .Release.Namespace)
+-}}
+{{- if and .Values.argoFoundation.namespace.create .Values.argoFoundation.argoCD.managed (or (empty $existingNamespace) $ownedByRelease) }}
 apiVersion: v1
 kind: Namespace
 metadata:
