@@ -5,6 +5,11 @@ foundation or records adoption of an installer-verified compatible deployment.
 It is restricted to the `argocd` namespace and is never an implicit dependency
 of the Kuberploy control-plane release.
 
+Managed mode creates the fixed namespace when absent and leaves an existing
+operator-created namespace untouched. Operators can therefore deliver the
+required Secrets before the first installer invocation without manually
+transferring namespace ownership to Helm.
+
 Managed mode uses an operator-selected compatible Argo CD image, retained CRDs,
 restricted containers, tunable resource bounds, optional default-deny ingress
 and egress, ClusterIP-only server access, no local admin, no default direct role,

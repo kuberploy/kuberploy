@@ -58,6 +58,7 @@ kp_expand_bootstrap_documents "${kp_tmp}/managed-again.yaml"
 diff -u "${kp_tmp}/managed.yaml" "${kp_tmp}/managed-again.yaml" >/dev/null
 
 [[ "$(yq eval-all '[select(.kind == "Namespace")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
+grep -F 'lookup "v1" "Namespace" "" "argocd"' "${kp_chart}/templates/namespace.yaml" >/dev/null
 [[ "$(yq eval-all '[select(.kind == "StatefulSet")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/managed.yaml" | tail -1)" == "3" ]]

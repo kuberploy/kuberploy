@@ -1,5 +1,6 @@
 {{- include "kuberploy-argocd.validate" . -}}
-{{- if and .Values.argoFoundation.namespace.create .Values.argoFoundation.argoCD.managed }}
+{{- $existingNamespace := lookup "v1" "Namespace" "" "argocd" -}}
+{{- if and .Values.argoFoundation.namespace.create .Values.argoFoundation.argoCD.managed (empty $existingNamespace) }}
 apiVersion: v1
 kind: Namespace
 metadata:
