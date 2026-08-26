@@ -835,6 +835,7 @@ diff -u "${kp_tmp}/helm-applications.yaml" "${kp_tmp}/helm-applications-again.ya
 yq eval-all 'true' "${kp_tmp}/helm-applications.yaml" >/dev/null
 
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_HELM_APPLICATIONS_ENABLED' "${kp_tmp}/helm-applications.yaml")" == "true" ]]
+[[ "$(yq eval-all '[select(.kind == "AppProject" and .metadata.name == "kuberploy-helm-apps" and .metadata.namespace == "kuberploy-e2e-render") | select((.spec.sourceRepos | length) == 1 and .spec.sourceRepos[0] == "*" and (.spec.destinations | length) == 1 and .spec.destinations[0].server == "https://kubernetes.default.svc" and .spec.destinations[0].namespace == "kp-*" and (.spec.clusterResourceWhitelist | length) == 0 and (.spec.namespaceResourceWhitelist | length) == 1 and .spec.namespaceResourceWhitelist[0].group == "*" and .spec.namespaceResourceWhitelist[0].kind == "*")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
 for kp_component in api worker web; do
   kp_expected_helm_env=0
   [[ "${kp_component}" == api || "${kp_component}" == worker ]] && kp_expected_helm_env=1
@@ -845,6 +846,7 @@ done
 [[ "$(yq eval-all '[select(.kind == "Role" and .metadata.name == "helm-applications-helm-applications") | .rules[] | select(.apiGroups[0] == "argoproj.io" and .resources[0] == "applications" and (.verbs | contains(["get", "create", "patch", "delete"])))] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "RoleBinding" and .metadata.name == "helm-applications-helm-applications") | .subjects[] | select(.name == "helm-applications-api" and .namespace == "kuberploy-e2e-render")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
 [[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-helm-applications-"))) | .spec.matchConstraints.resourceRules[] | select(.resources[0] == "applications")] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "ValidatingAdmissionPolicy" and (.metadata.name | test("-helm-applications-"))) | .spec.validations[].expression | select(contains("object.spec.project == '\''kuberploy-helm-apps'\''") and contains("object.spec.destination.namespace.matches('\''^kp-"))] | length' "${kp_tmp}/helm-applications.yaml" | tail -1)" == "1" ]]
 
 for kp_helm_mutation in \
   '.config.helmApplications.rendererNamespace = "attacker"' \

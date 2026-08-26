@@ -377,13 +377,16 @@ syncs, and observes OCI, classic Helm repository, and Git chart sources; the
 control plane has no chart downloader, approval catalog, package cache, or
 renderer Job.
 
+The chart installs one `kuberploy-helm-apps` AppProject that accepts external
+sources only into server-derived `kp-*` namespaces and denies cluster-scoped
+resources. It exists independently of GitHub and the protected platform Git
+binding, so a Helm-only installation does not wait for provider setup.
+
 The chart grants the API only `get`, `create`, `patch`, and `delete` for Argo
 Applications in the configured Argo namespace. A matching admission policy
 limits this identity to deterministic Kuberploy Helm App names, labels,
 finalizer, in-cluster destination, automated synchronization, and immutable
-project/destination identity. The Environment AppProject fixes the destination
-namespace, accepts external source repositories and arbitrary namespaced chart
-resources, and denies cluster-scoped resources.
+`kuberploy-helm-apps` project/destination identity.
 
 Private source credentials remain operator-owned Argo CD repository Secrets;
 the API receives no provider credential or Secret read permission. The managed

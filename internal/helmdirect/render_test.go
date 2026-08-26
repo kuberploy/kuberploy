@@ -30,7 +30,7 @@ func TestRenderApplicationForwardsEverySourceAndValuesToArgo(t *testing.T) {
 			t.Fatalf("%s render: %v", kind, err)
 		}
 		text := string(raw)
-		for _, required := range []string{"kind: Application", "project: kp-demo-production", "releaseName: valkey", "replicaCount: 1", "ServerSideApply=true"} {
+		for _, required := range []string{"kind: Application", "project: " + HelmAppProject, "releaseName: valkey", "replicaCount: 1", "ServerSideApply=true"} {
 			if !strings.Contains(text, required) {
 				t.Fatalf("%s manifest omitted %q:\n%s", kind, required, text)
 			}

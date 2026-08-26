@@ -11,19 +11,19 @@ The platform supports four App source modes:
 1. GitHub App: build an installed GitHub repository on Kubernetes, push the resulting OCI image, commit its immutable digest to Git, and let Argo CD deploy it; verified webhooks can trigger builds.
 2. Git SSH: clone any supported Git provider with a generated App- or Project-scoped deploy key, then run the same build pipeline through manual or API triggers.
 3. OCI image: resolve an existing registry image to an immutable digest, commit it to Git, and let Argo CD deploy it.
-4. Helm chart: deploy a pinned chart from OCI, a Helm repository, or Git through Argo CD, with its values stored in Git.
+4. Helm chart: pass a chart source from OCI, a Helm repository, or Git plus one values document directly to Argo CD.
 
 Kuberploy also installs or adopts Traefik so an application can be exposed by entering a domain and port in the UI. cert-manager supplies automatic TLS, and an optional managed external-dns integration can create DNS records per route.
 
 ### Product promise
 
-> Every configuration change is a Git commit or pull request, every release is identified by an immutable artifact, and Argo CD is the only normal application deployment writer.
+> Managed OCI and source-built App configuration is Git-authoritative, Helm App revisions are durable control-plane records, and Argo CD is the only normal application deployment writer.
 
 ## 2. Architectural decisions
 
 | Decision | Choice |
 |---|---|
-| Desired-state authority | Git |
+| Desired-state authority | Git for managed OCI/source Apps; durable Helm revision records projected directly to Argo CD for Helm Apps |
 | Control-plane read path | Revisioned PostgreSQL projections derived from Git; no Git/provider call per UI or API read |
 | Git write scaling | Parallel preparation with only short compare-and-swap finalization per repository/ref, plus configurable repository/ref shards |
 | Deployment engine | Argo CD |
@@ -235,7 +235,8 @@ The starter configuration schedules privileged DinD on the installation's curren
 
 | Data | Authority |
 |---|---|
-| App configuration, selected release, routes, resources and Helm values | GitOps repository |
+| Managed App configuration, selected release, routes and resources | GitOps repository |
+| Helm App source coordinates and values | Immutable PostgreSQL Helm revision history projected to Argo CD |
 | Application monitoring intent in `runtime.monitoring` | The application's environment GitOps repository |
 | Monitoring stack settings, ingestion profiles, monitor-generation policy, recording rules and alert rules | Protected platform GitOps repository |
 | Generated application monitor-target manifests | Rebuildable protected Git materialization derived from the source application commit plus platform policy; never manually editable |
@@ -437,7 +438,7 @@ spec:
         redirectHttp: true
 ```
 
-For normal apps, the ApplicationSet renders a pinned `kuberploy-runtime` chart from `app.yaml`. For external Helm charts, it renders an Argo Application with the pinned chart revision and exactly one Git-hosted values file in P0. AppProject and admission policies remain the final enforcement boundary.
+For managed OCI and source-built Apps, the ApplicationSet renders a pinned `kuberploy-runtime` chart from `app.yaml`. Helm Apps use a separate direct Argo CD path: Kuberploy stores the source coordinates and raw values as an immutable revision, then projects one deterministic `Application`. Argo resolves and renders the chart. The installer-owned Helm AppProject and admission policy remain the enforcement boundary.
 
 ### Git write protocol
 
@@ -897,9 +898,11 @@ Argo CD owns provider access, chart resolution, rendering, synchronization,
 health, and drift repair. Kuberploy does not download or repackage charts and
 has no separate chart-approval or renderer-worker pipeline.
 
-The generated `Application` is locked to the App's persisted Argo project and
-Environment namespace. Its AppProject accepts external sources and arbitrary
-namespaced chart resources but denies cluster-scoped resources. Charts that
+The generated `Application` is locked to the installer-owned
+`kuberploy-helm-apps` AppProject and the App's server-derived Environment
+namespace. That AppProject accepts external sources into `kp-*` namespaces and
+arbitrary namespaced chart resources but denies cluster-scoped resources. It
+exists independently of GitHub or a platform Git binding. Charts that
 require CRDs, ClusterRoles, or other cluster-scoped installation are therefore
 not tenant Helm Apps; platform operators install those foundations separately.
 
@@ -1341,7 +1344,7 @@ If Git changes after the draft was opened, the save returns a three-way conflict
 External Helm Apps use direct Argo CD desired state rather than the managed
 runtime Deployment/Service schema. The UI provides source coordinates and one
 raw Helm `values.yaml` document. Argo CD resolves and renders the source, while
-the AppProject and admission boundaries fix the destination and deny
+the installer-owned Helm AppProject and admission boundaries fix the destination and deny
 cluster-scoped resources. Kuberploy does not claim an offline rendered preview;
 Argo sync and health are the observed deployment truth.
 

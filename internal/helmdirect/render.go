@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	ArgoNamespace = "argocd"
-	InClusterURL  = "https://kubernetes.default.svc"
+	ArgoNamespace  = "argocd"
+	InClusterURL   = "https://kubernetes.default.svc"
+	HelmAppProject = "kuberploy-helm-apps"
 )
 
 type applicationManifest struct {
@@ -76,7 +77,10 @@ func RenderApplication(revision Revision, argoNamespace string) ([]byte, error) 
 		"kuberploy.io/helm-generation":  strconv.FormatInt(revision.Generation, 10),
 		"kuberploy.io/values-digest":    revision.ValuesDigest,
 	}
-	manifest.Spec.Project = revision.ArgoProject
+	// Helm Apps use one installer-owned AppProject. They must not depend on the
+	// protected-Git environment AppProject, because Argo resolves these chart
+	// sources directly and the GitHub provider is optional for this App mode.
+	manifest.Spec.Project = HelmAppProject
 	manifest.Spec.Source.RepoURL = source.RepositoryURL
 	manifest.Spec.Source.Chart = source.Chart
 	manifest.Spec.Source.Path = source.Path

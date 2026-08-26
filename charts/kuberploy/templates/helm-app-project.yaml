@@ -1,0 +1,21 @@
+{{- if .Values.config.helmApplications.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: kuberploy-helm-apps
+  namespace: {{ .Values.config.argoDesiredState.namespace }}
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "helm-applications") | nindent 4 }}
+spec:
+  sourceRepos:
+    - '*'
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: kp-*
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  orphanedResources:
+    warn: true
+{{- end }}
