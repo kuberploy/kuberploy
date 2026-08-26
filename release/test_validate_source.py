@@ -56,7 +56,7 @@ def main() -> None:
         raise SystemExit("validator accepted a builder-agent image without its runtime identity")
     try:
         validate_builder_agent_runtime(
-            builder_dockerfile.replace("buildx-bin:0.22.0", "buildx-bin:0.36.1", 1)
+            builder_dockerfile.replace("buildx-bin:0.21.3", "buildx-bin:0.36.1", 1)
         )
     except SystemExit as error:
         if "CPU-only Buildx" not in str(error):

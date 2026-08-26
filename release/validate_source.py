@@ -39,8 +39,8 @@ def validate_builder_agent_runtime(dockerfile: str) -> None:
         raise SystemExit("builder-agent runtime must install the pinned SSH client used by Git SSH sources")
     if "adduser -S -D -H -u 65532 -G kuberploy kuberploy" not in dockerfile:
         raise SystemExit("builder-agent runtime must define the fixed UID used by the SSH client")
-    cpu_only_buildx = "FROM docker.io/docker/buildx-bin:0.22.0 AS buildx"
-    if cpu_only_buildx not in dockerfile or 'io.kuberploy.builder.buildx="0.22.0"' not in dockerfile:
+    cpu_only_buildx = "FROM docker.io/docker/buildx-bin:0.21.3 AS buildx"
+    if cpu_only_buildx not in dockerfile or 'io.kuberploy.builder.buildx="0.21.3"' not in dockerfile:
         raise SystemExit("builder-agent runtime must use the selected CPU-only Buildx release")
 
 
@@ -612,7 +612,7 @@ def main() -> None:
     )
     allowed_base_images = {
         "docker.io/alpine/helm:4.2",
-        "docker.io/docker/buildx-bin:0.22.0",
+        "docker.io/docker/buildx-bin:0.21.3",
         "docker.io/library/alpine:3.24",
         "docker.io/library/docker:29-dind",
         "docker.io/library/golang:1.26-alpine3.24",
