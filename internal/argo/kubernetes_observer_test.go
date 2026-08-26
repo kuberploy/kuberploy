@@ -173,7 +173,7 @@ func TestKubernetesObserverPaginatesIgnoresUnknownAndRejectsSnapshotDrift(t *tes
 	helmApplication := observerApplication(now)
 	helmApplication.Name = "kp-h-11111111111141118111111111111111"
 	helmApplication.UID = "88888888-8888-4888-8888-888888888888"
-	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "approved-helm-application", "kuberploy.io/application-id": observerApplicationID,
+	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "helm-application", "kuberploy.io/application-id": observerApplicationID,
 		"kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
 	source := &observerSource{pages: []KubernetesApplicationPage{
 		{ResourceVersion: "100", Continue: "second", Applications: []KubernetesApplication{observerApplication(now)}},
@@ -213,11 +213,11 @@ func TestKubernetesObserverRejectsMalformedMissingAndDuplicateDeploymentIdentity
 	}
 }
 
-func TestKubernetesObserverBoundsIgnoredProtectedHelmApplications(t *testing.T) {
+func TestKubernetesObserverBoundsIgnoredHelmApplications(t *testing.T) {
 	now := time.Date(2026, 8, 14, 8, 1, 0, 0, time.UTC)
 	helmApplication := observerApplication(now)
 	helmApplication.Name = "kp-h-11111111111141118111111111111111"
-	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "approved-helm-application",
+	helmApplication.Labels = map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "app.kubernetes.io/component": "helm-application",
 		"kuberploy.io/application-id": observerApplicationID, "kuberploy.io/project-id": observerProjectID, "kuberploy.io/environment-id": observerEnvironmentID}
 	applications := make([]KubernetesApplication, MaximumObservedApplications+1)
 	for index := range applications {
@@ -226,7 +226,28 @@ func TestKubernetesObserverBoundsIgnoredProtectedHelmApplications(t *testing.T) 
 	observer := KubernetesObserver{Source: &observerSource{pages: []KubernetesApplicationPage{{ResourceVersion: "103", Applications: applications}}},
 		Resolver: observerResolver{targets: map[string]ObservationTarget{}}, Store: NewMemoryObservationStore(), Namespace: "argocd"}
 	if _, err := observer.PollOnce(t.Context()); err == nil || !strings.Contains(err.Error(), "exceeded its bound") {
-		t.Fatalf("ignored protected Helm Applications bypassed observation bound: %v", err)
+		t.Fatalf("ignored Helm Applications bypassed observation bound: %v", err)
+	}
+}
+
+func TestManagedHelmApplicationAcceptsCurrentAndLegacyComponents(t *testing.T) {
+	application := observerApplication(time.Date(2026, 8, 14, 8, 2, 0, 0, time.UTC))
+	application.Name = "kp-h-11111111111141118111111111111111"
+	application.Labels = map[string]string{
+		"app.kubernetes.io/managed-by": "kuberploy",
+		"kuberploy.io/application-id":  observerApplicationID,
+		"kuberploy.io/project-id":      observerProjectID,
+		"kuberploy.io/environment-id":  observerEnvironmentID,
+	}
+	for _, component := range []string{"helm-application", "approved-helm-application"} {
+		application.Labels["app.kubernetes.io/component"] = component
+		if !isManagedHelmApplication(application) {
+			t.Fatalf("component %q was not recognized as a managed Helm Application", component)
+		}
+	}
+	application.Labels["app.kubernetes.io/component"] = "deployment"
+	if isManagedHelmApplication(application) {
+		t.Fatal("unrelated managed Application was accepted as Helm")
 	}
 }
 

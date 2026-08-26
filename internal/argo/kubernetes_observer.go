@@ -134,9 +134,10 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 			}
 			deploymentID := strings.TrimSpace(application.Labels["kuberploy.io/deployment-id"])
 			if deploymentID == "" {
-				if isProtectedHelmApplication(application) {
-					// Protected Helm Applications deliberately carry application and
-					// environment identity but no deployment identity.
+				if isManagedHelmApplication(application) {
+					// Helm Applications deliberately carry application and environment
+					// identity but no deployment identity. Accept both the current direct
+					// Helm label and the legacy approved-package label during upgrades.
 					result.IgnoredUnknown++
 					continue
 				}
@@ -198,11 +199,12 @@ func (o KubernetesObserver) PollOnce(ctx context.Context) (ObservationBatch, err
 	}
 }
 
-func isProtectedHelmApplication(application KubernetesApplication) bool {
+func isManagedHelmApplication(application KubernetesApplication) bool {
 	labels := application.Labels
 	applicationID := strings.TrimSpace(labels["kuberploy.io/application-id"])
+	component := labels["app.kubernetes.io/component"]
 	return labels["app.kubernetes.io/managed-by"] == "kuberploy" &&
-		labels["app.kubernetes.io/component"] == "approved-helm-application" &&
+		(component == "helm-application" || component == "approved-helm-application") &&
 		uuidRE.MatchString(applicationID) && uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/project-id"])) &&
 		uuidRE.MatchString(strings.TrimSpace(labels["kuberploy.io/environment-id"])) &&
 		application.Name == "kp-h-"+strings.ReplaceAll(applicationID, "-", "")
