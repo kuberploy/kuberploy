@@ -673,6 +673,9 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		WHERE b.id=$1 AND b.kind='environment' AND b.environment_id=d.environment_id
 		AND a.id=d.application_id AND a.project_id=b.project_id
 		AND doc.binding_id=b.id AND doc.generation=$2 AND doc.application_id=d.application_id AND doc.valid
+		AND NOT EXISTS (SELECT 1 FROM git_write_commands pending
+			WHERE pending.deployment_id=d.id AND pending.operation_id=d.operation_id
+			AND pending.command_kind='deployment' AND pending.state<>'indexed')
 		AND d.desired_revision IS DISTINCT FROM doc.config_revision`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
