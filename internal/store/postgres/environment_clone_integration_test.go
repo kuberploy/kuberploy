@@ -92,7 +92,7 @@ func TestPostgreSQLEnvironmentCloneIsDraftOnlyIdempotentAndSideEffectFree(t *tes
 
 	sideEffectTables := []string{
 		"deployments", "operations", "outbox", "git_write_commands", "build_attempts",
-		"registry_releases", "helm_release_revisions", "secret_bindings", "secret_binding_versions",
+		"registry_releases", "helm_app_revisions", "secret_bindings", "secret_binding_versions",
 		"external_dns_integrations", "runtime_registry_pull_artifacts",
 	}
 	before := environmentCloneTableCounts(t, store, sideEffectTables)

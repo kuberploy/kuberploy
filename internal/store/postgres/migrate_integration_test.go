@@ -74,27 +74,32 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 
 	assertCatalogCount(t, ctx, pool, "application tables", `SELECT count(*)
 		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 109)
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname <> '_prisma_migrations'`, 97)
 	assertCatalogCount(t, ctx, pool, "native functions", `SELECT count(*)
 		FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-		WHERE n.nspname='public'`, 110)
+		WHERE n.nspname='public'`, 63)
 	assertCatalogCount(t, ctx, pool, "non-internal triggers", `SELECT count(*)
 		FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-		WHERE n.nspname='public' AND NOT t.tgisinternal`, 105)
+		WHERE n.nspname='public' AND NOT t.tgisinternal`, 68)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 950)
+		WHERE n.nspname='public' AND c.contype='c'`, 654)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.condeferrable`, 15)
+		WHERE n.nspname='public' AND c.condeferrable`, 9)
 	assertCatalogCount(t, ctx, pool, "expression indexes", `SELECT count(*)
 		FROM pg_index i JOIN pg_class c ON c.oid=i.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
 		WHERE n.nspname='public' AND i.indexprs IS NOT NULL`, 2)
+	assertCatalogCount(t, ctx, pool, "direct Helm tables", `SELECT count(*)
+		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname IN ('helm_app_revisions','helm_app_heads')`, 2)
+	assertCatalogCount(t, ctx, pool, "removed Helm pipeline tables", `SELECT count(*)
+		FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+		WHERE n.nspname='public' AND c.relkind='r' AND c.relname IN ('helm_release_revisions','helm_approvals','helm_render_jobs')`, 0)
 
 	for _, function := range []string{
 		"protect_git_pull_request_publication",
 		"protect_secret_binding_version",
-		"validate_helm_release_revision",
 		"validate_configuration_profile_assignment",
 		"validate_runtime_readiness",
 		"validate_mutation_receipt",
@@ -117,7 +122,6 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 	for _, trigger := range []string{
 		"git_pull_request_publications_protect",
 		"secret_binding_versions_protect",
-		"helm_release_revisions_validate",
 		"configuration_profile_assignment_validate",
 		"runtime_readiness_validate",
 		"mutation_receipts_validate",
