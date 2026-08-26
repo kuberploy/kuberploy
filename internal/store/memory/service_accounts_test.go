@@ -106,6 +106,43 @@ func TestServiceAccountTokenIsScopedHashedExpiringAndRevocable(t *testing.T) {
 	}
 }
 
+func TestProjectDeletionBlocksActiveAndCleansDisabledServiceAccount(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	project, err := store.CreateProject(ctx, admin.ID, "delete-project", "delete-project", domain.CreateProject{Name: "Disposable", Slug: "disposable-project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := store.CreateServiceAccount(ctx, admin.ID, "delete-account", "delete-account", "request", domain.CreateServiceAccount{
+		ProjectID: project.Value.ID, Name: "Cleanup bot", Role: domain.RoleViewer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256([]byte("project-delete-token"))
+	if _, err = store.CreateServiceAccountToken(ctx, admin.ID, "delete-token", "delete-token", "request", domain.CreateServiceAccountToken{
+		ServiceAccountID: account.Value.ID, Name: "Cleanup token", Prefix: "kp_sa_cleanup1", TokenHash: hash[:], Scopes: []domain.AutomationScope{domain.AutomationScopeAppRead}, ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteProject(ctx, admin.ID, project.Value.ID, project.Value.Name, "blocked-delete", "blocked-delete", "request"); !errors.Is(err, base.ErrProjectDeletionBlocked) {
+		t.Fatalf("active service account did not block Project deletion: %v", err)
+	}
+	if _, err = store.DisableServiceAccount(ctx, admin.ID, account.Value.ID, "disable-account", "disable-account", "request"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteProject(ctx, admin.ID, project.Value.ID, project.Value.Name, "delete-project", "delete-project", "request"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ServiceAccountByToken(ctx, hash[:], time.Now().UTC()); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted Project retained service-account token index: %v", err)
+	}
+	if _, ok := store.users[account.Value.ID]; ok {
+		t.Fatal("deleted Project retained disabled service-account identity")
+	}
+}
+
 func TestServiceAccountPolicyRejectsPrivilegeAndDisablesAllTokens(t *testing.T) {
 	ctx := context.Background()
 	store := New()

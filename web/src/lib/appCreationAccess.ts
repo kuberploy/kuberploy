@@ -74,6 +74,15 @@ export function canDeleteEnvironment(
   );
 }
 
+export function canDeleteProject(
+  capabilities: Capabilities | undefined,
+  project: Project,
+) {
+  return grants(capabilities, ["projects:delete"], (capability) =>
+    coversProject(capability, project),
+  );
+}
+
 export function canUseAppSource(
   source: AppSourceKind,
   capabilities: Capabilities | undefined,

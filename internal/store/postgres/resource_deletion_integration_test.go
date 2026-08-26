@@ -83,6 +83,14 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	deletedBindingID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_bindings(
+		id,organization_id,project_id,environment_id,application_id,target_namespace,name,provider,state,
+		active_version,created_by,created_at,updated_at,delete_started_at,deleted_at,purpose)
+		VALUES($1,NULL,$2,$3,$4,$5,'deleted-secret','sealed-secrets','deleted',0,$6,$7,$7,$7,$7,'runtime-secret')`,
+		deletedBindingID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, actorID, now); err != nil {
+		t.Fatal(err)
+	}
 	installationID, repositoryID, registryID, definitionID := id.New(), id.New(), id.New(), id.New()
 	providerID := now.UnixNano() & 0x3fffffffffffffff
 	if _, err = store.pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,github_app_id,github_account_id,lifecycle,permissions,last_verified_at,created_at,updated_at)
@@ -124,6 +132,10 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if _, err = store.GetApplication(ctx, application.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted App err=%v", err)
 	}
+	var deletedBindingExists bool
+	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_bindings WHERE id=$1)`, deletedBindingID).Scan(&deletedBindingExists); err != nil || deletedBindingExists {
+		t.Fatalf("deleted secret tombstone remained after App deletion exists=%t err=%v", deletedBindingExists, err)
+	}
 
 	replay, err = store.DeleteEnvironment(ctx, actorID, environment.Value.ID, environment.Value.Name, "delete-env-"+suffix, "delete-env", "request-env-"+suffix)
 	if err != nil || replay {
@@ -163,6 +175,33 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	}
 	if err = store.pool.QueryRow(ctx, `SELECT state FROM environment_foundation_deletions WHERE environment_id=$1`, environment.Value.ID).Scan(&deletionState); err != nil || deletionState != "ready" {
 		t.Fatalf("completed foundation deletion state=%q err=%v", deletionState, err)
+	}
+	account, err := store.CreateServiceAccount(ctx, actorID, "delete-project-account-"+suffix, "delete-project-account", "request-project-account-"+suffix, domain.CreateServiceAccount{
+		ProjectID: project.Value.ID, Name: "Cleanup automation", Role: domain.RoleViewer,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DisableServiceAccount(ctx, actorID, account.Value.ID, "disable-project-account-"+suffix, "disable-project-account", "request-disable-project-account-"+suffix); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteProject(ctx, actorID, project.Value.ID, "Wrong", "delete-project-wrong-"+suffix, "delete-project-wrong", "request-project-wrong-"+suffix); !errors.Is(err, base.ErrDeletionConfirmation) {
+		t.Fatalf("wrong Project confirmation err=%v", err)
+	}
+	replay, err = store.DeleteProject(ctx, actorID, project.Value.ID, project.Value.Name, "delete-project-"+suffix, "delete-project", "request-project-"+suffix)
+	if err != nil || replay {
+		t.Fatalf("delete Project replay=%t err=%v", replay, err)
+	}
+	replay, err = store.DeleteProject(ctx, actorID, project.Value.ID, project.Value.Name, "delete-project-"+suffix, "delete-project", "request-project-replay-"+suffix)
+	if err != nil || !replay {
+		t.Fatalf("delete Project replay replay=%t err=%v", replay, err)
+	}
+	if _, err = store.GetProject(ctx, project.Value.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted Project err=%v", err)
+	}
+	var accountExists bool
+	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, account.Value.ID).Scan(&accountExists); err != nil || accountExists {
+		t.Fatalf("disabled service-account identity remained after Project deletion exists=%t err=%v", accountExists, err)
 	}
 }
 
@@ -205,5 +244,8 @@ func TestPostgreSQLResourceDeletionRejectsDeploymentHistory(t *testing.T) {
 	}
 	if _, err = store.DeleteEnvironment(ctx, actorID, environment.Value.ID, environment.Value.Name, "blocked-env-"+suffix, "blocked-env", "request-blocked-env-"+suffix); !errors.Is(err, base.ErrEnvironmentDeletionBlocked) {
 		t.Fatalf("active Environment deletion err=%v", err)
+	}
+	if _, err = store.DeleteProject(ctx, actorID, project.Value.ID, project.Value.Name, "blocked-project-"+suffix, "blocked-project", "request-blocked-project-"+suffix); !errors.Is(err, base.ErrProjectDeletionBlocked) {
+		t.Fatalf("non-empty Project deletion err=%v", err)
 	}
 }

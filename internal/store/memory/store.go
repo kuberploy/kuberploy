@@ -282,6 +282,80 @@ func (s *Store) ListProjects(context.Context) ([]domain.Project, error) {
 	return out, nil
 }
 
+func (s *Store) DeleteProject(_ context.Context, actor, projectID, confirmationName, key, fp, _ string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := ik(actor, "projects.delete:"+projectID, key)
+	old, replay := s.idempotency[idemKey]
+	if err := check(old, replay, fp); err != nil {
+		return false, err
+	}
+	if replay {
+		return true, nil
+	}
+	project, exists := s.projects[projectID]
+	if !exists {
+		return false, base.ErrNotFound
+	}
+	if err := s.authorizeLocked(actor, domain.PermissionGrantsManage, domain.AccessTarget{Type: "project", ID: projectID}); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(confirmationName) != project.Name {
+		return false, base.ErrDeletionConfirmation
+	}
+	for _, environment := range s.environments {
+		if environment.ProjectID == projectID {
+			return false, base.ErrProjectDeletionBlocked
+		}
+	}
+	for _, application := range s.applications {
+		if application.ProjectID == projectID {
+			return false, base.ErrProjectDeletionBlocked
+		}
+	}
+	for _, account := range s.serviceAccounts {
+		if account.ProjectID == projectID && account.DisabledAt == nil {
+			return false, base.ErrProjectDeletionBlocked
+		}
+	}
+	for accountID, account := range s.serviceAccounts {
+		if account.ProjectID != projectID {
+			continue
+		}
+		delete(s.serviceAccounts, accountID)
+		delete(s.users, accountID)
+		for sessionHash, session := range s.sessions {
+			if session.userID == accountID {
+				delete(s.sessions, sessionHash)
+			}
+		}
+		for tokenID, token := range s.serviceAccountTokens {
+			if token.ServiceAccountID == accountID {
+				delete(s.serviceAccountTokens, tokenID)
+				for tokenHash, indexedTokenID := range s.serviceAccountTokenHashes {
+					if indexedTokenID == tokenID {
+						delete(s.serviceAccountTokenHashes, tokenHash)
+					}
+				}
+			}
+		}
+	}
+	for grantID, grant := range s.accessGrants {
+		if grant.ScopeType == domain.ScopeProject && grant.ScopeID == projectID {
+			delete(s.accessGrants, grantID)
+		}
+	}
+	for credentialID, credential := range s.projectRegistryPullCredentials {
+		if credential.ProjectID == projectID {
+			delete(s.projectRegistryPullCredentials, credentialID)
+		}
+	}
+	delete(s.projects, projectID)
+	s.idempotency[idemKey] = idemRecord{fp, "project", projectID, ""}
+	s.audits++
+	return false, nil
+}
+
 func (s *Store) CreateEnvironment(_ context.Context, actor, key, fp string, in domain.CreateEnvironment) (base.Result[domain.Environment], error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

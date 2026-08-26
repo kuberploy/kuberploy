@@ -355,9 +355,9 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 		return []string{"access-grants:read"}
 	case domain.PermissionGrantsManage:
 		if scope == domain.ScopePlatform || scope == domain.ScopeTeam {
-			return []string{"access-grants:create", "access-grants:delete", "team-members:write"}
+			return []string{"access-grants:create", "access-grants:delete", "projects:delete", "team-members:write"}
 		}
-		return []string{"access-grants:create", "access-grants:delete"}
+		return []string{"access-grants:create", "access-grants:delete", "projects:delete"}
 	case domain.PermissionPlatformAdmin:
 		return []string{"github-installations:setup", "platform-releases:read", "team-members:write", "teams:create", "teams:read", "user-invitations:create", "users:read"}
 	default:

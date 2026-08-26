@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { api, errorMessage } from "../api/client";
@@ -11,6 +11,7 @@ import { ProjectAutomationPanel } from "../components/ProjectAutomationPanel";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   Field,
@@ -18,6 +19,7 @@ import {
   Skeleton,
   StatusPill,
 } from "../components/ui";
+import { canDeleteProject } from "../lib/appCreationAccess";
 import { projectOwnershipLabel } from "./ProjectsPage";
 
 type ProjectTab = "environments" | "settings";
@@ -28,10 +30,12 @@ type EnvironmentForm = {
 
 export function ProjectPage() {
   const { projectId } = useParams({ from: "/projects/$projectId" });
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<ProjectTab>("environments");
   const [creatingEnvironment, setCreatingEnvironment] = useState(false);
   const [gitEnvironmentId, setGitEnvironmentId] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -58,6 +62,7 @@ export function ProjectPage() {
     signature: string;
     key: string;
   } | null>(null);
+  const deleteAttempt = useRef<string | null>(null);
   const project = projects.data?.items.find((item) => item.id === projectId);
   const projectEnvironments = useMemo(
     () =>
@@ -103,6 +108,9 @@ export function ProjectPage() {
   const canCreateEnvironment = Boolean(
     project && hasActionAtProject("environments:create", project),
   );
+  const canDelete = Boolean(
+    project && canDeleteProject(capabilities.data, project),
+  );
   const canManageAccess = Boolean(
     project && hasActionAtProject("access-grants:create", project),
   );
@@ -137,6 +145,18 @@ export function ProjectPage() {
       await queryClient.invalidateQueries({ queryKey: ["environments"] });
     },
   });
+  const deleteProject = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.deleteProject(projectId, project?.name ?? "", idempotencyKey),
+    onSuccess: async () => {
+      deleteAttempt.current = null;
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+      ]);
+      await navigate({ to: "/projects" });
+    },
+  });
   const submitEnvironment = (value: EnvironmentForm) => {
     const input = { projectId, ...value };
     const signature = JSON.stringify(input);
@@ -154,6 +174,9 @@ export function ProjectPage() {
     createEnvironment.reset();
     setCreatingEnvironment(false);
     setGitEnvironmentId(null);
+    setDeleteOpen(false);
+    deleteAttempt.current = null;
+    deleteProject.reset();
   }, [projectId]);
   useEffect(() => {
     if (
@@ -399,6 +422,21 @@ export function ProjectPage() {
               onClose={() => setTab("environments")}
             />
           ) : null}
+          {canDelete ? (
+            <Card className="danger-zone">
+              <div>
+                <span className="eyebrow">Danger zone</span>
+                <h2>Delete project</h2>
+                <p>
+                  Delete this Project after removing its Environments, Apps,
+                  active service accounts, secrets, and other owned resources.
+                </p>
+              </div>
+              <Button variant="danger" onClick={() => setDeleteOpen(true)}>
+                <Icon name="close" /> Delete Project
+              </Button>
+            </Card>
+          ) : null}
           {!canManageAccess && !showAutomation ? (
             <EmptyState
               title="Project settings are read-only"
@@ -406,6 +444,27 @@ export function ProjectPage() {
             />
           ) : null}
         </div>
+      ) : null}
+      {deleteOpen ? (
+        <ConfirmDialog
+          title={`Delete ${project.name}?`}
+          description="Only a Project with no Environments, Apps, active service accounts, secrets, or other owned resources can be deleted. Audit history remains."
+          confirmLabel="Delete Project"
+          confirmation={project.name}
+          busy={deleteProject.isPending}
+          error={deleteProject.error}
+          icon="close"
+          onCancel={() => {
+            deleteProject.reset();
+            deleteAttempt.current = null;
+            setDeleteOpen(false);
+          }}
+          onConfirm={() => {
+            const key = deleteAttempt.current ?? crypto.randomUUID();
+            deleteAttempt.current = key;
+            deleteProject.mutate(key);
+          }}
+        />
       ) : null}
     </div>
   );

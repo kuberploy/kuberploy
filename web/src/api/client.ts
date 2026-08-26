@@ -1967,6 +1967,12 @@ export const api = {
       headers: idempotencyHeaders(idempotencyKey),
       body: input,
     }),
+  deleteProject: (id: string, name: string, idempotencyKey?: string) =>
+    request<void>(`/v1/projects/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: idempotencyHeaders(idempotencyKey),
+      body: { name },
+    }),
   projectAccessGrants: (projectId: string) =>
     request<Collection<AccessGrant> | AccessGrant[]>(
       `/v1/projects/${encodeURIComponent(projectId)}/grants`,

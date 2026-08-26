@@ -33,17 +33,31 @@ describe("typed API client", () => {
     );
   });
 
-  it("deletes Apps and Environments with exact names and stable idempotency", async () => {
+  it("deletes Projects, Apps, and Environments with exact names and stable idempotency", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
+    await api.deleteProject("project/id", "Payments", "delete-project-key");
     await api.deleteApplication("app/id", "Payments API", "delete-app-key");
     await api.deleteEnvironment("env/id", "Production", "delete-env-key");
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
+      "/v1/projects/project%2Fid",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({ name: "Payments" }),
+      }),
+    );
+    expect(
+      new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).get(
+        "Idempotency-Key",
+      ),
+    ).toBe("delete-project-key");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
       "/v1/applications/app%2Fid",
       expect.objectContaining({
         method: "DELETE",
@@ -51,12 +65,12 @@ describe("typed API client", () => {
       }),
     );
     expect(
-      new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers).get(
+      new Headers((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).get(
         "Idempotency-Key",
       ),
     ).toBe("delete-app-key");
     expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+      3,
       "/v1/environments/env%2Fid",
       expect.objectContaining({
         method: "DELETE",
@@ -64,7 +78,7 @@ describe("typed API client", () => {
       }),
     );
     expect(
-      new Headers((fetchMock.mock.calls[1]?.[1] as RequestInit).headers).get(
+      new Headers((fetchMock.mock.calls[2]?.[1] as RequestInit).headers).get(
         "Idempotency-Key",
       ),
     ).toBe("delete-env-key");

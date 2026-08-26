@@ -280,6 +280,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/projects", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.projects))))
 	mux.Handle("POST /v1/projects", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.projects))))
 	mux.Handle("GET /v1/projects/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.project))))
+	mux.Handle("DELETE /v1/projects/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.deleteProject))))
 	mux.Handle("GET /v1/projects/{id}/registry-pull-credentials", registryNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.projectRegistryPullCredentials)))))
 	mux.Handle("GET /v1/projects/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(http.HandlerFunc(s.projectGitSSHKeys)))))
 	mux.Handle("POST /v1/projects/{id}/git-ssh-keys", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(gitSSHKeyLimit, http.HandlerFunc(s.projectGitSSHKeys))))))
@@ -782,6 +783,8 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, r, 409, "UserDeletionBlocked", "User still owns required access", "Transfer owned GitHub installations and final team or platform administrator roles before deleting this user.")
 	case errors.Is(err, store.ErrTeamDeletionBlocked):
 		writeProblem(w, r, 409, "TeamDeletionBlocked", "Team still owns resources", "Move or remove the team's projects, GitHub sharing, setup handoffs, and secret bindings before deleting it.")
+	case errors.Is(err, store.ErrProjectDeletionBlocked):
+		writeProblem(w, r, 409, "ProjectDeletionBlocked", "Project still has resources", "Remove the Project's Environments, Apps, active service accounts, secrets, and other owned resources before deleting it.")
 	case errors.Is(err, store.ErrApplicationDeletionBlocked):
 		writeProblem(w, r, 409, "ApplicationDeletionBlocked", "App still has resources", "Disable and remove the App's deployments, build configuration, releases, bindings, and policies before deleting it.")
 	case errors.Is(err, store.ErrEnvironmentDeletionBlocked):

@@ -7,6 +7,7 @@ import { ApiError, api } from "../api/client";
 import { ProjectPage } from "./ProjectPage";
 
 const routeParams = vi.hoisted(() => ({ projectId: "project_payments" }));
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -40,6 +41,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useParams: () => routeParams,
+  useNavigate: () => navigate,
 }));
 
 function wrapper() {
@@ -52,6 +54,7 @@ function wrapper() {
 }
 
 beforeEach(() => {
+  navigate.mockReset();
   vi.spyOn(api, "me").mockResolvedValue({
     id: "user_admin",
     displayName: "Project admin",
@@ -247,5 +250,40 @@ describe("project workspace", () => {
       ).toHaveAttribute("aria-current", "page"),
     );
     expect(screen.getByRole("heading", { name: "Other" })).toBeInTheDocument();
+  });
+
+  it("deletes an empty project only after exact-name confirmation", async () => {
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          role: "project-admin",
+          scopeType: "project",
+          scopeId: "project_payments",
+          actions: ["projects:delete"],
+        },
+      ],
+    });
+    vi.spyOn(api, "environments").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "applications").mockResolvedValue({ items: [] });
+    vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+    const remove = vi.spyOn(api, "deleteProject").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<ProjectPage />, { wrapper: wrapper() });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Access & automation" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Delete Project" }));
+    const confirm = screen.getByRole("button", { name: "Delete Project" });
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText("Confirm deletion"), "Payments");
+    await user.click(confirm);
+
+    await waitFor(() => expect(remove).toHaveBeenCalledOnce());
+    expect(remove.mock.calls[0]?.slice(0, 2)).toEqual([
+      "project_payments",
+      "Payments",
+    ]);
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/projects" }));
   });
 });

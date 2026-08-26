@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestApplicationAndEnvironmentDeletionContract(t *testing.T) {
+func TestProjectApplicationAndEnvironmentDeletionContract(t *testing.T) {
 	type operation struct {
 		OperationID     string `json:"operationId"`
 		AutomationScope string `json:"x-kuberploy-automation-scope"`
@@ -28,6 +28,7 @@ func TestApplicationAndEnvironmentDeletionContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, operationID := range map[string]string{
+		"/v1/projects/{id}":     "deleteProject",
 		"/v1/applications/{id}": "deleteApplication",
 		"/v1/environments/{id}": "deleteEnvironment",
 	} {
@@ -51,7 +52,7 @@ func TestApplicationAndEnvironmentDeletionContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, operationID := range []string{"deleteApplication", "deleteEnvironment"} {
+	for _, operationID := range []string{"deleteProject", "deleteApplication", "deleteEnvironment"} {
 		if !containsJSONOperation(profile, operationID) {
 			t.Fatalf("automation operation %q missing from agent allowlist", operationID)
 		}

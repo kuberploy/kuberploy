@@ -65,6 +65,21 @@ func TestCapabilityActionsAreNarrowedToBindingScope(t *testing.T) {
 	}
 }
 
+func TestProjectDeletionCapabilityMatchesWritableProjectScope(t *testing.T) {
+	for _, binding := range []domain.AccessBinding{
+		{Role: domain.RolePlatformAdmin, ScopeType: domain.ScopePlatform, ScopeID: "platform"},
+		{Role: domain.RoleOrganizationAdmin, ScopeType: domain.ScopeTeam, ScopeID: "team-a"},
+		{Role: domain.RoleProjectAdmin, ScopeType: domain.ScopeProject, ScopeID: "project-a"},
+	} {
+		if !slices.Contains(Actions(binding), "projects:delete") {
+			t.Fatalf("writable binding omitted projects:delete: %#v", binding)
+		}
+	}
+	if slices.Contains(Actions(domain.AccessBinding{Role: domain.RoleDeveloper, ScopeType: domain.ScopeProject, ScopeID: "project-a"}), "projects:delete") {
+		t.Fatal("developer received projects:delete")
+	}
+}
+
 func TestTeamCapabilityAdvertisesTheMemberListThatTeamReadersCanUse(t *testing.T) {
 	actions := Actions(domain.AccessBinding{Role: domain.RoleViewer, ScopeType: domain.ScopeTeam, ScopeID: "team-a"})
 	foundMemberRead := false

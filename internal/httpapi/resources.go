@@ -73,6 +73,10 @@ func (s *Server) project(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, v)
 }
 
+func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
+	deleteNamedResource(w, r, "Project", s.store.DeleteProject)
+}
+
 type environmentRequest struct {
 	ProjectID        string                             `json:"projectId"`
 	Name             string                             `json:"name"`

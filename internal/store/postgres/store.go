@@ -322,6 +322,82 @@ func (s *Store) ListProjects(ctx context.Context) ([]domain.Project, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) DeleteProject(ctx context.Context, actor, projectID, confirmationName, key, fingerprint, requestID string) (bool, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	scope := "projects.delete:" + projectID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, scope, key)); err != nil {
+		return false, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, scope, key); findErr != nil {
+		return false, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint {
+			return false, base.ErrIdempotencyConflict
+		}
+		return true, tx.Commit(ctx)
+	}
+	var name string
+	if err = tx.QueryRow(ctx, `SELECT name FROM projects WHERE id=$1 FOR UPDATE`, projectID).Scan(&name); err != nil {
+		return false, classify(err)
+	}
+	if err = authorizeWith(ctx, tx, actor, domain.PermissionGrantsManage, domain.AccessTarget{Type: "project", ID: projectID}); err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(confirmationName) != name {
+		return false, base.ErrDeletionConfirmation
+	}
+	var blocked bool
+	if err = tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM environments WHERE project_id=$1) OR
+		EXISTS(SELECT 1 FROM applications WHERE project_id=$1) OR
+		EXISTS(SELECT 1 FROM service_accounts WHERE project_id=$1 AND disabled_at IS NULL) OR
+		EXISTS(SELECT 1 FROM secret_bindings WHERE project_id=$1 AND state<>'deleted')`, projectID).Scan(&blocked); err != nil {
+		return false, err
+	}
+	if blocked {
+		return false, base.ErrProjectDeletionBlocked
+	}
+	if err = purgeDeletedSecretBindings(ctx, tx, "project_id", projectID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM git_ssh_key_mutation_receipts WHERE scope='project' AND owner_id=$1`, projectID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM git_ssh_key_revisions WHERE scope='project' AND owner_id=$1`, projectID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM users WHERE id IN (SELECT id FROM service_accounts WHERE project_id=$1 AND disabled_at IS NOT NULL)`, projectID); err != nil {
+		return false, err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE scope_type='project' AND scope_id=$1::text`, projectID); err != nil {
+		return false, err
+	}
+	if err = audit(ctx, tx, actor, "project.delete", "project", projectID, requestID, map[string]any{"name": name}); err != nil {
+		return false, err
+	}
+	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "project", projectID, nil); err != nil {
+		return false, classify(err)
+	}
+	tag, deleteErr := tx.Exec(ctx, `DELETE FROM projects WHERE id=$1`, projectID)
+	if deleteErr != nil {
+		if errors.Is(classify(deleteErr), base.ErrConflict) {
+			return false, base.ErrProjectDeletionBlocked
+		}
+		return false, deleteErr
+	}
+	if tag.RowsAffected() != 1 {
+		return false, base.ErrNotFound
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 func (s *Store) CreateEnvironment(ctx context.Context, actor, key, fingerprint string, in domain.CreateEnvironment) (base.Result[domain.Environment], error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -676,6 +752,13 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 			return false, foundationErr
 		}
 	}
+	secretScopeColumn := "application_id"
+	if resourceType == "environment" {
+		secretScopeColumn = "environment_id"
+	}
+	if err = purgeDeletedSecretBindings(ctx, tx, secretScopeColumn, resourceID); err != nil {
+		return false, err
+	}
 	if _, err = tx.Exec(ctx, `DELETE FROM access_grants WHERE scope_type=$1 AND scope_id=$2`, resourceType, resourceID); err != nil {
 		return false, err
 	}
@@ -699,6 +782,27 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 		return false, err
 	}
 	return false, nil
+}
+
+func purgeDeletedSecretBindings(ctx context.Context, tx pgx.Tx, scopeColumn, scopeID string) error {
+	if scopeColumn != "project_id" && scopeColumn != "environment_id" && scopeColumn != "application_id" {
+		return base.ErrConflict
+	}
+	bindingIDs := `SELECT id FROM secret_bindings WHERE ` + scopeColumn + `=$1 AND state='deleted'`
+	for _, statement := range []string{
+		`DELETE FROM mutation_receipts WHERE secret_binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_binding_references WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_binding_runtime_reconciliations WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_binding_deliveries WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_binding_events WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_binding_versions WHERE binding_id IN (` + bindingIDs + `)`,
+		`DELETE FROM secret_bindings WHERE id IN (` + bindingIDs + `)`,
+	} {
+		if _, err := tx.Exec(ctx, statement, scopeID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func classify(err error) error {
