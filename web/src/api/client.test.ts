@@ -70,6 +70,28 @@ describe("typed API client", () => {
     ).toBe("delete-env-key");
   });
 
+  it("disconnects one exact source-build definition with stable idempotency", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.disconnectBuildDefinition(
+      "app/id",
+      "definition/id",
+      "disconnect-source-key",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v1/applications/app%2Fid/build-definitions/definition%2Fid",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("Idempotency-Key")).toBe(
+      "disconnect-source-key",
+    );
+  });
+
   it("uses the exact bootstrap contract and same-origin cookies", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

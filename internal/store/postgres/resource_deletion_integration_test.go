@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/environmentfoundation"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -81,6 +82,33 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	application, err := store.CreateApplication(ctx, actorID, "delete-application-"+suffix, "delete-application-"+suffix, domain.CreateApplication{ProjectID: project.Value.ID, EnvironmentID: environment.Value.ID, Name: "Disposable App", Slug: "disposable"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	installationID, repositoryID, registryID, definitionID := id.New(), id.New(), id.New(), id.New()
+	providerID := now.UnixNano() & 0x3fffffffffffffff
+	if _, err = store.pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,github_app_id,github_account_id,lifecycle,permissions,last_verified_at,created_at,updated_at)
+		VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$5,'active','{"metadata":"read","contents":"read"}'::jsonb,$6,$6,$6)`, installationID, providerID, actorID, providerID+1, providerID+2, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,created_at,updated_at)
+		VALUES($1,$2,$3,$4,'kuberploy','delete-fixture','active',$5,$5,$5)`, repositoryID, installationID, providerID+3, providerID+2, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,created_at,updated_at) VALUES($1,$2,'managed','registry.test','apps',$3,$3)`, registryID, "delete-"+suffix, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO build_definitions(id,project_id,service_id,installation_id,repository_id,registry_target_id,trigger_ref,spec,definition_digest,generation,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main','{}',$7,1,$8,$8)`, definitionID, project.Value.ID, application.Value.ID, installationID, repositoryID, registryID, "sha256:"+strings.Repeat("9", 64), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.DeleteApplication(ctx, actorID, application.Value.ID, application.Value.Name, "delete-app-build-blocked-"+suffix, "delete-app-build-blocked", "request-app-build-blocked-"+suffix); !errors.Is(err, base.ErrApplicationDeletionBlocked) {
+		t.Fatalf("source-configured App deletion err=%v", err)
+	}
+	buildStore, err := builds.NewPostgreSQLStore(store.pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay, disconnectErr := buildStore.DeleteDefinition(ctx, actorID, application.Value.ID, definitionID, "disconnect-before-delete-"+suffix, "sha256:"+strings.Repeat("8", 64), "disconnect-before-app-delete-"+suffix, now); disconnectErr != nil || replay {
+		t.Fatalf("disconnect before App deletion replay=%v err=%v", replay, disconnectErr)
 	}
 	if _, err = store.DeleteApplication(ctx, actorID, application.Value.ID, "Wrong", "delete-app-wrong-"+suffix, "wrong", "request-wrong-"+suffix); !errors.Is(err, base.ErrDeletionConfirmation) {
 		t.Fatalf("wrong confirmation err=%v", err)

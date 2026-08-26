@@ -125,3 +125,43 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 		t.Fatalf("existing retry rebound to a different durable claim: %v", err)
 	}
 }
+
+func TestMemoryDeleteDefinitionBlocksActiveWorkAndCleansTerminalHistory(t *testing.T) {
+	ctx := context.Background()
+	store, definition := seedMemory(t, RegistryManaged)
+	actorID := "77777777-7777-4777-8777-777777777777"
+	fingerprint := "sha256:" + strings.Repeat("7", 64)
+	now := testNow.Add(time.Hour)
+	attempt, err := newAttempt(definition, repositoryFixture(now), EnqueuePush{ClaimKey: strings.Repeat("8", 64), CommitSHA: strings.Repeat("9", 40), GitRef: "refs/heads/main", ResolvedAt: now}, 1, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.attempts[attempt.ID] = cloneAttempt(attempt)
+	store.mu.Unlock()
+	if _, err = store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-active", fingerprint, "request-active", now); !errors.Is(err, ErrDeletionBlocked) {
+		t.Fatalf("active attempt did not block disconnect: %v", err)
+	}
+	completed := now.Add(time.Minute)
+	store.mu.Lock()
+	attempt.State, attempt.FailureCode, attempt.CompletedAt, attempt.UpdatedAt = AttemptFailed, "build-failed", &completed, completed
+	store.attempts[attempt.ID] = cloneAttempt(attempt)
+	store.mu.Unlock()
+	replay, err := store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-terminal", fingerprint, "request-delete", completed)
+	if err != nil || replay {
+		t.Fatalf("disconnect replay=%v err=%v", replay, err)
+	}
+	if _, err = store.Definition(ctx, definition.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("definition survived disconnect: %v", err)
+	}
+	if _, err = store.HistoricalAttempt(ctx, attempt.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("attempt survived disconnect: %v", err)
+	}
+	replay, err = store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-terminal", fingerprint, "request-replay", completed.Add(time.Second))
+	if err != nil || !replay {
+		t.Fatalf("disconnect replay=%v err=%v", replay, err)
+	}
+	if _, err = store.DeleteDefinition(ctx, actorID, definition.ServiceID, definition.ID, "disconnect-terminal", "sha256:"+strings.Repeat("6", 64), "request-conflict", completed.Add(2*time.Second)); !errors.Is(err, ErrConflict) {
+		t.Fatalf("changed disconnect replay accepted: %v", err)
+	}
+}

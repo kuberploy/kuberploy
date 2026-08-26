@@ -346,6 +346,7 @@ func New(o Options) *Server {
 	mux.Handle("GET /v1/applications/{id}/build-definitions", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationBuildDefinitions)))))
 	mux.Handle("GET /v1/applications/{id}/build-secret-profiles", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationBuildSecretProfiles)))))
 	mux.Handle("POST /v1/applications/{id}/build-definitions", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeBuildCreate, s.highRiskActor(buildDefinitionLimit, http.HandlerFunc(s.applicationBuildDefinitions))))))
+	mux.Handle("DELETE /v1/applications/{id}/build-definitions/{definitionId}", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(buildDefinitionLimit, http.HandlerFunc(s.deleteApplicationBuildDefinition))))))
 	mux.Handle("GET /v1/applications/{id}/auto-deploy-policies", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.applicationAutoDeployPolicies)))))
 	mux.Handle("POST /v1/applications/{id}/auto-deploy-policies", s.secretNoStore(s.protect(s.humanOnly(s.highRiskActor(buildDefinitionLimit, http.HandlerFunc(s.applicationAutoDeployPolicies))))))
 	mux.Handle("GET /v1/auto-deploy-policies/{id}", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.autoDeployPolicy)))))

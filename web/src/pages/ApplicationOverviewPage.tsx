@@ -82,6 +82,8 @@ export function ApplicationOverviewPage() {
   const queryClient = useQueryClient();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const deleteAttempt = useRef<string | null>(null);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
+  const disconnectAttempt = useRef<string | null>(null);
   const search = useSearch({ strict: false }) as {
     tab?: string;
     source?: string;
@@ -149,6 +151,17 @@ export function ApplicationOverviewPage() {
     hasBuildApplicationCapability(
       effectiveCapabilities,
       "build-definitions:read",
+      application.data,
+      project,
+    ),
+  );
+  const canManageBuildDefinitions = Boolean(
+    application.data &&
+    project &&
+    humanSession &&
+    hasBuildApplicationCapability(
+      effectiveCapabilities,
+      "build-definitions:write",
       application.data,
       project,
     ),
@@ -268,6 +281,27 @@ export function ApplicationOverviewPage() {
         )[0],
     [buildDefinitions.data?.items],
   );
+  const disconnectSource = useMutation({
+    mutationFn: ({
+      definitionId,
+      key,
+    }: {
+      definitionId: string;
+      key: string;
+    }) => api.disconnectBuildDefinition(applicationId, definitionId, key),
+    onSuccess: async () => {
+      disconnectAttempt.current = null;
+      setDisconnectOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["build-definitions", applicationId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["auto-deploy-policies", applicationId],
+        }),
+      ]);
+    },
+  });
   const loadError =
     application.error ??
     projects.error ??
@@ -565,6 +599,18 @@ export function ApplicationOverviewPage() {
                         definition stays in history until its replacement is
                         verified.
                       </p>
+                      {canManageBuildDefinitions ? (
+                        <Button
+                          variant="danger"
+                          onClick={() => {
+                            disconnectSource.reset();
+                            disconnectAttempt.current = null;
+                            setDisconnectOpen(true);
+                          }}
+                        >
+                          <Icon name="close" /> Disconnect source
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 ) : null}
@@ -715,6 +761,30 @@ export function ApplicationOverviewPage() {
             const key = deleteAttempt.current ?? crypto.randomUUID();
             deleteAttempt.current = key;
             deleteApplication.mutate(key);
+          }}
+        />
+      ) : null}
+      {disconnectOpen && activeBuildDefinition ? (
+        <ConfirmDialog
+          title={`Disconnect ${gitRefLabel(activeBuildDefinition.triggerRef)}?`}
+          description="This removes this source connection, its completed build history, release projection, and auto-deploy policy history. It does not delete the repository, deploy key, registry images, or App. Active work must finish or be cancelled first."
+          confirmLabel="Disconnect source"
+          confirmation="DISCONNECT"
+          busy={disconnectSource.isPending}
+          error={disconnectSource.error}
+          icon="close"
+          onCancel={() => {
+            disconnectSource.reset();
+            disconnectAttempt.current = null;
+            setDisconnectOpen(false);
+          }}
+          onConfirm={() => {
+            const key = disconnectAttempt.current ?? crypto.randomUUID();
+            disconnectAttempt.current = key;
+            disconnectSource.mutate({
+              definitionId: activeBuildDefinition.id,
+              key,
+            });
           }}
         />
       ) : null}

@@ -112,6 +112,16 @@ type buildHTTPBackend struct {
 	profileCatalog builds.BuildSecretProfileCatalog
 	buildCommit    string
 	buildCalls     int
+	deleteCalls    int
+	deleteReplay   bool
+	deleteErr      error
+}
+
+func (b *buildHTTPBackend) DeleteDefinition(_ context.Context, _, _, _, _, _, _ string) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.deleteCalls++
+	return b.deleteReplay, b.deleteErr
 }
 
 func (b *buildHTTPBackend) ResolveGitBindingRepository(_ context.Context, _, _ string) (httpapi.GitBindingRepositoryResolution, error) {
@@ -748,6 +758,27 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	if response.StatusCode != http.StatusCreated || !slices.Equal(mutation.Platforms, []string{"linux/arm64"}) || creates != 2 {
 		t.Fatalf("default platform create status=%d platforms=%v creates=%d", response.StatusCode, mutation.Platforms, creates)
 	}
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect", nil)
+	response.Body.Close()
+	backend.mu.Lock()
+	deleteCalls := backend.deleteCalls
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusNoContent || deleteCalls != 1 {
+		t.Fatalf("disconnect status=%d calls=%d", response.StatusCode, deleteCalls)
+	}
+	backend.deleteReplay = true
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect", nil)
+	response.Body.Close()
+	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("disconnect replay status=%d header=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
+	}
+	backend.deleteReplay, backend.deleteErr = false, builds.ErrDeletionBlocked
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect-blocked", nil)
+	problem := decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "BuildDefinitionDeletionBlocked" {
+		t.Fatalf("blocked disconnect status=%d problem=%#v", response.StatusCode, problem)
+	}
+	backend.deleteErr = nil
 
 	duplicate := strings.Replace(string(mustJSONBytes(t, create)), `"resource":"small"`, `"resource":"small","resource":"large"`, 1)
 	request, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/applications/"+application.ID+"/build-definitions", strings.NewReader(duplicate))
@@ -758,7 +789,7 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	problem := decode[httpapi.Problem](t, response)
+	problem = decode[httpapi.Problem](t, response)
 	backend.mu.Lock()
 	creates = backend.creates
 	backend.mu.Unlock()

@@ -98,6 +98,7 @@ beforeEach(() => {
     items: [attempt],
     nextCursor: undefined,
   });
+  vi.spyOn(api, "disconnectBuildDefinition").mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -119,6 +120,49 @@ function renderPage(response: Capabilities) {
 }
 
 describe("source-build workspace", () => {
+  it("disconnects a source through the styled confirmation dialog", async () => {
+    const user = userEvent.setup();
+    renderPage({
+      features: {
+        githubAppSetup: false,
+        builds: true,
+        builder: true,
+        registry: false,
+      },
+      capabilities: [
+        {
+          scopeType: "project",
+          scopeId: "project-safe",
+          actions: [
+            "build-definitions:read",
+            "build-definitions:write",
+            "builds:read",
+          ],
+        },
+      ],
+    });
+
+    await screen.findByText("registry.example.test");
+    await user.click(
+      await screen.findByRole("button", { name: "Disconnect source" }),
+    );
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
+    await user.click(
+      screen.getAllByRole("button", { name: "Disconnect source" }).at(-1)!,
+    );
+    await waitFor(() =>
+      expect(api.disconnectBuildDefinition).toHaveBeenCalledWith(
+        "application-safe",
+        "definition-safe",
+        expect.any(String),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+    );
+  });
+
   it("does not query build catalogs when the feature is disabled", async () => {
     renderPage({
       features: { githubAppSetup: false, builds: false, builder: false },
@@ -161,10 +205,8 @@ describe("source-build workspace", () => {
     expect(
       await screen.findByText("Builder runtime unavailable"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/eligible Ready builder node/),
-    ).toBeInTheDocument();
-    expect(await screen.findByText("Immutable history")).toBeInTheDocument();
+    expect(screen.getByText(/eligible Ready builder node/)).toBeInTheDocument();
+    expect(await screen.findByText("Source connections")).toBeInTheDocument();
     expect(screen.getByText("Attempt history")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Create immutable definition" }),

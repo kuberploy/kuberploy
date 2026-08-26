@@ -11,6 +11,9 @@ type githubBuildOperation struct {
 	Audience        []string              `json:"x-kuberploy-audience"`
 	Permission      string                `json:"x-kuberploy-permission"`
 	AutomationScope string                `json:"x-kuberploy-automation-scope"`
+	Effect          string                `json:"x-kuberploy-effect"`
+	Idempotency     string                `json:"x-kuberploy-idempotency"`
+	Confirmation    string                `json:"x-kuberploy-confirmation"`
 	Security        []map[string][]string `json:"security"`
 	Parameters      []struct {
 		Name string `json:"name"`
@@ -138,6 +141,15 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 		if !found[operationID] {
 			t.Fatalf("build operation %q missing", operationID)
 		}
+	}
+	disconnect := document.Paths["/v1/applications/{id}/build-definitions/{definitionId}"]["delete"]
+	if disconnect.OperationID != "disconnectApplicationBuildDefinition" || disconnect.Permission != "builds.manage" ||
+		disconnect.Effect != "build-definition" || disconnect.Idempotency != "required" || disconnect.Confirmation != "dialog" ||
+		!equalStrings(disconnect.Audience, []string{"human"}) || disconnect.AutomationScope != "" {
+		t.Fatalf("source disconnect contract=%#v", disconnect)
+	}
+	if _, ok := disconnect.Responses["204"]; !ok {
+		t.Fatalf("source disconnect lacks success response: %#v", disconnect.Responses)
 	}
 	for schemaName, forbidden := range map[string][]string{
 		"BuildDefinition":  {"credentialSecret", "execution", "namespace", "podServiceAccount", "builderAgentImage"},

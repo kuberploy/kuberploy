@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/autodeploy"
+	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/gitops"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -62,7 +63,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,state,operation_id,generation,runtime,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}','ready',$5,1,'{}',$6,$6)`, []any{deployment, environment, application, "registry.test/apps/app@" + digest, operation, now}},
 		{`INSERT INTO github_one_time_claims(kind,claim_key,retain_until,permanent,created_at) VALUES('github-delivery',$1,$2,true,$3)`, []any{claimKey, now.Add(time.Hour), now}},
 		{`INSERT INTO github_webhook_receipts(claim_key,github_app_id,github_installation_id,delivery_id,event,body_sha256,repository_id,git_ref,state,received_at,completed_at,updated_at) VALUES($1,$2,$3,$4,'push',$5,$6,'refs/heads/main','enqueued',$7,$7,$7)`, []any{claimKey, seed + 2, seed + 1, id.New(), "sha256:" + strings.Repeat("d", 64), seed + 4, now}},
-		{`INSERT INTO build_attempts(id,definition_id,delivery_claim_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,max_attempts,job_namespace,job_name,cache_candidate,result,completed_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main',1,$7,'{}','{}',$8,'managed','succeeded',1,'builder','job','cache','{}',$9,$9,$9)`, []any{attempt, definition, claimKey, project, application, strings.Repeat("e", 40), digest, "sha256:" + strings.Repeat("f", 64), now}},
+		{`INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,max_attempts,job_namespace,job_name,cache_candidate,result,completed_at,created_at,updated_at) VALUES($1,$2,$3,'github_push',$3,$4,$5,$6,'refs/heads/main',1,$7,'{}','{}',$8,'managed','succeeded',1,'builder','job','cache','{}',$9,$9,$9)`, []any{attempt, definition, claimKey, project, application, strings.Repeat("e", 40), digest, "sha256:" + strings.Repeat("f", 64), now}},
 		{`INSERT INTO registry_releases(id,registry_target_id,service_id,repository,root_digest,created_at,succeeded_at) VALUES($1,$2,$3,'apps/app',$4,$5,$5)`, []any{attempt, registry, application, digest, now}},
 	}
 	for _, statement := range statements {
@@ -215,6 +216,42 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 	revisions, err := management.PolicyRevisionsForActor(ctx, creator, policy, 10)
 	if err != nil || len(revisions) != 2 || revisions[0].Revision != 2 || revisions[0].Enabled {
 		t.Fatalf("revision history=%#v err=%v", revisions, err)
+	}
+	buildStore, err := builds.NewPostgreSQLStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteFingerprint := "sha256:" + strings.Repeat("5", 64)
+	if _, err = buildStore.DeleteDefinition(ctx, creator, application, definition, "disconnect-source-active", deleteFingerprint, "disconnect-source-active", now.Add(4*time.Minute)); !errors.Is(err, builds.ErrDeletionBlocked) {
+		t.Fatalf("active auto-deploy run did not block source disconnect: %v", err)
+	}
+	completedAt := expiredAt.Add(30 * time.Second)
+	if _, err = pool.Exec(ctx, `UPDATE auto_deploy_runs SET state='failed',lease_owner=NULL,lease_until=NULL,failure_code='source-workflow-failed',completed_at=$3,updated_at=$3 WHERE attempt_id=$1 AND policy_id=$2`, attempt, policy, completedAt); err != nil {
+		t.Fatalf("complete auto-deploy fixture: %v", err)
+	}
+	replayDelete, err := buildStore.DeleteDefinition(ctx, creator, application, definition, "disconnect-source", deleteFingerprint, "disconnect-source", now.Add(5*time.Minute))
+	if err != nil || replayDelete {
+		t.Fatalf("disconnect source replay=%v err=%v", replayDelete, err)
+	}
+	var definitionRows, attemptRows, projectionRows, policyRows, revisionRows, runRows, receiptRows, auditRows int
+	if err = pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM build_definitions WHERE id=$1),
+		(SELECT count(*) FROM build_attempts WHERE definition_id=$1),
+		(SELECT count(*) FROM build_release_projections WHERE attempt_id=$2),
+		(SELECT count(*) FROM auto_deploy_policies WHERE build_definition_id=$1),
+		(SELECT count(*) FROM auto_deploy_policy_revisions WHERE policy_id=$3),
+		(SELECT count(*) FROM auto_deploy_runs WHERE definition_id=$1),
+		(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy' AND auto_deploy_policy_id=$3),
+		(SELECT count(*) FROM audit_events WHERE action='build-definition.delete' AND target_id=$1)`, definition, attempt, policy).
+		Scan(&definitionRows, &attemptRows, &projectionRows, &policyRows, &revisionRows, &runRows, &receiptRows, &auditRows); err != nil {
+		t.Fatal(err)
+	}
+	if definitionRows+attemptRows+projectionRows+policyRows+revisionRows+runRows+receiptRows != 0 || auditRows != 1 {
+		t.Fatalf("disconnect cleanup definition=%d attempt=%d projection=%d policy=%d revision=%d run=%d receipt=%d audit=%d", definitionRows, attemptRows, projectionRows, policyRows, revisionRows, runRows, receiptRows, auditRows)
+	}
+	replayDelete, err = buildStore.DeleteDefinition(ctx, creator, application, definition, "disconnect-source", deleteFingerprint, "disconnect-source-replay", now.Add(6*time.Minute))
+	if err != nil || !replayDelete {
+		t.Fatalf("disconnect replay=%v err=%v", replayDelete, err)
 	}
 }
 

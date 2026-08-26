@@ -83,6 +83,45 @@ func (s *MemoryStore) DefinitionsForService(_ context.Context, serviceID string)
 	return result, nil
 }
 
+func (s *MemoryStore) DeleteDefinition(_ context.Context, actorID, serviceID, definitionID, key, fingerprint, requestID string, now time.Time) (bool, error) {
+	if !validAPICommand(APICommandDefinitionDelete, actorID, serviceID, key, fingerprint, definitionID, now) || requestID == "" {
+		return false, ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idemKey := apiMemoryKey(actorID, APICommandDefinitionDelete, serviceID, key)
+	if existing, ok := s.apiIdempotency[idemKey]; ok {
+		if existing.fingerprint != fingerprint || existing.resourceID != definitionID {
+			return false, ErrConflict
+		}
+		return true, nil
+	}
+	definition, ok := s.definitions[definitionID]
+	if !ok || definition.ServiceID != serviceID {
+		return false, ErrNotFound
+	}
+	for _, attempt := range s.attempts {
+		if attempt.DefinitionID == definitionID && !terminalAttempt(attempt.State) {
+			return false, ErrDeletionBlocked
+		}
+		if attempt.DefinitionID == definitionID {
+			if projection, exists := s.releaseProjections[attempt.ID]; exists && (projection.state == ReleaseProjectionPending || projection.state == ReleaseProjectionProcessing) {
+				return false, ErrDeletionBlocked
+			}
+		}
+	}
+	for attemptID, attempt := range s.attempts {
+		if attempt.DefinitionID != definitionID {
+			continue
+		}
+		delete(s.releaseProjections, attemptID)
+		delete(s.attempts, attemptID)
+	}
+	delete(s.definitions, definitionID)
+	s.apiIdempotency[idemKey] = memoryAPIIdempotency{fingerprint: fingerprint, resourceID: definitionID}
+	return false, nil
+}
+
 func (s *MemoryStore) AttemptsForService(_ context.Context, serviceID string, limit int) ([]BuildAttempt, error) {
 	if !uuidRE.MatchString(serviceID) || limit < 1 || limit > 100 {
 		return nil, ErrInvalid

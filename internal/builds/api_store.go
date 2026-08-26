@@ -9,6 +9,7 @@ import (
 
 const (
 	APICommandDefinitionCreate = "definition.create"
+	APICommandDefinitionDelete = "definition.delete"
 	APICommandDefinitionBuild  = "definition.build"
 	APICommandAttemptCancel    = "attempt.cancel"
 	APICommandAttemptRetry     = "attempt.retry"
@@ -23,6 +24,7 @@ type APIStore interface {
 	Definition(context.Context, string) (BuildDefinition, error)
 	ListRepositories(context.Context, string) ([]Repository, error)
 	DefinitionsForService(context.Context, string) ([]BuildDefinition, error)
+	DeleteDefinition(context.Context, string, string, string, string, string, string, time.Time) (bool, error)
 	// HistoricalAttempt returns the bounded, credential-free attempt projection
 	// used by read-only detail and log authorization. It deliberately does not
 	// validate private execution inputs that may have changed across releases.
@@ -47,7 +49,7 @@ func ManualAttemptID(claimKey, definitionID string) string {
 }
 
 func validAPICommand(operation, actorID, scopeID, key, fingerprint, resourceID string, now time.Time) bool {
-	return (operation == APICommandDefinitionCreate || operation == APICommandDefinitionBuild || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry) &&
+	return (operation == APICommandDefinitionCreate || operation == APICommandDefinitionDelete || operation == APICommandDefinitionBuild || operation == APICommandAttemptCancel || operation == APICommandAttemptRetry) &&
 		uuidRE.MatchString(actorID) && uuidRE.MatchString(scopeID) && setupIdempotencyRE.MatchString(key) && setupFingerprintRE.MatchString(fingerprint) &&
 		uuidRE.MatchString(resourceID) && !now.IsZero()
 }

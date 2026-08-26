@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
-import type { BuildAttempt } from "../api/types";
+import type { BuildAttempt, BuildDefinition } from "../api/types";
 import { BuildAttemptActions } from "../components/BuildAttemptActions";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
 import { AutoDeployPoliciesPanel } from "../components/AutoDeployPoliciesPanel";
@@ -11,6 +11,7 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  ConfirmDialog,
   EmptyState,
   ErrorPanel,
   PageHeader,
@@ -87,6 +88,10 @@ function BuildAttemptRow({
 
 export function SourceBuildsPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState("");
+  const [disconnectDefinition, setDisconnectDefinition] =
+    useState<BuildDefinition | null>(null);
+  const disconnectAttempt = useRef<string | null>(null);
+  const queryClient = useQueryClient();
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const capabilities = useQuery({
     queryKey: ["capabilities"],
@@ -210,6 +215,31 @@ export function SourceBuildsPage() {
       selectedProject,
     ),
   );
+  const disconnectSource = useMutation({
+    mutationFn: ({
+      definition,
+      key,
+    }: {
+      definition: BuildDefinition;
+      key: string;
+    }) =>
+      api.disconnectBuildDefinition(
+        definition.applicationId,
+        definition.id,
+        key,
+      ),
+    onSuccess: async (_, input) => {
+      disconnectAttempt.current = null;
+      setDisconnectDefinition(null);
+      await Promise.all([
+        definitions.refetch(),
+        attempts.refetch(),
+        queryClient.invalidateQueries({
+          queryKey: ["auto-deploy-policies", input.definition.applicationId],
+        }),
+      ]);
+    },
+  });
 
   return (
     <div className="page">
@@ -381,7 +411,7 @@ export function SourceBuildsPage() {
                 <div className="card__header card__header--inside">
                   <div>
                     <span className="eyebrow">Definitions</span>
-                    <h2>Immutable history</h2>
+                    <h2>Source connections</h2>
                   </div>
                   <span className="placeholder-badge">
                     {definitions.data?.items.length ?? 0} definitions
@@ -425,6 +455,19 @@ export function SourceBuildsPage() {
                         <small>
                           Created {formatDate(definition.createdAt)}
                         </small>
+                        {canCreateDefinition ? (
+                          <Button
+                            className="build-definition-row__disconnect"
+                            variant="danger"
+                            onClick={() => {
+                              disconnectSource.reset();
+                              disconnectAttempt.current = null;
+                              setDisconnectDefinition(definition);
+                            }}
+                          >
+                            <Icon name="close" /> Disconnect source
+                          </Button>
+                        ) : null}
                       </article>
                     ))}
                   </div>
@@ -483,6 +526,30 @@ export function SourceBuildsPage() {
           ) : null}
         </>
       )}
+      {disconnectDefinition ? (
+        <ConfirmDialog
+          title={`Disconnect ${gitRefLabel(disconnectDefinition.triggerRef)}?`}
+          description="This removes this source connection, its completed build history, release projection, and auto-deploy policy history. It does not delete the repository, deploy key, registry images, or App. Active work must finish or be cancelled first."
+          confirmLabel="Disconnect source"
+          confirmation="DISCONNECT"
+          busy={disconnectSource.isPending}
+          error={disconnectSource.error}
+          icon="close"
+          onCancel={() => {
+            disconnectSource.reset();
+            disconnectAttempt.current = null;
+            setDisconnectDefinition(null);
+          }}
+          onConfirm={() => {
+            const key = disconnectAttempt.current ?? crypto.randomUUID();
+            disconnectAttempt.current = key;
+            disconnectSource.mutate({
+              definition: disconnectDefinition,
+              key,
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

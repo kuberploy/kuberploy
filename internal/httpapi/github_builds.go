@@ -94,6 +94,7 @@ type BuildDefinitionMutation struct {
 
 type BuildBackend interface {
 	CreateDefinition(context.Context, BuildDefinitionMutation) (builds.BuildDefinition, bool, error)
+	DeleteDefinition(context.Context, string, string, string, string, string, string) (bool, error)
 	Definition(context.Context, string) (builds.BuildDefinition, error)
 	Definitions(context.Context, string) ([]builds.BuildDefinition, error)
 	Repositories(context.Context, string) ([]builds.Repository, error)
@@ -102,6 +103,10 @@ type BuildBackend interface {
 	Cancel(context.Context, string, string, string, string) (builds.BuildAttempt, bool, error)
 	Retry(context.Context, string, string, string, string) (builds.BuildAttempt, bool, error)
 	Build(context.Context, string, string, string, string, string) (builds.BuildAttempt, bool, error)
+}
+
+func (b *buildBackend) DeleteDefinition(ctx context.Context, actorID, applicationID, definitionID, key, fingerprint, requestID string) (bool, error) {
+	return b.store.DeleteDefinition(ctx, actorID, applicationID, definitionID, key, fingerprint, requestID, b.clock())
 }
 
 type GitBindingRepositoryResolution struct {
@@ -917,6 +922,39 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusCreated, safeBuildDefinition(definition))
 }
 
+func (s *Server) deleteApplicationBuildDefinition(w http.ResponseWriter, r *http.Request) {
+	application, ok := s.authorizedBuildApplication(w, r, domain.PermissionBuildsManage)
+	if !ok {
+		return
+	}
+	if s.builds == nil {
+		githubBuildUnavailable(w, r, "Source builds are not configured.")
+		return
+	}
+	definitionID := strings.TrimSpace(r.PathValue("definitionId"))
+	if !validUUID(definitionID) {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The build definition identifier is invalid.")
+		return
+	}
+	key, ok := githubBuildIdempotencyKey(w, r)
+	if !ok {
+		return
+	}
+	fp := "sha256:" + fingerprint(struct {
+		ApplicationID string `json:"applicationId"`
+		DefinitionID  string `json:"definitionId"`
+	}{application.ID, definitionID})
+	replay, err := s.builds.DeleteDefinition(r.Context(), currentUser(r.Context()).ID, application.ID, definitionID, key, fp, requestID(r.Context()))
+	if err != nil {
+		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	if replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) applicationBuildSecretProfiles(w http.ResponseWriter, r *http.Request) {
 	application, ok := s.authorizedBuildApplication(w, r, domain.PermissionBuildsRead)
 	if !ok {
@@ -1378,6 +1416,8 @@ func mappedGitHubBuildError(w http.ResponseWriter, r *http.Request, err error) {
 		mappedError(w, r, store.ErrNotFound)
 	case errors.Is(err, builds.ErrConflict), errors.Is(err, builds.ErrTerminal):
 		writeProblem(w, r, http.StatusConflict, "BuildConflict", "Build conflict", "The build definition or attempt is not in a state that permits this command.")
+	case errors.Is(err, builds.ErrDeletionBlocked):
+		writeProblem(w, r, http.StatusConflict, "BuildDefinitionDeletionBlocked", "Source disconnect blocked", "Wait for active builds to finish or cancel them before disconnecting this source.")
 	case errors.Is(err, builds.ErrInvalid), errors.Is(err, githubapp.ErrInvalidTokenRequest):
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The GitHub or build request is invalid.")
 	case errors.Is(err, store.ErrIdempotencyConflict):

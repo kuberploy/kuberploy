@@ -85,6 +85,7 @@ beforeEach(() => {
     items: [],
     nextCursor: null,
   });
+  vi.spyOn(api, "disconnectBuildDefinition").mockResolvedValue(undefined);
   vi.spyOn(api, "capabilities").mockResolvedValue({
     features: { builds: false, builder: false, helmDeployments: false },
     capabilities: [],
@@ -526,5 +527,17 @@ describe("application source overview", () => {
     expect(
       screen.getByText(/Form below starts a new immutable definition/),
     ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Disconnect source" }));
+    await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
+    await user.click(
+      screen.getAllByRole("button", { name: "Disconnect source" }).at(-1)!,
+    );
+    await waitFor(() =>
+      expect(api.disconnectBuildDefinition).toHaveBeenCalledWith(
+        "application-1",
+        "definition-1",
+        expect.any(String),
+      ),
+    );
   });
 });

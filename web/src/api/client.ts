@@ -2331,6 +2331,18 @@ export const api = {
         body: safeCreateBuildDefinition(input),
       },
     ).then(safeBuildDefinition),
+  disconnectBuildDefinition: (
+    applicationId: string,
+    definitionId: string,
+    idempotencyKey: string = crypto.randomUUID(),
+  ) =>
+    request<void>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/build-definitions/${encodeURIComponent(definitionId)}`,
+      {
+        method: "DELETE",
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    ),
   buildDefinition: (definitionId: string) =>
     request<BuildDefinition>(
       `/v1/build-definitions/${encodeURIComponent(definitionId)}`,

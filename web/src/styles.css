@@ -5575,6 +5575,10 @@ textarea:disabled {
   text-align: right;
 }
 
+.build-definition-row__disconnect {
+  justify-self: end;
+}
+
 .build-attempt-row {
   display: grid;
   grid-template-columns:

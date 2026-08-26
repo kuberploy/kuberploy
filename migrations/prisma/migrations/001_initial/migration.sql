@@ -301,6 +301,7 @@ END; $$;
 CREATE FUNCTION public.protect_auto_deploy_run() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
+	IF TG_OP='DELETE' THEN RETURN OLD; END IF;
     IF TG_OP='INSERT' THEN
         IF NEW.state<>'pending' OR NEW.attempts<>0 OR NEW.lease_owner IS NOT NULL OR NEW.lease_epoch<>0 OR
            NEW.operation_id IS NOT NULL OR NEW.deployment_id IS NOT NULL OR NEW.failure_code<>'' OR NEW.completed_at IS NOT NULL OR
@@ -1237,6 +1238,7 @@ $$;
 CREATE FUNCTION public.reject_auto_deploy_immutable_change() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
+	IF TG_OP='DELETE' THEN RETURN OLD; END IF;
     RAISE EXCEPTION 'auto-deploy immutable record cannot change' USING ERRCODE='23514';
 END; $$;
 
@@ -1949,6 +1951,9 @@ CREATE FUNCTION public.validate_mutation_receipt() RETURNS trigger
     LANGUAGE plpgsql
     AS $_$
 BEGIN
+	IF TG_OP='DELETE' AND OLD.receipt_kind='auto-deploy-policy' THEN
+		RETURN OLD;
+	END IF;
     IF TG_OP<>'INSERT' THEN
         RAISE EXCEPTION 'mutation receipts are immutable' USING ERRCODE='23514';
     END IF;
@@ -1962,7 +1967,7 @@ BEGIN
         RAISE EXCEPTION 'mutation receipt identifier is invalid' USING ERRCODE='23514';
     END IF;
     IF NEW.receipt_kind='build-api' AND
-       (NEW.namespace NOT IN ('definition.create','definition.build','attempt.cancel','attempt.retry') OR
+       (NEW.namespace NOT IN ('definition.create','definition.delete','definition.build','attempt.cancel','attempt.retry') OR
         length(NEW.idempotency_key) NOT BETWEEN 16 AND 128) THEN
         RAISE EXCEPTION 'build API mutation receipt is invalid' USING ERRCODE='23514';
     END IF;
