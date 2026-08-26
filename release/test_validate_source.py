@@ -54,6 +54,15 @@ def main() -> None:
             raise
     else:
         raise SystemExit("validator accepted a builder-agent image without its runtime identity")
+    try:
+        validate_builder_agent_runtime(
+            builder_dockerfile.replace("buildx-bin:0.22.0", "buildx-bin:0.36.1", 1)
+        )
+    except SystemExit as error:
+        if "CPU-only Buildx" not in str(error):
+            raise
+    else:
+        raise SystemExit("validator accepted a GPU-probing Buildx release")
 
     current_version = json.loads((root / "release/metadata.json").read_text(encoding="utf-8"))["version"]
     stable_version = current_version.split("-", 1)[0]

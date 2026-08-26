@@ -18,7 +18,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -ldflags="-s -w -buildid=" \
       -o /out/kuberploy-build-agent ./cmd/kuberploy-build-agent
 
-FROM docker.io/docker/buildx-bin:0.36.1 AS buildx
+# Buildx 0.23+ unconditionally probes the Docker daemon with a GPU device
+# request when the docker-container driver starts. Kuberploy builders are
+# deliberately CPU-only, so keep the final pre-probe release here.
+FROM docker.io/docker/buildx-bin:0.22.0 AS buildx
 
 FROM docker.io/library/docker:29-dind AS docker-cli
 
@@ -42,7 +45,7 @@ LABEL org.opencontainers.image.title="Kuberploy Build Agent" \
       org.opencontainers.image.revision="${REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       io.kuberploy.builder.docker="29.7.1" \
-      io.kuberploy.builder.buildx="0.36.1" \
+      io.kuberploy.builder.buildx="0.22.0" \
       io.kuberploy.builder.buildkit="0.32.2"
 
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
