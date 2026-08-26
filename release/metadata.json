@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Private images deploy in dynamically created Environment namespaces while runtime-pull admission preserves the independently constrained Argo repository credential lifecycle.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.366"
+  "version": "0.1.0-rc.367"
 }
