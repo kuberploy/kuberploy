@@ -37,6 +37,10 @@ After bootstrap, platform administrators use **Settings → Source builders** fo
 node isolation, maximum concurrent builders, and checkout/DinD/agent requests
 and limits. Saved PostgreSQL revisions are authoritative for new attempts. A
 malicious source build can compromise its node because DinD is privileged.
+Admission accepts only the two exact scheduling shapes produced by those
+settings: no selector or toleration for starter mode, or the dedicated selector
+and toleration pair below. It does not freeze the bootstrap setting into the
+cluster policy, so administrators can switch modes without a Helm upgrade.
 
 For a narrower blast radius, set `nodeIsolation.enabled=true` and dedicate a
 node pool with both:

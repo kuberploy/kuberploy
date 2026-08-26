@@ -61,13 +61,8 @@ spec:
       message: build agent workspace must be mounted read-only
     - expression: "object.spec.template.spec.initContainers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits) && object.spec.template.spec.containers.all(c, 'cpu' in c.resources.requests && 'memory' in c.resources.requests && 'ephemeral-storage' in c.resources.requests && 'cpu' in c.resources.limits && 'memory' in c.resources.limits && 'ephemeral-storage' in c.resources.limits)"
       message: every builder container requires CPU, memory, and ephemeral-storage requests and limits
-    {{- if .Values.nodeIsolation.enabled }}
-    - expression: "object.spec.template.spec.nodeSelector['kuberploy.io/node-class'] == 'dind-builder' && object.spec.template.spec.tolerations.size() == 1 && object.spec.template.spec.tolerations.exists_one(t, t.key == 'kuberploy.io/dind-builder' && t.operator == 'Equal' && t.value == 'true' && t.effect == 'NoSchedule')"
-      message: isolated builder Pods must target and tolerate only the dedicated builder node class
-    {{- else }}
-    - expression: "!has(object.spec.template.spec.nodeSelector) && (!has(object.spec.template.spec.tolerations) || object.spec.template.spec.tolerations.size() == 0)"
-      message: non-isolated builder Pods must not inject node scheduling constraints
-    {{- end }}
+    - expression: "(!has(object.spec.template.spec.nodeSelector) && (!has(object.spec.template.spec.tolerations) || object.spec.template.spec.tolerations.size() == 0)) || (has(object.spec.template.spec.nodeSelector) && object.spec.template.spec.nodeSelector.size() == 1 && 'kuberploy.io/node-class' in object.spec.template.spec.nodeSelector && object.spec.template.spec.nodeSelector['kuberploy.io/node-class'] == 'dind-builder' && has(object.spec.template.spec.tolerations) && object.spec.template.spec.tolerations.size() == 1 && object.spec.template.spec.tolerations.exists_one(t, t.key == 'kuberploy.io/dind-builder' && t.operator == 'Equal' && t.value == 'true' && t.effect == 'NoSchedule'))"
+      message: builder Pods must use either no scheduling constraints or the exact dedicated builder selector and toleration
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicyBinding

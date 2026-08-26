@@ -579,10 +579,7 @@ helm template builder-single-node "${kp_root}/charts/kuberploy-builder" \
   --namespace kuberploy-build-dind -f "${kp_root}/charts/kuberploy-builder/testdata/enabled-values.yaml" \
   >"${kp_tmp}/builder-single-node.yaml"
 rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_tmp}/builder-single-node.yaml" >/dev/null
-if rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_tmp}/builder-single-node.yaml" >/dev/null; then
-  printf 'single-node builder render still requires dedicated-node scheduling\n' >&2
-  exit 1
-fi
+rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_tmp}/builder-single-node.yaml" >/dev/null
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.KUBERPLOY_BUILDER_SOURCE_EGRESS_CIDRS' "${kp_tmp}/github-builds.yaml")" == "192.0.0.0/20,2001:db8::/29" ]]
 
 yq '.nodeIsolation.enabled = true' "${kp_root}/charts/kuberploy-builder/testdata/enabled-values.yaml" >"${kp_tmp}/builder-isolated-values.yaml"
@@ -590,10 +587,10 @@ helm template builder-isolated "${kp_root}/charts/kuberploy-builder" \
   --namespace kuberploy-build-dind -f "${kp_tmp}/builder-isolated-values.yaml" \
   >"${kp_tmp}/builder-isolated.yaml"
 rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_tmp}/builder-isolated.yaml" >/dev/null
-if rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_tmp}/builder-isolated.yaml" >/dev/null; then
-  printf 'isolated builder render accepted unrestricted scheduling\n' >&2
-  exit 1
-fi
+rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_tmp}/builder-isolated.yaml" >/dev/null
+kp_single_node_job_policy="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and .spec.matchConstraints.resourceRules[0].resources[0] == "jobs") | .spec.validations[-1]' "${kp_tmp}/builder-single-node.yaml")"
+kp_isolated_job_policy="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and .spec.matchConstraints.resourceRules[0].resources[0] == "jobs") | .spec.validations[-1]' "${kp_tmp}/builder-isolated.yaml")"
+[[ "${kp_single_node_job_policy}" == "${kp_isolated_job_policy}" ]]
 
 yq '.networkPolicy.externalEgressCIDRs = ["2001:db8::/29","192.0.0.0/20"]' \
   "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/provider-egress-unsorted.yaml"

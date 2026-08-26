@@ -183,14 +183,21 @@ done
 kp_isolated_render="${kp_tmp}/admission-isolated.yaml"
 helm template boundary-isolated "${kp_chart}" -f "${kp_values}" \
   --set admissionPolicy.enabled=true --set nodeIsolation.enabled=true >"${kp_isolated_render}"
-rg -F "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" "${kp_isolated_render}" >/dev/null || {
-  printf 'isolated admission render lacks dedicated node selector contract\n' >&2
+for kp_scheduling_contract in \
+  '!has(object.spec.template.spec.nodeSelector)' \
+  "object.spec.template.spec.nodeSelector.size() == 1" \
+  "'kuberploy.io/node-class' in object.spec.template.spec.nodeSelector" \
+  "nodeSelector['kuberploy.io/node-class'] == 'dind-builder'" \
+  "object.spec.template.spec.tolerations.size() == 1"; do
+  rg -F "${kp_scheduling_contract}" "${kp_render}" >/dev/null
+  rg -F "${kp_scheduling_contract}" "${kp_isolated_render}" >/dev/null
+done
+kp_default_job_policy="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and .spec.matchConstraints.resourceRules[0].resources[0] == "jobs") | .spec.validations[-1]' "${kp_render}")"
+kp_isolated_job_policy="$(yq eval-all 'select(.kind == "ValidatingAdmissionPolicy" and .spec.matchConstraints.resourceRules[0].resources[0] == "jobs") | .spec.validations[-1]' "${kp_isolated_render}")"
+[[ "${kp_default_job_policy}" == "${kp_isolated_job_policy}" ]] || {
+  printf 'builder admission scheduling contract still depends on bootstrap node-isolation mode\n' >&2
   exit 1
 }
-if rg -F '!has(object.spec.template.spec.nodeSelector)' "${kp_isolated_render}" >/dev/null; then
-  printf 'isolated admission render retained single-node scheduling contract\n' >&2
-  exit 1
-fi
 
 if rg -F "v.name == 'registry-credentials'" "${kp_render}" >/dev/null; then
   printf 'builder admission still accepts the obsolete shared registry credential volume\n' >&2
