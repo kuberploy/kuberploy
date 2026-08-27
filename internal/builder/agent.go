@@ -41,7 +41,7 @@ func NewAgent(executor CommandExecutor) *Agent {
 		CheckoutRoot:          DefaultCheckoutRoot,
 		RuntimeRoot:           "/result",
 		WaitInterval:          250 * time.Millisecond,
-		RegistryRetryInterval: 2 * time.Second,
+		RegistryRetryInterval: 10 * time.Second,
 		Now:                   time.Now,
 	}
 }
@@ -207,7 +207,7 @@ const maxRegistryBuildAttempts = 3
 func (a *Agent) executeRegistryBuild(ctx context.Context, invocation Invocation) (CommandResult, error) {
 	interval := a.RegistryRetryInterval
 	if interval <= 0 {
-		interval = 2 * time.Second
+		interval = 10 * time.Second
 	}
 	for attempt := 1; ; attempt++ {
 		result, err := a.Executor.Execute(ctx, invocation)
