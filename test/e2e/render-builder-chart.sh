@@ -30,6 +30,14 @@ kp_disabled="$(helm template disabled "${kp_chart}")"
   exit 1
 }
 
+kp_private_only="${kp_tmp}/private-only.yaml"
+helm template private-only "${kp_chart}" -f "${kp_values}" \
+  --set networkPolicy.enabled=false >"${kp_private_only}"
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_private_only}" | tail -1)" == "1" ]]
+[[ "$(yq eval-all '[select(.kind == "NetworkPolicy" and .metadata.name == "default-deny")] | length' "${kp_private_only}" | tail -1)" == "0" ]]
+[[ "$(yq eval-all -o=json -I=0 'select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-builder-private-egress") | [.spec.egress[0].to[].ipBlock.cidr]' "${kp_private_only}")" == '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]' ]]
+[[ "$(yq eval-all 'select(.kind == "NetworkPolicy" and .metadata.name == "kuberploy-builder-private-egress") | [.spec.egress[] | has("ports")] | any' "${kp_private_only}")" == "false" ]]
+
 kp_render="${kp_tmp}/enabled.yaml"
 helm template boundary "${kp_chart}" -f "${kp_values}" >"${kp_render}"
 yq eval-all 'true' "${kp_render}" >/dev/null
