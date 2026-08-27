@@ -194,6 +194,17 @@ export function NewDeploymentPage() {
     enabled: Boolean(existingDeploymentScope),
     retry: false,
   });
+  const environmentGitBinding = useQuery({
+    queryKey: ["environment-git-binding", environmentId],
+    queryFn: () => api.environmentGitBinding(environmentId),
+    enabled: Boolean(environmentId),
+    retry: false,
+  });
+  const environmentGitBindingMissing =
+    environmentGitBinding.error instanceof ApiError &&
+    environmentGitBinding.error.status === 404;
+  const environmentGitReady =
+    !environmentId || environmentGitBinding.data?.state === "ready";
   const existingDeployment = useMemo(() => {
     if (!existingDeploymentScope) return undefined;
     return existingDeployments.data?.items
@@ -570,6 +581,11 @@ export function NewDeploymentPage() {
       if (!gitOpsReady) {
         throw new Error(
           "Protected Git and Argo CD must both report fresh readiness before an App can be deployed.",
+        );
+      }
+      if (!environmentGitReady) {
+        throw new Error(
+          "Configure a ready Git authority for this Environment before deploying the App.",
         );
       }
       if (
@@ -1625,6 +1641,42 @@ export function NewDeploymentPage() {
               </p>
             </Notice>
           ) : null}
+          {environmentId && environmentGitBindingMissing ? (
+            <Notice tone="warning" role="status">
+              <strong>Environment Git authority required</strong>
+              <p>
+                Configure Git for this Environment before deploying the App.
+              </p>
+              <Link
+                to="/projects/$projectId"
+                params={{ projectId }}
+                className={buttonVariants({ variant: "secondary" })}
+              >
+                Open Environment Git settings
+              </Link>
+            </Notice>
+          ) : null}
+          {environmentId &&
+          !environmentGitBindingMissing &&
+          environmentGitBinding.error ? (
+            <Notice tone="error" role="alert">
+              <strong>Environment Git authority could not be checked</strong>
+              <p>{errorMessage(environmentGitBinding.error)}</p>
+            </Notice>
+          ) : null}
+          {environmentId &&
+          !environmentGitBindingMissing &&
+          !environmentGitBinding.error &&
+          !environmentGitBinding.isPending &&
+          !environmentGitReady ? (
+            <Notice tone="warning" role="status">
+              <strong>Environment Git authority is not ready</strong>
+              <p>
+                Current state: {environmentGitBinding.data?.state ?? "unknown"}.
+                Wait for Git indexing to finish, then retry.
+              </p>
+            </Notice>
+          ) : null}
           {existingDeploymentScope && gitBundlePending ? (
             <Notice tone="info" role="status">
               <strong>Loading current Git configuration</strong>
@@ -1654,6 +1706,8 @@ export function NewDeploymentPage() {
                 processError ||
                 !sslipRouteReady ||
                 !gitOpsReady ||
+                environmentGitBinding.isPending ||
+                !environmentGitReady ||
                 !gitBundleReady ||
                 !imageReady,
               )}

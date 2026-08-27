@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -57,10 +62,6 @@ export function ProjectPage() {
     queryKey: ["applications"],
     queryFn: api.applications,
   });
-  const deployments = useQuery({
-    queryKey: ["deployments"],
-    queryFn: api.deployments,
-  });
   const form = useForm<EnvironmentForm>({
     defaultValues: { name: "", protectionPolicy: "protected" },
   });
@@ -82,14 +83,17 @@ export function ProjectPage() {
       [],
     [applications.data?.items, projectId],
   );
-  const projectDeployments = useMemo(
-    () =>
-      deployments.data?.items.filter((deployment) =>
-        projectApplications.some(
-          (application) => application.id === deployment.applicationId,
-        ),
-      ) ?? [],
-    [deployments.data?.items, projectApplications],
+  const environmentAppQueries = useQueries({
+    queries: projectEnvironments.map((environment) => ({
+      queryKey: ["environment-apps", environment.id],
+      queryFn: () => api.environmentApps(environment.id),
+    })),
+  });
+  const environmentAppCounts = new Map(
+    projectEnvironments.map((environment, index) => [
+      environment.id,
+      environmentAppQueries[index]?.data?.items.length ?? 0,
+    ]),
   );
   const effectiveCapabilities = capabilities.data?.capabilities ?? [];
   const hasActionAtProject = (action: string, candidate: Project) =>
@@ -194,14 +198,14 @@ export function ProjectPage() {
     )
       ? gitEnvironmentChoice
       : null;
-  const loading = [projects, environments, applications, deployments].some(
-    (query) => query.isPending,
-  );
+  const loading =
+    [projects, environments, applications].some((query) => query.isPending) ||
+    environmentAppQueries.some((query) => query.isPending);
   const loadError =
     projects.error ??
     environments.error ??
     applications.error ??
-    deployments.error;
+    environmentAppQueries.find((query) => query.error)?.error;
 
   if (loadError) {
     return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
@@ -338,14 +342,8 @@ export function ProjectPage() {
                     <code>{environment.namespace}</code>
                     <StatusPill value={environment.status ?? "active"} />
                     {(() => {
-                      const appCount = new Set(
-                        projectDeployments
-                          .filter(
-                            (deployment) =>
-                              deployment.environmentId === environment.id,
-                          )
-                          .map((deployment) => deployment.applicationId),
-                      ).size;
+                      const appCount =
+                        environmentAppCounts.get(environment.id) ?? 0;
                       return (
                         <span className="to-1080:col-[2] to-1080:justify-self-start text-ink-soft text-xs font-medium whitespace-nowrap to-760:col-[2]">
                           {appCount} App{appCount === 1 ? "" : "s"}

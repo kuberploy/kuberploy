@@ -66,10 +66,6 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 65532
-        runAsGroup: 65532
-        fsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -78,9 +74,6 @@ spec:
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-            readOnlyRootFilesystem: true
           {{- with .Values.spec.runtime.command }}
           command:
             {{- toYaml . | nindent 12 }}

@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { NewDeploymentPage } from "./NewDeploymentPage";
 
 const router = vi.hoisted(() => ({
@@ -20,8 +20,19 @@ vi.mock("@tanstack/react-router", () => ({
     children,
     to,
     className,
-  }: PropsWithChildren<{ to: string; className?: string }>) => (
-    <a href={to} className={className}>
+    params,
+  }: PropsWithChildren<{
+    to: string;
+    className?: string;
+    params?: Record<string, string>;
+  }>) => (
+    <a
+      href={Object.entries(params ?? {}).reduce(
+        (path, [key, value]) => path.replace(`$${key}`, value),
+        to,
+      )}
+      className={className}
+    >
       {children}
     </a>
   ),
@@ -59,6 +70,26 @@ beforeEach(() => {
     ],
   });
   vi.spyOn(api, "deployments").mockResolvedValue({ items: [] });
+  vi.spyOn(api, "environmentGitBinding").mockResolvedValue({
+    id: "binding-1",
+    projectId: "project-1",
+    environmentId: "environment-1",
+    repository: {
+      provider: "github",
+      installationId: 1,
+      repositoryId: 2,
+      owner: "acme",
+      name: "gitops",
+    },
+    targetRef: "main",
+    pathPrefix: "environments/production",
+    credentialMode: "github-app",
+    state: "ready",
+    projectionGeneration: 1,
+    parserVersion: "v1",
+    createdAt: "2026-08-27T00:00:00Z",
+    updatedAt: "2026-08-27T00:00:00Z",
+  });
   vi.spyOn(api, "capabilities").mockResolvedValue({
     features: { secretBindings: false, git: true, argo: true },
     capabilities: [],
@@ -75,6 +106,26 @@ afterEach(() => {
 });
 
 describe("new deployment runtime controls", () => {
+  it("requires Environment Git authority before deployment", async () => {
+    vi.mocked(api.environmentGitBinding).mockRejectedValue(
+      new ApiError(404, { title: "Not found" }),
+    );
+    router.search.projectId = "project-1";
+    router.search.environmentId = "environment-1";
+
+    render(<NewDeploymentPage />, { wrapper: wrapper() });
+
+    expect(
+      await screen.findByText("Environment Git authority required"),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Open Environment Git settings" }),
+    ).toHaveAttribute("href", "/projects/project-1");
+    expect(
+      screen.getByRole("button", { name: /commit & deploy/i }),
+    ).toBeDisabled();
+  });
+
   it("starts in the exact project environment selected by Add App", async () => {
     router.search.projectId = "project-1";
     router.search.environmentId = "environment-1";

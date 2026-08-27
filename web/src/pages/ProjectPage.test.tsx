@@ -123,6 +123,21 @@ beforeEach(() => {
       },
     ],
   });
+  vi.spyOn(api, "environmentApps").mockResolvedValue({
+    items: [
+      {
+        projectId: "project_payments",
+        environmentId: "environment_production",
+        applicationId: "application_api",
+        applicationName: "Payments API",
+        applicationSlug: "payments-api",
+        state: "draft",
+        desiredState: "stopped",
+        createdAt: "2026-08-27T00:00:00Z",
+        updatedAt: "2026-08-27T00:00:00Z",
+      },
+    ],
+  });
   vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [] });
   vi.spyOn(api, "users").mockResolvedValue({ items: [] });
   vi.spyOn(api, "serviceAccounts").mockResolvedValue({ items: [] });
