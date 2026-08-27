@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Environment clones now inherit their trusted Git repository and branch into an independently indexed Environment binding, keep copied App configuration as editable stopped drafts, and remove clean Environment-scoped GitOps state after Apps are stopped.",
+  "summary": "Source builds keep BuildKit on the isolated DinD Pod network and retry transient registry transport startup failures inside that same Pod, allowing starter single-node installations to build, cache, and push through a private registry route.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.388"
+  "version": "0.1.0-rc.389"
 }
