@@ -2,6 +2,9 @@ package environmentfoundation
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -58,6 +61,33 @@ func TestRuntimeConfigIsStrictDefaultOffAndBindingScoped(t *testing.T) {
 	if config.Profile.PlatformBindingID != testBindingID || config.Profile.ControlPlaneNamespace != "kuberploy-system" ||
 		config.Profile.ObserverServiceAccount != "kuberploy-api" || config.Publisher.ConfigDigest != config.Profile.PublisherConfigDigest {
 		t.Fatalf("binding authority was not digested into config: %#v", config)
+	}
+	legacyCanonical, err := json.Marshal(struct {
+		Contract, ManifestContract, PlatformBindingID, PSAVersion string
+		Quota                                                     Quota
+		Limits                                                    Limits
+		ControlPlaneNamespace, ObserverServiceAccount             string
+	}{Contract, "environment-foundation-manifest.v2", config.PlatformBindingID, config.Profile.PSAVersion,
+		config.Profile.Quota, config.Profile.Limits, config.Profile.ControlPlaneNamespace, config.Profile.ObserverServiceAccount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySum := sha256.Sum256(legacyCanonical)
+	legacyPublisherDigest := "sha256:" + hex.EncodeToString(legacySum[:])
+	legacyProfile := config.Profile
+	legacyProfile.PublisherConfigDigest = legacyPublisherDigest
+	legacyProfileDigest, err := legacyProfile.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentProfileDigest, err := config.Profile.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyPublisherDigest == config.Publisher.ConfigDigest || legacyProfileDigest == currentProfileDigest ||
+		deterministicIntentID(testEnvironmentID, legacyProfileDigest, legacyPublisherDigest) ==
+			deterministicIntentID(testEnvironmentID, currentProfileDigest, config.Publisher.ConfigDigest) {
+		t.Fatal("manifest contract upgrade did not rotate environment foundation intent identity")
 	}
 	changed := map[string]string{RuntimeEnabledEnv: "true", RuntimePlatformBindingIDEnv: testIntentID,
 		RuntimePSAVersionEnv: "v1.31", RuntimePollSecondsEnv: "1",

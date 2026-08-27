@@ -17,7 +17,7 @@ import (
 
 const (
 	Contract                = "environment-foundation.v1"
-	ManifestContract        = "environment-foundation-manifest.v2"
+	ManifestContract        = "environment-foundation-manifest.v3"
 	PublisherContract       = "environment-foundation-protected-git.v1"
 	ProtectedGitPolicy      = "platform-protected-git.v1"
 	MaximumAttempts         = 30

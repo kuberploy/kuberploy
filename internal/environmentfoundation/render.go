@@ -81,7 +81,7 @@ func Render(identity EnvironmentIdentity, profile Profile) ([]byte, string, erro
 		return nil, "", ErrInvalid
 	}
 	labels := map[string]string{"app.kubernetes.io/managed-by": "kuberploy", "kuberploy.io/environment-id": identity.EnvironmentID,
-		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v2"}
+		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v3"}
 	nsLabels := cloneLabels(labels)
 	nsLabels["kuberploy.io/runtime-namespace"] = "true"
 	// User Apps must remain compatible with standard third-party images. Baseline
