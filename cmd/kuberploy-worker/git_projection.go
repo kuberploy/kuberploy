@@ -206,13 +206,21 @@ func newGitProjectionRuntime(ctx context.Context, databaseURL, host string, conf
 	publicationProvider := gitpublication.GitHubProvider{AppID: config.GitHub.AppID, Authorizations: store, Client: provider}
 	publicationService := &gitpublication.Service{Store: store, Provider: publicationProvider}
 	publicationReconciler := &gitpublication.Reconciler{Store: store, Service: *publicationService, Batch: 50,
-		PollInterval: config.PollInterval, ReportError: func(err error) {
+		PollInterval: publicationObservationInterval(config.PollInterval), ReportError: func(err error) {
 			slog.Warn("protected Git pull request observation failed", "error", err)
 		}}
 	projectionWriter.Publications, projectionWriter.PullRequests = store, publicationService
 	return &gitProjectionRuntime{store: store, coordinator: coordinator, writer: &projectionOperationWriter{projection: projectionWriter},
 		publications: publicationReconciler, policy: policy, policyDigest: policyDigest, headVerifier: verifier, writeManager: writeManager,
 		identity: identity, workerID: workerLeaseOwner(processIdentity, "git-runtime"), startedAt: time.Now().UTC(), sslip: sslipResolver, middleware: middlewareStore}, nil
+}
+
+func publicationObservationInterval(projectionPoll time.Duration) time.Duration {
+	const maximum = 5 * time.Second
+	if projectionPoll < maximum {
+		return projectionPoll
+	}
+	return maximum
 }
 
 func newEdgeRouteReferencePolicy(

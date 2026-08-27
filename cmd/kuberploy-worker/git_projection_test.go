@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/certissuers"
@@ -13,6 +14,15 @@ import (
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 )
+
+func TestPublicationObservationDoesNotInheritSlowProjectionSafetyPoll(t *testing.T) {
+	if got := publicationObservationInterval(5 * time.Minute); got != 5*time.Second {
+		t.Fatalf("publication observation interval=%s", got)
+	}
+	if got := publicationObservationInterval(2 * time.Second); got != 2*time.Second {
+		t.Fatalf("short publication observation interval=%s", got)
+	}
+}
 
 func TestNewGitProjectionRuntimeDisabledDoesNotOpenDependencies(t *testing.T) {
 	runtime, err := newGitProjectionRuntime(context.Background(), "not-a-database-url", "", gitprojection.RuntimeConfig{}, secrets.RuntimeConfig{}, certificates.ObservationConfig{}, certissuers.ObserverConfig{}, imagepull.RuntimeConfig{}, edge.RuntimeConfig{}, externaldns.OperationalConfig{}, nil, nil)
