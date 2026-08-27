@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Apps gain a durable GitOps stop lifecycle, advanced Kubernetes overrides fail before publication, and runtime secrets support dynamically created Environment namespaces.",
+  "summary": "Apps gain a durable GitOps stop lifecycle, advanced Kubernetes overrides fail before publication, runtime secrets support dynamically created Environment namespaces, and stale or invalid dashboard routes recover through branded pages.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.373"
+  "version": "0.1.0-rc.374"
 }
