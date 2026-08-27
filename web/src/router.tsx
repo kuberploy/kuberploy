@@ -2,6 +2,7 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  Navigate,
 } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useLayoutEffect, useState } from "react";
@@ -32,6 +33,7 @@ import { VariableSetsPage } from "./pages/VariableSetsPage";
 import { CertificateIssuersPage } from "./pages/CertificateIssuersPage";
 import { AuditPage } from "./pages/AuditPage";
 import { BuilderSettingsPage } from "./pages/BuilderSettingsPage";
+import { NotFoundPage, RouteErrorPage } from "./pages/NotFoundPage";
 import {
   clearInvitationFragment,
   invitationTokenFromHash,
@@ -84,7 +86,11 @@ export function RootComponent() {
   return <AppShell user={me.data} />;
 }
 
-const rootRoute = createRootRoute({ component: RootComponent });
+const rootRoute = createRootRoute({
+  component: RootComponent,
+  errorComponent: RouteErrorPage,
+  notFoundComponent: NotFoundPage,
+});
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -229,6 +235,19 @@ const builderSettingsRoute = createRoute({
   path: "/settings/builders",
   component: BuilderSettingsPage,
 });
+export function LegacySettingsRedirect() {
+  return <Navigate to="/setup" replace />;
+}
+const legacySettingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: LegacySettingsRedirect,
+});
+const legacyIntegrationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/integrations",
+  component: LegacySettingsRedirect,
+});
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
@@ -256,6 +275,8 @@ const routeTree = rootRoute.addChildren([
   middlewareProfilesRoute,
   certificateIssuersRoute,
   builderSettingsRoute,
+  legacySettingsRoute,
+  legacyIntegrationsRoute,
 ]);
 
 export const router = createRouter({

@@ -315,6 +315,8 @@ describe("app-centric routes", () => {
       ["/settings/argo-git", "/settings/argo-git"],
       ["/settings/middleware-profiles", "/settings/middleware-profiles"],
       ["/settings/certificate-issuers", "/settings/certificate-issuers"],
+      ["/settings", "/settings"],
+      ["/settings/integrations", "/settings/integrations"],
     ];
 
     for (const [path, routeId] of routes) {
