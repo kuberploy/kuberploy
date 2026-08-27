@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Private images deploy in dynamically created Environment namespaces while runtime-pull admission preserves the independently constrained Argo repository credential lifecycle.",
+  "summary": "Apps gain a durable GitOps stop lifecycle, advanced Kubernetes overrides fail before publication, and runtime secrets support dynamically created Environment namespaces.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.372"
+  "version": "0.1.0-rc.373"
 }
