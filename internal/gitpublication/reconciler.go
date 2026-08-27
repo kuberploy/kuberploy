@@ -26,6 +26,10 @@ func (r *Reconciler) RunOnce(ctx context.Context) (int, error) {
 	if err := r.validate(); err != nil {
 		return 0, err
 	}
+	recovered, err := r.Store.RecoverVerifiedPublications(ctx, r.Batch)
+	if err != nil {
+		return 0, err
+	}
 	publications, err := r.Store.PendingPublications(ctx, r.Batch)
 	if err != nil {
 		return 0, err
@@ -42,7 +46,7 @@ func (r *Reconciler) RunOnce(ctx context.Context) (int, error) {
 		}
 		observed++
 	}
-	return observed, errors.Join(observedErrors...)
+	return recovered + observed, errors.Join(observedErrors...)
 }
 
 func (r *Reconciler) Run(ctx context.Context) error {

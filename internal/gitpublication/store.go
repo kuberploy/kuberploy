@@ -21,6 +21,7 @@ type Store interface {
 // observers are safe because every transition remains version-fenced.
 type ReconcileStore interface {
 	Store
+	RecoverVerifiedPublications(context.Context, int) (int, error)
 	PendingPublications(context.Context, int) ([]Publication, error)
 }
 
@@ -104,6 +105,13 @@ func (s *MemoryStore) PendingPublications(_ context.Context, limit int) ([]Publi
 		values = values[:limit]
 	}
 	return values, nil
+}
+
+func (s *MemoryStore) RecoverVerifiedPublications(_ context.Context, limit int) (int, error) {
+	if limit <= 0 || limit > 100 {
+		return 0, ErrInvalid
+	}
+	return 0, nil
 }
 
 func samePublication(left, right Publication) bool {

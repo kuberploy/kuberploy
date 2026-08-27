@@ -158,6 +158,47 @@ func (s *PostgreSQLStore) PendingPublications(ctx context.Context, limit int) ([
 	return values, classifyPublicationError(rows.Err())
 }
 
+func (s *PostgreSQLStore) RecoverVerifiedPublications(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 || limit > 100 {
+		return 0, gitpublication.ErrInvalid
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	rows, err := tx.Query(ctx, `SELECT `+publicationColumns+` FROM git_pull_request_publications p
+		WHERE p.state='merge-verified' AND EXISTS (SELECT 1 FROM git_write_commands c
+			WHERE c.operation_id=p.operation_id AND c.state='pending')
+		ORDER BY p.updated_at,p.operation_id LIMIT $1 FOR UPDATE OF p SKIP LOCKED`, limit)
+	if err != nil {
+		return 0, classifyPublicationError(err)
+	}
+	publications := make([]gitpublication.Publication, 0, limit)
+	for rows.Next() {
+		publication, scanErr := scanPublication(rows)
+		if scanErr != nil {
+			rows.Close()
+			return 0, scanErr
+		}
+		publications = append(publications, publication)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, classifyPublicationError(err)
+	}
+	rows.Close()
+	for _, publication := range publications {
+		if err = convergeVerifiedPublicationTx(ctx, tx, publication); err != nil {
+			return 0, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return 0, classifyPublicationError(err)
+	}
+	return len(publications), nil
+}
+
 func (s *PostgreSQLStore) GitHubPublicationAuthorization(ctx context.Context, repository gitpublication.Repository, appID int64) (gitpublication.GitHubAuthorization, error) {
 	if repository.Validate() != nil || appID <= 0 {
 		return gitpublication.GitHubAuthorization{}, gitpublication.ErrInvalid

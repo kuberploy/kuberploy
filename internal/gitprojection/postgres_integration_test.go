@@ -424,8 +424,23 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	mergeVerified, err := mergePending.WithVerifiedMerge(deleteHead, stopAt.Add(10*time.Second))
-	if err != nil || store.CompareAndSwapPublication(ctx, mergePending, mergeVerified) != nil {
+	if err != nil {
 		t.Fatalf("late delete verification=%#v err=%v", mergeVerified, err)
+	}
+	// Simulate an older worker that persisted the merge receipt without delete
+	// convergence. The normal publication reconciler must repair it after an
+	// upgrade even when no new repository head appears.
+	if _, err = pool.Exec(ctx, `UPDATE git_pull_request_publications SET state='merge-verified',target_revision=$2,
+		updated_at=$3,version=$4 WHERE operation_id=$1`, pgDeleteOperation, mergeVerified.TargetRevision,
+		mergeVerified.UpdatedAt, mergeVerified.Version); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := store.RecoverVerifiedPublications(ctx, 10)
+	if err != nil || recovered != 1 {
+		t.Fatalf("verified delete recovery count=%d err=%v", recovered, err)
+	}
+	if recovered, err = store.RecoverVerifiedPublications(ctx, 10); err != nil || recovered != 0 {
+		t.Fatalf("verified delete recovery was not idempotent: count=%d err=%v", recovered, err)
 	}
 	deleteCommand, err = store.WriteCommand(ctx, pgDeleteOperation)
 	if err != nil || deleteCommand.State != gitprojection.WriteCommandIndexed || deleteCommand.IndexedGeneration != deleteGeneration.Number {
