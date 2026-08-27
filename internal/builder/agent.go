@@ -19,13 +19,14 @@ import (
 )
 
 type Agent struct {
-	Executor     CommandExecutor
-	DockerBinary string
-	DockerSocket string
-	CheckoutRoot string
-	RuntimeRoot  string
-	WaitInterval time.Duration
-	Now          func() time.Time
+	Executor              CommandExecutor
+	DockerBinary          string
+	DockerSocket          string
+	CheckoutRoot          string
+	RuntimeRoot           string
+	WaitInterval          time.Duration
+	RegistryRetryInterval time.Duration
+	Now                   func() time.Time
 	// Progress receives only fixed, server-owned lifecycle messages. Raw tool
 	// output remains private because an untrusted Dockerfile can print mounted
 	// secrets or other credential-bearing process output.
@@ -34,13 +35,14 @@ type Agent struct {
 
 func NewAgent(executor CommandExecutor) *Agent {
 	return &Agent{
-		Executor:     executor,
-		DockerBinary: "docker",
-		DockerSocket: DefaultDockerSocket,
-		CheckoutRoot: DefaultCheckoutRoot,
-		RuntimeRoot:  "/result",
-		WaitInterval: 250 * time.Millisecond,
-		Now:          time.Now,
+		Executor:              executor,
+		DockerBinary:          "docker",
+		DockerSocket:          DefaultDockerSocket,
+		CheckoutRoot:          DefaultCheckoutRoot,
+		RuntimeRoot:           "/result",
+		WaitInterval:          250 * time.Millisecond,
+		RegistryRetryInterval: 2 * time.Second,
+		Now:                   time.Now,
 	}
 }
 
@@ -129,7 +131,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		}
 		a.reportProgress("Registry cache build started.")
 		var cacheBuildErr error
-		cacheResult, cacheBuildErr = a.Executor.Execute(ctx, cacheInvocation)
+		cacheResult, cacheBuildErr = a.executeRegistryBuild(ctx, cacheInvocation)
 		cacheDegraded = cacheBuildErr != nil || outputShowsCacheDegradation(cacheResult.Output)
 		if cacheDegraded {
 			warnings = addWarning(warnings, WarningCacheDegraded)
@@ -144,7 +146,7 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, err
 	}
 	a.reportProgress("Release image build and push started.")
-	_, buildErr := a.Executor.Execute(ctx, invocation)
+	_, buildErr := a.executeRegistryBuild(ctx, invocation)
 	if buildErr != nil {
 		return BuildResult{}, commandError("build and final image push", buildErr)
 	}
@@ -195,6 +197,45 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		StartedAt:   started,
 		CompletedAt: a.Now().UTC(),
 	}, nil
+}
+
+const maxRegistryBuildAttempts = 3
+
+// executeRegistryBuild retries only recognized registry transport failures in
+// the same Pod. Recreating the Job also recreates its network namespace and can
+// repeat a short-lived single-node hairpin startup race indefinitely.
+func (a *Agent) executeRegistryBuild(ctx context.Context, invocation Invocation) (CommandResult, error) {
+	interval := a.RegistryRetryInterval
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	for attempt := 1; ; attempt++ {
+		result, err := a.Executor.Execute(ctx, invocation)
+		if err == nil || attempt >= maxRegistryBuildAttempts || !transientRegistryTransportFailure(result.Output) {
+			return result, err
+		}
+		a.reportProgress("Registry connection not ready; retrying build in the same isolated Pod.")
+		timer := time.NewTimer(interval * time.Duration(attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return result, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func transientRegistryTransportFailure(output string) bool {
+	lower := strings.ToLower(output)
+	registryRequest := strings.Contains(lower, "failed to do request") ||
+		strings.Contains(lower, "failed to push") ||
+		strings.Contains(lower, "error checking push permissions")
+	transportFailure := strings.Contains(lower, "connection refused") ||
+		strings.Contains(lower, "i/o timeout") ||
+		strings.Contains(lower, "network is unreachable") ||
+		strings.Contains(lower, "no route to host") ||
+		strings.Contains(lower, "temporary failure in name resolution")
+	return registryRequest && transportFailure
 }
 
 func (a *Agent) reportProgress(message string) {

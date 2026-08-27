@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBuildProgressContainsOnlyFixedLifecycleMessages(t *testing.T) {
@@ -44,6 +45,43 @@ func TestBuildKitDaemonSharesOnlyTheIsolatedDinDPodNetwork(t *testing.T) {
 		if !strings.Contains(create, required) {
 			t.Fatalf("BuildKit create invocation missing %q: %#v", required, executor.invocations[0].Argv)
 		}
+	}
+}
+
+func TestRegistryTransportFailureRetriesInsideTheSamePod(t *testing.T) {
+	executor := &sequenceExecutor{
+		results: []CommandResult{{Output: `failed to push registry.example.test/app:tag: failed to do request: dial tcp 10.0.0.10:443: connect: connection refused`}, {Output: "push complete"}},
+		errors:  []error{errors.New("exit status 1"), nil},
+	}
+	var progress bytes.Buffer
+	agent := NewAgent(executor)
+	agent.RegistryRetryInterval = time.Nanosecond
+	agent.Progress = &progress
+	invocation := Invocation{Argv: []string{"docker", "buildx", "build"}}
+	result, err := agent.executeRegistryBuild(context.Background(), invocation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Output != "push complete" || len(executor.invocations) != 2 {
+		t.Fatalf("result=%q invocations=%d, want successful second attempt", result.Output, len(executor.invocations))
+	}
+	if !strings.Contains(progress.String(), "retrying build in the same isolated Pod") {
+		t.Fatalf("missing fixed retry progress message: %q", progress.String())
+	}
+}
+
+func TestDockerfileFailureIsNotRetriedAsRegistryTransport(t *testing.T) {
+	executor := &sequenceExecutor{
+		results: []CommandResult{{Output: `executor failed running [/bin/sh -c exit 1]: exit code: 1`}},
+		errors:  []error{errors.New("exit status 1")},
+	}
+	agent := NewAgent(executor)
+	_, err := agent.executeRegistryBuild(context.Background(), Invocation{Argv: []string{"docker", "buildx", "build"}})
+	if err == nil {
+		t.Fatal("Dockerfile failure unexpectedly succeeded")
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("Dockerfile failure invocations=%d, want 1", len(executor.invocations))
 	}
 }
 
