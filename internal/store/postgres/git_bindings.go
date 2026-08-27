@@ -60,6 +60,43 @@ func centralPlatformGitBinding(ctx context.Context, query rowQuerier) (gitprojec
 	return scanCentralGitBinding(query.QueryRow(ctx, `SELECT `+centralGitBindingColumns+` FROM git_repository_bindings WHERE kind='platform' LIMIT 1`))
 }
 
+func cloneEnvironmentGitBindingTx(ctx context.Context, tx pgx.Tx, source, clone domain.Environment, now time.Time) error {
+	sourceBinding, err := centralGitBindingByEnvironment(ctx, tx, source.ID)
+	if errors.Is(err, base.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if sourceBinding.ProjectID != source.ProjectID || clone.ProjectID != source.ProjectID {
+		return base.ErrConflict
+	}
+	var binding gitprojection.Binding
+	switch sourceBinding.CredentialMode {
+	case gitprojection.CredentialGitHubApp:
+		binding, err = gitprojection.NewGitHubEnvironmentBinding(id.New(), clone.ProjectID, clone.ID,
+			sourceBinding.Repository, sourceBinding.TargetRef, now)
+	case gitprojection.CredentialLegacySecret:
+		binding, err = gitprojection.NewEnvironmentBinding(id.New(), clone.ProjectID, clone.ID,
+			sourceBinding.Repository, sourceBinding.TargetRef, sourceBinding.CredentialSecretName, now)
+	default:
+		return gitprojection.ErrInvalid
+	}
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO git_repository_bindings(
+		id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,
+		target_ref,path_prefix,credential_mode,credential_secret_name,state,target_head_revision,indexed_revision,
+		projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NULL,NULL,0,$16,NULL,NULL,$17,$17)`,
+		binding.ID, binding.Kind, binding.ScopeID, binding.ProjectID, binding.EnvironmentID, binding.Repository.Provider,
+		binding.Repository.InstallationID, binding.Repository.RepositoryID, binding.Repository.Owner, binding.Repository.Name,
+		binding.TargetRef, binding.Prefix, binding.CredentialMode, binding.CredentialSecretName, binding.State,
+		binding.ParserVersion, binding.CreatedAt)
+	return classify(err)
+}
+
 func classifyGitBindingTransaction(err error) error {
 	if err == nil {
 		return nil

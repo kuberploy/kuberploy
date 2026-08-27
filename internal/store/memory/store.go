@@ -461,6 +461,7 @@ func (s *Store) DeleteEnvironment(_ context.Context, actor, environmentID, confi
 			delete(s.deploymentInputs, operationID)
 		}
 	}
+	delete(s.gitBindings, environmentID)
 	for grantID, grant := range s.accessGrants {
 		if grant.ScopeType == domain.ScopeEnvironment && grant.ScopeID == environmentID {
 			delete(s.accessGrants, grantID)
@@ -590,6 +591,33 @@ func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, 
 		s.deploymentInputs[operationID] = draft
 		createdDeploymentIDs = append(createdDeploymentIDs, deploymentID)
 		createdOperationIDs = append(createdOperationIDs, operationID)
+	}
+	if sourceBinding, exists := s.gitBindings[sourceEnvironmentID]; exists {
+		var binding gitprojection.Binding
+		var bindingErr error
+		switch sourceBinding.CredentialMode {
+		case gitprojection.CredentialGitHubApp:
+			binding, bindingErr = gitprojection.NewGitHubEnvironmentBinding(id.New(), clone.ProjectID, clone.ID,
+				sourceBinding.Repository, sourceBinding.TargetRef, now)
+		case gitprojection.CredentialLegacySecret:
+			binding, bindingErr = gitprojection.NewEnvironmentBinding(id.New(), clone.ProjectID, clone.ID,
+				sourceBinding.Repository, sourceBinding.TargetRef, sourceBinding.CredentialSecretName, now)
+		default:
+			bindingErr = gitprojection.ErrInvalid
+		}
+		if bindingErr != nil {
+			for _, createdID := range createdDeploymentIDs {
+				delete(s.deployments, createdID)
+			}
+			for _, createdID := range createdOperationIDs {
+				delete(s.operations, createdID)
+				delete(s.deploymentInputs, createdID)
+			}
+			delete(s.environmentAppPlacements, clone.ID)
+			delete(s.environments, clone.ID)
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrConflict
+		}
+		s.gitBindings[clone.ID] = binding
 	}
 	s.idempotency[k] = idemRecord{fingerprint: cloneFingerprint, typ: "environment", resourceID: clone.ID}
 	s.audits++

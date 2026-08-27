@@ -8,9 +8,11 @@ import (
 	"net/http/cookiejar"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 )
 
@@ -184,6 +186,85 @@ func TestEnvironmentCloneDraftConfigRemainsEditableWithGitProjectionEnabled(t *t
 		f.store.OutboxCount() != outboxBefore || backend.planCallCount != 0 || backend.bundleCalls != 0 {
 		t.Fatalf("local draft save status=%d operation=%#v outbox=%d planCalls=%d bundleCalls=%d", response.StatusCode, operation,
 			f.store.OutboxCount(), backend.planCallCount, backend.bundleCalls)
+	}
+}
+
+func TestEnvironmentCloneInheritsGitAuthorityForExplicitStart(t *testing.T) {
+	backend := &projectionHTTPBackend{}
+	f := newProjectionAPI(t, backend, &projectionHTTPReadiness{}, &projectionHTTPReadiness{})
+	admin := f.bootstrap()
+	project, err := f.store.CreateProject(t.Context(), admin.ID, "clone-start-project", "clone-start-project",
+		domain.CreateProject{Name: "Clone start", Slug: "clone-start"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := f.store.CreateEnvironment(t.Context(), admin.ID, "clone-start-source", "clone-start-source",
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Development", Slug: "development"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := f.store.CreateApplication(t.Context(), admin.ID, "clone-start-app", "clone-start-app",
+		domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := "registry.example.test/api@sha256:" + strings.Repeat("a", 64)
+	if _, _, err = f.store.CreateDeployment(t.Context(), admin.ID, "clone-start-deployment", "clone-start-deployment", "request",
+		domain.CreateDeployment{EnvironmentID: source.Value.ID, ApplicationID: application.Value.ID,
+			Image: image, Runtime: domain.DefaultWorkloadRuntime(8080, nil)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	sourceBinding := projectedHTTPBinding(t, project.Value.ID, source.Value.ID, time.Now().UTC().Add(-time.Minute))
+	if err = f.store.PutBinding(t.Context(), sourceBinding); err != nil {
+		t.Fatal(err)
+	}
+
+	response := f.request(http.MethodPost, "/v1/environments/"+source.Value.ID+"/clone", "clone-start-environment",
+		map[string]string{"name": "Production", "slug": "production"})
+	cloned := decode[domain.EnvironmentCloneResult](t, response)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("clone status=%d result=%#v", response.StatusCode, cloned)
+	}
+	cloneBinding, err := f.store.GetEnvironmentGitBindingForActor(t.Context(), admin.ID, cloned.Environment.ID)
+	if err != nil || cloneBinding.ID == sourceBinding.ID || cloneBinding.Repository != sourceBinding.Repository ||
+		cloneBinding.TargetRef != sourceBinding.TargetRef || cloneBinding.State != gitprojection.BindingWaiting {
+		t.Fatalf("clone binding=%#v err=%v", cloneBinding, err)
+	}
+	now := time.Now().UTC()
+	cloneBinding.State = gitprojection.BindingReady
+	cloneBinding.TargetHeadRevision = strings.Repeat("c", 40)
+	cloneBinding.IndexedRevision = cloneBinding.TargetHeadRevision
+	cloneBinding.ProjectionGeneration = 1
+	cloneBinding.TargetHeadObservedAt = now
+	cloneBinding.IndexedAt = now
+	cloneBinding.UpdatedAt = now
+	if err = f.store.PutBinding(t.Context(), cloneBinding); err != nil {
+		t.Fatal(err)
+	}
+	deployments, err := f.store.ListDeploymentsForActor(t.Context(), admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft domain.Deployment
+	for _, deployment := range deployments {
+		if deployment.EnvironmentID == cloned.Environment.ID {
+			draft = deployment
+		}
+	}
+	if draft.ID == "" || draft.State != "stopped" {
+		t.Fatalf("draft=%#v", draft)
+	}
+	backend.plan = gitprojection.WritePlan{BindingID: cloneBinding.ID, ProjectID: project.Value.ID,
+		EnvironmentID: cloned.Environment.ID, ApplicationID: application.Value.ID, BaseRevision: cloneBinding.IndexedRevision,
+		Precondition: gitprojection.MutationCreateIfAbsent, ChartDigest: "sha256:" + strings.Repeat("d", 64), PolicyVersion: "appconfig-v1alpha1"}
+	response = f.request(http.MethodPost, "/v1/deployments/"+draft.ID+"/redeploy", "clone-start-explicit", nil)
+	operation := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || operation.TargetID != draft.ID || backend.planCallCount != 1 {
+		t.Fatalf("start status=%d operation=%#v planCalls=%d", response.StatusCode, operation, backend.planCallCount)
+	}
+	command, err := f.store.AcceptedGitWriteCommand(operation.ID)
+	if err != nil || command.Plan != backend.plan || command.State != gitprojection.WriteCommandPending {
+		t.Fatalf("start command=%#v err=%v", command, err)
 	}
 }
 

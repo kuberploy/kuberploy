@@ -1283,6 +1283,9 @@ $$;
 CREATE FUNCTION public.reject_git_push_wake_change() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
+    IF TG_OP='DELETE' AND TG_TABLE_NAME='git_projection_push_wake_targets' AND pg_trigger_depth()>1 THEN
+        RETURN OLD;
+    END IF;
     RAISE EXCEPTION 'Git push wake receipts are immutable' USING ERRCODE='23514';
 END; $$;
 
@@ -1594,6 +1597,9 @@ CREATE FUNCTION public.validate_argo_desired_state_materialization_receipt() RET
     SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 BEGIN
+    IF TG_OP='DELETE' AND pg_trigger_depth()>1 THEN
+        RETURN OLD;
+    END IF;
     IF TG_OP<>'INSERT' THEN
         RAISE EXCEPTION 'Argo desired-state materialization receipts are immutable'
             USING ERRCODE='23514';
@@ -1668,6 +1674,9 @@ CREATE FUNCTION public.validate_argo_materialization_app_project_content() RETUR
     SET search_path TO 'pg_catalog', 'pg_temp'
     AS $$
 BEGIN
+    IF TG_OP='DELETE' AND pg_trigger_depth()>1 THEN
+        RETURN OLD;
+    END IF;
     IF TG_OP='DELETE' OR TG_OP='UPDATE' THEN
         RAISE EXCEPTION 'Argo materialization AppProject authority is immutable'
             USING ERRCODE='23514';
@@ -7511,7 +7520,7 @@ ALTER TABLE ONLY public.argo_application_observations
 --
 
 ALTER TABLE ONLY public.argo_desired_state_commands
-    ADD CONSTRAINT argo_desired_state_commands_environment_binding_id_environ_fkey FOREIGN KEY (environment_binding_id, environment_target_ref) REFERENCES public.git_repository_bindings(id, target_ref) ON DELETE RESTRICT;
+    ADD CONSTRAINT argo_desired_state_commands_environment_binding_id_environ_fkey FOREIGN KEY (environment_binding_id, environment_target_ref) REFERENCES public.git_repository_bindings(id, target_ref) ON DELETE CASCADE;
 
 
 --
@@ -7519,7 +7528,7 @@ ALTER TABLE ONLY public.argo_desired_state_commands
 --
 
 ALTER TABLE ONLY public.argo_desired_state_commands
-    ADD CONSTRAINT argo_desired_state_commands_environment_binding_id_project_fkey FOREIGN KEY (environment_binding_id, project_id, environment_id) REFERENCES public.git_repository_bindings(id, project_id, environment_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT argo_desired_state_commands_environment_binding_id_project_fkey FOREIGN KEY (environment_binding_id, project_id, environment_id) REFERENCES public.git_repository_bindings(id, project_id, environment_id) ON DELETE CASCADE;
 
 
 --
@@ -7575,7 +7584,7 @@ ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
 --
 
 ALTER TABLE ONLY public.argo_desired_state_materialization_receipts
-    ADD CONSTRAINT argo_desired_state_materialization__environment_binding_id_fkey FOREIGN KEY (environment_binding_id) REFERENCES public.git_repository_bindings(id);
+    ADD CONSTRAINT argo_desired_state_materialization__environment_binding_id_fkey FOREIGN KEY (environment_binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
 
 
 --
@@ -7631,7 +7640,7 @@ ALTER TABLE ONLY public.argo_rollback_commands
 --
 
 ALTER TABLE ONLY public.argo_rollback_commands
-    ADD CONSTRAINT argo_rollback_commands_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT argo_rollback_commands_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
 
 
 --
@@ -7639,7 +7648,7 @@ ALTER TABLE ONLY public.argo_rollback_commands
 --
 
 ALTER TABLE ONLY public.argo_rollback_commands
-    ADD CONSTRAINT argo_rollback_commands_binding_id_project_id_environment_i_fkey FOREIGN KEY (binding_id, project_id, environment_id) REFERENCES public.git_repository_bindings(id, project_id, environment_id) ON DELETE RESTRICT;
+    ADD CONSTRAINT argo_rollback_commands_binding_id_project_id_environment_i_fkey FOREIGN KEY (binding_id, project_id, environment_id) REFERENCES public.git_repository_bindings(id, project_id, environment_id) ON DELETE CASCADE;
 
 
 --
@@ -8175,7 +8184,7 @@ ALTER TABLE ONLY public.git_projection_generations
 --
 
 ALTER TABLE ONLY public.git_projection_push_wake_targets
-    ADD CONSTRAINT git_projection_push_wake_targets_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT git_projection_push_wake_targets_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
 
 
 --
@@ -8191,7 +8200,7 @@ ALTER TABLE ONLY public.git_projection_push_wake_targets
 --
 
 ALTER TABLE ONLY public.git_pull_request_publications
-    ADD CONSTRAINT git_pull_request_publications_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT git_pull_request_publications_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
 
 
 --
@@ -8247,7 +8256,7 @@ ALTER TABLE ONLY public.git_ssh_key_mutation_receipts
 --
 
 ALTER TABLE ONLY public.git_verified_head_observations
-    ADD CONSTRAINT git_verified_head_observations_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT git_verified_head_observations_binding_id_fkey FOREIGN KEY (binding_id) REFERENCES public.git_repository_bindings(id) ON DELETE CASCADE;
 
 
 --
@@ -8255,7 +8264,7 @@ ALTER TABLE ONLY public.git_verified_head_observations
 --
 
 ALTER TABLE ONLY public.git_verified_head_observations
-    ADD CONSTRAINT git_verified_head_observations_binding_id_target_ref_fkey FOREIGN KEY (binding_id, target_ref) REFERENCES public.git_repository_bindings(id, target_ref) ON DELETE RESTRICT;
+    ADD CONSTRAINT git_verified_head_observations_binding_id_target_ref_fkey FOREIGN KEY (binding_id, target_ref) REFERENCES public.git_repository_bindings(id, target_ref) ON DELETE CASCADE;
 
 
 --

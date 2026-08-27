@@ -63,6 +63,85 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 		'ready',$2,$2,1,'test',$3,$3,$3,$3,'github-app')`, bindingID, committed, now); err != nil {
 		t.Fatal(err)
 	}
+	environmentBindingID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_repository_bindings(
+		id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
+		credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,
+		created_at,updated_at,credential_mode)
+		VALUES($1,'environment',$2,$3,$2,'github',1,1,'kuberploy','fixture','refs/heads/main',$4,'','ready',$5,$5,1,'test',$6,$6,$6,$6,'github-app')`,
+		environmentBindingID, environment.Value.ID, project.Value.ID,
+		"tenants/"+project.Value.ID+"/environments/"+environment.Value.ID, committed, now); err != nil {
+		t.Fatal(err)
+	}
+	deliveryHash := "sha256:" + strings.Repeat("1", 64)
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_push_wakes(
+		delivery_hash,github_app_id,installation_id,repository_id,target_ref,after_commit,received_at)
+		VALUES($1,1,1,1,'refs/heads/main',$2,$3)`, deliveryHash, committed, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_push_wake_targets(delivery_hash,binding_id,wake_generation)
+		VALUES($1,$2,1)`, deliveryHash, environmentBindingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_verified_head_observations(
+		binding_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,commit_revision,source,provider_request,observed_at)
+		VALUES($1,'github',1,1,'kuberploy','fixture','refs/heads/main',$2,'verified-webhook','resource-delete-test',$3)`,
+		environmentBindingID, committed, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_projection_generations(
+		binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,1,$2,'test','active',$3,$3)`, environmentBindingID, committed, now); err != nil {
+		t.Fatal(err)
+	}
+	desiredStateCommandID, materializationID := id.New(), id.New()
+	gitOpsTx, err := store.pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gitOpsTx.Rollback(ctx) //nolint:errcheck
+	if _, err = gitOpsTx.Exec(ctx, `ALTER TABLE argo_desired_state_commands DISABLE TRIGGER USER;
+		ALTER TABLE argo_desired_state_materialization_receipts DISABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = gitOpsTx.Exec(ctx, `INSERT INTO argo_desired_state_commands(
+		id,generation,project_id,environment_id,platform_binding_id,environment_binding_id,
+		platform_target_ref,environment_target_ref,environment_revision,environment_generation,path,
+		argo_namespace,destination_namespace,argo_project,base_revision,write_base_revision,write_base_observed_at,
+		precondition,expected_etag,policy_digest,catalog_digest,chart_repository,chart_name,chart_version,
+		chart_digest,renderer_image,chart_digest_enforcement,content,content_sha256,message,state,
+		committed_revision,committed_at,verified_at,next_attempt_at,created_at,updated_at,completed_at)
+		VALUES($1,1,$2,$3,$4,$5,'refs/heads/main','refs/heads/main',$6,1,$7,
+		'argocd',$8,$9,$10,$10,$11,'create-if-absent','',$12,$13,
+		'oci://ghcr.io/kuberploy/charts','kuberploy-runtime','1.2.3',$14,$15,'native-oci-digest-v1',
+		$16,$17,'resource deletion fixture','verified',$6,$11,$11,$11,$11,$11,$11)`,
+		desiredStateCommandID, project.Value.ID, environment.Value.ID, bindingID, environmentBindingID,
+		committed, "platform/argocd/environments/"+environment.Value.ID+".yaml", environment.Value.Namespace,
+		environment.Value.ArgoProject, head, now, "sha256:"+strings.Repeat("f", 64),
+		"sha256:"+strings.Repeat("c", 64), "sha256:"+strings.Repeat("d", 64),
+		"ghcr.io/kuberploy/runtime-renderer@sha256:"+strings.Repeat("e", 64), manifest, manifestDigest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = gitOpsTx.Exec(ctx, `INSERT INTO argo_desired_state_materialization_receipts(
+		id,environment_binding_id,environment_revision,environment_generation,project_id,environment_id,
+		platform_binding_id,platform_target_ref,environment_target_ref,desired_state_command_id,
+		desired_state_generation,desired_state_revision,desired_state_content_sha256,policy_digest,catalog_digest,
+		chart_repository,chart_name,chart_version,chart_digest,renderer_image,chart_digest_enforcement,created_at)
+		VALUES($1,$2,$3,1,$4,$5,$6,'refs/heads/main','refs/heads/main',$7,1,$3,$8,$9,$10,
+		'oci://ghcr.io/kuberploy/charts','kuberploy-runtime','1.2.3',$11,$12,'native-oci-digest-v1',$13)`,
+		materializationID, environmentBindingID, committed, project.Value.ID, environment.Value.ID, bindingID,
+		desiredStateCommandID, manifestDigest, "sha256:"+strings.Repeat("f", 64),
+		"sha256:"+strings.Repeat("c", 64), "sha256:"+strings.Repeat("d", 64),
+		"ghcr.io/kuberploy/runtime-renderer@sha256:"+strings.Repeat("e", 64), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = gitOpsTx.Exec(ctx, `ALTER TABLE argo_desired_state_materialization_receipts ENABLE TRIGGER USER;
+		ALTER TABLE argo_desired_state_commands ENABLE TRIGGER USER`); err != nil {
+		t.Fatal(err)
+	}
+	if err = gitOpsTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.pool.Exec(ctx, `INSERT INTO environment_foundation_intents(
 		id,environment_id,project_id,namespace,argo_project,platform_binding_id,target_ref,planned_head_revision,
 		binding_generation,profile_digest,publisher_config_digest,publisher_contract,publisher_policy,manifest_path,
@@ -143,6 +222,15 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	}
 	if _, err = store.GetEnvironment(ctx, environment.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted Environment err=%v", err)
+	}
+	var environmentBindingChildren int
+	if err = store.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM git_repository_bindings WHERE id=$1) +
+		(SELECT count(*) FROM git_projection_push_wake_targets WHERE binding_id=$1) +
+		(SELECT count(*) FROM git_verified_head_observations WHERE binding_id=$1) +
+		(SELECT count(*) FROM argo_desired_state_commands WHERE environment_binding_id=$1) +
+		(SELECT count(*) FROM argo_desired_state_materialization_receipts WHERE environment_binding_id=$1)`, environmentBindingID).Scan(&environmentBindingChildren); err != nil || environmentBindingChildren != 0 {
+		t.Fatalf("deleted Environment retained Git projection state count=%d err=%v", environmentBindingChildren, err)
 	}
 	var deletionState, queuedDigest string
 	if err = store.pool.QueryRow(ctx, `SELECT state,expected_manifest_digest FROM environment_foundation_deletions WHERE environment_id=$1`, environment.Value.ID).Scan(&deletionState, &queuedDigest); err != nil {

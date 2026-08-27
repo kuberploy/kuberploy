@@ -536,6 +536,9 @@ func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID
 		environment.ID, environment.ProjectID, environment.Name, environment.Slug, environment.Namespace, environment.ArgoProject, environment.ProtectionPolicy, environment.CreatedAt); err != nil {
 		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
 	}
+	if err = cloneEnvironmentGitBindingTx(ctx, tx, source, environment, now); err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
 	// Explicit source placements and legacy deployments share project-owned App
 	// identities. Every placement is stopped; source deployments additionally
 	// become independently editable target-bound draft configurations.
@@ -830,6 +833,27 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 			return false, err
 		}
 		if _, err = tx.Exec(ctx, `DELETE FROM deployments WHERE environment_id=$1 AND state='stopped'`, resourceID); err != nil {
+			if errors.Is(classify(err), base.ErrConflict) {
+				return false, blocked
+			}
+			return false, err
+		}
+		var gitOpsBusy bool
+		if err = tx.QueryRow(ctx, `SELECT
+			EXISTS(SELECT 1 FROM argo_desired_state_commands
+				WHERE environment_id=$1 AND state IN ('pending','claimed','git-committed')) OR
+			EXISTS(SELECT 1 FROM argo_rollback_commands
+				WHERE environment_id=$1 AND state='pending-git') OR
+			EXISTS(SELECT 1 FROM git_path_reservations
+				WHERE binding_id IN (SELECT id FROM git_repository_bindings WHERE kind='environment' AND environment_id=$1))`, resourceID).Scan(&gitOpsBusy); err != nil {
+			return false, err
+		}
+		if gitOpsBusy {
+			return false, blocked
+		}
+		// Terminal Environment-scoped GitOps records cascade with the binding.
+		// Audit events remain as the durable history.
+		if _, err = tx.Exec(ctx, `DELETE FROM git_repository_bindings WHERE kind='environment' AND environment_id=$1`, resourceID); err != nil {
 			if errors.Is(classify(err), base.ErrConflict) {
 				return false, blocked
 			}

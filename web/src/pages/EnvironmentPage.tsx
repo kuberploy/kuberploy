@@ -329,7 +329,7 @@ export function EnvironmentPage() {
                         ? "Stopped draft · review settings before start"
                         : appDeployments.length
                           ? `${appDeployments.length} running instance${appDeployments.length === 1 ? "" : "s"} in ${environment.data.name}`
-                        : `Stopped draft · review settings before start`}
+                          : `Stopped draft · review settings before start`}
                     </small>
                   </div>
                   <StatusPill
@@ -431,7 +431,7 @@ export function EnvironmentPage() {
       {deleteOpen ? (
         <ConfirmDialog
           title={`Delete ${environment.data.name}?`}
-          description="Only an Environment with no deployments, Git binding, releases, variables, certificates, or integrations can be deleted. Audit history remains."
+          description="Stop every App and remove releases, variables, certificates, and integrations first. Kuberploy removes the Environment-scoped Git binding with the clean Environment. Audit history remains."
           confirmLabel="Delete Environment"
           confirmation={environment.data.name}
           busy={deleteEnvironment.isPending}

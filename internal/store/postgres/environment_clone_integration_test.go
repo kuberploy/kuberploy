@@ -10,6 +10,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/id"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
@@ -91,6 +92,22 @@ func TestPostgreSQLEnvironmentCloneCopiesStoppedDraftConfigurationWithoutPublish
 	if !legacySeen {
 		t.Fatalf("legacy deployment App missing from environment list: %#v", legacyCompatible)
 	}
+	sourceBinding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), project.Value.ID, source.Value.ID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 101, RepositoryID: 202, Owner: "kuberploy", Name: "gitops-fixture"},
+		"refs/heads/main", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO git_repository_bindings(
+		id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,
+		target_ref,path_prefix,credential_mode,credential_secret_name,state,projection_generation,parser_version,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,$16,$17,$17)`,
+		sourceBinding.ID, sourceBinding.Kind, sourceBinding.ScopeID, sourceBinding.ProjectID, sourceBinding.EnvironmentID,
+		sourceBinding.Repository.Provider, sourceBinding.Repository.InstallationID, sourceBinding.Repository.RepositoryID,
+		sourceBinding.Repository.Owner, sourceBinding.Repository.Name, sourceBinding.TargetRef, sourceBinding.Prefix,
+		sourceBinding.CredentialMode, sourceBinding.CredentialSecretName, sourceBinding.State, sourceBinding.ParserVersion, now); err != nil {
+		t.Fatal(err)
+	}
 
 	sideEffectTables := []string{
 		"outbox", "git_write_commands", "build_attempts",
@@ -133,6 +150,13 @@ func TestPostgreSQLEnvironmentCloneCopiesStoppedDraftConfigurationWithoutPublish
 	}
 	if clonedDrafts != 2 || !allStopped || !allTargetBound {
 		t.Fatalf("cloned drafts=%d stopped=%v targetBound=%v", clonedDrafts, allStopped, allTargetBound)
+	}
+	clonedBinding, err := centralGitBindingByEnvironment(ctx, store.pool, cloned.Value.Environment.ID)
+	if err != nil || clonedBinding.ID == sourceBinding.ID || clonedBinding.ProjectID != sourceBinding.ProjectID ||
+		clonedBinding.EnvironmentID != cloned.Value.Environment.ID || clonedBinding.Repository != sourceBinding.Repository ||
+		clonedBinding.TargetRef != sourceBinding.TargetRef || clonedBinding.Prefix != gitprojection.EnvironmentPrefix(project.Value.ID, cloned.Value.Environment.ID) ||
+		clonedBinding.State != gitprojection.BindingWaiting || clonedBinding.TargetHeadRevision != "" || clonedBinding.IndexedRevision != "" {
+		t.Fatalf("cloned Git binding=%#v err=%v", clonedBinding, err)
 	}
 	var deploymentsAfter, operationsAfter, inputsAfter int
 	for table, destination := range map[string]*int{"deployments": &deploymentsAfter, "operations": &operationsAfter, "deployment_operation_inputs": &inputsAfter} {
@@ -206,6 +230,9 @@ func TestPostgreSQLEnvironmentCloneCopiesStoppedDraftConfigurationWithoutPublish
 	}
 	if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM deployments WHERE environment_id=$1`, second.Value.Environment.ID).Scan(&secondDrafts); err != nil || secondDrafts != 0 {
 		t.Fatalf("deleted clone retained drafts=%d err=%v", secondDrafts, err)
+	}
+	if _, err = centralGitBindingByEnvironment(ctx, store.pool, second.Value.Environment.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted clone retained Git binding err=%v", err)
 	}
 }
 

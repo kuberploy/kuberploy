@@ -790,7 +790,7 @@ func mappedError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, store.ErrApplicationDeletionBlocked):
 		writeProblem(w, r, 409, "ApplicationDeletionBlocked", "App still has resources", "Disable and remove the App's deployments, build configuration, releases, bindings, and policies before deleting it.")
 	case errors.Is(err, store.ErrEnvironmentDeletionBlocked):
-		writeProblem(w, r, 409, "EnvironmentDeletionBlocked", "Environment still has resources", "Remove the Environment's deployments, Git binding, releases, variables, certificates, and integrations before deleting it.")
+		writeProblem(w, r, 409, "EnvironmentDeletionBlocked", "Environment still has resources", "Stop the Environment's Apps and remove its releases, variables, certificates, and integrations before deleting it. Kuberploy removes the Environment-scoped Git binding with the clean Environment.")
 	case errors.Is(err, store.ErrConflict):
 		writeProblem(w, r, 409, "Conflict", "Conflict", "The request conflicts with existing state.")
 	case errors.Is(err, store.ErrForbidden):

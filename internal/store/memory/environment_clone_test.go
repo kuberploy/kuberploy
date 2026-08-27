@@ -5,8 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/id"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
@@ -45,7 +48,15 @@ func TestCloneEnvironmentCopiesEditableConfigurationAsStoppedDrafts(t *testing.T
 
 	// Simulate deployments created before explicit placement rows existed.
 	delete(store.environmentAppPlacements, source.Value.ID)
+	sourceBinding, err := gitprojection.NewGitHubEnvironmentBinding(id.New(), project.Value.ID, source.Value.ID,
+		gitprojection.RepositoryIdentity{Provider: "github", InstallationID: 101, RepositoryID: 202, Owner: "kuberploy", Name: "gitops-fixture"},
+		"refs/heads/main", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.gitBindings[source.Value.ID] = sourceBinding
 	deploymentsBefore, operationsBefore := len(store.deployments), len(store.operations)
+	gitBindingsBefore := len(store.gitBindings)
 	outboxBefore, gitCommandsBefore := len(store.outbox), len(store.gitWriteCommands)
 	autoDeployBefore, releasesBefore := len(store.autoDeployRuns), len(store.registryReleases)
 	auditsBefore := store.AuditCount()
@@ -80,8 +91,15 @@ func TestCloneEnvironmentCopiesEditableConfigurationAsStoppedDrafts(t *testing.T
 		}
 	}
 	if len(store.deployments) != deploymentsBefore+len(applications) || len(store.operations) != operationsBefore+len(applications) || len(store.outbox) != outboxBefore ||
-		len(store.gitWriteCommands) != gitCommandsBefore || len(store.autoDeployRuns) != autoDeployBefore || len(store.registryReleases) != releasesBefore {
+		len(store.gitWriteCommands) != gitCommandsBefore || len(store.autoDeployRuns) != autoDeployBefore || len(store.registryReleases) != releasesBefore ||
+		len(store.gitBindings) != gitBindingsBefore+1 {
 		t.Fatal("clone did not create only local draft configuration history")
+	}
+	clonedBinding, found := store.gitBindings[cloned.Value.Environment.ID]
+	if !found || clonedBinding.ID == sourceBinding.ID || clonedBinding.Repository != sourceBinding.Repository ||
+		clonedBinding.TargetRef != sourceBinding.TargetRef || clonedBinding.Prefix != gitprojection.EnvironmentPrefix(project.Value.ID, cloned.Value.Environment.ID) ||
+		clonedBinding.State != gitprojection.BindingWaiting {
+		t.Fatalf("cloned Git binding=%#v found=%t", clonedBinding, found)
 	}
 	clonedDrafts := 0
 	for _, deployment := range store.deployments {
@@ -116,6 +134,16 @@ func TestCloneEnvironmentCopiesEditableConfigurationAsStoppedDrafts(t *testing.T
 	second, err := store.CloneEnvironment(ctx, admin.ID, cloned.Value.Environment.ID, "clone-environment-second", "clone-environment-second-fingerprint", domain.CloneEnvironment{Name: "Staging", Slug: "staging"})
 	if err != nil || len(second.Value.AppPlacements) != len(applications) || len(store.deployments) != deploymentsBefore+2*len(applications) || len(store.outbox) != outboxBefore {
 		t.Fatalf("draft clone=%#v deployments=%d err=%v", second, len(store.deployments), err)
+	}
+	if _, found = store.gitBindings[second.Value.Environment.ID]; !found {
+		t.Fatal("second clone did not inherit Git binding")
+	}
+	if replayed, deleteErr := store.DeleteEnvironment(ctx, admin.ID, second.Value.Environment.ID, second.Value.Environment.Name,
+		"delete-second-clone", "delete-second-clone", "request"); deleteErr != nil || replayed {
+		t.Fatalf("delete second clone replay=%t err=%v", replayed, deleteErr)
+	}
+	if _, found = store.gitBindings[second.Value.Environment.ID]; found {
+		t.Fatal("deleted clone retained Git binding")
 	}
 }
 

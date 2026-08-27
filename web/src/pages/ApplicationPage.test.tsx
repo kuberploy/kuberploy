@@ -185,7 +185,9 @@ describe("application stop lifecycle", () => {
         within(dialog).getByRole("button", { name: actionLabel }),
       );
 
-      await waitFor(() => expect(api.redeployDeployment).toHaveBeenCalledOnce());
+      await waitFor(() =>
+        expect(api.redeployDeployment).toHaveBeenCalledOnce(),
+      );
       expect(api.redeployDeployment).toHaveBeenCalledWith(
         "deployment-production",
         expect.any(String),
