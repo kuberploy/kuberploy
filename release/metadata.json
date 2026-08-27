@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Source builds keep BuildKit on the isolated DinD Pod network and retry transient registry transport startup failures inside that same Pod, allowing starter single-node installations to build, cache, and push through a private registry route.",
+  "summary": "Source builds keep BuildKit on the isolated DinD Pod network and use bounded 10-second and 20-second waits before retrying transient registry startup failures, allowing starter single-node installations to build, cache, and push through a private registry route.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.389"
+  "version": "0.1.0-rc.390"
 }
