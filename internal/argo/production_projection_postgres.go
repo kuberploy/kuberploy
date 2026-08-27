@@ -319,7 +319,7 @@ func desiredStateResourcesTx(ctx context.Context, tx pgx.Tx, projectID, environm
 		return nil, nil, ErrConflict
 	}
 	rows, err = tx.Query(ctx, `SELECT id::text,environment_id::text,application_id::text
-		FROM deployments WHERE environment_id=$1 ORDER BY id FOR SHARE`, environmentID)
+		FROM deployments WHERE environment_id=$1 AND application_id=ANY($2::uuid[]) ORDER BY id FOR SHARE`, environmentID, applicationIDs)
 	if err != nil {
 		return nil, nil, classifyPostgres(err)
 	}

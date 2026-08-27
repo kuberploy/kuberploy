@@ -53,6 +53,9 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		applicationID             = "84111111-1111-4111-8111-111111111111"
 		deploymentID              = "85111111-1111-4111-8111-111111111111"
 		operationID               = "86111111-1111-4111-8111-111111111111"
+		stoppedApplicationID      = "84111111-1111-4111-8111-222222222222"
+		stoppedDeploymentID       = "85111111-1111-4111-8111-222222222222"
+		stoppedOperationID        = "86111111-1111-4111-8111-222222222222"
 		platformID                = "87111111-1111-4111-8111-111111111111"
 		bindingID                 = "88111111-1111-4111-8111-111111111111"
 		installationPlatformID    = "8a111111-1111-4111-8111-111111111111"
@@ -74,9 +77,9 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 			`DELETE FROM git_projected_documents WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
 			`DELETE FROM git_projection_generations WHERE binding_id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
 			`DELETE FROM git_repository_bindings WHERE id IN ('` + bindingID + `','` + foundationBindingID + `','` + platformID + `')`,
-			`DELETE FROM deployments WHERE id='` + deploymentID + `'`,
-			`DELETE FROM operations WHERE id='` + operationID + `'`,
-			`DELETE FROM applications WHERE id='` + applicationID + `'`,
+			`DELETE FROM deployments WHERE id IN ('` + deploymentID + `','` + stoppedDeploymentID + `')`,
+			`DELETE FROM operations WHERE id IN ('` + operationID + `','` + stoppedOperationID + `')`,
+			`DELETE FROM applications WHERE id IN ('` + applicationID + `','` + stoppedApplicationID + `')`,
 			`DELETE FROM environments WHERE id IN ('` + environmentID + `','` + foundationEnvironmentID + `')`,
 			`DELETE FROM projects WHERE id='` + projectID + `'`,
 			`DELETE FROM github_repositories WHERE id IN ('` + repositoryPlatformID + `','` + repositoryEnvironmentID + `')`,
@@ -109,8 +112,11 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, []any{project.ID, project.Name, project.Slug, now}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)`, []any{environment.ID, projectID, environment.Name, environment.Slug, environment.Namespace, environment.ArgoProject, now}},
 		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,$3,$4,$5)`, []any{application.ID, projectID, application.Name, application.Slug, now}},
+		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Stopped App','stopped-app',$3)`, []any{stoppedApplicationID, projectID, now}},
 		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at) VALUES($1,'deployment.apply','queued','deployment',$2,'argo-runtime-test',1,'[]','',$3,$3)`, []any{operationID, deploymentID, now}},
+		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,git_revision,created_at,updated_at) VALUES($1,'deployment.stop','succeeded','deployment',$2,'argo-runtime-test-stopped',1,'[]','',$3,$3)`, []any{stoppedOperationID, stoppedDeploymentID, now}},
 		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}',NULL,$5,'pending-git',$6,1,$7,$7)`, []any{deploymentID, environmentID, applicationID, deployment.Image, runtimeJSON, operationID, now}},
+		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}',NULL,$5,'stopped',$6,1,$7,$7)`, []any{stoppedDeploymentID, environmentID, stoppedApplicationID, "registry.example.test/stopped@sha256:" + strings.Repeat("2", 64), runtimeJSON, stoppedOperationID, now}},
 		{`INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at,github_app_id,github_account_id,lifecycle,permissions,last_verified_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4,1001,$5,'active',$6,$4)`, []any{installationPlatformID, int64(501), userID, now, int64(7001), permissions}},
 		{`INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at,github_app_id,github_account_id,lifecycle,permissions,last_verified_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4,1001,$5,'active',$6,$4)`, []any{installationEnvironmentID, int64(502), userID, now, int64(7002), permissions}},
 		{`INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,created_at,updated_at) VALUES($1,$2,$3,$4,'kuberploy','platform','active',$5,$5,$5)`, []any{repositoryPlatformID, installationPlatformID, int64(601), int64(7001), now}},
