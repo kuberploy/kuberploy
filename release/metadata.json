@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Environment clones now inherit their trusted Git repository and branch into an independently indexed Environment binding, keep copied App configuration as editable stopped drafts, and remove clean Environment-scoped GitOps state after Apps are stopped.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.386"
+  "version": "0.1.0-rc.388"
 }

@@ -2,6 +2,6 @@ apiVersion: v2
 name: kuberploy-builder
 description: Isolated ARC-style DinD builder namespace and admission boundary for Kuberploy
 type: application
-version: 0.1.0-rc.386
-appVersion: "0.1.0-rc.386"
+version: 0.1.0-rc.388
+appVersion: "0.1.0-rc.388"
 kubeVersion: ">=1.34.0-0 <1.37.0-0"
