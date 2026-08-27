@@ -296,6 +296,19 @@ func (s *Store) StopDeployment(ctx context.Context, actor, deploymentID, key, fi
 	if err = insertGitDeleteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "stop("+d.ApplicationID+"): remove App desired state", now); err != nil {
 		return base.Result[domain.Operation]{}, err
 	}
+	environmentJSON, _ := json.Marshal(d.Environment)
+	runtimeJSON, _ := json.Marshal(d.Runtime)
+	var routeJSON []byte
+	if d.Route != nil {
+		routeJSON, _ = json.Marshal(d.Route)
+	}
+	// The worker executes every deployment.git-write from this immutable input
+	// snapshot. Stops need the same snapshot as creates and config releases;
+	// without it the accepted operation fails before the Git delete is loaded.
+	if _, err = tx.Exec(ctx, `INSERT INTO deployment_operation_inputs(operation_id,deployment_id,image,replicas,port,environment,route,runtime,config_raw,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		op.ID, d.ID, d.Image, d.Replicas, d.Port, environmentJSON, routeJSON, runtimeJSON, d.ConfigRaw, now); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
 	if _, err = tx.Exec(ctx, `INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES($1,$2,$3,$4,$5)`, op.ID, op.Kind, d.EnvironmentID, generation, requestID); err != nil {
 		return base.Result[domain.Operation]{}, err
 	}

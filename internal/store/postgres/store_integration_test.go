@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -694,5 +695,60 @@ func TestTeamAccessSQLPaths(t *testing.T) {
 	var tombstoneIssuer string
 	if err = st.pool.QueryRow(ctx, `SELECT email,issuer FROM users WHERE id=$1`, deletionUser.ID).Scan(&tombstoneEmail, &tombstoneIssuer); err != nil || tombstoneEmail != nil || tombstoneIssuer != "kuberploy:deleted" {
 		t.Fatalf("PostgreSQL user tombstone email=%v issuer=%q err=%v", tombstoneEmail, tombstoneIssuer, err)
+	}
+
+	// A stop is a deployment.git-write too. Keep its exact input snapshot so
+	// the worker can load the accepted deployment before publishing the delete.
+	stopHead := strings.Repeat("e", 40)
+	stopIndexedAt := time.Now().UTC()
+	if _, err = st.pool.Exec(ctx, `UPDATE git_repository_bindings SET state='ready',target_head_revision=$2,indexed_revision=$2,
+		projection_generation=1,target_head_observed_at=$3,indexed_at=$3,updated_at=$3 WHERE id=$1`, createdBinding.Value.ID, stopHead, stopIndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO git_projection_generations(binding_id,generation,head_revision,parser_version,state,started_at,activated_at)
+		VALUES($1,1,$2,$3,'active',$4,$4)`, createdBinding.Value.ID, stopHead, createdBinding.Value.ParserVersion, stopIndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	stopBinding, err := st.GetEnvironmentGitBindingForActor(ctx, admin.ID, environment.Value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopDeploymentInput, err := st.GetDeployment(ctx, deployment.Value.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopDocument, err := gitprojection.NewDocument(stopBinding, 1, application.Value.ID, stopHead, stopHead, stopHead,
+		stopDeploymentInput.ConfigRaw, map[string]any{"kind": "AppConfig"}, nil, stopIndexedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsedDocument := []byte(`{"kind":"AppConfig"}`)
+	if _, err = st.pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,
+		content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,'[]'::jsonb,$11,$12,$13)`, stopDocument.BindingID, stopDocument.Generation, stopDocument.Path,
+		stopDocument.ApplicationID, stopDocument.SourceRevision, stopDocument.ConfigRevision, stopDocument.BlobID, stopDocument.ContentSHA256,
+		stopDocument.Raw, parsedDocument, stopDocument.SchemaVersion, stopDocument.ParserVersion, stopDocument.IndexedAt); err != nil {
+		t.Fatal(err)
+	}
+	dependencyPaths, err := gitprojection.DependencyPaths(stopBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopChartDigest := "sha256:" + strings.Repeat("c", 64)
+	stopPolicyVersion := "runtime-policy-v1"
+	stopETag, err := gitprojection.StrongETagWithDependencies(stopBinding, []gitprojection.Document{stopDocument}, dependencyPaths, nil, stopChartDigest, stopPolicyVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopPlan := gitprojection.WritePlan{BindingID: stopBinding.ID, ProjectID: project.Value.ID, EnvironmentID: environment.Value.ID,
+		ApplicationID: application.Value.ID, BaseRevision: stopHead, Precondition: gitprojection.MutationMatchETag, ExpectedETag: stopETag,
+		ChartDigest: stopChartDigest, PolicyVersion: stopPolicyVersion}
+	stopped, err := st.StopDeployment(ctx, admin.ID, deployment.Value.ID, "stop-snapshot", "stop-snapshot", "request", &stopPlan)
+	if err != nil || stopped.Replay {
+		t.Fatalf("stop deployment result=%#v err=%v", stopped, err)
+	}
+	stopSnapshot, err := st.GetDeploymentForOperation(ctx, stopped.Value.ID)
+	if err != nil || stopSnapshot.ID != deployment.Value.ID || !bytes.Equal(stopSnapshot.ConfigRaw, stopDeploymentInput.ConfigRaw) || stopSnapshot.Image != stopDeploymentInput.Image {
+		t.Fatalf("stop operation snapshot=%#v err=%v", stopSnapshot, err)
 	}
 }

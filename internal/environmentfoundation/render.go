@@ -84,7 +84,10 @@ func Render(identity EnvironmentIdentity, profile Profile) ([]byte, string, erro
 		"kuberploy.io/project-id": identity.ProjectID, "kuberploy.io/foundation-contract": "v2"}
 	nsLabels := cloneLabels(labels)
 	nsLabels["kuberploy.io/runtime-namespace"] = "true"
-	nsLabels["pod-security.kubernetes.io/enforce"] = "restricted"
+	// User Apps must remain compatible with standard third-party images. Baseline
+	// blocks privileged and host-level workloads without requiring images to use
+	// an arbitrary non-root UID or drop every default capability.
+	nsLabels["pod-security.kubernetes.io/enforce"] = "baseline"
 	nsLabels["pod-security.kubernetes.io/enforce-version"] = profile.PSAVersion
 	nsLabels["pod-security.kubernetes.io/audit"] = "restricted"
 	nsLabels["pod-security.kubernetes.io/audit-version"] = profile.PSAVersion

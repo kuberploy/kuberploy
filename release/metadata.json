@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Apps gain a durable GitOps stop lifecycle, advanced Kubernetes overrides fail before publication, runtime secrets support dynamically created Environment namespaces, stale or invalid dashboard routes recover through branded pages, and the bundled API reference refreshes safely across upgrades.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.377"
+  "version": "0.1.0-rc.378"
 }

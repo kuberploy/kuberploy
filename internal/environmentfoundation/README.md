@@ -48,8 +48,10 @@ The deterministic bundle is written only to:
 
 It contains:
 
-- the server-derived Namespace with pinned `restricted` Pod Security
-  enforce/audit/warn labels and Kuberploy ownership labels;
+- the server-derived Namespace with pinned `baseline` Pod Security enforcement,
+  `restricted` audit/warn labels, and Kuberploy ownership labels. This keeps
+  ordinary third-party images compatible while rejecting privileged and
+  host-level workloads by default;
 - one bounded ResourceQuota and one bounded container LimitRange;
 - default-deny ingress and egress;
 - DNS-only egress to the exact kube-system/kube-dns selectors;

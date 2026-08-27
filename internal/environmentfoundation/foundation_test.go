@@ -111,7 +111,7 @@ func TestRenderFoundationIsDeterministicAndClosed(t *testing.T) {
 		t.Fatalf("HTTP-01 solver ingress authority widened or missing: %#v", http01Policy)
 	}
 	content := string(first)
-	for _, required := range []string{"kuberploy.io/runtime-namespace: \"true\"", "pod-security.kubernetes.io/enforce: restricted", "pod-security.kubernetes.io/enforce-version: v1.31", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "name: kuberploy-http01-solver-ingress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
+	for _, required := range []string{"kuberploy.io/runtime-namespace: \"true\"", "pod-security.kubernetes.io/enforce: baseline", "pod-security.kubernetes.io/enforce-version: v1.31", "pod-security.kubernetes.io/audit: restricted", "pod-security.kubernetes.io/warn: restricted", "name: kuberploy-default-deny", "name: kuberploy-dns-egress", "name: kuberploy-http01-solver-ingress", "port: 53", "resources:", "pods/log", "kind: ServiceAccount", "name: kuberploy-api", "namespace: kuberploy-system"} {
 		if !strings.Contains(content, required) {
 			t.Fatalf("manifest omitted %q\n%s", required, content)
 		}
