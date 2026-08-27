@@ -56,6 +56,7 @@ export function RootComponent() {
     queryFn: api.me,
     retry: false,
     staleTime: 60_000,
+    refetchOnWindowFocus: (query) => query.state.data !== undefined,
   });
   if (invitationToken)
     return (

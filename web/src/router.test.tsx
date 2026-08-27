@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
@@ -132,6 +136,29 @@ describe("root invitation boundary", () => {
     expect(
       await screen.findByText("Authenticated application session"),
     ).toBeInTheDocument();
+  });
+
+  it("keeps unauthenticated form data when the window regains focus", async () => {
+    const me = vi.spyOn(api, "me").mockRejectedValue(new ApiError(401));
+    vi.spyOn(api, "meta").mockResolvedValue({ bootstrapRequired: false });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const Wrapper = ({ children }: PropsWithChildren) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const user = userEvent.setup();
+
+    render(<RootComponent />, { wrapper: Wrapper });
+    const email = await screen.findByLabelText(/^email/i);
+    await user.type(email, "admin@example.com");
+
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+
+    expect(email).toHaveValue("admin@example.com");
+    expect(me).toHaveBeenCalledTimes(1);
+    focusManager.setFocused(undefined);
   });
 
   it("shows and clears an invitation even when an existing session is valid", async () => {
