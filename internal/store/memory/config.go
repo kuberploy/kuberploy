@@ -34,7 +34,6 @@ func (s *Store) GetDeploymentConfigForActor(_ context.Context, actor, deployment
 }
 
 func (s *Store) CreateDeploymentConfigPreview(_ context.Context, actor string, in domain.CreateConfigPreview, projection *gitprojection.WritePlan, references ...*base.AppConfigReferencePlan) error {
-	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
 	var middlewareRefs []domain.SecretBindingRef
 	var diagnostics []appconfig.Diagnostic
 	var refsErr error
@@ -43,11 +42,8 @@ func (s *Store) CreateDeploymentConfigPreview(_ context.Context, actor string, i
 		diagnostics = parsedDiagnostics
 		middlewareRefs, refsErr = middlewareprofiles.AppConfigSecretReferences(parsed)
 	}
-	if err != nil || len(diagnostics) != 0 || refsErr != nil || (base.AppConfigUsesRuntimeSecrets(in.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
-		if err == nil {
-			err = base.ErrPreconditionFailed
-		}
-		return err
+	if len(diagnostics) != 0 || refsErr != nil {
+		return base.ErrPreconditionFailed
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,6 +52,19 @@ func (s *Store) CreateDeploymentConfigPreview(_ context.Context, actor string, i
 		return base.ErrNotFound
 	}
 	if err := s.authorizeLocked(actor, domain.PermissionConfigWrite, domain.AccessTarget{Type: "deployment", ID: d.ID}); err != nil {
+		return err
+	}
+	var referencePlan *base.AppConfigReferencePlan
+	var err error
+	if d.State == "stopped" && projection == nil {
+		referencePlan, err = base.NormalizeLocalDraftAppConfigReferencePlan(references)
+	} else {
+		referencePlan, err = base.NormalizeAppConfigReferencePlan(projection, references)
+	}
+	if err != nil || (base.AppConfigUsesRuntimeSecrets(in.Runtime) || len(middlewareRefs) != 0) && referencePlan == nil {
+		if err == nil {
+			err = base.ErrPreconditionFailed
+		}
 		return err
 	}
 	version := d.ConfigVersion
@@ -101,15 +110,21 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 		}
 		return base.Result[domain.Deployment]{Value: replayedDeployment, Replay: true}, s.operations[old.operationID], nil
 	}
-	referencePlan, err := base.NormalizeAppConfigReferencePlan(projection, references)
-	if err != nil {
-		return base.Result[domain.Deployment]{}, domain.Operation{}, err
-	}
 	d, ok := s.deployments[in.DeploymentID]
 	if !ok || !s.canAccessDeploymentLocked(actor, d) {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, base.ErrNotFound
 	}
 	if err := s.authorizeLocked(actor, domain.PermissionConfigWrite, domain.AccessTarget{Type: "deployment", ID: d.ID}); err != nil {
+		return base.Result[domain.Deployment]{}, domain.Operation{}, err
+	}
+	var referencePlan *base.AppConfigReferencePlan
+	var err error
+	if d.State == "stopped" && projection == nil {
+		referencePlan, err = base.NormalizeLocalDraftAppConfigReferencePlan(references)
+	} else {
+		referencePlan, err = base.NormalizeAppConfigReferencePlan(projection, references)
+	}
+	if err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	version := d.ConfigVersion
@@ -168,22 +183,32 @@ func (s *Store) SaveDeploymentConfig(_ context.Context, actor, key, fingerprint,
 			s.operations[operationID] = operation
 		}
 	}
+	draftSave := d.State == "stopped" && projection == nil
 	d.Generation++
 	opID := id.New()
 	op := domain.Operation{ID: opID, Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID, RequestID: requestID, Generation: d.Generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
+	if draftSave {
+		op.Kind, op.Status = "deployment.config-draft-save", "succeeded"
+		op.Progress = []domain.ProgressStep{{Name: "save-draft", Status: "succeeded", StartedAt: &now, FinishedAt: &now}}
+		op.FinishedAt = &now
+	}
 	d.Runtime = cloneRuntime(in.Runtime)
 	d.Image = exactImage
 	d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(d.Runtime)
 	d.ConfigRaw = append([]byte(nil), in.RawYAML...)
 	d.ConfigVersion++
 	d.State, d.OperationID, d.UpdatedAt = "pending-git", op.ID, now
-	if err := s.putGitWriteCommandLocked(actor, opID, d.ID, projection, d.ConfigRaw, "config("+d.ApplicationID+"): save AppConfig", now); err != nil {
+	if draftSave {
+		d.State = "stopped"
+	} else if err := s.putGitWriteCommandLocked(actor, opID, d.ID, projection, d.ConfigRaw, "config("+d.ApplicationID+"): save AppConfig", now); err != nil {
 		return base.Result[domain.Deployment]{}, domain.Operation{}, err
 	}
 	s.deployments[d.ID] = d
 	s.deploymentInputs[op.ID] = d
 	s.operations[op.ID] = op
-	s.outbox[op.ID] = &outboxRecord{message: domain.WorkMessage{OperationID: op.ID, Kind: op.Kind, ScopeID: d.EnvironmentID, Generation: d.Generation, TraceID: requestID}}
+	if !draftSave {
+		s.outbox[op.ID] = &outboxRecord{message: domain.WorkMessage{OperationID: op.ID, Kind: op.Kind, ScopeID: d.EnvironmentID, Generation: d.Generation, TraceID: requestID}}
+	}
 	preview.ConsumedAt = &now
 	s.configPreviews[previewKey] = preview
 	s.idempotency[idemIdentity] = idemRecord{fingerprint: fingerprint, typ: "deployment", resourceID: d.ID, operationID: op.ID}

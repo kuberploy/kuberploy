@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Apps gain a durable GitOps stop lifecycle, advanced Kubernetes overrides fail before publication, runtime secrets support dynamically created Environment namespaces, stale or invalid dashboard routes recover through branded pages, and the bundled API reference refreshes safely across upgrades.",
+  "summary": "Environment cloning now copies target-bound App configuration into editable stopped drafts, explicit Start App and Redeploy actions publish saved configuration through the normal GitOps path, and clone drafts remain editable even when Git or Argo runtime readiness is unavailable.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.384"
+  "version": "0.1.0-rc.385"
 }

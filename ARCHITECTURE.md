@@ -51,7 +51,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 1. Git is authoritative for non-secret desired deployment state.
 2. Argo CD is the only normal path that creates or updates application workloads.
 3. Builders create images only. They never deploy workloads and never receive GitOps write credentials.
-4. PostgreSQL stores users, workflow state, integrations, audit events, and rebuildable projections. It is not a second desired-state database.
+4. PostgreSQL stores users, workflow state, integrations, audit events, rebuildable projections, and explicitly stopped Environment-clone drafts. A stopped clone draft cannot create workload or Git state; Git becomes authoritative only when the user explicitly starts it.
 5. Kubernetes and Argo CD are authoritative for observed runtime state.
 6. Kuberploy-managed plaintext secret values never enter Git, Git commit messages, build logs, traces, caches, asynchronous queues, or ordinary database columns. Caller-supplied build arguments remain caller-owned immutable build-definition input and may be retained by the definition, Docker history, or caches; they are not echoed in result projections, and secret-like names produce a non-blocking warning. Base64 is encoding, not protection.
 7. Mutable image tags may be user input, but Kuberploy resolves and deploys an immutable digest.
@@ -257,6 +257,7 @@ The starter configuration schedules privileged DinD on the installation's curren
 | Self-contained secret payload | Namespace/name-bound SealedSecret ciphertext in Git; the controller key and derived namespace-local Kubernetes Secret remain in the cluster |
 | Users, memberships, API service accounts, hashed token metadata, provider installation IDs and credential references | PostgreSQL |
 | Builds, operations, webhook deliveries and audit records | PostgreSQL |
+| Stopped App configuration copied by Environment clone | PostgreSQL until an explicit Start App publishes it to Git; no workload, Git command or provider action exists before that start |
 | UI/API config, list, search and status read models | Rebuildable PostgreSQL projections containing Git-derived documents/fields and observed-state fields, each annotated with its indexed/observed revision |
 
 ### Core entities
@@ -269,7 +270,7 @@ The starter configuration schedules privileged DinD on the installation's curren
 | Project | Groups applications and environments |
 | Environment | Binds a project to one administrator-approved namespace, Git path and the project's Argo AppProject; a project gains multiple namespaces by owning multiple environments |
 | Application | Stable logical workload independent of an environment, with one durable source kind: `oci`, `github`, `git-ssh`, or `helm` |
-| DeploymentSpec | Desired state of an application in one environment |
+| DeploymentSpec | Configuration of an application in one environment; a cloned stopped draft is local and editable until explicit Start App publication makes Git authoritative |
 | VariableSet | Git-backed project or environment ordinary values and opt-in secret-binding references; application-level values remain in `AppConfig` |
 | BuildDefinition | Source repository, ref rules, context, Dockerfile and builder settings |
 | Build | One immutable build attempt and its execution state |
@@ -1783,6 +1784,7 @@ The Arazzo document and matching human guides define at least these bounded work
 5. Add a route with manual or automatic DNS and HTTP-only, Let's Encrypt or custom-certificate TLS.
 6. Inspect application health, bounded metrics, events and log snapshots without requesting arbitrary namespaces or selectors.
 7. Preview and perform a rollback to a retained, registry-verified immutable release.
+8. Clone an Environment, edit its copied stopped App drafts, then explicitly start only the Apps that should publish to Git and run.
 
 Each workflow declares inputs, success criteria, terminal failure branches, polling limits, cleanup and where explicit confirmation is required. The compact agent contract omits inbound webhooks, installer/bootstrap operations, raw secret material and streaming-only endpoints when a bounded snapshot alternative exists. This reduces tool ambiguity but does not confer permission; the server still authorizes every request.
 
@@ -1835,6 +1837,7 @@ DELETE /v1/projects/{id}                   If-Match: <etag>; Idempotency-Key: <k
 GET  /v1/environments
 POST /v1/environments                      Idempotency-Key: <key>
 GET  /v1/environments/{id}
+POST /v1/environments/{id}/clone           Idempotency-Key: <key>
 PUT  /v1/environments/{id}                 If-Match: <etag>; Idempotency-Key: <key>
 DELETE /v1/environments/{id}               If-Match: <etag>; Idempotency-Key: <key>; Confirmation-Token: <token>
 GET  /v1/applications
@@ -1863,6 +1866,7 @@ DELETE /v1/secret-bindings/{id}/versions/{versionId}  If-Match: <etag>; Idempote
 GET  /v1/deployments
 POST /v1/deployments                       Idempotency-Key: <key>
 GET  /v1/deployments/{id}
+POST /v1/deployments/{id}/redeploy         Idempotency-Key: <key>
 DELETE /v1/deployments/{id}               If-Match: <etag>; Idempotency-Key: <key>; Confirmation-Token: <token>
 GET  /v1/deployments/{id}/config
 POST /v1/deployments/{id}/config/validate
@@ -1952,6 +1956,8 @@ Successful validation, preview and read-only connection tests return synchronous
 `POST /v1/secret-bindings/{id}/versions` is the special write-only ingress described in Section 12. Its closed request schema marks the value `writeOnly`; every GET/Operation/result exposes only binding/key/version IDs, timestamps and per-namespace reconciliation state. The API returns `202` only after the broker has synchronously stored the external version or produced Sealed Secret ciphertext, so the remaining Operation contains no plaintext. There is no reveal endpoint. The default compact AI-agent profile omits raw secret creation/rotation and deletion; an agent may bind an already-authorized version through the normal AppConfig workflow unless its service account has an explicit high-risk secret-write capability.
 
 An `Application` remains an environment-independent identity. `POST /v1/deployments` explicitly binds one application to one environment and creates its initial `DeploymentSpec`; the `(applicationId, environmentId)` pair is unique. The returned resource/Operation link supplies the ID used by config and status calls. A second environment is another explicit deployment, never an undocumented side effect of application creation.
+
+Environment clone is the explicit convenience path: it creates the new Environment and copies each source App's current configuration into a target-bound `stopped` draft. Clone creates no Git command, provider request, Argo Application or workload. Draft config GET/validate/preview/save reads PostgreSQL even when Git projection is enabled, and saves remain local. `POST /v1/deployments/{id}/redeploy` is the explicit Start App action for a stopped draft and uses the normal image/reference validation, protected-Git publication and Argo observation path. The same endpoint republishes an already-started App without changing its saved configuration.
 
 The config response is a `ConfigBundle` containing `kind`, one path/dependency-scoped strong ETag, `targetHeadRevision`, `indexedRevision`, `configRevision`, projection freshness and `documents[]`. Each document has a stable ID, Git path, source blob, `documentKind`, schema identity, raw YAML, the exact parsed JSON `document` against which JSON Pointers operate and editable/locked pointers. A managed runtime bundle contains `app.yaml`. An external Helm bundle atomically contains its descriptor `app.yaml` and values `values.yaml`; the ETag and preview token bind both documents and declared dependencies so a chart revision and its values cannot tear across saves while unrelated branch paths can advance safely.
 
@@ -2376,6 +2382,7 @@ repositories or refs instead of sharing one writable platform root.
   GitHub App Dockerfile build, provider-neutral Git SSH Dockerfile build, and
   Helm. Helm Apps pass OCI, classic HTTPS Helm repository, or Git chart source
   coordinates plus values directly to a deterministic Argo CD Application.
+- Environment clone with target-bound editable App configurations stored as stopped drafts; clone itself deploys nothing, and each App requires an explicit Start App action.
 - GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
 - One ephemeral privileged DinD Job per source build, never mounting the host Docker socket. It runs on a single starter node by default; optional node isolation requires the exact configured builder pool.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.

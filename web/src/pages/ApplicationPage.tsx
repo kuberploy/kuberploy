@@ -50,7 +50,9 @@ export function ApplicationPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [stopOpen, setStopOpen] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
   const stopAttempt = useRef<string | null>(null);
+  const deployAttempt = useRef<string | null>(null);
   const [tabChoice, setTab] = useState<Tab>("overview");
   const application = useQuery({
     queryKey: ["application", applicationId],
@@ -189,12 +191,44 @@ export function ApplicationPage() {
       applicationProject,
     ),
   );
+  const canDeploy = Boolean(
+    application.data &&
+    deployment.data &&
+    helmEnvironment &&
+    deployment.data.state !== "pending-git" &&
+    deployment.data.state !== "pending-stop" &&
+    hasDeploymentUpdateCapability(
+      effectiveCapabilities,
+      application.data,
+      helmEnvironment,
+      applicationProject,
+    ),
+  );
   const stopDeployment = useMutation({
     mutationFn: (idempotencyKey: string) =>
       api.stopDeployment(deploymentId, idempotencyKey),
     onSuccess: async (operation) => {
       stopAttempt.current = null;
       setStopOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["deployments"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["deployment", deploymentId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["operations"] }),
+      ]);
+      await navigate({
+        to: "/operations/$operationId",
+        params: { operationId: operation.id },
+      });
+    },
+  });
+  const redeployDeployment = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.redeployDeployment(deploymentId, idempotencyKey),
+    onSuccess: async (operation) => {
+      deployAttempt.current = null;
+      setDeployOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["deployments"] }),
         queryClient.invalidateQueries({
@@ -255,6 +289,14 @@ export function ApplicationPage() {
         actions={
           <>
             <StatusPill value={health} />
+            {canDeploy ? (
+              <Button variant="primary" onClick={() => setDeployOpen(true)}>
+                <Icon name="deploy" />
+                {deployment.data?.state === "stopped"
+                  ? "Start App"
+                  : "Redeploy App"}
+              </Button>
+            ) : null}
             {canStop ? (
               <Button variant="danger" onClick={() => setStopOpen(true)}>
                 <Icon name="close" /> Stop App
@@ -289,6 +331,35 @@ export function ApplicationPage() {
             const key = stopAttempt.current ?? crypto.randomUUID();
             stopAttempt.current = key;
             stopDeployment.mutate(key);
+          }}
+        />
+      ) : null}
+      {deployOpen ? (
+        <ConfirmDialog
+          title={`${deployment.data?.state === "stopped" ? "Start" : "Redeploy"} ${application.data?.name ?? "App"}?`}
+          description={
+            deployment.data?.state === "stopped"
+              ? "Publish this Environment's saved App configuration. Argo CD will create the workload after the Git change is accepted."
+              : "Publish the same saved App configuration again and let Argo CD reconcile a fresh rollout."
+          }
+          confirmLabel={
+            deployment.data?.state === "stopped" ? "Start App" : "Redeploy App"
+          }
+          confirmation={
+            deployment.data?.state === "stopped" ? "START" : "REDEPLOY"
+          }
+          confirmationLabel="Confirm App action"
+          busy={redeployDeployment.isPending}
+          error={redeployDeployment.error}
+          icon="deploy"
+          onCancel={() => {
+            redeployDeployment.reset();
+            setDeployOpen(false);
+          }}
+          onConfirm={() => {
+            const key = deployAttempt.current ?? crypto.randomUUID();
+            deployAttempt.current = key;
+            redeployDeployment.mutate(key);
           }}
         />
       ) : null}

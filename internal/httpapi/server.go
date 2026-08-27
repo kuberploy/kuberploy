@@ -375,6 +375,7 @@ func New(o Options) *Server {
 	mux.Handle("POST /v1/deployments/image-resolution-preview", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.previewImageResolution)))))
 	mux.Handle("GET /v1/deployments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.deployment))))
 	mux.Handle("DELETE /v1/deployments/{id}", s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.stopDeployment))))
+	mux.Handle("POST /v1/deployments/{id}/redeploy", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, http.HandlerFunc(s.redeployDeployment)))))
 	mux.Handle("GET /v1/deployments/{id}/status", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(s.deploymentStatus)))))
 	mux.Handle("GET /v1/deployments/{id}/rollback-sources", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppRead, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.deploymentRollbackSources(s.deploymentRollbacks, w, r) })))))
 	mux.Handle("POST /v1/deployments/{id}/rollback", s.secretNoStore(s.protect(s.requireAutomationScope(domain.AutomationScopeAppEdit, s.highRiskActor(deploymentRollbackLimit, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.rollbackDeployment(s.deploymentRollbacks, w, r) }))))))

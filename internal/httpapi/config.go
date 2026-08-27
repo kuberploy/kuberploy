@@ -112,6 +112,16 @@ func (s *Server) currentConfig(r *http.Request, atLeastRevision string, wait tim
 	if err != nil {
 		return domain.Deployment{}, domain.DeploymentConfig{}, nil, err
 	}
+	// A cloned Environment keeps App configuration only as a stopped database
+	// draft until the user explicitly starts it. It intentionally has no Git
+	// document yet, even when the platform Git projection runtime is enabled.
+	if deployment.State == "stopped" {
+		if atLeastRevision != "" || wait != 0 {
+			return domain.Deployment{}, domain.DeploymentConfig{}, nil, gitprojection.ErrInvalid
+		}
+		config, configErr := s.store.GetDeploymentConfigForActor(r.Context(), actor, deployment.ID)
+		return deployment, config, nil, configErr
+	}
 	if s.gitProjection != nil {
 		bundle, bundleErr := s.gitProjection.Bundle(r.Context(), actor, deployment, atLeastRevision, wait)
 		if bundleErr != nil {
@@ -342,7 +352,7 @@ func (s *Server) previewDeploymentConfig(w http.ResponseWriter, r *http.Request)
 	}
 	expires := time.Now().UTC().Add(10 * time.Minute)
 	var projection *gitprojection.WritePlan
-	if s.gitProjection != nil {
+	if s.gitProjection != nil && deployment.State != "stopped" {
 		plan, planErr := s.gitProjection.PlanMutation(r.Context(), currentUser(r.Context()).ID, deployment.EnvironmentID, deployment.ApplicationID, baseETag)
 		if planErr != nil {
 			mappedGitProjectionError(w, r, planErr)
@@ -435,7 +445,7 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 202, operation)
 		return
 	}
-	if runtimeProblem := s.deploymentMutationRuntimeProblem(r.Context()); runtimeProblem != "" {
+	if runtimeProblem := s.deploymentMutationRuntimeProblem(r.Context()); deployment.State != "stopped" && runtimeProblem != "" {
 		invalidPlan := &gitprojection.WritePlan{}
 		result, operation, replayErr := s.store.SaveDeploymentConfig(r.Context(), currentUser(r.Context()).ID, key, fp, requestID(r.Context()), input, invalidPlan)
 		if replayErr == nil && result.Replay {
@@ -477,7 +487,7 @@ func (s *Server) saveDeploymentConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	input.CandidateHash, input.RawYAML, input.Runtime = candidate.Hash, candidate.Raw, candidate.Runtime
 	var projection *gitprojection.WritePlan
-	if s.gitProjection != nil {
+	if s.gitProjection != nil && deployment.State != "stopped" {
 		plan, planErr := s.gitProjection.PlanMutation(r.Context(), currentUser(r.Context()).ID, deployment.EnvironmentID, deployment.ApplicationID, baseETag)
 		if planErr != nil {
 			mappedGitProjectionError(w, r, planErr)

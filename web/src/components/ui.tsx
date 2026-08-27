@@ -444,6 +444,7 @@ export function ConfirmDialog({
   tone = "danger",
   busy = false,
   confirmation,
+  confirmationLabel = "Confirm deletion",
   error,
   onConfirm,
   onCancel,
@@ -456,6 +457,7 @@ export function ConfirmDialog({
   tone?: "danger" | "neutral";
   busy?: boolean;
   confirmation?: string;
+  confirmationLabel?: string;
   error?: unknown;
   onConfirm: () => void;
   onCancel: () => void;
@@ -500,7 +502,7 @@ export function ConfirmDialog({
             <input
               autoFocus
               value={confirmationValue}
-              aria-label="Confirm deletion"
+              aria-label={confirmationLabel}
               aria-invalid={mismatched || undefined}
               autoComplete="off"
               autoCorrect="off"

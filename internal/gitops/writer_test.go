@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
 
@@ -35,6 +36,43 @@ func TestRenderAppConfigIsCanonicalAndIdentityBound(t *testing.T) {
 	}
 	if strings.Index(v, "A_FIRST") > strings.Index(v, "Z_LAST") {
 		t.Fatal("environment variables are not deterministic")
+	}
+}
+
+func TestRebindAppConfigForEnvironmentPreservesEditableConfiguration(t *testing.T) {
+	_, p, source, a, d := fixture()
+	raw, err := RenderAppConfig(p, source, a, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(strings.Replace(string(raw), "  runtime:\n", `  overrides:
+    deployment:
+      metadata:
+        annotations:
+          example.com/clone-proof: "preserved"
+    serviceAccount:
+      metadata:
+        annotations:
+          eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/app
+  runtime:
+`, 1))
+	target := source
+	target.ID = "66666666-6666-4666-8666-666666666666"
+	d.EnvironmentID = target.ID
+	rebound, runtime, err := RebindAppConfigForEnvironment(raw, p, target, a, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _, diagnostics := appconfig.ParseAndValidate(rebound)
+	if len(diagnostics) != 0 || runtime.Replicas != d.Replicas {
+		t.Fatalf("rebound config invalid: diagnostics=%#v runtime=%#v", diagnostics, runtime)
+	}
+	spec := parsed["spec"].(map[string]any)
+	if spec["environmentId"] != target.ID || !strings.Contains(string(rebound), "example.com/clone-proof") || !strings.Contains(string(rebound), "eks.amazonaws.com/role-arn") {
+		t.Fatalf("rebound identity or overrides missing:\n%s", rebound)
+	}
+	if diagnostics = appconfig.ValidateBinding(rebound, p, target, a, d); len(diagnostics) != 0 {
+		t.Fatalf("rebound config does not match target: %#v", diagnostics)
 	}
 }
 

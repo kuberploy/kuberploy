@@ -137,6 +137,61 @@ describe("application stop lifecycle", () => {
       params: { operationId: "33333333-3333-4333-8333-333333333333" },
     });
   });
+
+  it.each([
+    ["stopped", "Start App", "START"],
+    ["healthy", "Redeploy App", "REDEPLOY"],
+  ] as const)(
+    "uses the saved config to %s the App",
+    async (state, actionLabel, confirmation) => {
+      const user = userEvent.setup();
+      vi.mocked(api.deployment).mockResolvedValue({
+        ...(await api.deployment("deployment-production")),
+        state,
+      });
+      vi.spyOn(api, "redeployDeployment").mockResolvedValue({
+        id: "44444444-4444-4444-8444-444444444444",
+        kind: "deployment.git-write",
+        status: "queued",
+        state: "queued",
+        targetType: "deployment",
+        targetId: "deployment-production",
+        requestId: "deploy-request",
+        generation: 6,
+        progress: [],
+        createdAt: "2026-08-09T00:00:00Z",
+        updatedAt: "2026-08-09T00:00:00Z",
+      });
+      renderApplication({
+        features: {},
+        capabilities: [
+          {
+            scopeType: "environment",
+            scopeId: "environment-production",
+            actions: ["deployments:update"],
+          },
+        ],
+      });
+
+      await user.click(
+        await screen.findByRole("button", { name: actionLabel }),
+      );
+      const dialog = screen.getByRole("alertdialog");
+      await user.type(
+        within(dialog).getByLabelText("Confirm App action"),
+        confirmation,
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: actionLabel }),
+      );
+
+      await waitFor(() => expect(api.redeployDeployment).toHaveBeenCalledOnce());
+      expect(api.redeployDeployment).toHaveBeenCalledWith(
+        "deployment-production",
+        expect.any(String),
+      );
+    },
+  );
 });
 
 afterEach(() => {

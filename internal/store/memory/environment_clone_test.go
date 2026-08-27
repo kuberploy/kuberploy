@@ -10,7 +10,7 @@ import (
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-func TestCloneEnvironmentCreatesOnlyDraftStoppedSharedAppPlacements(t *testing.T) {
+func TestCloneEnvironmentCopiesEditableConfigurationAsStoppedDrafts(t *testing.T) {
 	ctx := context.Background()
 	store := New()
 	admin := bootstrapAccessAdmin(t, store)
@@ -79,9 +79,22 @@ func TestCloneEnvironmentCreatesOnlyDraftStoppedSharedAppPlacements(t *testing.T
 			t.Fatalf("shared application identity %s missing", application.ID)
 		}
 	}
-	if len(store.deployments) != deploymentsBefore || len(store.operations) != operationsBefore || len(store.outbox) != outboxBefore ||
+	if len(store.deployments) != deploymentsBefore+len(applications) || len(store.operations) != operationsBefore+len(applications) || len(store.outbox) != outboxBefore ||
 		len(store.gitWriteCommands) != gitCommandsBefore || len(store.autoDeployRuns) != autoDeployBefore || len(store.registryReleases) != releasesBefore {
-		t.Fatal("clone created deployment, Git, build, release, provider, or worker side effects")
+		t.Fatal("clone did not create only local draft configuration history")
+	}
+	clonedDrafts := 0
+	for _, deployment := range store.deployments {
+		if deployment.EnvironmentID != cloned.Value.Environment.ID {
+			continue
+		}
+		clonedDrafts++
+		if deployment.State != "stopped" || deployment.Generation != 1 || deployment.ConfigVersion != 1 || len(deployment.ConfigRaw) == 0 {
+			t.Fatalf("cloned draft configuration=%#v", deployment)
+		}
+	}
+	if clonedDrafts != len(applications) {
+		t.Fatalf("cloned draft count=%d", clonedDrafts)
 	}
 	if store.AuditCount() != auditsBefore+1 {
 		t.Fatalf("audit count=%d", store.AuditCount())
@@ -98,10 +111,10 @@ func TestCloneEnvironmentCreatesOnlyDraftStoppedSharedAppPlacements(t *testing.T
 		t.Fatalf("idempotency conflict err=%v", err)
 	}
 
-	// Cloning an already cloned draft proves explicit placements are durable and
-	// source-compatible without any deployment.
+	// Cloning an already cloned draft preserves its independently editable
+	// configuration while still creating no Git or worker side effects.
 	second, err := store.CloneEnvironment(ctx, admin.ID, cloned.Value.Environment.ID, "clone-environment-second", "clone-environment-second-fingerprint", domain.CloneEnvironment{Name: "Staging", Slug: "staging"})
-	if err != nil || len(second.Value.AppPlacements) != len(applications) || len(store.deployments) != deploymentsBefore {
+	if err != nil || len(second.Value.AppPlacements) != len(applications) || len(store.deployments) != deploymentsBefore+2*len(applications) || len(store.outbox) != outboxBefore {
 		t.Fatalf("draft clone=%#v deployments=%d err=%v", second, len(store.deployments), err)
 	}
 }

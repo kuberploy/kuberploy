@@ -112,3 +112,58 @@ func TestDeploymentConfigSaveAdvancesMaterializedImage(t *testing.T) {
 		t.Fatalf("operation image=%q err=%v", snapshot.Image, err)
 	}
 }
+
+func TestClonedDraftConfigSaveDoesNotPublishOrStartApp(t *testing.T) {
+	ctx := t.Context()
+	store := New()
+	admin := bootstrapAccessAdmin(t, store)
+	project, _ := store.CreateProject(ctx, admin.ID, "draft-project", "draft-project", domain.CreateProject{Name: "Draft", Slug: "draft"})
+	source, _ := store.CreateEnvironment(ctx, admin.ID, "draft-source", "draft-source", domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Dev", Slug: "dev"})
+	application, _ := store.CreateApplication(ctx, admin.ID, "draft-app", "draft-app", domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	_, _, err := store.CreateDeployment(ctx, admin.ID, "draft-deployment", "draft-deployment", "request",
+		domain.CreateDeployment{EnvironmentID: source.Value.ID, ApplicationID: application.Value.ID, Image: "registry.example/api@sha256:" + strings.Repeat("a", 64), Runtime: domain.DefaultWorkloadRuntime(8080, nil)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned, err := store.CloneEnvironment(ctx, admin.ID, source.Value.ID, "draft-clone", "draft-clone", domain.CloneEnvironment{Name: "Prod", Slug: "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft domain.Deployment
+	for _, candidate := range store.deployments {
+		if candidate.EnvironmentID == cloned.Value.Environment.ID {
+			draft = candidate
+		}
+	}
+	if draft.ID == "" || draft.State != "stopped" {
+		t.Fatalf("cloned draft=%#v", draft)
+	}
+	config, err := store.GetDeploymentConfigForActor(ctx, admin.ID, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := appconfig.Apply(config.RawYAML, appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/replicas", Value: 3}}})
+	if len(candidate.Diagnostics) != 0 {
+		t.Fatalf("candidate diagnostics=%#v", candidate.Diagnostics)
+	}
+	tokenHash := sha256.Sum256([]byte("draft-preview-token"))
+	if err = store.CreateDeploymentConfigPreview(ctx, admin.ID, domain.CreateConfigPreview{DeploymentID: draft.ID,
+		BaseETag: config.ETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash, CandidateRaw: candidate.Raw,
+		Runtime: candidate.Runtime, ExpiresAt: time.Now().Add(time.Hour)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	outboxBefore, commandsBefore := len(store.outbox), len(store.gitWriteCommands)
+	saved, operation, err := store.SaveDeploymentConfig(ctx, admin.ID, "draft-save", "draft-save", "request", domain.SaveDeploymentConfig{
+		DeploymentID: draft.ID, BaseETag: config.ETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash,
+		RawYAML: candidate.Raw}, nil)
+	if err != nil || saved.Value.State != "stopped" || saved.Value.Runtime.Replicas != 3 || operation.Kind != "deployment.config-draft-save" || operation.Status != "succeeded" {
+		t.Fatalf("saved=%#v operation=%#v err=%v", saved, operation, err)
+	}
+	if len(store.outbox) != outboxBefore || len(store.gitWriteCommands) != commandsBefore {
+		t.Fatal("draft save published Git or worker work")
+	}
+	placement := store.environmentAppPlacements[cloned.Value.Environment.ID][application.Value.ID]
+	if placement.State != domain.EnvironmentAppPlacementDraft || placement.DesiredState != domain.EnvironmentAppPlacementStopped {
+		t.Fatalf("draft placement changed=%#v", placement)
+	}
+}

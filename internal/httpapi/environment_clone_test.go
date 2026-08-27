@@ -3,16 +3,18 @@ package httpapi_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
 	"testing"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/httpapi"
 )
 
-func TestEnvironmentCloneHTTPIsAuthorizedIdempotentAndSideEffectFree(t *testing.T) {
+func TestEnvironmentCloneHTTPCopiesStoppedConfigAndStartsOnlyOnRequest(t *testing.T) {
 	f := newAPI(t)
 	unauthenticated := f.request(http.MethodPost, "/v1/environments/11111111-1111-4111-8111-111111111111/clone", "unauthenticated-clone", map[string]string{"name": "Production"})
 	if unauthenticated.StatusCode != http.StatusUnauthorized {
@@ -65,8 +67,31 @@ func TestEnvironmentCloneHTTPIsAuthorizedIdempotentAndSideEffectFree(t *testing.
 	deployments := decode[struct {
 		Items []domain.Deployment `json:"items"`
 	}](t, response)
-	if response.StatusCode != http.StatusOK || len(deployments.Items) != 1 || deployments.Items[0].EnvironmentID != source.ID {
-		t.Fatalf("clone created deployment: %#v", deployments.Items)
+	if response.StatusCode != http.StatusOK || len(deployments.Items) != 2 {
+		t.Fatalf("clone deployment configs: %#v", deployments.Items)
+	}
+	var clonedDraft domain.Deployment
+	for _, deployment := range deployments.Items {
+		if deployment.EnvironmentID == cloned.Environment.ID {
+			clonedDraft = deployment
+		}
+	}
+	if clonedDraft.ID == "" || clonedDraft.State != "stopped" || clonedDraft.Image != "registry.example.test/api@sha256:"+strings.Repeat("a", 64) {
+		t.Fatalf("cloned draft=%#v", clonedDraft)
+	}
+	response = f.request(http.MethodGet, "/v1/deployments/"+clonedDraft.ID+"/config", "", nil)
+	var config struct {
+		Documents []struct {
+			RawYAML string `json:"rawYaml"`
+		} `json:"documents"`
+	}
+	config = decode[struct {
+		Documents []struct {
+			RawYAML string `json:"rawYaml"`
+		} `json:"documents"`
+	}](t, response)
+	if response.StatusCode != http.StatusOK || len(config.Documents) != 1 || !strings.Contains(config.Documents[0].RawYAML, cloned.Environment.ID) || strings.Contains(config.Documents[0].RawYAML, source.ID) {
+		t.Fatalf("cloned config status=%d config=%#v", response.StatusCode, config)
 	}
 
 	response = f.request(http.MethodPost, "/v1/environments/"+source.ID+"/clone", "clone-http-environment", cloneBody)
@@ -79,6 +104,86 @@ func TestEnvironmentCloneHTTPIsAuthorizedIdempotentAndSideEffectFree(t *testing.
 	problem = decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusConflict || problem.Code != "IdempotencyConflict" {
 		t.Fatalf("conflict status=%d problem=%#v", response.StatusCode, problem)
+	}
+
+	response = f.request(http.MethodPost, "/v1/deployments/"+clonedDraft.ID+"/redeploy", "clone-http-start", nil)
+	started := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || started.Status != "queued" || started.TargetID != clonedDraft.ID || f.store.OutboxCount() != outboxBefore+1 {
+		t.Fatalf("start status=%d operation=%#v outbox=%d", response.StatusCode, started, f.store.OutboxCount())
+	}
+	response = f.request(http.MethodPost, "/v1/deployments/"+clonedDraft.ID+"/redeploy", "clone-http-start", nil)
+	startReplay := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || response.Header.Get("Idempotent-Replay") != "true" || startReplay.ID != started.ID || f.store.OutboxCount() != outboxBefore+1 {
+		t.Fatalf("start replay status=%d operation=%#v", response.StatusCode, startReplay)
+	}
+}
+
+func TestEnvironmentCloneDraftConfigRemainsEditableWithGitProjectionEnabled(t *testing.T) {
+	backend := &projectionHTTPBackend{bundleErr: errors.New("draft must not read Git"), planErr: errors.New("draft must not plan Git")}
+	readiness := &projectionHTTPReadiness{err: errors.New("Git writer unavailable")}
+	argoReadiness := &projectionHTTPReadiness{err: errors.New("Argo unavailable")}
+	f := newProjectionAPI(t, backend, readiness, argoReadiness)
+	admin := f.bootstrap()
+	project, err := f.store.CreateProject(t.Context(), admin.ID, "clone-draft-project", "clone-draft-project",
+		domain.CreateProject{Name: "Clone draft", Slug: "clone-draft"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := f.store.CreateEnvironment(t.Context(), admin.ID, "clone-draft-source", "clone-draft-source",
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Development", Slug: "development"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	application, err := f.store.CreateApplication(t.Context(), admin.ID, "clone-draft-app", "clone-draft-app",
+		domain.CreateApplication{ProjectID: project.Value.ID, Name: "API", Slug: "api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = f.store.CreateDeployment(t.Context(), admin.ID, "clone-draft-deployment", "clone-draft-deployment", "request",
+		domain.CreateDeployment{EnvironmentID: source.Value.ID, ApplicationID: application.Value.ID,
+			Image: "registry.example.test/api@sha256:" + strings.Repeat("a", 64), Runtime: domain.DefaultWorkloadRuntime(8080, nil)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloned, err := f.store.CloneEnvironment(t.Context(), admin.ID, source.Value.ID, "clone-draft-environment", "clone-draft-environment",
+		domain.CloneEnvironment{Name: "Production", Slug: "production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployments, err := f.store.ListDeploymentsForActor(t.Context(), admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft domain.Deployment
+	for _, deployment := range deployments {
+		if deployment.EnvironmentID == cloned.Value.Environment.ID {
+			draft = deployment
+		}
+	}
+	if draft.ID == "" || draft.State != "stopped" {
+		t.Fatalf("draft=%#v", draft)
+	}
+
+	path := "/v1/deployments/" + draft.ID + "/config"
+	response := f.request(http.MethodGet, path, "", nil)
+	bundle := decode[configBundleWire](t, response)
+	if response.StatusCode != http.StatusOK || bundle.Freshness != "projection-only" || len(bundle.Documents) != 1 || backend.bundleCalls != 0 {
+		t.Fatalf("local draft bundle status=%d body=%#v projectionCalls=%d", response.StatusCode, bundle, backend.bundleCalls)
+	}
+	change := appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{Op: "replace", Path: "/spec/runtime/replicas", Value: 3}}}
+	response = configRequest(t, f, http.MethodPost, path+"/preview", "", change, map[string]string{"If-Match": bundle.ETag})
+	preview := decode[previewWire](t, response)
+	if response.StatusCode != http.StatusOK || preview.PreviewToken == "" || backend.planCallCount != 0 || backend.bundleCalls != 0 {
+		t.Fatalf("local draft preview status=%d body=%#v planCalls=%d bundleCalls=%d", response.StatusCode, preview, backend.planCallCount, backend.bundleCalls)
+	}
+	outboxBefore := f.store.OutboxCount()
+	response = configRequest(t, f, http.MethodPut, path, "clone-draft-save", change,
+		map[string]string{"If-Match": bundle.ETag, "Preview-Token": preview.PreviewToken})
+	operation := decode[domain.Operation](t, response)
+	if response.StatusCode != http.StatusAccepted || operation.Kind != "deployment.config-draft-save" || operation.Status != "succeeded" ||
+		f.store.OutboxCount() != outboxBefore || backend.planCallCount != 0 || backend.bundleCalls != 0 {
+		t.Fatalf("local draft save status=%d operation=%#v outbox=%d planCalls=%d bundleCalls=%d", response.StatusCode, operation,
+			f.store.OutboxCount(), backend.planCallCount, backend.bundleCalls)
 	}
 }
 

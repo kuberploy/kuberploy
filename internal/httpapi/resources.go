@@ -342,6 +342,10 @@ type deploymentRequest struct {
 	Runtime                *domain.WorkloadRuntime `json:"runtime,omitempty"`
 }
 
+type deploymentRedeployFingerprint struct {
+	DeploymentID string `json:"deploymentId"`
+}
+
 func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		items, err := s.store.ListDeploymentsForActor(r.Context(), currentUser(r.Context()).ID)
@@ -478,6 +482,30 @@ func (s *Server) deployments(w http.ResponseWriter, r *http.Request) {
 		route.Hostname = resolved
 	}
 	s.submitDeployment(w, r, u.ID, key, fp, create, false)
+}
+
+func (s *Server) redeployDeployment(w http.ResponseWriter, r *http.Request) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	actor := currentUser(r.Context()).ID
+	deployment, err := s.store.GetDeploymentForActor(r.Context(), actor, r.PathValue("id"))
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if len(deployment.ConfigRaw) == 0 {
+		writeProblem(w, r, http.StatusConflict, "DeploymentConfigUnavailable", "App configuration unavailable", "The App has no saved configuration to deploy.")
+		return
+	}
+	create := domain.CreateDeployment{
+		EnvironmentID: deployment.EnvironmentID, ApplicationID: deployment.ApplicationID, Image: deployment.Image,
+		Replicas: deployment.Replicas, Port: deployment.Port, Environment: deployment.Environment,
+		Route: deployment.Route, Runtime: deployment.Runtime, ConfigRaw: deployment.ConfigRaw,
+	}
+	fp := fingerprint(deploymentRedeployFingerprint{DeploymentID: deployment.ID})
+	s.submitDeployment(w, r, actor, key, fp, create, false)
 }
 
 // submitDeployment is the single policy-governed Git deployment mutation path used

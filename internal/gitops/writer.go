@@ -563,6 +563,55 @@ func RenderAppConfig(p domain.Project, e domain.Environment, a domain.Applicatio
 	return renderAppConfig(p, e, a, d, "traefik")
 }
 
+// RebindAppConfigForEnvironment copies an existing valid AppConfig into a new
+// Environment without publishing it. Caller-selected runtime, routes,
+// middleware, and advanced overrides are preserved; only server-owned identity
+// and immutable release fields are rebound. The result remains a normal valid
+// AppConfig that can be edited as a stopped draft before it is started.
+func RebindAppConfigForEnvironment(raw []byte, p domain.Project, e domain.Environment, a domain.Application, d domain.Deployment) ([]byte, domain.WorkloadRuntime, error) {
+	parsed, _, diagnostics := appconfig.ParseAndValidate(raw)
+	if len(diagnostics) != 0 {
+		return nil, domain.WorkloadRuntime{}, errors.New("source AppConfig is invalid")
+	}
+	metadata, metadataOK := parsed["metadata"].(map[string]any)
+	spec, specOK := parsed["spec"].(map[string]any)
+	delivery, deliveryOK := spec["delivery"].(map[string]any)
+	runtime, runtimeOK := spec["runtime"].(map[string]any)
+	parts := strings.SplitN(d.Image, "@", 2)
+	if !metadataOK || !specOK || !deliveryOK || !runtimeOK || len(parts) != 2 || !strings.HasPrefix(parts[1], "sha256:") {
+		return nil, domain.WorkloadRuntime{}, errors.New("source AppConfig cannot be rebound")
+	}
+	metadata["id"], metadata["name"] = a.ID, a.Slug
+	spec["projectId"], spec["applicationId"], spec["environmentId"] = p.ID, a.ID, e.ID
+	delivery["mode"] = "image"
+	delivery["release"] = map[string]any{"repository": parts[0], "digest": parts[1]}
+	if d.RegistryPull != nil {
+		if !d.RegistryPull.Valid() {
+			return nil, domain.WorkloadRuntime{}, errors.New("registry pull reference is invalid")
+		}
+		delivery["registryPull"] = map[string]any{
+			"targetId": d.RegistryPull.TargetID, "profileName": d.RegistryPull.ProfileName, "profileRevision": d.RegistryPull.ProfileRevision,
+		}
+	}
+	delete(runtime, "configRevision")
+
+	rebound, err := json.MarshalIndent(parsed, "", "  ")
+	if err != nil || len(rebound) == 0 || len(rebound) >= appconfig.MaxDocument {
+		return nil, domain.WorkloadRuntime{}, errors.New("rebound AppConfig could not be encoded")
+	}
+	rebound = append(rebound, '\n')
+	_, reboundRuntime, diagnostics := appconfig.ParseAndValidate(rebound)
+	if len(diagnostics) != 0 {
+		return nil, domain.WorkloadRuntime{}, errors.New("rebound AppConfig is invalid")
+	}
+	d.Runtime = reboundRuntime
+	d.Replicas, d.Port, d.Environment = domain.LegacyWorkloadFields(reboundRuntime)
+	if diagnostics = appconfig.ValidateBinding(rebound, p, e, a, d); len(diagnostics) != 0 {
+		return nil, domain.WorkloadRuntime{}, errors.New("rebound AppConfig identity is invalid")
+	}
+	return rebound, reboundRuntime, nil
+}
+
 func renderAppConfig(p domain.Project, e domain.Environment, a domain.Application, d domain.Deployment, ingressClass string) ([]byte, error) {
 	if a.ID == "" || e.ID == "" || p.ID == "" {
 		return nil, errors.New("AppConfig requires immutable project, environment and application IDs")

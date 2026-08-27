@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/certificates"
 	"github.com/kuberploy/kuberploy/internal/domain"
+	"github.com/kuberploy/kuberploy/internal/gitops"
 	"github.com/kuberploy/kuberploy/internal/id"
 	"github.com/kuberploy/kuberploy/internal/secrets"
 	base "github.com/kuberploy/kuberploy/internal/store"
@@ -536,7 +537,8 @@ func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID
 		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
 	}
 	// Explicit source placements and legacy deployments share project-owned App
-	// identities. Only metadata is copied into draft/stopped target placements.
+	// identities. Every placement is stopped; source deployments additionally
+	// become independently editable target-bound draft configurations.
 	if _, err = tx.Exec(ctx, `INSERT INTO environment_app_placements(project_id,environment_id,application_id,state,desired_state,created_at,updated_at)
 		SELECT $1,$2,source.application_id,'draft','stopped',$3,$3
 		FROM (
@@ -548,12 +550,16 @@ func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID
 		ORDER BY a.slug,a.id`, source.ProjectID, environment.ID, now, source.ID); err != nil {
 		return base.Result[domain.EnvironmentCloneResult]{}, classify(err)
 	}
+	clonedConfigs, err := cloneEnvironmentDeploymentDrafts(ctx, tx, project, source, environment, now)
+	if err != nil {
+		return base.Result[domain.EnvironmentCloneResult]{}, err
+	}
 	placements, err := listEnvironmentAppPlacements(ctx, tx, environment.ID)
 	if err != nil {
 		return base.Result[domain.EnvironmentCloneResult]{}, err
 	}
 	if err = audit(ctx, tx, actor, "environment.clone", "environment", environment.ID, "", map[string]any{
-		"sourceEnvironmentId": source.ID, "appPlacementCount": len(placements),
+		"sourceEnvironmentId": source.ID, "appPlacementCount": len(placements), "draftConfigCount": clonedConfigs,
 	}); err != nil {
 		return base.Result[domain.EnvironmentCloneResult]{}, err
 	}
@@ -564,6 +570,84 @@ func (s *Store) CloneEnvironment(ctx context.Context, actor, sourceEnvironmentID
 		return base.Result[domain.EnvironmentCloneResult]{}, err
 	}
 	return base.Result[domain.EnvironmentCloneResult]{Value: domain.EnvironmentCloneResult{Environment: environment, AppPlacements: placements}}, nil
+}
+
+func cloneEnvironmentDeploymentDrafts(ctx context.Context, tx pgx.Tx, project domain.Project, source, target domain.Environment, now time.Time) (int, error) {
+	type sourceDraft struct {
+		application domain.Application
+		image       string
+		routeJSON   []byte
+		runtimeJSON []byte
+		configRaw   []byte
+	}
+	rows, err := tx.Query(ctx, `SELECT a.id::text,a.project_id::text,a.name,a.slug,a.source_kind,a.created_at,
+		d.image,d.route,d.runtime,d.config_raw
+		FROM deployments d JOIN applications a ON a.id=d.application_id
+		WHERE d.environment_id=$1 AND a.project_id=$2 ORDER BY a.slug,a.id FOR SHARE OF d,a`, source.ID, project.ID)
+	if err != nil {
+		return 0, err
+	}
+	drafts := make([]sourceDraft, 0)
+	for rows.Next() {
+		var draft sourceDraft
+		if err = rows.Scan(&draft.application.ID, &draft.application.ProjectID, &draft.application.Name, &draft.application.Slug,
+			&draft.application.SourceKind, &draft.application.CreatedAt, &draft.image, &draft.routeJSON, &draft.runtimeJSON, &draft.configRaw); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		drafts = append(drafts, draft)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
+
+	for _, sourceDraft := range drafts {
+		deploymentID, operationID := id.New(), id.New()
+		draft := domain.Deployment{
+			ID: deploymentID, EnvironmentID: target.ID, ApplicationID: sourceDraft.application.ID,
+			Image: sourceDraft.image, State: "stopped", OperationID: operationID, Generation: 1,
+			CreatedAt: now, UpdatedAt: now, ConfigVersion: 1,
+		}
+		if len(sourceDraft.routeJSON) != 0 {
+			draft.Route = &domain.Route{}
+			if err = json.Unmarshal(sourceDraft.routeJSON, draft.Route); err != nil {
+				return 0, err
+			}
+		}
+		if len(sourceDraft.runtimeJSON) == 0 || json.Unmarshal(sourceDraft.runtimeJSON, &draft.Runtime) != nil {
+			return 0, base.ErrConflict
+		}
+		if len(sourceDraft.configRaw) == 0 {
+			draft.ConfigRaw, err = gitops.RenderAppConfig(project, target, sourceDraft.application, draft)
+		} else {
+			draft.ConfigRaw, draft.Runtime, err = gitops.RebindAppConfigForEnvironment(sourceDraft.configRaw, project, target, sourceDraft.application, draft)
+		}
+		if err != nil {
+			return 0, base.ErrConflict
+		}
+		draft.Replicas, draft.Port, draft.Environment = domain.LegacyWorkloadFields(draft.Runtime)
+		environmentJSON, _ := json.Marshal(draft.Environment)
+		runtimeJSON, _ := json.Marshal(draft.Runtime)
+		configETag := domain.DeploymentConfigETag(draft.ID, draft.ConfigVersion, draft.ConfigRaw)
+		if _, err = tx.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at,finished_at)
+			VALUES($1,'deployment.clone-draft','succeeded','deployment',$2,$3,1,'[]',$4,$4,$4)`, operationID, deploymentID, "environment-clone:"+target.ID, now); err != nil {
+			return 0, classify(err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,route,runtime,state,operation_id,generation,config_raw,config_etag,config_version,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'stopped',$10,1,$11,$12,1,$13,$13)`,
+			draft.ID, draft.EnvironmentID, draft.ApplicationID, draft.Image, draft.Replicas, draft.Port, environmentJSON,
+			sourceDraft.routeJSON, runtimeJSON, draft.OperationID, draft.ConfigRaw, configETag, now); err != nil {
+			return 0, classify(err)
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO deployment_operation_inputs(operation_id,deployment_id,image,replicas,port,environment,route,runtime,config_raw,created_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, operationID, deploymentID, draft.Image, draft.Replicas, draft.Port,
+			environmentJSON, sourceDraft.routeJSON, runtimeJSON, draft.ConfigRaw, now); err != nil {
+			return 0, classify(err)
+		}
+	}
+	return len(drafts), nil
 }
 
 func listEnvironmentAppPlacements(ctx context.Context, q interface {
@@ -733,6 +817,24 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 		}
 	}
 	if resourceType == "environment" {
+		var running bool
+		if err = tx.QueryRow(ctx, `SELECT
+			EXISTS(SELECT 1 FROM deployments WHERE environment_id=$1 AND state<>'stopped') OR
+			EXISTS(SELECT 1 FROM environment_app_placements WHERE environment_id=$1 AND (state<>'draft' OR desired_state<>'stopped'))`, resourceID).Scan(&running); err != nil {
+			return false, err
+		}
+		if running {
+			return false, blocked
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM git_write_commands WHERE deployment_id IN (SELECT id FROM deployments WHERE environment_id=$1 AND state='stopped')`, resourceID); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM deployments WHERE environment_id=$1 AND state='stopped'`, resourceID); err != nil {
+			if errors.Is(classify(err), base.ErrConflict) {
+				return false, blocked
+			}
+			return false, err
+		}
 		var bindingID, targetRef, requiredAncestor, manifestPath, manifestDigest, state string
 		foundationErr := tx.QueryRow(ctx, `SELECT platform_binding_id::text,target_ref,committed_revision,
 			manifest_path,manifest_digest,state FROM environment_foundation_intents

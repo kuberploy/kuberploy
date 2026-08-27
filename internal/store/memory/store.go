@@ -438,8 +438,27 @@ func (s *Store) DeleteEnvironment(_ context.Context, actor, environmentID, confi
 		return false, base.ErrDeletionConfirmation
 	}
 	for _, deployment := range s.deployments {
-		if deployment.EnvironmentID == environmentID {
+		if deployment.EnvironmentID != environmentID {
+			continue
+		}
+		placement := s.environmentAppPlacements[environmentID][deployment.ApplicationID]
+		if deployment.State != "stopped" || placement.State != domain.EnvironmentAppPlacementDraft || placement.DesiredState != domain.EnvironmentAppPlacementStopped {
 			return false, base.ErrEnvironmentDeletionBlocked
+		}
+	}
+	for commandID, command := range s.gitWriteCommands {
+		if deployment, exists := s.deployments[command.DeploymentID]; exists && deployment.EnvironmentID == environmentID {
+			delete(s.gitWriteCommands, commandID)
+		}
+	}
+	for deploymentID, deployment := range s.deployments {
+		if deployment.EnvironmentID == environmentID {
+			delete(s.deployments, deploymentID)
+		}
+	}
+	for operationID, input := range s.deploymentInputs {
+		if input.EnvironmentID == environmentID {
+			delete(s.deploymentInputs, operationID)
 		}
 	}
 	for grantID, grant := range s.accessGrants {
@@ -506,6 +525,7 @@ func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, 
 	s.environments[clone.ID] = clone
 	s.environmentAppPlacements[clone.ID] = map[string]domain.EnvironmentAppPlacement{}
 	applicationIDs := map[string]struct{}{}
+	sourceDeployments := make([]domain.Deployment, 0)
 	for applicationID := range s.environmentAppPlacements[sourceEnvironmentID] {
 		applicationIDs[applicationID] = struct{}{}
 	}
@@ -514,6 +534,7 @@ func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, 
 	for _, deployment := range s.deployments {
 		if deployment.EnvironmentID == sourceEnvironmentID {
 			applicationIDs[deployment.ApplicationID] = struct{}{}
+			sourceDeployments = append(sourceDeployments, deployment)
 		}
 	}
 	for applicationID := range applicationIDs {
@@ -527,6 +548,48 @@ func (s *Store) CloneEnvironment(_ context.Context, actor, sourceEnvironmentID, 
 			State: domain.EnvironmentAppPlacementDraft, DesiredState: domain.EnvironmentAppPlacementStopped,
 			CreatedAt: now, UpdatedAt: now,
 		}
+	}
+	createdDeploymentIDs := make([]string, 0, len(sourceDeployments))
+	createdOperationIDs := make([]string, 0, len(sourceDeployments))
+	for _, sourceDeployment := range sourceDeployments {
+		application, exists := s.applications[sourceDeployment.ApplicationID]
+		if !exists || application.ProjectID != source.ProjectID {
+			continue
+		}
+		deploymentID, operationID := id.New(), id.New()
+		draft := domain.Deployment{
+			ID: deploymentID, EnvironmentID: clone.ID, ApplicationID: application.ID, Image: sourceDeployment.Image,
+			Route: cloneRoute(sourceDeployment.Route), Runtime: cloneRuntime(sourceDeployment.Runtime), State: "stopped",
+			OperationID: operationID, Generation: 1, ConfigVersion: 1, CreatedAt: now, UpdatedAt: now,
+		}
+		var cloneErr error
+		if len(sourceDeployment.ConfigRaw) == 0 {
+			draft.ConfigRaw, cloneErr = gitops.RenderAppConfig(project, clone, application, draft)
+		} else {
+			draft.ConfigRaw, draft.Runtime, cloneErr = gitops.RebindAppConfigForEnvironment(sourceDeployment.ConfigRaw, project, clone, application, draft)
+		}
+		if cloneErr != nil {
+			for _, createdID := range createdDeploymentIDs {
+				delete(s.deployments, createdID)
+			}
+			for _, createdID := range createdOperationIDs {
+				delete(s.operations, createdID)
+				delete(s.deploymentInputs, createdID)
+			}
+			delete(s.environmentAppPlacements, clone.ID)
+			delete(s.environments, clone.ID)
+			return base.Result[domain.EnvironmentCloneResult]{}, base.ErrConflict
+		}
+		draft.Replicas, draft.Port, draft.Environment = domain.LegacyWorkloadFields(draft.Runtime)
+		finished := now
+		s.operations[operationID] = domain.Operation{
+			ID: operationID, Kind: "deployment.clone-draft", Status: "succeeded", TargetType: "deployment", TargetID: deploymentID,
+			RequestID: "environment-clone:" + clone.ID, Generation: 1, CreatedAt: now, UpdatedAt: now, FinishedAt: &finished,
+		}
+		s.deployments[deploymentID] = draft
+		s.deploymentInputs[operationID] = draft
+		createdDeploymentIDs = append(createdDeploymentIDs, deploymentID)
+		createdOperationIDs = append(createdOperationIDs, operationID)
 	}
 	s.idempotency[k] = idemRecord{fingerprint: cloneFingerprint, typ: "environment", resourceID: clone.ID}
 	s.audits++

@@ -1,18 +1,20 @@
 package postgres
 
 import (
+	"crypto/sha256"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/appconfig"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/id"
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-func TestPostgreSQLEnvironmentCloneIsDraftOnlyIdempotentAndSideEffectFree(t *testing.T) {
+func TestPostgreSQLEnvironmentCloneCopiesStoppedDraftConfigurationWithoutPublishing(t *testing.T) {
 	if os.Getenv("KUBERPLOY_TEST_DATABASE_URL") == "" {
 		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
 	}
@@ -91,11 +93,17 @@ func TestPostgreSQLEnvironmentCloneIsDraftOnlyIdempotentAndSideEffectFree(t *tes
 	}
 
 	sideEffectTables := []string{
-		"deployments", "operations", "outbox", "git_write_commands", "build_attempts",
+		"outbox", "git_write_commands", "build_attempts",
 		"registry_releases", "helm_app_revisions", "secret_bindings", "secret_binding_versions",
 		"external_dns_integrations", "runtime_registry_pull_artifacts",
 	}
 	before := environmentCloneTableCounts(t, store, sideEffectTables)
+	var deploymentsBefore, operationsBefore, inputsBefore int
+	for table, destination := range map[string]*int{"deployments": &deploymentsBefore, "operations": &operationsBefore, "deployment_operation_inputs": &inputsBefore} {
+		if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM public.`+table).Scan(destination); err != nil {
+			t.Fatal(err)
+		}
+	}
 	input := domain.CloneEnvironment{Name: "Production", Slug: "production"}
 	cloned, err := store.CloneEnvironment(ctx, actorID, source.Value.ID, "clone-environment-"+suffix, "clone-environment-fingerprint-"+suffix, input)
 	if err != nil {
@@ -117,10 +125,59 @@ func TestPostgreSQLEnvironmentCloneIsDraftOnlyIdempotentAndSideEffectFree(t *tes
 			t.Fatalf("shared application identity %s missing", application.ID)
 		}
 	}
+	var clonedDrafts int
+	var allStopped, allTargetBound bool
+	if err = store.pool.QueryRow(ctx, `SELECT count(*),bool_and(state='stopped'),bool_and(position($2 in convert_from(config_raw,'UTF8'))>0)
+		FROM deployments WHERE environment_id=$1`, cloned.Value.Environment.ID, cloned.Value.Environment.ID).Scan(&clonedDrafts, &allStopped, &allTargetBound); err != nil {
+		t.Fatal(err)
+	}
+	if clonedDrafts != 2 || !allStopped || !allTargetBound {
+		t.Fatalf("cloned drafts=%d stopped=%v targetBound=%v", clonedDrafts, allStopped, allTargetBound)
+	}
+	var deploymentsAfter, operationsAfter, inputsAfter int
+	for table, destination := range map[string]*int{"deployments": &deploymentsAfter, "operations": &operationsAfter, "deployment_operation_inputs": &inputsAfter} {
+		if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM public.`+table).Scan(destination); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if deploymentsAfter != deploymentsBefore+2 || operationsAfter != operationsBefore+2 || inputsAfter != inputsBefore+2 {
+		t.Fatalf("draft history counts deployments=%d operations=%d inputs=%d", deploymentsAfter-deploymentsBefore, operationsAfter-operationsBefore, inputsAfter-inputsBefore)
+	}
 	after := environmentCloneTableCounts(t, store, sideEffectTables)
 	for table, count := range before {
 		if after[table] != count {
 			t.Fatalf("clone changed side-effect table %s: before=%d after=%d", table, count, after[table])
+		}
+	}
+	var draftID, draftETag string
+	var draftRaw []byte
+	if err = store.pool.QueryRow(ctx, `SELECT id,config_etag,config_raw FROM deployments WHERE environment_id=$1 ORDER BY id LIMIT 1`,
+		cloned.Value.Environment.ID).Scan(&draftID, &draftETag, &draftRaw); err != nil {
+		t.Fatal(err)
+	}
+	candidate := appconfig.Apply(draftRaw, appconfig.Change{Mode: "jsonPatch", Patch: []appconfig.PatchOperation{{
+		Op: "replace", Path: "/spec/runtime/replicas", Value: 3,
+	}}})
+	if len(candidate.Diagnostics) != 0 {
+		t.Fatalf("draft candidate diagnostics=%#v", candidate.Diagnostics)
+	}
+	tokenHash := sha256.Sum256([]byte("clone-draft-preview-" + suffix))
+	if err = store.CreateDeploymentConfigPreview(ctx, actorID, domain.CreateConfigPreview{DeploymentID: draftID,
+		BaseETag: draftETag, TokenHash: tokenHash[:], CandidateHash: candidate.Hash, CandidateRaw: candidate.Raw,
+		Runtime: candidate.Runtime, ExpiresAt: time.Now().Add(time.Hour)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	saved, saveOperation, err := store.SaveDeploymentConfig(ctx, actorID, "clone-draft-save-"+suffix, "clone-draft-save-"+suffix,
+		"request-"+suffix, domain.SaveDeploymentConfig{DeploymentID: draftID, BaseETag: draftETag, TokenHash: tokenHash[:],
+			CandidateHash: candidate.Hash, RawYAML: candidate.Raw}, nil)
+	if err != nil || saved.Value.State != "stopped" || saved.Value.Runtime.Replicas != 3 ||
+		saveOperation.Kind != "deployment.config-draft-save" || saveOperation.Status != "succeeded" {
+		t.Fatalf("saved draft=%#v operation=%#v err=%v", saved, saveOperation, err)
+	}
+	afterDraftSave := environmentCloneTableCounts(t, store, sideEffectTables)
+	for table, count := range before {
+		if afterDraftSave[table] != count {
+			t.Fatalf("draft save changed side-effect table %s: before=%d after=%d", table, count, afterDraftSave[table])
 		}
 	}
 
@@ -137,6 +194,18 @@ func TestPostgreSQLEnvironmentCloneIsDraftOnlyIdempotentAndSideEffectFree(t *tes
 		domain.CloneEnvironment{Name: "Staging", Slug: "staging"})
 	if err != nil || len(second.Value.AppPlacements) != len(applications) {
 		t.Fatalf("draft source clone=%#v err=%v", second, err)
+	}
+	var secondDrafts int
+	if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM deployments WHERE environment_id=$1 AND state='stopped'`, second.Value.Environment.ID).Scan(&secondDrafts); err != nil || secondDrafts != 2 {
+		t.Fatalf("second draft configs=%d err=%v", secondDrafts, err)
+	}
+	deletedReplay, err := store.DeleteEnvironment(ctx, actorID, second.Value.Environment.ID, second.Value.Environment.Name,
+		"delete-cloned-environment-"+suffix, "delete-cloned-environment-"+suffix, "request-"+suffix)
+	if err != nil || deletedReplay {
+		t.Fatalf("delete cloned Environment replay=%v err=%v", deletedReplay, err)
+	}
+	if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM deployments WHERE environment_id=$1`, second.Value.Environment.ID).Scan(&secondDrafts); err != nil || secondDrafts != 0 {
+		t.Fatalf("deleted clone retained drafts=%d err=%v", secondDrafts, err)
 	}
 }
 

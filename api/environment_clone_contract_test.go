@@ -40,7 +40,7 @@ func TestEnvironmentCloneOpenAPIContractIsDraftOnlyAndProjectScoped(t *testing.T
 	if operation.OperationID != "cloneEnvironment" || operation.Permission != "resources.write" || operation.Idempotency != "required" || operation.Automation != "app.edit" {
 		t.Fatalf("clone operation=%#v", operation)
 	}
-	for _, required := range []string{"environments:create", "source project", "no deployment", "copies no secret value"} {
+	for _, required := range []string{"environments:create", "source project", "target-bound saved App configuration", "no workload", "secret plaintext is never copied"} {
 		if !strings.Contains(operation.Description, required) {
 			t.Fatalf("clone description omits %q: %q", required, operation.Description)
 		}

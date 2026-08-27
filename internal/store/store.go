@@ -89,13 +89,25 @@ func (p *AppConfigReferencePlan) Validate() error {
 // seam to exactly zero or one plan. References are meaningful only beside an
 // immutable Git write plan because Git is the desired-state authority.
 func NormalizeAppConfigReferencePlan(projection *gitprojection.WritePlan, plans []*AppConfigReferencePlan) (*AppConfigReferencePlan, error) {
+	return normalizeAppConfigReferencePlan(projection, plans, false)
+}
+
+// NormalizeLocalDraftAppConfigReferencePlan permits the same exact reference
+// attestation for a stopped database draft. The draft is not Git authority,
+// but its referenced target-environment secret and certificate revisions still
+// require validation before the saved draft can later be started.
+func NormalizeLocalDraftAppConfigReferencePlan(plans []*AppConfigReferencePlan) (*AppConfigReferencePlan, error) {
+	return normalizeAppConfigReferencePlan(nil, plans, true)
+}
+
+func normalizeAppConfigReferencePlan(projection *gitprojection.WritePlan, plans []*AppConfigReferencePlan, localDraft bool) (*AppConfigReferencePlan, error) {
 	if len(plans) == 0 {
 		return nil, nil
 	}
 	if len(plans) == 1 && plans[0] == nil {
 		return nil, nil
 	}
-	if len(plans) != 1 || projection == nil || plans[0].Validate() != nil {
+	if len(plans) != 1 || projection == nil && !localDraft || plans[0].Validate() != nil {
 		return nil, ErrPreconditionFailed
 	}
 	return plans[0], nil
