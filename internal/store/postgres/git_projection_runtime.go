@@ -117,6 +117,14 @@ func validateGitProjectionPlanTx(ctx context.Context, tx pgx.Tx, plan *gitprojec
 }
 
 func insertGitWriteCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, now time.Time) error {
+	return insertDeploymentGitCommandTx(ctx, tx, actor, operationID, deploymentID, plan, content, message, gitprojection.MutationUpsert, now)
+}
+
+func insertGitDeleteCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, now time.Time) error {
+	return insertDeploymentGitCommandTx(ctx, tx, actor, operationID, deploymentID, plan, content, message, gitprojection.MutationDelete, now)
+}
+
+func insertDeploymentGitCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, action gitprojection.MutationAction, now time.Time) error {
 	if plan == nil {
 		return nil
 	}
@@ -124,7 +132,12 @@ func insertGitWriteCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID,
 	if err != nil {
 		return err
 	}
-	command, err := gitprojection.NewWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	var command gitprojection.WriteCommand
+	if action == gitprojection.MutationDelete {
+		command, err = gitprojection.NewDeleteWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	} else {
+		command, err = gitprojection.NewWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	}
 	if err != nil {
 		return err
 	}
@@ -144,12 +157,12 @@ func insertGitWriteCommandTx(ctx context.Context, tx pgx.Tx, actor, operationID,
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,deployment_id,actor_id,binding_id,project_id,
 		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_identity,policy_version,
-		content,content_sha256,message,publication_mode,state,created_at,updated_at)
-		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19)`,
+		content,content_sha256,message,action,publication_mode,state,created_at,updated_at)
+		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending',$20,$20)`,
 		command.OperationID, command.DeploymentID, command.ActorID, command.Plan.BindingID, command.Plan.ProjectID,
 		command.Plan.EnvironmentID, command.Plan.ApplicationID, command.TargetRef, command.Path, command.Plan.BaseRevision,
 		command.Plan.Precondition, command.Plan.ExpectedETag, command.Plan.ChartDigest, command.Plan.PolicyVersion,
-		command.Content, command.ContentSHA256, command.Message, mode, command.CreatedAt)
+		command.Content, command.ContentSHA256, command.Message, command.Action, mode, command.CreatedAt)
 	if err != nil {
 		return classify(err)
 	}

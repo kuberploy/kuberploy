@@ -2916,6 +2916,11 @@ export const api = {
       },
       body: safeCreateDeploymentInput(input),
     }).then(normalizeOperation),
+  stopDeployment: (id: string, idempotencyKey: string) =>
+    request<OperationWire>(`/v1/deployments/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: { "Idempotency-Key": idempotencyKey },
+    }).then(normalizeOperation),
   previewImageResolution: (
     environmentId: string,
     applicationId: string,

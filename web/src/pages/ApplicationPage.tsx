@@ -1,10 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import {
   Card,
   CardHeader,
+  Button,
+  ConfirmDialog,
   CopyButton,
   DetailList,
   ErrorPanel,
@@ -28,6 +30,7 @@ import { formatDate, shortId, titleCase } from "../lib/format";
 import { hasHelmCapability } from "../lib/helmAccess";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import { runtimeSecretEnvironments } from "../lib/runtimeSecretAccess";
+import { hasDeploymentUpdateCapability } from "../lib/deploymentAccess";
 
 type Tab =
   | "overview"
@@ -44,6 +47,10 @@ export function ApplicationPage() {
   const { applicationId, deploymentId } = useParams({
     from: "/applications/$applicationId/deployments/$deploymentId",
   });
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [stopOpen, setStopOpen] = useState(false);
+  const stopAttempt = useRef<string | null>(null);
   const [tabChoice, setTab] = useState<Tab>("overview");
   const application = useQuery({
     queryKey: ["application", applicationId],
@@ -82,6 +89,11 @@ export function ApplicationPage() {
     capabilities.data?.features?.helmRollbacks === true;
   const deploymentRollbackFeatureEnabled =
     capabilities.data?.features?.deploymentRollbacks === true;
+  const deploymentManagementEnabled =
+    capabilities.data?.capabilities?.some(
+      (capability) =>
+        capability.actions?.includes("deployments:update") === true,
+    ) === true;
   const environments = useQuery({
     queryKey: ["environments"],
     queryFn: api.environments,
@@ -89,7 +101,8 @@ export function ApplicationPage() {
       secretFeatureEnabled ||
       certificateFeatureEnabled ||
       helmFeatureEnabled ||
-      deploymentRollbackFeatureEnabled,
+      deploymentRollbackFeatureEnabled ||
+      deploymentManagementEnabled,
     retry: false,
   });
   const projects = useQuery({
@@ -100,7 +113,8 @@ export function ApplicationPage() {
       registryFeatureEnabled ||
       certificateFeatureEnabled ||
       helmFeatureEnabled ||
-      deploymentRollbackFeatureEnabled,
+      deploymentRollbackFeatureEnabled ||
+      deploymentManagementEnabled,
     retry: false,
   });
   const me = useQuery({
@@ -162,6 +176,38 @@ export function ApplicationPage() {
   const helmEnvironment = environments.data?.items.find(
     (environment) => environment.id === deployment.data?.environmentId,
   );
+  const canStop = Boolean(
+    application.data &&
+    deployment.data &&
+    helmEnvironment &&
+    deployment.data.state !== "stopped" &&
+    deployment.data.state !== "pending-stop" &&
+    hasDeploymentUpdateCapability(
+      effectiveCapabilities,
+      application.data,
+      helmEnvironment,
+      applicationProject,
+    ),
+  );
+  const stopDeployment = useMutation({
+    mutationFn: (idempotencyKey: string) =>
+      api.stopDeployment(deploymentId, idempotencyKey),
+    onSuccess: async (operation) => {
+      stopAttempt.current = null;
+      setStopOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["deployments"] }),
+        queryClient.invalidateQueries({
+          queryKey: ["deployment", deploymentId],
+        }),
+        queryClient.invalidateQueries({ queryKey: ["operations"] }),
+      ]);
+      await navigate({
+        to: "/operations/$operationId",
+        params: { operationId: operation.id },
+      });
+    },
+  });
   const showHelmTab = Boolean(
     helmFeatureEnabled &&
     application.data &&
@@ -206,7 +252,16 @@ export function ApplicationPage() {
             ? `${deployment.data.image ?? deployment.data.source?.reference ?? "Image resolving"} · runtime ${shortId(deployment.data.id)}`
             : "Loading immutable release identity…"
         }
-        actions={<StatusPill value={health} />}
+        actions={
+          <>
+            <StatusPill value={health} />
+            {canStop ? (
+              <Button variant="danger" onClick={() => setStopOpen(true)}>
+                <Icon name="close" /> Stop App
+              </Button>
+            ) : null}
+          </>
+        }
       />
 
       {loadError ? (
@@ -215,6 +270,26 @@ export function ApplicationPage() {
           onRetry={() =>
             void Promise.all([application.refetch(), deployment.refetch()])
           }
+        />
+      ) : null}
+      {stopOpen ? (
+        <ConfirmDialog
+          title={`Stop ${application.data?.name ?? "App"}?`}
+          description="This removes this Environment's desired App manifest. Argo CD prunes its workload. Configuration remains available for a later redeploy."
+          confirmLabel="Stop App"
+          confirmation="STOP"
+          busy={stopDeployment.isPending}
+          error={stopDeployment.error}
+          icon="close"
+          onCancel={() => {
+            stopDeployment.reset();
+            setStopOpen(false);
+          }}
+          onConfirm={() => {
+            const key = stopAttempt.current ?? crypto.randomUUID();
+            stopAttempt.current = key;
+            stopDeployment.mutate(key);
+          }}
         />
       ) : null}
 

@@ -58,3 +58,40 @@ func TestProjectApplicationAndEnvironmentDeletionContract(t *testing.T) {
 		}
 	}
 }
+
+func TestDeploymentStopContract(t *testing.T) {
+	type operation struct {
+		OperationID     string `json:"operationId"`
+		AutomationScope string `json:"x-kuberploy-automation-scope"`
+		Effect          string `json:"x-kuberploy-effect"`
+		Idempotency     string `json:"x-kuberploy-idempotency"`
+		Parameters      []struct {
+			Ref string `json:"$ref"`
+		} `json:"parameters"`
+		Responses map[string]json.RawMessage `json:"responses"`
+	}
+	var document struct {
+		Paths map[string]map[string]operation `json:"paths"`
+	}
+	if err := json.Unmarshal(OpenAPIJSON, &document); err != nil {
+		t.Fatal(err)
+	}
+	stop := document.Paths["/v1/deployments/{id}"]["delete"]
+	if stop.OperationID != "stopDeployment" || stop.AutomationScope != "app.edit" || stop.Effect != "git-write" || stop.Idempotency != "required" || stop.Responses["202"] == nil {
+		t.Fatalf("deployment stop contract=%#v", stop)
+	}
+	refs := map[string]bool{}
+	for _, parameter := range stop.Parameters {
+		refs[parameter.Ref] = true
+	}
+	if !refs["#/components/parameters/ResourceId"] || !refs["#/components/parameters/IdempotencyKey"] || !refs["#/components/parameters/CSRFToken"] {
+		t.Fatalf("deployment stop protections=%#v", refs)
+	}
+	profile, err := BuildAgentProfile(OpenAPIJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsJSONOperation(profile, "stopDeployment") {
+		t.Fatal("deployment stop missing from agent allowlist")
+	}
+}

@@ -83,7 +83,7 @@ func TestPrismaMigrationPreservesNativePostgreSQLAuthority(t *testing.T) {
 		WHERE n.nspname='public' AND NOT t.tgisinternal`, 68)
 	assertCatalogCount(t, ctx, pool, "check constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
-		WHERE n.nspname='public' AND c.contype='c'`, 654)
+		WHERE n.nspname='public' AND c.contype='c'`, 655)
 	assertCatalogCount(t, ctx, pool, "deferred constraints", `SELECT count(*)
 		FROM pg_constraint c JOIN pg_namespace n ON n.oid=c.connamespace
 		WHERE n.nspname='public' AND c.condeferrable`, 9)

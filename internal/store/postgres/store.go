@@ -717,6 +717,21 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 	if strings.TrimSpace(confirmationName) != name {
 		return false, base.ErrDeletionConfirmation
 	}
+	if resourceType == "application" {
+		var running bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM deployments WHERE application_id=$1 AND state<>'stopped')`, resourceID).Scan(&running); err != nil {
+			return false, err
+		}
+		if running {
+			return false, blocked
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM git_write_commands WHERE deployment_id IN (SELECT id FROM deployments WHERE application_id=$1 AND state='stopped')`, resourceID); err != nil {
+			return false, err
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM deployments WHERE application_id=$1 AND state='stopped'`, resourceID); err != nil {
+			return false, classify(err)
+		}
+	}
 	if resourceType == "environment" {
 		var bindingID, targetRef, requiredAncestor, manifestPath, manifestDigest, state string
 		foundationErr := tx.QueryRow(ctx, `SELECT platform_binding_id::text,target_ref,committed_revision,

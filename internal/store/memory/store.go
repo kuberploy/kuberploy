@@ -648,8 +648,24 @@ func (s *Store) DeleteApplication(_ context.Context, actor, applicationID, confi
 		return false, base.ErrDeletionConfirmation
 	}
 	for _, deployment := range s.deployments {
-		if deployment.ApplicationID == applicationID {
+		if deployment.ApplicationID == applicationID && deployment.State != "stopped" {
 			return false, base.ErrApplicationDeletionBlocked
+		}
+	}
+	for deploymentID, deployment := range s.deployments {
+		if deployment.ApplicationID != applicationID {
+			continue
+		}
+		delete(s.deployments, deploymentID)
+		for operationID, command := range s.gitWriteCommands {
+			if command.DeploymentID == deploymentID {
+				delete(s.gitWriteCommands, operationID)
+			}
+		}
+		for operationID, input := range s.deploymentInputs {
+			if input.ID == deploymentID {
+				delete(s.deploymentInputs, operationID)
+			}
 		}
 	}
 	for environmentID, placements := range s.environmentAppPlacements {
@@ -802,6 +818,67 @@ func (s *Store) CreateDeployment(_ context.Context, actor, key, fp, requestID st
 	s.audits++
 	return base.Result[domain.Deployment]{Value: d}, op, nil
 }
+
+func (s *Store) StopDeployment(_ context.Context, actor, deploymentID, key, fp, requestID string, projection *gitprojection.WritePlan) (base.Result[domain.Operation], error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	scope := "deployments.stop:" + deploymentID
+	k := ik(actor, scope, key)
+	old, replay := s.idempotency[k]
+	if err := check(old, replay, fp); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if replay {
+		d, ok := s.deployments[old.resourceID]
+		if !ok {
+			return base.Result[domain.Operation]{}, base.ErrNotFound
+		}
+		if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "deployment", ID: d.ID}); err != nil {
+			return base.Result[domain.Operation]{}, err
+		}
+		op, ok := s.operations[old.operationID]
+		if !ok {
+			return base.Result[domain.Operation]{}, base.ErrNotFound
+		}
+		return base.Result[domain.Operation]{Value: op, Replay: true}, nil
+	}
+	d, ok := s.deployments[deploymentID]
+	if !ok {
+		return base.Result[domain.Operation]{}, base.ErrNotFound
+	}
+	if err := s.authorizeLocked(actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "deployment", ID: d.ID}); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if projection == nil || projection.EnvironmentID != d.EnvironmentID || projection.ApplicationID != d.ApplicationID ||
+		projection.Precondition != gitprojection.MutationMatchETag {
+		return base.Result[domain.Operation]{}, base.ErrPreconditionFailed
+	}
+	if _, err := s.validateProjectionPlanLocked(projection); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	now := time.Now().UTC()
+	for operationID, current := range s.operations {
+		if current.TargetID == d.ID && current.Status == "queued" {
+			current.Status, current.UpdatedAt, current.FinishedAt = "superseded", now, &now
+			current.Problem = &domain.ProblemData{Code: "Superseded", Detail: "A newer deployment lifecycle command was accepted."}
+			s.operations[operationID] = current
+		}
+	}
+	d.Generation++
+	op := domain.Operation{ID: id.New(), Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID,
+		RequestID: requestID, Generation: d.Generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
+	if err := s.putGitDeleteCommandLocked(actor, op.ID, d.ID, projection, d.ConfigRaw, "stop("+d.ApplicationID+"): remove App desired state", now); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	d.State, d.OperationID, d.UpdatedAt = "pending-stop", op.ID, now
+	s.deployments[d.ID] = d
+	s.operations[op.ID] = op
+	s.outbox[op.ID] = &outboxRecord{message: domain.WorkMessage{OperationID: op.ID, Kind: op.Kind, ScopeID: d.EnvironmentID, Generation: d.Generation, TraceID: requestID}}
+	s.idempotency[k] = idemRecord{fp, "deployment", d.ID, op.ID}
+	s.audits++
+	return base.Result[domain.Operation]{Value: op}, nil
+}
+
 func clone(v map[string]string) map[string]string {
 	o := map[string]string{}
 	for k, x := range v {
@@ -1134,6 +1211,14 @@ func (s *Store) CompleteGitOperation(_ context.Context, v string, generation int
 	if op.Kind == "deployment.git-write" {
 		d := s.deployments[op.TargetID]
 		if d.Generation == generation {
+			if command, exists := s.gitWriteCommands[op.ID]; exists && command.Action == gitprojection.MutationDelete && mode == gitpublication.ModeDirect {
+				state = "stopped"
+				if placements := s.environmentAppPlacements[d.EnvironmentID]; placements != nil {
+					placement := placements[d.ApplicationID]
+					placement.DesiredState, placement.UpdatedAt = domain.EnvironmentAppPlacementStopped, now
+					placements[d.ApplicationID] = placement
+				}
+			}
 			d.State = state
 			if mode == gitpublication.ModeDirect {
 				d.DesiredRevision = result.Revision

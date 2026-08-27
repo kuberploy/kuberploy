@@ -1,11 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api/client";
 import type { Capabilities, ConfigBundle } from "../api/types";
 import { ApplicationPage } from "./ApplicationPage";
+
+const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to }: PropsWithChildren<{ to: string }>) => (
@@ -15,9 +23,11 @@ vi.mock("@tanstack/react-router", () => ({
     applicationId: "application-payments",
     deploymentId: "deployment-production",
   }),
+  useNavigate: () => navigate,
 }));
 
 beforeEach(() => {
+  navigate.mockReset();
   vi.spyOn(api, "application").mockResolvedValue({
     id: "application-payments",
     projectId: "project-payments",
@@ -82,6 +92,50 @@ beforeEach(() => {
     displayName: "Admin",
     role: "developer",
     authentication: { kind: "session" },
+  });
+});
+
+describe("application stop lifecycle", () => {
+  it("stops a deployed App after exact environment confirmation", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "stopDeployment").mockResolvedValue({
+      id: "33333333-3333-4333-8333-333333333333",
+      kind: "deployment.git-write",
+      status: "queued",
+      state: "queued",
+      targetType: "deployment",
+      targetId: "deployment-production",
+      requestId: "stop-request",
+      generation: 5,
+      progress: [],
+      createdAt: "2026-08-09T00:00:00Z",
+      updatedAt: "2026-08-09T00:00:00Z",
+    });
+    renderApplication({
+      features: {},
+      capabilities: [
+        {
+          scopeType: "environment",
+          scopeId: "environment-production",
+          actions: ["deployments:update"],
+        },
+      ],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Stop App" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.type(within(dialog).getByLabelText("Confirm deletion"), "STOP");
+    await user.click(within(dialog).getByRole("button", { name: "Stop App" }));
+
+    await waitFor(() => expect(api.stopDeployment).toHaveBeenCalledOnce());
+    expect(api.stopDeployment).toHaveBeenCalledWith(
+      "deployment-production",
+      expect.any(String),
+    );
+    expect(navigate).toHaveBeenCalledWith({
+      to: "/operations/$operationId",
+      params: { operationId: "33333333-3333-4333-8333-333333333333" },
+    });
   });
 });
 

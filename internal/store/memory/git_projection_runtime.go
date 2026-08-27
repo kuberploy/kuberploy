@@ -153,6 +153,14 @@ func (s *Store) resolveProjectedVariablesLocked(binding gitprojection.Binding, r
 }
 
 func (s *Store) putGitWriteCommandLocked(actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, now time.Time) error {
+	return s.putDeploymentGitCommandLocked(actor, operationID, deploymentID, plan, content, message, gitprojection.MutationUpsert, now)
+}
+
+func (s *Store) putGitDeleteCommandLocked(actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, now time.Time) error {
+	return s.putDeploymentGitCommandLocked(actor, operationID, deploymentID, plan, content, message, gitprojection.MutationDelete, now)
+}
+
+func (s *Store) putDeploymentGitCommandLocked(actor, operationID, deploymentID string, plan *gitprojection.WritePlan, content []byte, message string, action gitprojection.MutationAction, now time.Time) error {
 	if plan == nil {
 		return nil
 	}
@@ -160,7 +168,12 @@ func (s *Store) putGitWriteCommandLocked(actor, operationID, deploymentID string
 	if err != nil {
 		return err
 	}
-	command, err := gitprojection.NewWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	var command gitprojection.WriteCommand
+	if action == gitprojection.MutationDelete {
+		command, err = gitprojection.NewDeleteWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	} else {
+		command, err = gitprojection.NewWriteCommand(operationID, deploymentID, actor, *plan, binding, content, message, now)
+	}
 	if err != nil {
 		return err
 	}

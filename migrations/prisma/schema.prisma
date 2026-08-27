@@ -1865,6 +1865,7 @@ model git_write_commands {
   content            Bytes
   content_sha256     String
   message            String
+  action             String    @default("upsert")
   publication_mode   String
   state              String    @default("pending")
   committed_revision String    @default("")

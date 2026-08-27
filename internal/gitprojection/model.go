@@ -768,6 +768,7 @@ type WriteCommand struct {
 	Content           []byte            `json:"-"`
 	ContentSHA256     string            `json:"contentSha256"`
 	Message           string            `json:"message"`
+	Action            MutationAction    `json:"action"`
 	RequestDigest     string            `json:"requestDigest,omitempty"`
 	PublicationMode   PublicationMode   `json:"publicationMode"`
 	State             WriteCommandState `json:"state"`
@@ -787,7 +788,19 @@ func NewWriteCommand(operationID, deploymentID, actorID string, plan WritePlan, 
 	digest := sha256.Sum256(content)
 	command := WriteCommand{OperationID: operationID, DeploymentID: deploymentID, ActorID: actorID, Plan: plan, TargetRef: binding.TargetRef,
 		Path: applicationPath, Content: append([]byte(nil), content...), ContentSHA256: "sha256:" + hex.EncodeToString(digest[:]), Message: message,
-		PublicationMode: PublicationDirect, State: WriteCommandPending, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		Action: MutationUpsert, PublicationMode: PublicationDirect, State: WriteCommandPending, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+	return command, command.Validate(binding)
+}
+
+// NewDeleteWriteCommand retains the exact accepted document bytes as durable
+// command evidence while publishing a match-ETag Git deletion. The mutation
+// itself never carries content.
+func NewDeleteWriteCommand(operationID, deploymentID, actorID string, plan WritePlan, binding Binding, content []byte, message string, now time.Time) (WriteCommand, error) {
+	command, err := NewWriteCommand(operationID, deploymentID, actorID, plan, binding, content, message, now)
+	if err != nil {
+		return WriteCommand{}, err
+	}
+	command.Action = MutationDelete
 	return command, command.Validate(binding)
 }
 
@@ -798,7 +811,7 @@ func NewVariableWriteCommand(operationID, actorID string, plan WritePlan, bindin
 	digest := sha256.Sum256(content)
 	command := WriteCommand{OperationID: operationID, ActorID: actorID, Plan: plan, TargetRef: binding.TargetRef,
 		Path: plan.VariablePath, Content: append([]byte(nil), content...), ContentSHA256: "sha256:" + hex.EncodeToString(digest[:]), Message: message,
-		RequestDigest: requestDigest, PublicationMode: PublicationDirect, State: WriteCommandPending, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
+		Action: MutationUpsert, RequestDigest: requestDigest, PublicationMode: PublicationDirect, State: WriteCommandPending, CreatedAt: now.UTC(), UpdatedAt: now.UTC()}
 	return command, command.Validate(binding)
 }
 
@@ -807,14 +820,19 @@ func (c WriteCommand) Mutation() Mutation {
 	if c.Plan.VariableScope != "" {
 		authority = MutationAuthorityVariables
 	}
-	return Mutation{BindingID: c.Plan.BindingID, OperationID: c.OperationID, Path: c.Path, BaseRevision: c.Plan.BaseRevision, Authority: authority,
-		Precondition: c.Plan.Precondition, ExpectedETag: c.Plan.ExpectedETag, Content: append([]byte(nil), c.Content...), Message: c.Message}
+	mutation := Mutation{BindingID: c.Plan.BindingID, OperationID: c.OperationID, Path: c.Path, BaseRevision: c.Plan.BaseRevision, Authority: authority,
+		Precondition: c.Plan.Precondition, ExpectedETag: c.Plan.ExpectedETag, Content: append([]byte(nil), c.Content...), Message: c.Message, Action: c.Action}
+	if c.Action == MutationDelete {
+		mutation.Content = nil
+	}
+	return mutation
 }
 
 func (c WriteCommand) Validate(binding Binding) error {
 	validTarget := c.Plan.VariableScope != "" && c.DeploymentID == "" || c.Plan.VariableScope == "" && uuidRE.MatchString(c.DeploymentID)
 	validRequestDigest := c.Plan.VariableScope != "" && digestRE.MatchString(c.RequestDigest) || c.Plan.VariableScope == "" && c.RequestDigest == ""
-	if c.Plan.validateIdentity(binding) != nil || !uuidRE.MatchString(c.OperationID) || !validTarget || !uuidRE.MatchString(c.ActorID) ||
+	validAction := c.Action == MutationUpsert || c.Action == MutationDelete && c.Plan.VariableScope == "" && c.Plan.Precondition == MutationMatchETag
+	if c.Plan.validateIdentity(binding) != nil || !uuidRE.MatchString(c.OperationID) || !validTarget || !uuidRE.MatchString(c.ActorID) || !validAction ||
 		c.TargetRef != binding.TargetRef || len(c.Content) == 0 || len(c.Content) > MaxDocumentBytes || !digestRE.MatchString(c.ContentSHA256) ||
 		len(c.Message) == 0 || len(c.Message) > 512 || !utf8.ValidString(c.Message) || strings.ContainsAny(c.Message, "\x00\r") ||
 		(c.PublicationMode != PublicationDirect && c.PublicationMode != PublicationPullRequest) || !validRequestDigest ||
@@ -908,8 +926,9 @@ func (m Mutation) Validate(binding Binding) error {
 	action := m.EffectiveAction()
 	switch m.Authority {
 	case "":
-		if action != MutationUpsert || m.CommitTrailer != "" || m.RequiredAncestor != "" || m.ContentSHA256 != "" ||
-			len(m.Content) == 0 || len(m.Content) > MaxDocumentBytes || !validProtectedDocumentPath(binding, m.Path) {
+		validContent := action == MutationUpsert && len(m.Content) > 0 && len(m.Content) <= MaxDocumentBytes ||
+			action == MutationDelete && precondition == MutationMatchETag && len(m.Content) == 0
+		if !validContent || m.CommitTrailer != "" || m.RequiredAncestor != "" || m.ContentSHA256 != "" || !validProtectedDocumentPath(binding, m.Path) {
 			return ErrInvalid
 		}
 	case MutationAuthorityHelmPayload:

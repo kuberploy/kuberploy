@@ -112,7 +112,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"getBuildAttemptLogs":             "logs.read",
 		"getApplicationRegistryInventory": "app.read", "getRegistryCleanupPlan": "app.read",
 		"getWorkloadLogSnapshot": "logs.read", "getWorkloadEvents": "logs.read",
-		"deleteProject": "app.edit", "createEnvironment": "app.edit", "cloneEnvironment": "app.edit", "deleteEnvironment": "app.edit", "createApplication": "app.edit", "deleteApplication": "app.edit", "createImageDeployment": "app.edit", "previewImageResolution": "app.edit",
+		"deleteProject": "app.edit", "createEnvironment": "app.edit", "cloneEnvironment": "app.edit", "deleteEnvironment": "app.edit", "createApplication": "app.edit", "deleteApplication": "app.edit", "createImageDeployment": "app.edit", "stopDeployment": "app.edit", "previewImageResolution": "app.edit",
 		"upsertDesiredHelmRelease": "app.edit", "retryDesiredHelmRelease": "app.edit",
 		"disableDesiredHelmRelease": "app.edit", "rollbackDesiredHelmRelease": "app.edit",
 		"previewDeploymentConfig": "app.edit", "saveDeploymentConfig": "app.edit",

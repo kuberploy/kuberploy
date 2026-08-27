@@ -98,7 +98,7 @@ func (s *MemoryStore) MarkWriteCommandCommitted(_ context.Context, operationID, 
 
 const writeCommandColumns = `operation_id::text,deployment_id::text,actor_id::text,binding_id::text,project_id::text,
 	environment_id::text,application_id::text,target_ref,path,base_revision,precondition,expected_etag,chart_identity,
-	policy_version,content,content_sha256,message,publication_mode,state,committed_revision,committed_at,indexed_generation,indexed_at,created_at,updated_at`
+	policy_version,content,content_sha256,message,action,publication_mode,state,committed_revision,committed_at,indexed_generation,indexed_at,created_at,updated_at`
 
 const variableWriteCommandColumns = `operation_id::text,actor_id::text,binding_id::text,project_id::text,environment_id::text,
 	variable_scope,target_ref,path,base_revision,precondition,expected_etag,policy_version,content,content_sha256,message,publication_mode,
@@ -109,7 +109,7 @@ func scanWriteCommand(row rowScanner) (WriteCommand, error) {
 	err := row.Scan(&command.OperationID, &command.DeploymentID, &command.ActorID, &command.Plan.BindingID, &command.Plan.ProjectID,
 		&command.Plan.EnvironmentID, &command.Plan.ApplicationID, &command.TargetRef, &command.Path, &command.Plan.BaseRevision,
 		&command.Plan.Precondition, &command.Plan.ExpectedETag, &command.Plan.ChartDigest, &command.Plan.PolicyVersion,
-		&command.Content, &command.ContentSHA256, &command.Message, &command.PublicationMode, &command.State, &command.CommittedRevision, &command.CommittedAt,
+		&command.Content, &command.ContentSHA256, &command.Message, &command.Action, &command.PublicationMode, &command.State, &command.CommittedRevision, &command.CommittedAt,
 		&command.IndexedGeneration, &command.IndexedAt, &command.CreatedAt, &command.UpdatedAt)
 	if err != nil {
 		return WriteCommand{}, classifyPostgres(err)
@@ -128,6 +128,7 @@ func scanVariableWriteCommand(row rowScanner) (WriteCommand, error) {
 		return WriteCommand{}, classifyPostgres(err)
 	}
 	command.Plan.VariablePath = command.Path
+	command.Action = MutationUpsert
 	return command, nil
 }
 
@@ -151,12 +152,12 @@ func (s *PostgreSQLStore) PutWriteCommand(ctx context.Context, command WriteComm
 	} else {
 		result, err = s.pool.Exec(ctx, `INSERT INTO git_write_commands(operation_id,command_kind,deployment_id,actor_id,binding_id,project_id,
 		environment_id,application_id,target_ref,path,base_revision,precondition,expected_etag,chart_identity,policy_version,
-		content,content_sha256,message,publication_mode,state,created_at,updated_at)
-		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending',$19,$19) ON CONFLICT DO NOTHING`,
+		content,content_sha256,message,action,publication_mode,state,created_at,updated_at)
+		VALUES($1,'deployment',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,'pending',$20,$20) ON CONFLICT DO NOTHING`,
 			command.OperationID, command.DeploymentID, command.ActorID, command.Plan.BindingID, command.Plan.ProjectID,
 			command.Plan.EnvironmentID, command.Plan.ApplicationID, command.TargetRef, command.Path, command.Plan.BaseRevision,
 			command.Plan.Precondition, command.Plan.ExpectedETag, command.Plan.ChartDigest, command.Plan.PolicyVersion,
-			command.Content, command.ContentSHA256, command.Message, command.PublicationMode, command.CreatedAt)
+			command.Content, command.ContentSHA256, command.Message, command.Action, command.PublicationMode, command.CreatedAt)
 	}
 	if err != nil {
 		return classifyPostgres(err)

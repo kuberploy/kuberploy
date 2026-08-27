@@ -303,6 +303,23 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 	}
 	argoReadiness.err = nil
 
+	r = f.request(http.MethodDelete, "/v1/deployments/"+operation.TargetID, "projected-stop", nil)
+	stopped := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || stopped.TargetID != operation.TargetID {
+		t.Fatalf("projected stop status=%d operation=%#v", r.StatusCode, stopped)
+	}
+	stopCommand, err := f.store.AcceptedGitWriteCommand(stopped.ID)
+	if err != nil || stopCommand.Action != gitprojection.MutationDelete || stopCommand.Mutation().EffectiveAction() != gitprojection.MutationDelete {
+		t.Fatalf("stop command=%#v err=%v", stopCommand, err)
+	}
+	argoReadiness.err = errors.New("protected rollout stale")
+	r = f.request(http.MethodDelete, "/v1/deployments/"+operation.TargetID, "projected-stop", nil)
+	replayedStop := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || replayedStop.ID != stopped.ID || r.Header.Get("Idempotent-Replay") != "true" {
+		t.Fatalf("stale Argo stop replay status=%d operation=%#v", r.StatusCode, replayedStop)
+	}
+	argoReadiness.err = nil
+
 	r = f.request("GET", "/v1/capabilities", "", nil)
 	capabilities := decode[struct {
 		Features map[string]bool `json:"features"`

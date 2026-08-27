@@ -5,7 +5,7 @@ import type {
   Project,
 } from "../api/types";
 
-export function hasDeploymentRollbackCapability(
+export function hasDeploymentUpdateCapability(
   capabilities: Capability[],
   application: Application,
   environment: Environment,
@@ -43,3 +43,5 @@ export function hasDeploymentRollbackCapability(
     }
   });
 }
+
+export const hasDeploymentRollbackCapability = hasDeploymentUpdateCapability;

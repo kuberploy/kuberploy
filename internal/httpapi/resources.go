@@ -730,6 +730,62 @@ func (s *Server) deployment(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, v)
 }
+
+func (s *Server) stopDeployment(w http.ResponseWriter, r *http.Request) {
+	key, ok := idemKey(w, r)
+	if !ok {
+		return
+	}
+	deploymentID := strings.TrimSpace(r.PathValue("id"))
+	if !validUUID(deploymentID) {
+		writeProblem(w, r, http.StatusNotFound, "NotFound", "Not found", "The requested deployment was not found.")
+		return
+	}
+	actor := currentUser(r.Context()).ID
+	fp := fingerprint(struct {
+		DeploymentID string `json:"deploymentId"`
+	}{DeploymentID: deploymentID})
+	if replay, replayErr := s.store.StopDeployment(r.Context(), actor, deploymentID, key, fp, requestID(r.Context()), &gitprojection.WritePlan{}); replayErr == nil && replay.Replay {
+		w.Header().Set("Idempotent-Replay", "true")
+		w.Header().Set("Location", "/v1/operations/"+replay.Value.ID)
+		writeJSON(w, http.StatusAccepted, replay.Value)
+		return
+	} else if errors.Is(replayErr, store.ErrIdempotencyConflict) || errors.Is(replayErr, store.ErrForbidden) || errors.Is(replayErr, store.ErrNotFound) {
+		mappedError(w, r, replayErr)
+		return
+	}
+	if runtimeProblem := s.deploymentMutationRuntimeProblem(r.Context()); runtimeProblem != "" {
+		writeDeploymentMutationRuntimeProblem(w, r, runtimeProblem)
+		return
+	}
+	deployment, err := s.store.GetDeploymentForActor(r.Context(), actor, deploymentID)
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	bundle, err := s.gitProjection.Bundle(r.Context(), actor, deployment, "", 0)
+	if err != nil {
+		mappedDeploymentGitError(w, r, err, false)
+		return
+	}
+	plan, err := s.gitProjection.PlanMutation(r.Context(), actor, deployment.EnvironmentID, deployment.ApplicationID, bundle.ETag)
+	if err != nil {
+		mappedDeploymentGitError(w, r, err, false)
+		return
+	}
+	result, err := s.store.StopDeployment(r.Context(), actor, deploymentID, key, fp, requestID(r.Context()), &plan)
+	if err != nil {
+		mappedError(w, r, err)
+		return
+	}
+	if result.Replay {
+		w.Header().Set("Idempotent-Replay", "true")
+	}
+	w.Header().Set("Location", "/v1/operations/"+result.Value.ID)
+	w.Header().Set("X-Kuberploy-Resource-Location", "/v1/deployments/"+deploymentID)
+	writeJSON(w, http.StatusAccepted, result.Value)
+}
+
 func (s *Server) deploymentStatus(w http.ResponseWriter, r *http.Request) {
 	v, err := s.store.DeploymentStatusForActor(r.Context(), currentUser(r.Context()).ID, r.PathValue("id"))
 	if err != nil {

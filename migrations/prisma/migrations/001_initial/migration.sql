@@ -712,12 +712,12 @@ BEGIN
     IF ROW(NEW.operation_id,NEW.command_kind,NEW.deployment_id,NEW.actor_id,NEW.binding_id,NEW.project_id,
         NEW.environment_id,NEW.application_id,NEW.variable_scope,NEW.target_ref,NEW.path,NEW.base_revision,
         NEW.precondition,NEW.expected_etag,NEW.chart_identity,NEW.policy_version,NEW.content,NEW.content_sha256,
-        NEW.message,NEW.publication_mode,NEW.request_digest,NEW.created_at)
+        NEW.message,NEW.action,NEW.publication_mode,NEW.request_digest,NEW.created_at)
        IS DISTINCT FROM
        ROW(OLD.operation_id,OLD.command_kind,OLD.deployment_id,OLD.actor_id,OLD.binding_id,OLD.project_id,
         OLD.environment_id,OLD.application_id,OLD.variable_scope,OLD.target_ref,OLD.path,OLD.base_revision,
         OLD.precondition,OLD.expected_etag,OLD.chart_identity,OLD.policy_version,OLD.content,OLD.content_sha256,
-        OLD.message,OLD.publication_mode,OLD.request_digest,OLD.created_at) THEN
+        OLD.message,OLD.action,OLD.publication_mode,OLD.request_digest,OLD.created_at) THEN
         RAISE EXCEPTION 'Git write command identity is immutable' USING ERRCODE='23514';
     END IF;
     IF NEW.updated_at<OLD.updated_at THEN
@@ -3758,6 +3758,7 @@ CREATE TABLE public.git_write_commands (
     content bytea NOT NULL,
     content_sha256 text NOT NULL,
     message text NOT NULL,
+    action text DEFAULT 'upsert'::text NOT NULL,
     publication_mode text NOT NULL,
     state text DEFAULT 'pending'::text NOT NULL,
     committed_revision text DEFAULT ''::text NOT NULL,
@@ -3777,6 +3778,7 @@ CREATE TABLE public.git_write_commands (
     CONSTRAINT git_write_commands_content_sha256_check CHECK ((content_sha256 ~ '^sha256:[0-9a-f]{64}$'::text)),
     CONSTRAINT git_write_commands_indexed_generation_check CHECK ((indexed_generation >= 0)),
     CONSTRAINT git_write_commands_message_check CHECK (((length(message) >= 1) AND (length(message) <= 512) AND (message !~ '[\x00\r]'::text))),
+    CONSTRAINT git_write_commands_action_check CHECK ((action = 'upsert'::text OR (action = 'delete'::text AND command_kind = 'deployment'::text AND precondition = 'match-etag'::text))),
     CONSTRAINT git_write_commands_policy_version_check CHECK (((length(policy_version) >= 1) AND (length(policy_version) <= 128) AND (policy_version !~ '[\x00\r\n]'::text))),
     CONSTRAINT git_write_commands_precondition_check CHECK ((precondition = ANY (ARRAY['match-etag'::text, 'create-if-absent'::text]))),
     CONSTRAINT git_write_commands_publication_mode_check CHECK ((publication_mode = ANY (ARRAY['direct'::text, 'pull-request'::text]))),

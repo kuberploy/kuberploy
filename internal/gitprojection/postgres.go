@@ -700,7 +700,7 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	// observe the same immutable content identity.
 	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=doc.config_revision,updated_at=$3
 		FROM git_write_commands c,git_projected_documents doc,operations o
-		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.publication_mode='direct'
+		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.action='upsert' AND c.publication_mode='direct'
 		AND c.state='indexed' AND c.indexed_generation=$2 AND c.deployment_id IS NOT NULL
 		AND doc.binding_id=c.binding_id AND doc.generation=c.indexed_generation AND doc.path=c.path
 		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
@@ -714,20 +714,37 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 	// This also permits later descendants without trusting ancestry guesses.
 	if _, err = tx.Exec(ctx, `UPDATE git_write_commands c SET state='indexed',committed_revision=p.target_revision,
 		committed_at=p.updated_at,indexed_generation=$2,indexed_at=$3,updated_at=$3
-		FROM git_pull_request_publications p,git_projected_documents d
+		FROM git_pull_request_publications p
 		WHERE c.binding_id=$1 AND c.publication_mode='pull-request' AND c.state='pending' AND p.operation_id=c.operation_id
 		AND p.state='merge-verified' AND p.binding_id=c.binding_id AND p.target_ref=c.target_ref
-		AND p.updated_at<=$3 AND d.binding_id=c.binding_id AND d.generation=$2 AND d.path=c.path
-		AND d.valid AND d.content_sha256=c.content_sha256 AND d.raw=c.content`, binding.ID, generation.Number, now.UTC()); err != nil {
+		AND p.updated_at<=$3 AND ((c.action='upsert' AND EXISTS (
+			SELECT 1 FROM git_projected_documents d WHERE d.binding_id=c.binding_id AND d.generation=$2 AND d.path=c.path
+			AND d.valid AND d.content_sha256=c.content_sha256 AND d.raw=c.content)) OR
+			(c.action='delete' AND NOT EXISTS (
+				SELECT 1 FROM git_projected_documents d WHERE d.binding_id=c.binding_id AND d.generation=$2 AND d.path=c.path)))`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='git-committed',desired_revision=doc.config_revision,updated_at=$3
 		FROM git_write_commands c,git_pull_request_publications p,git_projected_documents doc
-		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.publication_mode='pull-request' AND c.state='indexed' AND c.indexed_generation=$2
+		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.action='upsert' AND c.publication_mode='pull-request' AND c.state='indexed' AND c.indexed_generation=$2
 		AND p.operation_id=c.operation_id AND p.state='merge-verified' AND d.id=c.deployment_id
 		AND doc.binding_id=c.binding_id AND doc.generation=c.indexed_generation AND doc.path=c.path
 		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
 		AND d.operation_id=c.operation_id AND d.generation=(SELECT generation FROM operations WHERE id=c.operation_id)`, binding.ID, generation.Number, now.UTC()); err != nil {
+		return Binding{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE deployments d SET state='stopped',desired_revision=c.committed_revision,updated_at=$3
+		FROM git_write_commands c,git_pull_request_publications p
+		WHERE c.binding_id=$1 AND c.command_kind='deployment' AND c.action='delete' AND c.publication_mode='pull-request'
+		AND c.state='indexed' AND c.indexed_generation=$2 AND p.operation_id=c.operation_id AND p.state='merge-verified'
+		AND d.id=c.deployment_id AND d.operation_id=c.operation_id
+		AND d.generation=(SELECT generation FROM operations WHERE id=c.operation_id)`, binding.ID, generation.Number, now.UTC()); err != nil {
+		return Binding{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE environment_app_placements placement SET desired_state='stopped',updated_at=$3
+		FROM deployments d,git_write_commands c WHERE c.binding_id=$1 AND c.action='delete' AND c.state='indexed'
+		AND c.indexed_generation=$2 AND d.id=c.deployment_id AND d.state='stopped'
+		AND placement.environment_id=d.environment_id AND placement.application_id=d.application_id`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM git_path_reservations WHERE binding_id=$1 AND state='committed-pending-index'`, binding.ID); err != nil {

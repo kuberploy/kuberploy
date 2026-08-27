@@ -525,6 +525,43 @@ func TestWritePlanRequiresReadyExactIndexedBinding(t *testing.T) {
 	}
 }
 
+func TestDeleteWriteCommandPublishesExactPathRemoval(t *testing.T) {
+	fixture := seedRepository(t, false)
+	fixture.binding.IndexedRevision = fixture.head
+	fixture.binding.IndexedAt = fixture.binding.UpdatedAt
+	fixture.binding.ProjectionGeneration = 1
+	fixture.binding.State = gitprojection.BindingReady
+	plan := gitprojection.WritePlan{BindingID: fixture.binding.ID, ProjectID: fixture.binding.ProjectID, EnvironmentID: fixture.binding.EnvironmentID,
+		ApplicationID: applicationID, BaseRevision: fixture.head, Precondition: gitprojection.MutationMatchETag,
+		ExpectedETag: `"sha256:` + strings.Repeat("b", 64) + `"`, ChartDigest: "sha256:" + strings.Repeat("c", 64), PolicyVersion: "runtime-policy-v1"}
+	command, err := gitprojection.NewDeleteWriteCommand(operationID, "99999999-9999-4999-8999-999999999999", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+		plan, fixture.binding, fixture.config, "stop app", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation := command.Mutation()
+	if mutation.EffectiveAction() != gitprojection.MutationDelete || len(mutation.Content) != 0 {
+		t.Fatalf("delete mutation=%#v", mutation)
+	}
+	manager := &gitprojection.MirrorManager{Root: filepath.Join(t.TempDir(), "cache"), AllowLocalTests: true, LocalRemote: fixture.remote}
+	prepared, err := manager.Prepare(t.Context(), fixture.binding, verified(fixture.binding, fixture.head, "delete-provider-read", time.Now()), operationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = prepared.Commit(t.Context(), mutation); err != nil {
+		t.Fatal(err)
+	}
+	if err = prepared.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(t.TempDir(), "checkout")
+	runGit(t, t.TempDir(), "clone", fixture.remote, checkout)
+	applicationPath, _ := gitprojection.ApplicationPath(fixture.binding, applicationID)
+	if _, err = os.Stat(filepath.Join(checkout, filepath.FromSlash(applicationPath))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("deleted AppConfig still exists: %v", err)
+	}
+}
+
 func TestHeadServiceRejectsProviderIdentitySubstitutionAndMarksMissingRef(t *testing.T) {
 	fixture := seedRepository(t, false)
 	store := gitprojection.NewMemoryStore()

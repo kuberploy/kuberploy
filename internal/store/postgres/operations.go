@@ -239,6 +239,78 @@ func (s *Store) CreateDeployment(ctx context.Context, actor, key, fingerprint, r
 	return base.Result[domain.Deployment]{Value: d}, op, nil
 }
 
+func (s *Store) StopDeployment(ctx context.Context, actor, deploymentID, key, fingerprint, requestID string, projection *gitprojection.WritePlan) (base.Result[domain.Operation], error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	scope := "deployments.stop:" + deploymentID
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, advisoryIdentity(actor, scope, key)); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if old, ok, findErr := findIdem(ctx, tx, actor, scope, key); findErr != nil {
+		return base.Result[domain.Operation]{}, findErr
+	} else if ok {
+		if old.fingerprint != fingerprint || old.operationID == nil {
+			return base.Result[domain.Operation]{}, base.ErrIdempotencyConflict
+		}
+		if authErr := authorizeWith(ctx, tx, actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "deployment", ID: old.resourceID}); authErr != nil {
+			return base.Result[domain.Operation]{}, authErr
+		}
+		op, getErr := getOperation(ctx, tx, *old.operationID)
+		return base.Result[domain.Operation]{Value: op, Replay: true}, getErr
+	}
+	d, err := getDeployment(ctx, tx, deploymentID)
+	if err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if err = authorizeWith(ctx, tx, actor, domain.PermissionResourcesWrite, domain.AccessTarget{Type: "deployment", ID: d.ID}); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if projection == nil || projection.EnvironmentID != d.EnvironmentID || projection.ApplicationID != d.ApplicationID ||
+		projection.Precondition != gitprojection.MutationMatchETag {
+		return base.Result[domain.Operation]{}, base.ErrPreconditionFailed
+	}
+	if _, err = validateGitProjectionPlanTx(ctx, tx, projection); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	now := time.Now().UTC()
+	if _, err = tx.Exec(ctx, `UPDATE operations SET status='superseded',updated_at=$2,finished_at=$2,
+		problem=jsonb_build_object('code','Superseded','detail','A newer deployment lifecycle command was accepted.')
+		WHERE target_type='deployment' AND target_id=$1 AND status='queued'`, d.ID, now); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	generation := d.Generation + 1
+	opID := id.New()
+	progress, _ := json.Marshal([]domain.ProgressStep{{Name: "git-write", Status: "pending"}})
+	op := domain.Operation{ID: opID, Kind: "deployment.git-write", Status: "queued", TargetType: "deployment", TargetID: d.ID,
+		RequestID: requestID, Generation: generation, Progress: []domain.ProgressStep{{Name: "git-write", Status: "pending"}}, CreatedAt: now, UpdatedAt: now}
+	if _, err = tx.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,progress,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$9)`, op.ID, op.Kind, op.Status, op.TargetType, op.TargetID, op.RequestID, op.Generation, progress, now); err != nil {
+		return base.Result[domain.Operation]{}, classify(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE deployments SET state='pending-stop',operation_id=$2,generation=$3,updated_at=$4 WHERE id=$1`, d.ID, op.ID, generation, now); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if err = insertGitDeleteCommandTx(ctx, tx, actor, op.ID, d.ID, projection, d.ConfigRaw, "stop("+d.ApplicationID+"): remove App desired state", now); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO outbox(operation_id,kind,scope_id,generation,trace_id) VALUES($1,$2,$3,$4,$5)`, op.ID, op.Kind, d.EnvironmentID, generation, requestID); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if err = audit(ctx, tx, actor, "deployment.stop.accepted", "deployment", d.ID, requestID, map[string]any{"operationId": op.ID, "generation": generation}); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	if err = putIdem(ctx, tx, actor, scope, key, fingerprint, "deployment", d.ID, &opID); err != nil {
+		return base.Result[domain.Operation]{}, classify(err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return base.Result[domain.Operation]{}, err
+	}
+	return base.Result[domain.Operation]{Value: op}, nil
+}
+
 func cloneMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for k, v := range in {
@@ -626,14 +698,14 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var targetID, targetType, actorID, requestID, owner, currentRevision, kind, publicationMode string
+	var targetID, targetType, actorID, requestID, owner, currentRevision, kind, publicationMode, commandAction string
 	var status string
 	var gen int64
 	var leaseUntil *time.Time
 	err = tx.QueryRow(ctx, `SELECT o.target_id,o.target_type,o.status,o.generation,o.request_id,o.kind,COALESCE(o.lease_owner,''),o.lease_until,o.git_revision,
-		COALESCE(c.publication_mode,'direct') FROM operations o
+		COALESCE(c.publication_mode,'direct'),COALESCE(c.action,'upsert') FROM operations o
 		LEFT JOIN git_write_commands c ON c.operation_id=o.id
-		WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&targetID, &targetType, &status, &gen, &requestID, &kind, &owner, &leaseUntil, &currentRevision, &publicationMode)
+		WHERE o.id=$1 FOR UPDATE OF o`, operationID).Scan(&targetID, &targetType, &status, &gen, &requestID, &kind, &owner, &leaseUntil, &currentRevision, &publicationMode, &commandAction)
 	if err != nil {
 		return classify(err)
 	}
@@ -658,6 +730,9 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 	if publicationMode == string(gitpublication.ModeDirect) {
 		if !validDirectPublicationResult(result) {
 			return fmt.Errorf("%w: direct Git publication receipt does not match", base.ErrConflict)
+		}
+		if kind == "deployment.git-write" && commandAction == string(gitprojection.MutationDelete) {
+			deploymentState, auditAction = "stopped", "deployment.stop.git-committed"
 		}
 	} else if publicationMode == string(gitpublication.ModePullRequest) {
 		publication, readErr := scanGitPublication(tx.QueryRow(ctx, `SELECT `+gitPublicationColumns+` FROM git_pull_request_publications WHERE operation_id=$1 FOR UPDATE`, operationID))
@@ -686,6 +761,12 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 		}
 		if err != nil {
 			return err
+		}
+		if commandAction == string(gitprojection.MutationDelete) && publicationMode == string(gitpublication.ModeDirect) {
+			if _, err = tx.Exec(ctx, `UPDATE environment_app_placements p SET desired_state='stopped',updated_at=$2
+				FROM deployments d WHERE d.id=$1 AND p.environment_id=d.environment_id AND p.application_id=d.application_id`, targetID, now); err != nil {
+				return err
+			}
 		}
 	}
 	err = tx.QueryRow(ctx, `SELECT actor_id FROM mutation_receipts WHERE receipt_kind='resource' AND operation_id=$1 LIMIT 1`, operationID).Scan(&actorID)

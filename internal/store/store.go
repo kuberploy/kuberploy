@@ -219,6 +219,7 @@ type Store interface {
 	DeleteApplication(context.Context, string, string, string, string, string, string) (bool, error)
 
 	CreateDeployment(context.Context, string, string, string, string, domain.CreateDeployment, *gitprojection.WritePlan, ...*AppConfigReferencePlan) (Result[domain.Deployment], domain.Operation, error)
+	StopDeployment(context.Context, string, string, string, string, string, *gitprojection.WritePlan) (Result[domain.Operation], error)
 	ListDeployments(context.Context) ([]domain.Deployment, error)
 	GetDeployment(context.Context, string) (domain.Deployment, error)
 	ListDeploymentsForActor(context.Context, string) ([]domain.Deployment, error)
