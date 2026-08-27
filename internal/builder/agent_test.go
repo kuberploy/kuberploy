@@ -30,6 +30,23 @@ func TestBuildProgressContainsOnlyFixedLifecycleMessages(t *testing.T) {
 	}
 }
 
+func TestBuildKitDaemonSharesOnlyTheIsolatedDinDPodNetwork(t *testing.T) {
+	executor := &sequenceExecutor{results: []CommandResult{{}, {Output: "BuildKit v0.32.2"}}}
+	agent := NewAgent(executor)
+	if err := agent.createBuilder(context.Background(), "/result/push-auth", "kp-test", DefaultBuildKitImage); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.invocations) != 2 {
+		t.Fatalf("invocations = %d, want 2", len(executor.invocations))
+	}
+	create := strings.Join(executor.invocations[0].Argv, "\n")
+	for _, required := range []string{"--driver\ndocker-container", "--driver-opt\nimage=" + DefaultBuildKitImage, "--driver-opt\nnetwork=host"} {
+		if !strings.Contains(create, required) {
+			t.Fatalf("BuildKit create invocation missing %q: %#v", required, executor.invocations[0].Argv)
+		}
+	}
+}
+
 type recordingExecutor struct {
 	invocations []Invocation
 }

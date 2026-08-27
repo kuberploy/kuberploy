@@ -234,6 +234,7 @@ func (a *Agent) createBuilder(ctx context.Context, configDirectory, name, buildK
 		"--name", name,
 		"--driver", "docker-container",
 		"--driver-opt", "image="+buildKitImage,
+		"--driver-opt", "network=host",
 		"--use",
 	), Env: dockerEnvironment(configDirectory)}
 	if _, err := a.Executor.Execute(ctx, create); err != nil {
