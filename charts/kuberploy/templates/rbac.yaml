@@ -308,6 +308,63 @@ roleRef:
   name: {{ include "kuberploy.fullname" $ }}-runtime-secrets-worker
 {{- end }}
 {{- end }}
+{{- if and .Values.config.runtimeSecrets.enabled .Values.config.runtimeSecrets.namespacePrefixes }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-api-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+rules:
+  # Dynamic Environment namespaces cannot receive namespaced Roles before they
+  # exist. Admission confines create/delete to labeled managed namespaces,
+  # configured prefixes, and the exact API ServiceAccount and object shape.
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets"]
+    verbs: ["get", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-api-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "api") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "api") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-api-managed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-worker-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+rules:
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-worker-managed
+  labels:
+    {{- include "kuberploy.componentLabels" (dict "root" . "component" "worker") | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kuberploy.componentName" (dict "root" . "component" "worker") }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "kuberploy.fullname" . }}-runtime-secrets-worker-managed
+{{- end }}
 {{- if .Values.config.runtimeRegistryPulls.enabled }}
 {{- range $namespace := .Values.config.runtimeRegistryPulls.namespaces }}
 ---
