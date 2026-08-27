@@ -2,11 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import {
   Card,
+  CardHeader,
   ErrorPanel,
+  Eyebrow,
+  Page,
   PageHeader,
   PlaceholderBadge,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { Icon, type IconName } from "../components/Icon";
 
@@ -100,12 +104,12 @@ export function SetupPage() {
   ];
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         title="Setup & health"
         description="Runtime component status and effective session access."
         actions={
-          <a className="button button--secondary" href="/docs">
+          <a className={buttonVariants({ variant: "secondary" })} href="/docs">
             <Icon name="code" /> Open API docs
           </a>
         }
@@ -124,7 +128,7 @@ export function SetupPage() {
         </Card>
       ) : (
         <>
-          <section className="health-heading">
+          <section className="flex items-center justify-between gap-5 py-4 px-0 border-y border-y-ink [&_h2]:m-0 [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta">
             <div>
               <h2>
                 Kuberploy{" "}
@@ -138,10 +142,14 @@ export function SetupPage() {
             </div>
             <StatusPill value="healthy" label="Connected" />
           </section>
-          <section className="system-list" aria-label="Platform components">
+          <section className="mb-6" aria-label="Platform components">
             {checks.map((check) => (
-              <div className="system-list__row" key={check.name}>
-                <span className="system-list__icon">
+              <div
+                data-slot="system-row"
+                className="grid grid-cols-[24px_minmax(0,_1fr)_auto] items-center gap-4 min-h-[60px] py-3 px-0 border-b border-b-line [&_h3]:m-0 [&_h3]:text-ink [&_h3]:text-sm [&_h3]:font-medium [&_p]:m-0 [&_p]:text-ink-faint [&_p]:text-meta [&_p]:leading-[1.5] to-620:grid-cols-[24px_minmax(0,_1fr)] to-620:py-3 to-620:px-0"
+                key={check.name}
+              >
+                <span className="grid text-ink-soft place-items-center [&_svg]:w-[15px]">
                   <Icon name={check.icon} />
                 </span>
                 <div>
@@ -156,16 +164,16 @@ export function SetupPage() {
             ))}
           </section>
           <Card>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
-                <span className="eyebrow">Effective access</span>
+                <Eyebrow>Effective access</Eyebrow>
                 <h2>Session capabilities</h2>
               </div>
               <PlaceholderBadge>
                 {sessionActions.length} reported
               </PlaceholderBadge>
-            </div>
-            <div className="capability-list">
+            </CardHeader>
+            <div className="flex flex-wrap gap-2 [&_code]:py-1.5 [&_code]:px-2 [&_code]:border [&_code]:border-line [&_code]:rounded-md [&_code]:text-mint-dark [&_code]:bg-surface-soft [&_code]:text-xs [&_p]:text-ink-faint [&_p]:text-meta">
               {sessionActions.map((action) => (
                 <code key={action}>{action}</code>
               ))}
@@ -179,7 +187,7 @@ export function SetupPage() {
           </Card>
         </>
       )}
-    </div>
+    </Page>
   );
 }
 

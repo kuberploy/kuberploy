@@ -7,6 +7,9 @@ import {
   Card,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
+  Notice,
+  Page,
   PageHeader,
   PlaceholderBadge,
   Skeleton,
@@ -179,8 +182,8 @@ function ScopeMetricCard({
             : "Live";
 
   return (
-    <Card className="monitoring-metric-card">
-      <div className="monitoring-metric-card__head">
+    <Card className="flex min-h-[190px] flex-col p-5 [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-meta [&>strong]:block [&>strong]:mt-6 [&>strong]:mx-0 [&>strong]:mb-2 [&>strong]:text-ink [&>strong]:text-[27px] [&>strong]:tracking-[-0.02em] [&>p]:mt-0 [&>p]:mx-0 [&>p]:mb-4 [&>p]:text-ink-soft [&>p]:text-xs [&>p]:leading-[1.55] [&>small]:mt-[auto] [&>small]:text-ink-faint [&>small]:text-[11px]">
+      <div className="flex items-start justify-between gap-3 [&_span:not([data-slot='placeholder-badge'])]:text-mint-dark [&_span:not([data-slot='placeholder-badge'])]:font-mono [&_span:not([data-slot='placeholder-badge'])]:text-[11px]">
         <div>
           <span>{definition.key}</span>
           <h3>{definition.label}</h3>
@@ -215,11 +218,11 @@ function MonitoringDashboard({
 }) {
   return (
     <>
-      <div className="monitoring-scope-summary">
+      <div className="flex items-end justify-between gap-5 pt-1 px-0.5 pb-0 [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-1 [&_h2]:text-[22px] [&_h2]:tracking-[-0.025em] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta to-580:items-start to-580:flex-col">
         <div>
-          <span className="eyebrow">
+          <Eyebrow>
             {scope.type === "global" ? "Platform scope" : "Namespace scope"}
-          </span>
+          </Eyebrow>
           <h2>{scope.title}</h2>
           <p>{scope.detail}</p>
         </div>
@@ -228,7 +231,7 @@ function MonitoringDashboard({
           label={enabled ? "Querying catalog" : "Metrics unavailable"}
         />
       </div>
-      <div className="monitoring-metric-grid">
+      <div className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 to-1120:grid-cols-[repeat(2,_minmax(0,_1fr))] to-580:grid-cols-[1fr]">
         {monitoringMetricCatalog.map((definition) => (
           <ScopeMetricCard
             key={definition.key}
@@ -249,7 +252,9 @@ function projectLabel(projects: Project[], projectId: string) {
 }
 
 export function MonitoringPage() {
-  const [selectedScopeKey, setSelectedScopeKey] = useState("");
+  // The picked scope is a preference; the effective scope is derived from the
+  // scopes that exist in this render.
+  const [scopeChoice, setSelectedScopeKey] = useState("");
   const capabilities = useQuery({
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
@@ -297,12 +302,8 @@ export function MonitoringPage() {
     }
     return next;
   }, [accessibleEnvironments, effectiveCapabilities, projects.data?.items]);
-  useEffect(() => {
-    if (scopes.some((scope) => scope.key === selectedScopeKey)) return;
-    setSelectedScopeKey(scopes[0]?.key ?? "");
-  }, [scopes, selectedScopeKey]);
   const selectedScope =
-    scopes.find((scope) => scope.key === selectedScopeKey) ?? scopes[0];
+    scopes.find((scope) => scope.key === scopeChoice) ?? scopes[0];
   const loading =
     capabilities.isPending || projects.isPending || environments.isPending;
   const loadError =
@@ -310,7 +311,7 @@ export function MonitoringPage() {
   const monitoringAvailable = monitoring.data?.available === true;
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Bounded recording-rule catalog"
         title="Monitoring"
@@ -355,8 +356,8 @@ export function MonitoringPage() {
           action={<PlaceholderBadge>Access not granted</PlaceholderBadge>}
         />
       ) : (
-        <div className="monitoring-dashboard">
-          <Card className="monitoring-scope-picker">
+        <div className="grid gap-5">
+          <Card className="flex items-end justify-between gap-6 py-4 px-5 [&>div]:flex [&>div]:items-center [&>div]:gap-3 [&>div_>_svg]:w-[19px] [&>div_>_svg]:text-mint-dark [&_strong]:block [&_strong]:text-[11px] [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs [&_label]:grid [&_label]:min-w-[min(420px,_48%)] [&_label]:gap-1.5 [&_label_>_span]:text-ink-soft [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_label_>_span]:tracking-[0.06em] [&_label_>_span]:uppercase [&_select]:w-full [&_select]:min-h-[39px] [&_select]:pt-0 [&_select]:pr-8 [&_select]:pb-0 [&_select]:pl-3 [&_select]:border [&_select]:border-line-strong [&_select]:rounded-lg [&_select]:text-ink [&_select]:bg-surface to-820:items-stretch to-820:flex-col to-820:[&_label]:w-full to-820:[&_label]:min-w-0">
             <div>
               <Icon name="metrics" />
               <span>
@@ -384,7 +385,7 @@ export function MonitoringPage() {
           </Card>
 
           {monitoring.error || !monitoringAvailable ? (
-            <div className="notice notice--warning" role="status">
+            <Notice tone="warning" role="status">
               <Icon name="metrics" />
               <div>
                 <strong>Metrics are explicitly unavailable</strong>
@@ -393,7 +394,7 @@ export function MonitoringPage() {
                     "No healthy Prometheus-compatible query boundary is currently available."}
                 </p>
               </div>
-            </div>
+            </Notice>
           ) : null}
 
           <MonitoringDashboard
@@ -402,6 +403,6 @@ export function MonitoringPage() {
           />
         </div>
       )}
-    </div>
+    </Page>
   );
 }

@@ -7,8 +7,11 @@ import {
   Button,
   Card,
   ErrorPanel,
+  Eyebrow,
+  Page,
   PageHeader,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 
 export function GitHubSetupCompletePage() {
@@ -53,23 +56,26 @@ export function GitHubSetupCompletePage() {
   }, [attempt, queryClient]);
 
   return (
-    <div className="page github-setup-complete">
+    <Page className="[&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-base max-w-[760px] mx-[auto]">
       <PageHeader
         eyebrow="Source access"
         title="Complete GitHub setup"
         description="Kuberploy is consuming the one-time browser handoff and linking only provider-verified metadata."
       />
       <Card>
-        <div className="github-setup-complete__state">
-          <span className="github-setup-complete__icon">
+        <div className="grid grid-cols-[46px_minmax(0,_1fr)_auto] items-center gap-4 [&_p]:mt-2 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.55] to-520:grid-cols-[1fr] to-520:[&>[data-slot='status-pill']]:justify-self-start">
+          <span className="grid w-[42px] h-[42px] place-items-center rounded-[11px] text-mint-dark bg-surface-soft [&_svg]:w-[19px]">
             {state === "linking" ? (
-              <span className="spinner" aria-hidden="true" />
+              <span
+                className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent"
+                aria-hidden="true"
+              />
             ) : (
               <Icon name={state === "linked" ? "check" : "close"} />
             )}
           </span>
           <div>
-            <span className="eyebrow">Verified handoff</span>
+            <Eyebrow>Verified handoff</Eyebrow>
             <h2>
               {state === "linking"
                 ? "Linking installation"
@@ -93,7 +99,7 @@ export function GitHubSetupCompletePage() {
         {error ? (
           <ErrorPanel title="Could not complete GitHub setup" error={error} />
         ) : null}
-        <div className="github-setup-complete__actions">
+        <div className="grid gap-4 grid-flow-col justify-start mt-5 to-520:grid-flow-row">
           {state === "failed" ? (
             <Button
               variant="secondary"
@@ -106,15 +112,18 @@ export function GitHubSetupCompletePage() {
             </Button>
           ) : null}
           {state === "linked" ? (
-            <Link className="button button--primary" to="/builds">
+            <Link
+              className={buttonVariants({ variant: "primary" })}
+              to="/builds"
+            >
               Continue to source builds <Icon name="arrow" />
             </Link>
           ) : null}
-          <Link className="button button--ghost" to="/builds">
+          <Link className={buttonVariants({ variant: "ghost" })} to="/builds">
             Back to source builds
           </Link>
         </div>
       </Card>
-    </div>
+    </Page>
   );
 }

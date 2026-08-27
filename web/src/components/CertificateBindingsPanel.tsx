@@ -19,9 +19,12 @@ import { Icon } from "./Icon";
 import {
   Button,
   Card,
+  CardHeader,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  Notice,
   PlaceholderBadge,
   Skeleton,
   StatusPill,
@@ -90,8 +93,8 @@ function destroyCertificateWritePayload(payload?: CertificateWritePayload) {
 
 function CertificatePEMFields({ prefix }: { prefix: string }) {
   return (
-    <div className="runtime-secret-write-fields">
-      <div className="notice notice--warning" role="status">
+    <div className="grid gap-5 [&_+_[data-slot='notice']]:mt-4">
+      <Notice tone="warning" role="status">
         <Icon name="route" />
         <div>
           <strong>Write-only certificate material</strong>
@@ -101,7 +104,7 @@ function CertificatePEMFields({ prefix }: { prefix: string }) {
             browser storage, URLs, logs, or response state.
           </p>
         </div>
-      </div>
+      </Notice>
       <Field label="Certificate chain PEM" required>
         <textarea
           aria-label={`${prefix} certificate chain PEM`}
@@ -215,10 +218,10 @@ function CreateCertificateForm({
   }
 
   return (
-    <Card className="runtime-secret-form-card">
-      <div className="card__header card__header--inside">
+    <Card className="p-0 [&>form]:p-5">
+      <CardHeader>
         <div>
-          <span className="eyebrow">{environment.name}</span>
+          <Eyebrow>{environment.name}</Eyebrow>
           <h3>New custom certificate</h3>
           <p>
             The platform validates the key pair and derives its immutable
@@ -233,7 +236,7 @@ function CreateCertificateForm({
         >
           Cancel
         </Button>
-      </div>
+      </CardHeader>
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={busy}>
           <Field label="Binding name" required>
@@ -248,17 +251,17 @@ function CreateCertificateForm({
           </Field>
           <CertificatePEMFields prefix="Create certificate" />
           {feedback ? (
-            <div className="notice notice--error" role="alert">
+            <Notice tone="error" role="alert">
               {feedback}
-            </div>
+            </Notice>
           ) : null}
           {retryKey ? (
-            <small className="runtime-secret-retry-note">
+            <small className="mt-4 flex items-center gap-2 text-ink-soft text-xs">
               A stable idempotency key is retained for this form retry. Re-enter
               the exact same PEM or cancel and start a new request.
             </small>
           ) : null}
-          <div className="runtime-secret-form-actions">
+          <div className="flex justify-end mt-4">
             <Button type="submit" busy={busy}>
               Validate and create
             </Button>
@@ -390,18 +393,18 @@ function CertificateDetail({
   }
 
   return (
-    <Card className="runtime-secret-detail">
-      <div className="card__header card__header--inside">
+    <Card className="p-0">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Public certificate metadata</span>
+          <Eyebrow>Public certificate metadata</Eyebrow>
           <h3>{binding.name}</h3>
           <p>
             Binding <code>{binding.id}</code>
           </p>
         </div>
         <StatusPill value={binding.state} />
-      </div>
-      <div className="runtime-secret-detail-grid">
+      </CardHeader>
+      <div className="grid grid-cols-[1.4fr_0.7fr_0.9fr] gap-px border-y border-y-line bg-line [&>div]:min-w-0 [&>div]:py-3 [&>div]:px-4 [&>div]:bg-surface-soft [&_span]:block [&_span]:mb-1.5 [&_span]:text-ink-faint [&_span]:text-[11px] [&_span]:font-semibold [&_span]:tracking-[0.06em] [&_span]:uppercase [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-xs [&_strong]:text-ellipsis [&_code]:block [&_code]:overflow-hidden [&_code]:text-xs [&_code]:text-ellipsis to-580:grid-cols-[1fr]">
         <div>
           <span>Environment</span>
           <code>{binding.environmentId}</code>
@@ -417,14 +420,14 @@ function CertificateDetail({
           <strong>{formatDate(binding.updatedAt)}</strong>
         </div>
       </div>
-      <section className="runtime-secret-versions">
-        <div className="runtime-secret-subhead">
+      <section className="p-5">
+        <div className="flex items-start justify-between gap-4 mb-3 [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55]">
           <div>
             <h4>Immutable public attestations</h4>
             <p>Private keys and raw certificate bytes are never returned.</p>
           </div>
         </div>
-        <div className="runtime-secret-version-list">
+        <div className="grid gap-2 [&_article]:py-3 [&_article]:px-4 [&_article]:border [&_article]:border-line [&_article]:rounded-lg [&_article]:bg-surface-soft [&_article_>_div]:flex [&_article_>_div]:items-center [&_article_>_div]:justify-between [&_article_>_div]:gap-3 [&_strong]:text-meta [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-[11px] [&_ul]:grid [&_ul]:gap-1 [&_ul]:mt-2 [&_ul]:mx-0 [&_ul]:mb-0 [&_ul]:p-0 [&_ul]:list-none [&_code]:text-mint-dark [&_code]:text-[11px] [&_code]:break-words">
           {binding.versions.map((version) => (
             <article key={version.number}>
               <div>
@@ -450,11 +453,11 @@ function CertificateDetail({
       </section>
       {canRotate && binding.state === "ready" && binding.activeVersion ? (
         <form
-          className="runtime-secret-rotation-form"
+          className="p-5 border-t border-t-line"
           onSubmit={(event) => void rotate(event)}
         >
           <fieldset disabled={rotateBusy}>
-            <div className="runtime-secret-subhead">
+            <div className="flex items-start justify-between gap-4 mb-3 [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55]">
               <div>
                 <h4>Rotate from version {binding.activeVersion}</h4>
                 <p>
@@ -464,9 +467,9 @@ function CertificateDetail({
             </div>
             <CertificatePEMFields prefix="Rotate certificate" />
             {rotateFeedback ? (
-              <div className="notice notice--error" role="alert">
+              <Notice tone="error" role="alert">
                 {rotateFeedback}
-              </div>
+              </Notice>
             ) : null}
             {rotateRetryKey ? (
               <PlaceholderBadge>
@@ -481,7 +484,7 @@ function CertificateDetail({
       ) : null}
       {canDelete ? (
         <form
-          className="runtime-secret-delete"
+          className="p-5 border-t border-t-line grid grid-cols-[minmax(240px,_1fr)_minmax(190px,_0.7fr)_auto] items-end gap-3 bg-tone-bad-surface [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55] [&_[data-slot='notice']]:col-[1_/_-1] [&>[data-slot='placeholder-badge']]:col-[1_/_-1] to-820:grid-cols-[1fr_auto] to-820:[&>div:first-child]:col-[1_/_-1] to-580:grid-cols-[1fr] to-580:[&>div:first-child]:row-[auto] to-580:[&>div:first-child]:col-[auto]"
           onSubmit={(event) => void remove(event)}
         >
           <fieldset disabled={deleteBusy}>
@@ -504,9 +507,9 @@ function CertificateDetail({
               Delete certificate
             </Button>
             {deleteFeedback ? (
-              <div className="notice notice--error" role="alert">
+              <Notice tone="error" role="alert">
                 {deleteFeedback}
-              </div>
+              </Notice>
             ) : null}
             {deleteRetryKey ? (
               <PlaceholderBadge>Stable delete retry protected</PlaceholderBadge>
@@ -534,9 +537,11 @@ export function CertificateBindingsPanel({
   humanSession: boolean;
 }) {
   const queryClient = useQueryClient();
-  const [selectedEnvironmentId, setSelectedEnvironmentId] = useState("");
+  // The picked environment is a preference; the environment actually selected
+  // is derived below from the environments readable in this render.
+  const [environmentChoice, setSelectedEnvironmentId] = useState("");
   const [selectedBindingId, setSelectedBindingId] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [creatingChoice, setCreating] = useState(false);
   const formScopeRef = useRef("");
   const selectedBindingRef = useRef("");
   selectedBindingRef.current = selectedBindingId;
@@ -547,32 +552,23 @@ export function CertificateBindingsPanel({
     environments,
     project,
   );
+  const selectedEnvironmentId = readableEnvironments.some(
+    (environment) => environment.id === environmentChoice,
+  )
+    ? environmentChoice
+    : "";
   const selectedEnvironment =
     readableEnvironments.find(
       (environment) => environment.id === selectedEnvironmentId,
     ) ?? readableEnvironments[0];
+  // The create form belongs to an environment; with no readable environment
+  // left there is nothing to create against.
+  const creating = creatingChoice && Boolean(selectedEnvironment);
   const formScope = `${application.id}:${selectedEnvironment?.id ?? ""}`;
   formScopeRef.current = formScope;
   useEffect(() => {
     formScopeRef.current = formScope;
   }, [formScope]);
-  useEffect(() => {
-    setSelectedEnvironmentId("");
-    setSelectedBindingId("");
-    setCreating(false);
-  }, [application.id]);
-  useEffect(() => {
-    if (
-      selectedEnvironmentId &&
-      !readableEnvironments.some(
-        (environment) => environment.id === selectedEnvironmentId,
-      )
-    ) {
-      setSelectedEnvironmentId("");
-      setSelectedBindingId("");
-      setCreating(false);
-    }
-  }, [readableEnvironments, selectedEnvironmentId]);
   const list = useQuery({
     queryKey: ["certificate-bindings", application.id, selectedEnvironment?.id],
     queryFn: () =>
@@ -673,10 +669,10 @@ export function CertificateBindingsPanel({
   }
 
   return (
-    <div className="runtime-secrets-panel">
-      <Card className="runtime-secret-toolbar">
+    <div className="grid gap-4">
+      <Card className="grid grid-cols-[minmax(220px,_1fr)_minmax(230px,_330px)_auto] items-end gap-5 py-4 px-5 [&>div:first-child]:flex [&>div:first-child]:items-center [&>div:first-child]:gap-3 [&>div:first-child]:self-center [&_strong]:block [&_strong]:text-xs [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs [&_.field]:gap-1.5 to-820:grid-cols-[1fr_1fr] to-820:[&>div:first-child]:col-[1_/_-1] to-580:grid-cols-[1fr] to-580:[&>div:first-child]:row-[auto] to-580:[&>div:first-child]:col-[auto]">
         <div>
-          <span className="runtime-secret-toolbar__icon">
+          <span className="grid w-9 h-9 place-items-center rounded-[9px] text-mint-dark bg-mint-soft [&_svg]:w-[17px]">
             <Icon name="route" />
           </span>
           <span>
@@ -733,17 +729,17 @@ export function CertificateBindingsPanel({
           <Skeleton lines={6} />
         </Card>
       ) : list.data?.items.length ? (
-        <div className="runtime-secret-layout">
-          <Card className="runtime-secret-binding-list">
-            <div className="card__header card__header--inside">
+        <div className="grid grid-cols-[minmax(250px,_0.7fr)_minmax(420px,_1.3fr)] items-start gap-4 to-1120:grid-cols-[1fr]">
+          <Card className="overflow-hidden p-0 [&>div:last-child]:grid">
+            <CardHeader>
               <div>
-                <span className="eyebrow">Environment metadata</span>
+                <Eyebrow>Environment metadata</Eyebrow>
                 <h3>Certificate bindings</h3>
               </div>
               <PlaceholderBadge>
                 {list.data.items.length} certificates
               </PlaceholderBadge>
-            </div>
+            </CardHeader>
             <div>
               {list.data.items.map((binding: CertificateBindingMetadata) => (
                 <button

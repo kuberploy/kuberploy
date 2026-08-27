@@ -12,10 +12,17 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
   ConfirmDialog,
+  DetailList,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormActions,
+  FormGrid,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
@@ -394,7 +401,7 @@ export function ExternalDNSPage() {
     }));
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Platform networking"
         title="External DNS integrations"
@@ -432,15 +439,15 @@ export function ExternalDNSPage() {
       ) : (
         <>
           <Card>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
-                <span className="eyebrow">Readiness boundary</span>
+                <Eyebrow>Readiness boundary</Eyebrow>
                 <h2>Controller readiness</h2>
               </div>
               <StatusPill
                 value={status.data?.controllerReadiness ?? "unobserved"}
               />
-            </div>
+            </CardHeader>
             {status.isPending ? <Skeleton lines={3} /> : null}
             {status.error ? (
               <ErrorPanel
@@ -449,12 +456,8 @@ export function ExternalDNSPage() {
               />
             ) : null}
             {status.data ? (
-              <div
-                className={
-                  status.data.runtimeAvailable
-                    ? "notice notice--success"
-                    : "notice notice--warning"
-                }
+              <Notice
+                tone={status.data.runtimeAvailable ? "success" : "warning"}
               >
                 <div>
                   <strong>
@@ -464,26 +467,28 @@ export function ExternalDNSPage() {
                   </strong>
                   <p>{status.data.detail}</p>
                 </div>
-                <span className="placeholder-badge">
+                <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
                   {status.data.runtimeAvailable
                     ? "Runtime available"
                     : "Runtime unavailable"}
                 </span>
-              </div>
+              </Notice>
             ) : null}
           </Card>
 
-          <div className="registry-layout">
+          <div className="grid grid-cols-[minmax(0,_1.4fr)_minmax(340px,_0.8fr)] gap-5 items-start to-900:grid-cols-[1fr]">
             <Card>
-              <div className="card__header card__header--inside">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">Profiles</span>
+                  <Eyebrow>Profiles</Eyebrow>
                   <h2>Authorized integration catalog</h2>
                 </div>
                 {integrations.data?.truncated ? (
-                  <span className="placeholder-badge">First 100</span>
+                  <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
+                    First 100
+                  </span>
                 ) : null}
-              </div>
+              </CardHeader>
               {deactivate.error ? (
                 <ErrorPanel
                   error={deactivate.error}
@@ -505,20 +510,20 @@ export function ExternalDNSPage() {
                   description="Add a profile and assign at least one exact environment. This does not advertise controller readiness."
                 />
               ) : (
-                <div className="registry-target-list">
+                <div className="grid gap-4">
                   {integrations.data?.items.map((integration) => (
                     <article
-                      className="registry-target-row"
+                      className="grid justify-items-start gap-4 p-5 border border-line rounded-panel bg-surface [&>[data-slot='detail-list']]:justify-self-stretch [&>[data-slot='detail-list']]:w-full"
                       key={integration.id}
                     >
-                      <div className="registry-target-row__heading">
+                      <div className="flex items-start justify-between gap-5 [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&_code]:overflow-hidden [&_code]:text-ellipsis to-580:items-start to-580:flex-col">
                         <div>
                           <strong>{integration.name}</strong>
                           <code>{integration.slug}</code>
                         </div>
                         <StatusPill value={integration.mode} />
                       </div>
-                      <dl className="detail-list detail-list--compact">
+                      <DetailList className="[&>div]:py-2">
                         <div>
                           <dt>Provider</dt>
                           <dd>{integration.providerKind}</dd>
@@ -568,10 +573,10 @@ export function ExternalDNSPage() {
                               : ""}
                           </dd>
                         </div>
-                      </dl>
+                      </DetailList>
                       {canWrite &&
                       me.data?.authentication.kind === "session" ? (
-                        <div className="form-actions">
+                        <FormActions>
                           <Button
                             variant="secondary"
                             disabled={integration.lifecycle === "deactivated"}
@@ -592,7 +597,7 @@ export function ExternalDNSPage() {
                           >
                             <Icon name="close" /> Deactivate
                           </Button>
-                        </div>
+                        </FormActions>
                       ) : null}
                     </article>
                   ))}
@@ -602,11 +607,9 @@ export function ExternalDNSPage() {
 
             {canWrite && me.data?.authentication.kind === "session" ? (
               <Card>
-                <div className="card__header card__header--inside">
+                <CardHeader>
                   <div>
-                    <span className="eyebrow">
-                      {editing ? "Update" : "Add profile"}
-                    </span>
+                    <Eyebrow>{editing ? "Update" : "Add profile"}</Eyebrow>
                     <h2>{editing?.name ?? "Integration metadata"}</h2>
                   </div>
                   {editing ? (
@@ -614,13 +617,13 @@ export function ExternalDNSPage() {
                       Cancel
                     </Button>
                   ) : null}
-                </div>
-                <form className="form-grid" onSubmit={submit}>
+                </CardHeader>
+                <FormGrid as="form" onSubmit={submit}>
                   {editing && !editingIsCurrent ? (
-                    <div className="notice notice--warning">
+                    <Notice tone="warning">
                       This integration changed, was deactivated, or is no longer
                       available. Reload the catalog before saving it.
-                    </div>
+                    </Notice>
                   ) : null}
                   <Field label="Immutable slug" required error={errors.slug}>
                     <input
@@ -744,7 +747,7 @@ export function ExternalDNSPage() {
                       required
                       error={errors.destructiveSyncConfirmed}
                     >
-                      <label className="switch">
+                      <label className="flex min-h-[39px] items-center gap-2 text-meta cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:relative [&_span]:w-8 [&_span]:h-[18px] [&_span]:rounded-full [&_span]:bg-line-strong [&_span]:transition [&_span]:duration-(--motion-fast) [&_span]:ease-(--ease-standard) [&_span::after]:absolute [&_span::after]:top-[3px] [&_span::after]:left-[3px] [&_span::after]:w-3 [&_span::after]:h-3 [&_span::after]:content-[''] [&_span::after]:rounded-full [&_span::after]:bg-surface [&_span::after]:shadow-[0_1px_3px_rgba(0_0_0_0.2)] [&_span::after]:transition [&_span::after]:duration-(--motion-fast) [&_span::after]:ease-(--ease-standard) [&_input:checked_+_span]:bg-mint [&_input:checked_+_span::after]:transform-[translateX(14px)]">
                         <input
                           type="checkbox"
                           checked={draft.destructiveSyncConfirmed}
@@ -816,7 +819,7 @@ export function ExternalDNSPage() {
                     required
                     error={errors.environmentIds}
                   >
-                    <div className="checkbox-list">
+                    <div className="grid gap-[0.55rem] max-h-[16rem] overflow-auto p-[0.75rem] border border-line rounded-[9px] bg-surface-soft [&_label]:grid [&_label]:grid-cols-[auto_minmax(0,_1fr)_auto] [&_label]:items-center [&_label]:gap-[0.65rem] [&_code]:text-[0.75rem]">
                       {environments.isPending ? (
                         <span>Loading environments…</span>
                       ) : null}
@@ -848,7 +851,7 @@ export function ExternalDNSPage() {
                     <ErrorPanel error={environments.error} />
                   ) : null}
                   {saveError ? <ErrorPanel error={saveError} /> : null}
-                  <div className="form-actions">
+                  <FormActions>
                     <Button
                       type="submit"
                       busy={save.isPending}
@@ -857,8 +860,8 @@ export function ExternalDNSPage() {
                       <Icon name="check" />{" "}
                       {editing ? "Save profile" : "Add profile"}
                     </Button>
-                  </div>
-                </form>
+                  </FormActions>
+                </FormGrid>
               </Card>
             ) : (
               <Card>
@@ -888,6 +891,6 @@ export function ExternalDNSPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

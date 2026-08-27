@@ -1,7 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConfirmDialog } from "./ui";
+import { useState } from "react";
+import { ConfirmDialog, CopyButton, useRowKeys } from "./ui";
 
 afterEach(() => {
   cleanup();
@@ -75,5 +76,138 @@ describe("ConfirmDialog", () => {
     expect(confirm).toBeEnabled();
     await user.click(confirm);
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+});
+
+describe("CopyButton", () => {
+  it("writes the value to the clipboard and confirms the copy", async () => {
+    // userEvent.setup() installs its own clipboard stub, so the spy has to be
+    // applied after it.
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(navigator, "clipboard", "get").mockReturnValue({
+      writeText,
+    } as unknown as Clipboard);
+
+    render(<CopyButton value="payments-api" label="Copy the name" />);
+    const button = screen.getByRole("button", {
+      name: "Copy the name: payments-api",
+    });
+    await user.click(button);
+
+    expect(writeText).toHaveBeenCalledWith("payments-api");
+    expect(await screen.findByText("Copied to clipboard")).toBeInTheDocument();
+  });
+
+  it("falls back to a selection copy when the async clipboard is missing", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator, "clipboard", "get").mockReturnValue(
+      undefined as unknown as Clipboard,
+    );
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+
+    render(<CopyButton value="DISCONNECT" />);
+    await user.click(screen.getByRole("button", { name: "Copy: DISCONNECT" }));
+
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(await screen.findByText("Copied to clipboard")).toBeInTheDocument();
+  });
+});
+
+describe("ConfirmDialog confirmation phrase", () => {
+  it("offers the phrase as a copyable value and flags a mismatch", async () => {
+    const user = userEvent.setup();
+    render(
+      <ConfirmDialog
+        title="Delete App"
+        description="Only unused Apps can be deleted."
+        confirmation="payments-api"
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", {
+        name: "Copy the confirmation phrase: payments-api",
+      }),
+    ).toBeInTheDocument();
+
+    const input = screen.getByRole("textbox", { name: "Confirm deletion" });
+    await user.type(input, "payments");
+    expect(screen.getByText("Does not match yet.")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+
+    await user.type(input, "-api");
+    expect(screen.queryByText("Does not match yet.")).not.toBeInTheDocument();
+  });
+
+  it("confirms on Enter once the phrase matches", async () => {
+    const onConfirm = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ConfirmDialog
+        title="Disconnect source"
+        description="This removes the source connection."
+        confirmation="DISCONNECT"
+        onCancel={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Confirm deletion" });
+    await user.type(input, "DISCONNEC{Enter}");
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    await user.type(input, "T{Enter}");
+    expect(onConfirm).toHaveBeenCalledOnce();
+  });
+});
+
+describe("useRowKeys", () => {
+  function RowList() {
+    const [rows, setRows] = useState(["alpha", "bravo", "charlie"]);
+    const keys = useRowKeys(rows.length);
+    return (
+      <ul>
+        {rows.map((row, index) => (
+          <li key={keys.keyAt(index)}>
+            <input aria-label={`${row} note`} defaultValue={row} />
+            <button
+              type="button"
+              aria-label={`Remove ${row}`}
+              onClick={() => {
+                keys.removeAt(index);
+                setRows(rows.filter((_, position) => position !== index));
+              }}
+            >
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  it("keeps a row's own DOM node when an earlier row is removed", async () => {
+    const user = userEvent.setup();
+    render(<RowList />);
+
+    const charlie = screen.getByRole("textbox", { name: "charlie note" });
+    await user.clear(charlie);
+    await user.type(charlie, "kept");
+    await user.click(screen.getByRole("button", { name: "Remove alpha" }));
+
+    // Keyed by index, charlie would have inherited bravo's node and shown
+    // "bravo" here: the uncontrolled value belongs to the node, not the row.
+    expect(screen.getByRole("textbox", { name: "charlie note" })).toBe(charlie);
+    expect(charlie).toHaveValue("kept");
+    expect(
+      screen.queryByRole("textbox", { name: "alpha note" }),
+    ).not.toBeInTheDocument();
   });
 });

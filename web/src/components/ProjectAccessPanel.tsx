@@ -12,12 +12,16 @@ import type {
   Project,
 } from "../api/types";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "./shadcn/dialog";
-import { Button, Field, Skeleton } from "./ui";
+  Eyebrow,
+  Field,
+  MutedCopy,
+  Skeleton,
+} from "./ui";
 
 type GrantForm = {
   subjectType: "user" | "team";
@@ -293,28 +297,15 @@ export function ProjectAccessPanel({
       });
     },
   });
-  useEffect(() => {
-    form.reset({
-      subjectType: "user",
-      subjectUserId: "",
-      subjectTeamId: "",
-      role: "developer",
-      scope: `project:${project.id}`,
-      logsRead: false,
-    });
-    createAttempt.current = null;
-    setConfirmGrant(null);
-    setConfirmation("");
-    setConfirmIdempotencyKey("");
-    createGrant.reset();
-    deleteGrant.reset();
-  }, [project.id]);
 
   return (
-    <div className="access-panel" aria-label={`${project.name} access`}>
-      <div className="access-panel__header">
+    <div
+      className="p-6 border-t border-t-line bg-surface-soft"
+      aria-label={`${project.name} access`}
+    >
+      <div className="flex items-start justify-between gap-5 mb-5 [&_h3]:my-1 [&_h3]:mx-0 [&_p]:max-w-[740px] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta to-680:items-stretch to-680:flex-col">
         <div>
-          <span className="eyebrow">Authorization</span>
+          <Eyebrow>Authorization</Eyebrow>
           <h3>Project access</h3>
           <p>
             Grants are additive. Team owners remain organization administrators,
@@ -326,7 +317,10 @@ export function ProjectAccessPanel({
         </Button>
       </div>
 
-      <form className="access-form" onSubmit={form.handleSubmit(submitGrant)}>
+      <form
+        className="grid grid-cols-[repeat(4,_minmax(0,_1fr))] items-start gap-y-4 gap-x-3 p-4 border border-line rounded-lg bg-surface [&>.field]:min-w-0 [&>[data-slot='button']]:col-[-2_/_-1] [&>[data-slot='button']]:justify-self-end to-1000:grid-cols-[repeat(2,_minmax(0,_1fr))] to-640:grid-cols-[minmax(0,_1fr)] to-640:[&>[data-slot='button']]:col-[1] to-640:[&>[data-slot='button']]:justify-self-start to-1100:grid-cols-[1fr_1fr] to-680:grid-cols-[1fr]"
+        onSubmit={form.handleSubmit(submitGrant)}
+      >
         <Field label="Subject type" required>
           <select {...form.register("subjectType")}>
             <option value="user">User</option>
@@ -391,7 +385,7 @@ export function ProjectAccessPanel({
             ))}
           </select>
         </Field>
-        <label className="access-form__check">
+        <label className="flex items-center gap-2 col-[1_/_-2] text-ink-soft cursor-pointer text-meta to-640:col-[1] to-640:justify-self-start">
           <input type="checkbox" {...form.register("logsRead")} />
           Add logs.read (optional for viewers)
         </label>
@@ -400,17 +394,24 @@ export function ProjectAccessPanel({
         </Button>
       </form>
       {createGrant.error ? (
-        <div className="form-error">{errorMessage(createGrant.error)}</div>
+        <div className="col-[1_/_-1] text-tone-bad text-meta">
+          {errorMessage(createGrant.error)}
+        </div>
       ) : null}
 
       {grants.isPending ? (
         <Skeleton lines={3} />
       ) : grants.error ? (
-        <div className="form-error">{errorMessage(grants.error)}</div>
+        <div className="col-[1_/_-1] text-tone-bad text-meta">
+          {errorMessage(grants.error)}
+        </div>
       ) : grants.data.items.length ? (
-        <div className="access-list">
+        <div className="grid gap-2 mt-5">
           {grants.data.items.map((grant) => (
-            <div className="access-row" key={grant.id}>
+            <div
+              className="flex items-center justify-between gap-4 py-3 px-4 border border-line rounded-[9px] bg-surface [&>div]:grid [&>div]:gap-1 [&_span]:text-ink-soft [&_span]:text-xs [&_small]:text-ink-soft [&_small]:text-xs to-680:items-stretch to-680:flex-col"
+              key={grant.id}
+            >
               <div>
                 <strong>{grant.role}</strong>
                 <span>
@@ -440,7 +441,7 @@ export function ProjectAccessPanel({
           ))}
         </div>
       ) : (
-        <p className="muted-copy">No explicit grants for this project.</p>
+        <MutedCopy>No explicit grants for this project.</MutedCopy>
       )}
 
       {confirmGrant ? (
@@ -455,7 +456,7 @@ export function ProjectAccessPanel({
           }}
         >
           <DialogContent
-            className="confirmation-dialog access-confirm max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 gap-3 mt-4 p-4 border-[color-mix(in_srgb,_var(--red)_35%,_var(--line))] rounded-[10px] bg-[color-mix(in_srgb,_var(--red)_5%,_white)] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&>div]:flex [&>div]:gap-2 max-w-none"
             role="alertdialog"
             showCloseButton={false}
           >
@@ -498,7 +499,10 @@ export function ProjectAccessPanel({
               </Button>
             </div>
             {deleteGrant.error ? (
-              <div className="form-error" role="alert">
+              <div
+                className="col-[1_/_-1] text-tone-bad text-meta"
+                role="alert"
+              >
                 {errorMessage(deleteGrant.error)}
               </div>
             ) : null}

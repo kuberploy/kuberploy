@@ -108,7 +108,10 @@ describe("new deployment runtime controls", () => {
     });
     vi.mocked(api.applications).mockReturnValue(refreshedApplications);
     const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     queryClient.setQueryData(["applications"], {
       items: [

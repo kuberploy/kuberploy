@@ -9,7 +9,17 @@ import {
   shortId,
 } from "../lib/format";
 import { Icon } from "./Icon";
-import { Button, ErrorPanel, Field, Skeleton, StatusPill } from "./ui";
+import {
+  Button,
+  CardHeader,
+  DetailList,
+  ErrorPanel,
+  Eyebrow,
+  Field,
+  MutedCopy,
+  Skeleton,
+  StatusPill,
+} from "./ui";
 
 const branchNamePattern =
   /^(?!refs\/)[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,198}[A-Za-z0-9])?$/;
@@ -46,22 +56,22 @@ export function EnvironmentGitBindingPanel({
     enabled: canCreate,
     retry: false,
   });
-  const [installationId, setInstallationId] = useState("");
-  const [repositoryId, setRepositoryId] = useState("");
+  // The picked ids are preferences. What is actually selected is derived below
+  // from the list that is loaded right now, so a list that drops the picked
+  // entry falls back inside the same render rather than one render later.
+  const [installationChoice, setInstallationId] = useState("");
+  const [repositoryChoice, setRepositoryId] = useState("");
   const [targetRef, setTargetRef] = useState("main");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
   const environmentRef = useRef(environment.id);
   environmentRef.current = environment.id;
 
-  useEffect(() => {
-    if (
-      installationId === "" ||
-      !installations.data?.items.some((item) => item.id === installationId)
-    ) {
-      setInstallationId(installations.data?.items[0]?.id ?? "");
-    }
-  }, [installationId, installations.data]);
+  const installationId = installations.data?.items.some(
+    (item) => item.id === installationChoice,
+  )
+    ? installationChoice
+    : (installations.data?.items[0]?.id ?? "");
 
   const repositories = useQuery({
     queryKey: ["github-installation-repositories", installationId],
@@ -77,14 +87,11 @@ export function EnvironmentGitBindingPanel({
     [repositories.data],
   );
 
-  useEffect(() => {
-    if (
-      repositoryId === "" ||
-      !activeRepositories.some((item) => item.id === repositoryId)
-    ) {
-      setRepositoryId(activeRepositories[0]?.id ?? "");
-    }
-  }, [activeRepositories, repositoryId]);
+  const repositoryId = activeRepositories.some(
+    (item) => item.id === repositoryChoice,
+  )
+    ? repositoryChoice
+    : (activeRepositories[0]?.id ?? "");
 
   const create = useMutation({
     mutationFn: (input: {
@@ -110,16 +117,6 @@ export function EnvironmentGitBindingPanel({
       });
     },
   });
-
-  useEffect(() => {
-    attempt.current = null;
-    setInstallationId("");
-    setRepositoryId("");
-    setTargetRef("main");
-    setConfirmed(false);
-    setValidationError("");
-    create.reset();
-  }, [environment.id]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -159,12 +156,12 @@ export function EnvironmentGitBindingPanel({
 
   return (
     <div
-      className="automation-panel"
+      className="p-6 border-t border-t-line bg-surface-soft"
       aria-label={`${environment.name} Git authority`}
     >
-      <div className="automation-panel__header">
+      <div className="flex items-start justify-between gap-5 mb-5 [&_h3]:my-1 [&_h3]:mx-0 [&_p]:max-w-[740px] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta to-680:items-stretch to-680:flex-col">
         <div>
-          <span className="eyebrow">Environment Git authority</span>
+          <Eyebrow>Environment Git authority</Eyebrow>
           <h3>{environment.name}</h3>
           <p>
             Bind this namespace to one verified GitHub App repository and
@@ -179,16 +176,16 @@ export function EnvironmentGitBindingPanel({
       {binding.isPending ? <Skeleton lines={5} /> : null}
       {binding.data ? (
         <div>
-          <div className="card__header card__header--inside">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Immutable authority</span>
+              <Eyebrow>Immutable authority</Eyebrow>
               <h3>
                 {binding.data.repository.owner}/{binding.data.repository.name}
               </h3>
             </div>
             <StatusPill value={binding.data.state} />
-          </div>
-          <dl className="detail-list">
+          </CardHeader>
+          <DetailList>
             <div>
               <dt>Target branch</dt>
               <dd>
@@ -217,11 +214,11 @@ export function EnvironmentGitBindingPanel({
               <dt>Updated</dt>
               <dd>{formatDate(binding.data.updatedAt)}</dd>
             </div>
-          </dl>
-          <p className="muted-copy">
+          </DetailList>
+          <MutedCopy>
             Clone URLs, App credentials, Secret names, and provider tokens are
             never exposed in this view.
-          </p>
+          </MutedCopy>
         </div>
       ) : binding.error && !missing ? (
         <ErrorPanel
@@ -230,13 +227,16 @@ export function EnvironmentGitBindingPanel({
           onRetry={() => void binding.refetch()}
         />
       ) : !canCreate ? (
-        <p className="muted-copy">
+        <MutedCopy>
           This environment has no Git authority yet. An interactive project
           administrator with build-management permission must create it before
           Apps can enter the protected GitOps path.
-        </p>
+        </MutedCopy>
       ) : (
-        <form className="automation-create-form" onSubmit={submit}>
+        <form
+          className="grid grid-cols-[minmax(240px,_1.4fr)_minmax(180px,_0.7fr)_auto] items-end gap-3 p-4 border border-line rounded-[10px] bg-surface to-680:grid-cols-[1fr]"
+          onSubmit={submit}
+        >
           <Field label="Verified installation" required>
             <select
               value={installationId}
@@ -286,7 +286,7 @@ export function EnvironmentGitBindingPanel({
               autoCapitalize="none"
             />
           </Field>
-          <label className="checkbox-row">
+          <label className="grid grid-cols-[16px_minmax(0,_1fr)] items-start gap-3 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-4 [&_input]:min-h-4 [&_input]:mt-0.5 [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint">
             <input
               type="checkbox"
               checked={confirmed}
@@ -306,10 +306,12 @@ export function EnvironmentGitBindingPanel({
             <Icon name="git" /> Create Git authority
           </Button>
           {validationError ? (
-            <div className="form-error">{validationError}</div>
+            <div className="col-[1_/_-1] text-tone-bad text-meta">
+              {validationError}
+            </div>
           ) : null}
           {installations.error || repositories.error || create.error ? (
-            <div className="form-error">
+            <div className="col-[1_/_-1] text-tone-bad text-meta">
               {errorMessage(
                 installations.error ?? repositories.error ?? create.error,
               )}

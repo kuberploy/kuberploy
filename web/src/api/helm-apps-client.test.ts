@@ -41,7 +41,9 @@ describe("direct Argo Helm App API client", () => {
       .mockResolvedValueOnce(jsonResponse({ items: [revision] }))
       .mockResolvedValueOnce(jsonResponse(revision, true))
       .mockResolvedValueOnce(jsonResponse({ ...revision, action: "retry" }))
-      .mockResolvedValueOnce(jsonResponse({ ...revision, action: "disable", desiredEnabled: false }))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...revision, action: "disable", desiredEnabled: false }),
+      )
       .mockResolvedValueOnce(jsonResponse({ ...revision, action: "rollback" }));
     vi.stubGlobal("fetch", fetchMock);
     document.cookie = "kuberploy_csrf=helm-csrf; path=/";
@@ -49,10 +51,28 @@ describe("direct Argo Helm App API client", () => {
 
     await api.helmRelease("application/id", "environment/id");
     await api.helmReleaseHistory("application/id", "environment/id", 9);
-    const deploy = await api.upsertHelmRelease("application/id", "environment/id", input, "helm-upsert-stable-key");
-    await api.retryHelmRelease("application/id", "environment/id", "helm-retry-stable-key");
-    await api.disableHelmRelease("application/id", "environment/id", "helm-disable-stable-key");
-    await api.rollbackHelmRelease("application/id", "environment/id", revision.id, "helm-rollback-stable-key");
+    const deploy = await api.upsertHelmRelease(
+      "application/id",
+      "environment/id",
+      input,
+      "helm-upsert-stable-key",
+    );
+    await api.retryHelmRelease(
+      "application/id",
+      "environment/id",
+      "helm-retry-stable-key",
+    );
+    await api.disableHelmRelease(
+      "application/id",
+      "environment/id",
+      "helm-disable-stable-key",
+    );
+    await api.rollbackHelmRelease(
+      "application/id",
+      "environment/id",
+      revision.id,
+      "helm-rollback-stable-key",
+    );
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/v1/applications/application%2Fid/environments/environment%2Fid/helm/release",
@@ -62,7 +82,9 @@ describe("direct Argo Helm App API client", () => {
       "/v1/applications/application%2Fid/environments/environment%2Fid/helm/release/disable",
       "/v1/applications/application%2Fid/environments/environment%2Fid/helm/release/rollback",
     ]);
-    expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).toEqual(input);
+    expect(
+      JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body)),
+    ).toEqual(input);
     expect(deploy.replayed).toBe(true);
   });
 
@@ -70,7 +92,12 @@ describe("direct Argo Helm App API client", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     expect(() =>
-      api.upsertHelmRelease("app", "env", { source: revision.source, valuesYaml: "é".repeat(131_073) }, "stable-idempotency-key"),
+      api.upsertHelmRelease(
+        "app",
+        "env",
+        { source: revision.source, valuesYaml: "é".repeat(131_073) },
+        "stable-idempotency-key",
+      ),
     ).toThrow(ApiError);
     expect(fetchMock).not.toHaveBeenCalled();
   });

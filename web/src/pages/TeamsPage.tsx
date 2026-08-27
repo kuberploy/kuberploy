@@ -18,20 +18,25 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
-  EmptyState,
-  ErrorPanel,
-  Field,
-  PageHeader,
-  Skeleton,
-} from "../components/ui";
-import {
+  CardHeader,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "../components/shadcn/dialog";
+  EmptyState,
+  ErrorPanel,
+  Eyebrow,
+  Field,
+  MutedCopy,
+  Notice,
+  Page,
+  PageHeader,
+  Skeleton,
+} from "../components/ui";
 import { formatDate } from "../lib/format";
 import { buildInvitationLink } from "../lib/invitationLink";
+import { useCopyToClipboard } from "../lib/clipboard";
+import { cn } from "@/lib/utils";
 
 type TeamForm = { name: string; slug: string };
 type MemberForm = { userId: string; role: "owner" | "member" };
@@ -44,7 +49,9 @@ type SharingInput = {
 export function TeamsPage() {
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectedTeamId, setSelectedTeamId] = useState("");
+  // The picked team is a preference; which team is actually shown is derived
+  // from the teams that exist in this render.
+  const [teamChoice, setSelectedTeamId] = useState("");
   const [shareTarget, setShareTarget] = useState<GitHubInstallation | null>(
     null,
   );
@@ -59,6 +66,11 @@ export function TeamsPage() {
     queryFn: api.capabilities,
   });
   const teams = useQuery({ queryKey: ["teams"], queryFn: api.teams });
+  const selectedTeamId = teams.data?.items.some(
+    (team) => team.id === teamChoice,
+  )
+    ? teamChoice
+    : (teams.data?.items[0]?.id ?? "");
   const users = useQuery({ queryKey: ["users"], queryFn: api.users });
   const installations = useQuery({
     queryKey: ["github-installations"],
@@ -295,17 +307,6 @@ export function TeamsPage() {
     },
   });
 
-  useEffect(() => {
-    const firstTeam = teams.data?.items[0];
-    const selectionStillExists = teams.data?.items.some(
-      (team) => team.id === selectedTeamId,
-    );
-    if (!selectionStillExists) {
-      setSelectedTeamId(firstTeam?.id ?? "");
-      setRemoveTarget(null);
-    }
-  }, [selectedTeamId, teams.data]);
-
   const submitTeam = (values: TeamForm) => {
     const input = { name: values.name, slug: values.slug || undefined };
     const signature = JSON.stringify(input);
@@ -397,7 +398,7 @@ export function TeamsPage() {
   const loadError = teams.error ?? users.error ?? installations.error;
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Identity & source access"
         title="Teams & GitHub Apps"
@@ -423,22 +424,22 @@ export function TeamsPage() {
       ) : null}
 
       {createOpen ? (
-        <Card className="creation-panel">
-          <div className="card__header card__header--inside">
+        <Card className="mb-5 py-5 px-6 border-mint-line">
+          <CardHeader>
             <div>
-              <span className="eyebrow">New collaboration boundary</span>
+              <Eyebrow>New collaboration boundary</Eyebrow>
               <h2>Create a team</h2>
             </div>
             <button
-              className="icon-button"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               onClick={() => setCreateOpen(false)}
               aria-label="Close team form"
             >
               <Icon name="close" />
             </button>
-          </div>
+          </CardHeader>
           <form
-            className="inline-form"
+            className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 to-580:grid-cols-[1fr]"
             onSubmit={teamForm.handleSubmit(submitTeam)}
           >
             <Field
@@ -466,38 +467,47 @@ export function TeamsPage() {
               Create team
             </Button>
             {createTeam.error ? (
-              <div className="form-error">{errorMessage(createTeam.error)}</div>
+              <div className="col-[1_/_-1] text-tone-bad text-meta">
+                {errorMessage(createTeam.error)}
+              </div>
             ) : null}
           </form>
         </Card>
       ) : null}
 
-      <div className="teams-grid">
-        <Card className="team-list-card">
-          <div className="card__header card__header--inside">
+      <div className="grid grid-cols-[minmax(260px,_0.72fr)_minmax(440px,_1.28fr)] gap-5 mb-5 to-1120:grid-cols-[minmax(230px,_0.65fr)_minmax(390px,_1.35fr)] to-820:grid-cols-[1fr] page-to-760:grid-cols-[minmax(0,_1fr)]">
+        <Card className="self-start">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Accessible teams</span>
+              <Eyebrow>Accessible teams</Eyebrow>
               <h2>Teams</h2>
             </div>
-            <span className="count-badge">{teams.data?.items.length ?? 0}</span>
-          </div>
+            <span className="grid min-w-[27px] min-h-[27px] place-items-center py-0 px-2 border border-line rounded-full text-ink-soft bg-surface-soft text-meta font-semibold">
+              {teams.data?.items.length ?? 0}
+            </span>
+          </CardHeader>
           {teams.isPending ? (
             <Skeleton lines={5} />
           ) : teams.data?.items.length ? (
-            <div className="team-selector" role="list">
+            <div className="flex flex-col gap-1.5" role="list">
               {teams.data.items.map((team) => (
                 <button
                   key={team.id}
                   type="button"
                   role="listitem"
-                  className={`team-selector__item ${
-                    selectedTeamId === team.id
-                      ? "team-selector__item--active"
-                      : ""
-                  }`}
+                  className={cn(
+                    "grid min-h-[57px] w-full grid-cols-[35px_minmax(0,1fr)_15px] items-center gap-2.5 rounded-[9px] border border-transparent px-2.5 py-2 text-left text-ink hover:bg-surface-soft",
+                    "[&>span:nth-child(2)]:min-w-0",
+                    // Names and slugs are identifiers: ellipsize rather than wrap.
+                    "[&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_strong]:text-meta",
+                    "[&_small]:mt-[3px] [&_small]:block [&_small]:overflow-hidden [&_small]:text-ellipsis [&_small]:whitespace-nowrap [&_small]:text-xs [&_small]:text-ink-faint",
+                    "[&>svg]:w-[13px] [&>svg]:text-ink-faint",
+                    selectedTeamId === team.id &&
+                      "border-mint-line bg-mint-soft",
+                  )}
                   onClick={() => setSelectedTeamId(team.id)}
                 >
-                  <span className="team-avatar">
+                  <span className="grid w-[34px] h-[34px] place-items-center border border-mint-line rounded-[9px] text-mint-dark bg-mint-soft text-meta font-bold">
                     {team.name.slice(0, 2).toUpperCase()}
                   </span>
                   <span>
@@ -523,14 +533,14 @@ export function TeamsPage() {
           )}
         </Card>
 
-        <Card className="team-members-card">
-          <div className="card__header card__header--inside">
+        <Card className="[&_code]:text-xs [&_code]:text-ink-faint">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Membership</span>
+              <Eyebrow>Membership</Eyebrow>
               <h2>{selectedTeam?.name ?? "Select a team"}</h2>
             </div>
             {selectedTeam ? (
-              <div className="cluster-actions">
+              <div className="flex flex-none items-center flex-wrap gap-y-2 gap-x-3 [&>code]:overflow-hidden [&>code]:max-w-[22ch] [&>code]:text-ink-faint [&>code]:text-xs [&>code]:text-ellipsis [&>code]:whitespace-nowrap">
                 <code>{selectedTeam.slug}</code>
                 {canManageSelectedTeam ? (
                   <Button
@@ -545,7 +555,7 @@ export function TeamsPage() {
                 ) : null}
               </div>
             ) : null}
-          </div>
+          </CardHeader>
           {!selectedTeam ? (
             <EmptyState
               icon="user"
@@ -563,14 +573,17 @@ export function TeamsPage() {
           ) : (
             <>
               <div
-                className="member-list"
+                className="border border-line rounded-lg overflow-hidden"
                 aria-label={`${selectedTeam.name} members`}
               >
                 {members.data?.items.map((member) => {
                   const user = member.user ?? usersById.get(member.userId);
                   return (
-                    <div className="member-row" key={member.userId}>
-                      <span className="user-avatar">
+                    <div
+                      className="[&>span:nth-child(2)]:min-w-0 [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_small]:block [&_small]:mt-1 [&_small]:overflow-hidden [&_small]:text-ink-faint [&_small]:text-xs [&_small]:text-ellipsis [&_small]:whitespace-nowrap grid min-h-[58px] grid-cols-[35px_minmax(0,_1fr)_auto_auto] items-center gap-3 py-2 px-3 border-b border-b-line last:border-b-0"
+                      key={member.userId}
+                    >
+                      <span className="grid w-[34px] h-[34px] place-items-center border border-mint-line rounded-[9px] text-mint-dark bg-mint-soft text-meta font-bold">
                         {(user?.displayName ?? "U").slice(0, 1).toUpperCase()}
                       </span>
                       <span>
@@ -578,13 +591,19 @@ export function TeamsPage() {
                         <small>{user?.email ?? `User ${member.userId}`}</small>
                       </span>
                       <span
-                        className={`member-role member-role--${member.role}`}
+                        className={cn(
+                          "inline-flex min-h-[23px] items-center rounded-full border px-2 text-xs font-semibold",
+                          member.role === "owner"
+                            ? "border-tone-busy-line bg-tone-busy-surface text-tone-busy"
+                            : "border-line bg-surface-soft text-ink-soft",
+                        )}
                       >
                         {member.role === "owner" ? "Owner" : "Member"}
                       </span>
                       {canManageSelectedTeam ? (
                         <>
                           <TeamMemberRoleEditor
+                            key={`${member.userId}:${member.role}`}
                             member={member}
                             busy={
                               updateMemberRole.isPending &&
@@ -623,7 +642,7 @@ export function TeamsPage() {
                           />
                           <button
                             type="button"
-                            className="icon-button member-remove-button"
+                            className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid place-items-center border border-line rounded-lg bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px] w-7 h-7 text-red [&>svg]:w-3"
                             aria-label={`Remove ${user?.displayName ?? member.userId} from ${selectedTeam.name}`}
                             onClick={() => {
                               removeMember.reset();
@@ -638,12 +657,14 @@ export function TeamsPage() {
                   );
                 })}
                 {!members.data?.items.length ? (
-                  <p className="muted-copy">This team has no members.</p>
+                  <MutedCopy className="m-0 px-3 py-[18px]">
+                    This team has no members.
+                  </MutedCopy>
                 ) : null}
               </div>
               {canManageSelectedTeam ? (
                 <form
-                  className="member-form"
+                  className="grid grid-cols-[minmax(160px,_1fr)_120px_auto] items-end gap-3 mt-4 pt-4 border-t border-t-line to-580:grid-cols-[1fr] page-to-560:grid-cols-[minmax(0,_1fr)]"
                   onSubmit={memberForm.handleSubmit(submitMember)}
                 >
                   <Field
@@ -681,7 +702,7 @@ export function TeamsPage() {
                     <Icon name="plus" /> Add member
                   </Button>
                   {addMember.error ? (
-                    <div className="form-error">
+                    <div className="col-[1_/_-1] text-tone-bad text-meta">
                       {errorMessage(addMember.error)}
                     </div>
                   ) : null}
@@ -693,13 +714,13 @@ export function TeamsPage() {
       </div>
 
       {me.data?.role === "platform-admin" ? (
-        <Card className="invitation-card">
-          <div className="invitation-card__copy">
-            <span className="invitation-card__icon">
+        <Card className="grid grid-cols-[minmax(280px,_0.8fr)_minmax(360px,_1.2fr)] items-start gap-7 mb-5 [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-1.5 [&_h2]:text-base to-820:grid-cols-[1fr] page-to-760:grid-cols-[minmax(0,_1fr)]">
+          <div className="grid grid-cols-[42px_1fr] items-start gap-3 [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.55]">
+            <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-[10px] text-mint-dark bg-mint-soft [&_svg]:w-[18px]">
               <Icon name="user" />
             </span>
             <div>
-              <span className="eyebrow">Platform administrator</span>
+              <Eyebrow>Platform administrator</Eyebrow>
               <h2>Invite a user</h2>
               <p>
                 Create a short-lived invitation link without configuring an
@@ -715,7 +736,7 @@ export function TeamsPage() {
             />
           ) : (
             <form
-              className="invite-form"
+              className="grid grid-cols-[minmax(200px,_1fr)_auto] items-end gap-3 to-580:grid-cols-[1fr] page-to-560:grid-cols-[minmax(0,_1fr)]"
               onSubmit={invitationForm.handleSubmit(submitInvitation)}
             >
               <Field
@@ -736,7 +757,7 @@ export function TeamsPage() {
                 Create one-time invitation
               </Button>
               {createInvitation.error ? (
-                <div className="form-error">
+                <div className="col-[1_/_-1] text-tone-bad text-meta">
                   {errorMessage(createInvitation.error)}
                 </div>
               ) : null}
@@ -746,28 +767,43 @@ export function TeamsPage() {
       ) : null}
 
       {me.data?.role === "platform-admin" ? (
-        <Card className="installations-card">
-          <div className="card__header card__header--inside">
+        <Card className="mb-5">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Platform administrator</span>
+              <Eyebrow>Platform administrator</Eyebrow>
               <h2>Users</h2>
               <p>
                 Delete login access while preserving immutable audit history.
               </p>
             </div>
-            <span className="count-badge">{users.data?.items.length ?? 0}</span>
-          </div>
-          <div className="member-list" aria-label="Platform users">
+            <span className="grid min-w-[27px] min-h-[27px] place-items-center py-0 px-2 border border-line rounded-full text-ink-soft bg-surface-soft text-meta font-semibold">
+              {users.data?.items.length ?? 0}
+            </span>
+          </CardHeader>
+          <div
+            className="border border-line rounded-lg overflow-hidden"
+            aria-label="Platform users"
+          >
             {users.data?.items.map((user) => (
-              <div className="member-row" key={user.id}>
-                <span className="user-avatar">
+              <div
+                className="[&>span:nth-child(2)]:min-w-0 [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_small]:block [&_small]:mt-1 [&_small]:overflow-hidden [&_small]:text-ink-faint [&_small]:text-xs [&_small]:text-ellipsis [&_small]:whitespace-nowrap grid min-h-[58px] grid-cols-[35px_minmax(0,_1fr)_auto_auto] items-center gap-3 py-2 px-3 border-b border-b-line last:border-b-0"
+                key={user.id}
+              >
+                <span className="grid w-[34px] h-[34px] place-items-center border border-mint-line rounded-[9px] text-mint-dark bg-mint-soft text-meta font-bold">
                   {user.displayName.slice(0, 1).toUpperCase()}
                 </span>
                 <span>
                   <strong>{user.displayName}</strong>
                   <small>{user.email ?? "Email unavailable"}</small>
                 </span>
-                <span className={`member-role member-role--${user.role}`}>
+                <span
+                  className={cn(
+                    "inline-flex min-h-[23px] items-center rounded-full border px-2 text-xs font-semibold",
+                    user.role === "owner"
+                      ? "border-tone-busy-line bg-tone-busy-surface text-tone-busy"
+                      : "border-line bg-surface-soft text-ink-soft",
+                  )}
+                >
                   {user.role}
                 </span>
                 <Button
@@ -786,24 +822,24 @@ export function TeamsPage() {
         </Card>
       ) : null}
 
-      <Card className="installations-card">
-        <div className="card__header card__header--inside">
+      <Card className="mb-5">
+        <CardHeader>
           <div>
-            <span className="eyebrow">Repository authorization</span>
+            <Eyebrow>Repository authorization</Eyebrow>
             <h2>Accessible GitHub App installations</h2>
             <p>
               The API returns only installations you may use. Credentials and
               installation tokens are never exposed here.
             </p>
           </div>
-          <span className="count-badge">
+          <span className="grid min-w-[27px] min-h-[27px] place-items-center py-0 px-2 border border-line rounded-full text-ink-soft bg-surface-soft text-meta font-semibold">
             {installations.data?.items.length ?? 0}
           </span>
-        </div>
+        </CardHeader>
         {installations.isPending ? (
           <Skeleton lines={6} />
         ) : installations.data?.items.length ? (
-          <div className="installation-list">
+          <div className="border border-line rounded-[10px] overflow-hidden">
             {installations.data.items.map((installation) => {
               const sharedTeam = installation.teamId
                 ? teamsById.get(installation.teamId)
@@ -819,27 +855,35 @@ export function TeamsPage() {
                       ?.has(me.data?.id ?? ""),
                   ));
               return (
-                <article className="installation-row" key={installation.id}>
-                  <span className="installation-row__mark">
+                <article
+                  className="grid min-h-[75px] grid-cols-[40px_minmax(150px,_1fr)_minmax(150px,_0.9fr)_minmax(120px,_0.7fr)_auto] items-center gap-3 py-3 px-3 border-b border-b-line last:border-b-0 to-1120:grid-cols-[40px_minmax(140px,_1fr)_minmax(130px,_0.9fr)_auto] to-1120:[&>[data-slot='button']]:row-[1_/_span_2] to-1120:[&>[data-slot='button']]:col-[4] to-820:grid-cols-[40px_minmax(0,_1fr)_auto] to-820:[&>[data-slot='button']]:row-[1_/_span_3] to-820:[&>[data-slot='button']]:col-[3] to-580:grid-cols-[35px_minmax(0,_1fr)] to-580:[&>[data-slot='button']]:row-[auto] to-580:[&>[data-slot='button']]:col-[2] to-580:[&>[data-slot='button']]:w-max to-580:[&>[data-slot='button']]:justify-self-start"
+                  key={installation.id}
+                >
+                  <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-[10px] text-mint-dark bg-mint-soft [&_svg]:w-[18px] to-580:w-[35px] to-580:h-[35px]">
                     <Icon name="git" />
                   </span>
-                  <div className="installation-row__identity">
+                  <div className="flex min-w-0 flex-col items-start gap-1 [&_strong]:overflow-hidden [&_strong]:max-w-full [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_small]:overflow-hidden [&_small]:max-w-full [&_small]:text-ink-faint [&_small]:text-xs [&_small]:text-ellipsis [&_small]:whitespace-nowrap">
                     <strong>{installation.accountLogin}</strong>
                     <small>
                       {installation.accountType} · GitHub installation #
                       {installation.githubInstallationId}
                     </small>
                   </div>
-                  <div className="installation-row__repositories">
+                  <div className="flex min-w-0 flex-col items-start gap-1 [&_strong]:overflow-hidden [&_strong]:max-w-full [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_span]:overflow-hidden [&_span]:max-w-full [&_span]:text-ink-faint [&_span]:text-xs [&_span]:text-ellipsis [&_span]:whitespace-nowrap to-820:col-[2] to-580:row-[auto] to-580:col-[2]">
                     <span>Repository access</span>
                     <strong>
                       {installation.repositorySelection} ·{" "}
                       {installation.repositoryCount} repositories
                     </strong>
                   </div>
-                  <div className="installation-row__sharing">
+                  <div className="flex min-w-0 flex-col items-start gap-1 [&_small]:overflow-hidden [&_small]:max-w-full [&_small]:text-ink-faint [&_small]:text-xs [&_small]:text-ellipsis [&_small]:whitespace-nowrap to-1120:col-[2] to-820:col-[2] to-580:row-[auto] to-580:col-[2]">
                     <span
-                      className={`sharing-badge sharing-badge--${installation.visibility}`}
+                      className={cn(
+                        "inline-flex min-h-[23px] items-center rounded-full border px-2 text-xs font-semibold",
+                        installation.visibility === "team"
+                          ? "border-tone-busy-line bg-tone-busy-surface text-tone-busy"
+                          : "border-line bg-surface-soft text-ink-soft",
+                      )}
                     >
                       {installation.visibility === "private"
                         ? "Private"
@@ -906,7 +950,7 @@ export function TeamsPage() {
           }}
         />
       ) : null}
-      {removeTarget ? (
+      {removeTarget && removeTarget.teamId === selectedTeamId ? (
         <RemoveMemberConfirmation
           member={removeTarget}
           teamName={teamsById.get(removeTarget.teamId)?.name ?? "this team"}
@@ -967,7 +1011,7 @@ export function TeamsPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }
 
@@ -993,14 +1037,14 @@ export function ExactDeleteConfirmation({
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onCancel()}>
       <DialogContent
-        className="confirmation-dialog max-w-none"
+        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
         role="alertdialog"
         showCloseButton={false}
       >
-        <span className="confirmation-dialog__icon">
+        <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
           <Icon name="close" />
         </span>
-        <span className="eyebrow">Permanent access removal</span>
+        <Eyebrow>Permanent access removal</Eyebrow>
         <DialogTitle>
           Delete {kind} {label}?
         </DialogTitle>
@@ -1018,11 +1062,11 @@ export function ExactDeleteConfirmation({
           />
         </Field>
         {error ? (
-          <div className="notice notice--error" role="alert">
+          <Notice tone="error" role="alert">
             {errorMessage(error)}
-          </div>
+          </Notice>
         ) : null}
-        <div className="confirmation-dialog__actions">
+        <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
           <Button variant="ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>
@@ -1047,27 +1091,21 @@ export function InvitationSecret({
   invitation: UserInvitation;
   onDismiss: () => void;
 }) {
-  const [copyStatus, setCopyStatus] = useState("");
+  const { state: copyState, copy } = useCopyToClipboard(4000);
   const invitationLink = buildInvitationLink(invitation.token);
-
-  const copyInvitation = async () => {
-    if (!navigator.clipboard) {
-      setCopyStatus(
-        "Clipboard access is unavailable; select and copy the link manually.",
-      );
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(invitationLink);
-      setCopyStatus("Copied. Share it through a secure channel now.");
-    } catch {
-      setCopyStatus("Copy failed; select and copy the link manually.");
-    }
-  };
+  const copyStatus =
+    copyState === "copied"
+      ? "Copied. Share it through a secure channel now."
+      : copyState === "failed"
+        ? "Copy failed; select and copy the link manually."
+        : "";
 
   return (
-    <div className="invitation-secret" role="status">
-      <div className="notice notice--warning">
+    <div
+      className="[&>code]:block [&>code]:overflow-auto [&>code]:p-3 [&>code]:border [&>code]:border-tone-warn-line [&>code]:rounded-lg [&>code]:text-tone-warn [&>code]:bg-tone-warn-surface [&>code]:text-meta [&>code]:whitespace-nowrap [&_dl]:flex [&_dl]:gap-5 [&_dl]:my-3 [&_dl]:mx-0 [&_dl_>_div]:min-w-0 [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&>p]:my-2 [&>p]:mx-0 [&>p]:text-ink-soft [&>p]:text-xs"
+      role="status"
+    >
+      <Notice tone="warning">
         <div>
           <strong>Copy this invitation link now</strong>
           <p>
@@ -1076,7 +1114,7 @@ export function InvitationSecret({
             Share it through a secure channel.
           </p>
         </div>
-      </div>
+      </Notice>
       <code aria-label="One-time invitation link">{invitationLink}</code>
       <dl>
         <div>
@@ -1093,9 +1131,10 @@ export function InvitationSecret({
         </div>
       </dl>
       {copyStatus ? <p aria-live="polite">{copyStatus}</p> : null}
-      <div className="invitation-secret__actions">
-        <Button variant="secondary" onClick={() => void copyInvitation()}>
-          <Icon name="code" /> Copy invitation link
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" onClick={() => void copy(invitationLink)}>
+          <Icon name={copyState === "copied" ? "check" : "copy"} /> Copy
+          invitation link
         </Button>
         <Button variant="ghost" onClick={onDismiss}>
           I saved it; dismiss
@@ -1119,12 +1158,8 @@ export function TeamMemberRoleEditor({
   const [role, setRole] = useState<MemberForm["role"]>(member.role);
   const displayName = member.user?.displayName ?? member.userId;
 
-  useEffect(() => {
-    setRole(member.role);
-  }, [member.role]);
-
   return (
-    <div className="member-role-editor">
+    <div className="flex items-center gap-1.5 [&_select]:min-h-7 [&_select]:max-w-[88px] [&_select]:py-0 [&_select]:px-1.5 [&_select]:border [&_select]:border-line [&_select]:rounded-md [&_select]:text-ink-soft [&_select]:bg-surface [&_select]:text-xs [&_[data-slot='button']]:min-h-7 [&_[data-slot='button']]:py-0 [&_[data-slot='button']]:px-2 [&_[data-slot='button']]:text-xs to-580:col-[2_/_-1] to-580:justify-start">
       <select
         aria-label={`Role for ${displayName}`}
         value={role}
@@ -1143,7 +1178,7 @@ export function TeamMemberRoleEditor({
         Save role
       </Button>
       {error ? (
-        <span className="form-error" role="alert">
+        <span className="col-[1_/_-1] text-tone-bad text-meta" role="alert">
           {errorMessage(error)}
         </span>
       ) : null}
@@ -1175,30 +1210,30 @@ export function RemoveMemberConfirmation({
       }}
     >
       <DialogContent
-        className="confirmation-dialog max-w-none"
+        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
         role="alertdialog"
         showCloseButton={false}
       >
-        <span className="confirmation-dialog__icon">
+        <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
           <Icon name="user" />
         </span>
-        <span className="eyebrow">Membership access change</span>
+        <Eyebrow>Membership access change</Eyebrow>
         <DialogTitle>Remove {displayName}?</DialogTitle>
         <DialogDescription>
           This removes the user from {teamName} and revokes their current
           sessions so removed access cannot remain active.
         </DialogDescription>
         {member.role === "owner" ? (
-          <p className="sharing-dialog__hint">
+          <p className="!mt-2 !mx-0 !mb-0 !text-ink-faint !text-xs">
             The API will reject this change if this is the team's final owner.
           </p>
         ) : null}
         {error ? (
-          <div className="notice notice--error" role="alert">
+          <Notice tone="error" role="alert">
             {errorMessage(error)}
-          </div>
+          </Notice>
         ) : null}
-        <div className="confirmation-dialog__actions">
+        <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
           <Button variant="ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>
@@ -1256,14 +1291,14 @@ export function InstallationSharingConfirmation({
       }}
     >
       <DialogContent
-        className="confirmation-dialog sharing-dialog max-w-none"
+        className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 w-[min(560px,_[&>.field]:mb-4_max-w-none"
         role="alertdialog"
         showCloseButton={false}
       >
-        <span className="confirmation-dialog__icon">
+        <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
           <Icon name="git" />
         </span>
-        <span className="eyebrow">Explicit access change</span>
+        <Eyebrow>Explicit access change</Eyebrow>
         <DialogTitle>
           Change sharing for {installation.accountLogin}?
         </DialogTitle>
@@ -1274,7 +1309,7 @@ export function InstallationSharingConfirmation({
         </DialogDescription>
 
         <div
-          className="sharing-options"
+          className="grid grid-cols-[1fr_1fr] gap-2 mt-4 mx-0 mb-3 [&>label]:grid [&>label]:grid-cols-[16px_1fr] [&>label]:items-start [&>label]:gap-2 [&>label]:min-h-[74px] [&>label]:p-3 [&>label]:border [&>label]:border-line [&>label]:rounded-[9px] [&>label]:cursor-pointer [&>label:has(input:checked)]:border-mint [&>label:has(input:checked)]:bg-mint-soft [&_input]:w-3.5 [&_input]:min-h-3.5 [&_input]:mt-0.5 [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint-dark [&_strong]:block [&_strong]:text-meta [&_small]:block [&_small]:mt-1 [&_small]:text-ink-soft [&_small]:text-xs [&_small]:leading-[1.45] to-580:grid-cols-[1fr]"
           role="radiogroup"
           aria-label="Sharing visibility"
         >
@@ -1334,7 +1369,7 @@ export function InstallationSharingConfirmation({
           </Field>
         ) : null}
 
-        <dl className="confirmation-identity">
+        <dl className="my-4 mx-0 py-0 px-3 border border-line rounded-lg bg-surface-soft [&>div]:grid [&>div]:grid-cols-[78px_minmax(0,_1fr)] [&>div]:items-center [&>div]:gap-3 [&>div]:min-h-[42px] [&>div]:border-t [&>div]:border-t-line [&>div:first-child]:border-t-0 [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_code]:text-xs">
           <div>
             <dt>Installation</dt>
             <dd>{installation.accountLogin}</dd>
@@ -1348,7 +1383,7 @@ export function InstallationSharingConfirmation({
             <dd>{after}</dd>
           </div>
         </dl>
-        <label className="confirmation-check">
+        <label className="grid grid-cols-[17px_1fr] items-start gap-2 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-[15px] [&_input]:min-h-[15px] [&_input]:m-0 [&_input]:accent-mint-dark">
           <input
             type="checkbox"
             checked={confirmed}
@@ -1361,16 +1396,19 @@ export function InstallationSharingConfirmation({
           </span>
         </label>
         {!changed ? (
-          <p className="sharing-dialog__hint" role="status">
+          <p
+            className="!mt-2 !mx-0 !mb-0 !text-ink-faint !text-xs"
+            role="status"
+          >
             Choose a different visibility or team to continue.
           </p>
         ) : null}
         {error ? (
-          <div className="notice notice--error" role="alert">
+          <Notice tone="error" role="alert">
             {errorMessage(error)}
-          </div>
+          </Notice>
         ) : null}
-        <div className="confirmation-dialog__actions">
+        <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
           <Button variant="ghost" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>

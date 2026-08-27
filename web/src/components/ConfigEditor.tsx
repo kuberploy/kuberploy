@@ -8,7 +8,15 @@ import {
   guidedConfigFromYaml,
   validateYaml,
 } from "../lib/configDraft";
-import { Button, EmptyState, PlaceholderBadge } from "./ui";
+import {
+  Button,
+  CopyButton,
+  EmptyState,
+  Eyebrow,
+  Notice,
+  PlaceholderBadge,
+  useRovingFocus,
+} from "./ui";
 import { Icon } from "./Icon";
 import { GuidedConfigForm } from "./GuidedConfigForm";
 import { MonacoYamlEditor } from "./MonacoYamlEditor";
@@ -135,12 +143,6 @@ export function ConfigEditor({
   );
 
   useEffect(() => {
-    setRawYaml("");
-    setPreview(null);
-    setDraftError(null);
-  }, [deployment.id]);
-
-  useEffect(() => {
     if (bundle.isPending || rawYaml) return;
     setRawYaml(serverDocument?.rawYaml ?? serverDocument?.rawYAML ?? fallback);
   }, [bundle.isPending, fallback, rawYaml, serverDocument]);
@@ -245,53 +247,78 @@ export function ConfigEditor({
     setTab(next);
   };
 
+  // A tablist owns one tab stop and answers the arrow keys. Without this the
+  // role is announced to a screen reader but the keyboard behaviour it implies
+  // is missing.
+  const editorTabProps = useRovingFocus(
+    3,
+    tab === "form" ? 0 : tab === "yaml" ? 1 : 2,
+  );
+
   return (
-    <div className="config-editor">
-      <div className="editor-toolbar">
+    <div className="[&>[data-slot='notice']]:mt-4 [&>[data-slot='notice']]:mx-5 [&>[data-slot='notice']]:mb-0">
+      <div className="flex items-center justify-between gap-4 py-3 px-5 border-b border-b-line bg-surface-soft to-580:items-start to-580:flex-col">
         <div
-          className="editor-tabs"
+          className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex items-center gap-1 [&_button]:inline-flex [&_button]:min-h-[31px] [&_button]:items-center [&_button]:gap-1.5 [&_button]:py-0 [&_button]:px-3 [&_button]:border [&_button]:border-transparent [&_button]:rounded-[7px] [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button_svg]:w-[13px] [&_button.active]:text-ink [&_button.active]:border-line [&_button.active]:bg-surface [&_button.active]:shadow-[0_1px_3px_rgba(15_34_26_0.06)] to-580:max-w-full to-580:overflow-x-auto pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink"
           role="tablist"
           aria-label="Configuration editor mode"
         >
           <button
             role="tab"
+            type="button"
             aria-selected={tab === "form"}
             className={tab === "form" ? "active" : ""}
             onClick={() => switchTab("form")}
+            {...editorTabProps(0)}
           >
             <Icon name="settings" /> Guided
           </button>
           <button
             role="tab"
+            type="button"
             aria-selected={tab === "yaml"}
             className={tab === "yaml" ? "active" : ""}
             onClick={() => switchTab("yaml")}
+            {...editorTabProps(1)}
           >
             <Icon name="code" /> Advanced YAML
           </button>
           <button
             role="tab"
+            type="button"
             aria-selected={tab === "rendered"}
             className={tab === "rendered" ? "active" : ""}
             onClick={() => switchTab("rendered")}
+            {...editorTabProps(2)}
           >
             <Icon name="layers" /> Rendered manifests
           </button>
         </div>
-        <div className="editor-toolbar__meta">
+        <div className="flex items-center gap-2 [&_code]:text-ink-faint [&_code]:text-xs to-580:hidden">
           {serverDocument?.lockedPointers?.length ? (
             <PlaceholderBadge>
               {serverDocument.lockedPointers.length} locked fields
             </PlaceholderBadge>
           ) : null}
-          <code>
-            {bundle.data?.configRevision?.slice(0, 9) ?? "local draft"}
-          </code>
+          {/* An unlabelled short hash in the corner told the operator nothing;
+              name it, and make it copyable for support threads. */}
+          <span className="inline-flex items-center gap-1.5 text-ink-faint text-xs [&_code]:text-ink [&_code]:text-xs">
+            <span>Config revision</span>
+            <code>
+              {bundle.data?.configRevision?.slice(0, 9) ?? "local draft"}
+            </code>
+            {bundle.data?.configRevision ? (
+              <CopyButton
+                value={bundle.data.configRevision}
+                label="Copy config revision"
+              />
+            ) : null}
+          </span>
         </div>
       </div>
 
       {bundle.error ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Configuration could not be loaded</strong>
             <p>
@@ -300,15 +327,15 @@ export function ConfigEditor({
             </p>
           </div>
           <PlaceholderBadge>Local preview</PlaceholderBadge>
-        </div>
+        </Notice>
       ) : null}
       {draftError ? (
-        <div className="notice notice--error" role="alert">
+        <Notice tone="error" role="alert">
           {draftError}
-        </div>
+        </Notice>
       ) : null}
       {!capabilities.isPending && !canWriteConfig ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Configuration is read-only</strong>
             <p>
@@ -318,7 +345,7 @@ export function ConfigEditor({
             </p>
           </div>
           <PlaceholderBadge>Read-only</PlaceholderBadge>
-        </div>
+        </Notice>
       ) : null}
 
       {tab === "form" && guided ? (
@@ -379,7 +406,7 @@ export function ConfigEditor({
         />
       ) : null}
       {tab === "form" && !guided && rawYaml ? (
-        <div className="notice notice--warning" role="alert">
+        <Notice tone="warning" role="alert">
           <div>
             <strong>This configuration needs Advanced YAML</strong>
             <p>
@@ -395,11 +422,11 @@ export function ConfigEditor({
           >
             Inspect Advanced YAML
           </Button>
-        </div>
+        </Notice>
       ) : null}
       {tab === "yaml" ? (
-        <div className="advanced-editor">
-          <div className="advanced-editor__notice">
+        <div className="bg-surface">
+          <div className="flex items-center gap-3 py-3 px-5 text-ink-soft border-b border-b-line bg-surface-soft [&_svg]:w-4 [&_svg]:h-4 [&_svg]:flex-none [&_svg]:text-mint-dark [&_span]:flex [&_span]:min-w-0 [&_span]:flex-col [&_strong]:text-ink [&_strong]:text-meta [&_strong]:font-semibold [&_small]:mt-0.5 [&_small]:text-xs [&_small]:leading-[1.45]">
             <Icon name="code" />
             <span>
               <strong>One canonical AppConfig draft</strong>
@@ -410,7 +437,10 @@ export function ConfigEditor({
             </span>
           </div>
           {yamlError ? (
-            <div className="yaml-diagnostic" role="alert">
+            <div
+              className="py-2 px-5 text-[#8b2f2f] border-b border-b-[#efc8c8] bg-[#fff4f4] font-mono text-xs"
+              role="alert"
+            >
               {yamlError}
             </div>
           ) : null}
@@ -422,12 +452,15 @@ export function ConfigEditor({
         </div>
       ) : null}
       {tab === "rendered" ? (
-        <div className="rendered-state">
+        <div className="p-5">
           {matchingPreview ? (
-            <section className="diff-panel" aria-label="Rendered manifest diff">
-              <div className="diff-panel__header">
+            <section
+              className="mt-0 mx-5 mb-5 overflow-hidden border border-[#283b33] rounded-[9px] bg-[#0c1511] [&_pre]:max-h-[400px] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-4 [&_pre]:text-[#c9ded4] [&_pre]:text-meta [&_pre]:leading-[1.7]"
+              aria-label="Rendered manifest diff"
+            >
+              <div className="flex items-center justify-between py-3 px-4 border-b border-b-[#26362f] [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-white [&_h3]:text-[11px]">
                 <div>
-                  <span className="eyebrow">Pinned runtime output</span>
+                  <Eyebrow>Pinned runtime output</Eyebrow>
                   <h3>Rendered Kubernetes manifest diff</h3>
                   <small>
                     {matchingPreview.renderIdentity.chartName}@
@@ -460,7 +493,7 @@ export function ConfigEditor({
         </div>
       ) : null}
 
-      <div className="editor-actions">
+      <div className="flex items-center justify-end gap-2 py-4 px-5 border-t border-t-line bg-surface-soft [&>div:first-child]:flex [&>div:first-child]:flex-1 [&>div:first-child]:flex-col [&_strong]:text-meta [&_small]:mt-0.5 [&_small]:text-ink-faint [&_small]:text-xs to-580:items-stretch to-580:flex-col to-580:[&>div:first-child]:mb-1.5">
         <div>
           <strong>
             {matchingPreview
@@ -516,17 +549,17 @@ export function ConfigEditor({
         </Button>
       </div>
       {previewMutation.error ? (
-        <div className="notice notice--error">
+        <Notice tone="error">
           <p>{errorMessage(previewMutation.error)}</p>
-        </div>
+        </Notice>
       ) : null}
       {saveMutation.error ? (
-        <div className="notice notice--error">
+        <Notice tone="error">
           <p>{errorMessage(saveMutation.error)}</p>
-        </div>
+        </Notice>
       ) : null}
       {saveMutation.data ? (
-        <div className="notice notice--success">
+        <Notice tone="success">
           <div>
             <strong>Configuration operation accepted</strong>
             <p>
@@ -534,14 +567,14 @@ export function ConfigEditor({
               Argo, and rollout stages complete.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
 
       {matchingPreview ? (
-        <section className="diff-panel">
-          <div className="diff-panel__header">
+        <section className="mt-0 mx-5 mb-5 overflow-hidden border border-[#283b33] rounded-[9px] bg-[#0c1511] [&_pre]:max-h-[400px] [&_pre]:m-0 [&_pre]:overflow-auto [&_pre]:p-4 [&_pre]:text-[#c9ded4] [&_pre]:text-meta [&_pre]:leading-[1.7]">
+          <div className="flex items-center justify-between py-3 px-4 border-b border-b-[#26362f] [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-white [&_h3]:text-[11px]">
             <div>
-              <span className="eyebrow">Exact candidate</span>
+              <Eyebrow>Exact candidate</Eyebrow>
               <h3>Git diff</h3>
             </div>
             <PlaceholderBadge>
@@ -549,7 +582,7 @@ export function ConfigEditor({
             </PlaceholderBadge>
           </div>
           {matchingPreview.warnings.length ? (
-            <ul className="warning-list">
+            <ul className="m-0 py-3 px-8 text-[#ffd694] border-b border-b-[#3b3424] bg-[#241f14] text-meta">
               {matchingPreview.warnings.map((warning, index) => (
                 <li key={index}>{warning}</li>
               ))}

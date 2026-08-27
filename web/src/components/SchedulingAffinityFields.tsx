@@ -1,4 +1,11 @@
-import { Button, Field } from "./ui";
+import {
+  Button,
+  ButtonRow,
+  CardHeader,
+  Field,
+  FormGrid,
+  useRowKeys,
+} from "./ui";
 
 export type SchedulingRequirementDraft = {
   key: string;
@@ -69,10 +76,13 @@ export function SchedulingAffinityFields({
       ),
     );
 
+  // Row identity that survives a removal; see useRowKeys.
+  const presetKeys = useRowKeys(antiAffinity.length);
+
   return (
     <>
-      <div className="form-grid__full">
-        <div className="card__header card__header--inside">
+      <div className="col-[1/-1]">
+        <CardHeader>
           <div>
             <h3>Preferred node affinity</h3>
             <p>
@@ -97,9 +107,9 @@ export function SchedulingAffinityFields({
           >
             Add preferred term
           </Button>
-        </div>
+        </CardHeader>
         {preferred.map((term, termIndex) => (
-          <fieldset key={termIndex} className="form-grid">
+          <FormGrid as="fieldset" key={termIndex}>
             <legend>Preferred term {termIndex + 1}</legend>
             <Field label={`Preferred term ${termIndex + 1} weight`} required>
               <input
@@ -116,7 +126,7 @@ export function SchedulingAffinityFields({
                 }
               />
             </Field>
-            <div className="button-row">
+            <ButtonRow>
               <Button
                 type="button"
                 variant="secondary"
@@ -144,9 +154,9 @@ export function SchedulingAffinityFields({
               >
                 Remove term
               </Button>
-            </div>
+            </ButtonRow>
             {term.requirements.map((requirement, requirementIndex) => (
-              <div key={requirementIndex} className="form-grid form-grid__full">
+              <FormGrid key={requirementIndex} className="col-[1/-1]">
                 <Field
                   label={`Term ${termIndex + 1} expression ${requirementIndex + 1} key`}
                   required
@@ -252,14 +262,14 @@ export function SchedulingAffinityFields({
                 >
                   Remove expression {requirementIndex + 1}
                 </Button>
-              </div>
+              </FormGrid>
             ))}
-          </fieldset>
+          </FormGrid>
         ))}
       </div>
 
-      <div className="form-grid__full">
-        <div className="card__header card__header--inside">
+      <div className="col-[1/-1]">
+        <CardHeader>
           <div>
             <h3>Same-application pod anti-affinity</h3>
             <p>
@@ -284,9 +294,9 @@ export function SchedulingAffinityFields({
           >
             Add anti-affinity preset
           </Button>
-        </div>
+        </CardHeader>
         {antiAffinity.map((preset, index) => (
-          <fieldset key={index} className="form-grid">
+          <FormGrid as="fieldset" key={presetKeys.keyAt(index)}>
             <legend>Anti-affinity preset {index + 1}</legend>
             <Field label={`Preset ${index + 1} enforcement`} required>
               <select
@@ -352,15 +362,16 @@ export function SchedulingAffinityFields({
             <Button
               type="button"
               variant="ghost"
-              onClick={() =>
+              onClick={() => {
+                presetKeys.removeAt(index);
                 onAntiAffinityChange(
                   antiAffinity.filter((_, itemIndex) => itemIndex !== index),
-                )
-              }
+                );
+              }}
             >
               Remove preset {index + 1}
             </Button>
-          </fieldset>
+          </FormGrid>
         ))}
       </div>
     </>

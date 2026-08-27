@@ -548,6 +548,76 @@ spec:
     ).toHaveAttribute("readonly");
   });
 
+  it("gives the editor tablist one tab stop and answers the arrow keys", async () => {
+    const user = userEvent.setup();
+    const deployment: Deployment = {
+      id: "deployment-tablist",
+      applicationId: "application-1",
+      environmentId: "environment-1",
+      image: `registry.example/api@sha256:${"c".repeat(64)}`,
+      runtime: {
+        replicas: 1,
+        ports: [{ name: "http", containerPort: 8080, protocol: "TCP" }],
+        resources: { requests: { cpu: "50m", memory: "100Mi" } },
+      },
+    };
+    const application: Application = {
+      id: "application-1",
+      projectId: "project-1",
+      name: "API",
+    };
+    vi.spyOn(api, "capabilities").mockResolvedValue({
+      capabilities: [
+        {
+          scopeType: "application",
+          scopeId: "application-1",
+          actions: ["deployment-config:read"],
+        },
+      ],
+    });
+    vi.spyOn(api, "deploymentConfig").mockResolvedValue({
+      kind: "ConfigBundle",
+      etag: `"cfg-sha256-${"a".repeat(64)}"`,
+      targetHeadRevision: "",
+      indexedRevision: "",
+      configRevision: "tablist",
+      freshness: "projection-only",
+      documents: [
+        {
+          id: "app.yaml",
+          documentId: "app.yaml",
+          rawYaml: defaultConfigYaml({
+            name: "api",
+            image: deployment.image,
+            port: 8080,
+          }),
+        },
+      ],
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ConfigEditor deployment={deployment} application={application} />
+      </QueryClientProvider>,
+    );
+
+    const tabs = await screen.findAllByRole("tab");
+    // A tablist is one tab stop, not one per tab.
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
+
+    tabs[0]!.focus();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(tabs[1]);
+    await user.keyboard("{End}");
+    expect(document.activeElement).toBe(tabs[2]);
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(tabs[0]);
+    await user.keyboard("{Home}");
+    expect(document.activeElement).toBe(tabs[0]);
+  });
+
   it("gates only Guided middleware controls on runtime readiness while preserving Advanced YAML", async () => {
     const user = userEvent.setup();
     const deployment: Deployment = {

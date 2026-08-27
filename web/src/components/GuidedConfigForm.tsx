@@ -10,7 +10,7 @@ import {
   type GuidedProbes,
   type GuidedRuntimeProcess,
 } from "../lib/configDraft";
-import { Button, Field } from "./ui";
+import { Button, Field, FieldLabel, FormGrid, Notice } from "./ui";
 import { Icon } from "./Icon";
 import type { ExternalDNSCatalog, SSLIPHostnamePreview } from "../api/types";
 import { externalDNSHostnameAllowed } from "../lib/externalDNSAccess";
@@ -56,13 +56,16 @@ export function RuntimeProcessEditor({
 }) {
   const validationError = validateGuidedRuntimeProcess(value);
   return (
-    <div className="runtime-process-editor">
+    <div className="mt-4 p-4 border border-line rounded-[10px] bg-surface-soft">
       {validationError ? (
-        <div className="yaml-diagnostic" role="alert">
+        <div
+          className="py-2 px-5 text-tone-bad border-b border-b-tone-bad-line bg-tone-bad-surface font-mono text-xs"
+          role="alert"
+        >
           {validationError}
         </div>
       ) : null}
-      <div className="runtime-process-grid">
+      <div className="grid grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)_minmax(170px,_0.55fr)] items-start gap-3 to-820:grid-cols-[repeat(2,_minmax(0,_1fr))] to-580:grid-cols-[1fr]">
         <Field
           label="Working directory"
           hint="Optional absolute container path, for example /app."
@@ -128,7 +131,7 @@ export function RuntimeProcessEditor({
           />
         </Field>
       </div>
-      <p className="runtime-process-editor__hint">
+      <p className="!mt-3 text-ink-faint text-xs">
         Each YAML item is one literal container argument. Values are never split
         or interpreted as a shell command; command and arguments share a 65536
         byte limit.
@@ -154,17 +157,23 @@ export function HealthProbeEditor({
     });
 
   return (
-    <div className="health-probe-editor">
+    <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
       {validationError ? (
-        <div className="yaml-diagnostic" role="alert">
+        <div
+          className="py-2 px-5 text-tone-bad border-b border-b-tone-bad-line bg-tone-bad-surface font-mono text-xs"
+          role="alert"
+        >
           {validationError}
         </div>
       ) : null}
-      <div className="health-probe-grid">
+      <div className="grid grid-cols-[repeat(auto-fit,_minmax(250px,_1fr))] items-start gap-3">
         {probePhases.map(({ key, label, description }) => {
           const probe = value[key];
           return (
-            <fieldset className="health-probe-card" key={key}>
+            <fieldset
+              className="min-w-0 m-0 p-4 border border-line rounded-[10px] bg-surface-soft [&_legend]:py-0 [&_legend]:px-1.5 [&_legend]:text-ink [&_legend]:text-meta [&_legend]:font-semibold [&>p]:min-h-6 [&>p]:mt-0 [&>p]:mx-0 [&>p]:mb-3"
+              key={key}
+            >
               <legend>{label}</legend>
               <p>{description}</p>
               <Field label={`${label} check`}>
@@ -184,7 +193,7 @@ export function HealthProbeEditor({
                 </select>
               </Field>
               {probe.mode === "httpGet" ? (
-                <div className="health-probe-action">
+                <div className="grid gap-2 mt-3 pt-3 border-t border-t-line">
                   <Field label={`${label} HTTP path`}>
                     <input
                       aria-label={`${label} HTTP path`}
@@ -229,7 +238,7 @@ export function HealthProbeEditor({
                 </div>
               ) : null}
               {probe.mode === "tcpSocket" ? (
-                <div className="health-probe-action">
+                <div className="grid gap-2 mt-3 pt-3 border-t border-t-line">
                   <Field
                     label={`${label} port`}
                     hint="Configured TCP port name or number."
@@ -247,7 +256,7 @@ export function HealthProbeEditor({
                 </div>
               ) : null}
               {probe.mode === "exec" ? (
-                <div className="health-probe-action">
+                <div className="grid gap-2 mt-3 pt-3 border-t border-t-line">
                   <Field
                     label={`${label} exec arguments (YAML list)`}
                     hint="One exact command argument per YAML item; shell parsing is never implied."
@@ -265,7 +274,7 @@ export function HealthProbeEditor({
                 </div>
               ) : null}
               {probe.mode !== "disabled" ? (
-                <div className="health-probe-timing">
+                <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-2 mt-3 pt-3 border-t border-t-line">
                   <Field label={`${label} initial delay`} hint="0–3600 s">
                     <input
                       aria-label={`${label} initial delay`}
@@ -351,7 +360,7 @@ export function HealthProbeEditor({
                   </Field>
                 </div>
               ) : (
-                <div className="inline-empty">
+                <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
                   No {label.toLowerCase()} check.
                 </div>
               )}
@@ -359,7 +368,7 @@ export function HealthProbeEditor({
           );
         })}
       </div>
-      <p className="health-probe-editor__hint">
+      <p className="!mt-3">
         Empty timing fields use Kubernetes defaults. Every port must match a
         configured TCP container port.
       </p>
@@ -540,11 +549,14 @@ export function GuidedConfigForm({
       dnsIntegrations.length === 0);
 
   return (
-    <fieldset className="guided-config" disabled={readOnly}>
+    <fieldset
+      className="min-w-0 m-0 pt-1.5 px-6 pb-0 border-0 disabled:opacity-100 [&:disabled_input]:text-ink-soft [&:disabled_input]:cursor-not-allowed [&:disabled_input]:bg-surface-soft [&:disabled_select]:text-ink-soft [&:disabled_select]:cursor-not-allowed [&:disabled_select]:bg-surface-soft [&:disabled_textarea]:text-ink-soft [&:disabled_textarea]:cursor-not-allowed [&:disabled_textarea]:bg-surface-soft"
+      disabled={readOnly}
+    >
       <legend className="sr-only">Guided application configuration</legend>
-      <section className="config-section">
-        <div className="config-section__heading">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="apps" />
           </span>
           <div>
@@ -552,7 +564,7 @@ export function GuidedConfigForm({
             <p>Common Deployment and Service controls.</p>
           </div>
         </div>
-        <div className="form-grid form-grid--three">
+        <FormGrid columns={3}>
           <Field label="Replicas">
             <input
               type="number"
@@ -631,7 +643,7 @@ export function GuidedConfigForm({
               {...form.register("memoryLimit", { onChange: commit })}
             />
           </Field>
-        </div>
+        </FormGrid>
         <RuntimeProcessEditor
           value={{
             commandYaml: commandYaml ?? initial.commandYaml,
@@ -655,7 +667,10 @@ export function GuidedConfigForm({
             commit();
           }}
         />
-        <div className="config-section__heading config-section__heading--action">
+        <div className="to-580:grid-cols-[32px_1fr] to-580:[&_[data-slot='button']]:col-[2] to-580:[&_[data-slot='button']]:w-max">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
+            <Icon name="route" />
+          </span>
           <div>
             <h3>Ports</h3>
             <p>Named container and Service ports.</p>
@@ -675,9 +690,12 @@ export function GuidedConfigForm({
             <Icon name="plus" /> Add port
           </Button>
         </div>
-        <div className="variable-list">
+        <div className="flex flex-col gap-2">
           {ports.fields.map((field, index) => (
-            <div className="variable-row" key={field.id}>
+            <div
+              className="[&_.icon-button]:mb-1 grid grid-cols-[minmax(0,_1.2fr)_minmax(0,_0.9fr)_minmax(0,_0.9fr)_minmax(0,_0.8fr)_32px] items-end gap-3 to-900:grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)_32px] to-900:[&_.icon-button]:row-[1] to-900:[&_.icon-button]:col-[3]"
+              key={field.id}
+            >
               <Field label={index === 0 ? "Name" : ""}>
                 <input
                   aria-label={`Port ${index + 1} name`}
@@ -724,7 +742,7 @@ export function GuidedConfigForm({
               </Field>
               <button
                 type="button"
-                className="icon-button"
+                className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                 disabled={ports.fields.length === 1}
                 onClick={() => {
                   ports.remove(index);
@@ -739,9 +757,9 @@ export function GuidedConfigForm({
         </div>
       </section>
 
-      <section className="config-section">
-        <div className="config-section__heading">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="check" />
           </span>
           <div>
@@ -762,9 +780,9 @@ export function GuidedConfigForm({
         />
       </section>
 
-      <section className="config-section">
-        <div className="config-section__heading config-section__heading--action">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="to-580:grid-cols-[32px_1fr] to-580:[&_[data-slot='button']]:col-[2] to-580:[&_[data-slot='button']]:w-max">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="terminal" />
           </span>
           <div>
@@ -786,9 +804,12 @@ export function GuidedConfigForm({
           </Button>
         </div>
         {variables.fields.length ? (
-          <div className="variable-list">
+          <div className="flex flex-col gap-2">
             {variables.fields.map((field, index) => (
-              <div className="variable-row" key={field.id}>
+              <div
+                className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+                key={field.id}
+              >
                 <Field label={index === 0 ? "Name" : ""}>
                   <input
                     aria-label={`Config variable ${index + 1} name`}
@@ -809,7 +830,7 @@ export function GuidedConfigForm({
                 </Field>
                 <button
                   type="button"
-                  className="icon-button"
+                  className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                   onClick={() => {
                     variables.remove(index);
                     commit();
@@ -822,16 +843,16 @@ export function GuidedConfigForm({
             ))}
           </div>
         ) : (
-          <div className="inline-empty">
+          <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
             No ordinary values. Sensitive values use an existing write-only
             secret binding.
           </div>
         )}
       </section>
 
-      <section className="config-section">
-        <div className="config-section__heading config-section__heading--action">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="to-580:grid-cols-[32px_1fr] to-580:[&_[data-slot='button']]:col-[2] to-580:[&_[data-slot='button']]:w-max">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="settings" />
           </span>
           <div>
@@ -864,7 +885,10 @@ export function GuidedConfigForm({
           </Button>
         </div>
         {secretVariables.fields.map((field, index) => (
-          <div className="variable-row" key={field.id}>
+          <div
+            className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+            key={field.id}
+          >
             <Field label={index === 0 ? "Environment name" : ""}>
               <input
                 aria-label={`Secret variable ${index + 1} name`}
@@ -907,7 +931,7 @@ export function GuidedConfigForm({
             />
             <button
               type="button"
-              className="icon-button"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               onClick={() => {
                 secretVariables.remove(index);
                 commit();
@@ -920,9 +944,9 @@ export function GuidedConfigForm({
         ))}
       </section>
 
-      <section className="config-section">
-        <div className="config-section__heading config-section__heading--action">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="to-580:grid-cols-[32px_1fr] to-580:[&_[data-slot='button']]:col-[2] to-580:[&_[data-slot='button']]:w-max">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="layers" />
           </span>
           <div>
@@ -945,16 +969,16 @@ export function GuidedConfigForm({
           disabled={readOnly}
           onChange={updateScheduling}
         />
-        <p className="field-hint">
+        <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
           Placement is stored directly with this app. Pod affinity,
           anti-affinity, and topology selectors may target only this exact
           application. Kuberploy never edits Nodes, taints, or provisioners.
         </p>
       </section>
 
-      <section className="config-section">
-        <div className="config-section__heading">
-          <span className="config-section__icon">
+      <section className="border-b border-line px-0 py-6 last:border-b-0 [&_h3]:m-0 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_h3]:text-ink [&_p]:mx-0 [&_p]:mt-1 [&_p]:mb-0 [&_p]:text-xs [&_p]:text-ink-faint">
+        <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
+          <span className="grid size-8 place-items-center rounded-[9px] bg-mint-soft text-mint-dark [&_svg]:w-[15px]">
             <Icon name="route" />
           </span>
           <div>
@@ -965,7 +989,7 @@ export function GuidedConfigForm({
             </p>
           </div>
         </div>
-        <div className="form-grid">
+        <FormGrid>
           <Field
             label="Hostname"
             hint={
@@ -988,12 +1012,12 @@ export function GuidedConfigForm({
               {...form.register("path", { onChange: commit })}
             />
           </Field>
-        </div>
+        </FormGrid>
         {host || sslipHostnameEnabled ? (
           <>
-            <div className="form-subsection">
-              <span className="field__label">TLS mode</span>
-              <div className="choice-cards choice-cards--three">
+            <div className="mt-5 mx-0 mb-3">
+              <FieldLabel>TLS mode</FieldLabel>
+              <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
                 <label>
                   <input
                     type="radio"
@@ -1030,7 +1054,7 @@ export function GuidedConfigForm({
               </div>
             </div>
             {tlsMode === "letsencrypt" ? (
-              <div className="form-grid">
+              <FormGrid>
                 <CertificateIssuerPicker
                   applicationId={runtimeSecretApplicationId}
                   environmentId={runtimeSecretEnvironmentId}
@@ -1047,7 +1071,7 @@ export function GuidedConfigForm({
                   }}
                 />
                 <Field label="HTTP redirect">
-                  <label className="switch">
+                  <label className="flex min-h-[39px] items-center gap-2 text-meta cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:relative [&_span]:w-8 [&_span]:h-[18px] [&_span]:rounded-full [&_span]:bg-line-strong [&_span]:transition [&_span]:duration-(--motion-fast) [&_span]:ease-(--ease-standard) [&_span::after]:absolute [&_span::after]:top-[3px] [&_span::after]:left-[3px] [&_span::after]:w-3 [&_span::after]:h-3 [&_span::after]:content-[''] [&_span::after]:rounded-full [&_span::after]:bg-surface [&_span::after]:shadow-[0_1px_3px_rgba(0_0_0_0.2)] [&_span::after]:transition [&_span::after]:duration-(--motion-fast) [&_span::after]:ease-(--ease-standard) [&_input:checked_+_span]:bg-mint [&_input:checked_+_span::after]:transform-[translateX(14px)]">
                     <input
                       type="checkbox"
                       {...form.register("redirectHttp", { onChange: commit })}
@@ -1056,7 +1080,7 @@ export function GuidedConfigForm({
                     Redirect port 80 to HTTPS
                   </label>
                 </Field>
-              </div>
+              </FormGrid>
             ) : null}
             {tlsMode === "customCertificate" ? (
               <CertificateReferencePicker
@@ -1075,9 +1099,9 @@ export function GuidedConfigForm({
               />
             ) : null}
 
-            <div className="form-subsection">
-              <span className="field__label">DNS management</span>
-              <div className="choice-cards choice-cards--three">
+            <div className="mt-5 mx-0 mb-3">
+              <FieldLabel>DNS management</FieldLabel>
+              <div className="grid gap-2 mt-2 [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_label_>_span]:flex [&_label_>_span]:min-h-[60px] [&_label_>_span]:flex-col [&_label_>_span]:justify-center [&_label_>_span]:py-3 [&_label_>_span]:px-3 [&_label_>_span]:border [&_label_>_span]:border-line [&_label_>_span]:rounded-lg [&_label_>_span]:bg-surface [&_label_>_span]:transition [&_label_>_span]:duration-(--motion-fast) [&_label_>_span]:ease-(--ease-standard) [&_input:checked_+_span]:border-mint [&_input:checked_+_span]:bg-mint-soft [&_input:checked_+_span]:shadow-[0_0_0_2px_rgba(67_215_160_0.12)] [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs to-580:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
                 <label>
                   <input
                     type="radio"
@@ -1138,7 +1162,7 @@ export function GuidedConfigForm({
               </div>
             </div>
             {dnsMode === "sslip" ? (
-              <div className="notice notice--warning" role="status">
+              <Notice tone="warning" role="status">
                 <div>
                   <strong>
                     {sslipHostnamePreview
@@ -1165,10 +1189,10 @@ export function GuidedConfigForm({
                     </small>
                   )}
                 </div>
-              </div>
+              </Notice>
             ) : null}
             {dnsMode === "externalDns" ? (
-              <div className="form-grid">
+              <FormGrid>
                 <Field
                   label="DNS integration"
                   error={dnsIntegrationError}
@@ -1222,12 +1246,8 @@ export function GuidedConfigForm({
                     })}
                   />
                 </Field>
-                <div
-                  className={`notice ${
-                    selectedDNSIntegrationReady
-                      ? "notice--success"
-                      : "notice--warning"
-                  }`}
+                <Notice
+                  tone={selectedDNSIntegrationReady ? "success" : "warning"}
                 >
                   <div>
                     <strong>
@@ -1245,8 +1265,8 @@ export function GuidedConfigForm({
                           : "Existing configuration remains visible, but a new automatic-DNS selection cannot be previewed or saved until the exact integration revision is freshly observed ready."}
                     </p>
                   </div>
-                </div>
-              </div>
+                </Notice>
+              </FormGrid>
             ) : null}
           </>
         ) : null}
@@ -1267,7 +1287,7 @@ export function GuidedConfigForm({
           commit();
         }}
       />
-      <details className="service-settings-advanced">
+      <details className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]">
         <summary>
           <span>
             <strong>Advanced Kubernetes YAML overrides</strong>
@@ -1277,8 +1297,8 @@ export function GuidedConfigForm({
           </span>
           <Icon name="chevron" />
         </summary>
-        <div className="service-settings-advanced__content">
-          <div className="notice notice--warning" role="status">
+        <div className="grid gap-5 p-6 border-t border-t-line">
+          <Notice tone="warning" role="status">
             <div>
               <strong>Advanced YAML wins over matching Guided fields</strong>
               <p>
@@ -1287,13 +1307,16 @@ export function GuidedConfigForm({
                 App selectors, the immutable App image, and workload isolation.
               </p>
             </div>
-          </div>
+          </Notice>
           {resourceOverrideError ? (
-            <div className="yaml-diagnostic" role="alert">
+            <div
+              className="py-2 px-5 text-tone-bad border-b border-b-tone-bad-line bg-tone-bad-surface font-mono text-xs"
+              role="alert"
+            >
               {resourceOverrideError}
             </div>
           ) : null}
-          <div className="form-grid">
+          <FormGrid>
             <Field
               label="Deployment override YAML"
               hint="Partial metadata/spec mapping; use {} for no override."
@@ -1346,7 +1369,7 @@ export function GuidedConfigForm({
                 })}
               />
             </Field>
-          </div>
+          </FormGrid>
         </div>
       </details>
     </fieldset>

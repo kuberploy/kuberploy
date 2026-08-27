@@ -65,14 +65,14 @@ export function RootComponent() {
     );
   if (me.isPending)
     return (
-      <div className="app-loading">
-        <span className="brand__mark">
+      <div className="flex min-h-screen items-center justify-center gap-3 text-white bg-[var(--dark)] [&_strong]:text-sm">
+        <span className="relative inline-flex size-[27px] items-end justify-center gap-0.5 rounded-lg border border-line-strong bg-mint-soft p-1.5 [&>span]:w-[3px] [&>span]:rounded-sm [&>span]:bg-mint [&>span:nth-child(1)]:h-[7px] [&>span:nth-child(2)]:h-[14px] [&>span:nth-child(3)]:h-[10px]">
           <span />
           <span />
           <span />
         </span>
         <strong>Kuberploy</strong>
-        <span className="spinner" />
+        <span className="inline-block size-3.5 animate-spin rounded-full border-2 border-current border-r-transparent ml-2.5 text-mint" />
       </div>
     );
   if (me.error)

@@ -11,12 +11,18 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
+  FieldLabel,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import {
   buildReadableApplications,
@@ -47,16 +53,16 @@ function BuildAttemptRow({
   humanSession: boolean;
 }) {
   return (
-    <article className="build-attempt-row">
-      <div className="build-attempt-row__state">
+    <article className="last:border-b-0 [&_small]:text-ink-faint [&_small]:text-xs [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_code]:text-ink-faint [&_code]:text-xs grid grid-cols-[minmax(110px,_0.45fr)_minmax(160px,_0.8fr)_minmax(220px,_1.2fr)_auto] items-center gap-4 p-4 border-b border-b-line [&>[data-slot='button']]:whitespace-nowrap to-760:grid-cols-[1fr_1fr] to-760:[&>.build-attempt-actions]:col-[1_/_-1] to-520:grid-cols-[1fr] to-520:[&>[data-slot='button']]:justify-self-start">
+      <div className="grid min-w-0 gap-1.5">
         <StatusPill value={attempt.state} />
         <small>Generation {attempt.generation}</small>
       </div>
-      <div className="build-attempt-row__source">
+      <div className="grid min-w-0 gap-1.5">
         <strong>{gitRefLabel(attempt.gitRef)}</strong>
         <code>{shortId(attempt.commitSha, 12)}</code>
       </div>
-      <div className="build-attempt-row__result">
+      <div className="grid min-w-0 gap-1.5 to-760:col-[1_/_-1]">
         <strong>
           {attempt.image?.reference ?? attempt.failureCode ?? "Pending"}
         </strong>
@@ -69,7 +75,7 @@ function BuildAttemptRow({
         ) : null}
       </div>
       <Link
-        className="button button--secondary"
+        className={buttonVariants({ variant: "secondary" })}
         to="/builds/$buildId"
         params={{ buildId: attempt.id }}
       >
@@ -87,7 +93,10 @@ function BuildAttemptRow({
 }
 
 export function SourceBuildsPage() {
-  const [selectedApplicationId, setSelectedApplicationId] = useState("");
+  // The picked id is a preference; the effective selection is derived from the
+  // readable list in the same render, so losing access to an App falls back
+  // immediately instead of one render later.
+  const [applicationChoice, setSelectedApplicationId] = useState("");
   const [disconnectDefinition, setDisconnectDefinition] =
     useState<BuildDefinition | null>(null);
   const disconnectAttempt = useRef<string | null>(null);
@@ -135,15 +144,11 @@ export function SourceBuildsPage() {
       ),
     [applications.data, effectiveCapabilities, projects.data],
   );
-  useEffect(() => {
-    if (
-      !readableApplications.some(
-        (application) => application.id === selectedApplicationId,
-      )
-    ) {
-      setSelectedApplicationId(readableApplications[0]?.id ?? "");
-    }
-  }, [readableApplications, selectedApplicationId]);
+  const selectedApplicationId = readableApplications.some(
+    (application) => application.id === applicationChoice,
+  )
+    ? applicationChoice
+    : (readableApplications[0]?.id ?? "");
   const selectedApplication = readableApplications.find(
     (application) => application.id === selectedApplicationId,
   );
@@ -242,7 +247,7 @@ export function SourceBuildsPage() {
   });
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Delivery"
         title="GitHub source builds"
@@ -308,7 +313,7 @@ export function SourceBuildsPage() {
       ) : (
         <>
           {!builderEnabled ? (
-            <div className="notice notice--warning">
+            <Notice tone="warning">
               <div>
                 <strong>Builder runtime unavailable</strong>
                 <p>
@@ -318,19 +323,19 @@ export function SourceBuildsPage() {
                   node isolation is enabled.
                 </p>
               </div>
-            </div>
+            </Notice>
           ) : null}
-          <Card className="build-application-picker">
+          <Card className="mb-5 grid grid-cols-[minmax(0,_1fr)_minmax(260px,_0.5fr)] items-end gap-6 [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-base to-760:grid-cols-[1fr]">
             <div>
-              <span className="eyebrow">Application scope</span>
+              <Eyebrow>Application scope</Eyebrow>
               <h2>Build workspace</h2>
               <p>
                 The selector contains only applications covered by both build
                 read permissions.
               </p>
             </div>
-            <label className="field">
-              <span className="field__label">Application</span>
+            <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+              <FieldLabel>Application</FieldLabel>
               <select
                 aria-label="Build application"
                 value={selectedApplicationId}
@@ -378,11 +383,11 @@ export function SourceBuildsPage() {
           ) : null}
 
           {selectedApplication && selectedProject ? (
-            <div className="source-build-layout">
-              <Card className="source-build-card">
-                <div className="card__header card__header--inside">
+            <div className="grid grid-cols-[minmax(0,_1.35fr)_minmax(330px,_0.65fr)] gap-5 items-start to-1050:grid-cols-[1fr]">
+              <Card className="mb-5">
+                <CardHeader>
                   <div>
-                    <span className="eyebrow">Definition</span>
+                    <Eyebrow>Definition</Eyebrow>
                     <h2>Create from verified source</h2>
                     <p>
                       Definitions are immutable. To change source, platforms,
@@ -393,9 +398,9 @@ export function SourceBuildsPage() {
                     value={canCreateDefinition ? "ready" : "read-only"}
                     label={canCreateDefinition ? "Writable" : "Read only"}
                   />
-                </div>
+                </CardHeader>
                 <BuildDefinitionForm
-                  key={selectedApplication.id}
+                  key={`${selectedApplication.id}:${capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"}`}
                   application={selectedApplication}
                   project={selectedProject}
                   capabilities={effectiveCapabilities}
@@ -407,23 +412,23 @@ export function SourceBuildsPage() {
                 />
               </Card>
 
-              <Card className="source-build-card">
-                <div className="card__header card__header--inside">
+              <Card className="mb-5">
+                <CardHeader>
                   <div>
-                    <span className="eyebrow">Definitions</span>
+                    <Eyebrow>Definitions</Eyebrow>
                     <h2>Source connections</h2>
                   </div>
-                  <span className="placeholder-badge">
+                  <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
                     {definitions.data?.items.length ?? 0} definitions
                   </span>
-                </div>
+                </CardHeader>
                 {definitions.isPending ? (
                   <Skeleton lines={5} />
                 ) : definitions.data?.items.length ? (
-                  <div className="build-definition-list">
+                  <div className="overflow-hidden border border-line rounded-[11px]">
                     {definitions.data.items.map((definition) => (
                       <article
-                        className="build-definition-row"
+                        className="last:border-b-0 [&_small]:text-ink-faint [&_small]:text-xs grid grid-cols-[minmax(0,_1fr)_auto] gap-3 p-4 border-b border-b-line [&>div:first-child]:flex [&>div:first-child]:min-w-0 [&>div:first-child]:items-center [&>div:first-child]:justify-between [&>div:first-child]:gap-3 [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_code]:text-ink-faint [&_code]:text-xs [&>small]:self-center [&>small]:text-right"
                         key={definition.id}
                       >
                         <div>
@@ -432,7 +437,7 @@ export function SourceBuildsPage() {
                             {shortId(definition.definitionDigest, 12)}
                           </code>
                         </div>
-                        <dl className="build-definition-summary">
+                        <dl className="grid col-[1_/_-1] grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 m-0 [&>div]:min-w-0 [&>div]:py-2 [&>div]:px-3 [&>div]:rounded-lg [&>div]:bg-surface-soft [&_dt]:text-ink-faint [&_dt]:text-[11px] [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-xs [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap to-520:grid-cols-[1fr]">
                           <div>
                             <dt>Platforms</dt>
                             <dd>{definition.platforms.join(", ")}</dd>
@@ -457,7 +462,7 @@ export function SourceBuildsPage() {
                         </small>
                         {canCreateDefinition ? (
                           <Button
-                            className="build-definition-row__disconnect"
+                            className="justify-self-end"
                             variant="danger"
                             onClick={() => {
                               disconnectSource.reset();
@@ -484,10 +489,10 @@ export function SourceBuildsPage() {
           ) : null}
 
           {selectedApplication && selectedProject ? (
-            <Card className="source-build-card">
-              <div className="card__header card__header--inside">
+            <Card className="mb-5">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">Builds</span>
+                  <Eyebrow>Builds</Eyebrow>
                   <h2>Attempt history</h2>
                   <p>
                     Results expose bounded status and image metadata—not raw
@@ -495,17 +500,17 @@ export function SourceBuildsPage() {
                     Jobs.
                   </p>
                 </div>
-                <span className="placeholder-badge">
+                <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
                   {attempts.data?.items.length ?? 0} recent
                 </span>
-              </div>
+              </CardHeader>
               {attempts.isPending ? (
                 <Skeleton lines={6} />
               ) : attempts.data?.items.length ? (
-                <div className="build-attempt-list">
+                <div className="overflow-hidden border border-line rounded-[11px]">
                   {attempts.data.items.map((attempt) => (
                     <BuildAttemptRow
-                      key={attempt.id}
+                      key={`${selectedApplication.id}:${attempt.id}`}
                       attempt={attempt}
                       application={selectedApplication}
                       project={selectedProject}
@@ -550,6 +555,6 @@ export function SourceBuildsPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

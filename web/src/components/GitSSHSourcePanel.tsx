@@ -14,9 +14,13 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  Notice,
+  PageStack,
   StatusPill,
 } from "./ui";
+import { useCopyToClipboard } from "../lib/clipboard";
 
 type KeyScope = "app" | "project";
 type Confirmation = "rotate" | "revoke" | null;
@@ -44,24 +48,17 @@ export function GitSSHSourcePanel({
   const [scope, setScope] = useState<KeyScope>("app");
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [copied, setCopied] = useState(false);
+  const { copy } = useCopyToClipboard();
   const [repositoryURL, setRepositoryURL] = useState("");
   const [hostKey, setHostKey] = useState("");
   const [branch, setBranch] = useState("main");
   const [registryTargetID, setRegistryTargetID] = useState("");
   const [contextPath, setContextPath] = useState(".");
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
-  const [amd64, setAMD64] = useState(
-    defaultBuildPlatform === "linux/amd64",
-  );
-  const [arm64, setARM64] = useState(
-    defaultBuildPlatform === "linux/arm64",
-  );
+  const [amd64, setAMD64] = useState(defaultBuildPlatform === "linux/amd64");
+  const [arm64, setARM64] = useState(defaultBuildPlatform === "linux/arm64");
   const [commitSHA, setCommitSHA] = useState("");
   const [formError, setFormError] = useState("");
-  useEffect(() => {
-    setAMD64(defaultBuildPlatform === "linux/amd64");
-    setARM64(defaultBuildPlatform === "linux/arm64");
-  }, [application.id, defaultBuildPlatform]);
   const attempt = useRef<{
     operation: "create" | "rotate" | "revoke";
     scope: KeyScope;
@@ -246,17 +243,17 @@ export function GitSSHSourcePanel({
   }
 
   return (
-    <div className="page-stack git-ssh-source-panel">
+    <PageStack className="grid gap-5">
       <div>
-        <span className="eyebrow">Deploy key scope</span>
+        <Eyebrow>Deploy key scope</Eyebrow>
         <h3>Choose who reuses this key</h3>
-        <p className="muted">
+        <p className="">
           App keys isolate one repository. Project keys can be reused by Apps in{" "}
           {project.name}.
         </p>
       </div>
       <div
-        className="app-source-grid"
+        className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-3 mb-5 to-760:grid-cols-[1fr]"
         role="radiogroup"
         aria-label="Deploy key scope"
       >
@@ -264,10 +261,10 @@ export function GitSSHSourcePanel({
           type="button"
           role="radio"
           aria-checked={scope === "app"}
-          className="app-source-option"
+          className="grid grid-cols-[40px_minmax(0,_1fr)_18px] items-start gap-4 min-h-[132px] p-5 border border-line rounded-[10px] text-ink text-left bg-surface cursor-pointer transition-[border-color,background] duration-(--motion-fast) ease-(--ease-standard) hover:border-line-strong hover:bg-surface-soft [&_[aria-checked='true']]:border-mint [&_[aria-checked='true']]:bg-mint-soft [&_[aria-checked='true']]:shadow-[inset_0_0_0_1px_var(--mint)] [&>span:nth-child(2)]:grid [&>span:nth-child(2)]:gap-1.5 [&_strong]:text-sm [&_small]:text-ink-soft [&_small]:text-xs [&_small]:not-italic [&_small]:leading-[1.45] [&_em]:text-xs [&_em]:not-italic [&_em]:leading-[1.45] [&_em]:text-ink-faint [&>svg]:w-[18px] [&>svg]:self-center [&>svg]:text-ink-faint"
           onClick={() => setScope("app")}
         >
-          <span className="app-source-option__icon">
+          <span className="grid w-[38px] h-[38px] place-items-center border border-line rounded-lg text-mint-dark bg-surface-soft [&_svg]:w-[18px]">
             <Icon name="apps" />
           </span>
           <span>
@@ -279,10 +276,10 @@ export function GitSSHSourcePanel({
           type="button"
           role="radio"
           aria-checked={scope === "project"}
-          className="app-source-option"
+          className="grid grid-cols-[40px_minmax(0,_1fr)_18px] items-start gap-4 min-h-[132px] p-5 border border-line rounded-[10px] text-ink text-left bg-surface cursor-pointer transition-[border-color,background] duration-(--motion-fast) ease-(--ease-standard) hover:border-line-strong hover:bg-surface-soft [&_[aria-checked='true']]:border-mint [&_[aria-checked='true']]:bg-mint-soft [&_[aria-checked='true']]:shadow-[inset_0_0_0_1px_var(--mint)] [&>span:nth-child(2)]:grid [&>span:nth-child(2)]:gap-1.5 [&_strong]:text-sm [&_small]:text-ink-soft [&_small]:text-xs [&_small]:not-italic [&_small]:leading-[1.45] [&_em]:text-xs [&_em]:not-italic [&_em]:leading-[1.45] [&_em]:text-ink-faint [&>svg]:w-[18px] [&>svg]:self-center [&>svg]:text-ink-faint"
           onClick={() => setScope("project")}
         >
-          <span className="app-source-option__icon">
+          <span className="grid w-[38px] h-[38px] place-items-center border border-line rounded-lg text-mint-dark bg-surface-soft [&_svg]:w-[18px]">
             <Icon name="layers" />
           </span>
           <span>
@@ -304,14 +301,13 @@ export function GitSSHSourcePanel({
           copied={copied}
           busy={mutation.isPending}
           onCopy={async () => {
-            await navigator.clipboard.writeText(activeKey.publicKey);
-            setCopied(true);
+            setCopied(await copy(activeKey.publicKey));
           }}
           onRotate={() => setConfirmation("rotate")}
           onRevoke={() => setConfirmation("revoke")}
         />
       ) : selectedQuery.isPending ? (
-        <p className="muted">Loading deploy keys…</p>
+        <p className="">Loading deploy keys…</p>
       ) : (
         <EmptyState
           compact
@@ -332,10 +328,10 @@ export function GitSSHSourcePanel({
         />
       ) : null}
       {activeKey && buildConfigured && canManageBuilds ? (
-        <section className="service-settings-section">
-          <div className="service-settings-section__header">
+        <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
+          <div className="[&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] flex items-start justify-between gap-5">
             <div>
-              <span className="eyebrow">Repository binding</span>
+              <Eyebrow>Repository binding</Eyebrow>
               <h3>Configure Git SSH build</h3>
               <p>
                 Add this deploy key to the repository, then bind its exact SSH
@@ -343,7 +339,7 @@ export function GitSSHSourcePanel({
               </p>
             </div>
           </div>
-          <div className="build-definition-form__grid">
+          <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4 to-760:grid-cols-[1fr]">
             <Field label="Repository URL" required>
               <input
                 value={repositoryURL}
@@ -383,7 +379,7 @@ export function GitSSHSourcePanel({
               />
             </Field>
           </div>
-          <fieldset className="build-platforms">
+          <fieldset className="flex items-center flex-wrap gap-y-2 gap-x-5 m-0 py-3 px-4 border border-line rounded-lg bg-surface-soft [&_legend]:float-left [&_legend]:w-full [&_legend]:p-0 [&_legend]:mb-2 [&_legend]:text-ink [&_legend]:text-meta [&_legend]:font-semibold [&_label]:inline-flex [&_label]:items-center [&_label]:gap-2 [&_label]:text-meta [&>small]:basis-full [&>small]:text-ink-faint [&>small]:text-xs [&>small]:leading-[1.45]">
             <legend>Platforms</legend>
             <label>
               <input
@@ -402,8 +398,8 @@ export function GitSSHSourcePanel({
               linux/arm64
             </label>
             <small>
-              Defaults to this Kuberploy installation's CPU architecture.
-              Select both only when the image must run on both architectures.
+              Defaults to this Kuberploy installation's CPU architecture. Select
+              both only when the image must run on both architectures.
             </small>
           </fieldset>
           <Field
@@ -429,7 +425,7 @@ export function GitSSHSourcePanel({
         </section>
       ) : null}
       {buildConfigured && !buildReady ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Builder runtime unavailable</strong>
             <p>
@@ -437,14 +433,14 @@ export function GitSSHSourcePanel({
               execution resumes when builder capacity reports Ready.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {activeDefinition && buildReady && canManageBuilds ? (
-        <section className="service-settings-section">
+        <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
           <div>
-            <span className="eyebrow">Manual build</span>
+            <Eyebrow>Manual build</Eyebrow>
             <h3>Build exact commit</h3>
-            <p className="muted">
+            <p className="">
               Git SSH has no provider webhook. Paste the commit SHA after the
               provider accepts this deploy key.
             </p>
@@ -476,7 +472,7 @@ export function GitSSHSourcePanel({
       {createBuild.error ? (
         <ErrorPanel error={createBuild.error} title="Git SSH build failed" />
       ) : null}
-      <div className="notice">
+      <Notice>
         <div>
           <strong>Next: authorize and verify the repository</strong>
           <p>
@@ -485,7 +481,7 @@ export function GitSSHSourcePanel({
             because it has no provider webhook.
           </p>
         </div>
-      </div>
+      </Notice>
       {confirmation ? (
         <ConfirmDialog
           title={
@@ -504,7 +500,7 @@ export function GitSSHSourcePanel({
           onConfirm={() => mutate(confirmation)}
         />
       ) : null}
-    </div>
+    </PageStack>
   );
 }
 
@@ -524,8 +520,8 @@ function KeyCard({
   onRevoke: () => void;
 }) {
   return (
-    <div className="git-ssh-key-card">
-      <div className="git-ssh-key-card__header">
+    <div className="grid gap-4 p-4 border border-[var(--border)] rounded-lg bg-[var(--surface-raised)] [&_textarea]:w-full [&_textarea]:resize-y [&_textarea]:font-mono [&_textarea]:text-xs">
+      <div className="flex items-center justify-between gap-3 flex-wrap [&>div]:grid [&>div]:gap-1">
         <div>
           <strong>
             {value.scope === "app" ? "App" : "Project"} deploy key
@@ -542,7 +538,7 @@ function KeyCard({
         rows={3}
         value={value.publicKey}
       />
-      <div className="git-ssh-key-card__actions">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <Button
           variant="secondary"
           disabled={busy}

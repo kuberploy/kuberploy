@@ -80,6 +80,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[
@@ -136,6 +137,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[]}
@@ -172,6 +174,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     const { rerender } = render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[]}
@@ -191,6 +194,7 @@ describe("project access management", () => {
 
     rerender(
       <ProjectAccessPanel
+        key={`access-project-2`}
         project={{ id: "project-2", name: "Billing", teamId: "team-1" }}
         environments={[]}
         applications={[]}
@@ -233,6 +237,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[]}
@@ -275,6 +280,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments" }}
         environments={[]}
         applications={[
@@ -307,6 +313,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[
@@ -337,6 +344,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments" }}
         environments={[]}
         applications={[]}
@@ -371,6 +379,7 @@ describe("project access management", () => {
     const user = userEvent.setup();
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[]}
@@ -396,6 +405,7 @@ describe("project access management", () => {
     vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     render(
       <ProjectAccessPanel
+        key={`access-project-1`}
         project={{ id: "project-1", name: "Payments", teamId: "team-1" }}
         environments={[]}
         applications={[]}

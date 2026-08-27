@@ -1,5 +1,4 @@
 import { parse, stringify } from "yaml";
-import { Plus, Trash2 } from "lucide-react";
 import type {
   TopologySpreadConstraint,
   WorkloadAffinity,
@@ -10,8 +9,8 @@ import type {
   SchedulingRequirementDraft,
   SameApplicationPodAntiAffinityDraft,
 } from "./SchedulingAffinityFields";
-import { Button } from "./shadcn/button";
-import { Input } from "./shadcn/input";
+import { Button, useRowKeys } from "./ui";
+import { Icon } from "./Icon";
 
 export type SchedulingEditorValue = {
   nodeSelectorYaml: string;
@@ -178,6 +177,7 @@ function RequirementRows({
   onChange: (value: SchedulingRequirementDraft[]) => void;
   disabled: boolean;
 }) {
+  const rowKeys = useRowKeys(value.length);
   const update = (index: number, change: Partial<SchedulingRequirementDraft>) =>
     onChange(
       value.map((item, itemIndex) =>
@@ -185,14 +185,17 @@ function RequirementRows({
       ),
     );
   return (
-    <div className="scheduling-editor__rows">
+    <div className="grid gap-2">
       {value.map((item, index) => {
         const needsValues = requirementNeedsValues(item.operator);
         return (
-          <div className="scheduling-editor__requirement" key={index}>
+          <div
+            className="grid items-end gap-2 grid-cols-[minmax(140px,_1.2fr)_minmax(110px,_0.7fr)_minmax(150px,_1fr)_auto] to-860:grid-cols-[repeat(2,_minmax(0,_1fr))_auto] to-580:grid-cols-[1fr]"
+            key={rowKeys.keyAt(index)}
+          >
             <label>
               <span>Label key</span>
-              <Input
+              <input
                 aria-label={`Expression ${index + 1} label key`}
                 value={item.key}
                 disabled={disabled}
@@ -225,7 +228,7 @@ function RequirementRows({
             {needsValues ? (
               <label>
                 <span>Values</span>
-                <Input
+                <input
                   aria-label={`Expression ${index + 1} values`}
                   value={(item.values ?? []).join(", ")}
                   disabled={disabled}
@@ -242,31 +245,30 @@ function RequirementRows({
             ) : (
               <span />
             )}
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="ghost"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove expression ${index + 1}`}
               disabled={disabled || value.length === 1}
-              onClick={() =>
-                onChange(value.filter((_, itemIndex) => itemIndex !== index))
-              }
+              onClick={() => {
+                rowKeys.removeAt(index);
+                onChange(value.filter((_, itemIndex) => itemIndex !== index));
+              }}
             >
-              <Trash2 />
-            </Button>
+              <Icon name="trash" />
+            </button>
           </div>
         );
       })}
       <Button
         type="button"
-        size="sm"
-        variant="outline"
+        variant="secondary"
         disabled={disabled || value.length >= 32}
         onClick={() =>
           onChange([...value, { key: "", operator: "In", values: [""] }])
         }
       >
-        <Plus /> Add expression
+        <Icon name="plus" /> Add expression
       </Button>
     </div>
   );
@@ -285,17 +287,17 @@ function PodPresetRows({
   disabled: boolean;
   canAdd: boolean;
 }) {
+  const rowKeys = useRowKeys(value.length);
   return (
-    <div className="scheduling-editor__group">
-      <div className="scheduling-editor__group-heading">
+    <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+      <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
         <div>
           <strong>{title}</strong>
           <span>Always targets only this service.</span>
         </div>
         <Button
           type="button"
-          size="sm"
-          variant="outline"
+          variant="secondary"
           disabled={disabled || !canAdd || value.length >= 16}
           onClick={() =>
             onChange([
@@ -307,14 +309,19 @@ function PodPresetRows({
             ])
           }
         >
-          <Plus /> Add rule
+          <Icon name="plus" /> Add rule
         </Button>
       </div>
       {value.length === 0 ? (
-        <p className="scheduling-editor__empty">No rules.</p>
+        <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
+          No rules.
+        </p>
       ) : null}
       {value.map((item, index) => (
-        <div className="scheduling-editor__pod-row" key={index}>
+        <div
+          className="grid items-end gap-2 grid-cols-[minmax(120px,_0.6fr)_minmax(180px,_1fr)_minmax(90px,_0.35fr)_auto] to-860:grid-cols-[repeat(2,_minmax(0,_1fr))_auto] to-580:grid-cols-[1fr]"
+          key={rowKeys.keyAt(index)}
+        >
           <label>
             <span>Enforcement</span>
             <select
@@ -345,7 +352,7 @@ function PodPresetRows({
           </label>
           <label>
             <span>Topology key</span>
-            <Input
+            <input
               aria-label={`${title} ${index + 1} topology key`}
               value={item.topologyKey}
               disabled={disabled}
@@ -363,7 +370,7 @@ function PodPresetRows({
           {item.enforcement === "preferred" ? (
             <label>
               <span>Weight</span>
-              <Input
+              <input
                 aria-label={`${title} ${index + 1} weight`}
                 type="number"
                 min={1}
@@ -384,22 +391,22 @@ function PodPresetRows({
           ) : (
             <span />
           )}
-          <Button
+          <button
             type="button"
-            size="icon"
-            variant="ghost"
+            className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
             aria-label={`Remove ${title} ${index + 1}`}
             disabled={disabled}
-            onClick={() =>
-              onChange(value.filter((_, itemIndex) => itemIndex !== index))
-            }
+            onClick={() => {
+              rowKeys.removeAt(index);
+              onChange(value.filter((_, itemIndex) => itemIndex !== index));
+            }}
           >
-            <Trash2 />
-          </Button>
+            <Icon name="trash" />
+          </button>
         </div>
       ))}
       {!canAdd ? (
-        <p className="scheduling-editor__warning">
+        <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
           Save service identity before adding pod placement rules.
         </p>
       ) : null}
@@ -468,6 +475,14 @@ export function SchedulingEditor({
   });
   const exactApplicationId =
     applicationId || applicationIdFromAffinity(affinity);
+  // Every editable list below gets row identity that survives a removal; see
+  // useRowKeys. Keying these by index moves a row's DOM node onto its
+  // successor when a row in the middle is deleted.
+  const nodeSelectorKeys = useRowKeys(Object.keys(nodeSelector).length);
+  const requiredTermKeys = useRowKeys(requiredTerms.length);
+  const preferredTermKeys = useRowKeys(preferredTerms.length);
+  const tolerationKeys = useRowKeys(tolerations.length);
+  const topologyKeys = useRowKeys(topology.length);
 
   const update = (change: Partial<SchedulingEditorValue>) =>
     onChange({ ...value, ...change });
@@ -517,17 +532,16 @@ export function SchedulingEditor({
   };
 
   return (
-    <div className="scheduling-editor">
-      <div className="scheduling-editor__group">
-        <div className="scheduling-editor__group-heading">
+    <div className="grid gap-3 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_.icon-button]:w-10 [&_.icon-button]:h-11 [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_select]:w-full [&_select]:h-8 [&_select]:min-w-0 [&_select]:py-0 [&_select]:px-2 [&_select]:border [&_select]:border-line-strong [&_select]:rounded-lg [&_select]:text-ink [&_select]:bg-surface [&_select]:font-[inherit]">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+        <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Node selector</strong>
             <span>Exact labels every selected node must have.</span>
           </div>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
+            variant="secondary"
             disabled={disabled || Object.keys(nodeSelector).length >= 32}
             onClick={() => {
               const rows = [
@@ -545,14 +559,17 @@ export function SchedulingEditor({
               });
             }}
           >
-            <Plus /> Add label
+            <Icon name="plus" /> Add label
           </Button>
         </div>
         {Object.entries(nodeSelector).map(([key, current], index) => (
-          <div className="scheduling-editor__key-value" key={index}>
+          <div
+            className="grid items-end gap-2 grid-cols-[minmax(0,_1fr)_minmax(0,_1fr)_auto] to-580:grid-cols-[1fr]"
+            key={nodeSelectorKeys.keyAt(index)}
+          >
             <label>
               <span>Label key</span>
-              <Input
+              <input
                 aria-label={`Node selector ${index + 1} key`}
                 value={key}
                 disabled={disabled}
@@ -577,7 +594,7 @@ export function SchedulingEditor({
             </label>
             <label>
               <span>Label value</span>
-              <Input
+              <input
                 aria-label={`Node selector ${index + 1} value`}
                 value={String(current)}
                 disabled={disabled}
@@ -600,13 +617,13 @@ export function SchedulingEditor({
                 }}
               />
             </label>
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="ghost"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove node selector ${index + 1}`}
               disabled={disabled}
               onClick={() => {
+                nodeSelectorKeys.removeAt(index);
                 const next = Object.fromEntries(
                   Object.entries(nodeSelector).filter(
                     (_, itemIndex) => itemIndex !== index,
@@ -615,17 +632,19 @@ export function SchedulingEditor({
                 update({ nodeSelectorYaml: fragment(next, "{}") });
               }}
             >
-              <Trash2 />
-            </Button>
+              <Icon name="trash" />
+            </button>
           </div>
         ))}
         {Object.keys(nodeSelector).length === 0 ? (
-          <p className="scheduling-editor__empty">No node labels required.</p>
+          <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
+            No node labels required.
+          </p>
         ) : null}
       </div>
 
-      <div className="scheduling-editor__group">
-        <div className="scheduling-editor__group-heading">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+        <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Required node affinity</strong>
             <span>
@@ -634,8 +653,7 @@ export function SchedulingEditor({
           </div>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
+            variant="secondary"
             disabled={disabled || requiredTerms.length >= 16}
             onClick={() =>
               updateAffinity({
@@ -646,27 +664,30 @@ export function SchedulingEditor({
               })
             }
           >
-            <Plus /> Add term
+            <Icon name="plus" /> Add term
           </Button>
         </div>
         {requiredTerms.map((term, index) => (
-          <div className="scheduling-editor__term" key={index}>
-            <div className="scheduling-editor__term-heading">
+          <div
+            className="mt-2 p-3 border border-line rounded-[9px] bg-surface-soft"
+            key={requiredTermKeys.keyAt(index)}
+          >
+            <div className="flex items-center justify-between gap-3 mb-3 [&_strong]:text-ink [&_strong]:text-meta [&_label_span]:text-ink-faint [&_label_span]:text-xs [&_label_span]:font-semibold [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_label]:grid-cols-[auto_82px] [&_label]:items-center [&_label]:ml-[auto] to-580:items-start to-580:flex-col to-580:[&_label]:ml-0">
               <strong>Required term {index + 1}</strong>
               <Button
                 type="button"
-                size="sm"
                 variant="ghost"
                 disabled={disabled}
-                onClick={() =>
+                onClick={() => {
+                  requiredTermKeys.removeAt(index);
                   updateAffinity({
                     required: requiredTerms.filter(
                       (_, itemIndex) => itemIndex !== index,
                     ),
-                  })
-                }
+                  });
+                }}
               >
-                <Trash2 /> Remove
+                <Icon name="trash" /> Remove
               </Button>
             </div>
             <RequirementRows
@@ -685,20 +706,21 @@ export function SchedulingEditor({
           </div>
         ))}
         {requiredTerms.length === 0 ? (
-          <p className="scheduling-editor__empty">No required node affinity.</p>
+          <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
+            No required node affinity.
+          </p>
         ) : null}
       </div>
 
-      <div className="scheduling-editor__group">
-        <div className="scheduling-editor__group-heading">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+        <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Preferred node affinity</strong>
             <span>Higher weights influence placement without blocking it.</span>
           </div>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
+            variant="secondary"
             disabled={disabled || preferredTerms.length >= 16}
             onClick={() =>
               updateAffinity({
@@ -712,16 +734,19 @@ export function SchedulingEditor({
               })
             }
           >
-            <Plus /> Add term
+            <Icon name="plus" /> Add term
           </Button>
         </div>
         {preferredTerms.map((term, index) => (
-          <div className="scheduling-editor__term" key={index}>
-            <div className="scheduling-editor__term-heading">
+          <div
+            className="mt-2 p-3 border border-line rounded-[9px] bg-surface-soft"
+            key={preferredTermKeys.keyAt(index)}
+          >
+            <div className="flex items-center justify-between gap-3 mb-3 [&_strong]:text-ink [&_strong]:text-meta [&_label_span]:text-ink-faint [&_label_span]:text-xs [&_label_span]:font-semibold [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_label]:grid-cols-[auto_82px] [&_label]:items-center [&_label]:ml-[auto] to-580:items-start to-580:flex-col to-580:[&_label]:ml-0">
               <strong>Preferred term {index + 1}</strong>
               <label>
                 <span>Weight</span>
-                <Input
+                <input
                   aria-label={`Preferred term ${index + 1} weight`}
                   type="number"
                   min={1}
@@ -741,18 +766,18 @@ export function SchedulingEditor({
               </label>
               <Button
                 type="button"
-                size="sm"
                 variant="ghost"
                 disabled={disabled}
-                onClick={() =>
+                onClick={() => {
+                  preferredTermKeys.removeAt(index);
                   updateAffinity({
                     preferred: preferredTerms.filter(
                       (_, itemIndex) => itemIndex !== index,
                     ),
-                  })
-                }
+                  });
+                }}
               >
-                <Trash2 /> Remove
+                <Icon name="trash" /> Remove
               </Button>
             </div>
             <RequirementRows
@@ -771,7 +796,7 @@ export function SchedulingEditor({
           </div>
         ))}
         {preferredTerms.length === 0 ? (
-          <p className="scheduling-editor__empty">
+          <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
             No preferred node affinity.
           </p>
         ) : null}
@@ -792,16 +817,15 @@ export function SchedulingEditor({
         canAdd={Boolean(exactApplicationId)}
       />
 
-      <div className="scheduling-editor__group">
-        <div className="scheduling-editor__group-heading">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+        <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Tolerations</strong>
             <span>Allow this service onto matching tainted nodes.</span>
           </div>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
+            variant="secondary"
             disabled={disabled || tolerations.length >= 32}
             onClick={() =>
               update({
@@ -820,14 +844,17 @@ export function SchedulingEditor({
               })
             }
           >
-            <Plus /> Add toleration
+            <Icon name="plus" /> Add toleration
           </Button>
         </div>
         {tolerations.map((item, index) => (
-          <div className="scheduling-editor__toleration" key={index}>
+          <div
+            className="grid items-end gap-2 grid-cols-[minmax(130px,_1fr)_minmax(100px,_0.55fr)_minmax(110px,_0.8fr)_minmax(130px,_0.7fr)_minmax(90px,_0.35fr)_auto] to-1240:grid-cols-[repeat(3,_minmax(0,_1fr))_auto] to-860:grid-cols-[repeat(2,_minmax(0,_1fr))_auto] to-580:grid-cols-[1fr]"
+            key={tolerationKeys.keyAt(index)}
+          >
             <label>
               <span>Key</span>
-              <Input
+              <input
                 aria-label={`Toleration ${index + 1} key`}
                 value={item.key}
                 disabled={disabled}
@@ -879,7 +906,7 @@ export function SchedulingEditor({
             {item.operator === "Equal" ? (
               <label>
                 <span>Value</span>
-                <Input
+                <input
                   aria-label={`Toleration ${index + 1} value`}
                   value={item.value ?? ""}
                   disabled={disabled}
@@ -931,7 +958,7 @@ export function SchedulingEditor({
             {item.effect === "NoExecute" ? (
               <label>
                 <span>Seconds</span>
-                <Input
+                <input
                   aria-label={`Toleration ${index + 1} seconds`}
                   type="number"
                   min={0}
@@ -960,40 +987,41 @@ export function SchedulingEditor({
             ) : (
               <span />
             )}
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="ghost"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove toleration ${index + 1}`}
               disabled={disabled}
-              onClick={() =>
+              onClick={() => {
+                tolerationKeys.removeAt(index);
                 update({
                   tolerationsYaml: fragment(
                     tolerations.filter((_, itemIndex) => itemIndex !== index),
                     "[]",
                   ),
-                })
-              }
+                });
+              }}
             >
-              <Trash2 />
-            </Button>
+              <Icon name="trash" />
+            </button>
           </div>
         ))}
         {tolerations.length === 0 ? (
-          <p className="scheduling-editor__empty">No tolerations.</p>
+          <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
+            No tolerations.
+          </p>
         ) : null}
       </div>
 
-      <div className="scheduling-editor__group">
-        <div className="scheduling-editor__group-heading">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
+        <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
             <strong>Topology spread</strong>
             <span>Spread only this service across topology domains.</span>
           </div>
           <Button
             type="button"
-            size="sm"
-            variant="outline"
+            variant="secondary"
             disabled={disabled || !exactApplicationId || topology.length >= 16}
             onClick={() =>
               update({
@@ -1016,14 +1044,17 @@ export function SchedulingEditor({
               })
             }
           >
-            <Plus /> Add constraint
+            <Icon name="plus" /> Add constraint
           </Button>
         </div>
         {topology.map((item, index) => (
-          <div className="scheduling-editor__topology" key={index}>
+          <div
+            className="grid items-end gap-2 grid-cols-[minmax(180px,_1fr)_minmax(90px,_0.35fr)_minmax(145px,_0.6fr)_minmax(90px,_0.35fr)_minmax(150px,_0.7fr)_minmax(150px,_0.7fr)_auto] to-1240:grid-cols-[repeat(3,_minmax(0,_1fr))_auto] to-860:grid-cols-[repeat(2,_minmax(0,_1fr))_auto] to-580:grid-cols-[1fr]"
+            key={topologyKeys.keyAt(index)}
+          >
             <label>
               <span>Topology key</span>
-              <Input
+              <input
                 aria-label={`Topology spread ${index + 1} key`}
                 value={item.topologyKey}
                 disabled={disabled}
@@ -1049,7 +1080,7 @@ export function SchedulingEditor({
             </label>
             <label>
               <span>Max skew</span>
-              <Input
+              <input
                 aria-label={`Topology spread ${index + 1} max skew`}
                 type="number"
                 min={1}
@@ -1113,7 +1144,7 @@ export function SchedulingEditor({
             </label>
             <label>
               <span>Min domains</span>
-              <Input
+              <input
                 aria-label={`Topology spread ${index + 1} min domains`}
                 type="number"
                 min={1}
@@ -1218,13 +1249,13 @@ export function SchedulingEditor({
                 <option>Ignore</option>
               </select>
             </label>
-            <Button
+            <button
               type="button"
-              size="icon"
-              variant="ghost"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove topology spread ${index + 1}`}
               disabled={disabled}
-              onClick={() =>
+              onClick={() => {
+                topologyKeys.removeAt(index);
                 update({
                   topologySpreadYaml: fragment(
                     topology
@@ -1239,26 +1270,28 @@ export function SchedulingEditor({
                       })),
                     "[]",
                   ),
-                })
-              }
+                });
+              }}
             >
-              <Trash2 />
-            </Button>
+              <Icon name="trash" />
+            </button>
           </div>
         ))}
         {topology.length === 0 ? (
-          <p className="scheduling-editor__empty">No topology constraints.</p>
+          <p className="!m-0 py-2 px-3 rounded-lg !text-[var(--amber-ink)] bg-surface-soft">
+            No topology constraints.
+          </p>
         ) : null}
       </div>
 
-      <div className="scheduling-editor__group scheduling-editor__priority">
+      <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface [&_label]:grid [&_label]:gap-1 [&_label]:max-w-[480px] [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold">
         <label>
           <strong>Priority class</strong>
           <span>
             Optional existing PriorityClass; Kubernetes system-* classes are
             reserved.
           </span>
-          <Input
+          <input
             aria-label="Priority class"
             value={value.priorityClassName}
             disabled={disabled}

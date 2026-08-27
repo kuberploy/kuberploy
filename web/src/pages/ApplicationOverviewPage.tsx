@@ -17,6 +17,7 @@ import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { GitSSHSourcePanel } from "../components/GitSSHSourcePanel";
 import { Icon } from "../components/Icon";
+import type { IconName } from "../components/Icon";
 import {
   compatibleBuildRegistryTargets,
   hasBuildApplicationCapability,
@@ -24,15 +25,20 @@ import {
 import { gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
-  Card,
   Button,
+  Card,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  Notice,
+  Page,
   PageHeader,
+  PageStack,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { canDeleteApplication } from "../lib/appCreationAccess";
 
@@ -45,6 +51,13 @@ function compactImageReference(image?: string) {
   const name = repository?.split("/").at(-1) || repository || image;
   return digest ? `${name}@sha256:${digest.slice(0, 12)}…` : name;
 }
+
+const sourceKinds: ReadonlyArray<readonly [SourceKind, IconName, string]> = [
+  ["build", "git", "GitHub / Dockerfile"],
+  ["image", "deploy", "Existing image"],
+  ["ssh", "terminal", "Git SSH"],
+  ["helm", "layers", "Helm chart"],
+];
 
 function applicationSourceTab(kind: string): SourceKind {
   return kind === "oci"
@@ -89,8 +102,22 @@ export function ApplicationOverviewPage() {
     source?: string;
     environmentId?: string;
   };
-  const [tab, setTab] = useState<WorkspaceTab>("overview");
-  const [environmentId, setEnvironmentId] = useState("");
+  const [tab, setTab] = useState<WorkspaceTab>(
+    search.tab === "source" ? "source" : "overview",
+  );
+  const [environmentChoice, setEnvironmentId] = useState(
+    search.environmentId ?? routeEnvironmentId ?? "",
+  );
+  // The URL seeds this workspace; the operator can then move around inside it
+  // without touching the URL. Reseeding is an adjustment made during render
+  // rather than in an effect, so a new App never paints with the old App's tab.
+  const workspaceSeed = `${applicationId}|${search.tab ?? ""}|${search.environmentId ?? routeEnvironmentId ?? ""}`;
+  const [seededWorkspace, setSeededWorkspace] = useState(workspaceSeed);
+  if (seededWorkspace !== workspaceSeed) {
+    setSeededWorkspace(workspaceSeed);
+    setTab(search.tab === "source" ? "source" : "overview");
+    setEnvironmentId(search.environmentId ?? routeEnvironmentId ?? "");
+  }
   const application = useQuery({
     queryKey: ["application", applicationId],
     queryFn: () => api.application(applicationId),
@@ -205,28 +232,20 @@ export function ApplicationOverviewPage() {
     [applicationId, placementQueries, projectEnvironments],
   );
   const placementsPending = placementQueries.some((query) => query.isPending);
-  useEffect(() => {
-    setTab(search.tab === "source" ? "source" : "overview");
-    setEnvironmentId(search.environmentId ?? routeEnvironmentId ?? "");
-  }, [applicationId, routeEnvironmentId, search.environmentId, search.tab]);
-  useEffect(() => {
-    if (!application.data || !environments.data) return;
-    if (placementsPending) return;
-    if (
-      environmentId &&
-      !applicationEnvironments.some(
-        (environment) => environment.id === environmentId,
-      )
-    ) {
-      setEnvironmentId("");
-    }
-  }, [
-    application.data,
-    applicationEnvironments,
-    environmentId,
-    environments.data,
-    placementsPending,
-  ]);
+  // Once placements are known, an environment the App no longer runs in is not
+  // a valid selection. Derived here so the invalid id never reaches the render.
+  const environmentSettled =
+    Boolean(application.data) &&
+    Boolean(environments.data) &&
+    !placementsPending;
+  const environmentId =
+    !environmentSettled ||
+    !environmentChoice ||
+    applicationEnvironments.some(
+      (environment) => environment.id === environmentChoice,
+    )
+      ? environmentChoice
+      : "";
   const selectedEnvironment = applicationEnvironments.find(
     (item) => item.id === environmentId,
   );
@@ -317,14 +336,20 @@ export function ApplicationOverviewPage() {
     environments.isPending ||
     placementsPending
   ) {
-    return <Skeleton lines={7} />;
+    return (
+      <Page>
+        <Skeleton lines={7} />
+      </Page>
+    );
   }
   if (!application.data || !project) {
     return (
-      <EmptyState
-        title="Application scope is unavailable"
-        description="The application or its project is no longer readable."
-      />
+      <Page>
+        <EmptyState
+          title="Application scope is unavailable"
+          description="The application or its project is no longer readable."
+        />
+      </Page>
     );
   }
   const canDelete = canDeleteApplication(capabilities.data, project);
@@ -336,27 +361,29 @@ export function ApplicationOverviewPage() {
       ))
   ) {
     return (
-      <EmptyState
-        title="Environment App unavailable"
-        description="This App is not placed in the requested Project and Environment, or your access changed."
-        action={
-          <Link
-            to="/projects/$projectId/environments/$environmentId"
-            params={{
-              projectId: routeProjectId ?? "",
-              environmentId: routeEnvironmentId,
-            }}
-            className="button button--secondary"
-          >
-            Back to Environment
-          </Link>
-        }
-      />
+      <Page>
+        <EmptyState
+          title="Environment App unavailable"
+          description="This App is not placed in the requested Project and Environment, or your access changed."
+          action={
+            <Link
+              to="/projects/$projectId/environments/$environmentId"
+              params={{
+                projectId: routeProjectId ?? "",
+                environmentId: routeEnvironmentId,
+              }}
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to Environment
+            </Link>
+          }
+        />
+      </Page>
     );
   }
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow={project.name}
         title={application.data.name}
@@ -366,7 +393,7 @@ export function ApplicationOverviewPage() {
             <Link
               to="/projects/$projectId"
               params={{ projectId: project.id }}
-              className="button button--ghost"
+              className={buttonVariants({ variant: "ghost" })}
             >
               Back to project
             </Link>
@@ -380,7 +407,7 @@ export function ApplicationOverviewPage() {
       />
 
       <nav
-        className="page-tabs service-workspace-tabs"
+        className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-5 border-b border-b-line [&_button]:relative [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:gap-4 to-580:overflow-x-auto pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink mb-6"
         aria-label="App sections"
       >
         {(["overview", "source", "runtime"] as const).map((item) => (
@@ -400,10 +427,10 @@ export function ApplicationOverviewPage() {
       </nav>
 
       {tab === "overview" ? (
-        <div className="page-stack">
-          <section className="service-summary-grid">
-            <Card className="service-summary-card">
-              <span className="service-summary-card__icon">
+        <PageStack>
+          <section className="grid grid-cols-[repeat(auto-fit,_minmax(240px,_1fr))] gap-4">
+            <Card className="grid grid-cols-[38px_minmax(0,_1fr)] items-start gap-3 !p-5 [&>div]:grid [&>div]:gap-1 [&_small]:text-ink-soft [&_small]:text-[11px] [&_span]:text-ink-soft [&_span]:text-[11px] [&_strong]:text-sm">
+              <span className="grid w-9 h-9 place-items-center border border-line rounded-[9px] bg-surface-soft [&_svg]:w-4">
                 <Icon name="git" />
               </span>
               <div>
@@ -414,13 +441,16 @@ export function ApplicationOverviewPage() {
                     activeBuildDefinition,
                   )}
                 </strong>
-                <button className="text-link" onClick={() => setTab("source")}>
+                <button
+                  className="inline-flex items-center gap-1.5 py-0.5 px-0 border-0 rounded-sm text-mint-dark bg-transparent cursor-pointer text-meta font-medium whitespace-nowrap hover:underline hover:underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[3px] [&_svg]:w-3.5 [&_svg]:h-3.5 pointer-coarse:inline-flex pointer-coarse:min-h-8 pointer-coarse:items-center"
+                  onClick={() => setTab("source")}
+                >
                   Manage source <Icon name="arrow" />
                 </button>
               </div>
             </Card>
-            <Card className="service-summary-card">
-              <span className="service-summary-card__icon">
+            <Card className="grid grid-cols-[38px_minmax(0,_1fr)] items-start gap-3 !p-5 [&>div]:grid [&>div]:gap-1 [&_small]:text-ink-soft [&_small]:text-[11px] [&_span]:text-ink-soft [&_span]:text-[11px] [&_strong]:text-sm">
+              <span className="grid w-9 h-9 place-items-center border border-line rounded-[9px] bg-surface-soft [&_svg]:w-4">
                 <Icon name="layers" />
               </span>
               <div>
@@ -429,8 +459,8 @@ export function ApplicationOverviewPage() {
                 <span>Available in {project.name}</span>
               </div>
             </Card>
-            <Card className="service-summary-card">
-              <span className="service-summary-card__icon">
+            <Card className="grid grid-cols-[38px_minmax(0,_1fr)] items-start gap-3 !p-5 [&>div]:grid [&>div]:gap-1 [&_small]:text-ink-soft [&_small]:text-[11px] [&_span]:text-ink-soft [&_span]:text-[11px] [&_strong]:text-sm">
+              <span className="grid w-9 h-9 place-items-center border border-line rounded-[9px] bg-surface-soft [&_svg]:w-4">
                 <Icon name="deploy" />
               </span>
               <div>
@@ -441,10 +471,10 @@ export function ApplicationOverviewPage() {
             </Card>
           </section>
 
-          <Card className="service-deployments-card">
-            <div className="section-heading">
+          <Card className="!p-6">
+            <div className="[&_p]:mx-0 [&_p]:mt-[5px] [&_p]:max-w-[680px] [&_p]:text-xs [&_p]:text-ink-soft">
               <div>
-                <span className="eyebrow">Environments</span>
+                <Eyebrow>Environments</Eyebrow>
                 <h2>Environment instances</h2>
                 <p>
                   Open an App instance to manage configuration, releases, logs,
@@ -453,7 +483,7 @@ export function ApplicationOverviewPage() {
               </div>
             </div>
             {applicationDeployments.length ? (
-              <div className="deployment-card-grid">
+              <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_300px),_1fr))] gap-4 mt-5">
                 {applicationDeployments.map((deployment) => {
                   const environment = applicationEnvironments.find(
                     (item) => item.id === deployment.environmentId,
@@ -463,10 +493,10 @@ export function ApplicationOverviewPage() {
                       key={deployment.id}
                       to="/applications/$applicationId/deployments/$deploymentId"
                       params={{ applicationId, deploymentId: deployment.id }}
-                      className="deployment-card"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px] hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)] [&>div]:flex [&>div]:items-center [&>div]:justify-between [&>div]:gap-3 [&>span:last-child]:inline-flex [&>span:last-child]:items-center [&>span:last-child]:gap-1.5 [&>span:last-child]:text-ink [&>span:last-child]:font-medium [&>span:last-child]:self-end [&>span:last-child]:text-xs [&>span:last-child_svg]:w-[13px] grid min-h-[140px] gap-4 p-4 border border-line rounded-[10px] bg-surface [&>strong]:overflow-hidden [&>strong]:text-meta [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap"
                     >
                       <div>
-                        <span className="deployment-card__environment">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-medium [&_svg]:w-3.5">
                           <Icon name="layers" />
                           {environment?.name ?? "Environment"}
                         </span>
@@ -490,7 +520,7 @@ export function ApplicationOverviewPage() {
                 description="Open an Environment and use Add App to create its stopped draft."
                 action={
                   <button
-                    className="button button--secondary"
+                    className={buttonVariants({ variant: "secondary" })}
                     onClick={() => setTab("source")}
                   >
                     Configure source
@@ -499,66 +529,42 @@ export function ApplicationOverviewPage() {
               />
             )}
           </Card>
-        </div>
+        </PageStack>
       ) : null}
 
       {tab === "source" ? (
-        <Card className="application-source-card">
-          <div className="application-source-card__header">
+        <Card className="!p-0 overflow-hidden">
+          <div className="pt-6 px-6 pb-5 [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5]">
             <div>
-              <span className="eyebrow">App setup</span>
+              <Eyebrow>App setup</Eyebrow>
               <h2>App source</h2>
               <p>Choose how Kuberploy should deliver this App.</p>
             </div>
           </div>
-          <div
-            className="application-source-tabs"
-            role="tablist"
+          {/* An App's source kind is fixed at creation. These are not tabs and
+              nothing here is selectable, so they carry no tab roles — a list
+              with the current item marked is what a screen reader should hear. */}
+          <ul
+            className="flex gap-1 m-0 py-0 px-6 border-t border-t-line bg-surface-soft list-none [&_li]:inline-flex [&_li]:min-h-[50px] [&_li]:items-center [&_li]:gap-2 [&_li]:py-0 [&_li]:px-4 [&_li]:border-b [&_li]:border-b-transparent [&_li]:text-ink-soft [&_li]:text-meta [&_li]:font-medium [&_li_svg]:w-4 [&_li[aria-current='true']]:text-ink [&_li[aria-current='true']]:border-b-ink [&_li[aria-current='true']]:bg-surface [&_li[data-inactive]]:text-ink-faint [&_li[data-inactive]_svg]:opacity-55 to-760:overflow-x-auto to-760:px-3 to-760:[&_li]:flex-none to-760:[&_li]:px-3"
             aria-label="Application source"
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === "build"}
-              disabled={source !== "build"}
-            >
-              <Icon name="git" />
-              GitHub / Dockerfile
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === "image"}
-              disabled={source !== "image"}
-            >
-              <Icon name="deploy" />
-              Existing image
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === "ssh"}
-              disabled={source !== "ssh"}
-            >
-              <Icon name="terminal" />
-              Git SSH
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === "helm"}
-              disabled={source !== "helm"}
-            >
-              <Icon name="layers" />
-              Helm chart
-            </button>
-          </div>
+            {sourceKinds.map(([kind, icon, label]) => (
+              <li
+                key={kind}
+                aria-current={source === kind ? "true" : undefined}
+                data-inactive={source === kind ? undefined : "true"}
+              >
+                <Icon name={icon} />
+                {label}
+              </li>
+            ))}
+          </ul>
         </Card>
       ) : null}
 
       {tab === "source" && source === "build" ? (
-        <div className="page-stack">
-          <Card className="service-settings-card">
+        <PageStack>
+          <Card className="!p-0 overflow-hidden">
             {!buildsConfigured ? (
               <EmptyState
                 icon="git"
@@ -568,7 +574,7 @@ export function ApplicationOverviewPage() {
             ) : (
               <>
                 {!buildsReady ? (
-                  <div className="notice notice--warning">
+                  <Notice tone="warning">
                     <div>
                       <strong>Builder runtime unavailable</strong>
                       <p>
@@ -578,10 +584,10 @@ export function ApplicationOverviewPage() {
                         when node isolation is enabled.
                       </p>
                     </div>
-                  </div>
+                  </Notice>
                 ) : null}
                 {activeBuildDefinition ? (
-                  <div className="notice notice--info">
+                  <Notice tone="info">
                     <div>
                       <strong>Active immutable definition</strong>
                       <p>
@@ -612,10 +618,10 @@ export function ApplicationOverviewPage() {
                         </Button>
                       ) : null}
                     </div>
-                  </div>
+                  </Notice>
                 ) : null}
                 <BuildDefinitionForm
-                  key={application.data.id}
+                  key={`${application.data.id}:${capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"}`}
                   application={application.data}
                   project={project}
                   capabilities={effectiveCapabilities}
@@ -632,11 +638,11 @@ export function ApplicationOverviewPage() {
               </>
             )}
           </Card>
-        </div>
+        </PageStack>
       ) : null}
 
       {tab === "source" && source === "image" ? (
-        <div className="page-stack">
+        <PageStack>
           <Card>
             <EmptyState
               icon="deploy"
@@ -651,19 +657,20 @@ export function ApplicationOverviewPage() {
                       environmentId || applicationEnvironments[0]?.id,
                     applicationId: application.data.id,
                   }}
-                  className="button button--primary"
+                  className={buttonVariants({ variant: "primary" })}
                 >
                   Configure OCI App <Icon name="arrow" />
                 </Link>
               }
             />
           </Card>
-        </div>
+        </PageStack>
       ) : null}
 
       {tab === "source" && source === "ssh" ? (
-        <Card className="service-settings-card">
+        <Card className="!p-0 overflow-hidden">
           <GitSSHSourcePanel
+            key={`${application.data.id}:${capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"}`}
             application={application.data}
             project={project}
             enabled={features?.gitSSH === true}
@@ -691,7 +698,7 @@ export function ApplicationOverviewPage() {
       ) : null}
 
       {tab === "source" && source === "helm" ? (
-        <div className="page-stack">
+        <PageStack>
           <Card>
             <Field
               label="Environment"
@@ -718,6 +725,7 @@ export function ApplicationOverviewPage() {
             />
           ) : selectedEnvironment ? (
             <HelmApplicationsPanel
+              key={`${application.data.id}:${selectedEnvironment.id}`}
               application={application.data}
               environment={selectedEnvironment}
               project={project}
@@ -732,7 +740,7 @@ export function ApplicationOverviewPage() {
               description="No placeholder workload is required; selecting the target Environment is enough to configure Helm desired state."
             />
           )}
-        </div>
+        </PageStack>
       ) : null}
 
       {tab === "runtime" ? (
@@ -788,6 +796,6 @@ export function ApplicationOverviewPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

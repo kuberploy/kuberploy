@@ -48,7 +48,10 @@ describe("middleware profile management", () => {
       "Middleware profile management unavailable",
     );
     expect(unavailable).toBeVisible();
-    expect(unavailable.closest(".page")).toHaveClass("page--narrow");
+    expect(unavailable.closest('[data-slot="page"]')).toHaveAttribute(
+      "data-narrow",
+      "true",
+    );
     expect(catalog).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,6 @@
 import EditorWorker from "../monaco-worker?worker";
 import { useEffect, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
 type MonacoGlobal = typeof globalThis & {
   MonacoEnvironment?: { getWorker: () => Worker };
@@ -87,10 +88,10 @@ export function MonacoYamlEditor({
   }, [value]);
 
   return (
-    <div className="yaml-editor-wrap">
+    <div className="relative h-[520px]">
       {!ready ? (
         <textarea
-          className="yaml-editor-fallback"
+          className="w-full h-full p-4 resize-none text-ink border-0 rounded-[0] bg-surface font-mono text-xs leading-[1.7]"
           aria-label={ariaLabel}
           value={value}
           readOnly={readOnly}
@@ -99,7 +100,7 @@ export function MonacoYamlEditor({
       ) : null}
       <div
         ref={hostRef}
-        className={`yaml-editor ${ready ? "yaml-editor--ready" : ""}`}
+        className={cn("absolute inset-0 opacity-0", ready && "opacity-100")}
       />
     </div>
   );

@@ -9,10 +9,18 @@ import { formatDate, shortId } from "../lib/format";
 import {
   Button,
   Card,
+  CardHeader,
   ConfirmDialog,
+  DetailList,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormActions,
+  FormGrid,
+  Notice,
+  Page,
+  PageHeader,
   Skeleton,
   StatusPill,
 } from "../components/ui";
@@ -198,34 +206,40 @@ export function CertificateIssuersPage() {
   };
 
   if (principal.isPending || capabilities.isPending)
-    return <Skeleton lines={7} />;
+    return (
+      <Page narrow className="[&>header]:mb-0">
+        <Skeleton lines={7} />
+      </Page>
+    );
   if (!allowed)
     return (
-      <EmptyState
-        title="Certificate issuer management unavailable"
-        description="This page requires a human platform-admin session and a freshly ready protected issuer publisher and observer."
-      />
+      <Page narrow className="[&>header]:mb-0">
+        <EmptyState
+          title="Certificate issuer management unavailable"
+          description="This page requires a human platform-admin session and a freshly ready protected issuer publisher and observer."
+        />
+      </Page>
     );
 
   const dnsSolver =
     draft.solver.type === "dns01-cloudflare" ? draft.solver : undefined;
 
   return (
-    <div className="page page--narrow settings-page">
-      <div className="page-header page-heading">
-        <div>
-          <span className="eyebrow">Platform settings</span>
-          <h1>Certificate issuers</h1>
-          <p>
+    <Page narrow className="[&>header]:mb-0">
+      <PageHeader
+        eyebrow="Platform settings"
+        title="Certificate issuers"
+        description={
+          <>
             Manage immutable Let&apos;s Encrypt ClusterIssuer profiles. Tenant
             workloads can only select a ready approved issuer; they never see
             ACME email, DNS zones, or Secret references.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <Card>
-        <div className="card__header card__header--inside">
+        <CardHeader>
           <div>
             <h2>
               {editing ? "Append an immutable revision" : "Create an issuer"}
@@ -236,8 +250,8 @@ export function CertificateIssuersPage() {
               never entered here.
             </p>
           </div>
-        </div>
-        <form className="form-grid" onSubmit={submit}>
+        </CardHeader>
+        <FormGrid as="form" onSubmit={submit}>
           <Field label="Issuer name" required>
             <input
               value={draft.name}
@@ -369,7 +383,7 @@ export function CertificateIssuersPage() {
               </Field>
             </>
           ) : null}
-          <div className="form-actions">
+          <FormActions>
             <Button
               type="submit"
               disabled={save.isPending || Boolean(editing && !editingIsCurrent)}
@@ -394,15 +408,15 @@ export function CertificateIssuersPage() {
                 Cancel
               </Button>
             ) : null}
-          </div>
+          </FormActions>
           {editing && !editingIsCurrent ? (
-            <div className="notice notice--warning">
+            <Notice tone="warning">
               This issuer changed, was deactivated, or is no longer available.
               Reload the catalog before publishing a revision.
-            </div>
+            </Notice>
           ) : null}
           {saveError ? <ErrorPanel error={saveError} /> : null}
-        </form>
+        </FormGrid>
       </Card>
 
       {catalog.isPending ? <Skeleton lines={5} /> : null}
@@ -413,10 +427,10 @@ export function CertificateIssuersPage() {
           description="Create an HTTP-01 or Cloudflare DNS-01 profile. Bootstrap chart issuers remain separately protected."
         />
       ) : null}
-      <div className="card-grid">
+      <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_320px),_1fr))] items-start gap-4 to-700:grid-cols-[minmax(0,_1fr)]">
         {catalog.data?.items.map((entry) => (
           <Card key={entry.id}>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
                 <h2>{entry.name}</h2>
                 <p>
@@ -425,8 +439,8 @@ export function CertificateIssuersPage() {
                 </p>
               </div>
               <StatusPill value={entry.lifecycle} label={entry.lifecycle} />
-            </div>
-            <dl className="detail-list">
+            </CardHeader>
+            <DetailList>
               <div>
                 <dt>Solver</dt>
                 <dd>{entry.revision.solver}</dd>
@@ -466,12 +480,12 @@ export function CertificateIssuersPage() {
                 <dt>Updated</dt>
                 <dd>{formatDate(entry.observation.updatedAt)}</dd>
               </div>
-            </dl>
+            </DetailList>
             {entry.observation.reason ? (
               <p>{entry.observation.reason}</p>
             ) : null}
             {entry.lifecycle === "active" ? (
-              <div className="form-actions">
+              <FormActions>
                 <Button
                   type="button"
                   variant="secondary"
@@ -487,7 +501,7 @@ export function CertificateIssuersPage() {
                 >
                   Deactivate
                 </Button>
-              </div>
+              </FormActions>
             ) : null}
           </Card>
         ))}
@@ -508,6 +522,6 @@ export function CertificateIssuersPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

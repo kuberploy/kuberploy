@@ -14,10 +14,18 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
+  DetailList,
   ErrorPanel,
+  Eyebrow,
+  FieldLabel,
+  MutedCopy,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { shortId } from "../lib/format";
 
@@ -186,10 +194,10 @@ function VariableSetEditor({
       : "Protected pull request";
 
   return (
-    <Card className="variable-set-editor">
-      <div className="card__header">
+    <Card className="min-w-0">
+      <CardHeader bar>
         <div>
-          <span className="eyebrow">{snapshot.scope} scope</span>
+          <Eyebrow>{snapshot.scope} scope</Eyebrow>
           <h2>{scopeLabel(snapshot.scope)}</h2>
           <p>
             {snapshot.scope === "project"
@@ -198,8 +206,8 @@ function VariableSetEditor({
           </p>
         </div>
         <StatusPill value={snapshot.present ? "active" : "absent"} />
-      </div>
-      <dl className="detail-list detail-list--compact">
+      </CardHeader>
+      <DetailList className="[&>div]:py-2">
         <div>
           <dt>Exact Git path</dt>
           <dd>
@@ -214,9 +222,9 @@ function VariableSetEditor({
           <dt>Publication</dt>
           <dd>{publication} · fixed by environment policy</dd>
         </div>
-      </dl>
+      </DetailList>
       {snapshot.scope === "project" ? (
-        <div className="notice" role="note">
+        <Notice role="note">
           <div>
             <strong>Shared project scope</strong>
             <p>
@@ -224,12 +232,12 @@ function VariableSetEditor({
               this project source in the same Git authority.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
-      <label className="field">
-        <span className="field__label">{scopeLabel(snapshot.scope)} YAML</span>
+      <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+        <FieldLabel>{scopeLabel(snapshot.scope)} YAML</FieldLabel>
         <textarea
-          className="variable-set-yaml"
+          className="min-h-[320px] p-4 resize-y font-mono text-[11px] leading-[1.6]"
           aria-label={`${scopeLabel(snapshot.scope)} YAML`}
           spellCheck={false}
           value={rawYaml}
@@ -248,7 +256,7 @@ function VariableSetEditor({
         />
       </label>
       {canWrite ? (
-        <div className="editor-actions">
+        <div className="flex items-center justify-end gap-2 py-4 px-5 border-t border-t-line bg-surface-soft [&>div:first-child]:flex [&>div:first-child]:flex-1 [&>div:first-child]:flex-col [&_strong]:text-meta [&_small]:mt-0.5 [&_small]:text-ink-faint [&_small]:text-xs to-580:items-stretch to-580:flex-col to-580:[&>div:first-child]:mb-1.5">
           <Button
             variant="secondary"
             busy={previewMutation.isPending}
@@ -289,23 +297,26 @@ function VariableSetEditor({
           </Button>
         </div>
       ) : (
-        <p className="muted-copy">
+        <MutedCopy>
           Read-only: exact scoped App configuration write access and interactive
           session are required to preview or save this source.
-        </p>
+        </MutedCopy>
       )}
       {previewError ? (
         <ErrorPanel error={previewError} title="Preview failed" />
       ) : null}
       {saveError ? <ErrorPanel error={saveError} title="Save failed" /> : null}
       {exactPreview ? (
-        <div className="variable-set-preview" aria-label="Git diff preview">
-          <div className="eyebrow">Exact Git diff</div>
+        <div
+          className="overflow-hidden mt-4 border border-line-strong rounded-lg bg-[#0d1512] [&_pre]:overflow-auto [&_pre]:max-h-[340px] [&_pre]:m-0 [&_pre]:p-4 [&_pre]:text-[#d8e5df] [&_pre]:text-meta [&_pre]:leading-[1.55] [&_pre]:whitespace-pre"
+          aria-label="Git diff preview"
+        >
+          <Eyebrow>Exact Git diff</Eyebrow>
           <pre>{preview.gitDiff || "No textual changes."}</pre>
         </div>
       ) : null}
       {operation ? (
-        <div className="notice notice--success" role="status">
+        <Notice tone="success" role="status">
           <div>
             <strong>Git operation accepted</strong>
             <p>
@@ -315,11 +326,11 @@ function VariableSetEditor({
           <Link
             to="/operations/$operationId"
             params={{ operationId: operation.id }}
-            className="button button--secondary"
+            className={buttonVariants({ variant: "secondary" })}
           >
             Track operation
           </Link>
-        </div>
+        </Notice>
       ) : null}
     </Card>
   );
@@ -360,7 +371,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
     (needsProjectContext ? projects.error : null);
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Git-backed configuration"
         title={
@@ -370,7 +381,10 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
         }
         description="Manage ordinary values in the exact inherited Git sources. Application values remain highest precedence, and secret bindings stay application-scoped."
         actions={
-          <Link to="/projects" className="button button--secondary">
+          <Link
+            to="/projects"
+            className={buttonVariants({ variant: "secondary" })}
+          >
             <Icon name="chevron" /> Projects
           </Link>
         }
@@ -398,7 +412,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
           <Skeleton lines={8} />
         </Card>
       ) : environment.data && sources.data?.items.length === 2 ? (
-        <div className="variable-set-grid">
+        <div className="grid grid-cols-[repeat(auto-fit,_minmax(min(100%,_520px),_1fr))] gap-5">
           {sources.data.items.map((snapshot) => (
             <VariableSetEditor
               key={`${environment.data.id}:${snapshot.scope}:${snapshot.indexedRevision}:${snapshot.etag ?? "absent"}`}
@@ -424,7 +438,7 @@ export function VariableSetsView({ environmentId }: { environmentId: string }) {
           onRetry={() => void sources.refetch()}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }
 

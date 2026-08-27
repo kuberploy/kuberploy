@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import {
@@ -20,7 +20,15 @@ import {
   type StripPrefixConfig,
   type TraefikMiddlewareKind,
 } from "../lib/traefikMiddleware";
-import { Button, Field, PlaceholderBadge } from "./ui";
+import {
+  Button,
+  Field,
+  FieldLabel,
+  FormGrid,
+  Notice,
+  PlaceholderBadge,
+  useRowKeys,
+} from "./ui";
 import { Icon } from "./Icon";
 import { BasicAuthBindingPicker } from "./BasicAuthBindingPicker";
 
@@ -111,13 +119,20 @@ function StringListEditor({
   risk?: string;
   onChange: (values: string[]) => void;
 }) {
+  // Row identity that survives a removal; see useRowKeys.
+  const rowKeys = useRowKeys(values.length);
   return (
-    <div className="middleware-list-field">
-      <span className="field__label">{label}</span>
-      {risk ? <span className="middleware-risk-copy">{risk}</span> : null}
-      <div className="middleware-list-field__rows">
+    <div className="grid content-start gap-2 [&>[data-slot='button']]:w-max to-760:[&>[data-slot='button']]:justify-self-start">
+      <FieldLabel>{label}</FieldLabel>
+      {risk ? (
+        <span className="text-tone-warn text-xs leading-[1.45]">{risk}</span>
+      ) : null}
+      <div className="grid gap-1.5">
         {values.map((value, index) => (
-          <div className="middleware-compact-row" key={index}>
+          <div
+            className="grid items-center gap-1.5 grid-cols-[minmax(0,_1fr)_32px]"
+            key={rowKeys.keyAt(index)}
+          >
             <input
               aria-label={`${label} ${index + 1}`}
               maxLength={2048}
@@ -133,11 +148,12 @@ function StringListEditor({
             />
             <button
               type="button"
-              className="icon-button"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove ${label} ${index + 1}`}
-              onClick={() =>
-                onChange(values.filter((_, itemIndex) => itemIndex !== index))
-              }
+              onClick={() => {
+                rowKeys.removeAt(index);
+                onChange(values.filter((_, itemIndex) => itemIndex !== index));
+              }}
             >
               <Icon name="close" />
             </button>
@@ -165,17 +181,22 @@ function HeaderMapEditor({
   values?: HeaderEntry[];
   onChange: (values: HeaderEntry[]) => void;
 }) {
+  // Row identity that survives a removal; see useRowKeys.
+  const headerKeys = useRowKeys(values.length);
   return (
-    <div className="middleware-list-field middleware-list-field--headers">
-      <span className="field__label">{label}</span>
-      <span className="middleware-risk-copy">
+    <div className="grid content-start gap-2 [&>[data-slot='button']]:w-max to-760:[&>[data-slot='button']]:justify-self-start">
+      <FieldLabel>{label}</FieldLabel>
+      <span className="text-tone-warn text-xs leading-[1.45]">
         Header names and literal values are committed to Git. Credential,
         cookie, forwarding, routing, and hop-by-hop headers are blocked here;
         use a runtime secret inside the application instead.
       </span>
-      <div className="middleware-list-field__rows">
+      <div className="grid gap-1.5">
         {values.map((entry, index) => (
-          <div className="middleware-header-row" key={index}>
+          <div
+            className="grid items-center gap-1.5 grid-cols-[minmax(130px,_0.65fr)_minmax(180px,_1fr)_32px] to-760:grid-cols-[1fr]"
+            key={headerKeys.keyAt(index)}
+          >
             <input
               aria-label={`${label} ${index + 1} name`}
               maxLength={128}
@@ -208,11 +229,12 @@ function HeaderMapEditor({
             />
             <button
               type="button"
-              className="icon-button"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               aria-label={`Remove ${label} ${index + 1}`}
-              onClick={() =>
-                onChange(values.filter((_, itemIndex) => itemIndex !== index))
-              }
+              onClick={() => {
+                headerKeys.removeAt(index);
+                onChange(values.filter((_, itemIndex) => itemIndex !== index));
+              }}
             >
               <Icon name="close" />
             </button>
@@ -241,7 +263,7 @@ function HeadersEditor({
   const update = (change: Partial<HeadersConfig>) =>
     onChange({ ...value, ...change });
   return (
-    <div className="middleware-family-editor middleware-family-editor--headers">
+    <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 grid gap-4">
       <HeaderMapEditor
         label="Literal request headers"
         values={value.customRequestHeaders}
@@ -252,9 +274,9 @@ function HeadersEditor({
         values={value.customResponseHeaders}
         onChange={(customResponseHeaders) => update({ customResponseHeaders })}
       />
-      <div className="middleware-editor-group">
+      <div className="[&_.middleware-list-field]:p-0 grid gap-3 pt-4 border-t border-t-line [&_h5]:m-0 [&_h5]:text-ink [&_h5]:text-meta">
         <h5>CORS policy</h5>
-        <div className="form-grid form-grid--three">
+        <FormGrid columns={3}>
           <BooleanSetting
             label="Allow credentials"
             value={value.accessControlAllowCredentials}
@@ -281,8 +303,8 @@ function HeadersEditor({
               }
             />
           </Field>
-        </div>
-        <div className="middleware-list-grid">
+        </FormGrid>
+        <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-3 to-760:grid-cols-[1fr]">
           <StringListEditor
             label="Allowed origins"
             values={value.accessControlAllowOriginList}
@@ -327,7 +349,7 @@ function HeadersEditor({
           />
         </div>
       </div>
-      <div className="middleware-editor-group">
+      <div className="[&_.middleware-list-field]:p-0 grid gap-3 pt-4 border-t border-t-line [&_h5]:m-0 [&_h5]:text-ink [&_h5]:text-meta">
         <h5>Browser security headers</h5>
         <StringListEditor
           label="Allowed hosts"
@@ -336,7 +358,7 @@ function HeadersEditor({
           risk="Requests with any other Host header are rejected. Wildcards are not accepted in Guided mode."
           onChange={(allowedHosts) => update({ allowedHosts })}
         />
-        <div className="form-grid form-grid--three">
+        <FormGrid columns={3}>
           <Field label="HSTS seconds" hint="0–63072000; blank is unset.">
             <input
               aria-label="HSTS seconds"
@@ -386,8 +408,8 @@ function HeadersEditor({
             value={value.isDevelopment}
             onChange={(isDevelopment) => update({ isDevelopment })}
           />
-        </div>
-        <div className="form-grid">
+        </FormGrid>
+        <FormGrid>
           <Field
             label="Custom frame options"
             hint="Cannot be combined with Deny framing."
@@ -466,7 +488,7 @@ function HeadersEditor({
               }
             />
           </Field>
-        </div>
+        </FormGrid>
       </div>
     </div>
   );
@@ -489,7 +511,7 @@ function MiddlewareFamilyEditor({
     case "redirectScheme": {
       const value = middleware.config as RedirectSchemeConfig;
       return (
-        <div className="middleware-family-editor form-grid form-grid--three">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 to-580:grid-cols-[1fr]">
           <Field
             label="Redirect scheme"
             hint="Explicit redirect target scheme, usually https."
@@ -533,7 +555,7 @@ function MiddlewareFamilyEditor({
     case "redirectRegex": {
       const value = middleware.config as RedirectRegexConfig;
       return (
-        <div className="middleware-family-editor form-grid">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 to-580:grid-cols-[1fr]">
           <Field
             label="Source URL RE2"
             hint="Bounded RE2 pattern; no lookaround or backreferences."
@@ -582,7 +604,7 @@ function MiddlewareFamilyEditor({
     case "stripPrefix": {
       const value = middleware.config as StripPrefixConfig;
       return (
-        <div className="middleware-family-editor">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3">
           <StringListEditor
             label="Prefixes"
             values={value.prefixes}
@@ -623,7 +645,7 @@ function MiddlewareFamilyEditor({
     case "replacePathRegex": {
       const value = middleware.config as ReplacePathRegexConfig;
       return (
-        <div className="middleware-family-editor form-grid">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 to-580:grid-cols-[1fr]">
           <Field label="Path RE2">
             <input
               aria-label={`${middleware.name} path regex`}
@@ -656,7 +678,7 @@ function MiddlewareFamilyEditor({
       );
     case "rateLimit":
       return (
-        <div className="middleware-family-editor form-grid form-grid--three">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 to-580:grid-cols-[1fr]">
           <Field label="Average requests" hint="0–1000000 per period.">
             <input
               aria-label={`${middleware.name} average requests`}
@@ -721,7 +743,7 @@ function MiddlewareFamilyEditor({
       const value = middleware.config as IPAllowListConfig;
       const strategy = value.ipStrategy ?? {};
       return (
-        <div className="middleware-family-editor">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3">
           <StringListEditor
             label="Trusted source CIDRs"
             values={value.sourceRange}
@@ -729,7 +751,7 @@ function MiddlewareFamilyEditor({
             risk="Only these client networks can reach the route. Each entry must include an explicit prefix length."
             onChange={(sourceRange) => updateConfig({ ...value, sourceRange })}
           />
-          <div className="form-grid form-grid--three">
+          <FormGrid columns={3}>
             <Field
               label="Forwarded IP depth"
               hint="0–100. Set only with a trusted proxy topology."
@@ -769,7 +791,7 @@ function MiddlewareFamilyEditor({
                 }
               />
             </Field>
-          </div>
+          </FormGrid>
           <StringListEditor
             label="Excluded trusted proxy IPs"
             values={strategy.excludedIPs}
@@ -788,8 +810,8 @@ function MiddlewareFamilyEditor({
     case "compress": {
       const value = middleware.config as CompressConfig;
       return (
-        <div className="middleware-family-editor">
-          <div className="form-grid">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3">
+          <FormGrid>
             <Field label="Minimum response bytes" hint="0–1073741824.">
               <input
                 aria-label={`${middleware.name} minimum response bytes`}
@@ -818,8 +840,8 @@ function MiddlewareFamilyEditor({
                 }
               />
             </Field>
-          </div>
-          <div className="middleware-list-grid">
+          </FormGrid>
+          <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-3 to-760:grid-cols-[1fr]">
             <StringListEditor
               label="Included content types"
               values={value.includedContentTypes}
@@ -869,13 +891,13 @@ function MiddlewareFamilyEditor({
         </Field>
       );
       return (
-        <div className="middleware-family-editor">
-          <div className="form-grid">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3">
+          <FormGrid>
             {byteField("maxRequestBodyBytes", "Maximum request body")}
             {byteField("memRequestBodyBytes", "In-memory request body")}
             {byteField("maxResponseBodyBytes", "Maximum response body")}
             {byteField("memResponseBodyBytes", "In-memory response body")}
-          </div>
+          </FormGrid>
           <Field
             label="Retry expression"
             hint="Explicit Traefik retry expression; no shell or template expansion."
@@ -898,7 +920,7 @@ function MiddlewareFamilyEditor({
     case "retry": {
       const value = middleware.config as RetryConfig;
       return (
-        <div className="middleware-family-editor form-grid">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3 to-580:grid-cols-[1fr]">
           <Field label="Attempts" hint="1–100.">
             <input
               aria-label={`${middleware.name} retry attempts`}
@@ -933,8 +955,8 @@ function MiddlewareFamilyEditor({
     case "basicAuth": {
       const value = middleware.config as BasicAuthConfig;
       return (
-        <div className="middleware-family-editor">
-          <div className="notice notice--warning">
+        <div className="p-4 [&_.middleware-list-field]:p-0 [&>.field_+_.field]:mt-3 [&>.middleware-list-field_+_.field]:mt-3 [&>.middleware-list-field_+_.middleware-list-field]:mt-3">
+          <Notice tone="warning">
             <div>
               <strong>Write-only runtime secret</strong>
               <p>
@@ -942,7 +964,7 @@ function MiddlewareFamilyEditor({
                 and Kubernetes Secret names are never stored in AppConfig.
               </p>
             </div>
-          </div>
+          </Notice>
           <BasicAuthBindingPicker
             applicationId={applicationId}
             environmentId={environmentId}
@@ -995,7 +1017,7 @@ function ReusableProfileAttacher({
     retry: false,
   });
   return (
-    <div className="middleware-add-row">
+    <div className="grid grid-cols-[minmax(220px,_360px)_auto] items-end gap-3 [&>[data-slot='button']]:justify-self-start to-760:grid-cols-[1fr]">
       <Field
         label="Reusable middleware profile"
         hint="Only exact active revisions assigned to this application and environment are shown."
@@ -1095,6 +1117,44 @@ export function TraefikMiddlewareEditor({
   }) => void;
 }) {
   const [newKind, setNewKind] = useState<TraefikMiddlewareKind>("headers");
+  // A definition has no id until it is saved and a chain entry is a bare,
+  // user-editable name, so neither can key its row. Identity is minted per row
+  // and moved with the row; see useRowKeys.
+  const definitionKeys = useRowKeys(definitions.length);
+  const chainKeys = useRowKeys(refs.length);
+
+  // Chain rows are keyed by position because a chain entry is a bare name with
+  // no stable id, so a reorder rewrites the row the operator is standing on
+  // instead of moving it. Keyboard focus would stay on that position and end up
+  // driving whichever middleware landed there -- press Enter twice and the
+  // second press moves a different one. Put focus back on the control for the
+  // middleware that actually moved.
+  const chainControls = useRef(new Map<string, HTMLButtonElement>());
+  const pendingChainFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const wanted = pendingChainFocus.current;
+    if (!wanted) return;
+    pendingChainFocus.current = null;
+    const target = chainControls.current.get(wanted);
+    if (!target) return;
+    // At the end of the chain the button that made the move is disabled in its
+    // new position; hand focus to the opposite direction rather than to nothing.
+    if (target.disabled) {
+      const [direction, ref] = wanted.split(":");
+      const opposite = chainControls.current.get(
+        `${direction === "up" ? "down" : "up"}:${ref}`,
+      );
+      if (opposite && !opposite.disabled) opposite.focus();
+      return;
+    }
+    target.focus();
+  });
+  const registerChainControl =
+    (key: string) => (node: HTMLButtonElement | null) => {
+      if (node) chainControls.current.set(key, node);
+      else chainControls.current.delete(key);
+    };
+
   const validationError = useMemo(
     () => (issue ? null : validateGuidedTraefikMiddlewares(definitions, refs)),
     [definitions, issue, refs],
@@ -1138,9 +1198,9 @@ export function TraefikMiddlewareEditor({
   };
 
   return (
-    <section className="config-section middleware-editor">
-      <div className="config-section__heading config-section__heading--action">
-        <span className="config-section__icon">
+    <section className="py-6 px-0 border-b border-b-line last:border-b-0 [&_h3]:m-0 [&_h3]:text-ink [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:tracking-[-0.01em] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-faint [&_p]:text-xs [&>[data-slot='notice']]:mb-4">
+      <div className="grid items-center gap-3 mb-4 grid-cols-[32px_minmax(0,_1fr)_auto] to-580:grid-cols-[32px_1fr] to-580:[&_[data-slot='button']]:col-[2] to-580:[&_[data-slot='button']]:w-max">
+        <span className="grid w-8 h-8 place-items-center rounded-[9px] text-mint-dark bg-mint-soft [&_svg]:w-[15px]">
           <Icon name="route" />
         </span>
         <div>
@@ -1155,29 +1215,29 @@ export function TraefikMiddlewareEditor({
       </div>
 
       {unavailable ? (
-        <div className="notice notice--warning" role="status">
+        <Notice tone="warning" role="status">
           <div>
             <strong>Guided middleware editing is unavailable</strong>
             <p>{unavailable}</p>
           </div>
           <PlaceholderBadge>YAML preserved</PlaceholderBadge>
-        </div>
+        </Notice>
       ) : null}
       {validationError ? (
-        <div className="notice notice--error" role="alert">
+        <Notice tone="error" role="alert">
           <div>
             <strong>Middleware draft needs attention</strong>
             <p>{validationError}</p>
           </div>
-        </div>
+        </Notice>
       ) : null}
 
       <fieldset
-        className="middleware-editor__controls"
+        className="min-w-0 m-0 p-0 border-0 disabled:opacity-100 [&:disabled_input]:text-ink-soft [&:disabled_input]:cursor-not-allowed [&:disabled_input]:bg-surface-soft [&:disabled_select]:text-ink-soft [&:disabled_select]:cursor-not-allowed [&:disabled_select]:bg-surface-soft [&:disabled_textarea]:text-ink-soft [&:disabled_textarea]:cursor-not-allowed [&:disabled_textarea]:bg-surface-soft"
         disabled={controlsDisabled}
       >
         <legend className="sr-only">Traefik middleware controls</legend>
-        <div className="middleware-add-row">
+        <div className="grid grid-cols-[minmax(220px,_360px)_auto] items-end gap-3 [&>[data-slot='button']]:justify-self-start to-760:grid-cols-[1fr]">
           <Field label="Middleware family">
             <select
               aria-label="New middleware family"
@@ -1228,14 +1288,14 @@ export function TraefikMiddlewareEditor({
         ) : null}
 
         {definitions.length ? (
-          <div className="middleware-definition-list">
+          <div className="grid gap-3 mt-4">
             {definitions.map((middleware, index) => (
               <article
-                className="middleware-definition"
-                key={`${middleware.id ?? "new"}-${index}`}
+                className="overflow-hidden border border-line rounded-[10px] bg-surface-soft [&>.field]:p-4 [&>.middleware-list-field]:p-4"
+                key={definitionKeys.keyAt(index)}
               >
-                <header className="middleware-definition__header">
-                  <span className="middleware-definition__order">
+                <header className="grid grid-cols-[28px_minmax(160px,_0.8fr)_minmax(180px,_0.7fr)_auto] items-end gap-3 p-3 border-b border-b-line bg-surface to-760:grid-cols-[1fr]">
+                  <span className="grid w-[26px] h-[26px] place-items-center self-center border border-line rounded-[7px] text-ink-soft bg-surface-soft text-meta font-semibold to-760:hidden">
                     {index + 1}
                   </span>
                   <Field label="DNS-label name">
@@ -1276,10 +1336,10 @@ export function TraefikMiddlewareEditor({
                       ))}
                     </select>
                   </Field>
-                  <div className="middleware-order-actions">
+                  <div className="flex items-center gap-1.5 pb-1 to-760:justify-self-start">
                     <button
                       type="button"
-                      className="icon-button"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                       disabled={index === 0}
                       aria-label={`Move middleware ${middleware.name} up`}
                       onClick={() =>
@@ -1293,7 +1353,7 @@ export function TraefikMiddlewareEditor({
                     </button>
                     <button
                       type="button"
-                      className="icon-button"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                       disabled={index === definitions.length - 1}
                       aria-label={`Move middleware ${middleware.name} down`}
                       onClick={() =>
@@ -1307,23 +1367,32 @@ export function TraefikMiddlewareEditor({
                     </button>
                     <button
                       type="button"
-                      className="icon-button"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                       aria-label={`Remove middleware ${middleware.name}`}
-                      onClick={() =>
+                      onClick={() => {
+                        definitionKeys.removeAt(index);
+                        for (
+                          let position = refs.length - 1;
+                          position >= 0;
+                          position -= 1
+                        ) {
+                          if (refs[position] === middleware.name)
+                            chainKeys.removeAt(position);
+                        }
                         onChange({
                           definitions: definitions.filter(
                             (_, itemIndex) => itemIndex !== index,
                           ),
                           refs: refs.filter((ref) => ref !== middleware.name),
-                        })
-                      }
+                        });
+                      }}
                     >
                       <Icon name="close" />
                     </button>
                   </div>
                 </header>
                 {middleware.profileRef ? (
-                  <div className="notice notice--info">
+                  <Notice tone="info">
                     <div>
                       <strong>Reusable exact revision</strong>
                       <p>
@@ -1346,7 +1415,7 @@ export function TraefikMiddlewareEditor({
                     >
                       Detach as inline copy
                     </Button>
-                  </div>
+                  </Notice>
                 ) : (
                   <MiddlewareFamilyEditor
                     middleware={middleware}
@@ -1359,14 +1428,14 @@ export function TraefikMiddlewareEditor({
             ))}
           </div>
         ) : (
-          <div className="inline-empty">
+          <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
             No middleware definitions. Add a bounded Traefik family when the
             application needs route-specific behavior.
           </div>
         )}
 
-        <div className="middleware-route-chain">
-          <div className="middleware-route-chain__heading">
+        <div className="[&_h4]:m-0 [&_h4]:text-ink [&_h4]:text-meta grid gap-3 mt-5 p-4 border border-line rounded-[10px] bg-surface">
+          <div className="flex items-center justify-between gap-3 [&_p]:mt-1 to-760:items-start to-760:flex-col">
             <div>
               <h4>Route chain</h4>
               <p>
@@ -1393,14 +1462,17 @@ export function TraefikMiddlewareEditor({
             </Button>
           </div>
           {!routeEnabled ? (
-            <div className="inline-empty">
+            <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
               Add a public hostname before assigning a route chain. Definitions
               remain application-scoped and are not exposed by themselves.
             </div>
           ) : refs.length ? (
-            <div className="middleware-chain-list">
+            <div className="grid gap-1.5">
               {refs.map((ref, index) => (
-                <div className="middleware-chain-row" key={`${ref}-${index}`}>
+                <div
+                  className="[&>span]:grid [&>span]:w-[26px] [&>span]:h-[26px] [&>span]:place-items-center [&>span]:self-center [&>span]:border [&>span]:border-line [&>span]:rounded-[7px] [&>span]:text-ink-soft [&>span]:bg-surface-soft [&>span]:text-meta [&>span]:font-semibold grid items-center gap-1.5 grid-cols-[28px_minmax(180px,_1fr)_32px_32px_32px] to-760:grid-cols-[28px_minmax(0,_1fr)_32px_32px_32px]"
+                  key={chainKeys.keyAt(index)}
+                >
                   <span>{index + 1}</span>
                   <select
                     aria-label={`Route middleware ${index + 1}`}
@@ -1417,52 +1489,61 @@ export function TraefikMiddlewareEditor({
                     {!definitions.some(({ name }) => name === ref) ? (
                       <option value={ref}>{ref} (unresolved)</option>
                     ) : null}
-                    {definitions.map(({ name }) => (
-                      <option value={name} key={name}>
+                    {/* A name is user-editable and is not unique until the
+                        validator says so, so it cannot be the key. */}
+                    {definitions.map(({ name }, definitionIndex) => (
+                      <option value={name} key={`${name}-${definitionIndex}`}>
                         {name}
                       </option>
                     ))}
                   </select>
                   <button
                     type="button"
-                    className="icon-button"
+                    className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
+                    ref={registerChainControl(`up:${ref}`)}
                     disabled={index === 0}
                     aria-label={`Move route middleware ${ref} up`}
-                    onClick={() =>
+                    onClick={() => {
+                      pendingChainFocus.current = `up:${ref}`;
+                      chainKeys.moveRow(index, index - 1);
                       onChange({
                         definitions,
                         refs: move(refs, index, index - 1),
-                      })
-                    }
+                      });
+                    }}
                   >
                     ↑
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
+                    className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
+                    ref={registerChainControl(`down:${ref}`)}
                     disabled={index === refs.length - 1}
                     aria-label={`Move route middleware ${ref} down`}
-                    onClick={() =>
+                    onClick={() => {
+                      pendingChainFocus.current = `down:${ref}`;
+                      chainKeys.moveRow(index, index + 1);
                       onChange({
                         definitions,
                         refs: move(refs, index, index + 1),
-                      })
-                    }
+                      });
+                    }}
                   >
                     ↓
                   </button>
                   <button
                     type="button"
-                    className="icon-button"
+                    className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                     aria-label={`Remove route middleware ${ref}`}
-                    onClick={() =>
+                    onClick={() => {
+                      chainKeys.removeAt(index);
                       onChange({
                         definitions,
                         refs: refs.filter(
                           (_, itemIndex) => itemIndex !== index,
                         ),
-                      })
-                    }
+                      });
+                    }}
                   >
                     <Icon name="close" />
                   </button>
@@ -1470,7 +1551,7 @@ export function TraefikMiddlewareEditor({
               ))}
             </div>
           ) : (
-            <div className="inline-empty">
+            <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
               This public route has no middleware chain.
             </div>
           )}

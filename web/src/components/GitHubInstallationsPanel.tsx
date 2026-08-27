@@ -5,8 +5,11 @@ import { Icon } from "./Icon";
 import {
   Button,
   Card,
+  CardHeader,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
+  Notice,
   Skeleton,
   StatusPill,
 } from "./ui";
@@ -57,10 +60,10 @@ export function GitHubInstallationsPanel({
   };
 
   return (
-    <Card className="source-installations-card">
-      <div className="card__header card__header--inside">
+    <Card className="mb-5">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Source access</span>
+          <Eyebrow>Source access</Eyebrow>
           <h2>GitHub App installations</h2>
           <p>
             Link repositories through the verified two-stage GitHub flow.
@@ -72,7 +75,7 @@ export function GitHubInstallationsPanel({
             <Icon name="git" /> Install GitHub App
           </Button>
         ) : null}
-      </div>
+      </CardHeader>
 
       {!featureEnabled ? (
         <EmptyState
@@ -89,10 +92,13 @@ export function GitHubInstallationsPanel({
           onRetry={() => void installations.refetch()}
         />
       ) : installations.data?.items.length ? (
-        <div className="source-installation-list">
+        <div className="overflow-hidden border border-line rounded-[11px]">
           {installations.data.items.map((installation) => (
-            <article className="source-installation-row" key={installation.id}>
-              <span className="source-installation-row__icon">
+            <article
+              className="grid grid-cols-[38px_minmax(160px,_1fr)_minmax(120px,_0.6fr)_auto] items-center gap-4 min-h-[72px] py-3 px-4 border-b border-b-line last:border-b-0 [&>div]:grid [&>div]:min-w-0 [&>div]:gap-1 [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_small]:text-ink-faint [&_small]:text-xs to-760:grid-cols-[1fr] to-760:justify-items-start"
+              key={installation.id}
+            >
+              <span className="grid w-[34px] h-[34px] place-items-center rounded-[9px] text-mint-dark bg-surface-soft [&_svg]:w-[17px]">
                 <Icon name="git" />
               </span>
               <div>
@@ -139,7 +145,7 @@ export function GitHubInstallationsPanel({
       )}
 
       {!humanSession ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Human session required</strong>
             <p>
@@ -147,10 +153,10 @@ export function GitHubInstallationsPanel({
               resources. GitHub installation setup is intentionally hidden.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {humanSession && featureEnabled && !canSetup ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Platform administrator required</strong>
             <p>
@@ -158,7 +164,7 @@ export function GitHubInstallationsPanel({
               platform administrator can create or reverify a private link.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {setupError ? (
         <ErrorPanel

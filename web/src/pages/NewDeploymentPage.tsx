@@ -9,9 +9,17 @@ import {
   EmptyState,
   ErrorPanel,
   Field,
+  FormActions,
+  FormCard,
+  FormCardHeading,
+  FormGrid,
+  MutedCopy,
+  Notice,
+  Page,
   PageHeader,
   PlaceholderBadge,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { Icon } from "../components/Icon";
 import {
@@ -746,7 +754,7 @@ export function NewDeploymentPage() {
   const noScopes = !projects.isPending && !projects.data?.items.length;
 
   return (
-    <div className="page page--narrow">
+    <Page narrow>
       <PageHeader
         eyebrow="App"
         title="Add App from OCI image"
@@ -771,16 +779,18 @@ export function NewDeploymentPage() {
           title="A project comes first"
           description="Create a project and an environment namespace before deploying an application."
           action={
-            <Link to="/projects" className="button button--primary">
+            <Link
+              to="/projects"
+              className={buttonVariants({ variant: "primary" })}
+            >
               Create workspace
             </Link>
           }
         />
       ) : (
         <form onSubmit={form.handleSubmit(submitDeployment)}>
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>01</span>
+          <FormCard>
+            <FormCardHeading step="01">
               <div>
                 <h2>Placement</h2>
                 <p>
@@ -788,8 +798,8 @@ export function NewDeploymentPage() {
                   environment.
                 </p>
               </div>
-            </div>
-            <div className="form-grid">
+            </FormCardHeading>
+            <FormGrid>
               <Field
                 label="Project"
                 required
@@ -837,8 +847,8 @@ export function NewDeploymentPage() {
                   ))}
                 </select>
               </Field>
-            </div>
-            <div className="form-grid form-grid--three">
+            </FormGrid>
+            <FormGrid columns={3}>
               <Field
                 label="CPU request"
                 required
@@ -869,12 +879,11 @@ export function NewDeploymentPage() {
               <Field label="Memory limit" hint="Optional">
                 <input placeholder="512Mi" {...form.register("memoryLimit")} />
               </Field>
-            </div>
-          </Card>
+            </FormGrid>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>02</span>
+          <FormCard>
+            <FormCardHeading step="02">
               <div>
                 <h2>Application identity</h2>
                 <p>
@@ -882,9 +891,9 @@ export function NewDeploymentPage() {
                   sslip.io, TLS, DNS, middleware, or secret configuration.
                 </p>
               </div>
-            </div>
+            </FormCardHeading>
             <div
-              className="segmented-control"
+              className="flex w-max p-1 border border-line rounded-[9px] bg-surface-soft [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:block [&_span]:py-2 [&_span]:px-3 [&_span]:rounded-md [&_span]:text-ink-faint [&_span]:text-meta [&_span]:font-semibold [&_input:checked_+_span]:text-ink [&_input:checked_+_span]:bg-surface [&_input:checked_+_span]:shadow-[0_1px_4px_rgba(15_34_26_0.1)] pointer-coarse:[&_button]:min-h-10"
               role="radiogroup"
               aria-label="Application identity mode"
             >
@@ -937,7 +946,7 @@ export function NewDeploymentPage() {
               </label>
             </div>
             {applicationMode === "new" ? (
-              <div className="stack">
+              <div className="grid gap-4">
                 <Field
                   label="Application name"
                   required
@@ -963,11 +972,11 @@ export function NewDeploymentPage() {
                   >
                     Create application identity
                   </Button>
-                  <p className="muted-copy">
+                  <MutedCopy>
                     This creates a recoverable application record, not a
                     workload. It remains available from Projects even if you
                     leave this App setup.
-                  </p>
+                  </MutedCopy>
                 </div>
               </div>
             ) : (
@@ -994,7 +1003,7 @@ export function NewDeploymentPage() {
               </Field>
             )}
             {reservedApplicationId ? (
-              <div className="notice notice--success" role="status">
+              <Notice tone="success" role="status">
                 <div>
                   <strong>Application identity created</strong>
                   <p>
@@ -1005,11 +1014,11 @@ export function NewDeploymentPage() {
                 <Link
                   to="/applications/$applicationId"
                   params={{ applicationId: reservedApplicationId }}
-                  className="button button--secondary"
+                  className={buttonVariants({ variant: "secondary" })}
                 >
                   Source options
                 </Link>
-              </div>
+              </Notice>
             ) : null}
             {reserveApplication.error ? (
               <ErrorPanel
@@ -1018,11 +1027,13 @@ export function NewDeploymentPage() {
                 onRetry={reserveApplicationIdentity}
               />
             ) : null}
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading form-card__heading--with-action">
-              <span>03</span>
+          <FormCard>
+            <FormCardHeading
+              step="03"
+              className="grid-cols-[38px_1fr_auto] page-to-580:grid-cols-[38px_1fr]"
+            >
               <div>
                 <h2>Secret environment references</h2>
                 <p>
@@ -1051,11 +1062,14 @@ export function NewDeploymentPage() {
               >
                 <Icon name="plus" /> Add reference
               </Button>
-            </div>
+            </FormCardHeading>
             {secretVariables.fields.length ? (
-              <div className="variable-list">
+              <div className="flex flex-col gap-2">
                 {secretVariables.fields.map((field, index) => (
-                  <div className="variable-row" key={field.id}>
+                  <div
+                    className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+                    key={field.id}
+                  >
                     <Field label={index === 0 ? "Environment name" : ""}>
                       <input
                         aria-label={`Secret variable ${index + 1} name`}
@@ -1103,7 +1117,7 @@ export function NewDeploymentPage() {
                     />
                     <button
                       type="button"
-                      className="icon-button"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                       onClick={() => secretVariables.remove(index)}
                       aria-label={`Remove secret variable ${index + 1}`}
                     >
@@ -1113,13 +1127,14 @@ export function NewDeploymentPage() {
                 ))}
               </div>
             ) : (
-              <div className="inline-empty">No secret references.</div>
+              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
+                No secret references.
+              </div>
             )}
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>04</span>
+          <FormCard>
+            <FormCardHeading step="04">
               <div>
                 <h2>Artifact & runtime</h2>
                 <p>
@@ -1128,14 +1143,14 @@ export function NewDeploymentPage() {
                   environment.
                 </p>
               </div>
-            </div>
+            </FormCardHeading>
             <Field
               label="Image digest or tag"
               required
               hint="Digest: registry.example.com/team/app@sha256:… · Tag: registry.example.com/team/app:release"
               error={form.formState.errors.image?.message}
             >
-              <div className="input-with-icon">
+              <div className="relative [&_svg]:absolute [&_svg]:z-[1] [&_svg]:top-[11px] [&_svg]:left-[11px] [&_svg]:w-4 [&_svg]:text-ink-faint [&_input]:pl-10 [&_input]:font-mono">
                 <Icon name="deploy" />
                 <input
                   spellCheck={false}
@@ -1153,7 +1168,7 @@ export function NewDeploymentPage() {
               </div>
             </Field>
             {imageIsTag ? (
-              <div className="notice notice--warning">
+              <Notice tone="warning">
                 <strong>Resolve this tag before deploying the App</strong>
                 {applicationMode !== "existing" ? (
                   <p>
@@ -1194,25 +1209,25 @@ export function NewDeploymentPage() {
                 >
                   Resolve tag to digest
                 </Button>
-              </div>
+              </Notice>
             ) : null}
             {imageResolutionIsCurrent && imageResolution.data ? (
-              <div className="notice notice--success" role="status">
+              <Notice tone="success" role="status">
                 <strong>Immutable image resolved</strong>
                 <p>
                   <code>{imageResolution.data.requestedImage}</code>
                   {" → "}
                   <code>{imageResolution.data.immutableImage}</code>
                 </p>
-              </div>
+              </Notice>
             ) : null}
             {imageResolutionErrorIsCurrent ? (
-              <div className="notice notice--error" role="alert">
+              <Notice tone="error" role="alert">
                 <strong>Tag could not be resolved</strong>
                 <p>{errorMessage(imageResolution.error)}</p>
-              </div>
+              </Notice>
             ) : null}
-            <div className="form-grid">
+            <FormGrid>
               <Field
                 label="Replicas"
                 required
@@ -1254,8 +1269,8 @@ export function NewDeploymentPage() {
                   })}
                 />
               </Field>
-            </div>
-            <div className="form-grid form-grid--three">
+            </FormGrid>
+            <FormGrid columns={3}>
               <Field label="Workload type" required>
                 <select
                   {...form.register("workloadType", {
@@ -1300,7 +1315,7 @@ export function NewDeploymentPage() {
                   </select>
                 </Field>
               ) : null}
-            </div>
+            </FormGrid>
             <RuntimeProcessEditor
               value={processValues}
               onChange={(value) => {
@@ -1324,11 +1339,10 @@ export function NewDeploymentPage() {
                 );
               }}
             />
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>05</span>
+          <FormCard>
+            <FormCardHeading step="05">
               <div>
                 <h2>Scheduling for this App</h2>
                 <p>
@@ -1336,7 +1350,7 @@ export function NewDeploymentPage() {
                   or cluster-wide scheduling policy.
                 </p>
               </div>
-            </div>
+            </FormCardHeading>
             <SchedulingEditor
               value={{
                 nodeSelectorYaml: scheduling[0] ?? "{}",
@@ -1369,15 +1383,14 @@ export function NewDeploymentPage() {
                 });
               }}
             />
-            <p className="field-hint">
+            <p className="mt-1 mx-0 mb-0 text-ink-faint text-xs leading-[1.45]">
               Affinity, anti-affinity, and topology selectors are bound to this
               exact application identity.
             </p>
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>06</span>
+          <FormCard>
+            <FormCardHeading step="06">
               <div>
                 <h2>Health checks</h2>
                 <p>
@@ -1385,7 +1398,7 @@ export function NewDeploymentPage() {
                   Kubernetes defaults apply to empty timing fields.
                 </p>
               </div>
-            </div>
+            </FormCardHeading>
             <HealthProbeEditor
               value={probes}
               configuredPorts={configuredPorts}
@@ -1396,11 +1409,13 @@ export function NewDeploymentPage() {
                 })
               }
             />
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading form-card__heading--with-action">
-              <span>07</span>
+          <FormCard>
+            <FormCardHeading
+              step="07"
+              className="grid-cols-[38px_1fr_auto] page-to-580:grid-cols-[38px_1fr]"
+            >
               <div>
                 <h2>Runtime environment values</h2>
                 <p>
@@ -1416,11 +1431,14 @@ export function NewDeploymentPage() {
               >
                 <Icon name="plus" /> Add value
               </Button>
-            </div>
+            </FormCardHeading>
             {variables.fields.length ? (
-              <div className="variable-list">
+              <div className="flex flex-col gap-2">
                 {variables.fields.map((field, index) => (
-                  <div className="variable-row" key={field.id}>
+                  <div
+                    className="grid grid-cols-[1fr_1.4fr_32px] items-end gap-3 [&_.icon-button]:mb-1 to-580:grid-cols-[1fr_32px] to-580:[&_.field:first-child]:col-[1] to-580:[&_.field:nth-child(2)]:col-[1] to-580:[&_.icon-button]:row-[1] to-580:[&_.icon-button]:col-[2]"
+                    key={field.id}
+                  >
                     <Field label={index === 0 ? "Name" : ""}>
                       <input
                         aria-label={`Variable ${index + 1} name`}
@@ -1438,7 +1456,7 @@ export function NewDeploymentPage() {
                     </Field>
                     <button
                       type="button"
-                      className="icon-button"
+                      className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
                       onClick={() => variables.remove(index)}
                       aria-label={`Remove variable ${index + 1}`}
                     >
@@ -1448,16 +1466,15 @@ export function NewDeploymentPage() {
                 ))}
               </div>
             ) : (
-              <div className="inline-empty">
+              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
                 No ordinary values. Secret bindings are added later through the
                 write-only configuration flow.
               </div>
             )}
-          </Card>
+          </FormCard>
 
-          <Card className="form-card">
-            <div className="form-card__heading">
-              <span>08</span>
+          <FormCard>
+            <FormCardHeading step="08">
               <div>
                 <h2>Initial internet route</h2>
                 <p>
@@ -1466,9 +1483,9 @@ export function NewDeploymentPage() {
                   flow after creation.
                 </p>
               </div>
-            </div>
+            </FormCardHeading>
             <div
-              className="segmented-control"
+              className="inline-flex p-1 border border-line rounded-[9px] bg-surface-soft [&_label]:cursor-pointer [&_input]:absolute [&_input]:w-px [&_input]:h-px [&_input]:opacity-0 [&_span]:block [&_span]:py-2 [&_span]:px-3 [&_span]:rounded-md [&_span]:text-ink-faint [&_span]:text-meta [&_span]:font-semibold [&_input:checked_+_span]:text-ink [&_input:checked_+_span]:bg-surface [&_input:checked_+_span]:shadow-[0_1px_4px_rgba(15_34_26_0.1)] pointer-coarse:[&_button]:min-h-10"
               role="radiogroup"
               aria-label="Initial route mode"
             >
@@ -1540,19 +1557,21 @@ export function NewDeploymentPage() {
               </Field>
             ) : null}
             {!sslipEnabled ? (
-              <small>
+              <small className="mt-2 block text-ink-faint text-xs">
                 sslip.io remains unavailable until the platform observes a fresh
                 public Traefik endpoint.
               </small>
             ) : applicationMode !== "existing" ? (
-              <small>
+              <small className="mt-2 block text-ink-faint text-xs">
                 Select an existing application to preview its exact sslip.io
                 hostname before deploying the App.
               </small>
             ) : sslipHostname.error ? (
-              <small>{errorMessage(sslipHostname.error)}</small>
+              <small className="mt-2 block text-ink-faint text-xs">
+                {errorMessage(sslipHostname.error)}
+              </small>
             ) : null}
-            <div className="route-mode-row">
+            <div className="flex items-center justify-between flex-wrap gap-4 mt-4 pt-4 border-t border-t-line [&>div]:flex [&>div]:min-w-0 [&>div]:items-center [&>div]:flex-wrap [&>div]:gap-2 [&_small]:text-ink-faint [&_small]:text-xs to-580:items-start to-580:flex-col to-580:[&>div:last-child]:items-start to-580:[&>div:last-child]:flex-wrap">
               <div>
                 <StatusPill value="active" label="HTTP only · /" />
                 <small>Supported during initial App deployment</small>
@@ -1569,11 +1588,11 @@ export function NewDeploymentPage() {
                 </PlaceholderBadge>
               </div>
             </div>
-          </Card>
+          </FormCard>
 
-          <Card className="form-card form-card--muted">
-            <div className="route-teaser">
-              <span className="route-teaser__icon">
+          <FormCard className="bg-surface-soft shadow-none">
+            <div className="flex items-center gap-4 [&_div]:flex-1 [&_h3]:m-0 [&_h3]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-faint [&_p]:text-meta [&_p]:leading-[1.5] to-580:items-start to-580:flex-wrap to-580:[&_div]:min-w-[calc(100%_-_55px)]">
+              <span className="grid w-[37px] h-[37px] flex-none place-items-center rounded-[10px] text-mint-dark bg-mint-soft [&_svg]:w-[18px]">
                 <Icon name="route" />
               </span>
               <div>
@@ -1584,43 +1603,45 @@ export function NewDeploymentPage() {
                   Advanced YAML editor.
                 </p>
               </div>
-              <span className="placeholder-badge">Next step</span>
+              <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
+                Next step
+              </span>
             </div>
-          </Card>
+          </FormCard>
 
           {deploy.error ? (
-            <div className="notice notice--error" role="alert">
+            <Notice tone="error" role="alert">
               <strong>App could not be deployed</strong>
               <p>{errorMessage(deploy.error)}</p>
-            </div>
+            </Notice>
           ) : null}
           {!capabilities.isPending && !gitOpsReady ? (
-            <div className="notice notice--warning" role="status">
+            <Notice tone="warning" role="status">
               <strong>Protected GitOps is not ready</strong>
               <p>
                 App deployment remains disabled until both the exact Git
                 projection worker and protected Argo desired-state runtime are
                 healthy.
               </p>
-            </div>
+            </Notice>
           ) : null}
           {existingDeploymentScope && gitBundlePending ? (
-            <div className="notice notice--info" role="status">
+            <Notice tone="info" role="status">
               <strong>Loading current Git configuration</strong>
               <p>
                 Existing applications use the current strong Git bundle ETag for
                 a safe App update.
               </p>
-            </div>
+            </Notice>
           ) : null}
           {existingDeploymentScope && gitBundleError ? (
-            <div className="notice notice--error" role="alert">
+            <Notice tone="error" role="alert">
               <strong>Current Git configuration is unavailable</strong>
               <p>{errorMessage(gitBundleError)}</p>
-            </div>
+            </Notice>
           ) : null}
-          <div className="form-actions">
-            <Link to="/" className="button button--ghost">
+          <FormActions>
+            <Link to="/" className={buttonVariants({ variant: "ghost" })}>
               Cancel
             </Link>
             <Button
@@ -1639,9 +1660,9 @@ export function NewDeploymentPage() {
             >
               Commit & deploy <Icon name="arrow" />
             </Button>
-          </div>
+          </FormActions>
         </form>
       )}
-    </div>
+    </Page>
   );
 }

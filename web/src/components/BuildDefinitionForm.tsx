@@ -13,7 +13,7 @@ import type {
 import { hasBuildApplicationCapability } from "../lib/buildAccess";
 import { canonicalBranchRef, gitRefLabel } from "../lib/format";
 import { Icon } from "./Icon";
-import { Button, ErrorPanel, Field } from "./ui";
+import { Button, ErrorPanel, Eyebrow, Field, Notice } from "./ui";
 
 type DefinitionForm = {
   installationId: string;
@@ -221,15 +221,6 @@ export function BuildDefinitionForm({
     form.reset(defaultDefinitionValues(defaultBuildPlatform));
   resetCreateRef.current = create.reset;
 
-  useEffect(() => {
-    scopeRef.current = application.id;
-    stableAttempt.current = null;
-    resetFormRef.current();
-    setParseError(undefined);
-    setCreatedDefinitionId("");
-    resetCreateRef.current();
-  }, [application.id, defaultBuildPlatform]);
-
   const submit = (value: DefinitionForm) => {
     setParseError(undefined);
     setCreatedDefinitionId("");
@@ -287,17 +278,17 @@ export function BuildDefinitionForm({
 
   if (!humanSession) {
     return (
-      <div className="notice notice--warning">
+      <Notice tone="warning">
         <div>
           <strong>Build-definition changes require a human session</strong>
           <p>This web form is hidden for service-account authentication.</p>
         </div>
-      </div>
+      </Notice>
     );
   }
   if (!canCreate) {
     return (
-      <div className="notice">
+      <Notice>
         <div>
           <strong>Build definitions are read-only</strong>
           <p>
@@ -305,7 +296,7 @@ export function BuildDefinitionForm({
             build-definitions:write.
           </p>
         </div>
-      </div>
+      </Notice>
     );
   }
 
@@ -315,13 +306,13 @@ export function BuildDefinitionForm({
 
   return (
     <form
-      className="build-definition-form"
+      className="grid gap-4 [&_textarea]:min-h-[108px] [&_textarea]:py-3 [&_textarea]:resize-y [&_textarea]:font-mono [&_textarea]:leading-[1.5]"
       onSubmit={form.handleSubmit(submit)}
     >
-      <section className="service-settings-section">
-        <div className="service-settings-section__header">
+      <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
+        <div className="[&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] flex items-start justify-between gap-5">
           <div>
-            <span className="eyebrow">Source</span>
+            <Eyebrow>Source</Eyebrow>
             <h2>Repository</h2>
             <p>
               Choose the GitHub repository and branch or tag that should trigger
@@ -329,7 +320,7 @@ export function BuildDefinitionForm({
             </p>
           </div>
         </div>
-        <div className="build-definition-form__grid">
+        <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4 to-760:grid-cols-[1fr]">
           <Field
             label="GitHub installation"
             required
@@ -402,10 +393,10 @@ export function BuildDefinitionForm({
         </div>
       </section>
 
-      <section className="service-settings-section">
-        <div className="service-settings-section__header">
+      <section className="grid gap-5 p-7 [&_+_.service-settings-section]:border-t [&_+_.service-settings-section]:border-t-line [&>.field]:max-w-[calc(50%_-_7px)] to-760:[&>.field]:max-w-[none]">
+        <div className="[&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] flex items-start justify-between gap-5">
           <div>
-            <span className="eyebrow">Build</span>
+            <Eyebrow>Build</Eyebrow>
             <h2>Dockerfile</h2>
             <p>
               Configure the build context, output registry, and target
@@ -413,7 +404,7 @@ export function BuildDefinitionForm({
             </p>
           </div>
         </div>
-        <div className="build-definition-form__grid">
+        <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4 to-760:grid-cols-[1fr]">
           <Field
             label="Registry target"
             required
@@ -465,7 +456,7 @@ export function BuildDefinitionForm({
           </Field>
         </div>
 
-        <fieldset className="build-platforms">
+        <fieldset className="flex items-center flex-wrap gap-y-2 gap-x-5 m-0 py-3 px-4 border border-line rounded-lg bg-surface-soft [&_legend]:float-left [&_legend]:w-full [&_legend]:p-0 [&_legend]:mb-2 [&_legend]:text-ink [&_legend]:text-meta [&_legend]:font-semibold [&_label]:inline-flex [&_label]:items-center [&_label]:gap-2 [&_label]:text-meta [&>small]:basis-full [&>small]:text-ink-faint [&>small]:text-xs [&>small]:leading-[1.45]">
           <legend>Platforms</legend>
           <label>
             <input type="checkbox" {...form.register("amd64")} /> linux/amd64
@@ -490,7 +481,7 @@ export function BuildDefinitionForm({
           />
         </Field>
 
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Docker build arguments are not secret storage</strong>
             <p>
@@ -498,10 +489,10 @@ export function BuildDefinitionForm({
               place passwords, tokens, or private keys here.
             </p>
           </div>
-        </div>
+        </Notice>
       </section>
 
-      <details className="service-settings-advanced">
+      <details className="overflow-hidden border border-line rounded-panel bg-surface [&>summary]:flex [&>summary]:min-h-[68px] [&>summary]:items-center [&>summary]:justify-between [&>summary]:gap-4 [&>summary]:py-4 [&>summary]:px-5 [&>summary]:cursor-pointer [&>summary]:list-none [&>summary::-webkit-details-marker]:hidden [&>summary_span]:grid [&>summary_span]:gap-1 [&>summary_strong]:text-sm [&>summary_small]:text-ink-soft [&>summary_small]:text-xs [&>summary_svg]:w-4 [&>summary_svg]:transition-[transform] [&>summary_svg]:duration-(--motion-fast) [&>summary_svg]:ease-(--ease-standard) [&_[open]_>_summary_svg]:transform-[rotate(90deg)]">
         <summary>
           <span>
             <strong>Advanced build policy</strong>
@@ -509,8 +500,8 @@ export function BuildDefinitionForm({
           </span>
           <Icon name="chevron" />
         </summary>
-        <div className="service-settings-advanced__content">
-          <div className="build-definition-form__grid build-definition-form__grid--compact">
+        <div className="grid gap-5 p-6 border-t border-t-line">
+          <div className="grid gap-4 to-760:grid-cols-[1fr] grid-cols-[repeat(3,_minmax(0,_1fr))]">
             <Field label="Cache trust lane" required>
               <input
                 {...form.register("cacheTrustLane", {
@@ -576,7 +567,7 @@ export function BuildDefinitionForm({
             </Field>
           </div>
 
-          <div className="build-secret-profile-picker">
+          <div className="grid gap-3 py-4 px-4 border border-line rounded-[10px] bg-surface [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_fieldset]:flex [&_fieldset]:flex-wrap [&_fieldset]:gap-y-3 [&_fieldset]:gap-x-5 [&_fieldset]:m-0 [&_fieldset]:py-3 [&_fieldset]:px-3 [&_fieldset]:border [&_fieldset]:border-line [&_fieldset]:rounded-lg [&_legend]:px-1 [&_legend]:text-ink-faint [&_legend]:text-[11px] [&_legend]:font-semibold [&_label]:inline-flex [&_label]:items-center [&_label]:gap-2 [&_label]:text-xs">
             <div>
               <strong>Managed build credentials</strong>
               <p>
@@ -627,7 +618,7 @@ export function BuildDefinitionForm({
               </fieldset>
             ) : null}
           </div>
-          <div className="notice notice--warning">
+          <Notice tone="warning">
             <div>
               <strong>Never put credentials in Docker build arguments</strong>
               <p>
@@ -635,24 +626,24 @@ export function BuildDefinitionForm({
                 approved profile above for private build inputs.
               </p>
             </div>
-          </div>
+          </Notice>
         </div>
       </details>
 
       {installations.error ? <ErrorPanel error={installations.error} /> : null}
       {repositories.error ? <ErrorPanel error={repositories.error} /> : null}
       {noInstallations ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Link a GitHub installation first</strong>
             <p>
               The source catalog is empty; no arbitrary clone URL is accepted.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {noTargets ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>No accessible registry target</strong>
             <p>
@@ -660,7 +651,7 @@ export function BuildDefinitionForm({
               administrator to configure a target.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {parseError ? (
         <ErrorPanel
@@ -675,7 +666,7 @@ export function BuildDefinitionForm({
         />
       ) : null}
       {createdDefinitionId ? (
-        <div className="notice notice--success" role="status">
+        <Notice tone="success" role="status">
           <div>
             <strong>Immutable build definition created</strong>
             <p>
@@ -683,9 +674,9 @@ export function BuildDefinitionForm({
               {createdDefinitionId} remains available in history.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
-      <div className="build-definition-form__actions">
+      <div className="grid gap-4 [&_[data-slot='button']]:justify-self-start">
         <Button
           type="submit"
           busy={create.isPending}

@@ -4,8 +4,8 @@ import * as React from "react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/shadcn/button";
-import { XIcon } from "lucide-react";
+import { Icon } from "@/components/Icon";
+import { buttonVariants } from "./button";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -63,14 +63,13 @@ function DialogContent({
           <DialogPrimitive.Close
             data-slot="dialog-close"
             render={
-              <Button
-                variant="ghost"
-                className="absolute top-2 right-2"
-                size="icon-sm"
+              <button
+                type="button"
+                className="absolute top-2 right-2 grid w-8 h-8 place-items-center border-0 rounded-lg text-ink-soft bg-transparent cursor-pointer transition-[color,background] duration-(--motion-fast) ease-(--ease-standard) hover:text-ink hover:bg-surface-soft [&_svg]:w-4 [&_svg]:h-4"
               />
             }
           >
-            <XIcon />
+            <Icon name="close" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>
         )}
@@ -108,7 +107,14 @@ function DialogFooter({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close render={<Button variant="outline" />}>
+        <DialogPrimitive.Close
+          render={
+            <button
+              type="button"
+              className={buttonVariants({ variant: "secondary" })}
+            />
+          }
+        >
           Close
         </DialogPrimitive.Close>
       )}

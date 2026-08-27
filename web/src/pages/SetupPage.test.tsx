@@ -91,7 +91,7 @@ describe("Setup page", () => {
     expect(screen.getAllByText("Disabled").length).toBeGreaterThanOrEqual(2);
     const prometheus = screen
       .getByText("Prometheus")
-      .closest<HTMLElement>(".system-list__row");
+      .closest<HTMLElement>('[data-slot="system-row"]');
     expect(prometheus).not.toBeNull();
     expect(within(prometheus!).getByText("Unavailable")).toBeVisible();
     expect(within(prometheus!).queryByText("Pending")).not.toBeInTheDocument();

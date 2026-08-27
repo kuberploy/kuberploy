@@ -234,9 +234,7 @@ describe("Git SSH source key scope", () => {
     expect(
       screen.getByRole("checkbox", { name: "linux/amd64" }),
     ).not.toBeChecked();
-    expect(
-      screen.getByRole("checkbox", { name: "linux/arm64" }),
-    ).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "linux/arm64" })).toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: "linux/amd64" }));
     await user.click(screen.getByRole("button", { name: /Replace binding/ }));
     await waitFor(() => expect(createDefinition).toHaveBeenCalled());

@@ -8,20 +8,21 @@ import {
   Button,
   Card,
   ConfirmDialog,
-  EmptyState,
-  ErrorPanel,
-  PageHeader,
-  Skeleton,
-  StatusPill,
-} from "../components/ui";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "../components/shadcn/dialog";
+  EmptyState,
+  ErrorPanel,
+  FieldLabel,
+  Page,
+  PageHeader,
+  Skeleton,
+  StatusPill,
+  buttonVariants,
+} from "../components/ui";
 import {
   canCreateAppInEnvironment,
   canDeleteEnvironment,
@@ -192,22 +193,32 @@ export function EnvironmentPage() {
       />
     );
   }
-  if (loading) return <Skeleton lines={8} />;
+  if (loading)
+    return (
+      <Page>
+        <Skeleton lines={8} />
+      </Page>
+    );
   if (
     !project ||
     !environment.data ||
     environment.data.projectId !== project.id
   ) {
     return (
-      <EmptyState
-        title="Environment unavailable"
-        description="This environment no longer exists or is outside this project and your current access scope."
-        action={
-          <Link to="/projects" className="button button--secondary">
-            Back to projects
-          </Link>
-        }
-      />
+      <Page>
+        <EmptyState
+          title="Environment unavailable"
+          description="This environment no longer exists or is outside this project and your current access scope."
+          action={
+            <Link
+              to="/projects"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to projects
+            </Link>
+          }
+        />
+      </Page>
     );
   }
 
@@ -224,8 +235,11 @@ export function EnvironmentPage() {
   );
   const canDelete = canDeleteEnvironment(capabilities.data, project);
   return (
-    <div className="page">
-      <nav className="backline" aria-label="Breadcrumb">
+    <Page>
+      <nav
+        className="flex items-center gap-2 mb-5 text-ink-faint text-meta [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-mint-dark [&_a_svg]:w-3 [&_a_svg]:transform-[rotate(180deg)] pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-8 pointer-coarse:[&_a]:items-center"
+        aria-label="Breadcrumb"
+      >
         <Link to="/projects">
           <Icon name="arrow" /> Projects
         </Link>
@@ -276,7 +290,7 @@ export function EnvironmentPage() {
                   projectId: project.id,
                   environmentId: environment.data.id,
                 }}
-                className="button button--primary"
+                className={buttonVariants({ variant: "primary" })}
               >
                 <Icon name="plus" /> Add App
               </Link>
@@ -285,7 +299,7 @@ export function EnvironmentPage() {
         }
       />
 
-      <Card className="environment-list-card">
+      <Card className="!p-0 overflow-hidden">
         {environmentApps.length ? (
           <div aria-label="Apps">
             {environmentApps.map((placement) => {
@@ -303,9 +317,9 @@ export function EnvironmentPage() {
                     environmentId: environment.data.id,
                     applicationId: placement.applicationId,
                   }}
-                  className="scope-row scope-row--link"
+                  className="grid min-h-[54px] grid-cols-[32px_1fr_auto] items-center gap-3 py-2 px-1.5 border-t border-t-line [&>svg]:w-[13px] [&>svg]:text-ink-faint [&_div]:min-w-0 [&_strong]:block [&_strong]:text-meta [&_small]:block [&_small]:mt-1 [&_small]:overflow-hidden [&_small]:text-ink-faint [&_small]:text-xs [&_small]:text-ellipsis [&_small]:whitespace-nowrap [&_small]:leading-[1.5] hover:bg-surface-soft"
                 >
-                  <span className="scope-row__icon scope-row__icon--app">
+                  <span className="grid w-[30px] h-[30px] place-items-center rounded-lg text-meta font-bold [&_svg]:w-3.5 text-tone-info bg-tone-info-surface">
                     {placement.applicationName.slice(0, 1).toUpperCase()}
                   </span>
                   <div>
@@ -330,6 +344,20 @@ export function EnvironmentPage() {
             icon="apps"
             title="No Apps yet"
             description="Add an App to this environment when its source and runtime settings are ready."
+            action={
+              canAddApp ? (
+                <Link
+                  to="/projects/$projectId/environments/$environmentId/apps/new"
+                  params={{
+                    projectId: project.id,
+                    environmentId: environment.data.id,
+                  }}
+                  className={buttonVariants({ variant: "primary" })}
+                >
+                  <Icon name="plus" /> Add App
+                </Link>
+              ) : undefined
+            }
           />
         )}
       </Card>
@@ -339,7 +367,7 @@ export function EnvironmentPage() {
           if (!cloneEnvironment.isPending) setCloneOpen(open);
         }}
       >
-        <DialogContent className="max-w-none sm:max-w-lg">
+        <DialogContent className="max-w-none">
           <DialogHeader>
             <DialogTitle>Clone {environment.data.name}</DialogTitle>
             <DialogDescription>
@@ -347,8 +375,8 @@ export function EnvironmentPage() {
               copies no secret values; review each App before starting it.
             </DialogDescription>
           </DialogHeader>
-          <label className="field">
-            <span className="field__label">New environment name *</span>
+          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+            <FieldLabel>New environment name *</FieldLabel>
             <input
               autoFocus
               value={cloneName}
@@ -359,8 +387,8 @@ export function EnvironmentPage() {
               }}
             />
           </label>
-          <label className="field">
-            <span className="field__label">Protection policy</span>
+          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+            <FieldLabel>Protection policy</FieldLabel>
             <select
               value={cloneProtectionPolicy}
               onChange={(event) =>
@@ -418,6 +446,6 @@ export function EnvironmentPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

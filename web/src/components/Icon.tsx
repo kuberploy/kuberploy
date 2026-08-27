@@ -7,11 +7,13 @@ export type IconName =
   | "chevron"
   | "close"
   | "code"
+  | "copy"
   | "deploy"
   | "external"
   | "git"
   | "grid"
   | "layers"
+  | "package"
   | "logs"
   | "menu"
   | "metrics"
@@ -20,9 +22,12 @@ export type IconName =
   | "refresh"
   | "route"
   | "settings"
+  | "shield"
+  | "globe"
   | "moon"
   | "sun"
   | "terminal"
+  | "trash"
   | "user";
 
 const paths: Record<IconName, React.ReactNode> = {
@@ -53,6 +58,12 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="m8 9-3 3 3 3" />
       <path d="m16 9 3 3-3 3" />
       <path d="m14 5-4 14" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
     </>
   ),
   deploy: (
@@ -91,6 +102,13 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="m12 3-9 5 9 5 9-5-9-5Z" />
       <path d="m3 12 9 5 9-5" />
       <path d="m3 16 9 5 9-5" />
+    </>
+  ),
+  package: (
+    <>
+      <path d="M21 8.5v7l-9 5-9-5v-7l9-5z" />
+      <path d="m3 8.5 9 5 9-5" />
+      <path d="M12 13.5V21" />
     </>
   ),
   logs: (
@@ -145,6 +163,19 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M17 5H9" />
     </>
   ),
+  shield: (
+    <>
+      <path d="M12 3l7 3v5c0 4.4-2.9 8.3-7 9.5C7.9 19.3 5 15.4 5 11V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />
@@ -155,6 +186,14 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="4" />
       <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" />
+      <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
     </>
   ),
   terminal: (

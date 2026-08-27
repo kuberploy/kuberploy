@@ -14,10 +14,14 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  Page,
   PageHeader,
+  PageStack,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { canDeleteProject } from "../lib/appCreationAccess";
 import { projectOwnershipLabel } from "./ProjectsPage";
@@ -34,7 +38,9 @@ export function ProjectPage() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<ProjectTab>("environments");
   const [creatingEnvironment, setCreatingEnvironment] = useState(false);
-  const [gitEnvironmentId, setGitEnvironmentId] = useState<string | null>(null);
+  const [gitEnvironmentChoice, setGitEnvironmentId] = useState<string | null>(
+    null,
+  );
   const [deleteOpen, setDeleteOpen] = useState(false);
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const capabilities = useQuery({
@@ -178,16 +184,16 @@ export function ProjectPage() {
     deleteAttempt.current = null;
     deleteProject.reset();
   }, [projectId]);
-  useEffect(() => {
-    if (
-      gitEnvironmentId !== null &&
-      !projectEnvironments.some(
-        (environment) => environment.id === gitEnvironmentId,
-      )
-    ) {
-      setGitEnvironmentId(null);
-    }
-  }, [gitEnvironmentId, projectEnvironments]);
+  // The opened environment is a preference; whether the Git panel is actually
+  // open is derived from the environments this render can see, so an
+  // environment that disappears closes the panel in the same render.
+  const gitEnvironmentId =
+    gitEnvironmentChoice !== null &&
+    projectEnvironments.some(
+      (environment) => environment.id === gitEnvironmentChoice,
+    )
+      ? gitEnvironmentChoice
+      : null;
   const loading = [projects, environments, applications, deployments].some(
     (query) => query.isPending,
   );
@@ -200,24 +206,34 @@ export function ProjectPage() {
   if (loadError) {
     return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
   }
-  if (loading) return <Skeleton lines={9} />;
+  if (loading)
+    return (
+      <Page>
+        <Skeleton lines={9} />
+      </Page>
+    );
   if (!project) {
     return (
-      <EmptyState
-        title="Project unavailable"
-        description="This project no longer exists or is outside your current access scope."
-        action={
-          <Link to="/projects" className="button button--secondary">
-            Back to projects
-          </Link>
-        }
-      />
+      <Page>
+        <EmptyState
+          title="Project unavailable"
+          description="This project no longer exists or is outside your current access scope."
+          action={
+            <Link
+              to="/projects"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to projects
+            </Link>
+          }
+        />
+      </Page>
     );
   }
 
   return (
-    <div className="page">
-      <div className="backline">
+    <Page>
+      <div className="flex items-center gap-2 mb-5 text-ink-faint text-meta [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-mint-dark [&_a_svg]:w-3 [&_a_svg]:transform-[rotate(180deg)] pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-8 pointer-coarse:[&_a]:items-center">
         <Link to="/projects">
           <Icon name="arrow" /> Projects
         </Link>
@@ -239,7 +255,7 @@ export function ProjectPage() {
       />
 
       <nav
-        className="page-tabs project-workspace-tabs"
+        className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-5 border-b border-b-line [&_button]:relative [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:gap-4 to-580:overflow-x-auto pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink mb-6"
         aria-label="Project sections"
       >
         {(["environments", "settings"] as const).map((item) => (
@@ -257,11 +273,11 @@ export function ProjectPage() {
       </nav>
 
       {tab === "environments" ? (
-        <div className="page-stack">
+        <PageStack>
           {creatingEnvironment ? (
-            <Card className="compact-form-card">
+            <Card className="!p-5">
               <form
-                className="inline-form"
+                className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 to-580:grid-cols-[1fr]"
                 onSubmit={form.handleSubmit(submitEnvironment)}
               >
                 <Field
@@ -289,21 +305,24 @@ export function ProjectPage() {
                 </Button>
               </form>
               {createEnvironment.error ? (
-                <div className="form-error">
+                <div className="col-[1_/_-1] text-tone-bad text-meta">
                   {errorMessage(createEnvironment.error)}
                 </div>
               ) : null}
             </Card>
           ) : null}
-          <Card className="environment-list-card">
+          <Card className="!p-0 overflow-hidden">
             {projectEnvironments.length ? (
-              <div className="environment-list">
+              <div className="flex flex-col">
                 {projectEnvironments.map((environment) => (
-                  <div className="environment-list__item" key={environment.id}>
-                    <span className="scope-row__icon">
+                  <div
+                    className="grid grid-cols-[34px_minmax(0,_1fr)_minmax(0,_auto)_auto_minmax(0,_auto)_auto] items-center gap-3 py-4 px-5 border-b border-b-line last:border-b-0 to-1080:grid-cols-[34px_minmax(0,_1fr)_auto_auto] to-1080:[&>code]:col-[2_/_-1] [&>div]:grid [&>div]:gap-1 [&_strong]:text-meta [&_small]:text-ink-soft [&_small]:text-xs [&_code]:text-ink-soft [&_code]:text-xs [&>code]:min-w-0 [&>code]:overflow-hidden [&>code]:text-ellipsis [&>code]:whitespace-nowrap to-760:grid-cols-[34px_minmax(0,_1fr)_auto] to-760:[&>code]:col-[2_/_-1] to-760:[&>[data-slot='button']]:col-[span_1]"
+                    key={environment.id}
+                  >
+                    <span className="grid w-[30px] h-[30px] place-items-center rounded-lg text-ink-soft bg-surface-soft text-meta font-bold [&_svg]:w-3.5">
                       <Icon name="layers" />
                     </span>
-                    <div className="environment-list__identity">
+                    <div className="[&_a:hover_strong]:text-mint-dark [&_a:focus-visible_strong]:text-mint-dark pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-8 pointer-coarse:[&_a]:items-center">
                       <Link
                         to="/projects/$projectId/environments/$environmentId"
                         params={{ projectId, environmentId: environment.id }}
@@ -328,46 +347,50 @@ export function ProjectPage() {
                           .map((deployment) => deployment.applicationId),
                       ).size;
                       return (
-                        <span className="environment-list__apps">
+                        <span className="to-1080:col-[2] to-1080:justify-self-start text-ink-soft text-xs font-medium whitespace-nowrap to-760:col-[2]">
                           {appCount} App{appCount === 1 ? "" : "s"}
                         </span>
                       );
                     })()}
-                    {capabilities.data?.features?.variableSets === true &&
-                    hasActionAtEnvironment(
-                      "deployment-config:read",
-                      environment.id,
-                    ) ? (
+                    <div className="!flex items-center gap-3 justify-self-end">
+                      {capabilities.data?.features?.variableSets === true &&
+                      hasActionAtEnvironment(
+                        "deployment-config:read",
+                        environment.id,
+                      ) ? (
+                        <Link
+                          to="/environments/$environmentId/variables"
+                          params={{ environmentId: environment.id }}
+                          className={buttonVariants({ variant: "secondary" })}
+                        >
+                          Variables
+                        </Link>
+                      ) : null}
+                      {hasActionAtEnvironment(
+                        "deployment-config:read",
+                        environment.id,
+                      ) ? (
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            setGitEnvironmentId((current) =>
+                              current === environment.id
+                                ? null
+                                : environment.id,
+                            )
+                          }
+                        >
+                          Git
+                        </Button>
+                      ) : null}
                       <Link
-                        to="/environments/$environmentId/variables"
-                        params={{ environmentId: environment.id }}
-                        className="button button--secondary"
+                        to="/projects/$projectId/environments/$environmentId"
+                        params={{ projectId, environmentId: environment.id }}
+                        className={buttonVariants({ variant: "secondary" })}
                       >
-                        Variables
+                        Open <Icon name="arrow" />
                       </Link>
-                    ) : null}
-                    {hasActionAtEnvironment(
-                      "deployment-config:read",
-                      environment.id,
-                    ) ? (
-                      <Button
-                        variant="secondary"
-                        onClick={() =>
-                          setGitEnvironmentId((current) =>
-                            current === environment.id ? null : environment.id,
-                          )
-                        }
-                      >
-                        Git
-                      </Button>
-                    ) : null}
-                    <Link
-                      to="/projects/$projectId/environments/$environmentId"
-                      params={{ projectId, environmentId: environment.id }}
-                      className="button button--secondary"
-                    >
-                      Open <Icon name="arrow" />
-                    </Link>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -399,14 +422,14 @@ export function ProjectPage() {
                 onClose={() => setGitEnvironmentId(null)}
               />
             ))}
-        </div>
+        </PageStack>
       ) : null}
 
       {tab === "settings" ? (
-        <div className="page-stack">
+        <PageStack>
           {canManageAccess ? (
             <ProjectAccessPanel
-              key={project.id}
+              key={`access-${project.id}`}
               project={project}
               environments={projectEnvironments}
               applications={projectApplications}
@@ -416,16 +439,16 @@ export function ProjectPage() {
           ) : null}
           {showAutomation ? (
             <ProjectAutomationPanel
-              key={project.id}
+              key={`automation-${project.id}`}
               project={project}
               capabilities={effectiveCapabilities}
               onClose={() => setTab("environments")}
             />
           ) : null}
           {canDelete ? (
-            <Card className="danger-zone">
+            <Card className="border-[color-mix(in_srgb,_var(--red)_28%,_var(--line))] border-l border-l-red">
               <div>
-                <span className="eyebrow">Danger zone</span>
+                <Eyebrow>Danger zone</Eyebrow>
                 <h2>Delete project</h2>
                 <p>
                   Delete this Project after removing its Environments, Apps,
@@ -443,7 +466,7 @@ export function ProjectPage() {
               description="Your current role does not manage access grants or service accounts for this project."
             />
           ) : null}
-        </div>
+        </PageStack>
       ) : null}
       {deleteOpen ? (
         <ConfirmDialog
@@ -466,6 +489,6 @@ export function ProjectPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

@@ -8,9 +8,12 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
@@ -239,7 +242,7 @@ export function ProjectsPage() {
     deployments.error;
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Workspace"
         title="Projects"
@@ -281,24 +284,24 @@ export function ProjectsPage() {
       ) : null}
 
       {panel ? (
-        <Card className="creation-panel">
-          <div className="card__header card__header--inside">
+        <Card className="mb-5 py-5 px-6 border-mint-line">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Create</span>
+              <Eyebrow>Create</Eyebrow>
               <h2>{panel === "project" ? "New project" : "New environment"}</h2>
             </div>
             <button
-              className="icon-button"
+              className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"
               onClick={() => setPanel(null)}
               aria-label="Close form"
             >
               <Icon name="close" />
             </button>
-          </div>
+          </CardHeader>
           {panel === "project" ? (
             <form
               onSubmit={projectForm.handleSubmit(submitProject)}
-              className="inline-form inline-form--project-team"
+              className="grid items-end gap-3 to-580:grid-cols-[1fr] grid-cols-[1fr_1fr_minmax(180px,_0.85fr)_auto] to-1120:grid-cols-[1fr_1fr] to-1120:[&_[data-slot='button']]:w-max"
             >
               <Field
                 label="Name"
@@ -352,14 +355,14 @@ export function ProjectsPage() {
                 Create project
               </Button>
               {createProject.error ? (
-                <div className="form-error">
+                <div className="col-[1_/_-1] text-tone-bad text-meta">
                   {errorMessage(createProject.error)}
                 </div>
               ) : null}
             </form>
           ) : (
             <form
-              className="inline-form inline-form--wide"
+              className="grid items-end gap-3 to-580:grid-cols-[1fr] grid-cols-[1fr_1fr_1fr_1fr_auto] to-1120:grid-cols-[1fr_1fr] to-1120:[&_[data-slot='button']]:w-max"
               onSubmit={environmentForm.handleSubmit(submitEnvironment)}
             >
               <Field
@@ -395,7 +398,7 @@ export function ProjectsPage() {
                   })}
                 />
               </Field>
-              <div className="inline-empty">
+              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
                 Kuberploy assigns the namespace and Argo CD project from this
                 project and environment identity.
               </div>
@@ -409,7 +412,7 @@ export function ProjectsPage() {
                   </option>
                 </select>
               </Field>
-              <div className="inline-empty">
+              <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
                 This policy is immutable. Protected environments require a
                 freshly verified branch policy and never deploy a candidate
                 before its pull request is merged and indexed.
@@ -419,7 +422,7 @@ export function ProjectsPage() {
                 Create environment
               </Button>
               {createEnvironment.error ? (
-                <div className="form-error">
+                <div className="col-[1_/_-1] text-tone-bad text-meta">
                   {errorMessage(createEnvironment.error)}
                 </div>
               ) : null}
@@ -429,7 +432,7 @@ export function ProjectsPage() {
       ) : null}
 
       {!loading && grouped.length ? (
-        <div className="project-toolbar">
+        <div className="flex items-center gap-4 mb-5 [&_input]:max-w-[560px] [&_input]:bg-surface [&_span]:ml-[auto] [&_span]:text-ink-soft [&_span]:text-xs [&_span]:whitespace-nowrap to-760:items-stretch to-760:flex-col to-760:[&_input]:max-w-[none] to-760:[&_span]:ml-0">
           <input
             type="search"
             aria-label="Filter projects"
@@ -448,21 +451,24 @@ export function ProjectsPage() {
           <Skeleton lines={8} />
         </Card>
       ) : visibleProjects.length ? (
-        <div className="project-grid">
+        <div className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_340px),_1fr))] gap-4 to-700:grid-cols-[minmax(0,_1fr)]">
           {visibleProjects.map(
             ({
               project,
               environments: projectEnvironments,
               applications: projectApplications,
             }) => (
-              <Card key={project.id} className="project-index-card">
+              <Card
+                key={project.id}
+                className="!p-0 overflow-hidden transition-[border-color,box-shadow] duration-(--motion-fast) ease-(--ease-standard) hover:border-line-strong hover:shadow-[0_3px_12px_rgba(24_24_27_0.07)]"
+              >
                 <Link
                   to="/projects/$projectId"
                   params={{ projectId: project.id }}
-                  className="project-index-card__link"
+                  className="grid min-h-[220px] grid-rows-[auto_1fr_auto] focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[-3px]"
                 >
-                  <div className="project-index-card__heading">
-                    <span className="project-avatar">
+                  <div className="grid grid-cols-[40px_minmax(0,_1fr)_18px] items-start gap-3 p-5 [&>svg]:w-4 [&>svg]:mt-2 [&>svg]:text-ink-faint [&_h2]:m-0 [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_h2]:leading-[1.3] [&_p]:[display:-webkit-box] [&_p]:min-h-[calc(2_*_1.45em)] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:overflow-hidden [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.45] [&_p]:[-webkit-box-orient:vertical] [&_p]:line-clamp-2">
+                    <span className="grid w-11 h-11 place-items-center border border-mint-line rounded-panel text-mint-dark bg-mint-soft text-[11px] font-bold">
                       {project.name.slice(0, 2).toUpperCase()}
                     </span>
                     <div>
@@ -474,7 +480,7 @@ export function ProjectsPage() {
                     </div>
                     <Icon name="chevron" />
                   </div>
-                  <dl className="project-index-card__stats">
+                  <dl className="grid grid-cols-[repeat(3,_1fr)] my-0 mx-5 border-y border-y-line [&>div]:grid [&>div]:gap-1 [&>div]:py-4 [&>div]:px-2 [&>div]:text-center [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:m-0 [&_dd]:text-lg [&_dd]:tabular-nums [&_dd]:font-semibold [&_dd]:leading-[1.2]">
                     <div>
                       <dt>Apps</dt>
                       <dd>{projectApplications.length}</dd>
@@ -495,8 +501,8 @@ export function ProjectsPage() {
                       </dd>
                     </div>
                   </dl>
-                  <div className="project-index-card__footer">
-                    <span className="project-owner">
+                  <div className="flex items-center justify-between gap-3 py-4 px-5">
+                    <span className="inline-flex max-w-[210px] items-center gap-1.5 overflow-hidden py-0 px-2 border border-line rounded-full text-ink-soft bg-surface-soft font-semibold text-ellipsis whitespace-nowrap min-h-7 text-xs [&_svg]:w-3 [&_svg]:flex-none">
                       <Icon name="user" />
                       {projectOwnershipLabel(project, teams.data?.items ?? [])}
                     </span>
@@ -512,6 +518,11 @@ export function ProjectsPage() {
           icon="layers"
           title="No matching project"
           description="Try another project or App name."
+          action={
+            <Button variant="secondary" onClick={() => setProjectFilter("")}>
+              Clear filter
+            </Button>
+          }
         />
       ) : (
         <EmptyState
@@ -527,6 +538,6 @@ export function ProjectsPage() {
           }
         />
       )}
-    </div>
+    </Page>
   );
 }

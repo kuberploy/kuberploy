@@ -100,7 +100,7 @@ export function BuildAttemptActions({
   if (!canCancel && !canRetry && !command) return null;
 
   return (
-    <div className="build-attempt-actions">
+    <div className="grid gap-4 grid-flow-col justify-start">
       {!command ? (
         <>
           {canCancel ? (
@@ -115,7 +115,7 @@ export function BuildAttemptActions({
           ) : null}
         </>
       ) : (
-        <div className="build-command-confirmation">
+        <div className="grid gap-4 grid-flow-row w-[min(560px,_100%)] p-4 border border-line-strong rounded-[10px] bg-surface-soft [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5]">
           <div>
             <strong>
               {command.kind === "cancel"
@@ -137,7 +137,7 @@ export function BuildAttemptActions({
             />
           </Field>
           {mutation.error ? <ErrorPanel error={mutation.error} /> : null}
-          <div className="build-command-confirmation__actions">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={command.kind === "cancel" ? "danger" : "primary"}
               disabled={confirmation !== attempt.id}

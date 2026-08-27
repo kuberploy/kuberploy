@@ -11,14 +11,22 @@ import type {
   ServiceAccountToken,
 } from "../api/types";
 import { formatDate, titleCase } from "../lib/format";
+import { useCopyToClipboard } from "../lib/clipboard";
 import { Icon } from "./Icon";
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
-} from "./shadcn/dialog";
-import { Button, ErrorPanel, Field, Skeleton, StatusPill } from "./ui";
+  ErrorPanel,
+  Eyebrow,
+  Field,
+  MutedCopy,
+  Notice,
+  Skeleton,
+  StatusPill,
+} from "./ui";
 
 type AccountForm = {
   name: string;
@@ -230,10 +238,13 @@ export function ProjectAutomationPanel({
   });
 
   return (
-    <div className="automation-panel" aria-label={`${project.name} automation`}>
-      <div className="automation-panel__header">
+    <div
+      className="p-6 border-t border-t-line bg-surface-soft"
+      aria-label={`${project.name} automation`}
+    >
+      <div className="flex items-start justify-between gap-5 mb-5 [&_h3]:my-1 [&_h3]:mx-0 [&_p]:max-w-[740px] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta to-680:items-stretch to-680:flex-col">
         <div>
-          <span className="eyebrow">Automation</span>
+          <Eyebrow>Automation</Eyebrow>
           <h3>Service accounts</h3>
           <p>
             Create project-bound identities for CI and AI agents. Every request
@@ -248,7 +259,7 @@ export function ProjectAutomationPanel({
 
       {assignableRoles.length ? (
         <form
-          className="automation-create-form"
+          className="grid grid-cols-[minmax(240px,_1.4fr)_minmax(180px,_0.7fr)_auto] items-end gap-3 p-4 border border-line rounded-[10px] bg-surface to-680:grid-cols-[1fr]"
           onSubmit={form.handleSubmit(submitAccount)}
         >
           <Field
@@ -288,16 +299,16 @@ export function ProjectAutomationPanel({
             <Icon name="plus" /> Create account
           </Button>
           {createAccount.error ? (
-            <div className="form-error">
+            <div className="col-[1_/_-1] text-tone-bad text-meta">
               {errorMessage(createAccount.error)}
             </div>
           ) : null}
         </form>
       ) : (
-        <p className="muted-copy">
+        <MutedCopy>
           You can inspect these identities, but your current grant cannot create
           or manage them.
-        </p>
+        </MutedCopy>
       )}
 
       {accounts.isPending ? <Skeleton lines={4} /> : null}
@@ -309,14 +320,17 @@ export function ProjectAutomationPanel({
         />
       ) : null}
       {accounts.data?.items.length ? (
-        <div className="automation-account-list">
+        <div className="grid gap-3 mt-5">
           {accounts.data.items.map((account) => {
             const expanded = expandedAccountId === account.id;
             const manageable = canManageRole(account.role);
             return (
-              <div className="automation-account" key={account.id}>
-                <div className="automation-account__summary">
-                  <span className="automation-account__icon">
+              <div
+                className="overflow-hidden border border-line rounded-[10px] bg-surface"
+                key={account.id}
+              >
+                <div className="grid grid-cols-[38px_minmax(180px,_1fr)_auto_auto] items-center gap-3 py-3 px-4 [&>div:nth-child(2)]:grid [&>div:nth-child(2)]:gap-1 [&>div:nth-child(2)]:min-w-0 [&_small]:text-ink-soft [&_small]:text-[11px] to-680:items-stretch to-680:flex-col to-680:flex">
+                  <span className="grid w-9 h-9 place-items-center border border-tone-info-line rounded-[9px] text-mint-dark bg-tone-info-surface [&_svg]:w-[17px]">
                     <Icon name="terminal" />
                   </span>
                   <div>
@@ -329,7 +343,7 @@ export function ProjectAutomationPanel({
                   <StatusPill
                     value={account.disabledAt ? "disabled" : "active"}
                   />
-                  <div className="automation-account__actions">
+                  <div className="flex gap-2 to-680:items-stretch to-680:flex-col">
                     <Button
                       variant="secondary"
                       onClick={() =>
@@ -366,7 +380,7 @@ export function ProjectAutomationPanel({
           })}
         </div>
       ) : !accounts.isPending && !accounts.error ? (
-        <div className="automation-empty">
+        <div className="flex items-center gap-3 mt-5 p-5 border border-dashed border-[var(--line-strong)] rounded-[10px] bg-surface [&>svg]:w-6 [&>svg]:text-ink-faint [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs">
           <Icon name="terminal" />
           <div>
             <strong>No service accounts</strong>
@@ -388,14 +402,14 @@ export function ProjectAutomationPanel({
           }}
         >
           <DialogContent
-            className="confirmation-dialog max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
             role="alertdialog"
             showCloseButton={false}
           >
-            <span className="confirmation-dialog__icon">
+            <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
               <Icon name="terminal" />
             </span>
-            <span className="eyebrow">Immediate revocation</span>
+            <Eyebrow>Immediate revocation</Eyebrow>
             <DialogTitle>Disable {confirmAccount.account.name}?</DialogTitle>
             <DialogDescription>
               This disables the identity and revokes all of its tokens. Type the
@@ -408,7 +422,7 @@ export function ProjectAutomationPanel({
                 onChange={(event) => setConfirmation(event.target.value)}
               />
             </Field>
-            <div className="confirmation-dialog__actions">
+            <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
               <Button
                 variant="danger"
                 disabled={confirmation !== confirmAccount.account.name}
@@ -434,7 +448,10 @@ export function ProjectAutomationPanel({
               </Button>
             </div>
             {disableAccount.error ? (
-              <div className="form-error" role="alert">
+              <div
+                className="col-[1_/_-1] text-tone-bad text-meta"
+                role="alert"
+              >
                 {errorMessage(disableAccount.error)}
               </div>
             ) : null}
@@ -460,6 +477,7 @@ function AccountTokens({
     token: string;
     record: ServiceAccountToken;
   } | null>(null);
+  const { copy } = useCopyToClipboard();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -578,17 +596,12 @@ function AccountTokens({
   });
   const copyCredential = async () => {
     if (!issuedCredential) return;
-    try {
-      await navigator.clipboard.writeText(issuedCredential.token);
-      setCopyState("copied");
-    } catch {
-      setCopyState("failed");
-    }
+    setCopyState((await copy(issuedCredential.token)) ? "copied" : "failed");
   };
 
   return (
-    <div className="automation-tokens">
-      <div className="automation-tokens__heading">
+    <div className="grid gap-4 p-5 border-t border-t-line bg-[color-mix(in_srgb,_var(--surface-soft)_70%,_white)]">
+      <div className="flex items-start justify-between gap-5 [&_h4]:my-1 [&_h4]:mx-0 [&_p]:max-w-[740px] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta">
         <div>
           <h4>Expiring bearer tokens</h4>
           <p>
@@ -600,11 +613,11 @@ function AccountTokens({
 
       {canManage ? (
         <form
-          className="automation-token-form"
+          className="grid gap-4 p-4 border border-line rounded-[10px] bg-surface"
           onSubmit={form.handleSubmit((value) => void submitToken(value))}
         >
           <fieldset disabled={issuePending}>
-            <div className="automation-token-form__identity">
+            <div className="grid grid-cols-[1fr_1fr] gap-3 to-680:grid-cols-[1fr]">
               <Field
                 label="Token name"
                 required
@@ -653,10 +666,13 @@ function AccountTokens({
                 />
               </Field>
             </div>
-            <fieldset className="automation-scopes">
+            <fieldset className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-2 m-0 p-0 border-0 [&_legend]:col-[1_/_-1] [&_legend]:mb-2 [&_legend]:text-ink-soft [&_legend]:text-meta [&_legend]:font-semibold to-680:grid-cols-[1fr]">
               <legend>Token scopes</legend>
               {scopeFields.map((scope) => (
-                <label key={scope.value} className="automation-scope">
+                <label
+                  key={scope.value}
+                  className="grid grid-cols-[16px_minmax(0,_1fr)] items-start gap-2 p-3 border border-line rounded-lg cursor-pointer [&:has(input:checked)]:border-mint-line [&:has(input:checked)]:bg-mint-soft [&_input]:w-[15px] [&_input]:min-h-[15px] [&_input]:mt-px [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint-dark [&_span]:grid [&_span]:gap-1 [&_strong]:font-mono [&_strong]:text-meta [&_small]:text-ink-soft [&_small]:text-meta [&_small]:leading-[1.45]"
+                >
                   <input type="checkbox" {...form.register(scope.field)} />
                   <span>
                     <strong>{scope.value}</strong>
@@ -667,7 +683,7 @@ function AccountTokens({
                 </label>
               ))}
             </fieldset>
-            <div className="automation-token-form__actions">
+            <div className="[&_small]:text-ink-soft [&_small]:text-[11px] flex items-center gap-3 to-680:items-stretch to-680:flex-col">
               <Button type="submit" busy={issuePending}>
                 Issue one-time token
               </Button>
@@ -676,14 +692,16 @@ function AccountTokens({
               </small>
             </div>
             {issueError ? (
-              <div className="form-error">{errorMessage(issueError)}</div>
+              <div className="col-[1_/_-1] text-tone-bad text-meta">
+                {errorMessage(issueError)}
+              </div>
             ) : null}
           </fieldset>
         </form>
       ) : null}
 
       {replayNotice ? (
-        <div className="notice notice--warning" role="alert">
+        <Notice tone="warning" role="alert">
           <div>
             <strong>Token created, credential no longer available</strong>
             <p>
@@ -695,7 +713,7 @@ function AccountTokens({
           <Button variant="secondary" onClick={() => setReplayNotice(false)}>
             Dismiss
           </Button>
-        </div>
+        </Notice>
       ) : null}
 
       {tokens.isPending ? <Skeleton lines={3} /> : null}
@@ -707,16 +725,19 @@ function AccountTokens({
         />
       ) : null}
       {tokens.data?.items.length ? (
-        <div className="automation-token-list">
+        <div className="grid gap-2">
           {tokens.data.items.map((token) => {
             const state = tokenState(token);
             return (
-              <div className="automation-token" key={token.id}>
+              <div
+                className="[&_small]:text-ink-soft [&_small]:text-[11px] grid grid-cols-[minmax(150px,_0.8fr)_minmax(180px,_1fr)_minmax(210px,_1fr)_auto_auto] items-center gap-3 py-3 px-3 border border-line rounded-lg bg-surface [&>div:first-child]:grid [&>div:first-child]:gap-1 [&>div:first-child]:min-w-0 [&_code]:overflow-hidden [&_code]:text-ink-soft [&_code]:text-meta [&_code]:text-ellipsis [&_code]:whitespace-nowrap to-1100:grid-cols-[1fr_1fr] to-1100:[&>[data-slot='status-pill']]:justify-self-start to-1100:[&>[data-slot='button']]:justify-self-start to-680:grid-cols-[1fr]"
+                key={token.id}
+              >
                 <div>
                   <strong>{token.name}</strong>
                   <code>{token.prefix}••••••••</code>
                 </div>
-                <div className="automation-token__scopes">
+                <div className="flex flex-wrap gap-1 [&_span]:py-1 [&_span]:px-1.5 [&_span]:border [&_span]:border-line [&_span]:rounded-full [&_span]:text-ink-soft [&_span]:bg-surface-soft [&_span]:font-mono [&_span]:text-meta">
                   {token.scopes.map((scope) => (
                     <span key={scope}>{scope}</span>
                   ))}
@@ -742,7 +763,7 @@ function AccountTokens({
           })}
         </div>
       ) : !tokens.isPending && !tokens.error ? (
-        <p className="muted-copy">No token records for this account.</p>
+        <MutedCopy>No token records for this account.</MutedCopy>
       ) : null}
 
       {issuedCredential ? (
@@ -754,26 +775,26 @@ function AccountTokens({
           onOpenChange={() => undefined}
         >
           <DialogContent
-            className="confirmation-dialog token-issue-dialog max-w-none"
+            className="grid gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 w-[min(620px,100%)] max-w-none"
             role="alertdialog"
             showCloseButton={false}
           >
-            <span className="confirmation-dialog__icon">
+            <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
               <Icon name="check" />
             </span>
-            <span className="eyebrow">Shown exactly once</span>
+            <Eyebrow>Shown exactly once</Eyebrow>
             <DialogTitle>Copy this token now</DialogTitle>
             <DialogDescription>
               Kuberploy cannot display this credential again. Store it in your
               CI secret manager, then dismiss this dialog.
             </DialogDescription>
             <code
-              className="token-secret"
+              className="block overflow-auto mt-4 p-4 border border-mint-line rounded-lg text-mint-dark bg-mint-soft text-[11px] leading-[1.6] break-words select-all"
               aria-label="New service account token"
             >
               {issuedCredential.token}
             </code>
-            <dl className="confirmation-identity">
+            <dl className="my-4 mx-0 py-0 px-3 border border-line rounded-lg bg-surface-soft [&>div]:grid [&>div]:grid-cols-[78px_minmax(0,_1fr)] [&>div]:items-center [&>div]:gap-3 [&>div]:min-h-[42px] [&>div]:border-t [&>div]:border-t-line [&>div:first-child]:border-t-0 [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_code]:text-xs">
               <div>
                 <dt>Token</dt>
                 <dd>{issuedCredential.record.name}</dd>
@@ -783,7 +804,7 @@ function AccountTokens({
                 <dd>{formatDate(issuedCredential.record.expiresAt)}</dd>
               </div>
             </dl>
-            <div className="confirmation-dialog__actions">
+            <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
               <Button onClick={() => void copyCredential()}>
                 {copyState === "copied" ? "Copied" : "Copy token"}
               </Button>
@@ -798,7 +819,7 @@ function AccountTokens({
               </Button>
             </div>
             {copyState === "failed" ? (
-              <div className="form-error">
+              <div className="col-[1_/_-1] text-tone-bad text-meta">
                 Clipboard access failed. Select and copy the token manually
                 before dismissing.
               </div>
@@ -818,14 +839,14 @@ function AccountTokens({
           }}
         >
           <DialogContent
-            className="confirmation-dialog max-w-none"
+            className="grid w-[min(480px,_100%)] gap-5 p-6 border border-line rounded-overlay bg-surface shadow-overlay [&_h2]:m-0 [&_h2]:text-[19px] [&_h2]:font-semibold [&_h2]:tracking-[-0.025em] [&_h2]:leading-[1.25] to-580:p-5 max-w-none"
             role="alertdialog"
             showCloseButton={false}
           >
-            <span className="confirmation-dialog__icon">
+            <span className="grid w-10 h-10 place-items-center border border-mint-line rounded-lg text-mint-dark bg-mint-soft [&_svg]:w-[19px] [&_svg]:h-[19px]">
               <Icon name="terminal" />
             </span>
-            <span className="eyebrow">Immediate revocation</span>
+            <Eyebrow>Immediate revocation</Eyebrow>
             <DialogTitle>Revoke {confirmToken.token.name}?</DialogTitle>
             <DialogDescription>
               Requests using this credential will fail immediately. Type its
@@ -839,7 +860,7 @@ function AccountTokens({
                 onChange={(event) => setConfirmation(event.target.value)}
               />
             </Field>
-            <div className="confirmation-dialog__actions">
+            <div className="to-680:items-stretch to-680:flex-col flex justify-end flex-wrap gap-2 mt-1 to-460:[&_[data-slot='button']]:flex-auto">
               <Button
                 variant="danger"
                 disabled={confirmation !== confirmToken.token.prefix}
@@ -865,7 +886,10 @@ function AccountTokens({
               </Button>
             </div>
             {revokeToken.error ? (
-              <div className="form-error" role="alert">
+              <div
+                className="col-[1_/_-1] text-tone-bad text-meta"
+                role="alert"
+              >
                 {errorMessage(revokeToken.error)}
               </div>
             ) : null}

@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { PropsWithChildren } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -163,8 +169,8 @@ describe("application source overview", () => {
 
     expect(await screen.findByText("OCI image")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    expect(screen.getByRole("tab", { name: "Existing image" })).toHaveAttribute(
-      "aria-selected",
+    expect(screen.getByText("Existing image").closest("li")).toHaveAttribute(
+      "aria-current",
       "true",
     );
     expect(screen.getByText("Deploy an existing image")).toBeVisible();
@@ -186,20 +192,23 @@ describe("application source overview", () => {
     expect(screen.queryByRole("link", { name: /New deployment/i })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    expect(
-      screen.getByRole("tab", { name: "GitHub / Dockerfile" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: "Existing image" }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Git SSH" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Helm chart" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("tab", { name: "GitHub / Dockerfile" }),
-    ).toBeEnabled();
-    expect(screen.getByRole("tab", { name: "Existing image" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "Git SSH" })).toBeDisabled();
-    expect(screen.getByRole("tab", { name: "Helm chart" })).toBeDisabled();
+    const sourceList = screen.getByRole("list", {
+      name: "Application source",
+    });
+    const kinds = within(sourceList).getAllByRole("listitem");
+    expect(kinds.map((item) => item.textContent)).toEqual([
+      "GitHub / Dockerfile",
+      "Existing image",
+      "Git SSH",
+      "Helm chart",
+    ]);
+    // The source kind is fixed at creation, so nothing in this list may be
+    // actionable — no button, no link, no tab role promising a switch.
+    expect(within(sourceList).queryByRole("button")).toBeNull();
+    expect(within(sourceList).queryByRole("link")).toBeNull();
+    expect(within(sourceList).queryByRole("tab")).toBeNull();
+    expect(kinds[0]).toHaveAttribute("aria-current", "true");
+    expect(kinds[1]).not.toHaveAttribute("aria-current");
   });
 
   it("keeps GitHub source configuration editable while builder capacity is unavailable", async () => {

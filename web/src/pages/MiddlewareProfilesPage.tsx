@@ -15,11 +15,18 @@ import {
 import { TraefikMiddlewareEditor } from "../components/TraefikMiddlewareEditor";
 import {
   Button,
+  ButtonRow,
   Card,
+  CardHeader,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormGrid,
+  Notice,
+  Page,
+  PageHeader,
   Skeleton,
   StatusPill,
 } from "../components/ui";
@@ -334,31 +341,30 @@ export function MiddlewareProfilesPage() {
       (query) => query.isPending,
     )
   )
-    return <Skeleton lines={8} />;
+    return (
+      <Page narrow className="[&>header]:mb-0">
+        <Skeleton lines={8} />
+      </Page>
+    );
   if (!ready)
     return (
-      <div className="page page--narrow settings-page">
+      <Page narrow className="[&>header]:mb-0">
         <EmptyState
           title="Middleware profile management unavailable"
           description="This human-only library opens only when Traefik, Git projection, Argo serving readiness, and the reusable profile store are healthy."
         />
-      </div>
+      </Page>
     );
 
   return (
-    <div className="page page--narrow settings-page">
-      <div className="page-header page-heading">
-        <div>
-          <span className="eyebrow">Application policy</span>
-          <h1>Middleware profiles</h1>
-          <p>
-            Manage immutable reusable Traefik HTTP middleware revisions. The
-            catalog is filtered to exact scopes you can administer.
-          </p>
-        </div>
-      </div>
+    <Page narrow className="[&>header]:mb-0">
+      <PageHeader
+        eyebrow="Application policy"
+        title="Middleware profiles"
+        description="Manage immutable reusable Traefik HTTP middleware revisions. The catalog is filtered to exact scopes you can administer."
+      />
       <Card>
-        <div className="form-grid form-grid--three">
+        <FormGrid columns={3}>
           <Field label="Environment">
             <select
               value={environmentId}
@@ -406,12 +412,12 @@ export function MiddlewareProfilesPage() {
               <option value="project">Project</option>
             </select>
           </Field>
-        </div>
+        </FormGrid>
       </Card>
       {targetValid ? (
         <>
           <Card>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
                 <h2>
                   {editing
@@ -423,7 +429,7 @@ export function MiddlewareProfilesPage() {
                   revision.
                 </p>
               </div>
-            </div>
+            </CardHeader>
             <Field label="Profile name">
               <input
                 value={name}
@@ -445,13 +451,13 @@ export function MiddlewareProfilesPage() {
               }
             />
             {editing && !editingIsCurrent ? (
-              <div className="notice notice--warning">
+              <Notice tone="warning">
                 This profile changed or is no longer active. Reload the current
                 catalog before revising it.
-              </div>
+              </Notice>
             ) : null}
             {formError ? <ErrorPanel error={new Error(formError)} /> : null}
-            <div className="button-row">
+            <ButtonRow>
               <Button
                 disabled={
                   !canMutate ||
@@ -469,10 +475,10 @@ export function MiddlewareProfilesPage() {
                   Cancel
                 </Button>
               ) : null}
-            </div>
+            </ButtonRow>
           </Card>
           <Card>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
                 <h2>Authorized reusable library</h2>
                 <p>
@@ -480,7 +486,7 @@ export function MiddlewareProfilesPage() {
                   can manage are returned.
                 </p>
               </div>
-            </div>
+            </CardHeader>
             {clone.error ? (
               <ErrorPanel error={clone.error} title="Profile was not cloned" />
             ) : null}
@@ -492,7 +498,10 @@ export function MiddlewareProfilesPage() {
             ) : null}
             {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
             {(catalog.data?.items ?? []).map((entry) => (
-              <div className="list-row" key={entry.profile.id}>
+              <div
+                className="flex items-center justify-between flex-wrap gap-y-2 gap-x-4 min-h-[60px] py-3 px-0 border-b border-b-line last:border-b-0"
+                key={entry.profile.id}
+              >
                 <div>
                   <strong>{entry.profile.name}</strong>
                   <small>
@@ -501,7 +510,7 @@ export function MiddlewareProfilesPage() {
                   </small>
                 </div>
                 <StatusPill value={entry.profile.lifecycle} />
-                <div className="button-row">
+                <ButtonRow>
                   <Button
                     variant="secondary"
                     disabled={entry.profile.lifecycle !== "active"}
@@ -539,7 +548,7 @@ export function MiddlewareProfilesPage() {
                   >
                     Deactivate
                   </Button>
-                </div>
+                </ButtonRow>
               </div>
             ))}
           </Card>
@@ -566,6 +575,6 @@ export function MiddlewareProfilesPage() {
           }}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

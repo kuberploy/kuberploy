@@ -284,6 +284,8 @@ describe("project workspace", () => {
       "project_payments",
       "Payments",
     ]);
-    await waitFor(() => expect(navigate).toHaveBeenCalledWith({ to: "/projects" }));
+    await waitFor(() =>
+      expect(navigate).toHaveBeenCalledWith({ to: "/projects" }),
+    );
   });
 });

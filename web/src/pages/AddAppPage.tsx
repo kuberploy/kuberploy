@@ -10,8 +10,12 @@ import {
   EmptyState,
   ErrorPanel,
   Field,
+  FormCard,
+  FormCardHeading,
+  Page,
   PageHeader,
   Skeleton,
+  buttonVariants,
 } from "../components/ui";
 import {
   canCreateAppInEnvironment,
@@ -138,7 +142,11 @@ export function AddAppPage() {
     return <ErrorPanel error={loadError} onRetry={() => location.reload()} />;
   }
   if (project.isPending || environment.isPending || capabilities.isPending) {
-    return <Skeleton lines={8} />;
+    return (
+      <Page narrow>
+        <Skeleton lines={8} />
+      </Page>
+    );
   }
   if (
     !project.data ||
@@ -146,15 +154,20 @@ export function AddAppPage() {
     environment.data.projectId !== project.data.id
   ) {
     return (
-      <EmptyState
-        title="Environment unavailable"
-        description="The Project and Environment scope is no longer readable."
-        action={
-          <Link to="/projects" className="button button--secondary">
-            Back to Projects
-          </Link>
-        }
-      />
+      <Page narrow>
+        <EmptyState
+          title="Environment unavailable"
+          description="The Project and Environment scope is no longer readable."
+          action={
+            <Link
+              to="/projects"
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to Projects
+            </Link>
+          }
+        />
+      </Page>
     );
   }
   if (
@@ -165,27 +178,32 @@ export function AddAppPage() {
     )
   ) {
     return (
-      <EmptyState
-        title="Add App is unavailable"
-        description="Your current role cannot create an App identity with any available source in this Environment."
-        action={
-          <Link
-            to="/projects/$projectId/environments/$environmentId"
-            params={{ projectId, environmentId }}
-            className="button button--secondary"
-          >
-            Back to Environment
-          </Link>
-        }
-      />
+      <Page narrow>
+        <EmptyState
+          title="Add App is unavailable"
+          description="Your current role cannot create an App identity with any available source in this Environment."
+          action={
+            <Link
+              to="/projects/$projectId/environments/$environmentId"
+              params={{ projectId, environmentId }}
+              className={buttonVariants({ variant: "secondary" })}
+            >
+              Back to Environment
+            </Link>
+          }
+        />
+      </Page>
     );
   }
   const currentProject = project.data;
   const currentEnvironment = environment.data;
 
   return (
-    <div className="page page--narrow">
-      <nav className="backline" aria-label="Breadcrumb">
+    <Page narrow>
+      <nav
+        className="flex items-center gap-2 mb-5 text-ink-faint text-meta [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-mint-dark [&_a_svg]:w-3 [&_a_svg]:transform-[rotate(180deg)] pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-8 pointer-coarse:[&_a]:items-center"
+        aria-label="Breadcrumb"
+      >
         <Link to="/projects/$projectId" params={{ projectId }}>
           <Icon name="arrow" /> {project.data.name}
         </Link>
@@ -206,7 +224,7 @@ export function AddAppPage() {
       />
 
       <div
-        className="app-source-grid"
+        className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-3 mb-5 to-760:grid-cols-[1fr]"
         role="radiogroup"
         aria-label="App source"
       >
@@ -225,10 +243,10 @@ export function AddAppPage() {
               aria-checked={source === candidate.id}
               aria-disabled={!available}
               disabled={!available}
-              className="app-source-option"
+              className="grid grid-cols-[40px_minmax(0,_1fr)_18px] items-start gap-4 min-h-[132px] p-5 border border-line rounded-[10px] text-ink text-left bg-surface cursor-pointer transition-[border-color,background] duration-(--motion-fast) ease-(--ease-standard) hover:border-line-strong hover:bg-surface-soft [&_[aria-checked='true']]:border-mint [&_[aria-checked='true']]:bg-mint-soft [&_[aria-checked='true']]:shadow-[inset_0_0_0_1px_var(--mint)] [&>span:nth-child(2)]:grid [&>span:nth-child(2)]:gap-1.5 [&_strong]:text-sm [&_small]:text-ink-soft [&_small]:text-xs [&_small]:not-italic [&_small]:leading-[1.45] [&_em]:text-xs [&_em]:not-italic [&_em]:leading-[1.45] [&_em]:text-ink-faint [&>svg]:w-[18px] [&>svg]:self-center [&>svg]:text-ink-faint"
               onClick={() => setSource(candidate.id)}
             >
-              <span className="app-source-option__icon">
+              <span className="grid w-[38px] h-[38px] place-items-center border border-line rounded-lg text-mint-dark bg-surface-soft [&_svg]:w-[18px]">
                 <Icon name={candidate.icon} />
               </span>
               <span>
@@ -247,9 +265,8 @@ export function AddAppPage() {
       </div>
 
       {source ? (
-        <Card className="form-card add-app-identity-card">
-          <div className="form-card__heading">
-            <span>02</span>
+        <FormCard className="mt-1">
+          <FormCardHeading step="02">
             <div>
               <h2>Name this App</h2>
               <p>
@@ -257,8 +274,11 @@ export function AddAppPage() {
                 source setup succeeds.
               </p>
             </div>
-          </div>
-          <form className="inline-form" onSubmit={form.handleSubmit(submit)}>
+          </FormCardHeading>
+          <form
+            className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 to-580:grid-cols-[1fr]"
+            onSubmit={form.handleSubmit(submit)}
+          >
             <Field
               label="App name"
               required
@@ -280,12 +300,12 @@ export function AddAppPage() {
             </Button>
           </form>
           {createApp.error ? (
-            <div className="form-error" role="alert">
+            <div className="col-[1_/_-1] text-tone-bad text-meta" role="alert">
               {errorMessage(createApp.error)}
             </div>
           ) : null}
-        </Card>
+        </FormCard>
       ) : null}
-    </div>
+    </Page>
   );
 }

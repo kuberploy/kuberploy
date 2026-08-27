@@ -9,6 +9,8 @@ import {
   EmptyState,
   ErrorPanel,
   Field,
+  FormCardHeading,
+  FormGrid,
   StatusPill,
 } from "./ui";
 
@@ -40,14 +42,6 @@ export function RegistryPullCredentialsPanel({
     key: string;
   } | null>(null);
   scopeRef.current = scopeKey;
-  useEffect(() => {
-    setName("");
-    setTargetId("");
-    setSelection("");
-    createAttempt.current = null;
-    removeAttempt.current = null;
-    selectionAttempt.current = null;
-  }, [scopeKey]);
   const catalog = useQuery({
     queryKey: ["project-registry-pull-credentials", project.id],
     queryFn: () => api.projectRegistryPullCredentials(project.id),
@@ -230,7 +224,7 @@ export function RegistryPullCredentialsPanel({
 
   return (
     <Card>
-      <div className="form-card__heading">
+      <FormCardHeading>
         <span aria-hidden="true">↧</span>
         <div>
           <h2>Image pull credentials</h2>
@@ -239,7 +233,7 @@ export function RegistryPullCredentialsPanel({
             and cache credentials are configured separately.
           </p>
         </div>
-      </div>
+      </FormCardHeading>
       {create.error ? (
         <ErrorPanel error={create.error} title="Credential was not created" />
       ) : null}
@@ -249,7 +243,7 @@ export function RegistryPullCredentialsPanel({
       {remove.error ? (
         <ErrorPanel error={remove.error} title="Credential was not removed" />
       ) : null}
-      <div className="form-grid form-grid--two">
+      <FormGrid columns="auto">
         <Field
           label="Pull strategy"
           hint="Public sends no credential. A project credential is resolved to a locked runtime Secret by the server."
@@ -299,16 +293,16 @@ export function RegistryPullCredentialsPanel({
                   : "Project credential"
             }
           />
-          <p className="field__hint">
+          <p className="text-ink-faint text-xs leading-[1.45]">
             {selectedCredentialUnavailable
               ? "The current project credential is no longer in your authorized catalog. Choose Public or another available credential before deploying."
               : "The selected credential affects runtime image pulls only. It does not enable or disable GitHub builds, webhooks, or auto-deploy."}
           </p>
         </div>
-      </div>
+      </FormGrid>
 
       {canManage ? (
-        <div className="form-grid form-grid--three">
+        <FormGrid columns={3}>
           <Field label="Credential name">
             <input
               aria-label="Credential name"
@@ -332,7 +326,7 @@ export function RegistryPullCredentialsPanel({
               ))}
             </select>
           </Field>
-          <div className="field field--actions">
+          <div className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm self-end justify-end [&>[data-slot='button']]:self-start">
             <Button
               type="button"
               variant="secondary"
@@ -342,13 +336,16 @@ export function RegistryPullCredentialsPanel({
               Add project credential
             </Button>
           </div>
-        </div>
+        </FormGrid>
       ) : null}
 
       {(catalog.data?.items ?? []).length > 0 ? (
-        <div className="compact-list">
+        <div className="mt-[1rem] border-t border-t-line">
           {(catalog.data?.items ?? []).map((credential) => (
-            <div className="compact-list__item" key={credential.id}>
+            <div
+              className="flex items-center justify-between gap-[1rem] py-[0.875rem] px-0 border-b border-b-line [&_p]:mt-[0.25rem] [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-[0.875rem]"
+              key={credential.id}
+            >
               <div>
                 <strong>{credential.name}</strong>
                 <p>

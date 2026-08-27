@@ -11,7 +11,16 @@ import type {
 } from "../api/types";
 import { hasDeploymentRollbackCapability } from "../lib/deploymentAccess";
 import { formatDate, shortId } from "../lib/format";
-import { Button, ErrorPanel, Skeleton, StatusPill } from "./ui";
+import {
+  Button,
+  ButtonRow,
+  CardHeader,
+  ErrorPanel,
+  Eyebrow,
+  Notice,
+  Skeleton,
+  StatusPill,
+} from "./ui";
 
 export function DeploymentRollbackPanel({
   deployment,
@@ -106,19 +115,13 @@ export function DeploymentRollbackPanel({
       ]);
     },
   });
-  useEffect(() => {
-    setSelected(undefined);
-    setConfirmed(false);
-    setIdempotencyKey("");
-    rollback.reset();
-  }, [deployment.id]);
 
   if (!allowed) return null;
   return (
-    <div className="deployment-rollback-panel">
-      <div className="card__header card__header--inside">
+    <div className="grid gap-5">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Rollback as new intent</span>
+          <Eyebrow>Rollback as new intent</Eyebrow>
           <h3>Prior successful versions</h3>
           <p>
             Select one exact prior operation. Kuberploy creates a new Git intent
@@ -126,10 +129,10 @@ export function DeploymentRollbackPanel({
             it never imperatively rolls back Kubernetes or Argo.
           </p>
         </div>
-      </div>
+      </CardHeader>
       {sources.isPending ? <Skeleton lines={3} /> : null}
       {gitBundle.isPending ? (
-        <p className="muted">Loading the current protected Git bundle…</p>
+        <p className="">Loading the current protected Git bundle…</p>
       ) : null}
       {gitBundle.error ? (
         <ErrorPanel
@@ -144,11 +147,14 @@ export function DeploymentRollbackPanel({
         />
       ) : null}
       {!sources.isPending && !sources.error && !sources.data?.items.length ? (
-        <p className="muted">No prior version is currently eligible.</p>
+        <p className="">No prior version is currently eligible.</p>
       ) : null}
-      <div className="helm-history-list">
+      <div className="grid gap-4">
         {sources.data?.items.map((candidate) => (
-          <div className="helm-history-item" key={candidate.sourceOperationId}>
+          <div
+            className="flex items-center justify-between gap-3 py-4 px-0 border-b border-b-line [&_small]:block [&_small]:mt-1.5 last:border-b-0"
+            key={candidate.sourceOperationId}
+          >
             <div>
               <strong>Generation {candidate.generation}</strong>
               <small>
@@ -181,14 +187,14 @@ export function DeploymentRollbackPanel({
         ))}
       </div>
       {selected ? (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Confirm generation {selected.generation}</strong>
             <p>
               A new App rollout operation will reconstruct only server-owned
               history from <code>{selected.sourceOperationId}</code>.
             </p>
-            <label className="checkbox-row">
+            <label className="grid grid-cols-[16px_minmax(0,_1fr)] items-start gap-3 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-4 [&_input]:min-h-4 [&_input]:mt-0.5 [&_input]:mx-0 [&_input]:mb-0 [&_input]:accent-mint">
               <input
                 type="checkbox"
                 checked={confirmed}
@@ -198,7 +204,7 @@ export function DeploymentRollbackPanel({
               environment's publication policy.
             </label>
           </div>
-          <div className="button-row">
+          <ButtonRow>
             <Button
               type="button"
               variant="ghost"
@@ -230,18 +236,18 @@ export function DeploymentRollbackPanel({
             >
               Confirm rollback
             </Button>
-          </div>
-        </div>
+          </ButtonRow>
+        </Notice>
       ) : null}
       {rollback.error ? <ErrorPanel error={rollback.error} /> : null}
       {rollback.data ? (
-        <div className="notice notice--success" role="status">
+        <Notice tone="success" role="status">
           <strong>Rollback Git intent accepted</strong>
           <p>
             Operation <code>{rollback.data.id}</code> is now following the
             environment publication policy.
           </p>
-        </div>
+        </Notice>
       ) : null}
     </div>
   );

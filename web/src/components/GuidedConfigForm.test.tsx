@@ -385,9 +385,7 @@ describe("guided sslip.io hostname", () => {
       screen
         .getByText("sslip.io hostname unavailable")
         .closest('[role="status"]'),
-    ).toHaveTextContent(
-      "No fresh public ingress observation is available.",
-    );
+    ).toHaveTextContent("No fresh public ingress observation is available.");
   });
 
   it("edits separate collapsed Kubernetes resource overrides", async () => {

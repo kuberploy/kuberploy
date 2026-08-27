@@ -15,11 +15,17 @@ import { hasHelmCapability } from "../lib/helmAccess";
 import { Icon } from "./Icon";
 import {
   Button,
+  ButtonRow,
   Card,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormCard,
+  FormCardHeading,
+  FormGrid,
+  Notice,
   Skeleton,
   StatusPill,
 } from "./ui";
@@ -62,17 +68,41 @@ export function HelmApplicationsPanel({
   const queryClient = useQueryClient();
   const canRead =
     featureEnabled &&
-    hasHelmCapability(capabilities, "helm.read", application, environment, project);
+    hasHelmCapability(
+      capabilities,
+      "helm.read",
+      application,
+      environment,
+      project,
+    );
   const canDeploy =
     humanSession &&
-    hasHelmCapability(capabilities, "helm.deploy", application, environment, project);
+    hasHelmCapability(
+      capabilities,
+      "helm.deploy",
+      application,
+      environment,
+      project,
+    );
   const canRetry =
     humanSession &&
-    hasHelmCapability(capabilities, "helm.retry", application, environment, project);
+    hasHelmCapability(
+      capabilities,
+      "helm.retry",
+      application,
+      environment,
+      project,
+    );
   const canRollback =
     humanSession &&
     rollbackFeatureEnabled &&
-    hasHelmCapability(capabilities, "helm.rollback", application, environment, project);
+    hasHelmCapability(
+      capabilities,
+      "helm.rollback",
+      application,
+      environment,
+      project,
+    );
   const target = [application.id, environment.id] as const;
   const headKey = ["helm-release", ...target] as const;
   const historyKey = ["helm-release-history", ...target] as const;
@@ -108,14 +138,6 @@ export function HelmApplicationsPanel({
     setValuesYaml(revision.valuesYaml || "{}\n");
     setLoadedRevision(revision.id);
   }, [head.data, loadedRevision]);
-
-  useEffect(() => {
-    setSource(emptySource);
-    setValuesYaml("{}\n");
-    setLoadedRevision("");
-    setConfirmAction(null);
-    stableAttempt.current = null;
-  }, [application.id, environment.id]);
 
   const refresh = async () => {
     await Promise.all([
@@ -168,7 +190,7 @@ export function HelmApplicationsPanel({
   }
   if (head.isPending || history.isPending) return <Skeleton lines={8} />;
   const noRelease = head.error instanceof ApiError && head.error.status === 404;
-  const loadError = noRelease ? history.error : head.error ?? history.error;
+  const loadError = noRelease ? history.error : (head.error ?? history.error);
   if (loadError) return <ErrorPanel error={loadError} onRetry={refresh} />;
 
   const valuesBytes = new TextEncoder().encode(valuesYaml).byteLength;
@@ -179,7 +201,10 @@ export function HelmApplicationsPanel({
       ? Boolean(source.path?.trim())
       : Boolean(source.chart?.trim()));
   const canSave =
-    canDeploy && sourceValid && valuesBytes > 0 && valuesBytes <= maximumValuesBytes;
+    canDeploy &&
+    sourceValid &&
+    valuesBytes > 0 &&
+    valuesBytes <= maximumValuesBytes;
   const save = () => {
     const input: HelmValuesInput = { source, valuesYaml };
     const signature = JSON.stringify(input);
@@ -192,10 +217,9 @@ export function HelmApplicationsPanel({
   };
 
   return (
-    <div className="stack stack--lg">
-      <Card className="form-card">
-        <div className="form-card__heading">
-          <span>01</span>
+    <div className="grid gap-4 gap-6">
+      <FormCard>
+        <FormCardHeading step="01">
           <div>
             <h2>Helm source</h2>
             <p>
@@ -203,8 +227,8 @@ export function HelmApplicationsPanel({
               and synchronizes the selected chart.
             </p>
           </div>
-        </div>
-        <div className="form-grid form-grid--two">
+        </FormCardHeading>
+        <FormGrid columns="auto">
           <Field label="Source type" required>
             <select
               aria-label="Helm source type"
@@ -261,7 +285,10 @@ export function HelmApplicationsPanel({
               />
             </Field>
           )}
-          <Field label={source.kind === "git" ? "Git revision" : "Chart version"} required>
+          <Field
+            label={source.kind === "git" ? "Git revision" : "Chart version"}
+            required
+          >
             <input
               value={source.targetRevision}
               placeholder={source.kind === "git" ? "main" : "1.2.3"}
@@ -270,83 +297,114 @@ export function HelmApplicationsPanel({
               }
             />
           </Field>
-        </div>
-      </Card>
+        </FormGrid>
+      </FormCard>
 
-      <Card className="form-card">
-        <div className="form-card__heading">
-          <span>02</span>
+      <FormCard>
+        <FormCardHeading step="02">
           <div>
             <h2>Values YAML</h2>
             <p>These values are forwarded to Argo CD as the chart override.</p>
           </div>
-        </div>
+        </FormCardHeading>
         <Field
           label="values.yaml"
           hint={`${valuesBytes.toLocaleString()} / ${maximumValuesBytes.toLocaleString()} bytes`}
-          error={valuesBytes > maximumValuesBytes ? "Values exceed 262144 bytes." : undefined}
+          error={
+            valuesBytes > maximumValuesBytes
+              ? "Values exceed 262144 bytes."
+              : undefined
+          }
         >
           <textarea
             aria-label="Helm values YAML"
-            className="code-editor"
+            className="min-h-[220px] p-3 font-mono text-xs leading-[1.6] resize-y"
             rows={16}
             spellCheck={false}
             value={valuesYaml}
             onChange={(event) => setValuesYaml(event.target.value)}
           />
         </Field>
-        <div className="button-row">
+        <ButtonRow>
           <Button onClick={save} busy={deploy.isPending} disabled={!canSave}>
-            <Icon name="deploy" /> {head.data?.desiredEnabled ? "Update App" : "Deploy App"}
+            <Icon name="deploy" />{" "}
+            {head.data?.desiredEnabled ? "Update App" : "Deploy App"}
           </Button>
           {head.data?.desiredEnabled && canDeploy ? (
-            <Button variant="danger" onClick={() => setConfirmAction({ kind: "disable" })}>
+            <Button
+              variant="danger"
+              onClick={() => setConfirmAction({ kind: "disable" })}
+            >
               Disable App
             </Button>
           ) : null}
           {head.data?.state === "failed" && canRetry ? (
-            <Button variant="secondary" onClick={() => setConfirmAction({ kind: "retry" })}>
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmAction({ kind: "retry" })}
+            >
               Retry apply
             </Button>
           ) : null}
-        </div>
-        {deploy.error || action.error ? <ErrorPanel error={deploy.error ?? action.error} /> : null}
-      </Card>
+        </ButtonRow>
+        {deploy.error || action.error ? (
+          <ErrorPanel error={deploy.error ?? action.error} />
+        ) : null}
+      </FormCard>
 
       {head.data ? (
         <Card>
-          <div className="section-heading">
+          <div className="">
             <div>
-              <span className="eyebrow">Argo desired state</span>
+              <Eyebrow>Argo desired state</Eyebrow>
               <h2>Current revision</h2>
             </div>
             <StatusPill value={head.data.state} />
           </div>
           <p>
-            Generation {head.data.generation} · {sourceLabel(head.data.source)} · values{" "}
-            <code>{shortId(head.data.valuesDigest)}</code> · updated {formatDate(head.data.updatedAt)}
+            Generation {head.data.generation} · {sourceLabel(head.data.source)}{" "}
+            · values <code>{shortId(head.data.valuesDigest)}</code> · updated{" "}
+            {formatDate(head.data.updatedAt)}
           </p>
           {head.data.failureCode ? (
-            <div className="notice notice--error" role="alert">
-              <div><strong>Argo apply failed</strong><p>{head.data.failureCode}</p></div>
-            </div>
+            <Notice tone="error" role="alert">
+              <div>
+                <strong>Argo apply failed</strong>
+                <p>{head.data.failureCode}</p>
+              </div>
+            </Notice>
           ) : null}
         </Card>
       ) : null}
 
       {(history.data?.items.length ?? 0) > 0 ? (
         <Card>
-          <div className="section-heading"><div><span className="eyebrow">History</span><h2>Helm revisions</h2></div></div>
-          <div className="data-list">
+          <div className="">
+            <div>
+              <Eyebrow>History</Eyebrow>
+              <h2>Helm revisions</h2>
+            </div>
+          </div>
+          <div>
             {history.data?.items.map((revision) => (
-              <div className="data-list__row" key={revision.id}>
+              <div key={revision.id}>
                 <div>
                   <strong>Generation {revision.generation}</strong>
-                  <small>{sourceLabel(revision.source)} · {formatDate(revision.createdAt)}</small>
+                  <small>
+                    {sourceLabel(revision.source)} ·{" "}
+                    {formatDate(revision.createdAt)}
+                  </small>
                 </div>
                 <StatusPill value={revision.state} />
-                {canRollback && revision.desiredEnabled && revision.id !== head.data?.id ? (
-                  <Button variant="secondary" onClick={() => setConfirmAction({ kind: "rollback", revision })}>
+                {canRollback &&
+                revision.desiredEnabled &&
+                revision.id !== head.data?.id ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      setConfirmAction({ kind: "rollback", revision })
+                    }
+                  >
                     Roll back
                   </Button>
                 ) : null}
@@ -358,9 +416,21 @@ export function HelmApplicationsPanel({
 
       {confirmAction ? (
         <ConfirmDialog
-          title={confirmAction.kind === "disable" ? "Disable this Helm App?" : confirmAction.kind === "retry" ? "Retry this Helm App?" : `Roll back to generation ${confirmAction.revision.generation}?`}
+          title={
+            confirmAction.kind === "disable"
+              ? "Disable this Helm App?"
+              : confirmAction.kind === "retry"
+                ? "Retry this Helm App?"
+                : `Roll back to generation ${confirmAction.revision.generation}?`
+          }
           description="Kuberploy will create a new immutable revision and reconcile the owned Argo CD Application."
-          confirmLabel={confirmAction.kind === "disable" ? "Disable App" : confirmAction.kind === "retry" ? "Retry" : "Roll back"}
+          confirmLabel={
+            confirmAction.kind === "disable"
+              ? "Disable App"
+              : confirmAction.kind === "retry"
+                ? "Retry"
+                : "Roll back"
+          }
           busy={action.isPending}
           onCancel={() => setConfirmAction(null)}
           onConfirm={() => action.mutate(confirmAction)}

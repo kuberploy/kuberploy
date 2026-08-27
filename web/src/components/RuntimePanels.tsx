@@ -2,7 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type WorkloadLogOptions } from "../api/client";
 import { formatDate } from "../lib/format";
-import { Card, EmptyState, PlaceholderBadge, Skeleton, StatusPill } from "./ui";
+import {
+  Card,
+  CardHeader,
+  EmptyState,
+  Eyebrow,
+  Notice,
+  PlaceholderBadge,
+  Skeleton,
+  StatusPill,
+} from "./ui";
 import { Icon } from "./Icon";
 import type {
   LogSource,
@@ -51,16 +60,19 @@ function LogSources({
 }) {
   if (!sources.length) return null;
   return (
-    <div className="runtime-source-list" aria-label="Log sources">
+    <div className="grid gap-2" aria-label="Log sources">
       {sources.map((source) => {
         const status = sourceStatus(source, statuses);
         return (
-          <div className="runtime-source" key={logSourceKey(source)}>
-            <div className="runtime-source__identity">
+          <div
+            className="grid grid-cols-[minmax(180px,_0.8fr)_minmax(260px,_1.4fr)_auto] items-center gap-3 py-2 px-3 border border-line rounded-lg bg-surface-soft to-580:grid-cols-[minmax(0,_1fr)_auto]"
+            key={logSourceKey(source)}
+          >
+            <div className="min-w-0 [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_strong]:mb-1 [&_strong]:text-meta [&_code]:block [&_code]:overflow-hidden [&_code]:text-ellipsis [&_code]:text-mint-dark [&_code]:text-xs">
               <strong>{source.podName}</strong>
               <code>{source.container}</code>
             </div>
-            <div className="runtime-source__meta">
+            <div className="min-w-0 flex flex-wrap gap-y-1 gap-x-3 text-ink-faint text-xs [&_span:first-child]:break-words to-580:col-[1_/_-1]">
               <span>Pod source ID {source.podId}</span>
               <span>Revision {source.revision ?? "not reported"}</span>
               <span>
@@ -134,7 +146,10 @@ function LogSourceFilters({
     },
   ];
   return (
-    <div className="runtime-log-filters" aria-label="Log source filters">
+    <div
+      className="grid grid-cols-[repeat(3,_minmax(0,_1fr))_auto] items-end gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:min-w-0 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_select]:min-h-[34px] [&_select]:text-meta to-580:grid-cols-[1fr]"
+      aria-label="Log source filters"
+    >
       {fields.map(({ field, label, mergedLabel }) => (
         <label key={field}>
           <span>{label}</span>
@@ -226,10 +241,10 @@ export function LogsPanel({
     });
 
   return (
-    <Card className="runtime-panel">
-      <div className="card__header card__header--inside">
+    <Card className="p-6 to-580:p-4">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Kubernetes live source</span>
+          <Eyebrow>Kubernetes live source</Eyebrow>
           <h2>App logs</h2>
         </div>
         <PlaceholderBadge>
@@ -239,8 +254,8 @@ export function LogsPanel({
               ? "Bounded snapshots"
               : "Unavailable"}
         </PlaceholderBadge>
-      </div>
-      <p className="panel-description">
+      </CardHeader>
+      <p className="mt-[-12px] mx-0 mb-5 text-ink-faint text-meta">
         App-wide logs and events are scoped through the Kuberploy API.
         Kubernetes live mode does not promise retention after Pod deletion or
         log rotation.
@@ -272,8 +287,8 @@ export function LogsPanel({
           compact
         />
       ) : (
-        <div className="runtime-sections">
-          <div className="runtime-workload-summary">
+        <div className="grid gap-5">
+          <div className="grid grid-cols-[minmax(180px,_1.5fr)_minmax(160px,_1fr)_90px_auto] items-center gap-4 py-3 px-4 border border-line rounded-[9px] bg-surface-soft [&>div]:min-w-0 [&_span]:block [&_span]:mb-1 [&_span]:text-ink-faint [&_span]:text-xs [&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ink [&_strong]:text-meta [&_strong]:text-ellipsis [&_code]:block [&_code]:overflow-hidden [&_code]:text-ink [&_code]:text-meta [&_code]:text-ellipsis to-580:grid-cols-[1fr]">
             <div>
               <span>Deployment</span>
               <strong>{workload.name}</strong>
@@ -295,17 +310,14 @@ export function LogsPanel({
             onChange={updateFilter}
           />
 
-          <section
-            className="runtime-section"
-            aria-labelledby="log-lines-title"
-          >
-            <div className="runtime-section__header">
+          <section className="grid gap-3" aria-labelledby="log-lines-title">
+            <div className="flex items-end justify-between gap-4 [&_h3]:mt-0.5 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-meta [&>span]:text-ink-faint [&>span]:text-xs to-580:items-start to-580:flex-col">
               <div>
-                <span className="eyebrow">
+                <Eyebrow>
                   {hasLogFilter
                     ? "Exact authorized source filter"
                     : "All controlled Pod sources"}
-                </span>
+                </Eyebrow>
                 <h3 id="log-lines-title">
                   {filters.pod
                     ? "Exact Pod snapshot"
@@ -339,7 +351,7 @@ export function LogsPanel({
                 />
                 {lines.length ? (
                   <div
-                    className="log-viewer"
+                    className="max-h-[560px] overflow-auto py-2 px-0 border border-[#25342e] rounded-[9px] text-[#d5e4dd] bg-[#0c1511] font-mono text-meta [&>div]:grid [&>div]:grid-cols-[125px_minmax(190px,_280px)_1fr] [&>div]:gap-3 [&>div]:py-1.5 [&>div]:px-3 [&>div]:border-b [&>div]:border-b-[rgba(255,_255,_255,_0.035)] [&_time]:text-ink-soft [&_span]:overflow-hidden [&_span]:text-[#67d4a9] [&_span]:text-ellipsis [&_code]:whitespace-pre-wrap [&_code_em]:text-[#ffd694] [&_code_em]:not-italic to-580:[&>div]:grid-cols-[90px_1fr] to-580:[&_code]:col-[1_/_-1]"
                     role="log"
                     aria-label="App log snapshot"
                   >
@@ -353,7 +365,7 @@ export function LogsPanel({
                             : "No timestamp"}
                         </time>
                         <span
-                          className="log-source-identity"
+                          className="[&_strong]:block [&_strong]:overflow-hidden [&_strong]:text-ellipsis [&_small]:block [&_small]:overflow-hidden [&_small]:text-ellipsis [&_small]:mt-0.5 [&_small]:text-ink-soft [&_small]:text-xs"
                           title={`Pod source ID ${line.source.podId}`}
                         >
                           <strong>
@@ -370,7 +382,7 @@ export function LogsPanel({
                       </div>
                     ))}
                     {logs.data?.truncated ? (
-                      <div className="log-gap">
+                      <div className="!block !py-2 !px-3 text-[#ffd694] bg-[#241f14]">
                         Snapshot truncated at the configured byte limit.
                       </div>
                     ) : null}
@@ -389,12 +401,12 @@ export function LogsPanel({
           </section>
 
           <section
-            className="runtime-section"
+            className="grid gap-3"
             aria-labelledby="runtime-events-title"
           >
-            <div className="runtime-section__header">
+            <div className="flex items-end justify-between gap-4 [&_h3]:mt-0.5 [&_h3]:mx-0 [&_h3]:mb-0 [&_h3]:text-meta [&>span]:text-ink-faint [&>span]:text-xs to-580:items-start to-580:flex-col">
               <div>
-                <span className="eyebrow">Deployment, ReplicaSet & Pod</span>
+                <Eyebrow>Deployment, ReplicaSet & Pod</Eyebrow>
                 <h3 id="runtime-events-title">Kubernetes events</h3>
               </div>
               {events.data ? (
@@ -413,17 +425,17 @@ export function LogsPanel({
               />
             ) : events.data?.items.length ? (
               <div
-                className="runtime-event-list"
+                className="overflow-hidden border border-line rounded-[9px]"
                 role="list"
                 aria-label="Kubernetes event snapshot"
               >
                 {events.data.items.map((event) => (
                   <article
-                    className="runtime-event"
+                    className="grid gap-2 py-3 px-3 border-b border-b-line last:border-b-0 [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.55] [&_p]:whitespace-pre-wrap"
                     key={event.id}
                     role="listitem"
                   >
-                    <div className="runtime-event__head">
+                    <div className="flex items-center gap-2 [&_strong]:text-meta [&_time]:ml-[auto] [&_time]:text-ink-faint [&_time]:text-xs to-580:flex-wrap to-580:[&_time]:w-full to-580:[&_time]:ml-0">
                       <StatusPill
                         value={
                           event.type === "Warning"
@@ -441,7 +453,7 @@ export function LogsPanel({
                           : "Time not reported"}
                       </time>
                     </div>
-                    <div className="runtime-event__object">
+                    <div className="flex items-center gap-2 [&_code]:text-mint-dark [&_code]:text-xs [&_span]:text-ink-faint [&_span]:text-xs to-580:flex-wrap">
                       <code>
                         {event.objectKind}/{event.objectName}
                       </code>
@@ -458,7 +470,7 @@ export function LogsPanel({
                   </article>
                 ))}
                 {events.data.truncated ? (
-                  <div className="runtime-truncation-notice">
+                  <div className="py-2 px-3 text-tone-warn bg-tone-warn-surface text-xs">
                     Event snapshot truncated at the configured item limit.
                   </div>
                 ) : null}
@@ -553,7 +565,7 @@ function MetricCard({
     : Array.from({ length: 7 }, () => undefined);
 
   return (
-    <Card className="metric-placeholder">
+    <Card className="min-h-[145px] p-4 [&>div:first-child]:flex [&>div:first-child]:items-center [&>div:first-child]:justify-between [&>div:first-child]:gap-1.5 [&_span]:text-ink-soft [&_span]:text-xs [&_span]:font-semibold [&_strong]:block [&_strong]:mt-5 [&_strong]:text-ink-faint [&_strong]:text-[25px]">
       <div>
         <span>{label}</span>
         <PlaceholderBadge>
@@ -569,7 +581,10 @@ function MetricCard({
         </PlaceholderBadge>
       </div>
       <strong>{value === undefined ? "—" : format(value)}</strong>
-      <div className="sparkline-placeholder" aria-hidden="true">
+      <div
+        className="flex h-[34px] items-end gap-1.5 mt-2 [&_i]:flex-1 [&_i]:rounded-[2px_2px_0_0] [&_i]:bg-surface-soft [&_i:nth-child(1)]:h-[25%] [&_i:nth-child(2)]:h-[47%] [&_i:nth-child(3)]:h-[36%] [&_i:nth-child(4)]:h-[68%] [&_i:nth-child(5)]:h-[50%] [&_i:nth-child(6)]:h-[82%] [&_i:nth-child(7)]:h-[61%]"
+        aria-hidden="true"
+      >
         {sparklineSamples.map((sample, index) => (
           <i
             key={sample ? sample.timestamp : `empty-${index}`}
@@ -599,10 +614,10 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
       status.data?.status?.toLowerCase() ?? "",
     );
   return (
-    <div className="metrics-panel">
-      <div className="metrics-panel__head">
+    <div className="[&_h2]:m-0 [&_h2]:text-ink [&_h2]:text-section [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_h2]:leading-[1.3]">
+      <div className="flex items-end justify-between gap-5 mb-4 [&_h2]:text-[20px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta">
         <div>
-          <span className="eyebrow">Scoped Prometheus gateway</span>
+          <Eyebrow>Scoped Prometheus gateway</Eyebrow>
           <h2>App metrics</h2>
           <p>
             Named, bounded queries only. Tenant users never receive arbitrary
@@ -628,7 +643,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
           }
         />
       </div>
-      <div className="metric-placeholder-grid">
+      <div className="grid grid-cols-[repeat(4,_1fr)] gap-3 to-1120:grid-cols-[repeat(2,_1fr)] to-580:grid-cols-[1fr]">
         {metricCards.map((metric) => (
           <MetricCard
             key={metric.key}
@@ -640,7 +655,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
           />
         ))}
       </div>
-      <div className="notice">
+      <Notice>
         <Icon name="metrics" />
         <div>
           <strong>
@@ -653,7 +668,7 @@ export function MetricsPanel({ deploymentId }: { deploymentId: string }) {
               "Configure managed kube-prometheus-stack or an existing compatible endpoint. Missing data is never displayed as zero."}
           </p>
         </div>
-      </div>
+      </Notice>
     </div>
   );
 }

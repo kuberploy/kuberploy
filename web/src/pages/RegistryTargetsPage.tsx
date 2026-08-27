@@ -10,9 +10,16 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
+  DetailList,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormActions,
+  FormGrid,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
@@ -206,7 +213,7 @@ export function RegistryTargetsPage() {
   };
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Artifact infrastructure"
         title="Registry targets"
@@ -234,17 +241,19 @@ export function RegistryTargetsPage() {
           />
         </Card>
       ) : (
-        <div className="registry-layout">
+        <div className="grid grid-cols-[minmax(0,_1.4fr)_minmax(340px,_0.8fr)] gap-5 items-start to-900:grid-cols-[1fr]">
           <Card>
-            <div className="card__header card__header--inside">
+            <CardHeader>
               <div>
-                <span className="eyebrow">Targets</span>
+                <Eyebrow>Targets</Eyebrow>
                 <h2>Configured OCI endpoints</h2>
               </div>
               {targets.data?.truncated ? (
-                <span className="placeholder-badge">First 100</span>
+                <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
+                  First 100
+                </span>
               ) : null}
-            </div>
+            </CardHeader>
             {targets.isPending ? <Skeleton lines={7} /> : null}
             {targets.error ? (
               <ErrorPanel
@@ -260,17 +269,20 @@ export function RegistryTargetsPage() {
                 description="Add an approved OCI endpoint before attaching an application policy."
               />
             ) : (
-              <div className="registry-target-list">
+              <div className="grid gap-4">
                 {targets.data?.items.map((target) => (
-                  <article className="registry-target-row" key={target.id}>
-                    <div className="registry-target-row__heading">
+                  <article
+                    className="grid justify-items-start gap-4 p-5 border border-line rounded-panel bg-surface [&>[data-slot='detail-list']]:justify-self-stretch [&>[data-slot='detail-list']]:w-full"
+                    key={target.id}
+                  >
+                    <div className="flex items-start justify-between gap-5 [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&_code]:overflow-hidden [&_code]:text-ellipsis to-580:items-start to-580:flex-col">
                       <div>
                         <strong>{target.name}</strong>
                         <code>{target.endpoint}</code>
                       </div>
                       <StatusPill value={target.mode} />
                     </div>
-                    <dl className="detail-list detail-list--compact">
+                    <DetailList className="[&>div]:py-2">
                       <div>
                         <dt>Repository prefix</dt>
                         <dd>
@@ -301,7 +313,7 @@ export function RegistryTargetsPage() {
                         <dt>Updated</dt>
                         <dd>{formatDate(target.updatedAt)}</dd>
                       </div>
-                    </dl>
+                    </DetailList>
                     {canWrite && me.data?.authentication.kind === "session" ? (
                       <Button
                         variant="secondary"
@@ -318,11 +330,9 @@ export function RegistryTargetsPage() {
 
           {canWrite && me.data?.authentication.kind === "session" ? (
             <Card>
-              <div className="card__header card__header--inside">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">
-                    {editing ? "Update" : "Add target"}
-                  </span>
+                  <Eyebrow>{editing ? "Update" : "Add target"}</Eyebrow>
                   <h2>{editing ? editing.name : "Registry metadata"}</h2>
                 </div>
                 {editing ? (
@@ -330,13 +340,13 @@ export function RegistryTargetsPage() {
                     Cancel
                   </Button>
                 ) : null}
-              </div>
-              <form className="form-grid" onSubmit={submit}>
+              </CardHeader>
+              <FormGrid as="form" onSubmit={submit}>
                 {editing && !editingIsCurrent ? (
-                  <div className="notice notice--warning">
+                  <Notice tone="warning">
                     This registry target changed or is no longer available.
                     Reload the catalog before saving it.
-                  </div>
+                  </Notice>
                 ) : null}
                 <Field label="Name" required error={errors.name}>
                   <input
@@ -424,7 +434,7 @@ export function RegistryTargetsPage() {
                   </Field>
                 ))}
                 {saveError ? <ErrorPanel error={saveError} /> : null}
-                <div className="form-actions">
+                <FormActions>
                   <Button
                     type="submit"
                     busy={save.isPending}
@@ -433,8 +443,8 @@ export function RegistryTargetsPage() {
                     <Icon name="check" />{" "}
                     {editing ? "Save target" : "Add target"}
                   </Button>
-                </div>
-              </form>
+                </FormActions>
+              </FormGrid>
             </Card>
           ) : (
             <Card>
@@ -448,6 +458,6 @@ export function RegistryTargetsPage() {
           )}
         </div>
       )}
-    </div>
+    </Page>
   );
 }

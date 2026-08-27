@@ -16,9 +16,13 @@ import {
 import {
   Button,
   Card,
+  CardHeader,
   ConfirmDialog,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
+  FieldLabel,
+  FormGrid,
   Skeleton,
   StatusPill,
 } from "./ui";
@@ -40,7 +44,7 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
   });
   if (revisions.isPending || runs.isPending) return <Skeleton lines={3} />;
   return (
-    <div className="stack stack--compact">
+    <div className="grid gap-4 gap-2">
       <details>
         <summary>
           {revisions.data?.items.length ?? 0} immutable revisions
@@ -152,9 +156,21 @@ export function AutoDeployPoliciesPanel({
         ),
     ),
   );
-  const [definitionId, setDefinitionId] = useState("");
-  const [deploymentId, setDeploymentId] = useState("");
-  const [serviceActorId, setServiceActorId] = useState("");
+  // A selection is a preference, not a fact: it is only the id the operator
+  // picked. What is actually selected is derived here, so a list that loses the
+  // picked entry falls back within the same render instead of painting an
+  // invalid selection and correcting it in an effect on the next one.
+  const [definitionChoice, setDefinitionId] = useState("");
+  const [deploymentChoice, setDeploymentId] = useState("");
+  const [serviceActorChoice, setServiceActorId] = useState("");
+  const definitionId = definitions.some((item) => item.id === definitionChoice)
+    ? definitionChoice
+    : (definitions[0]?.id ?? "");
+  const serviceActorId = serviceAccounts.some(
+    (item) => item.id === serviceActorChoice,
+  )
+    ? serviceActorChoice
+    : (serviceAccounts[0]?.id ?? "");
   const [disableConfirmation, setDisableConfirmation] =
     useState<AutoDeployPolicy | null>(null);
   const createAttempt = useRef<{ signature: string; key: string } | null>(null);
@@ -179,18 +195,11 @@ export function AutoDeployPoliciesPanel({
       ),
     );
   });
-  useEffect(() => {
-    if (!definitions.some((item) => item.id === definitionId))
-      setDefinitionId(definitions[0]?.id ?? "");
-  }, [definitionId, definitions]);
-  useEffect(() => {
-    if (!authorizedCandidates.some((item) => item.id === deploymentId))
-      setDeploymentId(authorizedCandidates[0]?.id ?? "");
-  }, [authorizedCandidates, deploymentId]);
-  useEffect(() => {
-    if (!serviceAccounts.some((item) => item.id === serviceActorId))
-      setServiceActorId(serviceAccounts[0]?.id ?? "");
-  }, [serviceAccounts, serviceActorId]);
+  const deploymentId = authorizedCandidates.some(
+    (item) => item.id === deploymentChoice,
+  )
+    ? deploymentChoice
+    : (authorizedCandidates[0]?.id ?? "");
   const create = useMutation({
     mutationFn: (input: {
       applicationId: string;
@@ -322,10 +331,10 @@ export function AutoDeployPoliciesPanel({
     potentialManagement &&
     (deployments.error ?? accounts.error ?? environments.error);
   return (
-    <Card className="source-build-card">
-      <div className="card__header card__header--inside">
+    <Card className="mb-5">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Automatic App delivery</span>
+          <Eyebrow>Automatic App delivery</Eyebrow>
           <h2>Verified build → pinned AppConfig</h2>
           <p>
             Choose an exact App configuration snapshot and Project service
@@ -334,7 +343,7 @@ export function AutoDeployPoliciesPanel({
           </p>
         </div>
         <StatusPill value="ready" label="Controller ready" />
-      </div>
+      </CardHeader>
       {loadError ? (
         <ErrorPanel error={loadError} onRetry={() => void policies.refetch()} />
       ) : null}
@@ -355,9 +364,9 @@ export function AutoDeployPoliciesPanel({
       serviceAccounts.length > 0 &&
       authorizedCandidates.length > 0 &&
       definitions.length > 0 ? (
-        <div className="form-grid">
-          <label className="field">
-            <span className="field__label">Build definition</span>
+        <FormGrid>
+          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+            <FieldLabel>Build definition</FieldLabel>
             <select
               value={definitionId}
               onChange={(event) => setDefinitionId(event.target.value)}
@@ -370,8 +379,8 @@ export function AutoDeployPoliciesPanel({
               ))}
             </select>
           </label>
-          <label className="field">
-            <span className="field__label">Pinned App configuration</span>
+          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+            <FieldLabel>Pinned App configuration</FieldLabel>
             <select
               value={deploymentId}
               onChange={(event) => setDeploymentId(event.target.value)}
@@ -383,10 +392,8 @@ export function AutoDeployPoliciesPanel({
               ))}
             </select>
           </label>
-          <label className="field">
-            <span className="field__label">
-              Service account (identity only)
-            </span>
+          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
+            <FieldLabel>Service account (identity only)</FieldLabel>
             <select
               value={serviceActorId}
               onChange={(event) => setServiceActorId(event.target.value)}
@@ -406,16 +413,21 @@ export function AutoDeployPoliciesPanel({
             Enable pinned policy
           </Button>
           {create.error ? (
-            <p className="field__error">{errorMessage(create.error)}</p>
+            <p className="text-tone-bad text-xs leading-[1.45]">
+              {errorMessage(create.error)}
+            </p>
           ) : null}
-        </div>
+        </FormGrid>
       ) : null}
       {policies.isPending ? (
         <Skeleton lines={4} />
       ) : policies.data?.items.length ? (
-        <div className="stack">
+        <div className="grid gap-4">
           {policies.data.items.map((policy) => (
-            <article className="build-definition-row" key={policy.id}>
+            <article
+              className="last:border-b-0 [&_small]:text-ink-faint [&_small]:text-xs grid grid-cols-[minmax(0,_1fr)_auto] gap-3 p-4 border-b border-b-line [&>div:first-child]:flex [&>div:first-child]:min-w-0 [&>div:first-child]:items-center [&>div:first-child]:justify-between [&>div:first-child]:gap-3 [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_code]:text-ink-faint [&_code]:text-xs [&>small]:self-center [&>small]:text-right"
+              key={policy.id}
+            >
               <div>
                 <StatusPill
                   value={policy.current.enabled ? "enabled" : "disabled"}
@@ -446,7 +458,7 @@ export function AutoDeployPoliciesPanel({
                   ),
                 );
                 return allowed ? (
-                  <div className="button-group">
+                  <div className="flex items-center flex-wrap gap-2">
                     <Button
                       variant="secondary"
                       busy={revise.isPending}
@@ -479,7 +491,9 @@ export function AutoDeployPoliciesPanel({
         />
       )}
       {revise.error ? (
-        <p className="field__error">{errorMessage(revise.error)}</p>
+        <p className="text-tone-bad text-xs leading-[1.45]">
+          {errorMessage(revise.error)}
+        </p>
       ) : null}
       {disableConfirmation ? (
         <ConfirmDialog

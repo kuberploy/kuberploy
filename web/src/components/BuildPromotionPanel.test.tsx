@@ -57,7 +57,12 @@ function renderPanel() {
   });
   const rendered = render(
     <QueryClientProvider client={queryClient}>
-      <BuildPromotionPanel attempt={attempt} humanSession gitOpsReady />
+      <BuildPromotionPanel
+        key={attempt.id}
+        attempt={attempt}
+        humanSession
+        gitOpsReady
+      />
     </QueryClientProvider>,
   );
   return { queryClient, rerender: rendered.rerender };
@@ -73,13 +78,12 @@ describe("BuildPromotionPanel", () => {
     );
     renderPanel();
 
-    await user.selectOptions(
-      await screen.findAllByRole("combobox").then(([environmentSelect]) => {
-        if (!environmentSelect) throw new Error("environment select missing");
-        return environmentSelect;
-      }),
-      environment.id,
-    );
+    // Wait for the environment to be listed: the select renders before the
+    // environments query resolves.
+    await screen.findByRole("option", { name: /Production/ });
+    const [environmentSelect] = screen.getAllByRole("combobox");
+    if (!environmentSelect) throw new Error("environment select missing");
+    await user.selectOptions(environmentSelect, environment.id);
     await user.click(
       screen.getByRole("button", { name: /Promote verified build/i }),
     );
@@ -101,8 +105,9 @@ describe("BuildPromotionPanel", () => {
     vi.spyOn(api, "environments").mockResolvedValue({ items: [environment] });
     const { queryClient } = renderPanel();
 
+    await screen.findByRole("option", { name: /Production/ });
     await user.selectOptions(
-      await screen.findByRole("combobox", { name: "Environment" }),
+      screen.getByRole("combobox", { name: "Environment" }),
       environment.id,
     );
     queryClient.setQueryData(["environments"], { items: [] });

@@ -29,6 +29,6 @@ describe("audit page layout", () => {
     const { container } = render(<AuditPage />, { wrapper: Wrapper });
 
     expect(await screen.findByText("No audit events")).toBeVisible();
-    expect(container.firstElementChild).toHaveClass("page", "page-stack");
+    expect(container.firstElementChild).toHaveAttribute("data-slot", "page");
   });
 });

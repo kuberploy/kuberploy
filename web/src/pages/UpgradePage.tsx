@@ -4,14 +4,20 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
   EmptyState,
+  Eyebrow,
+  Notice,
+  Page,
   PageHeader,
   PlaceholderBadge,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import { formatDate, shortId, titleCase } from "../lib/format";
 import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
+import { cn } from "@/lib/utils";
 
 // Installer health hooks can run for 60 minutes at the supported maximum.
 // Keep the operator client alive beyond that server-side deadline.
@@ -62,7 +68,7 @@ export function UpgradePage() {
       : "";
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Platform settings"
         title="Kuberploy releases"
@@ -98,7 +104,7 @@ export function UpgradePage() {
           <Skeleton lines={10} />
         </Card>
       ) : latest.error || !release ? (
-        <Card className="upgrade-unavailable">
+        <Card className="overflow-hidden !p-0">
           <EmptyState
             icon="refresh"
             title={
@@ -118,7 +124,10 @@ export function UpgradePage() {
             }
             compact
           />
-          <div className="release-error-detail" role="status">
+          <div
+            className="grid grid-cols-[auto_minmax(0,_1fr)] gap-y-2 gap-x-4 py-4 px-5 border-t border-t-line text-ink-soft bg-surface-soft text-meta [&>span]:text-ink-faint [&_p]:m-0"
+            role="status"
+          >
             <span>Current version</span>
             <code>{currentVersion ?? "Not reported"}</code>
             <span>Last check error</span>
@@ -134,22 +143,22 @@ export function UpgradePage() {
       ) : (
         <>
           <section
-            className="version-comparison"
+            className="grid grid-cols-[minmax(0,_1fr)_45px_minmax(0,_1fr)] items-center gap-3 mb-4 to-580:grid-cols-[1fr]"
             aria-label="Version comparison"
           >
-            <Card className="version-card version-card--current">
-              <span className="eyebrow">Installed</span>
+            <Card className="grid min-h-[126px] grid-cols-[1fr_auto] items-end gap-3 py-5 px-5 [&_div]:flex [&_div]:flex-col [&_div]:gap-1 [&_small]:text-ink-faint [&_small]:text-xs [&_small]:uppercase [&_strong]:text-ink [&_strong]:font-mono [&_strong]:text-[24px] [&_strong]:font-semibold [&_strong]:tracking-[-0.02em] border-l border-l-mint">
+              <Eyebrow>Installed</Eyebrow>
               <div>
                 <small>Current version</small>
                 <strong>{latest.data.currentVersion}</strong>
               </div>
               <StatusPill value="active" label="Running" />
             </Card>
-            <span className="version-comparison__arrow">
+            <span className="grid w-[34px] h-[34px] place-items-center justify-self-center border border-line rounded-full text-mint-dark bg-surface [&_svg]:w-[15px] to-580:transform-[rotate(90deg)]">
               <Icon name="arrow" />
             </span>
-            <Card className="version-card version-card--target">
-              <span className="eyebrow">Public release</span>
+            <Card className="grid min-h-[126px] grid-cols-[1fr_auto] items-end gap-3 py-5 px-5 [&_div]:flex [&_div]:flex-col [&_div]:gap-1 [&_small]:text-ink-faint [&_small]:text-xs [&_small]:uppercase [&_strong]:text-ink [&_strong]:font-mono [&_strong]:text-[24px] [&_strong]:font-semibold [&_strong]:tracking-[-0.02em] border-mint bg-mint-soft">
+              <Eyebrow>Public release</Eyebrow>
               <div>
                 <small>Latest version</small>
                 <strong>{release.version}</strong>
@@ -165,11 +174,20 @@ export function UpgradePage() {
             </Card>
           </section>
 
-          <div className="upgrade-grid">
-            <Card className="upgrade-decision-card">
-              <div className="upgrade-decision-card__head">
+          <div className="grid grid-cols-[minmax(0,_0.9fr)_minmax(0,_1.1fr)] gap-4 mb-4 to-1120:grid-cols-[1fr]">
+            <Card className="p-6">
+              <div className="grid grid-cols-[42px_minmax(0,_1fr)_auto] items-center gap-3 [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-section [&_h2]:tracking-[-0.02em] to-580:grid-cols-[42px_1fr]">
                 <span
-                  className={`decision-mark decision-mark--${compatibility.status}`}
+                  // The three tones are the app's tone tokens, so this follows
+                  // the theme instead of carrying a second hard-coded dark set.
+                  className={cn(
+                    "grid size-10 place-items-center rounded-[11px] border [&_svg]:w-[18px]",
+                    compatibility.status === "compatible"
+                      ? "border-tone-good-line bg-tone-good-surface text-tone-good"
+                      : compatibility.status === "incompatible"
+                        ? "border-tone-bad-line bg-tone-bad-surface text-tone-bad"
+                        : "border-tone-warn-line bg-tone-warn-surface text-tone-warn",
+                  )}
                 >
                   <Icon
                     name={
@@ -182,12 +200,12 @@ export function UpgradePage() {
                   />
                 </span>
                 <div>
-                  <span className="eyebrow">Compatibility decision</span>
+                  <Eyebrow>Compatibility decision</Eyebrow>
                   <h2>{titleCase(compatibility.status)}</h2>
                 </div>
                 <StatusPill value={compatibility.status} />
               </div>
-              <p className="decision-summary">
+              <p className="mt-4 mx-0 mb-0 text-ink-soft text-meta leading-[1.65]">
                 {compatibility.status === "compatible"
                   ? "The published source-version and schema ranges accept this installation. The installer chart rechecks every enabled Argo Application after Helm upgrade or rollback."
                   : compatibility.status === "unknown"
@@ -195,38 +213,38 @@ export function UpgradePage() {
                     : "This release cannot be applied to the current installation. Helm must not target it."}
               </p>
               {compatibility.reasons.length ? (
-                <ul className="decision-reasons">
+                <ul className="mt-4 mx-0 mb-0 pt-3 pr-3 pb-3 pl-7 border border-line rounded-lg text-ink-soft bg-surface-soft text-meta leading-[1.55]">
                   {compatibility.reasons.map((reason) => (
                     <li key={reason}>{reason}</li>
                   ))}
                 </ul>
               ) : null}
               {release.breakingChanges ? (
-                <div className="notice notice--warning">
+                <Notice tone="warning">
                   <div>
                     <strong>Breaking changes declared</strong>
                     <p>Read the complete release notes before confirmation.</p>
                   </div>
-                </div>
+                </Notice>
               ) : null}
             </Card>
 
-            <Card className="release-identity-card">
-              <div className="card__header card__header--inside">
+            <Card className="p-6">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">Immutable release identity</span>
+                  <Eyebrow>Immutable release identity</Eyebrow>
                   <h2>{release.tag}</h2>
                 </div>
                 <a
-                  className="text-link"
+                  className="inline-flex items-center gap-1.5 py-0.5 px-0 border-0 rounded-sm text-mint-dark bg-transparent cursor-pointer text-meta font-medium whitespace-nowrap hover:underline hover:underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[3px] [&_svg]:w-3.5 [&_svg]:h-3.5 pointer-coarse:inline-flex pointer-coarse:min-h-8 pointer-coarse:items-center"
                   href={release.notesUrl}
                   target="_blank"
                   rel="noreferrer"
                 >
                   Release notes <Icon name="external" />
                 </a>
-              </div>
-              <dl className="digest-list">
+              </CardHeader>
+              <dl className="m-0 [&>div]:grid [&>div]:grid-cols-[104px_minmax(0,_1fr)] [&>div]:gap-4 [&>div]:py-2 [&>div]:px-0 [&>div]:border-t [&>div]:border-t-line [&_dt]:text-ink-faint [&_dt]:text-xs [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-ink-soft [&_dd]:text-meta [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_code]:text-xs">
                 <div>
                   <dt>Manifest digest</dt>
                   <dd title={release.manifestDigest}>
@@ -263,17 +281,17 @@ export function UpgradePage() {
             </Card>
           </div>
 
-          <Card className="manifest-card">
-            <div className="card__header card__header--inside">
+          <Card className="p-6 mb-4">
+            <CardHeader>
               <div>
-                <span className="eyebrow">release-manifest.json</span>
+                <Eyebrow>release-manifest.json</Eyebrow>
                 <h2>Verified upgrade envelope</h2>
               </div>
               <PlaceholderBadge>
                 Schema {release.manifest.schemaVersion}
               </PlaceholderBadge>
-            </div>
-            <div className="manifest-grid">
+            </CardHeader>
+            <div className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 to-580:grid-cols-[1fr]">
               <ManifestFact
                 label="Kubernetes"
                 value={release.manifest.compatibility.kubernetes.constraint}
@@ -287,7 +305,7 @@ export function UpgradePage() {
                 value={`${release.manifest.compatibility.database.minimumUpgradeableSchema} → ${release.manifest.compatibility.database.currentSchema}`}
               />
             </div>
-            <details className="manifest-details">
+            <details className="mt-3 border border-line rounded-lg [&_summary]:py-3 [&_summary]:px-3 [&_summary]:cursor-pointer [&_summary]:text-ink-soft [&_summary]:text-meta [&_summary]:font-semibold [&_dl]:m-0 [&_dl]:pt-0 [&_dl]:px-3 [&_dl]:pb-3 [&_dl_>_div]:grid [&_dl_>_div]:grid-cols-[70px_minmax(0,_1fr)] [&_dl_>_div]:gap-3 [&_dl_>_div]:py-2 [&_dl_>_div]:px-0 [&_dl_>_div]:border-t [&_dl_>_div]:border-t-line [&_dt]:text-ink-faint [&_dt]:text-xs [&_dt]:capitalize [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_code]:text-xs">
               <summary>Show immutable control-plane images</summary>
               <dl>
                 {release.manifest.artifacts.images.map((image) => (
@@ -304,14 +322,14 @@ export function UpgradePage() {
             </details>
           </Card>
 
-          <Card className="release-notes-card">
+          <Card className="p-6 flex items-center justify-between gap-6 mb-4 [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-1.5 [&_h2]:text-lead [&_p]:max-w-[800px] [&_p]:m-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.6] [&_p]:whitespace-pre-line to-580:items-stretch to-580:flex-col">
             <div>
-              <span className="eyebrow">Summary</span>
+              <Eyebrow>Summary</Eyebrow>
               <h2>Release notes</h2>
               <p>{release.manifest.release.summary}</p>
             </div>
             <a
-              className="button button--secondary"
+              className={buttonVariants({ variant: "secondary" })}
               href={release.notesUrl}
               target="_blank"
               rel="noreferrer"
@@ -320,7 +338,7 @@ export function UpgradePage() {
             </a>
           </Card>
 
-          <div className="upgrade-action-bar">
+          <div className="flex items-center justify-between gap-5 py-4 px-5 border border-mint-line rounded-[11px] bg-mint-soft shadow-panel [&>div]:flex [&>div]:items-center [&>div]:gap-3 [&>div_>_svg]:w-[18px] [&>div_>_svg]:text-mint-dark [&_span]:flex [&_span]:flex-col [&_strong]:text-meta [&_small]:mt-1 [&_small]:text-ink-soft [&_small]:text-xs to-580:items-stretch to-580:flex-col to-580:[&>[data-slot='button']]:w-full">
             <div>
               <Icon name={canUpgrade ? "check" : "settings"} />
               <span>
@@ -355,10 +373,10 @@ export function UpgradePage() {
           </div>
 
           {canUpgrade ? (
-            <Card className="manifest-card">
-              <div className="card__header card__header--inside">
+            <Card className="p-6 mb-4">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">Cluster administrator</span>
+                  <Eyebrow>Cluster administrator</Eyebrow>
                   <h2>Helm upgrade command</h2>
                   <p>
                     Set the existing installer release name, namespace, and a
@@ -369,8 +387,8 @@ export function UpgradePage() {
                     manifest accepts the current schema.
                   </p>
                 </div>
-              </div>
-              <pre className="code-block">
+              </CardHeader>
+              <pre className="overflow-auto mt-3 mx-0 mb-0 p-4 border border-line rounded-lg text-ink bg-surface-soft text-xs leading-[1.6]">
                 <code>{helmCommand}</code>
               </pre>
             </Card>
@@ -386,13 +404,13 @@ export function UpgradePage() {
           )}
         </>
       )}
-    </div>
+    </Page>
   );
 }
 
 function ManifestFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="manifest-range">
+    <div className="flex min-h-[70px] flex-col justify-center py-3 px-4 border border-line rounded-lg bg-surface-soft [&_span]:text-ink-faint [&_span]:text-xs [&_strong]:flex [&_strong]:items-center [&_strong]:gap-1.5 [&_strong]:mt-1.5 [&_strong]:font-mono [&_strong]:text-meta [&_svg]:w-3 [&_svg]:text-mint-dark">
       <span>{label}</span>
       <strong>{value}</strong>
     </div>

@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import {
   Card,
+  CardHeader,
+  CopyButton,
+  DetailList,
   ErrorPanel,
+  Eyebrow,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
@@ -39,7 +44,7 @@ export function ApplicationPage() {
   const { applicationId, deploymentId } = useParams({
     from: "/applications/$applicationId/deployments/$deploymentId",
   });
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tabChoice, setTab] = useState<Tab>("overview");
   const application = useQuery({
     queryKey: ["application", applicationId],
     queryFn: () => api.application(applicationId),
@@ -180,13 +185,13 @@ export function ApplicationPage() {
     "logs",
     "metrics",
   ];
-  useEffect(() => {
-    if (!tabs.includes(tab)) setTab("overview");
-  }, [tab, tabs]);
+  // Which tabs exist depends on capability, so the picked tab is a preference:
+  // the tab actually rendered is derived from the list in this render.
+  const activeTab = tabs.includes(tabChoice) ? tabChoice : "overview";
 
   return (
-    <div className="page">
-      <div className="backline">
+    <Page>
+      <div className="flex items-center gap-2 mb-5 text-ink-faint text-meta [&_a]:inline-flex [&_a]:items-center [&_a]:gap-1.5 [&_a]:text-mint-dark [&_a_svg]:w-3 [&_a_svg]:transform-[rotate(180deg)] pointer-coarse:[&_a]:inline-flex pointer-coarse:[&_a]:min-h-8 pointer-coarse:[&_a]:items-center">
         <Link to="/projects">
           <Icon name="arrow" /> Projects
         </Link>
@@ -213,12 +218,15 @@ export function ApplicationPage() {
         />
       ) : null}
 
-      <nav className="page-tabs" aria-label="Application sections">
+      <nav
+        className="[&_button:focus-visible]:outline-[3px] [&_button:focus-visible]:outline-focus [&_button:focus-visible]:outline-offset-[2px] flex gap-6 mt-[-4px] mx-0 mb-5 border-b border-b-line [&_button]:relative [&_button]:pt-0 [&_button]:px-px [&_button]:pb-[11px] [&_button]:border-0 [&_button]:text-ink-faint [&_button]:bg-transparent [&_button]:cursor-pointer [&_button]:text-meta [&_button]:font-semibold [&_button]:pb-3 [&_button]:transition-[color] [&_button]:duration-(--motion-fast) [&_button]:ease-(--ease-standard) [&_button.active]:text-ink [&_button.active::after]:absolute [&_button.active::after]:right-0 [&_button.active::after]:bottom-[-1px] [&_button.active::after]:left-0 [&_button.active::after]:h-0.5 [&_button.active::after]:content-[''] [&_button.active::after]:bg-mint-dark [&_button.active::after]:origin-left [&_button.active::after]:animate-[tab-underline_var(--motion-base)_var(--ease-standard)] to-580:max-w-full to-580:gap-4 to-580:overflow-x-auto pointer-coarse:[&_button]:min-h-10 [&_button:hover:not(:disabled)]:text-ink"
+        aria-label="Application sections"
+      >
         {tabs.map((item) => (
           <button
             key={item}
-            className={tab === item ? "active" : ""}
-            aria-current={tab === item ? "page" : undefined}
+            className={activeTab === item ? "active" : ""}
+            aria-current={activeTab === item ? "page" : undefined}
             onClick={() => setTab(item)}
           >
             {item === "config"
@@ -238,9 +246,9 @@ export function ApplicationPage() {
         </Card>
       ) : application.data && deployment.data ? (
         <>
-          {tab === "overview" ? (
-            <div className="application-overview">
-              <section className="health-grid">
+          {activeTab === "overview" ? (
+            <div className="grid gap-5">
+              <section className="grid grid-cols-[repeat(auto-fill,_minmax(min(100%,_190px),_1fr))] gap-3 mb-4 to-1120:grid-cols-[repeat(3,_1fr)] to-580:grid-cols-[1fr]">
                 {[
                   ["Desired state", status.data?.state, "git"],
                   ["Operation", status.data?.operationStatus, "refresh"],
@@ -295,35 +303,50 @@ export function ApplicationPage() {
                     "metrics",
                   ],
                 ].map(([label, value, icon]) => (
-                  <Card className="health-card" key={label}>
-                    <span className="health-card__icon">
+                  <Card
+                    className="grid min-w-0 grid-cols-[24px_minmax(0,_1fr)] items-center gap-y-2 gap-x-3 p-4 [&_small]:block [&_small]:overflow-hidden [&_small]:text-ink-soft [&_small]:text-xs [&_small]:font-medium [&_small]:text-ellipsis [&_small]:uppercase [&_small]:tracking-[0.06em] [&_small]:whitespace-nowrap"
+                    key={label}
+                  >
+                    <span className="grid w-6 h-6 place-items-center text-ink-faint [&_svg]:w-4 [&_svg]:h-4">
                       <Icon name={icon as Parameters<typeof Icon>[0]["name"]} />
                     </span>
-                    <div>
-                      <small>{label}</small>
-                      <strong>{titleCase(value)}</strong>
-                    </div>
+                    <small>{label}</small>
+                    {/* The pill carries the value; printing it again above the
+                        pill just doubled every tile's text. */}
                     <StatusPill value={value ?? "pending"} />
                   </Card>
                 ))}
               </section>
-              <div className="overview-grid">
+              <div className="grid grid-cols-[minmax(0,_0.8fr)_minmax(0,_1.2fr)] gap-4 to-820:grid-cols-[1fr]">
                 <Card>
-                  <div className="card__header card__header--inside">
+                  <CardHeader>
                     <div>
-                      <span className="eyebrow">Release</span>
+                      <Eyebrow>Release</Eyebrow>
                       <h2>Immutable artifact</h2>
                     </div>
-                  </div>
-                  <dl className="detail-list">
+                  </CardHeader>
+                  <DetailList>
                     <div>
                       <dt>Image</dt>
                       <dd>
+                        {/* A digest is not something an operator can retype;
+                            it always ships with a copy affordance. */}
                         <code>
                           {deployment.data.image ??
                             deployment.data.source?.reference ??
                             "Not reported"}
                         </code>
+                        {(deployment.data.image ??
+                        deployment.data.source?.reference) ? (
+                          <CopyButton
+                            value={
+                              deployment.data.image ??
+                              deployment.data.source?.reference ??
+                              ""
+                            }
+                            label="Copy image reference"
+                          />
+                        ) : null}
                       </dd>
                     </div>
                     <div>
@@ -378,21 +401,21 @@ export function ApplicationPage() {
                       <dt>Updated</dt>
                       <dd>{formatDate(deployment.data.updatedAt)}</dd>
                     </div>
-                  </dl>
+                  </DetailList>
                 </Card>
                 <Card>
-                  <div className="card__header card__header--inside">
+                  <CardHeader>
                     <div>
-                      <span className="eyebrow">Recent activity</span>
+                      <Eyebrow>Recent activity</Eyebrow>
                       <h2>Delivery timeline</h2>
                     </div>
                     <button
-                      className="text-link"
+                      className="inline-flex items-center gap-1.5 py-0.5 px-0 border-0 rounded-sm text-mint-dark bg-transparent cursor-pointer text-meta font-medium whitespace-nowrap hover:underline hover:underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[3px] [&_svg]:w-3.5 [&_svg]:h-3.5 pointer-coarse:inline-flex pointer-coarse:min-h-8 pointer-coarse:items-center"
                       onClick={() => setTab("releases")}
                     >
                       All releases <Icon name="arrow" />
                     </button>
-                  </div>
+                  </CardHeader>
                   <OperationTimeline
                     operations={relatedOperations.slice(0, 4)}
                     empty="No operation has been correlated with this App runtime yet."
@@ -401,8 +424,8 @@ export function ApplicationPage() {
               </div>
             </div>
           ) : null}
-          {tab === "config" ? (
-            <Card className="card--flush">
+          {activeTab === "config" ? (
+            <Card flush>
               <ConfigEditor
                 key={deployment.data.id}
                 deployment={deployment.data}
@@ -410,7 +433,7 @@ export function ApplicationPage() {
               />
             </Card>
           ) : null}
-          {tab === "variables" ? (
+          {activeTab === "variables" ? (
             <RuntimeSecretsPanel
               key={application.data.id}
               application={application.data}
@@ -421,7 +444,7 @@ export function ApplicationPage() {
               humanSession={me.data?.authentication.kind === "session"}
             />
           ) : null}
-          {tab === "certificates" ? (
+          {activeTab === "certificates" ? (
             <CertificateBindingsPanel
               key={application.data.id}
               application={application.data}
@@ -432,7 +455,7 @@ export function ApplicationPage() {
               humanSession={me.data?.authentication.kind === "session"}
             />
           ) : null}
-          {tab === "helm" && helmEnvironment ? (
+          {activeTab === "helm" && helmEnvironment ? (
             <HelmApplicationsPanel
               key={`${application.data.id}:${helmEnvironment.id}`}
               application={application.data}
@@ -444,14 +467,14 @@ export function ApplicationPage() {
               humanSession={me.data?.authentication.kind === "session"}
             />
           ) : null}
-          {tab === "releases" ? (
+          {activeTab === "releases" ? (
             <Card>
-              <div className="card__header card__header--inside">
+              <CardHeader>
                 <div>
-                  <span className="eyebrow">History</span>
+                  <Eyebrow>History</Eyebrow>
                   <h2>Operations & releases</h2>
                 </div>
-              </div>
+              </CardHeader>
               <OperationTimeline
                 operations={relatedOperations}
                 empty="No release operations are indexed for this App runtime."
@@ -470,7 +493,7 @@ export function ApplicationPage() {
               ) : null}
             </Card>
           ) : null}
-          {tab === "artifacts" ? (
+          {activeTab === "artifacts" ? (
             <RegistryPanel
               key={application.data.id}
               application={application.data}
@@ -481,17 +504,17 @@ export function ApplicationPage() {
               humanSession={me.data?.authentication.kind === "session"}
             />
           ) : null}
-          {tab === "logs" ? (
+          {activeTab === "logs" ? (
             <LogsPanel
               applicationId={applicationId}
               deploymentId={deploymentId}
             />
           ) : null}
-          {tab === "metrics" ? (
+          {activeTab === "metrics" ? (
             <MetricsPanel deploymentId={deploymentId} />
           ) : null}
         </>
       ) : null}
-    </div>
+    </Page>
   );
 }

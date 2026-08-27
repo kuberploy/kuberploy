@@ -7,7 +7,15 @@ import type {
   DeploymentRouteInput,
   Operation,
 } from "../api/types";
-import { Button, EmptyState, ErrorPanel, Field } from "./ui";
+import {
+  Button,
+  EmptyState,
+  ErrorPanel,
+  Field,
+  FormGrid,
+  Notice,
+  buttonVariants,
+} from "./ui";
 import { Icon } from "./Icon";
 
 type PromotionCommand = {
@@ -35,7 +43,19 @@ export function BuildPromotionPanel({
     queryFn: api.environments,
     enabled: attempt.state === "succeeded" && humanSession,
   });
-  const [environmentId, setEnvironmentId] = useState("");
+  // The picked environment is a preference; the effective one is derived from
+  // the environments this project exposes in this render.
+  const [environmentChoice, setEnvironmentId] = useState("");
+  const environmentId =
+    environmentChoice &&
+    (!environments.data ||
+      environments.data.items.some(
+        (environment) =>
+          environment.projectId === attempt.projectId &&
+          environment.id === environmentChoice,
+      ))
+      ? environmentChoice
+      : "";
   const [replicas, setReplicas] = useState(1);
   const [port, setPort] = useState(8080);
   const [routeMode, setRouteMode] =
@@ -59,19 +79,6 @@ export function BuildPromotionPanel({
     environments.data?.items.filter(
       (item) => item.projectId === attempt.projectId,
     ) ?? [];
-  useEffect(() => {
-    if (
-      environmentId &&
-      environments.data &&
-      !environments.data.items.some(
-        (environment) =>
-          environment.projectId === attempt.projectId &&
-          environment.id === environmentId,
-      )
-    ) {
-      setEnvironmentId("");
-    }
-  }, [attempt.projectId, environmentId, environments.data]);
   const mutation = useMutation({
     mutationFn: (command: PromotionCommand) => {
       let route: DeploymentRouteInput | undefined;
@@ -115,16 +122,6 @@ export function BuildPromotionPanel({
       setAccepted(operation);
     },
   });
-  useEffect(() => {
-    setEnvironmentId("");
-    setReplicas(1);
-    setPort(8080);
-    setRouteMode("internal");
-    setHostname("");
-    setAccepted(undefined);
-    promotionAttempt.current = null;
-    mutation.reset();
-  }, [attempt.id]);
 
   const promote = () => {
     const signature = JSON.stringify({
@@ -184,7 +181,7 @@ export function BuildPromotionPanel({
   }
   if (accepted) {
     return (
-      <div className="notice notice--success" role="status">
+      <Notice tone="success" role="status">
         <div>
           <strong>Promotion accepted</strong>
           <p>
@@ -193,17 +190,17 @@ export function BuildPromotionPanel({
           </p>
         </div>
         <Link
-          className="button button--secondary"
+          className={buttonVariants({ variant: "secondary" })}
           to="/operations/$operationId"
           params={{ operationId: accepted.id }}
         >
           Open operation <Icon name="arrow" />
         </Link>
-      </div>
+      </Notice>
     );
   }
   return (
-    <div className="form-grid">
+    <FormGrid>
       <Field label="Environment" required>
         <select
           value={environmentId}
@@ -276,6 +273,6 @@ export function BuildPromotionPanel({
           <Icon name="deploy" /> Promote verified build
         </Button>
       </div>
-    </div>
+    </FormGrid>
   );
 }

@@ -57,6 +57,7 @@ describe("RegistryPullCredentialsPanel", () => {
     render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",
@@ -126,6 +127,7 @@ describe("RegistryPullCredentialsPanel", () => {
     render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",
@@ -192,6 +194,7 @@ describe("RegistryPullCredentialsPanel", () => {
     const view = render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",
@@ -215,6 +218,7 @@ describe("RegistryPullCredentialsPanel", () => {
     view.rerender(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-2:application-2"
           application={{
             id: "application-2",
             projectId: "project-2",
@@ -267,6 +271,7 @@ describe("RegistryPullCredentialsPanel", () => {
     render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",
@@ -344,6 +349,7 @@ describe("RegistryPullCredentialsPanel", () => {
     render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",
@@ -386,6 +392,7 @@ describe("RegistryPullCredentialsPanel", () => {
     render(
       <QueryClientProvider client={client}>
         <RegistryPullCredentialsPanel
+          key="project-1:application-1"
           application={{
             id: "application-1",
             projectId: "project-1",

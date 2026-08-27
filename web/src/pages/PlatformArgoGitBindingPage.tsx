@@ -6,9 +6,16 @@ import { Icon } from "../components/Icon";
 import {
   Button,
   Card,
+  CardHeader,
+  DetailList,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  FormCard,
+  FormGrid,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
@@ -62,21 +69,20 @@ export function PlatformArgoGitBindingPage() {
     enabled: canSelectAuthority,
     retry: false,
   });
-  const [installationId, setInstallationId] = useState("");
-  const [repositoryId, setRepositoryId] = useState("");
+  // Picked ids are preferences; the effective selection is derived from the
+  // list that is loaded right now, in the same render.
+  const [installationChoice, setInstallationId] = useState("");
+  const [repositoryChoice, setRepositoryId] = useState("");
   const [targetRef, setTargetRef] = useState("main");
   const [confirmed, setConfirmed] = useState(false);
   const [validationError, setValidationError] = useState("");
   const createAttempt = useRef<{ signature: string; key: string } | null>(null);
 
-  useEffect(() => {
-    if (
-      installationId === "" ||
-      !installations.data?.items.some((item) => item.id === installationId)
-    ) {
-      setInstallationId(installations.data?.items[0]?.id ?? "");
-    }
-  }, [installationId, installations.data]);
+  const installationId = installations.data?.items.some(
+    (item) => item.id === installationChoice,
+  )
+    ? installationChoice
+    : (installations.data?.items[0]?.id ?? "");
 
   const repositories = useQuery({
     queryKey: ["github-installation-repositories", installationId],
@@ -92,14 +98,11 @@ export function PlatformArgoGitBindingPage() {
     [repositories.data],
   );
 
-  useEffect(() => {
-    if (
-      repositoryId === "" ||
-      !activeRepositories.some((item) => item.id === repositoryId)
-    ) {
-      setRepositoryId(activeRepositories[0]?.id ?? "");
-    }
-  }, [activeRepositories, repositoryId]);
+  const repositoryId = activeRepositories.some(
+    (item) => item.id === repositoryChoice,
+  )
+    ? repositoryChoice
+    : (activeRepositories[0]?.id ?? "");
 
   const create = useMutation({
     mutationFn: ({
@@ -151,7 +154,7 @@ export function PlatformArgoGitBindingPage() {
   };
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow="Platform settings"
         title="Argo Git authority"
@@ -187,16 +190,16 @@ export function PlatformArgoGitBindingPage() {
         </Card>
       ) : binding.data ? (
         <Card>
-          <div className="card__header">
+          <CardHeader bar>
             <div>
-              <span className="eyebrow">Immutable authority</span>
+              <Eyebrow>Immutable authority</Eyebrow>
               <h2>
                 {binding.data.repository.owner}/{binding.data.repository.name}
               </h2>
             </div>
             <StatusPill value={binding.data.state} />
-          </div>
-          <dl className="detail-list">
+          </CardHeader>
+          <DetailList>
             <div>
               <dt>Installation-scoped path</dt>
               <dd>
@@ -228,8 +231,8 @@ export function PlatformArgoGitBindingPage() {
               <dt>Updated</dt>
               <dd>{formatDate(binding.data.updatedAt)}</dd>
             </div>
-          </dl>
-          <div className="notice" role="status">
+          </DetailList>
+          <Notice role="status">
             <div>
               <strong>
                 {argoReady
@@ -242,7 +245,7 @@ export function PlatformArgoGitBindingPage() {
                   : "Capability stays disabled until repository credentials, the root Application, protected desired-state materialization, and exact Kubernetes observations are ready."}
               </p>
             </div>
-          </div>
+          </Notice>
         </Card>
       ) : isStatus(binding.error, 503) ? (
         <Card>
@@ -258,10 +261,10 @@ export function PlatformArgoGitBindingPage() {
           onRetry={() => void binding.refetch()}
         />
       ) : (
-        <Card className="form-card">
-          <div className="card__header">
+        <FormCard>
+          <CardHeader bar>
             <div>
-              <span className="eyebrow">Create once</span>
+              <Eyebrow>Create once</Eyebrow>
               <h2>Select verified repository authority</h2>
               <p>
                 Only opaque catalog IDs and a branch ref leave this form. Clone
@@ -269,7 +272,7 @@ export function PlatformArgoGitBindingPage() {
                 not accepted.
               </p>
             </div>
-          </div>
+          </CardHeader>
 
           {installations.error || repositories.error ? (
             <ErrorPanel
@@ -284,7 +287,7 @@ export function PlatformArgoGitBindingPage() {
             />
           ) : null}
 
-          <form className="form-grid" onSubmit={submit}>
+          <FormGrid as="form" onSubmit={submit}>
             <Field label="Verified GitHub App installation" required>
               <select
                 value={installationId}
@@ -345,7 +348,7 @@ export function PlatformArgoGitBindingPage() {
                 disabled={create.isPending}
               />
             </Field>
-            <label className="confirmation-check">
+            <label className="grid grid-cols-[17px_1fr] items-start gap-2 text-ink-soft cursor-pointer text-meta leading-[1.5] [&_input]:w-[15px] [&_input]:min-h-[15px] [&_input]:m-0 [&_input]:accent-mint-dark">
               <input
                 type="checkbox"
                 checked={confirmed}
@@ -358,12 +361,12 @@ export function PlatformArgoGitBindingPage() {
               </span>
             </label>
             {validationError ? (
-              <div className="notice notice--error" role="alert">
+              <Notice tone="error" role="alert">
                 <div>
                   <strong>Review the authority selection</strong>
                   <p>{validationError}</p>
                 </div>
-              </div>
+              </Notice>
             ) : null}
             {create.error ? <ErrorPanel error={create.error} /> : null}
             <Button
@@ -379,9 +382,9 @@ export function PlatformArgoGitBindingPage() {
             >
               <Icon name="route" /> Create immutable authority
             </Button>
-          </form>
-        </Card>
+          </FormGrid>
+        </FormCard>
       )}
-    </div>
+    </Page>
   );
 }

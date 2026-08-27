@@ -21,9 +21,13 @@ import { Icon } from "./Icon";
 import {
   Button,
   Card,
+  CardHeader,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
   Field,
+  MutedCopy,
+  Notice,
   Skeleton,
   StatusPill,
 } from "./ui";
@@ -232,7 +236,10 @@ function PolicyEditor({
     </Field>
   );
   return (
-    <form className="registry-policy-form" onSubmit={submit}>
+    <form
+      className="grid gap-4 p-5 border border-line rounded-panel bg-surface-soft"
+      onSubmit={submit}
+    >
       <Field
         label="Release repository"
         hint="Source builds require the canonical per-project and per-App repository shown by default."
@@ -250,7 +257,7 @@ function PolicyEditor({
           }
         />
       </Field>
-      <div className="registry-policy-grid">
+      <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4 to-900:grid-cols-[1fr]">
         {numberField(
           "keepLastSuccessful",
           "Keep successful releases",
@@ -388,14 +395,6 @@ function CleanupPanel({
       });
     },
   });
-  useEffect(() => {
-    setPlanId("");
-    setConfirmation("");
-    previewAttempt.current = null;
-    executeAttempt.current = null;
-    preview.reset();
-    execute.reset();
-  }, [application.id, target.target.id]);
   const createPreview = () => {
     const signature = JSON.stringify({
       applicationId: application.id,
@@ -435,10 +434,10 @@ function CleanupPanel({
   const plan = status.data ?? preview.data;
   if (!canPreview || !humanSession) return null;
   return (
-    <div className="registry-cleanup-panel">
-      <div className="registry-section-heading">
+    <div className="grid gap-4 pt-6 border-t border-t-line">
+      <div className="flex items-start justify-between gap-5 [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 to-580:items-start to-580:flex-col">
         <div>
-          <span className="eyebrow">Managed lifecycle</span>
+          <Eyebrow>Managed lifecycle</Eyebrow>
           <h3>Fail-closed cleanup preview</h3>
         </div>
         <Button
@@ -450,10 +449,10 @@ function CleanupPanel({
           <Icon name="refresh" /> Create preview
         </Button>
       </div>
-      <p className="muted-copy">
+      <MutedCopy>
         Preview requires fresh, complete inventory, catalog, Git, runtime, and
         operation observations. Execution revalidates the same authorities.
-      </p>
+      </MutedCopy>
       {preview.error ? <ErrorPanel error={preview.error} /> : null}
       {status.error ? (
         <ErrorPanel
@@ -462,15 +461,15 @@ function CleanupPanel({
         />
       ) : null}
       {plan ? (
-        <div className="registry-plan">
-          <div className="registry-plan__heading">
+        <div className="grid gap-4 p-5 border border-line-strong rounded-panel bg-surface-soft">
+          <div className="flex items-start justify-between gap-5 [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&_code]:overflow-hidden [&_code]:text-ellipsis to-580:items-start to-580:flex-col">
             <div>
               <small>Plan ID</small>
               <code>{plan.id}</code>
             </div>
             <StatusPill value={plan.state} />
           </div>
-          <dl className="registry-summary-grid">
+          <dl className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-px m-0 overflow-hidden border border-line rounded-panel bg-line [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&>div]:py-4 [&>div]:px-4 [&>div]:bg-surface [&_dt]:text-[0.76rem] [&_dd]:m-0 [&_dd]:font-semibold [&_dd]:break-words to-900:grid-cols-[repeat(2,_minmax(0,_1fr))] to-580:grid-cols-[1fr]">
             <div>
               <dt>Protected manifests</dt>
               <dd>{plan.summary.protectedManifests}</dd>
@@ -489,16 +488,16 @@ function CleanupPanel({
             </div>
           </dl>
           {plan.failure ? (
-            <div className="notice notice--error" role="alert">
+            <Notice tone="error" role="alert">
               <div>
                 <strong>Cleanup failed</strong>
                 <p>{plan.failure}</p>
               </div>
-            </div>
+            </Notice>
           ) : null}
           {plan.state === "preview" && canExecute ? (
             <form
-              className="registry-confirmation"
+              className="grid gap-4 pt-4 border-t border-t-line [&_[data-slot='button']]:justify-self-start"
               onSubmit={(event) => {
                 event.preventDefault();
                 if (confirmation === plan.id) executePlan(plan);
@@ -540,13 +539,15 @@ function CleanupPanel({
 function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
   return (
     <>
-      <div className="registry-section-heading">
+      <div className="flex items-start justify-between gap-5 [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 to-580:items-start to-580:flex-col">
         <div>
-          <span className="eyebrow">Release inventory</span>
+          <Eyebrow>Release inventory</Eyebrow>
           <h3>Availability</h3>
         </div>
         {target.releasesTruncated ? (
-          <span className="placeholder-badge">Most recent 50</span>
+          <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
+            Most recent 50
+          </span>
         ) : null}
       </div>
       {target.releases.length === 0 ? (
@@ -557,8 +558,8 @@ function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
           description="No release records have been observed for this service and target."
         />
       ) : (
-        <div className="table-wrap">
-          <table className="data-table registry-table">
+        <div className="overflow-x-auto mt-4 border border-line rounded-lg [&>table]:w-full [&>table]:border-collapse">
+          <table className="[&_code]:whitespace-nowrap">
             <thead>
               <tr>
                 <th>Digest</th>
@@ -587,13 +588,15 @@ function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
         </div>
       )}
 
-      <div className="registry-section-heading registry-section-heading--spaced">
+      <div className="flex items-start justify-between gap-5 [&_h3]:mt-1 [&_h3]:mx-0 [&_h3]:mb-0 to-580:items-start to-580:flex-col mt-1">
         <div>
-          <span className="eyebrow">Build cache</span>
+          <Eyebrow>Build cache</Eyebrow>
           <h3>Generation availability</h3>
         </div>
         {target.cacheGenerationsTruncated ? (
-          <span className="placeholder-badge">Most recent 50</span>
+          <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
+            Most recent 50
+          </span>
         ) : null}
       </div>
       {target.cacheGenerations.length === 0 ? (
@@ -604,8 +607,8 @@ function InventoryTable({ target }: { target: ApplicationRegistryTarget }) {
           description="No build-cache generation metadata has been observed."
         />
       ) : (
-        <div className="table-wrap">
-          <table className="data-table registry-table">
+        <div className="overflow-x-auto mt-4 border border-line rounded-lg [&>table]:w-full [&>table]:border-collapse">
+          <table className="[&_code]:whitespace-nowrap">
             <thead>
               <tr>
                 <th>Generation</th>
@@ -660,10 +663,10 @@ function RegistryTargetCard({
     project,
   );
   return (
-    <Card className="registry-service-card">
-      <div className="card__header card__header--inside">
+    <Card className="grid gap-6">
+      <CardHeader>
         <div>
-          <span className="eyebrow">{item.target.mode} target</span>
+          <Eyebrow>{item.target.mode} target</Eyebrow>
           <h2>{item.target.name}</h2>
           <p>
             <code>{item.target.endpoint}</code> · {item.policy.repository}
@@ -675,8 +678,8 @@ function RegistryTargetCard({
             item.inventory?.complete ? "Inventory complete" : "Unavailable"
           }
         />
-      </div>
-      <dl className="registry-summary-grid">
+      </CardHeader>
+      <dl className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-px m-0 overflow-hidden border border-line rounded-panel bg-line [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&>div]:py-4 [&>div]:px-4 [&>div]:bg-surface [&_dt]:text-[0.76rem] [&_dd]:m-0 [&_dd]:font-semibold [&_dd]:break-words to-900:grid-cols-[repeat(2,_minmax(0,_1fr))] to-580:grid-cols-[1fr]">
         <div>
           <dt>Successful releases retained</dt>
           <dd>{item.policy.keepLastSuccessful}</dd>
@@ -707,7 +710,7 @@ function RegistryTargetCard({
         </div>
       </dl>
       {!item.inventory ? (
-        <div className="notice">
+        <Notice>
           <div>
             <strong>Registry inventory unavailable</strong>
             <p>
@@ -715,10 +718,10 @@ function RegistryTargetCard({
               the observer has no complete snapshot.
             </p>
           </div>
-        </div>
+        </Notice>
       ) : null}
       {canWritePolicy && humanSession ? (
-        <div className="registry-policy-toggle">
+        <div className="grid gap-4">
           <Button
             variant="secondary"
             onClick={() => setEditingPolicy((current) => !current)}
@@ -826,7 +829,7 @@ export function RegistryPanel({
     );
   }
   return (
-    <div className="registry-service-list">
+    <div className="grid gap-4">
       {inventory.data?.items.length === 0 ? (
         <Card>
           <EmptyState
@@ -851,12 +854,12 @@ export function RegistryPanel({
 
       {canWritePolicy && canReadTargets && humanSession ? (
         <Card>
-          <div className="card__header card__header--inside">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Application policy</span>
+              <Eyebrow>Application policy</Eyebrow>
               <h2>Attach an approved target</h2>
             </div>
-          </div>
+          </CardHeader>
           {targets.error ? (
             <ErrorPanel
               error={targets.error}
@@ -864,9 +867,9 @@ export function RegistryPanel({
             />
           ) : null}
           {attachableTargets.length === 0 ? (
-            <p className="muted-copy">
+            <MutedCopy>
               Every configured target is already attached to this application.
-            </p>
+            </MutedCopy>
           ) : (
             <>
               <Field label="Registry target" required>

@@ -7,7 +7,16 @@ import type {
   BuildLogStreamEvent,
 } from "../api/types";
 import { formatDate, shortId } from "../lib/format";
-import { Card, EmptyState, PlaceholderBadge, Skeleton } from "./ui";
+import {
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  Eyebrow,
+  PlaceholderBadge,
+  Skeleton,
+  buttonVariants,
+} from "./ui";
 
 const tailChoices = [100, 200, 500, 1_000] as const;
 const lookbackChoices = [
@@ -78,14 +87,6 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
       }),
     retry: false,
   });
-
-  useEffect(() => {
-    setStreamLines([]);
-    setStreamSource(undefined);
-    setDroppedLines(0);
-    setStreamDetail("");
-    setStreamState("idle");
-  }, [attemptId]);
 
   useEffect(() => {
     if (!following) {
@@ -159,22 +160,25 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         : "snapshot";
 
   return (
-    <Card className="build-log-panel">
-      <div className="card__header card__header--inside">
+    <Card className="mb-5">
+      <CardHeader>
         <div>
-          <span className="eyebrow">Verified builder source</span>
+          <Eyebrow>Verified builder source</Eyebrow>
           <h2>Build logs</h2>
         </div>
         <PlaceholderBadge>{displayState}</PlaceholderBadge>
-      </div>
-      <p className="panel-description">
+      </CardHeader>
+      <p className="mt-[-12px] mx-0 mb-5 text-ink-faint text-meta">
         Live and snapshot reads use the immutable attempt identity. Kubernetes
         names, selectors, containers, UIDs, and stored log references remain
         server-owned.
       </p>
 
-      <div className="build-log-controls" aria-label="Build log selectors">
-        <label className="field">
+      <div
+        className="grid grid-cols-[minmax(120px,_160px)_minmax(120px,_160px)_minmax(170px,_1fr)_auto_auto] items-end gap-3 my-4 mx-0 to-760:grid-cols-[1fr]"
+        aria-label="Build log selectors"
+      >
+        <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
           <span>Tail lines</span>
           <select
             value={tailLines}
@@ -188,7 +192,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
             ))}
           </select>
         </label>
-        <label className="field">
+        <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
           <span>Lookback</span>
           <select
             value={lookbackMinutes}
@@ -202,7 +206,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
             ))}
           </select>
         </label>
-        <label className="build-log-previous">
+        <label className="flex items-center gap-2 min-h-[34px] text-ink-soft text-meta">
           <input
             type="checkbox"
             checked={previous}
@@ -212,25 +216,26 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
           Previous agent container
         </label>
         <button
-          className="button button--secondary"
+          className={buttonVariants({ variant: "secondary" })}
           type="button"
           onClick={() => void snapshot.refetch()}
           disabled={following || snapshot.isFetching}
         >
           Refresh snapshot
         </button>
-        <button
-          className={
-            following ? "button button--danger" : "button button--primary"
-          }
+        <Button
+          variant={following ? "danger" : "primary"}
           type="button"
           onClick={() => setFollowing((value) => !value)}
         >
           {following ? "Stop live logs" : "Follow live logs"}
-        </button>
+        </Button>
       </div>
 
-      <div className="build-log-source-status" role="status">
+      <div
+        className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&>div]:py-3 [&>div]:px-3 [&>div]:border [&>div]:border-line [&>div]:rounded-lg [&>div]:bg-surface-soft [&_span]:text-ink-faint [&_span]:text-xs [&_span]:uppercase [&_span]:tracking-[0.08em] [&_code]:break-words [&_code]:text-meta [&_strong]:break-words [&_strong]:text-meta to-760:grid-cols-[1fr]"
+        role="status"
+      >
         <div>
           <span>Opaque source</span>
           <code>{source ? shortId(source.id, 18) : "Not resolved"}</code>
@@ -253,9 +258,13 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         </div>
       </div>
 
-      {streamDetail ? <div className="log-gap">{streamDetail}</div> : null}
+      {streamDetail ? (
+        <div className="!block !py-2 !px-3 text-[#ffd694] bg-[#241f14]">
+          {streamDetail}
+        </div>
+      ) : null}
       {droppedLines > 0 ? (
-        <div className="log-gap">
+        <div className="!block !py-2 !px-3 text-[#ffd694] bg-[#241f14]">
           {droppedLines.toLocaleString()} lines were dropped under client or
           server backpressure. Reload a bounded snapshot for continuity.
         </div>
@@ -273,7 +282,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         />
       ) : lines.length ? (
         <div
-          className="log-viewer build-log-viewer"
+          className="max-h-[560px] overflow-auto py-2 px-0 border border-[#25342e] rounded-[9px] text-[#d5e4dd] bg-[#0c1511] font-mono text-meta [&>div]:grid [&>div]:gap-3 [&>div]:py-1.5 [&>div]:px-3 [&>div]:border-b [&>div]:border-b-[rgba(255,_255,_255,_0.035)] [&_time]:text-ink-soft [&_span]:overflow-hidden [&_span]:text-[#67d4a9] [&_span]:text-ellipsis [&_code]:whitespace-pre-wrap [&_code_em]:text-[#ffd694] [&_code_em]:not-italic to-580:[&>div]:grid-cols-[90px_1fr] to-580:[&_code]:col-[1_/_-1] [&>div]:grid-cols-[150px_minmax(0,_1fr)]"
           role="log"
           aria-live="polite"
         >
@@ -291,7 +300,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
             </div>
           ))}
           {!following && snapshot.data?.truncated ? (
-            <div className="log-gap">
+            <div className="!block !py-2 !px-3 text-[#ffd694] bg-[#241f14]">
               Snapshot truncated at the configured byte limit.
             </div>
           ) : null}

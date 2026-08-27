@@ -11,17 +11,42 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const application = { id: "application-payments", projectId: "project-payments", name: "Valkey", sourceKind: "helm" as const };
-const environment = { id: "environment-production", projectId: "project-payments", name: "Production", namespace: "payments-production" };
-const project = { id: "project-payments", name: "Payments", teamId: "team-commerce" };
-const capabilities: Capability[] = [{ scopeType: "environment", scopeId: environment.id, actions: ["helm.read", "helm.deploy", "helm.retry", "helm.rollback"] }];
+const application = {
+  id: "application-payments",
+  projectId: "project-payments",
+  name: "Valkey",
+  sourceKind: "helm" as const,
+};
+const environment = {
+  id: "environment-production",
+  projectId: "project-payments",
+  name: "Production",
+  namespace: "payments-production",
+};
+const project = {
+  id: "project-payments",
+  name: "Payments",
+  teamId: "team-commerce",
+};
+const capabilities: Capability[] = [
+  {
+    scopeType: "environment",
+    scopeId: environment.id,
+    actions: ["helm.read", "helm.deploy", "helm.retry", "helm.rollback"],
+  },
+];
 const revision: HelmReleaseRevision = {
   id: "22222222-2222-4222-8222-222222222222",
   generation: 1,
   releaseName: "valkey",
   action: "deploy",
   desiredEnabled: true,
-  source: { kind: "git", repositoryUrl: "https://github.com/valkey-io/valkey-helm.git", targetRevision: "main", path: "valkey" },
+  source: {
+    kind: "git",
+    repositoryUrl: "https://github.com/valkey-io/valkey-helm.git",
+    targetRevision: "main",
+    path: "valkey",
+  },
   valuesYaml: "replicaCount: 1\n",
   valuesDigest: `sha256:${"a".repeat(64)}`,
   state: "applied",
@@ -31,10 +56,20 @@ const revision: HelmReleaseRevision = {
 };
 
 function renderPanel() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   render(
     <QueryClientProvider client={client}>
-      <HelmApplicationsPanel application={application} environment={environment} project={project} capabilities={capabilities} featureEnabled rollbackFeatureEnabled humanSession />
+      <HelmApplicationsPanel
+        application={application}
+        environment={environment}
+        project={project}
+        capabilities={capabilities}
+        featureEnabled
+        rollbackFeatureEnabled
+        humanSession
+      />
     </QueryClientProvider>,
   );
 }
@@ -42,8 +77,12 @@ function renderPanel() {
 describe("direct Helm App panel", () => {
   it("edits source and values without an approval step", async () => {
     vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
-    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({ items: [revision] });
-    const save = vi.spyOn(api, "upsertHelmRelease").mockResolvedValue({ revision, replayed: false });
+    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({
+      items: [revision],
+    });
+    const save = vi
+      .spyOn(api, "upsertHelmRelease")
+      .mockResolvedValue({ revision, replayed: false });
     renderPanel();
     expect(await screen.findByText("Helm source")).toBeVisible();
     expect(screen.queryByText(/approval/i)).not.toBeInTheDocument();
@@ -52,14 +91,21 @@ describe("direct Helm App panel", () => {
     await userEvent.type(editor, "replicaCount: 2");
     await userEvent.click(screen.getByRole("button", { name: "Update App" }));
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
-    expect(save.mock.calls[0]?.[2]).toMatchObject({ source: revision.source, valuesYaml: "replicaCount: 2" });
+    expect(save.mock.calls[0]?.[2]).toMatchObject({
+      source: revision.source,
+      valuesYaml: "replicaCount: 2",
+    });
   });
 
   it("uses a shadcn confirmation dialog for disable", async () => {
     vi.spyOn(api, "helmRelease").mockResolvedValue(revision);
-    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({ items: [revision] });
+    vi.spyOn(api, "helmReleaseHistory").mockResolvedValue({
+      items: [revision],
+    });
     renderPanel();
-    await userEvent.click(await screen.findByRole("button", { name: "Disable App" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Disable App" }),
+    );
     expect(screen.getByRole("alertdialog")).toBeVisible();
   });
 });

@@ -9,11 +9,17 @@ import { BuildPromotionPanel } from "../components/BuildPromotionPanel";
 import { Icon } from "../components/Icon";
 import {
   Card,
+  CardHeader,
+  DetailList,
   EmptyState,
   ErrorPanel,
+  Eyebrow,
+  Notice,
+  Page,
   PageHeader,
   Skeleton,
   StatusPill,
+  buttonVariants,
 } from "../components/ui";
 import {
   hasBuildApplicationCapability,
@@ -104,16 +110,16 @@ export function BuildDetailPage() {
 
   if (capabilities.isPending || me.isPending) {
     return (
-      <div className="page">
+      <Page>
         <Card>
           <Skeleton lines={9} />
         </Card>
-      </div>
+      </Page>
     );
   }
   if (!buildsEnabled && !buildLogsEnabled) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader eyebrow="Delivery" title="Build detail" />
         <Card>
           <EmptyState
@@ -122,12 +128,12 @@ export function BuildDetailPage() {
             description="The build runtime is capability-gated and this installation is not advertising it."
           />
         </Card>
-      </div>
+      </Page>
     );
   }
   if (!potentialAccess) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader eyebrow="Delivery" title="Build detail" />
         <Card>
           <EmptyState
@@ -136,12 +142,12 @@ export function BuildDetailPage() {
             description="A coarse action union or an environment-only grant does not authorize application-wide build metadata."
           />
         </Card>
-      </div>
+      </Page>
     );
   }
   if (loadError) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader eyebrow="Delivery" title="Build detail" />
         <ErrorPanel
           error={loadError}
@@ -153,21 +159,21 @@ export function BuildDetailPage() {
             ])
           }
         />
-      </div>
+      </Page>
     );
   }
   if (attempt.isPending || application.isPending || projects.isPending) {
     return (
-      <div className="page">
+      <Page>
         <Card>
           <Skeleton lines={9} />
         </Card>
-      </div>
+      </Page>
     );
   }
   if (!attempt.data || !application.data || !project || !canRead) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader eyebrow="Delivery" title="Build detail" />
         <Card>
           <EmptyState
@@ -176,26 +182,29 @@ export function BuildDetailPage() {
             description="The attempt, application, and project ancestry must match one effective builds.read grant."
           />
         </Card>
-      </div>
+      </Page>
     );
   }
 
   const currentAttempt = attempt.data;
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         eyebrow={`${project.name} / ${application.data.name}`}
         title={`Build ${shortId(currentAttempt.id, 12)}`}
         description="Safe, bounded attempt metadata from the isolated builder boundary."
         actions={
-          <Link className="button button--secondary" to="/builds">
+          <Link
+            className={buttonVariants({ variant: "secondary" })}
+            to="/builds"
+          >
             <Icon name="chevron" /> Back to builds
           </Link>
         }
       />
 
       {retriedAttempt ? (
-        <div className="notice notice--success" role="status">
+        <Notice tone="success" role="status">
           <div>
             <strong>Immutable retry queued</strong>
             <p>
@@ -204,33 +213,33 @@ export function BuildDetailPage() {
             </p>
           </div>
           <Link
-            className="button button--secondary"
+            className={buttonVariants({ variant: "secondary" })}
             to="/builds/$buildId"
             params={{ buildId: retriedAttempt.id }}
           >
             Open retry
           </Link>
-        </div>
+        </Notice>
       ) : null}
 
-      <section className="build-detail-hero">
+      <section className="flex items-center justify-between gap-6 mb-5 p-6 rounded-panel text-ink border border-line bg-surface shadow-panel [&_h2]:my-1.5 [&_h2]:mx-0 [&_h2]:text-lg [&_code]:text-ink-soft [&_code]:text-meta [&_code]:break-words to-760:items-start to-760:flex-col">
         <div>
-          <span className="eyebrow eyebrow--light">Attempt state</span>
+          <Eyebrow className="text-[#6de7b8]">Attempt state</Eyebrow>
           <h2>{gitRefLabel(currentAttempt.gitRef)}</h2>
           <code>{currentAttempt.commitSha}</code>
         </div>
         <StatusPill value={currentAttempt.state} />
       </section>
 
-      <div className="build-detail-grid">
+      <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-5 mb-5 to-760:grid-cols-[1fr]">
         <Card>
-          <div className="card__header card__header--inside">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Execution</span>
+              <Eyebrow>Execution</Eyebrow>
               <h2>Attempt metadata</h2>
             </div>
-          </div>
-          <dl className="detail-list">
+          </CardHeader>
+          <DetailList>
             <div>
               <dt>Attempt ID</dt>
               <dd>
@@ -270,18 +279,18 @@ export function BuildDetailPage() {
               <dt>Failure</dt>
               <dd>{currentAttempt.failureCode ?? "None"}</dd>
             </div>
-          </dl>
+          </DetailList>
         </Card>
 
         <Card>
-          <div className="card__header card__header--inside">
+          <CardHeader>
             <div>
-              <span className="eyebrow">Artifact</span>
+              <Eyebrow>Artifact</Eyebrow>
               <h2>Registry result</h2>
             </div>
-          </div>
+          </CardHeader>
           {currentAttempt.image ? (
-            <dl className="detail-list">
+            <DetailList>
               <div>
                 <dt>Reference</dt>
                 <dd>
@@ -308,7 +317,7 @@ export function BuildDetailPage() {
                 <dt>Warnings</dt>
                 <dd>{currentAttempt.warnings?.join(", ") || "None"}</dd>
               </div>
-            </dl>
+            </DetailList>
           ) : (
             <EmptyState
               icon="layers"
@@ -320,9 +329,9 @@ export function BuildDetailPage() {
         </Card>
       </div>
 
-      <Card className="build-detail-command-card">
+      <Card className="[&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-base flex items-start justify-between gap-6 to-760:items-start to-760:flex-col">
         <div>
-          <span className="eyebrow">Verified release</span>
+          <Eyebrow>Verified release</Eyebrow>
           <h2>Promote to an environment</h2>
           <p>
             Select only the intended App target. Application, project,
@@ -342,7 +351,7 @@ export function BuildDetailPage() {
       </Card>
 
       {buildLogsEnabled && canReadLogs ? (
-        <BuildLogsPanel attemptId={currentAttempt.id} />
+        <BuildLogsPanel key={currentAttempt.id} attemptId={currentAttempt.id} />
       ) : (
         <Card>
           <EmptyState
@@ -363,9 +372,9 @@ export function BuildDetailPage() {
       )}
 
       {builderEnabled ? (
-        <Card className="build-detail-command-card">
+        <Card className="[&_p]:mt-1.5 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-meta [&_p]:leading-[1.5] [&_h2]:mt-1 [&_h2]:mx-0 [&_h2]:mb-0 [&_h2]:text-base flex items-start justify-between gap-6 to-760:items-start to-760:flex-col">
           <div>
-            <span className="eyebrow">High-risk command</span>
+            <Eyebrow>High-risk command</Eyebrow>
             <h2>Attempt controls</h2>
             <p>
               Commands require an exact effective application permission and a
@@ -373,7 +382,7 @@ export function BuildDetailPage() {
             </p>
           </div>
           <BuildAttemptActions
-            key={currentAttempt.id}
+            key={`${application.data.id}:${currentAttempt.id}`}
             attempt={currentAttempt}
             application={application.data}
             project={project}
@@ -389,13 +398,13 @@ export function BuildDetailPage() {
           />
         </Card>
       ) : (
-        <div className="notice notice--warning">
+        <Notice tone="warning">
           <div>
             <strong>Builder runtime unavailable</strong>
             <p>Attempt metadata is readable; cancel and retry stay disabled.</p>
           </div>
-        </div>
+        </Notice>
       )}
-    </div>
+    </Page>
   );
 }
