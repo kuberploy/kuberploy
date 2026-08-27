@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Source builds always receive unported RFC1918 egress for single-node private registry routes while the namespace default-deny policy remains optional, allowing starter installations to build, cache, and push through node-local ingress DNAT.",
+  "summary": "Empty Environments can be deleted after an unpublished foundation publication fails, while previously published foundation manifests still receive exact protected-Git cleanup.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.391"
+  "version": "0.1.0-rc.392"
 }
