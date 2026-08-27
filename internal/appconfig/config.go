@@ -20,6 +20,9 @@ import (
 	appschema "github.com/kuberploy/kuberploy/schema"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 )
 
 const (
@@ -286,6 +289,10 @@ func validateResourceOverrides(spec map[string]any, runtime domain.WorkloadRunti
 			continue
 		}
 		root := "/spec/overrides/" + resource
+		if problem := validateTypedResourceOverride(resource, override, root); problem != nil {
+			diagnostics = append(diagnostics, *problem)
+			continue
+		}
 		if resource == "deployment" && runtime.WorkloadType == "StatefulSet" && len(override) > 0 {
 			diagnostics = append(diagnostics, Diagnostic{Code: "OverrideResourceMismatch", Detail: "Deployment overrides are unavailable while the App workload type is StatefulSet.", Pointer: root})
 		}
@@ -315,6 +322,32 @@ func validateResourceOverrides(spec map[string]any, runtime domain.WorkloadRunti
 		}
 	}
 	return diagnostics
+}
+
+func validateTypedResourceOverride(resource string, override map[string]any, root string) *Diagnostic {
+	var target any
+	switch resource {
+	case "deployment":
+		target = &appsv1.Deployment{}
+	case "service":
+		target = &corev1.Service{}
+	case "ingress":
+		target = &networkingv1.Ingress{}
+	case "serviceAccount":
+		target = &corev1.ServiceAccount{}
+	default:
+		return &Diagnostic{Code: "InvalidResourceOverride", Detail: "The advanced resource kind is unsupported.", Pointer: root}
+	}
+	raw, err := json.Marshal(override)
+	if err == nil {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.DisallowUnknownFields()
+		err = decoder.Decode(target)
+	}
+	if err == nil {
+		return nil
+	}
+	return &Diagnostic{Code: "InvalidResourceOverride", Detail: bounded(err.Error(), 512), Pointer: root}
 }
 
 func validateOverridePodTemplate(spec map[string]any, root string) []Diagnostic {

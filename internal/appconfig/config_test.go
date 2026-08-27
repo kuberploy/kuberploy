@@ -120,6 +120,31 @@ func TestAppConfigAcceptsAdvancedResourceOverrides(t *testing.T) {
 	}
 }
 
+func TestAppConfigRejectsInvalidKubernetesResourceOverrideFields(t *testing.T) {
+	tests := map[string]struct {
+		fragment string
+		pointer  string
+	}{
+		"wrong scalar type": {fragment: `    deployment:
+      spec:
+        replicas: not-an-integer
+`, pointer: "/spec/overrides/deployment"},
+		"unknown field": {fragment: `    service:
+      spec:
+        sessionAffinitty: ClientIP
+`, pointer: "/spec/overrides/service"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			raw := strings.Replace(string(validConfig(t)), "  runtime:\n", "  overrides:\n"+test.fragment+"  runtime:\n", 1)
+			_, _, diagnostics := appconfig.ParseAndValidate([]byte(raw))
+			if !hasDiagnostic(diagnostics, "InvalidResourceOverride", test.pointer) {
+				t.Fatalf("invalid Kubernetes override accepted: %#v", diagnostics)
+			}
+		})
+	}
+}
+
 func TestAppConfigRejectsOverridesThatEscapeOwnedIdentity(t *testing.T) {
 	for name, fragment := range map[string]string{
 		"owned label": `    serviceAccount:
