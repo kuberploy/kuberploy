@@ -776,7 +776,7 @@ func (s *Store) CompleteGitOperation(ctx context.Context, operationID string, ge
 			return err
 		}
 		if commandAction == string(gitprojection.MutationDelete) && publicationMode == string(gitpublication.ModeDirect) {
-			if _, err = tx.Exec(ctx, `UPDATE environment_app_placements p SET desired_state='stopped',updated_at=$2
+			if _, err = tx.Exec(ctx, `UPDATE environment_app_placements p SET state='draft',desired_state='stopped',updated_at=$2
 				FROM deployments d WHERE d.id=$1 AND p.environment_id=d.environment_id AND p.application_id=d.application_id`, targetID, now); err != nil {
 				return err
 			}

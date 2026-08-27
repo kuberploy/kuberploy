@@ -7,6 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
 	"github.com/kuberploy/kuberploy/internal/gitpublication"
 )
 
@@ -77,77 +78,11 @@ func (s *Store) Publication(ctx context.Context, operationID string) (gitpublica
 }
 
 func (s *Store) CompareAndSwapPublication(ctx context.Context, previous, next gitpublication.Publication) error {
-	if gitpublication.ValidateTransition(previous, next) != nil {
-		return gitpublication.ErrInvalid
-	}
-	tx, err := s.pool.Begin(ctx)
+	projectionStore, err := gitprojection.NewPostgreSQLStore(s.pool)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
-	result, err := tx.Exec(ctx, `UPDATE git_pull_request_publications SET write_base_revision=$3,candidate_revision=$4,pull_request_number=$5,
-		pull_request_url=$6,pull_request_state=$7,merge_revision=$8,target_revision=$9,state=$10,
-		provider_observed_at=$11,updated_at=$12,version=$13 WHERE operation_id=$1 AND version=$2`,
-		previous.OperationID, previous.Version, next.WriteBaseRevision, next.CandidateRevision, next.PullRequestNumber, next.PullRequestURL,
-		next.PullRequestState, next.MergeRevision, next.TargetRevision, next.State, next.ProviderObservedAt,
-		next.UpdatedAt, next.Version)
-	if err != nil {
-		return classifyGitPublicationError(err)
-	}
-	if result.RowsAffected() == 1 {
-		deploymentState := "review-pending"
-		if next.State == gitpublication.StatePullRequestClosed {
-			deploymentState = "review-closed"
-		} else if next.State == gitpublication.StateMergePending || next.State == gitpublication.StateMergeVerified {
-			deploymentState = "merge-pending-index"
-		}
-		if _, err = tx.Exec(ctx, `UPDATE deployments d SET state=$2,updated_at=$3 FROM operations o
-			WHERE o.id=$1 AND d.id=o.target_id AND d.operation_id=o.id AND d.generation=o.generation`, next.OperationID, deploymentState, next.UpdatedAt); err != nil {
-			return classifyGitPublicationError(err)
-		}
-		if next.State == gitpublication.StateMergeVerified {
-			if err = convergeVerifiedPublicationTx(ctx, tx, next); err != nil {
-				return err
-			}
-		}
-		return tx.Commit(ctx)
-	}
-	var exists bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM git_pull_request_publications WHERE operation_id=$1)`, previous.OperationID).Scan(&exists); err != nil {
-		return classifyGitPublicationError(err)
-	}
-	if !exists {
-		return gitpublication.ErrNotFound
-	}
-	return gitpublication.ErrConflict
-}
-
-// convergeVerifiedPublicationTx closes the ordering gap where the exact target
-// document (or an unrelated later descendant containing the same bytes) was
-// activated before the provider could verify the protected merge. Exact path,
-// raw bytes, and digest are required; ancestry is never inferred.
-func convergeVerifiedPublicationTx(ctx context.Context, tx pgx.Tx, publication gitpublication.Publication) error {
-	if publication.State != gitpublication.StateMergeVerified {
-		return nil
-	}
-	_, err := tx.Exec(ctx, `WITH indexed AS (
-		UPDATE git_write_commands c SET state='indexed',committed_revision=$2,committed_at=$3,
-			indexed_generation=b.projection_generation,indexed_at=$3,updated_at=$3
-		FROM git_repository_bindings b,git_projection_generations g,git_projected_documents doc
-		WHERE c.operation_id=$1 AND c.binding_id=$4 AND c.target_ref=$5
-		AND c.publication_mode='pull-request' AND c.state='pending'
-		AND b.id=c.binding_id AND b.state='ready' AND b.target_head_revision=b.indexed_revision
-		AND b.projection_generation>0 AND g.binding_id=b.id AND g.generation=b.projection_generation AND g.state='active'
-		AND doc.binding_id=b.id AND doc.generation=b.projection_generation AND doc.path=c.path
-		AND doc.valid AND doc.content_sha256=c.content_sha256 AND doc.raw=c.content
-		RETURNING c.operation_id,c.deployment_id,c.command_kind,c.indexed_generation,doc.config_revision AS desired_revision
-	)
-	UPDATE deployments d SET state='git-committed',desired_revision=i.desired_revision,updated_at=$3
-	FROM indexed i,operations o
-	WHERE i.command_kind='deployment' AND i.deployment_id IS NOT NULL AND o.id=i.operation_id
-	AND d.id=i.deployment_id AND d.operation_id=i.operation_id AND d.generation=o.generation`,
-		publication.OperationID, publication.TargetRevision, publication.UpdatedAt, publication.BindingID, publication.TargetRef)
-	return classifyGitPublicationError(err)
+	return projectionStore.CompareAndSwapPublication(ctx, previous, next)
 }
 
 func (s *Store) AcceptedGitPublicationMode(ctx context.Context, operationID string) (gitpublication.Mode, error) {

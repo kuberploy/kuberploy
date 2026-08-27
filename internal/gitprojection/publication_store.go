@@ -98,7 +98,7 @@ func convergeVerifiedPublicationTx(ctx context.Context, tx pgx.Tx, publication g
 			indexed_generation=b.projection_generation,indexed_at=$3,updated_at=$3
 		FROM git_repository_bindings b,git_projection_generations g,git_projected_documents doc
 		WHERE c.operation_id=$1 AND c.binding_id=$4 AND c.target_ref=$5
-		AND c.publication_mode='pull-request' AND c.state='pending'
+		AND c.publication_mode='pull-request' AND c.state='pending' AND c.action='upsert'
 		AND b.id=c.binding_id AND b.state='ready' AND b.target_head_revision=b.indexed_revision
 		AND b.projection_generation>0 AND g.binding_id=b.id AND g.generation=b.projection_generation AND g.state='active'
 		AND doc.binding_id=b.id AND doc.generation=b.projection_generation AND doc.path=c.path
@@ -109,6 +109,30 @@ func convergeVerifiedPublicationTx(ctx context.Context, tx pgx.Tx, publication g
 	FROM indexed i,operations o
 	WHERE i.command_kind='deployment' AND i.deployment_id IS NOT NULL AND o.id=i.operation_id
 	AND d.id=i.deployment_id AND d.operation_id=i.operation_id AND d.generation=o.generation`,
+		publication.OperationID, publication.TargetRevision, publication.UpdatedAt, publication.BindingID, publication.TargetRef)
+	if err != nil {
+		return classifyPublicationError(err)
+	}
+	_, err = tx.Exec(ctx, `WITH indexed AS (
+		UPDATE git_write_commands c SET state='indexed',committed_revision=$2,committed_at=$3,
+			indexed_generation=b.projection_generation,indexed_at=$3,updated_at=$3
+		FROM git_repository_bindings b,git_projection_generations g
+		WHERE c.operation_id=$1 AND c.binding_id=$4 AND c.target_ref=$5
+		AND c.publication_mode='pull-request' AND c.state='pending' AND c.action='delete'
+		AND b.id=c.binding_id AND b.state='ready' AND b.target_head_revision=b.indexed_revision
+		AND b.projection_generation>0 AND g.binding_id=b.id AND g.generation=b.projection_generation AND g.state='active'
+		AND NOT EXISTS (SELECT 1 FROM git_projected_documents doc
+			WHERE doc.binding_id=b.id AND doc.generation=b.projection_generation AND doc.path=c.path)
+		RETURNING c.operation_id,c.deployment_id,c.command_kind,c.indexed_generation
+	), stopped AS (
+		UPDATE deployments d SET state='stopped',desired_revision=$2,updated_at=$3
+		FROM indexed i,operations o
+		WHERE i.command_kind='deployment' AND i.deployment_id IS NOT NULL AND o.id=i.operation_id
+		AND d.id=i.deployment_id AND d.operation_id=i.operation_id AND d.generation=o.generation
+		RETURNING d.environment_id,d.application_id
+	)
+	UPDATE environment_app_placements placement SET state='draft',desired_state='stopped',updated_at=$3
+	FROM stopped s WHERE placement.environment_id=s.environment_id AND placement.application_id=s.application_id`,
 		publication.OperationID, publication.TargetRevision, publication.UpdatedAt, publication.BindingID, publication.TargetRef)
 	return classifyPublicationError(err)
 }

@@ -741,7 +741,7 @@ func (s *PostgreSQLStore) ActivateGeneration(ctx context.Context, lease Reconcil
 		AND d.generation=(SELECT generation FROM operations WHERE id=c.operation_id)`, binding.ID, generation.Number, now.UTC()); err != nil {
 		return Binding{}, err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE environment_app_placements placement SET desired_state='stopped',updated_at=$3
+	if _, err = tx.Exec(ctx, `UPDATE environment_app_placements placement SET state='draft',desired_state='stopped',updated_at=$3
 		FROM deployments d,git_write_commands c WHERE c.binding_id=$1 AND c.action='delete' AND c.state='indexed'
 		AND c.indexed_generation=$2 AND d.id=c.deployment_id AND d.state='stopped'
 		AND placement.environment_id=d.environment_id AND placement.application_id=d.application_id`, binding.ID, generation.Number, now.UTC()); err != nil {

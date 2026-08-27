@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/gitpublication"
 )
 
 func TestPostgreSQLProjectionContract(t *testing.T) {
@@ -39,16 +40,18 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 		pgRepository           = "a1000000-0000-4000-8000-000000000008"
 		pgWriteOperation       = "a1000000-0000-4000-8000-000000000009"
 		pgDeployment           = "a1000000-0000-4000-8000-000000000010"
+		pgDeleteOperation      = "a1000000-0000-4000-8000-000000000011"
 		pgProviderInstallation = int64(9_100_000_000_000_101)
 		pgProviderRepository   = int64(9_100_000_000_000_102)
 		pgProviderAccount      = int64(9_100_000_000_000_103)
 		pgProviderApp          = int64(9_100_000_000_000_104)
 	)
 	cleanup := func(cleanupContext context.Context) {
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_pull_request_publications WHERE operation_id=$1`, pgDeleteOperation)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_path_reservations WHERE binding_id=$1`, pgBinding)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_write_commands WHERE operation_id=$1 AND command_kind='deployment'`, pgWriteOperation)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_write_commands WHERE operation_id IN ($1,$2) AND command_kind='deployment'`, pgWriteOperation, pgDeleteOperation)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM deployments WHERE id=$1`, pgDeployment)
-		_, _ = pool.Exec(cleanupContext, `DELETE FROM operations WHERE id=$1`, pgWriteOperation)
+		_, _ = pool.Exec(cleanupContext, `DELETE FROM operations WHERE id IN ($1,$2)`, pgWriteOperation, pgDeleteOperation)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_verified_head_observations WHERE binding_id=$1`, pgBinding)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM git_repository_bindings WHERE id=$1`, pgBinding)
 		_, _ = pool.Exec(cleanupContext, `DELETE FROM github_repositories WHERE id=$1`, pgRepository)
@@ -328,6 +331,114 @@ func TestPostgreSQLProjectionContract(t *testing.T) {
 	}
 	if desiredRevision != parentHead {
 		t.Fatalf("parent VariableSet activation left deployment desired revision=%q want=%q", desiredRevision, parentHead)
+	}
+	if err = store.FinishReconciliation(ctx, parentWork.Lease, gitprojection.ReconciliationOutcome{LastCommit: parentHead,
+		NextPollAt: testStart.Add(time.Hour)}, testStart.Add(13*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// The provider can verify a protected delete after the exact deletion head
+	// is already active. Receipt convergence must stop the deployment without
+	// waiting for a different repository head to trigger another generation.
+	stopAt := testStart.Add(14 * time.Second)
+	if _, err = pool.Exec(ctx, `INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,created_at,updated_at)
+		VALUES($1,'deployment.git-write','succeeded','deployment',$2,'postgres-protected-delete',2,$3,$3)`, pgDeleteOperation, pgDeployment, stopAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE deployments SET state='merge-pending-index',operation_id=$2,generation=2,updated_at=$3 WHERE id=$1`, pgDeployment, pgDeleteOperation, stopAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO environment_app_placements(project_id,environment_id,application_id,state,desired_state,created_at,updated_at)
+		VALUES($1,$2,$3,'active','running',$4,$4)
+		ON CONFLICT(environment_id,application_id) DO UPDATE SET state='active',desired_state='running',updated_at=EXCLUDED.updated_at`,
+		pgProject, pgEnvironment, pgApplication, stopAt); err != nil {
+		t.Fatal(err)
+	}
+	current, err = store.Binding(ctx, pgBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deletePlan := gitprojection.WritePlan{BindingID: current.ID, ProjectID: current.ProjectID, EnvironmentID: current.EnvironmentID,
+		ApplicationID: pgApplication, BaseRevision: current.IndexedRevision, Precondition: gitprojection.MutationMatchETag,
+		ExpectedETag: `"sha256:` + strings.Repeat("2", 64) + `"`, ChartDigest: "sha256:" + strings.Repeat("3", 64), PolicyVersion: "runtime-policy-v1"}
+	deleteCommand, err := gitprojection.NewDeleteWriteCommand(pgDeleteOperation, pgDeployment, pgUser, deletePlan, current,
+		parentApp.Raw, "stop protected app", stopAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteCommand.PublicationMode = gitprojection.PublicationPullRequest
+	if err = store.PutWriteCommand(ctx, deleteCommand); err != nil {
+		t.Fatal(err)
+	}
+	repository := gitpublication.Repository{InstallationID: current.Repository.InstallationID, ID: current.Repository.RepositoryID,
+		Owner: current.Repository.Owner, Name: current.Repository.Name}
+	publication, err := gitpublication.NewPublication(pgDeleteOperation, current.ID, repository, current.TargetRef, current.IndexedRevision, stopAt)
+	if err == nil {
+		err = store.CreatePublication(ctx, publication)
+	}
+	if err != nil {
+		t.Fatalf("delete publication=%#v err=%v", publication, err)
+	}
+	writeBase, err := publication.WithWriteBase(current.IndexedRevision, stopAt.Add(time.Second))
+	if err != nil || store.CompareAndSwapPublication(ctx, publication, writeBase) != nil {
+		t.Fatalf("delete write base=%#v err=%v", writeBase, err)
+	}
+	candidate, err := writeBase.WithCandidate(strings.Repeat("4", 40), stopAt.Add(2*time.Second))
+	if err != nil || store.CompareAndSwapPublication(ctx, writeBase, candidate) != nil {
+		t.Fatalf("delete candidate=%#v err=%v", candidate, err)
+	}
+	prURL := "https://github.com/kuberploy/projection-integration/pull/11"
+	opened, err := candidate.WithPullRequest(gitpublication.PullRequestObservation{Repository: repository, Number: 11, URL: prURL,
+		TargetRef: current.TargetRef, HeadRef: candidate.CandidateRef, HeadRevision: candidate.CandidateRevision,
+		State: gitpublication.PullRequestOpen, ObservedAt: stopAt.Add(3 * time.Second)}, stopAt.Add(3*time.Second))
+	if err != nil || store.CompareAndSwapPublication(ctx, candidate, opened) != nil {
+		t.Fatalf("delete open=%#v err=%v", opened, err)
+	}
+	mergePending, err := opened.WithPullRequest(gitpublication.PullRequestObservation{Repository: repository, Number: 11, URL: prURL,
+		TargetRef: current.TargetRef, HeadRef: opened.CandidateRef, HeadRevision: opened.CandidateRevision,
+		State: gitpublication.PullRequestClosed, Merged: true, MergeRevision: strings.Repeat("5", 40), ObservedAt: stopAt.Add(4 * time.Second)}, stopAt.Add(4*time.Second))
+	if err != nil || store.CompareAndSwapPublication(ctx, opened, mergePending) != nil {
+		t.Fatalf("delete merge pending=%#v err=%v", mergePending, err)
+	}
+	deleteHead := strings.Repeat("6", 40)
+	current, _, err = store.RecordVerifiedHead(ctx, verified(current, deleteHead, "postgres-delete-head", stopAt.Add(5*time.Second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteWork, err := store.ClaimReconciliation(ctx, "postgres-delete-indexer", stopAt.Add(6*time.Second), 2*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteGeneration, err := store.BeginGeneration(ctx, deleteWork.Lease, deleteHead, current.ParserVersion, stopAt.Add(7*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDocuments(ctx, deleteGeneration, []gitprojection.Document{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.ActivateGeneration(ctx, deleteWork.Lease, deleteGeneration, gitprojection.SchemaOnlyAppConfigPolicyValidator{}, stopAt.Add(8*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.FinishReconciliation(ctx, deleteWork.Lease, gitprojection.ReconciliationOutcome{LastCommit: deleteHead,
+		NextPollAt: stopAt.Add(time.Hour)}, stopAt.Add(9*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	mergeVerified, err := mergePending.WithVerifiedMerge(deleteHead, stopAt.Add(10*time.Second))
+	if err != nil || store.CompareAndSwapPublication(ctx, mergePending, mergeVerified) != nil {
+		t.Fatalf("late delete verification=%#v err=%v", mergeVerified, err)
+	}
+	deleteCommand, err = store.WriteCommand(ctx, pgDeleteOperation)
+	if err != nil || deleteCommand.State != gitprojection.WriteCommandIndexed || deleteCommand.IndexedGeneration != deleteGeneration.Number {
+		t.Fatalf("late delete command=%#v err=%v", deleteCommand, err)
+	}
+	var placementState, desiredState string
+	if err = pool.QueryRow(ctx, `SELECT d.state,d.desired_revision,p.state,p.desired_state FROM deployments d
+		JOIN environment_app_placements p ON p.environment_id=d.environment_id AND p.application_id=d.application_id WHERE d.id=$1`, pgDeployment).
+		Scan(&deploymentState, &desiredRevision, &placementState, &desiredState); err != nil {
+		t.Fatal(err)
+	}
+	if deploymentState != "stopped" || desiredRevision != deleteHead || placementState != "draft" || desiredState != "stopped" {
+		t.Fatalf("late protected delete deployment=%q desired=%q placement=%q/%q", deploymentState, desiredRevision, placementState, desiredState)
 	}
 }
 
