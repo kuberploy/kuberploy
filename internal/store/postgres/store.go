@@ -864,6 +864,19 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 			manifest_path,manifest_digest,state FROM environment_foundation_intents
 			WHERE environment_id=$1 AND active FOR UPDATE`, resourceID).Scan(
 			&bindingID, &targetRef, &requiredAncestor, &manifestPath, &manifestDigest, &state)
+		if errors.Is(foundationErr, pgx.ErrNoRows) {
+			// A terminal failed replacement has no active intent. If an older
+			// revision was published, remove that exact manifest. Otherwise no
+			// foundation reached Git and its terminal metadata can be discarded.
+			foundationErr = tx.QueryRow(ctx, `SELECT platform_binding_id::text,target_ref,committed_revision,
+				manifest_path,manifest_digest,state FROM environment_foundation_intents
+				WHERE environment_id=$1 AND committed_revision<>'' AND published_at IS NOT NULL
+				ORDER BY published_at DESC,updated_at DESC,id DESC LIMIT 1 FOR UPDATE`, resourceID).Scan(
+				&bindingID, &targetRef, &requiredAncestor, &manifestPath, &manifestDigest, &state)
+			if foundationErr == nil {
+				state = "ready"
+			}
+		}
 		switch {
 		case foundationErr == nil:
 			if state != "ready" || requiredAncestor == "" {
@@ -882,6 +895,11 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 				return false, err
 			}
 		case errors.Is(foundationErr, pgx.ErrNoRows):
+			if _, err = tx.Exec(ctx, `DELETE FROM environment_foundation_intents
+				WHERE environment_id=$1 AND NOT active AND state IN ('failed','superseded')
+				AND committed_revision='' AND published_at IS NULL`, resourceID); err != nil {
+				return false, err
+			}
 			var anyFoundation bool
 			if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM environment_foundation_intents WHERE environment_id=$1)`, resourceID).Scan(&anyFoundation); err != nil {
 				return false, err

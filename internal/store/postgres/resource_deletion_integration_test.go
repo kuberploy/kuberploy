@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/kuberploy/kuberploy/internal/builds"
 	"github.com/kuberploy/kuberploy/internal/domain"
 	"github.com/kuberploy/kuberploy/internal/environmentfoundation"
@@ -335,5 +336,95 @@ func TestPostgreSQLResourceDeletionRejectsDeploymentHistory(t *testing.T) {
 	}
 	if _, err = store.DeleteProject(ctx, actorID, project.Value.ID, project.Value.Name, "blocked-project-"+suffix, "blocked-project", "request-blocked-project-"+suffix); !errors.Is(err, base.ErrProjectDeletionBlocked) {
 		t.Fatalf("non-empty Project deletion err=%v", err)
+	}
+}
+
+func TestPostgreSQLEnvironmentDeletionRemovesUnpublishedFailedFoundation(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := t.Context()
+	store, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err = testdb.ApplyMigrations(ctx, store.pool); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := strings.ReplaceAll(id.New(), "-", "")[:12]
+	actorID := id.New()
+	now := time.Now().UTC()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,grant_revision,created_at)
+		VALUES($1,$2,'platform-admin','failed-foundation-delete-test',$3,1,$4)`, actorID, "failed-foundation-admin-"+suffix, actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at)
+		VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3)`, id.New(), actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(ctx, actorID, "failed-foundation-project-"+suffix, "failed-foundation-project-"+suffix,
+		domain.CreateProject{Name: "Failed foundation project", Slug: "failed-foundation-" + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment, err := store.CreateEnvironment(ctx, actorID, "failed-foundation-environment-"+suffix, "failed-foundation-environment-"+suffix,
+		domain.CreateEnvironment{ProjectID: project.Value.ID, Name: "Failed foundation environment", Slug: "failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bindingID, intentID := id.New(), id.New()
+	head := strings.Repeat("a", 40)
+	manifest := []byte("apiVersion: v1\nkind: Namespace\n")
+	manifestSum := sha256.Sum256(manifest)
+	manifestDigest := "sha256:" + hex.EncodeToString(manifestSum[:])
+	err = store.pool.QueryRow(ctx, `SELECT id,target_head_revision FROM git_repository_bindings WHERE kind='platform'`).Scan(&bindingID, &head)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if _, err = store.pool.Exec(ctx, `INSERT INTO git_repository_bindings(
+			id,kind,scope_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,
+			credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,
+			target_head_observed_at,indexed_at,created_at,updated_at,credential_mode)
+			VALUES($1,'platform',$1,'github',1,1,'kuberploy','fixture','refs/heads/main','platform','',
+			'ready',$2,$2,1,'test',$3,$3,$3,$3,'github-app')`, bindingID, head, now); err != nil {
+			t.Fatal(err)
+		}
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO environment_foundation_intents(
+		id,environment_id,project_id,namespace,argo_project,platform_binding_id,target_ref,planned_head_revision,
+		binding_generation,profile_digest,publisher_config_digest,publisher_contract,publisher_policy,manifest_path,
+		manifest,manifest_digest,intent_digest,commit_trailer,state,active,next_attempt_at,attempts,consecutive_failures,
+		last_failure_code,lease_epoch,completed_at,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main',$7,1,$8,$9,'environment-foundation-protected-git.v1',
+		'platform-protected-git.v1',$10,$11,$12,$13,$14,'failed',false,$15,1,1,'protected-git-rejected',0,$15,$16,$15)`,
+		intentID, environment.Value.ID, project.Value.ID, environment.Value.Namespace, environment.Value.ArgoProject,
+		bindingID, head, "sha256:"+strings.Repeat("b", 64), "sha256:"+strings.Repeat("c", 64),
+		"platform/argocd/foundations/"+environment.Value.ID+".yaml", manifest, manifestDigest,
+		"sha256:"+strings.Repeat("d", 64), "Kuberploy-Environment-Foundation-Intent: "+intentID,
+		now, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+
+	replay, err := store.DeleteEnvironment(ctx, actorID, environment.Value.ID, environment.Value.Name,
+		"delete-failed-foundation-"+suffix, "delete-failed-foundation", "request-delete-failed-foundation-"+suffix)
+	if err != nil || replay {
+		t.Fatalf("delete Environment replay=%t err=%v", replay, err)
+	}
+	if _, err = store.GetEnvironment(ctx, environment.Value.ID); !errors.Is(err, base.ErrNotFound) {
+		t.Fatalf("deleted Environment err=%v", err)
+	}
+	var intentCount, deletionCount int
+	if err = store.pool.QueryRow(ctx, `SELECT
+		(SELECT count(*) FROM environment_foundation_intents WHERE environment_id=$1),
+		(SELECT count(*) FROM environment_foundation_deletions WHERE environment_id=$1)`, environment.Value.ID).
+		Scan(&intentCount, &deletionCount); err != nil {
+		t.Fatal(err)
+	}
+	if intentCount != 0 || deletionCount != 0 {
+		t.Fatalf("unpublished failed foundation cleanup intents=%d deletions=%d", intentCount, deletionCount)
 	}
 }
