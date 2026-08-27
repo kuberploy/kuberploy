@@ -58,12 +58,17 @@ async function verifyApiDocs(directory) {
   }
 
   const index = await readFile(join(directory, "index.html"), "utf8");
-  for (const reference of [
-    "./swagger-ui.css",
-    "./swagger-ui-bundle.js",
-    "./swagger-ui-standalone-preset.js",
+  for (const name of [
+    "swagger-ui.css",
+    "swagger-ui-bundle.js",
+    "swagger-ui-standalone-preset.js",
   ]) {
-    assert(index.includes(reference), `Missing local asset ${reference}.`);
+    const bytes = await readFile(join(directory, name));
+    const reference = `./${name}?v=${sha256(bytes).slice(0, 16)}`;
+    assert(
+      index.includes(reference),
+      `Missing versioned local asset ${reference}.`,
+    );
   }
   assert(index.includes('url: "/openapi.yaml"'), "OpenAPI URL is not local.");
   assert(
@@ -86,6 +91,15 @@ async function verifyApiDocs(directory) {
   assert(
     !/(?:unpkg|jsdelivr|cdnjs|validator\.swagger\.io)/i.test(index),
     "Docs index contains a runtime CDN or validator dependency.",
+  );
+  assert(
+    index.includes("API documentation could not load"),
+    "Docs runtime error state is missing.",
+  );
+  assert(
+    index.includes('typeof window.SwaggerUIBundle !== "function"') &&
+      index.includes("!Array.isArray(window.SwaggerUIStandalonePreset)"),
+    "Docs runtime asset guards are missing.",
   );
 
   const nginx = await readFile(
