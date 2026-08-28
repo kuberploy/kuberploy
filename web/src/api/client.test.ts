@@ -226,6 +226,33 @@ describe("typed API client", () => {
     );
   });
 
+  it("sends the current Git bundle ETag when redeploying saved configuration", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "op_redeploy",
+            kind: "deploy",
+            state: "queued",
+          }),
+          { status: 202, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const etag = `"sha256:${"e".repeat(64)}"`;
+
+    await api.redeployDeployment("deployment-1", "redeploy-attempt-1", etag);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/v1/deployments/deployment-1/redeploy",
+    );
+    expect(headers.get("If-Match")).toBe(etag);
+    expect(headers.get("Idempotency-Key")).toBe("redeploy-attempt-1");
+  });
+
   it("sends the current Git bundle ETag for a rollback intent", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

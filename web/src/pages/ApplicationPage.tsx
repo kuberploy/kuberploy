@@ -224,8 +224,10 @@ export function ApplicationPage() {
     },
   });
   const redeployDeployment = useMutation({
-    mutationFn: (idempotencyKey: string) =>
-      api.redeployDeployment(deploymentId, idempotencyKey),
+    mutationFn: async (idempotencyKey: string) => {
+      const config = await api.deploymentConfig(deploymentId);
+      return api.redeployDeployment(deploymentId, idempotencyKey, config.etag);
+    },
     onSuccess: async (operation) => {
       deployAttempt.current = null;
       setDeployOpen(false);

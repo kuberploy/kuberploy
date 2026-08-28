@@ -2921,12 +2921,15 @@ export const api = {
       method: "DELETE",
       headers: { "Idempotency-Key": idempotencyKey },
     }).then(normalizeOperation),
-  redeployDeployment: (id: string, idempotencyKey: string) =>
+  redeployDeployment: (id: string, idempotencyKey: string, gitETag: string) =>
     request<OperationWire>(
       `/v1/deployments/${encodeURIComponent(id)}/redeploy`,
       {
         method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+          "If-Match": gitETag,
+        },
       },
     ).then(normalizeOperation),
   previewImageResolution: (

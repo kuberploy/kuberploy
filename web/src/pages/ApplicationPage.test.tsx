@@ -191,6 +191,10 @@ describe("application stop lifecycle", () => {
       expect(api.redeployDeployment).toHaveBeenCalledWith(
         "deployment-production",
         expect.any(String),
+        `"sha256:${"c".repeat(64)}"`,
+      );
+      expect(api.deploymentConfig).toHaveBeenCalledWith(
+        "deployment-production",
       );
     },
   );
