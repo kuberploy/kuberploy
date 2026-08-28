@@ -150,7 +150,7 @@ func validProjectionEnvironment() map[string]string {
 		ProjectionEnabledEnv: "true", ProjectionCacheMaxBytesEnv: "536870912", ProjectionPollSecondsEnv: "300",
 		ProjectionWebhookWakeEnv: "true",
 		ProjectionGitHubAppIDEnv: "12345", ProjectionGitHubClientEnv: "Iv1_KuberployClient", ProjectionGitAuthModeEnv: "github-app",
-		ProjectionChartVersionEnv: "0.1.0-rc.404", ProjectionPolicyVersionEnv: "runtime-policy-v1",
+		ProjectionChartVersionEnv: "0.1.0-rc.405", ProjectionPolicyVersionEnv: "runtime-policy-v1",
 	}
 }
 
