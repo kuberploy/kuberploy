@@ -199,9 +199,9 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale Argo masked idempotency conflict status=%d problem=%#v", r.StatusCode, problem)
 	}
 	r = f.request("POST", "/v1/deployments", "stale-argo-create", body)
-	problem = decode[httpapi.Problem](t, r)
-	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "ArgoDesiredStateRuntimeUnavailable" {
-		t.Fatalf("stale Argo accepted new deployment status=%d problem=%#v", r.StatusCode, problem)
+	queuedWhileArgoReconciles := decode[domain.Operation](t, r)
+	if r.StatusCode != http.StatusAccepted || queuedWhileArgoReconciles.ID == "" || queuedWhileArgoReconciles.TargetID != operation.TargetID {
+		t.Fatalf("stale Argo blocked durable deployment submission status=%d operation=%#v", r.StatusCode, queuedWhileArgoReconciles)
 	}
 	argoReadiness.err = nil
 	backend.planErr = gitprojection.ErrProtectionUnavailable
@@ -272,12 +272,12 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 	if r.StatusCode != http.StatusOK || preview.PreviewToken == "" {
 		t.Fatalf("projected preview status=%d body=%#v", r.StatusCode, preview)
 	}
+	argoReadiness.err = errors.New("protected rollout stale")
 	r = configRequest(t, f, http.MethodPut, configPath, "projected-config-save", change, map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
 	saved := decode[domain.Operation](t, r)
 	if r.StatusCode != http.StatusAccepted {
-		t.Fatalf("projected config save status=%d operation=%#v", r.StatusCode, saved)
+		t.Fatalf("stale Argo blocked durable config submission status=%d operation=%#v", r.StatusCode, saved)
 	}
-	argoReadiness.err = errors.New("protected rollout stale")
 	r = configRequest(t, f, http.MethodPut, configPath, "projected-config-save", change, map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
 	replayedSave := decode[domain.Operation](t, r)
 	if r.StatusCode != http.StatusAccepted || replayedSave.ID != saved.ID || r.Header.Get("Idempotent-Replay") != "true" {
@@ -296,11 +296,6 @@ func TestProjectionHTTPCreateReplayBundleAndCapabilityAreExact(t *testing.T) {
 		t.Fatalf("stale Argo masked config precondition status=%d problem=%#v", r.StatusCode, problem)
 	}
 	backend.bundle.ETag = etag
-	r = configRequest(t, f, http.MethodPut, configPath, "stale-argo-config-save", change, map[string]string{"If-Match": etag, "Preview-Token": preview.PreviewToken})
-	problem = decode[httpapi.Problem](t, r)
-	if r.StatusCode != http.StatusServiceUnavailable || problem.Code != "ArgoDesiredStateRuntimeUnavailable" {
-		t.Fatalf("stale Argo accepted new config save status=%d problem=%#v", r.StatusCode, problem)
-	}
 	argoReadiness.err = nil
 
 	r = f.request(http.MethodDelete, "/v1/deployments/"+operation.TargetID, "projected-stop", nil)

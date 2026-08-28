@@ -688,10 +688,12 @@ func mappedDeploymentGitError(w http.ResponseWriter, r *http.Request, err error,
 }
 
 func (s *Server) deploymentMutationRuntimeProblem(requestContext context.Context) string {
-	// Preserve the legacy development/test store when the complete projection
-	// runtime is intentionally absent. Once any production Git projection seam
-	// is configured, however, mutations fail closed unless both the writer and
-	// the protected Argo desired-state runtime are freshly observed.
+	// Submission depends on the Git projection authority that produces the
+	// exact CAS write plan. Argo readiness is intentionally not a submission
+	// gate: every accepted mutation is durably queued and the desired-state
+	// worker independently revalidates its complete protected runtime before it
+	// publishes. Gating here on Argo's short-lived proof makes normal sequential
+	// operations fail while the previous protected commit is being reconciled.
 	if s.gitProjection == nil && s.gitReadiness == nil && s.argoReadiness == nil {
 		return ""
 	}
@@ -703,21 +705,11 @@ func (s *Server) deploymentMutationRuntimeProblem(requestContext context.Context
 	if err := s.gitReadiness.Probe(ctx); err != nil {
 		return "GitProjectionRuntimeUnavailable"
 	}
-	if s.argoReadiness == nil {
-		return "ArgoDesiredStateRuntimeUnavailable"
-	}
-	if err := s.argoReadiness.Probe(ctx); err != nil {
-		return "ArgoDesiredStateRuntimeUnavailable"
-	}
 	return ""
 }
 
 func writeDeploymentMutationRuntimeProblem(w http.ResponseWriter, r *http.Request, code string) {
-	if code == "GitProjectionRuntimeUnavailable" {
-		writeProblem(w, r, 503, code, "Git projection unavailable", "No matching Git projection worker has reported a fresh exact runtime observation.")
-		return
-	}
-	writeProblem(w, r, 503, "ArgoDesiredStateRuntimeUnavailable", "Protected rollout unavailable", "No matching protected Argo desired-state runtime has reported a fresh exact prerequisite proof.")
+	writeProblem(w, r, 503, code, "Git projection unavailable", "No matching Git projection worker has reported a fresh exact runtime observation.")
 }
 
 func (s *Server) replayDeployment(w http.ResponseWriter, r *http.Request, actor, key, fingerprint string, create domain.CreateDeployment) bool {
