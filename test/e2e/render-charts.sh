@@ -85,6 +85,15 @@ helm template runtime-letsencrypt "${kp_root}/charts/kuberploy-runtime" \
   -f "${kp_tmp}/runtime-letsencrypt-values.yaml" "${kp_runtime_identity[@]}" > "${kp_tmp}/runtime-letsencrypt.yaml"
 [[ "$(yq eval-all 'select(.kind == "Ingress" and .metadata.annotations."cert-manager.io/cluster-issuer" == "letsencrypt-production") | [.metadata.annotations."cert-manager.io/private-key-algorithm",.metadata.annotations."cert-manager.io/private-key-size"] | join(",")' "${kp_tmp}/runtime-letsencrypt.yaml")" == "ECDSA,256" ]]
 
+yq '.spec.routes += [{"id":"second","host":"second.example.test","path":"/","port":"http","dns":{"mode":"manual"},"tls":{"mode":"letsencrypt","issuerRef":"letsencrypt-production","redirectHttp":true}}]' \
+  "${kp_tmp}/runtime-letsencrypt-values.yaml" > "${kp_tmp}/runtime-multiple-routes-values.yaml"
+helm template runtime-multiple-routes "${kp_root}/charts/kuberploy-runtime" \
+  --namespace kuberploy-e2e-render \
+  -f "${kp_tmp}/runtime-multiple-routes-values.yaml" "${kp_runtime_identity[@]}" > "${kp_tmp}/runtime-multiple-routes.yaml"
+yq eval-all 'true' "${kp_tmp}/runtime-multiple-routes.yaml" >/dev/null
+[[ "$(yq eval-all '[select(.kind == "Ingress")] | length' "${kp_tmp}/runtime-multiple-routes.yaml" | tail -1)" == "4" ]]
+[[ "$(yq eval-all '[select(.kind == "Middleware" and .spec.redirectScheme.scheme == "https")] | length' "${kp_tmp}/runtime-multiple-routes.yaml" | tail -1)" == "2" ]]
+
 helm template recreate "${kp_root}/charts/kuberploy-runtime" \
   --namespace kuberploy-e2e-render \
   -f "${kp_root}/test/e2e/fixtures/appconfig-backend.yaml" "${kp_runtime_identity[@]}" \

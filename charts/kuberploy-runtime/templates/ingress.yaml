@@ -134,5 +134,5 @@ spec:
                 name: {{ include "kuberploy-runtime.appName" $ }}
                 port:
                   name: {{ $route.port }}
-{{- end }}
-{{- end }}
+{{ end }}
+{{ end }}
