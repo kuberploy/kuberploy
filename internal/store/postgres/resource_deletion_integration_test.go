@@ -181,7 +181,7 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 		VALUES($1,$2,$3,$4,'kuberploy','delete-fixture','active',$5,$5,$5)`, repositoryID, installationID, providerID+3, providerID+2, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,created_at,updated_at) VALUES($1,$2,'managed','registry.test','apps',$3,$3)`, registryID, "delete-"+suffix, now); err != nil {
+	if _, err = store.pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,pull_credential_ref,created_at,updated_at) VALUES($1,$2,'managed','registry.test','apps','registry-auth',$3,$3)`, registryID, "delete-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.pool.Exec(ctx, `INSERT INTO build_definitions(id,project_id,service_id,installation_id,repository_id,registry_target_id,trigger_ref,spec,definition_digest,generation,created_at,updated_at)
@@ -216,6 +216,14 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_bindings WHERE id=$1)`, deletedBindingID).Scan(&deletedBindingExists); err != nil || deletedBindingExists {
 		t.Fatalf("deleted secret tombstone remained after App deletion exists=%t err=%v", deletedBindingExists, err)
 	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO runtime_registry_pull_artifacts(
+		environment_id,namespace,registry_target_id,pull_credential_ref,profile_name,profile_revision,
+		secret_name,active,runtime_state,next_observation_at,created_at,updated_at)
+		VALUES($1,$2,$3,'registry-auth','runtime',1,$4,true,'awaiting',$5,$5,$5)`,
+		environment.Value.ID, environment.Value.Namespace, registryID,
+		"kuberploy-pull-"+strings.Repeat("a", 24), now); err != nil {
+		t.Fatal(err)
+	}
 
 	replay, err = store.DeleteEnvironment(ctx, actorID, environment.Value.ID, environment.Value.Name, "delete-env-"+suffix, "delete-env", "request-env-"+suffix)
 	if err != nil || replay {
@@ -223,6 +231,10 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	}
 	if _, err = store.GetEnvironment(ctx, environment.Value.ID); !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("deleted Environment err=%v", err)
+	}
+	var pullArtifacts int
+	if err = store.pool.QueryRow(ctx, `SELECT count(*) FROM runtime_registry_pull_artifacts WHERE environment_id=$1`, environment.Value.ID).Scan(&pullArtifacts); err != nil || pullArtifacts != 0 {
+		t.Fatalf("deleted Environment retained runtime registry pull artifacts count=%d err=%v", pullArtifacts, err)
 	}
 	var environmentBindingChildren int
 	if err = store.pool.QueryRow(ctx, `SELECT

@@ -93,6 +93,10 @@ func TestMemoryProfilesAreImmutableAssignedAndReferenceGuarded(t *testing.T) {
 	if _, err = store.Deactivate(ctx, validCommand(actor, "deactivate-profile-2", now.Add(2*time.Minute)), Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := store.Catalog(ctx, 10)
+	if err != nil || len(catalog) != 0 {
+		t.Fatalf("deleted profile remained in active catalog: %#v %v", catalog, err)
+	}
 }
 
 func TestMemoryReferenceReplacementIsAtomicAndRequiresCurrentProfile(t *testing.T) {

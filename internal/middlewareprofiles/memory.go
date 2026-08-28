@@ -172,6 +172,9 @@ func (s *MemoryStore) Catalog(_ context.Context, limit int) ([]Entry, error) {
 	defer s.mu.Unlock()
 	entries := []Entry{}
 	for _, p := range s.profiles {
+		if p.Lifecycle != Active {
+			continue
+		}
 		_, r, _ := cloneEntry(p, s.revisions[p.ID][p.CurrentRevision])
 		entries = append(entries, Entry{p, r})
 	}

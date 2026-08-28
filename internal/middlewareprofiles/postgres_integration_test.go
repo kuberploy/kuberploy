@@ -116,6 +116,15 @@ func TestPostgresMiddlewareProfileLifecycleAndReferenceFences(t *testing.T) {
 	if _, err = store.Deactivate(ctx, pgCommand(actor, "pg-deactivate-unreferenced", now.Add(3*time.Second)), profiles.Ref{ProfileID: created.Profile.ID, Revision: 1}); err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := store.Catalog(ctx, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range catalog {
+		if entry.Profile.ID == created.Profile.ID {
+			t.Fatal("deleted profile remained in active catalog")
+		}
+	}
 	if err = storepostgres.VerifySchema(ctx, pool); err != nil {
 		t.Fatalf("verify Prisma migration history: %v", err)
 	}

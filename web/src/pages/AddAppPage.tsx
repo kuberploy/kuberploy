@@ -49,7 +49,8 @@ const sources: Array<{
     id: "git-ssh",
     title: "Git SSH",
     description: "Clone from any Git provider with a generated deploy key.",
-    detail: "Manual or API-triggered builds; App or Project key scope.",
+    detail:
+      "No automatic provider webhooks by default; trigger builds manually or by API with an App or Project key.",
     icon: "terminal",
   },
   {

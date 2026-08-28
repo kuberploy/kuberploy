@@ -838,6 +838,12 @@ func (s *Store) deleteNamedResource(ctx context.Context, actor, table, resourceT
 			}
 			return false, err
 		}
+		// Runtime registry pull artifacts are derived Environment-scoped state.
+		// Once every App placement is a stopped draft, no workload can consume
+		// them and the Environment deletion owns their cleanup.
+		if _, err = tx.Exec(ctx, `DELETE FROM runtime_registry_pull_artifacts WHERE environment_id=$1`, resourceID); err != nil {
+			return false, err
+		}
 		var gitOpsBusy bool
 		if err = tx.QueryRow(ctx, `SELECT
 			EXISTS(SELECT 1 FROM argo_desired_state_commands

@@ -494,7 +494,7 @@ export function MiddlewareProfilesPage() {
             {deactivate.error ? (
               <ErrorPanel
                 error={deactivate.error}
-                title="Profile was not deactivated"
+                title="Profile was not deleted"
               />
             ) : null}
             {catalog.error ? <ErrorPanel error={catalog.error} /> : null}
@@ -547,7 +547,7 @@ export function MiddlewareProfilesPage() {
                     busy={deactivate.isPending}
                     onClick={() => setDeactivationCandidate(entry)}
                   >
-                    Deactivate
+                    Delete
                   </Button>
                 </ButtonRow>
               </div>
@@ -563,9 +563,9 @@ export function MiddlewareProfilesPage() {
       )}
       {deactivationCandidate ? (
         <ConfirmDialog
-          title={`Deactivate middleware profile ${deactivationCandidate.profile.name}?`}
-          description="Existing assignments must be revised before this profile can be removed from use."
-          confirmLabel="Deactivate profile"
+          title={`Delete middleware profile ${deactivationCandidate.profile.name}?`}
+          description="Detach this profile from every App first. Deletion removes it from the active library while preserving audit history."
+          confirmLabel="Delete profile"
           icon="close"
           busy={deactivate.isPending}
           onCancel={() => setDeactivationCandidate(undefined)}

@@ -307,7 +307,7 @@ func (s *PostgresStore) Catalog(ctx context.Context, limit int) ([]Entry, error)
 	if limit < 1 || limit > 500 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM configuration_profiles WHERE kind='middleware' ORDER BY name,id LIMIT $1`, limit)
+	rows, err := s.pool.Query(ctx, `SELECT id::text,current_revision FROM configuration_profiles WHERE kind='middleware' AND lifecycle='active' ORDER BY name,id LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}

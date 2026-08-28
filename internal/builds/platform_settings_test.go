@@ -43,6 +43,32 @@ func TestBuilderPlatformSettingsDriveNewExecutionAndReplay(t *testing.T) {
 	}
 }
 
+func TestBuilderNodeIsolationCanCreateDefinition(t *testing.T) {
+	config := testWorkerRuntimeConfig()
+	settings := DefaultBuilderPlatformSettings(config)
+	settings.NodeIsolation = true
+	execution, err := config.ExecutionSettingsForPlatform(5000, settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = PrepareDefinition(BuildDefinition{
+		ID: testDefinitionID, ProjectID: testProjectID, ServiceID: testServiceID,
+		InstallationID: testInstallationID, RepositoryID: testRepositoryID,
+		TriggerRef: "refs/heads/main", Enabled: true,
+		Spec: DefinitionSpec{
+			ContextPath: ".", DockerfilePath: "Dockerfile", Platforms: []string{"linux/amd64"},
+			Registry: RegistryBinding{TargetID: testRegistryID, Mode: RegistryManaged, Server: "registry.test:5000", RepositoryPrefix: "kuberploy",
+				PushCredentialSecret: "registry-push", CacheCredentialSecret: "registry-cache"},
+			CacheTrustLane: "protected", CacheImports: 2,
+			Profile:   builder.BuildProfile{Resource: "standard", TimeoutSeconds: 900, Egress: "registry-and-source"},
+			Execution: execution, MaxAttempts: 3,
+		},
+	}, testNow)
+	if err != nil {
+		t.Fatalf("node-isolated definition rejected: %v", err)
+	}
+}
+
 func TestClaimNextAttemptHonorsPlatformConcurrency(t *testing.T) {
 	store := NewMemoryStore()
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)

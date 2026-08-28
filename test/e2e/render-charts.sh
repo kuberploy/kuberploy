@@ -313,6 +313,13 @@ helm template platform-network-disabled-overlap "${kp_root}/charts/kuberploy" \
 [[ "$(yq eval-all '[select(.kind == "Deployment" and (.metadata.labels."app.kubernetes.io/component" == "api" or .metadata.labels."app.kubernetes.io/component" == "worker")) | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_NETWORK_POLICY_ENABLED" and .valueFrom.configMapKeyRef.key == "KUBERPLOY_NETWORK_POLICY_ENABLED")] | length' "${kp_tmp}/platform-network-disabled-overlap.yaml" | tail -1)" == "2" ]]
 [[ "$(yq eval-all '[select(.kind == "Deployment" and .metadata.labels."app.kubernetes.io/component" == "web") | .spec.template.spec.containers[0].env[] | select(.name == "KUBERPLOY_EXTERNAL_EGRESS_CIDRS" or .name == "KUBERPLOY_KUBE_API_SERVER_CIDRS")] | length' "${kp_tmp}/platform.yaml" | tail -1)" == "0" ]]
 kp_platform_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/platform.yaml")"
+yq '.config.monitoring.mode = "managed" | .config.monitoring.prometheusURL = "http://prometheus-operated.kuberploy-monitoring.svc:9090"' \
+  "${kp_root}/test/e2e/fixtures/platform-values.yaml" > "${kp_tmp}/monitoring-config-changed.yaml"
+helm template platform-monitoring "${kp_root}/charts/kuberploy" \
+  --namespace kuberploy-e2e-render -f "${kp_tmp}/monitoring-config-changed.yaml" > "${kp_tmp}/monitoring-config-changed-render.yaml"
+kp_monitoring_config_name="$(yq eval-all 'select(.kind == "ConfigMap") | .metadata.name' "${kp_tmp}/monitoring-config-changed-render.yaml")"
+[[ "${kp_platform_config_name}" != "${kp_monitoring_config_name}" ]] || { printf 'monitoring mutation did not rotate immutable ConfigMap name\n' >&2; exit 1; }
+[[ "$(yq eval-all '[select(.kind == "Deployment") | .spec.template.metadata.annotations."kuberploy.io/config-map"] | unique | join(",")' "${kp_tmp}/monitoring-config-changed-render.yaml" | tail -1)" == "${kp_monitoring_config_name}" ]] || { printf 'monitoring mutation did not bind every Deployment to rotated ConfigMap\n' >&2; exit 1; }
 for kp_network_mutation in \
   '.networkPolicy.externalEgressCIDRs = ["192.0.2.11/32"]' \
   '.networkPolicy.kubeAPIServerCIDRs = ["10.43.0.2/32"]'; do

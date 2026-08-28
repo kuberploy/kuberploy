@@ -56,7 +56,7 @@ describe("middleware profile management", () => {
     expect(catalog).not.toHaveBeenCalled();
   });
 
-  it("requires explicit confirmation before deactivation", async () => {
+  it("requires explicit confirmation before deletion", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "me").mockResolvedValue({
       id: "user-a",
@@ -124,25 +124,25 @@ describe("middleware profile management", () => {
       "environment-a",
     );
     await selectOption(screen.getByLabelText("Application"), "application-a");
-    await user.click(await screen.findByRole("button", { name: "Deactivate" }));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
     expect(
       screen.getByRole("alertdialog", {
-        name: /Deactivate middleware profile/,
+        name: /Delete middleware profile/,
       }),
     ).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deactivate).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(
-      screen.getByRole("button", { name: "Deactivate profile" }),
+      screen.getByRole("button", { name: "Delete profile" }),
     );
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(1));
     expect(
-      await screen.findByText("Profile was not deactivated"),
+      await screen.findByText("Profile was not deleted"),
     ).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Deactivate" }));
+    await user.click(screen.getByRole("button", { name: "Delete" }));
     await user.click(
-      screen.getByRole("button", { name: "Deactivate profile" }),
+      screen.getByRole("button", { name: "Delete profile" }),
     );
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(2));
     expect(deactivate.mock.calls[1]?.[2]).toBe(deactivate.mock.calls[0]?.[2]);
