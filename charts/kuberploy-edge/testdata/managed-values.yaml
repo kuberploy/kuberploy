@@ -7,6 +7,9 @@ edge:
     kubeAPIServerCIDRs:
       - 10.43.0.1/32
 traefik:
+  deployment:
+    annotations:
+      kuberploy.io/edge-spec-digest: sha256:7ab84c94484d74b965283aa082fd7b21de5b5ed3ffe8cbc3e36d8335624e42bf
   metrics:
     prometheus:
       serviceMonitor:

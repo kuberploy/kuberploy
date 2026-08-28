@@ -36,6 +36,10 @@ traefik:
     enabled: true
     kind: Deployment
     replicas: 2
+    annotations:
+      # The edge observer compares this release-owned render identity instead
+      # of Kubernetes-defaulted live JSON, which is not stable across clusters.
+      kuberploy.io/edge-spec-digest: sha256:c9d587fd919c76a5d78991b0f23a3b5e3562003e532287b07d3194292e27753b
     shareProcessNamespace: false
     additionalContainers: []
     additionalVolumes: []

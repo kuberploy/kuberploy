@@ -30,6 +30,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
 {{- end -}}
 
 {{- define "kuberploy-edge.validate" -}}
+{{- if and .Values.edge.traefik.managed (ne .Release.Name "edge") -}}
+{{- fail "kuberploy-edge must use the fixed edge release identity" -}}
+{{- end -}}
 {{- if ne .Release.Namespace "kuberploy-system" -}}
 {{- fail "kuberploy-edge must use the shared protected kuberploy-system namespace" -}}
 {{- end -}}
@@ -64,6 +67,9 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | quote }}
   {{- end -}}
   {{- if or (ne .Values.traefik.nameOverride "traefik") (not (empty .Values.traefik.namespaceOverride)) (not (empty .Values.traefik.instanceLabelOverride)) (not (empty .Values.traefik.fullnameOverride)) (not (empty .Values.traefik.commonLabels)) -}}{{ fail "Traefik namespace and policy identity labels are locked" }}{{- end -}}
   {{- if or (not .Values.traefik.deployment.enabled) (ne .Values.traefik.deployment.kind "Deployment") (lt (int .Values.traefik.deployment.replicas) 1) -}}{{ fail "managed Traefik requires at least one Deployment replica" }}{{- end -}}
+  {{- $deploymentSpecDigest := ternary "sha256:7ab84c94484d74b965283aa082fd7b21de5b5ed3ffe8cbc3e36d8335624e42bf" "sha256:c9d587fd919c76a5d78991b0f23a3b5e3562003e532287b07d3194292e27753b" .Values.traefik.metrics.prometheus.serviceMonitor.enabled -}}
+  {{- $deploymentAnnotations := dict "kuberploy.io/edge-spec-digest" $deploymentSpecDigest -}}
+  {{- if not (deepEqual .Values.traefik.deployment.annotations $deploymentAnnotations) -}}{{ fail "managed Traefik requires its exact release-owned Deployment spec identity" }}{{- end -}}
   {{- if or .Values.traefik.hostNetwork .Values.traefik.deployment.shareProcessNamespace -}}{{ fail "managed Traefik cannot use host or shared process namespaces" }}{{- end -}}
   {{- if or (not (empty .Values.traefik.deployment.additionalContainers)) (not (empty .Values.traefik.deployment.additionalVolumes)) (not (empty .Values.traefik.deployment.initContainers)) -}}{{ fail "managed Traefik does not permit injected containers or volumes" }}{{- end -}}
   {{- if or (not (empty .Values.traefik.deployment.podLabels)) (not (empty .Values.traefik.deployment.podAnnotations)) -}}{{ fail "managed Traefik Pod identity labels and injection annotations cannot be overridden" }}{{- end -}}

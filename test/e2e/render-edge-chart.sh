@@ -58,8 +58,12 @@ kp_expect_reject() {
   local kp_chart="$2"
   local kp_namespace="$3"
   local kp_values="$4"
+  local kp_release=invalid
   shift 4
-  if helm template invalid "${kp_chart}" --namespace "${kp_namespace}" -f "${kp_values}" "$@" \
+  if [[ "${kp_chart}" == "${kp_edge}" ]]; then
+    kp_release=edge
+  fi
+  if helm template "${kp_release}" "${kp_chart}" --namespace "${kp_namespace}" -f "${kp_values}" "$@" \
       >"${kp_tmp}/rejected.stdout" 2>"${kp_tmp}/rejected.stderr"; then
     printf 'unsafe render was accepted: %s\n' "${kp_reason}" >&2
     exit 1
@@ -110,14 +114,20 @@ helm lint "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_adopted}"
 
 helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge.yaml"
 helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" >"${kp_tmp}/edge-again.yaml"
-helm template edge-standalone "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-standalone.yaml"
+helm template edge "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-standalone.yaml"
 diff -u "${kp_tmp}/edge.yaml" "${kp_tmp}/edge-again.yaml"
 yq eval-all 'true' "${kp_tmp}/edge.yaml" >/dev/null
 [[ "$(kp_count_kind ServiceMonitor "${kp_tmp}/edge-standalone.yaml")" == "0" ]]
 
 kp_traefik_image='docker.io/library/traefik:v3.7.10'
+kp_traefik_spec_digest="sha256:$(yq eval-all -o=json -I=0 'select(.kind == "Deployment" and .metadata.name == "edge-traefik") | .spec' "${kp_tmp}/edge.yaml" | jq -cS . | tr -d '\n' | shasum -a 256 | awk '{print $1}')"
+kp_traefik_standalone_spec_digest="sha256:$(yq eval-all -o=json -I=0 'select(.kind == "Deployment" and .metadata.name == "edge-traefik") | .spec' "${kp_tmp}/edge-standalone.yaml" | jq -cS . | tr -d '\n' | shasum -a 256 | awk '{print $1}')"
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.template.spec.containers[0].image' "${kp_tmp}/edge.yaml")" == "${kp_traefik_image}" ]]
 [[ "$(yq eval-all 'select(.kind == "Deployment") | .spec.replicas' "${kp_tmp}/edge.yaml")" == "2" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .metadata.annotations."kuberploy.io/edge-spec-digest"' "${kp_tmp}/edge.yaml")" == "sha256:7ab84c94484d74b965283aa082fd7b21de5b5ed3ffe8cbc3e36d8335624e42bf" ]]
+[[ "${kp_traefik_spec_digest}" == "sha256:7ab84c94484d74b965283aa082fd7b21de5b5ed3ffe8cbc3e36d8335624e42bf" ]]
+[[ "$(yq eval-all 'select(.kind == "Deployment") | .metadata.annotations."kuberploy.io/edge-spec-digest"' "${kp_tmp}/edge-standalone.yaml")" == "sha256:c9d587fd919c76a5d78991b0f23a3b5e3562003e532287b07d3194292e27753b" ]]
+[[ "${kp_traefik_standalone_spec_digest}" == "sha256:c9d587fd919c76a5d78991b0f23a3b5e3562003e532287b07d3194292e27753b" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .spec.type == "LoadBalancer") | .spec.type' "${kp_tmp}/edge.yaml")" == "LoadBalancer" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .spec.type == "LoadBalancer") | [.spec.ports[].port] | sort | join(",")' "${kp_tmp}/edge.yaml")" == "80,443" ]]
 [[ "$(yq eval-all 'select(.kind == "Service" and .metadata.name == "edge-traefik-metrics") | .metadata.labels."kuberploy.io/monitoring-source" + "," + .spec.type + "," + (.spec.ports[0].port | tostring) + "," + .spec.ports[0].name' "${kp_tmp}/edge.yaml")" == "protected,ClusterIP,9100,metrics" ]]
@@ -152,13 +162,13 @@ helm template edge-adopted "${kp_edge}" --namespace kuberploy-system -f "${kp_ed
 [[ "$(yq eval-all 'select(.kind == "ConfigMap") | .data.management' "${kp_tmp}/edge-adopted.yaml")" == "adopted" ]]
 [[ "$(yq eval-all -o=json -I=0 'select(.kind == "ConfigMap") | .data' "${kp_tmp}/edge-adopted.yaml" | jq -cS .)" == '{"customTLSSecretRoutesSupported":"true","httpRoutesSupported":"true","ingressClassName":"adopted-traefik","letsEncryptRoutesRequireApprovedIssuer":"true","management":"adopted","runtimeNamespaceSelector":"kuberploy.io/runtime-namespace=true"}' ]]
 
-helm template edge-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-string edge.traefik.sslip.mode=verified-static-ip \
   --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >"${kp_tmp}/edge-static.yaml"
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipMode' "${kp_tmp}/edge-static.yaml")" == "verified-static-ip" ]]
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-static-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-static.yaml")" == "8.8.8.8" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.sslipMode' "${kp_tmp}/edge-static.yaml")" == "verified-static-ip" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-static.yaml")" == "8.8.8.8" ]]
 
-helm template default-open "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-default-open.yaml"
+helm template edge "${kp_edge}" --namespace kuberploy-system >"${kp_tmp}/edge-default-open.yaml"
 [[ "$(yq eval-all '[select(.kind == "NetworkPolicy")] | length' "${kp_tmp}/edge-default-open.yaml" | tail -1)" == "0" ]]
 helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-json edge.networkPolicy.kubeAPIServerCIDRs=[] >"${kp_tmp}/edge-no-api.yaml"
@@ -175,6 +185,7 @@ kp_expect_reject 'cross-namespace Middleware references' "${kp_edge}" kuberploy-
 kp_expect_reject 'insecure Traefik dashboard' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.api.insecure=true
 kp_expect_reject 'Traefik identity label bypass' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.nameOverride=unconfined-traefik
 kp_expect_reject 'Traefik pod annotation injection' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.deployment.podAnnotations.sidecar=enabled
+kp_expect_reject 'Traefik Deployment identity override' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.deployment.annotations.kuberploy\.io/edge-spec-digest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 kp_expect_reject 'Traefik cloud identity annotation' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.serviceAccountAnnotations.cloud=identity
 kp_expect_reject 'Traefik namespace escape' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.namespaceOverride=other-namespace
 kp_expect_reject 'additional public Traefik Service' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.service.additionalServices.admin.enabled=true
@@ -183,20 +194,21 @@ kp_expect_reject 'public Traefik admin port' "${kp_edge}" kuberploy-edge "${kp_e
 kp_expect_reject 'access-log header capture' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.accessLog.fields.headers.defaultMode=keep
 kp_expect_reject 'unbounded Traefik file provider' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.providers.file.enabled=true
 kp_expect_reject 'Traefik plugin execution' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.experimental.plugins.attacker.moduleName=example.invalid/plugin
-helm template edge-custom-image "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-string traefik.image.tag=v3.7.11 >"${kp_tmp}/edge-custom-image.yaml"
 rg -F 'docker.io/library/traefik:v3.7.11' "${kp_tmp}/edge-custom-image.yaml" >/dev/null
 kp_expect_reject 'Traefik metrics namespace escape' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string traefik.metrics.prometheus.serviceMonitor.namespace=other-namespace
 kp_expect_reject 'Traefik metrics source expansion' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string 'traefik.metrics.prometheus.serviceMonitor.metricRelabelings[0].regex=.*'
 kp_expect_reject 'Traefik metrics filesystem-free render disabled' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set traefik.metrics.prometheus.disableAPICheck=false
-helm template edge-no-network-policy "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set edge.networkPolicy.enabled=false >"${kp_tmp}/edge-no-network-policy.yaml"
 [[ "$(kp_count_kind NetworkPolicy "${kp_tmp}/edge-no-network-policy.yaml")" == "0" ]]
 kp_expect_reject 'wrong Traefik namespace' "${kp_edge}" default "${kp_edge_values}"
+kp_expect_reject 'wrong Traefik release identity' "${kp_edge}" kuberploy-system "${kp_edge_values}" --name-template other-edge
 kp_expect_reject 'unknown sslip selection mode' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=caller-ip
-helm template edge-dormant-static "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >"${kp_tmp}/edge-dormant-static.yaml"
-[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-dormant-static-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-dormant-static.yaml")" == "" ]]
+[[ "$(yq eval-all 'select(.kind == "ConfigMap" and .metadata.name == "edge-edge-profile") | .data.sslipStaticPublicIPv4' "${kp_tmp}/edge-dormant-static.yaml")" == "" ]]
 kp_expect_reject 'verified sslip mode without its static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip
 kp_expect_reject 'private verified sslip address' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=10.0.0.1
 kp_expect_reject 'documentation-range verified sslip address' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=203.0.113.10
@@ -206,7 +218,7 @@ kp_expect_reject 'null dormant sslip profile' "${kp_edge}" kuberploy-edge "${kp_
 
 # The standalone profile stays closed even if values-schema validation is
 # explicitly bypassed: the ConfigMap can contain only the exact runtime data.
-helm template edge-dormant-static-schema-bypass "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
+helm template edge "${kp_edge}" --namespace kuberploy-system -f "${kp_edge_values}" \
   --skip-schema-validation --set-string edge.traefik.sslip.staticPublicIPv4=8.8.8.8 >/dev/null
 kp_expect_reject 'schema-bypassed missing static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.mode=verified-static-ip
 kp_expect_reject 'schema-bypassed private static IP' "${kp_edge}" kuberploy-edge "${kp_edge_values}" --skip-schema-validation --set-string edge.traefik.sslip.mode=verified-static-ip --set-string edge.traefik.sslip.staticPublicIPv4=192.168.1.10
@@ -381,7 +393,7 @@ helm template dns-sync "${kp_dns}" --namespace kuberploy-system -f "${kp_dns_val
 rg -F -- '--policy=sync' "${kp_tmp}/dns-sync.yaml" >/dev/null
 
 for kp_kube_version in 1.34.10 1.35.7 1.36.3; do
-  helm template edge-lane "${kp_edge}" --namespace kuberploy-system --kube-version "${kp_kube_version}" -f "${kp_edge_values}" >/dev/null
+  helm template edge "${kp_edge}" --namespace kuberploy-system --kube-version "${kp_kube_version}" -f "${kp_edge_values}" >/dev/null
   helm template cert-lane "${kp_cert}" --namespace cert-manager --kube-version "${kp_kube_version}" -f "${kp_cert_values}" >/dev/null
   helm template dns-lane "${kp_dns}" --namespace kuberploy-system --kube-version "${kp_kube_version}" -f "${kp_dns_values}" >/dev/null
 done
