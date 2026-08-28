@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Production web responses opt out of search indexing by default, and production Node image stages use the repository-pinned runtime for reproducible builds.",
+  "summary": "All frontend selects use one accessible styled listbox with reliable form registration, keyboard interaction, and responsive field labeling.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.397"
+  "version": "0.1.0-rc.398"
 }
