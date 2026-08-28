@@ -22,5 +22,9 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     restoreMocks: true,
+    // Complex user-event flows can exceed Vitest's 5s default when the full
+    // browser-facing suite runs in parallel. Let each awaited interaction
+    // finish so a timed-out keyboard sequence cannot leak into the next test.
+    testTimeout: 15_000,
   },
 });
