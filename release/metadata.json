@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Administrators can deactivate a degraded certificate issuer even when that issuer makes platform readiness unhealthy, restoring the exact cleanup path without weakening protected Git checks.",
+  "summary": "Managed Traefik publishes an exact release-owned Deployment identity, allowing the edge observer to verify healthy fresh and upgraded installations across Kubernetes defaulting differences.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.395"
+  "version": "0.1.0-rc.396"
 }
