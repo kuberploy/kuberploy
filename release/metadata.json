@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "All frontend selects use one accessible styled listbox with reliable form registration, keyboard interaction, and responsive field labeling.",
+  "summary": "Styled frontend selects now stay within mobile Monitoring layouts, with deterministic browser-form regression coverage.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.398"
+  "version": "0.1.0-rc.399"
 }
