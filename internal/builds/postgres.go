@@ -108,6 +108,53 @@ func (s *PostgreSQLStore) PutRepository(ctx context.Context, repository Reposito
 	return tx.Commit(ctx)
 }
 
+func (s *PostgreSQLStore) ReconcileRepositories(ctx context.Context, installationID string, repositories []Repository, now time.Time) error {
+	if !uuidRE.MatchString(installationID) || now.IsZero() || len(repositories) > 500 {
+		return ErrInvalid
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	var accountID int64
+	var accountLogin string
+	if err = tx.QueryRow(ctx, `SELECT github_account_id,account_login FROM github_installations WHERE id=$1 AND lifecycle<>'deleted' FOR UPDATE`, installationID).Scan(&accountID, &accountLogin); err != nil {
+		return classifyPostgres(err)
+	}
+	providerIDs := make([]int64, 0, len(repositories))
+	seen := make(map[int64]struct{}, len(repositories))
+	for _, repository := range repositories {
+		if repository.validate() != nil || repository.InstallationID != installationID || repository.Lifecycle != RepositoryActive ||
+			repository.Identity.OwnerID != accountID || !strings.EqualFold(repository.Identity.OwnerLogin, accountLogin) {
+			return ErrUnauthorized
+		}
+		if _, duplicate := seen[repository.Identity.ID]; duplicate {
+			return ErrConflict
+		}
+		seen[repository.Identity.ID] = struct{}{}
+		providerIDs = append(providerIDs, repository.Identity.ID)
+		command, upsertErr := tx.Exec(ctx, `INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,removed_at,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,'active',$7,NULL,$8,$7)
+			ON CONFLICT(id) DO UPDATE SET github_owner_id=EXCLUDED.github_owner_id,owner_login=EXCLUDED.owner_login,name=EXCLUDED.name,lifecycle='active',last_verified_at=EXCLUDED.last_verified_at,removed_at=NULL,updated_at=EXCLUDED.updated_at
+			WHERE github_repositories.installation_id=EXCLUDED.installation_id AND github_repositories.github_repository_id=EXCLUDED.github_repository_id`,
+			repository.ID, repository.InstallationID, repository.Identity.ID, repository.Identity.OwnerID, repository.Identity.OwnerLogin,
+			repository.Identity.Name, repository.LastVerifiedAt, repository.CreatedAt)
+		if upsertErr != nil {
+			return classifyPostgres(upsertErr)
+		}
+		if command.RowsAffected() != 1 {
+			return ErrConflict
+		}
+	}
+	at := now.UTC()
+	if _, err = tx.Exec(ctx, `UPDATE github_repositories SET lifecycle='removed',removed_at=$2,updated_at=$2
+		WHERE installation_id=$1 AND lifecycle<>'removed' AND NOT (github_repository_id = ANY($3::bigint[]))`, installationID, at, providerIDs); err != nil {
+		return classifyPostgres(err)
+	}
+	return tx.Commit(ctx)
+}
+
 func (s *PostgreSQLStore) PutDefinition(ctx context.Context, definition BuildDefinition) error {
 	if err := definition.validate(); err != nil {
 		return err

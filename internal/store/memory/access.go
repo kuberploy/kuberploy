@@ -596,10 +596,10 @@ func (s *Store) LinkVerifiedGitHubInstallation(_ context.Context, actor, key, fp
 	for installationID, installation := range s.installations {
 		if installation.GitHubInstallationID == in.GitHubInstallationID {
 			if installation.OwnerUserID != actor || !strings.EqualFold(installation.AccountLogin, in.AccountLogin) ||
-				installation.AccountType != in.AccountType || installation.RepositorySelection != in.RepositorySelection {
+				installation.AccountType != in.AccountType || (in.RepositorySelection != "all" && in.RepositorySelection != "selected") {
 				return domain.GitHubInstallation{}, false, base.ErrConflict
 			}
-			installation.RepositoryCount = in.RepositoryCount
+			installation.RepositorySelection, installation.RepositoryCount = in.RepositorySelection, in.RepositoryCount
 			installation.UpdatedAt = time.Now().UTC()
 			s.installations[installationID] = installation
 			s.idempotency[idemKey] = idemRecord{fp, "github-installation", installation.ID, ""}

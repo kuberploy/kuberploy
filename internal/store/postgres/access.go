@@ -871,12 +871,12 @@ func (s *Store) LinkVerifiedGitHubInstallation(ctx context.Context, actor, key, 
 		&existing.RepositorySelection, &existing.RepositoryCount, &existing.CreatedAt, &existing.UpdatedAt)
 	if err == nil {
 		if existing.OwnerUserID != actor || !strings.EqualFold(existing.AccountLogin, in.AccountLogin) || existing.AccountType != in.AccountType ||
-			existing.RepositorySelection != in.RepositorySelection {
+			(in.RepositorySelection != "all" && in.RepositorySelection != "selected") {
 			return domain.GitHubInstallation{}, false, base.ErrConflict
 		}
-		existing.RepositoryCount = in.RepositoryCount
+		existing.RepositorySelection, existing.RepositoryCount = in.RepositorySelection, in.RepositoryCount
 		existing.UpdatedAt = now
-		if _, err = tx.Exec(ctx, `UPDATE github_installations SET repository_count=$2,updated_at=$3 WHERE id=$1`, existing.ID, existing.RepositoryCount, now); err != nil {
+		if _, err = tx.Exec(ctx, `UPDATE github_installations SET repository_selection=$2,repository_count=$3,updated_at=$4 WHERE id=$1`, existing.ID, existing.RepositorySelection, existing.RepositoryCount, now); err != nil {
 			return domain.GitHubInstallation{}, false, classify(err)
 		}
 		if err = audit(ctx, tx, actor, "github.installation.verify", "github-installation", existing.ID, requestID,

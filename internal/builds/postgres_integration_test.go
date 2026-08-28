@@ -111,6 +111,18 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.PutRepository(ctx, repository); err != nil {
 		t.Fatal(err)
 	}
+	extraRepository := Repository{ID: id.New(), InstallationID: installationID, Identity: githubapp.RepositoryIdentity{ID: providerRepo + 1000, Name: "removed-after-reverify", OwnerID: accountID, OwnerLogin: "kuberploy"}, Lifecycle: RepositoryActive, LastVerifiedAt: now, CreatedAt: now, UpdatedAt: now}
+	if err = store.ReconcileRepositories(ctx, installationID, []Repository{repository, extraRepository}, now.Add(time.Second)); err != nil {
+		t.Fatalf("expand repository selection: %v", err)
+	}
+	if err = store.ReconcileRepositories(ctx, installationID, []Repository{repository}, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("reduce repository selection: %v", err)
+	}
+	var removedLifecycle RepositoryLifecycle
+	var removedAt *time.Time
+	if err = pool.QueryRow(ctx, `SELECT lifecycle,removed_at FROM github_repositories WHERE id=$1`, extraRepository.ID).Scan(&removedLifecycle, &removedAt); err != nil || removedLifecycle != RepositoryRemoved || removedAt == nil {
+		t.Fatalf("removed repository lifecycle=%q removedAt=%v err=%v", removedLifecycle, removedAt, err)
+	}
 	definition := definitionWithIDs(t, now, RegistryManaged, definitionID, projectID, serviceID, installationID, repositoryID, registryID)
 	if err = store.PutDefinition(ctx, definition); err != nil {
 		t.Fatal(err)

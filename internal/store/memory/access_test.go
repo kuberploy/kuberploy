@@ -348,8 +348,8 @@ func TestTeamProjectsAndGitHubInstallationsAreFilteredServerSide(t *testing.T) {
 		t.Fatal(err)
 	}
 	verifiedInstallation, replay, err := store.LinkVerifiedGitHubInstallation(ctx, admin.ID, "verify-existing-install", "verify-existing-install", "request",
-		domain.CreateGitHubInstallation{GitHubInstallationID: 42, AccountLogin: "KUBERPLOY", AccountType: "Organization", RepositorySelection: "selected", RepositoryCount: 3})
-	if err != nil || replay || verifiedInstallation.ID != installation.Value.ID || verifiedInstallation.RepositoryCount != 3 {
+		domain.CreateGitHubInstallation{GitHubInstallationID: 42, AccountLogin: "KUBERPLOY", AccountType: "Organization", RepositorySelection: "all", RepositoryCount: 3})
+	if err != nil || replay || verifiedInstallation.ID != installation.Value.ID || verifiedInstallation.RepositorySelection != "all" || verifiedInstallation.RepositoryCount != 3 {
 		t.Fatalf("verified existing installation=%#v replay=%v err=%v", verifiedInstallation, replay, err)
 	}
 	shared, err := store.UpdateGitHubInstallationSharing(ctx, admin.ID, installation.Value.ID, "sharing-team", "sharing-team-fingerprint", "request", domain.UpdateGitHubInstallationSharing{Visibility: "team", TeamID: team.Value.ID})

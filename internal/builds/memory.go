@@ -143,6 +143,52 @@ func (s *MemoryStore) PutRepository(_ context.Context, repository Repository) er
 	return nil
 }
 
+func (s *MemoryStore) ReconcileRepositories(_ context.Context, installationID string, repositories []Repository, now time.Time) error {
+	if !uuidRE.MatchString(installationID) || now.IsZero() || len(repositories) > 500 {
+		return ErrInvalid
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	installation, exists := s.installations[installationID]
+	if !exists {
+		return ErrNotFound
+	}
+	active := make(map[int64]struct{}, len(repositories))
+	for _, repository := range repositories {
+		if repository.validate() != nil || repository.InstallationID != installationID || repository.Lifecycle != RepositoryActive ||
+			repository.Identity.OwnerID != installation.Account.ID || !strings.EqualFold(repository.Identity.OwnerLogin, installation.Account.Login) {
+			return ErrUnauthorized
+		}
+		if _, duplicate := active[repository.Identity.ID]; duplicate {
+			return ErrConflict
+		}
+		active[repository.Identity.ID] = struct{}{}
+		for id, current := range s.repositories {
+			if id != repository.ID && current.InstallationID == installationID && current.Identity.ID == repository.Identity.ID {
+				return ErrConflict
+			}
+		}
+	}
+	for id, repository := range s.repositories {
+		if repository.InstallationID != installationID {
+			continue
+		}
+		if _, keep := active[repository.Identity.ID]; keep {
+			continue
+		}
+		at := now.UTC()
+		repository.Lifecycle, repository.RemovedAt, repository.UpdatedAt = RepositoryRemoved, &at, at
+		s.repositories[id] = repository
+	}
+	for _, repository := range repositories {
+		if current, ok := s.repositories[repository.ID]; ok {
+			repository.CreatedAt = current.CreatedAt
+		}
+		s.repositories[repository.ID] = cloneRepository(repository)
+	}
+	return nil
+}
+
 func (s *MemoryStore) PutDefinition(_ context.Context, definition BuildDefinition) error {
 	if err := definition.validate(); err != nil {
 		return err

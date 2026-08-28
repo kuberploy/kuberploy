@@ -22,6 +22,16 @@ type setupTestClock struct{ now time.Time }
 
 func (c *setupTestClock) Now() time.Time { return c.now }
 
+type setupTestRandom struct{ next byte }
+
+func (r *setupTestRandom) Read(p []byte) (int, error) {
+	r.next++
+	for i := range p {
+		p[i] = r.next
+	}
+	return len(p), nil
+}
+
 type setupTestSecrets struct {
 	state githubapp.SecretRef
 	key   []byte
@@ -63,7 +73,7 @@ func newSetupService(t *testing.T) (*SetupService, *MemoryStore, *centralmemory.
 	config.StateSigningSecret = githubapp.SecretRef{Name: "github-app", Key: "state-secret"}
 	config.MaximumTokenPermissions = githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionWrite}
 	manager, err := githubapp.NewStateManager(config, setupTestSecrets{state: config.StateSigningSecret, key: []byte("state-signing-secret-with-at-least-32-bytes")}, clock,
-		strings.NewReader(strings.Repeat("s", 4096)))
+		&setupTestRandom{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +93,7 @@ func newSetupService(t *testing.T) (*SetupService, *MemoryStore, *centralmemory.
 	service := &SetupService{StateManager: manager, Provider: provider, Store: buildStore, Catalog: catalog,
 		InstallURL: "https://github.com/apps/kuberploy/installations/new", OAuthClientID: config.ClientID,
 		OAuthCallbackURL: "https://kuberploy.example.test/v1/github/installations/callback", AppID: config.AppID, HandoffTTL: 5 * time.Minute,
-		Clock: clock, Random: strings.NewReader(strings.Repeat("h", 4096))}
+		Clock: clock, Random: &setupTestRandom{next: 32}}
 	return service, buildStore, catalog, provider, clock
 }
 
@@ -96,8 +106,30 @@ func continueSetup(t *testing.T, service *SetupService, state string, installati
 	return result
 }
 
+func relinkExistingSetup(t *testing.T, service *SetupService, suffix, fingerprintCharacter string) LinkSetupResult {
+	t.Helper()
+	ctx := context.Background()
+	begin, err := service.Begin(ctx, BeginSetupRequest{ActorID: setupActorID, ExpectedAccountID: 202, ExistingInstallationID: 4242,
+		ReturnKey: "application-source", IdempotencyKey: "setup-authorize-" + suffix,
+		RequestFingerprint: "sha256:" + strings.Repeat(fingerprintCharacter, 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oauth := continueSetup(t, service, begin.State, 4242)
+	completed, err := service.Complete(ctx, CompleteSetupRequest{ActorID: setupActorID, State: oauth.State, Code: "oauth-code-" + suffix + "-1234567890"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked, err := service.Link(ctx, LinkSetupRequest{ActorID: setupActorID, Handoff: completed.Handoff,
+		IdempotencyKey: "setup-link-" + suffix, RequestFingerprint: "sha256:" + strings.Repeat(fingerprintCharacter, 64), RequestID: "request-" + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return linked
+}
+
 func TestSetupBindsExactGitHubUserAndLinksOnlyVerifiedMetadata(t *testing.T) {
-	service, buildStore, catalog, provider, _ := newSetupService(t)
+	service, buildStore, catalog, provider, clock := newSetupService(t)
 	ctx := context.Background()
 	begin, err := service.Begin(ctx, BeginSetupRequest{ActorID: setupActorID, ExpectedAccountID: 202, ReturnKey: "application-source",
 		IdempotencyKey: "setup-authorize-0001", RequestFingerprint: "sha256:" + strings.Repeat("1", 64)})
@@ -182,6 +214,42 @@ func TestSetupBindsExactGitHubUserAndLinksOnlyVerifiedMetadata(t *testing.T) {
 	visible, err := catalog.ListGitHubInstallationsForActor(ctx, setupActorID)
 	if err != nil || len(visible) != 1 || visible[0].ID != linked.Installation.ID {
 		t.Fatalf("central catalog mismatch: %#v err=%v", visible, err)
+	}
+
+	clock.now = clock.now.Add(time.Second)
+	provider.mu.Lock()
+	provider.result.Verification.Installation.RepositorySelection = "all"
+	provider.result.Repositories = []githubapp.RepositoryIdentity{
+		{ID: 303, OwnerID: 202, OwnerLogin: "example-org", Name: "api"},
+		{ID: 304, OwnerID: 202, OwnerLogin: "example-org", Name: "worker"},
+	}
+	provider.mu.Unlock()
+	relinked := relinkExistingSetup(t, service, "selection-all-01", "a")
+	if relinked.Installation.ID != linked.Installation.ID || relinked.Installation.RepositorySelection != "all" || len(relinked.Repositories) != 2 {
+		t.Fatalf("selection expansion mismatch: %#v", relinked)
+	}
+
+	clock.now = clock.now.Add(time.Second)
+	provider.mu.Lock()
+	provider.result.Verification.Installation.RepositorySelection = "selected"
+	provider.result.Repositories = []githubapp.RepositoryIdentity{{ID: 304, OwnerID: 202, OwnerLogin: "example-org", Name: "worker"}}
+	provider.mu.Unlock()
+	relinked = relinkExistingSetup(t, service, "selection-selected-02", "b")
+	if relinked.Installation.ID != linked.Installation.ID || relinked.Installation.RepositorySelection != "selected" || len(relinked.Repositories) != 1 {
+		t.Fatalf("selection reduction mismatch: %#v", relinked)
+	}
+	visible, err = catalog.ListGitHubInstallationsForActor(ctx, setupActorID)
+	if err != nil || len(visible) != 1 || visible[0].RepositorySelection != "selected" || visible[0].RepositoryCount != 1 {
+		t.Fatalf("reverified central catalog mismatch: %#v err=%v", visible, err)
+	}
+	removedID := deterministicUUID("github-repository-v1", linked.Installation.ID, "303")
+	keptID := deterministicUUID("github-repository-v1", linked.Installation.ID, "304")
+	buildStore.mu.Lock()
+	removed, removedExists := buildStore.repositories[removedID]
+	kept, keptExists := buildStore.repositories[keptID]
+	buildStore.mu.Unlock()
+	if !removedExists || removed.Lifecycle != RepositoryRemoved || removed.RemovedAt == nil || !keptExists || kept.Lifecycle != RepositoryActive || kept.RemovedAt != nil {
+		t.Fatalf("repository reconciliation mismatch: removed=%#v kept=%#v", removed, kept)
 	}
 }
 

@@ -72,6 +72,7 @@ type ConsumedSetupHandoff struct {
 // persisted only by their domain-separated digest.
 type SetupStore interface {
 	Store
+	ReconcileRepositories(context.Context, string, []Repository, time.Time) error
 	PutSetupAuthorization(context.Context, SetupAuthorization) (SetupAuthorization, bool, error)
 	GitHubUserBinding(context.Context, string) (githubapp.AccountIdentity, error)
 	BindGitHubUser(context.Context, string, githubapp.AccountIdentity, time.Time) error
@@ -352,10 +353,10 @@ func (s *SetupService) Link(ctx context.Context, request LinkSetupRequest) (Link
 	for _, identity := range handoff.Repositories {
 		repository := Repository{ID: deterministicUUID("github-repository-v1", linked.ID, strconv.FormatInt(identity.ID, 10)),
 			InstallationID: linked.ID, Identity: identity, Lifecycle: RepositoryActive, LastVerifiedAt: now, CreatedAt: now, UpdatedAt: now}
-		if err = s.Store.PutRepository(ctx, repository); err != nil {
-			return LinkSetupResult{}, err
-		}
 		repositories = append(repositories, repository)
+	}
+	if err = s.Store.ReconcileRepositories(ctx, linked.ID, repositories, now); err != nil {
+		return LinkSetupResult{}, err
 	}
 	if err = s.Store.CompleteSetupHandoff(ctx, handoff.Digest, linked.ID, now); err != nil {
 		return LinkSetupResult{}, err
