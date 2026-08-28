@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import {
   cleanup,
   fireEvent,
@@ -100,7 +101,7 @@ describe("guided runtime controls", () => {
       screen.getByRole("combobox", { name: "Liveness check" }),
     ).toHaveValue("disabled");
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Readiness check" }),
       "httpGet",
     );
@@ -135,7 +136,7 @@ describe("guided runtime controls", () => {
     const initial = guidedConfigFromYaml(defaultConfigYaml({ name: "api" }));
     render(<GuidedConfigForm initial={initial} onChange={vi.fn()} />);
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Liveness check" }),
       "exec",
     );
@@ -233,10 +234,7 @@ describe("guided External DNS catalog", () => {
       screen.queryByText("External DNS revision is ready"),
     ).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText(/^DNS integration/),
-      "public-dns",
-    );
+    await selectOption(screen.getByLabelText(/^DNS integration/), "public-dns");
     expect(screen.getByText("External DNS revision is ready")).toBeVisible();
   });
 
@@ -286,9 +284,7 @@ describe("guided External DNS catalog", () => {
     const integration = screen.getByLabelText(/^DNS integration/);
     expect(integration).toHaveValue("removed-profile");
     expect(integration).toBeDisabled();
-    expect(
-      screen.getByRole("option", { name: "removed-profile (unavailable)" }),
-    ).toBeDisabled();
+    expect(integration).toHaveTextContent("removed-profile (unavailable)");
     expect(
       screen.getByText("The authorized catalog could not be loaded."),
     ).toBeVisible();

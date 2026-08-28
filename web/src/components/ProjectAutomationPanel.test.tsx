@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -103,7 +104,7 @@ describe("project service account management", () => {
       screen.getByRole("textbox", { name: /^Service account name/ }),
       " release-bot ",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Project role/ }),
       "developer",
     );

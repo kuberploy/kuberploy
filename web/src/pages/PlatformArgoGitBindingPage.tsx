@@ -4,6 +4,7 @@ import { ApiError, api } from "../api/client";
 import type { CreatePlatformArgoGitBinding } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -289,7 +290,7 @@ export function PlatformArgoGitBindingPage() {
 
           <FormGrid as="form" onSubmit={submit}>
             <Field label="Verified GitHub App installation" required>
-              <select
+              <Select
                 value={installationId}
                 onChange={(event) => {
                   setInstallationId(event.target.value);
@@ -307,10 +308,10 @@ export function PlatformArgoGitBindingPage() {
                     {installation.githubInstallationId})
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Verified repository" required>
-              <select
+              <Select
                 value={repositoryId}
                 onChange={(event) => {
                   setRepositoryId(event.target.value);
@@ -328,7 +329,7 @@ export function PlatformArgoGitBindingPage() {
                     {repository.ownerLogin}/{repository.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field
               label="Target branch"

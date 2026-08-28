@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { ApiError, api, errorMessage } from "../api/client";
 import {
+  Select,
   Button,
   Card,
   EmptyState,
@@ -821,7 +822,7 @@ export function NewDeploymentPage() {
                 required
                 error={form.formState.errors.projectId?.message}
               >
-                <select
+                <Select
                   {...form.register("projectId", {
                     required: "Select a project.",
                     onChange: () => {
@@ -830,6 +831,7 @@ export function NewDeploymentPage() {
                       form.setValue("routeMode", "internal");
                     },
                   })}
+                  value={form.watch("projectId")}
                 >
                   <option value="">Select project</option>
                   {projects.data?.items.map((project) => (
@@ -837,7 +839,7 @@ export function NewDeploymentPage() {
                       {project.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field
                 label="Environment"
@@ -845,11 +847,12 @@ export function NewDeploymentPage() {
                 hint="Maps to one namespace and Argo CD project."
                 error={form.formState.errors.environmentId?.message}
               >
-                <select
+                <Select
                   disabled={!projectId}
                   {...form.register("environmentId", {
                     required: "Select an environment.",
                   })}
+                  value={form.watch("environmentId")}
                 >
                   <option value="">
                     {projectId
@@ -861,7 +864,7 @@ export function NewDeploymentPage() {
                       {environment.name} · {environment.namespace}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
             </FormGrid>
             <FormGrid columns={3}>
@@ -1001,13 +1004,14 @@ export function NewDeploymentPage() {
                 required
                 error={form.formState.errors.applicationId?.message}
               >
-                <select
+                <Select
                   {...form.register("applicationId", {
                     required:
                       applicationMode === "existing"
                         ? "Select an application."
                         : false,
                   })}
+                  value={form.watch("applicationId")}
                 >
                   <option value="">Select application</option>
                   {filteredApplications.map((application) => (
@@ -1015,7 +1019,7 @@ export function NewDeploymentPage() {
                       {application.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
             )}
             {reservedApplicationId ? (
@@ -1288,7 +1292,7 @@ export function NewDeploymentPage() {
             </FormGrid>
             <FormGrid columns={3}>
               <Field label="Workload type" required>
-                <select
+                <Select
                   {...form.register("workloadType", {
                     onChange: (event) => {
                       const stateful = event.target.value === "StatefulSet";
@@ -1304,31 +1308,38 @@ export function NewDeploymentPage() {
                       }
                     },
                   })}
+                  value={form.watch("workloadType")}
                 >
                   <option value="Deployment">Deployment</option>
                   <option value="StatefulSet">StatefulSet</option>
-                </select>
+                </Select>
               </Field>
               <Field
                 label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
                 required
                 hint="StatefulSets support rolling update or on-delete; Deployments support rolling update or recreate."
               >
-                <select {...form.register("strategyType")}>
+                <Select
+                  {...form.register("strategyType")}
+                  value={form.watch("strategyType")}
+                >
                   <option value="RollingUpdate">Rolling update</option>
                   {workloadType === "StatefulSet" ? (
                     <option value="OnDelete">On delete</option>
                   ) : (
                     <option value="Recreate">Recreate</option>
                   )}
-                </select>
+                </Select>
               </Field>
               {workloadType === "StatefulSet" ? (
                 <Field label="Pod management policy" required>
-                  <select {...form.register("podManagementPolicy")}>
+                  <Select
+                    {...form.register("podManagementPolicy")}
+                    value={form.watch("podManagementPolicy")}
+                  >
                     <option value="OrderedReady">Ordered ready</option>
                     <option value="Parallel">Parallel</option>
-                  </select>
+                  </Select>
                 </Field>
               ) : null}
             </FormGrid>

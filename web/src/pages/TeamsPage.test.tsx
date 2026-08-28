@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -241,6 +242,9 @@ describe("team creation", () => {
       </QueryClientProvider>,
     );
 
+    await openSelect(
+      await screen.findByRole("combobox", { name: /add user/i }),
+    );
     expect(
       await screen.findByRole("option", {
         name: "grace@example.com · Grace Hopper",
@@ -289,7 +293,7 @@ describe("GitHub App sharing confirmation", () => {
     expect(submit).toBeDisabled();
 
     await user.click(screen.getByRole("radio", { name: /^team/i }));
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /share with team/i }),
       "team_product",
     );
@@ -420,7 +424,7 @@ describe("GitHub App sharing confirmation", () => {
       await screen.findByRole("button", { name: "Change sharing" }),
     );
     await user.click(screen.getByRole("radio", { name: /^team/i }));
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /share with team/i }),
       "team_product",
     );
@@ -526,7 +530,7 @@ describe("team member role editor", () => {
 
     const save = screen.getByRole("button", { name: "Save role" });
     expect(save).toBeDisabled();
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Role for Grace Hopper" }),
       "owner",
     );

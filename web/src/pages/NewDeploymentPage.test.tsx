@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -246,19 +247,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -289,8 +289,7 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
@@ -336,8 +335,7 @@ describe("new deployment runtime controls", () => {
       );
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
@@ -379,15 +377,14 @@ describe("new deployment runtime controls", () => {
     });
     render(<NewDeploymentPage />, { wrapper: wrapper(queryClient) });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
     const environment = screen.getByRole("combobox", {
       name: /^Environment/,
     });
-    await user.selectOptions(environment, "environment-1");
+    await selectOption(environment, "environment-1");
 
     vi.mocked(api.environments).mockResolvedValueOnce({ items: [] });
     await queryClient.invalidateQueries({ queryKey: ["environments"] });
@@ -431,19 +428,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -498,19 +494,18 @@ describe("new deployment runtime controls", () => {
     const createDeployment = vi.spyOn(api, "createDeployment");
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -564,19 +559,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
     const environment = screen.getByRole("combobox", {
       name: /^Environment/,
     });
-    await user.selectOptions(environment, "environment-1");
+    await selectOption(environment, "environment-1");
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -590,8 +584,8 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("button", { name: /commit & deploy/i }),
     ).toBeEnabled();
 
-    await user.selectOptions(environment, "environment-2");
-    await user.selectOptions(environment, "environment-1");
+    await selectOption(environment, "environment-2");
+    await selectOption(environment, "environment-1");
     expect(
       screen.getByRole("button", { name: /commit & deploy/i }),
     ).toBeDisabled();
@@ -616,19 +610,18 @@ describe("new deployment runtime controls", () => {
     );
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -694,7 +687,7 @@ describe("new deployment runtime controls", () => {
     expect(
       await screen.findByRole("combobox", { name: "Readiness check" }),
     ).toHaveValue("disabled");
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Liveness check" }),
       "exec",
     );
@@ -733,19 +726,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -753,7 +745,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("textbox", { name: /^Image digest/ }),
       `ghcr.io/acme/payments@sha256:${"a".repeat(64)}`,
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Readiness check" }),
       "httpGet",
     );
@@ -838,19 +830,18 @@ describe("new deployment runtime controls", () => {
       );
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -902,19 +893,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -958,31 +948,30 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Workload type" }),
       "StatefulSet",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^StatefulSet strategy/ }),
       "OnDelete",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Pod management policy" }),
       "Parallel",
     );
@@ -1010,12 +999,11 @@ describe("new deployment runtime controls", () => {
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
@@ -1023,7 +1011,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("radio", { name: "Existing application" }),
     );
     const application = screen.getByRole("combobox", { name: "Application" });
-    await user.selectOptions(application, "application-1");
+    await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add label" }));
     await user.type(
       screen.getByRole("textbox", { name: "Node selector 1 key" }),
@@ -1034,7 +1022,7 @@ describe("new deployment runtime controls", () => {
       screen.queryByText("No topology constraints."),
     ).not.toBeInTheDocument();
 
-    await user.selectOptions(application, "application-2");
+    await selectOption(application, "application-2");
     expect(
       screen.queryByRole("textbox", { name: "Node selector 1 key" }),
     ).not.toBeInTheDocument();
@@ -1051,12 +1039,11 @@ describe("new deployment runtime controls", () => {
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
@@ -1064,7 +1051,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("radio", { name: "Existing application" }),
     );
     const application = screen.getByRole("combobox", { name: "Application" });
-    await user.selectOptions(application, "application-1");
+    await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add value" }));
     await user.type(
       screen.getByRole("textbox", { name: "Variable 1 name" }),
@@ -1080,7 +1067,7 @@ describe("new deployment runtime controls", () => {
       "old.example.com",
     );
 
-    await user.selectOptions(application, "application-2");
+    await selectOption(application, "application-2");
 
     await waitFor(() => {
       expect(
@@ -1104,19 +1091,18 @@ describe("new deployment runtime controls", () => {
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );
@@ -1193,26 +1179,25 @@ describe("new deployment runtime controls", () => {
     });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
     const environment = screen.getByRole("combobox", {
       name: /^Environment/,
     });
-    await user.selectOptions(environment, "environment-1");
+    await selectOption(environment, "environment-1");
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
     const application = screen.getByRole("combobox", { name: "Application" });
-    await user.selectOptions(application, "application-1");
+    await selectOption(application, "application-1");
     await user.click(screen.getByRole("button", { name: "Add label" }));
     expect(
       screen.getByRole("textbox", { name: "Node selector 1 key" }),
     ).toBeInTheDocument();
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-2",
     );
@@ -1263,19 +1248,18 @@ describe("new deployment runtime controls", () => {
       });
     render(<NewDeploymentPage />, { wrapper: wrapper() });
 
-    await screen.findByRole("option", { name: "Payments" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project-1",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /^Environment/ }),
       "environment-1",
     );
     await user.click(
       screen.getByRole("radio", { name: "Existing application" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Application" }),
       "application-1",
     );

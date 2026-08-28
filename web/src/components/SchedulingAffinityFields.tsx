@@ -1,4 +1,5 @@
 import {
+  Select,
   Button,
   ButtonRow,
   CardHeader,
@@ -181,7 +182,7 @@ export function SchedulingAffinityFields({
                   label={`Term ${termIndex + 1} expression ${requirementIndex + 1} operator`}
                   required
                 >
-                  <select
+                  <Select
                     value={requirement.operator}
                     onChange={(event) => {
                       const operator = event.target
@@ -205,7 +206,7 @@ export function SchedulingAffinityFields({
                     {operators.map((operator) => (
                       <option key={operator}>{operator}</option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 {needsValues(requirement.operator) ? (
                   <Field
@@ -299,7 +300,7 @@ export function SchedulingAffinityFields({
           <FormGrid as="fieldset" key={presetKeys.keyAt(index)}>
             <legend>Anti-affinity preset {index + 1}</legend>
             <Field label={`Preset ${index + 1} enforcement`} required>
-              <select
+              <Select
                 value={preset.enforcement}
                 onChange={(event) => {
                   const enforcement = event.target.value as
@@ -321,7 +322,7 @@ export function SchedulingAffinityFields({
               >
                 <option value="required">Required</option>
                 <option value="preferred">Preferred</option>
-              </select>
+              </Select>
             </Field>
             <Field label={`Preset ${index + 1} topology key`} required>
               <input

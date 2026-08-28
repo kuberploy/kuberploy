@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -223,10 +224,7 @@ describe("Git SSH source key scope", () => {
       await screen.findByLabelText(/^Repository URL/),
       "ssh://git@git.example.test/team/repository.git",
     );
-    await user.selectOptions(
-      screen.getByLabelText(/^Registry target/),
-      "registry-1",
-    );
+    await selectOption(screen.getByLabelText(/^Registry target/), "registry-1");
     await user.type(
       screen.getByLabelText(/^SSH host public key/),
       "ssh-ed25519 AAAAHOST",

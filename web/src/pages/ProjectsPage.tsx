@@ -6,6 +6,7 @@ import { api, errorMessage } from "../api/client";
 import type { Project, Team } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -334,12 +335,13 @@ export function ProjectsPage() {
                 }
                 error={projectForm.formState.errors.teamId?.message}
               >
-                <select
+                <Select
                   {...projectForm.register("teamId", {
                     required: canCreatePlatformProject
                       ? false
                       : "Select a team for this project.",
                   })}
+                  value={projectForm.watch("teamId")}
                 >
                   <option value="">
                     {canCreatePlatformProject ? "Platform-only" : "Select team"}
@@ -349,7 +351,7 @@ export function ProjectsPage() {
                       {team.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Button type="submit" busy={createProject.isPending}>
                 Create project
@@ -370,10 +372,11 @@ export function ProjectsPage() {
                 required
                 error={environmentForm.formState.errors.projectId?.message}
               >
-                <select
+                <Select
                   {...environmentForm.register("projectId", {
                     required: "Select a project.",
                   })}
+                  value={environmentForm.watch("projectId")}
                 >
                   <option value="">Select project</option>
                   {environmentProjects.map((project) => (
@@ -384,7 +387,7 @@ export function ProjectsPage() {
                         : ""}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               <Field
                 label="Name"
@@ -403,14 +406,17 @@ export function ProjectsPage() {
                 project and environment identity.
               </div>
               <Field label="Git publication" required>
-                <select {...environmentForm.register("protectionPolicy")}>
+                <Select
+                  {...environmentForm.register("protectionPolicy")}
+                  value={environmentForm.watch("protectionPolicy")}
+                >
                   <option value="protected">
                     Protected · pull request review
                   </option>
                   <option value="development">
                     Development · direct Git commit
                   </option>
-                </select>
+                </Select>
               </Field>
               <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
                 This policy is immutable. Protected environments require a

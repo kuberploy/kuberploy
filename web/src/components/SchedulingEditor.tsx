@@ -9,7 +9,7 @@ import type {
   SchedulingRequirementDraft,
   SameApplicationPodAntiAffinityDraft,
 } from "./SchedulingAffinityFields";
-import { Button, useRowKeys } from "./ui";
+import { Select, Button, Field, useRowKeys } from "./ui";
 import { Icon } from "./Icon";
 
 export type SchedulingEditorValue = {
@@ -203,9 +203,8 @@ function RequirementRows({
                 onChange={(event) => update(index, { key: event.target.value })}
               />
             </label>
-            <label>
-              <span>Operator</span>
-              <select
+            <Field label="Operator">
+              <Select
                 aria-label={`Expression ${index + 1} operator`}
                 value={item.operator}
                 disabled={disabled}
@@ -223,8 +222,8 @@ function RequirementRows({
                 {requirementOperators.map((operator) => (
                   <option key={operator}>{operator}</option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Field>
             {needsValues ? (
               <label>
                 <span>Values</span>
@@ -322,9 +321,8 @@ function PodPresetRows({
           className="grid items-end gap-2 grid-cols-[minmax(120px,_0.6fr)_minmax(180px,_1fr)_minmax(90px,_0.35fr)_auto] to-860:grid-cols-[repeat(2,_minmax(0,_1fr))_auto] to-580:grid-cols-[1fr]"
           key={rowKeys.keyAt(index)}
         >
-          <label>
-            <span>Enforcement</span>
-            <select
+          <Field label="Enforcement">
+            <Select
               aria-label={`${title} ${index + 1} enforcement`}
               value={item.enforcement}
               disabled={disabled}
@@ -348,8 +346,8 @@ function PodPresetRows({
             >
               <option value="required">Required</option>
               <option value="preferred">Preferred</option>
-            </select>
-          </label>
+            </Select>
+          </Field>
           <label>
             <span>Topology key</span>
             <input
@@ -532,7 +530,7 @@ export function SchedulingEditor({
   };
 
   return (
-    <div className="grid gap-3 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_.icon-button]:w-10 [&_.icon-button]:h-11 [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_select]:w-full [&_select]:h-8 [&_select]:min-w-0 [&_select]:py-0 [&_select]:px-2 [&_select]:border [&_select]:border-line-strong [&_select]:rounded-lg [&_select]:text-ink [&_select]:bg-surface [&_select]:font-[inherit]">
+    <div className="grid gap-3 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_.icon-button]:w-10 [&_.icon-button]:h-11 [&_label]:grid [&_label]:min-w-0 [&_label]:gap-1.5 [&_[role='combobox']]:h-8 [&_[role='combobox']]:min-h-8 [&_[role='combobox']]:px-2">
       <div className="min-w-0 p-4 border border-line rounded-[10px] bg-surface">
         <div className="flex items-center justify-between gap-3 mb-3 [&>div]:grid [&>div]:gap-1 [&_strong]:text-ink [&_strong]:text-meta [&_span]:text-ink-faint [&_span]:text-xs [&_span]:font-semibold to-580:items-start to-580:flex-col">
           <div>
@@ -872,9 +870,8 @@ export function SchedulingEditor({
                 }
               />
             </label>
-            <label>
-              <span>Operator</span>
-              <select
+            <Field label="Operator">
+              <Select
                 aria-label={`Toleration ${index + 1} operator`}
                 value={item.operator}
                 disabled={disabled}
@@ -901,8 +898,8 @@ export function SchedulingEditor({
               >
                 <option>Equal</option>
                 <option>Exists</option>
-              </select>
-            </label>
+              </Select>
+            </Field>
             {item.operator === "Equal" ? (
               <label>
                 <span>Value</span>
@@ -927,9 +924,8 @@ export function SchedulingEditor({
             ) : (
               <span />
             )}
-            <label>
-              <span>Effect</span>
-              <select
+            <Field label="Effect">
+              <Select
                 aria-label={`Toleration ${index + 1} effect`}
                 value={item.effect}
                 disabled={disabled}
@@ -953,8 +949,8 @@ export function SchedulingEditor({
                 {tolerationEffects.map((effect) => (
                   <option key={effect}>{effect}</option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Field>
             {item.effect === "NoExecute" ? (
               <label>
                 <span>Seconds</span>
@@ -1106,9 +1102,8 @@ export function SchedulingEditor({
                 }
               />
             </label>
-            <label>
-              <span>Unsatisfiable</span>
-              <select
+            <Field label="Unsatisfiable">
+              <Select
                 aria-label={`Topology spread ${index + 1} unsatisfiable`}
                 value={item.whenUnsatisfiable}
                 disabled={disabled}
@@ -1140,8 +1135,8 @@ export function SchedulingEditor({
               >
                 <option>DoNotSchedule</option>
                 <option>ScheduleAnyway</option>
-              </select>
-            </label>
+              </Select>
+            </Field>
             <label>
               <span>Min domains</span>
               <input
@@ -1177,9 +1172,8 @@ export function SchedulingEditor({
                 }
               />
             </label>
-            <label>
-              <span>Node affinity policy</span>
-              <select
+            <Field label="Node affinity policy">
+              <Select
                 aria-label={`Topology spread ${index + 1} node affinity policy`}
                 value={item.nodeAffinityPolicy ?? ""}
                 disabled={disabled}
@@ -1211,11 +1205,10 @@ export function SchedulingEditor({
                 <option value="">Kubernetes default</option>
                 <option>Honor</option>
                 <option>Ignore</option>
-              </select>
-            </label>
-            <label>
-              <span>Node taints policy</span>
-              <select
+              </Select>
+            </Field>
+            <Field label="Node taints policy">
+              <Select
                 aria-label={`Topology spread ${index + 1} node taints policy`}
                 value={item.nodeTaintsPolicy ?? ""}
                 disabled={disabled}
@@ -1247,8 +1240,8 @@ export function SchedulingEditor({
                 <option value="">Kubernetes default</option>
                 <option>Honor</option>
                 <option>Ignore</option>
-              </select>
-            </label>
+              </Select>
+            </Field>
             <button
               type="button"
               className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"

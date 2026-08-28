@@ -10,6 +10,7 @@ import type {
 } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -650,7 +651,7 @@ export function ExternalDNSPage() {
                     />
                   </Field>
                   <Field label="Mode" required>
-                    <select
+                    <Select
                       value={draft.mode}
                       onChange={(event) =>
                         updateMode(
@@ -660,10 +661,10 @@ export function ExternalDNSPage() {
                     >
                       <option value="adopted">Operator-adopted</option>
                       <option value="managed">Kuberploy-managed</option>
-                    </select>
+                    </Select>
                   </Field>
                   <Field label="Provider" required>
-                    <select
+                    <Select
                       value={draft.providerKind}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -686,7 +687,7 @@ export function ExternalDNSPage() {
                           {provider}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </Field>
                   <Field
                     label="Immutable TXT owner"
@@ -724,7 +725,7 @@ export function ExternalDNSPage() {
                     />
                   </Field>
                   <Field label="Sync policy" required>
-                    <select
+                    <Select
                       value={draft.syncPolicy}
                       onChange={(event) =>
                         setDraft((current) => ({
@@ -739,7 +740,7 @@ export function ExternalDNSPage() {
                         Upsert only (safe default)
                       </option>
                       <option value="sync">Destructive sync</option>
-                    </select>
+                    </Select>
                   </Field>
                   {draft.syncPolicy === "sync" ? (
                     <Field

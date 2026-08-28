@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -89,7 +90,7 @@ describe("source-build log panel", () => {
       expect.objectContaining({ tailLines: 200, limitBytes: 1_048_576 }),
     );
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Tail lines" }),
       "500",
     );

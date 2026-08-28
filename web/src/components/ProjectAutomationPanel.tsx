@@ -14,6 +14,7 @@ import { formatDate, titleCase } from "../lib/format";
 import { useCopyToClipboard } from "../lib/clipboard";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   Dialog,
   DialogContent,
@@ -287,13 +288,13 @@ export function ProjectAutomationPanel({
             required
             hint="This remains the object-level authorization boundary."
           >
-            <select {...form.register("role")}>
+            <Select {...form.register("role")} value={form.watch("role")}>
               {assignableRoles.map((role) => (
                 <option key={role} value={role}>
                   {titleCase(role)}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Button type="submit" busy={createAccount.isPending}>
             <Icon name="plus" /> Create account

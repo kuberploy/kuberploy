@@ -4,10 +4,12 @@ import { api } from "../api/client";
 import type { MetricKey, MetricRangeResult, Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Card,
   EmptyState,
   ErrorPanel,
   Eyebrow,
+  Field,
   Notice,
   Page,
   PageHeader,
@@ -357,7 +359,7 @@ export function MonitoringPage() {
         />
       ) : (
         <div className="grid gap-5">
-          <Card className="flex items-end justify-between gap-6 py-4 px-5 [&>div]:flex [&>div]:items-center [&>div]:gap-3 [&>div_>_svg]:w-[19px] [&>div_>_svg]:text-mint-dark [&_strong]:block [&_strong]:text-[11px] [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs [&_label]:grid [&_label]:min-w-[min(420px,_48%)] [&_label]:gap-1.5 [&_label_>_span]:text-ink-soft [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_label_>_span]:tracking-[0.06em] [&_label_>_span]:uppercase [&_select]:w-full [&_select]:min-h-[39px] [&_select]:pt-0 [&_select]:pr-8 [&_select]:pb-0 [&_select]:pl-3 [&_select]:border [&_select]:border-line-strong [&_select]:rounded-lg [&_select]:text-ink [&_select]:bg-surface to-820:items-stretch to-820:flex-col to-820:[&_label]:w-full to-820:[&_label]:min-w-0">
+          <Card className="flex items-end justify-between gap-6 py-4 px-5 [&>div]:flex [&>div]:items-center [&>div]:gap-3 [&>div_>_svg]:w-[19px] [&>div_>_svg]:text-mint-dark [&_strong]:block [&_strong]:text-[11px] [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs [&_label]:grid [&_label]:min-w-[min(420px,_48%)] [&_label]:gap-1.5 [&_label_>_span]:text-ink-soft [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_label_>_span]:tracking-[0.06em] [&_label_>_span]:uppercase [&_[role='combobox']]:min-h-[39px] to-820:items-stretch to-820:flex-col to-820:[&_label]:w-full to-820:[&_label]:min-w-0">
             <div>
               <Icon name="metrics" />
               <span>
@@ -367,9 +369,8 @@ export function MonitoringPage() {
                 </small>
               </span>
             </div>
-            <label>
-              <span>Scope</span>
-              <select
+            <Field label="Scope">
+              <Select
                 aria-label="Monitoring scope"
                 value={selectedScope.key}
                 onChange={(event) => setSelectedScopeKey(event.target.value)}
@@ -380,8 +381,8 @@ export function MonitoringPage() {
                     {scope.title}
                   </option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Field>
           </Card>
 
           {monitoring.error || !monitoringAvailable ? (

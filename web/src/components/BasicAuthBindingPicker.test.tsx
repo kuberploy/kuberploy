@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -86,16 +87,13 @@ describe("BasicAuth binding picker", () => {
         />
       </QueryClientProvider>,
     );
-    const option = await screen.findByRole("option", {
-      name: "auth-users · v3",
-    });
     expect(screen.queryByText(/other-environment/)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("textbox", { name: /binding/i }),
     ).not.toBeInTheDocument();
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "BasicAuth users binding" }),
-      option,
+      "11111111-1111-4111-8111-111111111111",
     );
     expect(onChange).toHaveBeenCalledWith({
       bindingId: "11111111-1111-4111-8111-111111111111",
@@ -183,6 +181,10 @@ describe("BasicAuth binding picker", () => {
       </QueryClientProvider>,
     );
 
+    const select = screen.getByRole("combobox", {
+      name: "BasicAuth users binding",
+    });
+    await openSelect(select);
     expect(
       await screen.findByRole("option", { name: "auth-users · v3" }),
     ).toBeInTheDocument();

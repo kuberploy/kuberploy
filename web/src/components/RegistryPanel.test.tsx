@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -203,7 +204,7 @@ describe("application registry panel", () => {
       ],
     });
 
-    await user.selectOptions(
+    await selectOption(
       await screen.findByRole("combobox", { name: "Registry target" }),
       "target-managed",
     );

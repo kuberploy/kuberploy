@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { Application, Project } from "../api/types";
 import {
+  Select,
   Button,
   Card,
   ConfirmDialog,
@@ -248,7 +249,7 @@ export function RegistryPullCredentialsPanel({
           label="Pull strategy"
           hint="Public sends no credential. A project credential is resolved to a locked runtime Secret by the server."
         >
-          <select
+          <Select
             aria-label="Pull strategy"
             value={selectedValue}
             disabled={
@@ -274,7 +275,7 @@ export function RegistryPullCredentialsPanel({
                 {credential.name} — {credential.registryServer}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <div>
           <StatusPill
@@ -313,7 +314,7 @@ export function RegistryPullCredentialsPanel({
             />
           </Field>
           <Field label="Registry">
-            <select
+            <Select
               aria-label="Registry"
               value={targetId}
               onChange={(event) => setTargetId(event.target.value)}
@@ -324,7 +325,7 @@ export function RegistryPullCredentialsPanel({
                   {target.name} — {target.server}/{target.repositoryPrefix}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <div className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm self-end justify-end [&>[data-slot='button']]:self-start">
             <Button

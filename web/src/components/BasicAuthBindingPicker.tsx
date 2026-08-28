@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api, errorMessage } from "../api/client";
 import type { BasicAuthConfig } from "../lib/traefikMiddleware";
-import { Field } from "./ui";
+import { Select, Field } from "./ui";
 
 const usersPath = "/var/run/secrets/kuberploy/traefik-basic-auth/users";
 
@@ -85,7 +85,7 @@ export function BasicAuthBindingPicker({
 
   return (
     <Field label="BasicAuth users binding" hint={hint}>
-      <select
+      <Select
         aria-label="BasicAuth users binding"
         value={selected ? selected.id : ""}
         disabled={
@@ -117,7 +117,7 @@ export function BasicAuthBindingPicker({
             {choice.name} · v{choice.activeVersion}
           </option>
         ))}
-      </select>
+      </Select>
     </Field>
   );
 }

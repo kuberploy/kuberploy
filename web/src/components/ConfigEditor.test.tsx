@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -464,16 +465,15 @@ spec:
     );
     await user.type(screen.getByLabelText(/^Hostname/), "api.example.com");
     await user.click(screen.getByRole("radio", { name: /Automatic DNS/i }));
-    expect(await screen.findByLabelText(/^DNS integration/)).toHaveTextContent(
-      "Public DNS",
-    );
+    const dnsIntegration = await screen.findByLabelText(/^DNS integration/);
+    await openSelect(dnsIntegration);
+    expect(
+      screen.getByRole("option", { name: /^Public DNS/ }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("Select an External DNS integration"),
     ).toBeVisible();
-    await user.selectOptions(
-      screen.getByLabelText(/^DNS integration/),
-      "public-dns",
-    );
+    await selectOption(dnsIntegration, "public-dns");
     expect(screen.getByText(/External DNS revision is ready/i)).toBeVisible();
   });
 

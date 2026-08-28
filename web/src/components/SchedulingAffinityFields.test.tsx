@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { useState } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -102,7 +103,7 @@ describe("structured scheduling affinity fields", () => {
     await user.click(
       screen.getByRole("button", { name: "Add anti-affinity preset" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText(/^Preset 1 enforcement/),
       "preferred",
     );

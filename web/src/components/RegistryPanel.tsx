@@ -19,6 +19,7 @@ import {
 } from "../lib/registryAccess";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -873,7 +874,7 @@ export function RegistryPanel({
           ) : (
             <>
               <Field label="Registry target" required>
-                <select
+                <Select
                   value={attachTargetID}
                   onChange={(event) => setAttachTargetID(event.target.value)}
                 >
@@ -883,7 +884,7 @@ export function RegistryPanel({
                       {target.name} · {titleCase(target.mode)}
                     </option>
                   ))}
-                </select>
+                </Select>
               </Field>
               {attachTarget ? (
                 <PolicyEditor

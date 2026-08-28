@@ -227,18 +227,16 @@ describe("typed API client", () => {
   });
 
   it("sends the current Git bundle ETag when redeploying saved configuration", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            id: "op_redeploy",
-            kind: "deploy",
-            state: "queued",
-          }),
-          { status: 202, headers: { "Content-Type": "application/json" } },
-        ),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "op_redeploy",
+          kind: "deploy",
+          state: "queued",
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const etag = `"sha256:${"e".repeat(64)}"`;
 

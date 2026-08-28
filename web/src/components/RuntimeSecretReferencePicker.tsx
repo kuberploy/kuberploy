@@ -4,7 +4,7 @@ import type {
   RuntimeSecretBindingDetail,
   RuntimeSecretBindingMetadata,
 } from "../api/types";
-import { Field } from "./ui";
+import { Select, Field } from "./ui";
 
 export type RuntimeSecretReferenceDraft = {
   bindingId: string;
@@ -95,7 +95,7 @@ function DisabledReferencePicker({
   return (
     <>
       <Field label={index === 0 ? "Binding" : ""} hint={reason}>
-        <select
+        <Select
           aria-label={`Secret variable ${index + 1} binding`}
           value={value.bindingId}
           disabled
@@ -105,16 +105,16 @@ function DisabledReferencePicker({
               ? `${value.bindingName} · v${value.version || "?"} (unavailable)`
               : "Runtime-secret picker unavailable"}
           </option>
-        </select>
+        </Select>
       </Field>
       <Field label={index === 0 ? "Key" : ""}>
-        <select
+        <Select
           aria-label={`Secret variable ${index + 1} key`}
           value={value.key}
           disabled
         >
           <option value={value.key}>{value.key || "Select a binding"}</option>
-        </select>
+        </Select>
       </Field>
       <Field label={index === 0 ? "Version" : ""}>
         <output aria-label={`Secret variable ${index + 1} version`}>
@@ -201,7 +201,7 @@ function ActiveReferencePicker({
   return (
     <>
       <Field label={index === 0 ? "Binding" : ""} hint={bindingHint}>
-        <select
+        <Select
           aria-label={`Secret variable ${index + 1} binding`}
           value={selectedKey}
           disabled={readOnly || bindings.isPending || Boolean(bindings.error)}
@@ -237,10 +237,10 @@ function ActiveReferencePicker({
               {binding.name} · v{binding.activeVersion}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label={index === 0 ? "Key" : ""} hint={keyHint}>
-        <select
+        <Select
           aria-label={`Secret variable ${index + 1} key`}
           value={keys.includes(value.key) ? value.key : ""}
           disabled={readOnly || !selected || detail.isPending || !keys.length}
@@ -252,7 +252,7 @@ function ActiveReferencePicker({
               {key}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label={index === 0 ? "Version" : ""}>
         <output aria-label={`Secret variable ${index + 1} version`}>

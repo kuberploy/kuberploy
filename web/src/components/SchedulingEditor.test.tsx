@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { useState } from "react";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -120,7 +121,7 @@ podAntiAffinity:
 
     const minDomains = screen.getByLabelText("Topology spread 1 min domains");
     expect(minDomains).toBeEnabled();
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText("Topology spread 1 unsatisfiable"),
       "ScheduleAnyway",
     );

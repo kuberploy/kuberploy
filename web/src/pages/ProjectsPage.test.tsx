@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -69,7 +70,7 @@ describe("project team ownership", () => {
     await user.click(
       await screen.findByRole("button", { name: "Environment" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project_payments",
     );
@@ -92,12 +93,12 @@ describe("project team ownership", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Environment" }));
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project_payments",
     );
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Preview");
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Git publication" }),
       "development",
     );
@@ -164,7 +165,7 @@ describe("project team ownership", () => {
     await user.click(
       await screen.findByRole("button", { name: "Environment" }),
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Project" }),
       "project_payments",
     );
@@ -266,6 +267,7 @@ describe("project team ownership", () => {
       name: /team ownership/i,
     });
     expect(ownership).toHaveValue("");
+    await openSelect(ownership);
     expect(
       screen.getByRole("option", { name: "Platform-only" }),
     ).toBeInTheDocument();
@@ -274,7 +276,7 @@ describe("project team ownership", () => {
     ).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: /^name/i }), "Orders");
-    await user.selectOptions(ownership, "team_visible");
+    await selectOption(ownership, "team_visible");
     await user.click(screen.getByRole("button", { name: /create project/i }));
     await waitFor(() => expect(createProject).toHaveBeenCalledOnce());
     expect(createProject.mock.calls[0]?.[0]).toEqual({
@@ -356,7 +358,7 @@ describe("project team ownership", () => {
     ).toBeInTheDocument();
     expect(createProject).not.toHaveBeenCalled();
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: /team ownership/i }),
       "team_product",
     );

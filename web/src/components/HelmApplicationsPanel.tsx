@@ -14,6 +14,7 @@ import { formatDate, shortId } from "../lib/format";
 import { hasHelmCapability } from "../lib/helmAccess";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   ButtonRow,
   Card,
@@ -230,7 +231,7 @@ export function HelmApplicationsPanel({
         </FormCardHeading>
         <FormGrid columns="auto">
           <Field label="Source type" required>
-            <select
+            <Select
               aria-label="Helm source type"
               value={source.kind}
               onChange={(event) => {
@@ -246,7 +247,7 @@ export function HelmApplicationsPanel({
               <option value="helm-repository">Helm repository</option>
               <option value="oci">OCI registry</option>
               <option value="git">Git repository</option>
-            </select>
+            </Select>
           </Field>
           <Field label={`${sourceLabel(source)} URL`} required>
             <input

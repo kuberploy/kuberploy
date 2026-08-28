@@ -8,6 +8,7 @@ import type {
   Operation,
 } from "../api/types";
 import {
+  Select,
   Button,
   EmptyState,
   ErrorPanel,
@@ -202,7 +203,7 @@ export function BuildPromotionPanel({
   return (
     <FormGrid>
       <Field label="Environment" required>
-        <select
+        <Select
           value={environmentId}
           onChange={(event) => setEnvironmentId(event.target.value)}
         >
@@ -212,7 +213,7 @@ export function BuildPromotionPanel({
               {environment.name}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Field label="Replicas" required>
         <input
@@ -233,7 +234,7 @@ export function BuildPromotionPanel({
         />
       </Field>
       <Field label="HTTP route">
-        <select
+        <Select
           value={routeMode}
           onChange={(event) =>
             setRouteMode(event.target.value as PromotionCommand["routeMode"])
@@ -242,7 +243,7 @@ export function BuildPromotionPanel({
           <option value="internal">Internal only</option>
           <option value="sslip">Free sslip.io hostname</option>
           <option value="manual">My hostname</option>
-        </select>
+        </Select>
       </Field>
       {routeMode === "manual" ? (
         <Field label="Hostname" required>

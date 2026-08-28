@@ -16,6 +16,7 @@ import type {
 } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -672,10 +673,11 @@ export function TeamsPage() {
                     required
                     error={memberForm.formState.errors.userId?.message}
                   >
-                    <select
+                    <Select
                       {...memberForm.register("userId", {
                         required: "Select a user.",
                       })}
+                      value={memberForm.watch("userId")}
                     >
                       <option value="">Select user</option>
                       {availableUsers.map((user) => (
@@ -685,13 +687,16 @@ export function TeamsPage() {
                             : `${user.displayName} (email unavailable)`}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </Field>
                   <Field label="Team role" required>
-                    <select {...memberForm.register("role")}>
+                    <Select
+                      {...memberForm.register("role")}
+                      value={memberForm.watch("role")}
+                    >
                       <option value="member">Member</option>
                       <option value="owner">Owner</option>
-                    </select>
+                    </Select>
                   </Field>
                   <Button
                     type="submit"
@@ -1159,16 +1164,17 @@ export function TeamMemberRoleEditor({
   const displayName = member.user?.displayName ?? member.userId;
 
   return (
-    <div className="flex items-center gap-1.5 [&_select]:min-h-7 [&_select]:max-w-[88px] [&_select]:py-0 [&_select]:px-1.5 [&_select]:border [&_select]:border-line [&_select]:rounded-md [&_select]:text-ink-soft [&_select]:bg-surface [&_select]:text-xs [&_[data-slot='button']]:min-h-7 [&_[data-slot='button']]:py-0 [&_[data-slot='button']]:px-2 [&_[data-slot='button']]:text-xs to-580:col-[2_/_-1] to-580:justify-start">
-      <select
+    <div className="flex items-center gap-1.5 [&_[data-slot='button']]:min-h-7 [&_[data-slot='button']]:py-0 [&_[data-slot='button']]:px-2 [&_[data-slot='button']]:text-xs to-580:col-[2_/_-1] to-580:justify-start">
+      <Select
         aria-label={`Role for ${displayName}`}
+        className="min-h-7 max-w-[88px] rounded-md border-line bg-surface px-1.5 text-xs text-ink-soft"
         value={role}
         disabled={busy}
         onChange={(event) => setRole(event.target.value as MemberForm["role"])}
       >
         <option value="member">Member</option>
         <option value="owner">Owner</option>
-      </select>
+      </Select>
       <Button
         variant="ghost"
         disabled={busy || role === member.role}
@@ -1352,7 +1358,7 @@ export function InstallationSharingConfirmation({
 
         {visibility === "team" ? (
           <Field label="Share with team" required>
-            <select
+            <Select
               value={teamId}
               onChange={(event) => {
                 setTeamId(event.target.value);
@@ -1365,7 +1371,7 @@ export function InstallationSharingConfirmation({
                   {team.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         ) : null}
 

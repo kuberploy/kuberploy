@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -121,7 +122,7 @@ describe("registry target management", () => {
 
     await screen.findByText("Configured OCI endpoints");
     await user.type(screen.getByLabelText(/^Name/), "New target");
-    await user.selectOptions(screen.getByLabelText(/^Mode/), "managed");
+    await selectOption(screen.getByLabelText(/^Mode/), "managed");
     await user.type(
       screen.getByLabelText(/^Endpoint/),
       "managed.registry.test",

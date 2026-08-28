@@ -19,6 +19,7 @@ import {
 import { writeOnlyRequestSignature } from "../lib/writeOnlyRequest";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -306,7 +307,7 @@ function SecretWriteFields({ prefix }: { prefix: string }) {
                 />
               </Field>
               <Field label="Delivery" required>
-                <select
+                <Select
                   aria-label={`${prefix} delivery kind ${index + 1}`}
                   data-secret-delivery-kind
                   value={row.kind}
@@ -325,7 +326,7 @@ function SecretWriteFields({ prefix }: { prefix: string }) {
                 >
                   <option value="environment">Environment variable</option>
                   <option value="file">Read-only file</option>
-                </select>
+                </Select>
               </Field>
               {row.kind === "environment" ? (
                 <Field label="Variable name" required>
@@ -348,14 +349,14 @@ function SecretWriteFields({ prefix }: { prefix: string }) {
                     />
                   </Field>
                   <Field label="Read-only mode" required>
-                    <select
+                    <Select
                       aria-label={`${prefix} file mode ${index + 1}`}
                       data-secret-file-mode
                       defaultValue="256"
                     >
                       <option value="256">0400 · owner</option>
                       <option value="288">0440 · owner/group</option>
-                    </select>
+                    </Select>
                   </Field>
                 </>
               )}
@@ -1025,7 +1026,7 @@ export function RuntimeSecretsPanel({
           </span>
         </div>
         <Field label="Application environment">
-          <select
+          <Select
             aria-label="Runtime secret environment"
             value={selectedEnvironment.id}
             onChange={(event) => {
@@ -1039,7 +1040,7 @@ export function RuntimeSecretsPanel({
                 {environment.name} · {environment.namespace}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         {canCreate ? (
           <Button type="button" onClick={() => setCreating((value) => !value)}>

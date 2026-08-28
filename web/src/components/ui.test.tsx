@@ -2,7 +2,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
-import { ConfirmDialog, CopyButton, useRowKeys } from "./ui";
+import { ConfirmDialog, CopyButton, Select, useRowKeys } from "./ui";
+import { openSelect, selectOption } from "../test/selectOption";
 
 afterEach(() => {
   cleanup();
@@ -115,6 +116,59 @@ describe("CopyButton", () => {
 
     expect(execCommand).toHaveBeenCalledWith("copy");
     expect(await screen.findByText("Copied to clipboard")).toBeInTheDocument();
+  });
+});
+
+describe("Select", () => {
+  it("uses a styled listbox and emits the native select change contract", async () => {
+    const onChange = vi.fn();
+
+    render(
+      <Select
+        aria-label="Repository"
+        name="repositoryId"
+        defaultValue="repo-a"
+        onChange={onChange}
+      >
+        <option value="repo-a">kuberploy/kuberploy</option>
+        <option value="repo-gitops">kuberploy/kuberploy-gitops-test</option>
+      </Select>,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Repository" });
+    expect(trigger).toHaveTextContent("kuberploy/kuberploy");
+    expect(document.querySelector("select")).toBeNull();
+
+    await selectOption(trigger, "repo-gitops");
+
+    expect(trigger).toHaveTextContent("kuberploy/kuberploy-gitops-test");
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange.mock.calls[0]?.[0].target).toMatchObject({
+      name: "repositoryId",
+      value: "repo-gitops",
+    });
+  });
+
+  it("supports keyboard selection and skips disabled options", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <Select aria-label="Environment" defaultValue="dev" onChange={onChange}>
+        <option value="dev">Development</option>
+        <option value="blocked" disabled>
+          Blocked
+        </option>
+        <option value="prod">Production</option>
+      </Select>,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Environment" });
+    await openSelect(trigger);
+    screen.getByRole("option", { name: "Development" }).focus();
+    await user.keyboard("{End}{Enter}");
+
+    expect(trigger).toHaveTextContent("Production");
+    expect(onChange.mock.calls[0]?.[0].target.value).toBe("prod");
   });
 });
 

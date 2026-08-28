@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -157,17 +158,13 @@ describe("build definition form", () => {
       .mockResolvedValue(definition);
     renderForm();
 
-    await screen.findByRole("option", { name: "example" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText(/^GitHub installation/),
       "installation-safe",
     );
-    await screen.findByRole("option", { name: "example/api" });
-    await user.selectOptions(
-      screen.getByLabelText(/^Repository/),
-      "repository-safe",
-    );
-    await user.selectOptions(
+
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
       screen.getByLabelText(/^Registry target/),
       "target-safe",
     );
@@ -208,16 +205,13 @@ describe("build definition form", () => {
     await user.click(
       screen.getByRole("checkbox", { name: "GitHub deploy key" }),
     );
-    await user.selectOptions(
+    await selectOption(
       await screen.findByLabelText(/^GitHub installation/),
       "installation-safe",
     );
-    await screen.findByRole("option", { name: "example/api" });
-    await user.selectOptions(
-      screen.getByLabelText(/^Repository/),
-      "repository-safe",
-    );
-    await user.selectOptions(
+
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
       screen.getByLabelText(/^Registry target/),
       "target-safe",
     );
@@ -268,21 +262,17 @@ describe("build definition form", () => {
       .mockResolvedValue({ ...definition, triggerRef: "refs/tags/v1.2.3" });
     renderForm();
 
-    await screen.findByRole("option", { name: "example" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText(/^GitHub installation/),
       "installation-safe",
     );
-    await screen.findByRole("option", { name: "example/api" });
-    await user.selectOptions(
-      screen.getByLabelText(/^Repository/),
-      "repository-safe",
-    );
-    await user.selectOptions(
+
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
       screen.getByLabelText(/^Registry target/),
       "target-safe",
     );
-    await user.selectOptions(screen.getByLabelText(/^Source type/), "tag");
+    await selectOption(screen.getByLabelText(/^Source type/), "tag");
     const tag = screen.getByLabelText(/^Tag/);
     await user.clear(tag);
     await user.type(tag, "v1.2.3");
@@ -301,17 +291,13 @@ describe("build definition form", () => {
       .mockResolvedValue(definition);
     renderForm();
 
-    await screen.findByRole("option", { name: "example" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText(/^GitHub installation/),
       "installation-safe",
     );
-    await screen.findByRole("option", { name: "example/api" });
-    await user.selectOptions(
-      screen.getByLabelText(/^Repository/),
-      "repository-safe",
-    );
-    await user.selectOptions(
+
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
       screen.getByLabelText(/^Registry target/),
       "target-safe",
     );
@@ -346,17 +332,13 @@ describe("build definition form", () => {
     );
     renderForm();
 
-    await screen.findByRole("option", { name: "example" });
-    await user.selectOptions(
+    await selectOption(
       screen.getByLabelText(/^GitHub installation/),
       "installation-safe",
     );
-    await screen.findByRole("option", { name: "example/api" });
-    await user.selectOptions(
-      screen.getByLabelText(/^Repository/),
-      "repository-safe",
-    );
-    await user.selectOptions(
+
+    await selectOption(screen.getByLabelText(/^Repository/), "repository-safe");
+    await selectOption(
       screen.getByLabelText(/^Registry target/),
       "target-safe",
     );

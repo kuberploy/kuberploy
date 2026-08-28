@@ -10,7 +10,7 @@ import {
   type GuidedProbes,
   type GuidedRuntimeProcess,
 } from "../lib/configDraft";
-import { Button, Field, FieldLabel, FormGrid, Notice } from "./ui";
+import { Select, Button, Field, FieldLabel, FormGrid, Notice } from "./ui";
 import { Icon } from "./Icon";
 import type { ExternalDNSCatalog, SSLIPHostnamePreview } from "../api/types";
 import { externalDNSHostnameAllowed } from "../lib/externalDNSAccess";
@@ -177,7 +177,7 @@ export function HealthProbeEditor({
               <legend>{label}</legend>
               <p>{description}</p>
               <Field label={`${label} check`}>
-                <select
+                <Select
                   aria-label={`${label} check`}
                   value={probe.mode}
                   onChange={(event) =>
@@ -190,7 +190,7 @@ export function HealthProbeEditor({
                   <option value="httpGet">HTTP request</option>
                   <option value="tcpSocket">TCP connection</option>
                   <option value="exec">Exec command</option>
-                </select>
+                </Select>
               </Field>
               {probe.mode === "httpGet" ? (
                 <div className="grid gap-2 mt-3 pt-3 border-t border-t-line">
@@ -220,7 +220,7 @@ export function HealthProbeEditor({
                     />
                   </Field>
                   <Field label={`${label} HTTP scheme`}>
-                    <select
+                    <Select
                       aria-label={`${label} HTTP scheme`}
                       value={probe.httpScheme}
                       onChange={(event) =>
@@ -233,7 +233,7 @@ export function HealthProbeEditor({
                       <option value="">Default (HTTP)</option>
                       <option value="HTTP">HTTP</option>
                       <option value="HTTPS">HTTPS</option>
-                    </select>
+                    </Select>
                   </Field>
                 </div>
               ) : null}
@@ -577,7 +577,7 @@ export function GuidedConfigForm({
             />
           </Field>
           <Field label="Workload type">
-            <select
+            <Select
               {...form.register("workloadType", {
                 onChange: (event) => {
                   const stateful = event.target.value === "StatefulSet";
@@ -591,32 +591,37 @@ export function GuidedConfigForm({
                   commit();
                 },
               })}
+              value={form.watch("workloadType")}
             >
               <option value="Deployment">Deployment</option>
               <option value="StatefulSet">StatefulSet</option>
-            </select>
+            </Select>
           </Field>
           <Field
             label={`${workloadType === "StatefulSet" ? "StatefulSet" : "Deployment"} strategy`}
             hint="Rolling update is the default. Other strategies replace Pods according to workload type."
           >
-            <select {...form.register("strategyType", { onChange: commit })}>
+            <Select
+              {...form.register("strategyType", { onChange: commit })}
+              value={form.watch("strategyType")}
+            >
               <option value="RollingUpdate">Rolling update</option>
               {workloadType === "StatefulSet" ? (
                 <option value="OnDelete">On delete</option>
               ) : (
                 <option value="Recreate">Recreate</option>
               )}
-            </select>
+            </Select>
           </Field>
           {workloadType === "StatefulSet" ? (
             <Field label="Pod management policy">
-              <select
+              <Select
                 {...form.register("podManagementPolicy", { onChange: commit })}
+                value={form.watch("podManagementPolicy")}
               >
                 <option value="OrderedReady">Ordered ready</option>
                 <option value="Parallel">Parallel</option>
-              </select>
+              </Select>
             </Field>
           ) : null}
           <Field label="CPU request" hint="Default 50m">
@@ -730,15 +735,16 @@ export function GuidedConfigForm({
                 />
               </Field>
               <Field label={index === 0 ? "Protocol" : ""}>
-                <select
+                <Select
                   aria-label={`Port ${index + 1} protocol`}
                   {...form.register(`ports.${index}.protocol`, {
                     onChange: commit,
                   })}
+                  value={form.watch(`ports.${index}.protocol`)}
                 >
                   <option value="TCP">TCP</option>
                   <option value="UDP">UDP</option>
-                </select>
+                </Select>
               </Field>
               <button
                 type="button"
@@ -1202,7 +1208,7 @@ export function GuidedConfigForm({
                       : "Only exact profiles authorized for this application and environment are selectable."
                   }
                 >
-                  <select
+                  <Select
                     disabled={
                       externalDNSCatalogPending ||
                       !automaticDNSRuntimeReady ||
@@ -1211,6 +1217,7 @@ export function GuidedConfigForm({
                     {...form.register("dnsIntegrationRef", {
                       onChange: commit,
                     })}
+                    value={form.watch("dnsIntegrationRef")}
                   >
                     {dnsIntegrationRef && !selectedDNSIntegration ? (
                       <option value={dnsIntegrationRef} disabled>
@@ -1234,7 +1241,7 @@ export function GuidedConfigForm({
                         {integration.allowedDomainSuffixes.join(", ")}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="TTL (seconds)">
                   <input

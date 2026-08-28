@@ -3,10 +3,12 @@ import { useState } from "react";
 import { api, type WorkloadLogOptions } from "../api/client";
 import { formatDate } from "../lib/format";
 import {
+  Select,
   Card,
   CardHeader,
   EmptyState,
   Eyebrow,
+  Field,
   Notice,
   PlaceholderBadge,
   Skeleton,
@@ -147,13 +149,12 @@ function LogSourceFilters({
   ];
   return (
     <div
-      className="grid grid-cols-[repeat(3,_minmax(0,_1fr))_auto] items-end gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:min-w-0 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_select]:min-h-[34px] [&_select]:text-meta to-580:grid-cols-[1fr]"
+      className="grid grid-cols-[repeat(3,_minmax(0,_1fr))_auto] items-end gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:min-w-0 [&_label_>_span]:text-ink-faint [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_[role='combobox']]:min-h-[34px] [&_[role='combobox']]:text-xs to-580:grid-cols-[1fr]"
       aria-label="Log source filters"
     >
       {fields.map(({ field, label, mergedLabel }) => (
-        <label key={field}>
-          <span>{label}</span>
-          <select
+        <Field key={field} label={label}>
+          <Select
             aria-label={label}
             value={filters[field]}
             onChange={(event) => onChange(field, event.target.value)}
@@ -164,8 +165,8 @@ function LogSourceFilters({
                 {value}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
       ))}
       <PlaceholderBadge>
         {filters.pod || filters.revision || filters.container

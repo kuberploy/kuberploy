@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -171,10 +172,7 @@ describe("certificate issuer administration", () => {
       screen.getByLabelText(/^ACME account Secret name/),
       "tenant-dns-account",
     );
-    await user.selectOptions(
-      screen.getByLabelText(/^Solver/),
-      "dns01-cloudflare",
-    );
+    await selectOption(screen.getByLabelText(/^Solver/), "dns01-cloudflare");
     fireEvent.change(screen.getByLabelText(/^Authorized DNS zones/), {
       target: { value: "example.com\nservices.example.net" },
     });

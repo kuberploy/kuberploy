@@ -8,6 +8,7 @@ import type {
 } from "../api/types";
 import { Icon } from "../components/Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -367,7 +368,7 @@ export function RegistryTargetsPage() {
                     editing ? "Mode is immutable after creation." : undefined
                   }
                 >
-                  <select
+                  <Select
                     value={draft.mode}
                     disabled={Boolean(editing)}
                     onChange={(event) =>
@@ -379,7 +380,7 @@ export function RegistryTargetsPage() {
                   >
                     <option value="external">External</option>
                     <option value="managed">Managed</option>
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="Endpoint" required error={errors.endpoint}>
                   <input

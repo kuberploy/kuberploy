@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -481,7 +482,7 @@ describe("certificate management panel", () => {
     );
     await waitFor(() => expect(remove).toHaveBeenCalledOnce());
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Certificate environment" }),
       staging.id,
     );
@@ -517,7 +518,7 @@ describe("certificate management panel", () => {
       ],
     });
 
-    await user.selectOptions(
+    await selectOption(
       await screen.findByRole("combobox", { name: "Certificate environment" }),
       staging.id,
     );

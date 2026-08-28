@@ -8,11 +8,13 @@ import type {
 } from "../api/types";
 import { formatDate, shortId } from "../lib/format";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
   EmptyState,
   Eyebrow,
+  Field,
   PlaceholderBadge,
   Skeleton,
   buttonVariants,
@@ -178,9 +180,8 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         className="grid grid-cols-[minmax(120px,_160px)_minmax(120px,_160px)_minmax(170px,_1fr)_auto_auto] items-end gap-3 my-4 mx-0 to-760:grid-cols-[1fr]"
         aria-label="Build log selectors"
       >
-        <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
-          <span>Tail lines</span>
-          <select
+        <Field label="Tail lines">
+          <Select
             value={tailLines}
             onChange={(event) => setTailLines(Number(event.target.value))}
             disabled={following}
@@ -190,11 +191,10 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
                 {value.toLocaleString()}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
-          <span>Lookback</span>
-          <select
+          </Select>
+        </Field>
+        <Field label="Lookback">
+          <Select
             value={lookbackMinutes}
             onChange={(event) => setLookbackMinutes(Number(event.target.value))}
             disabled={following}
@@ -204,8 +204,8 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
                 {choice.label}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
         <label className="flex items-center gap-2 min-h-[34px] text-ink-soft text-meta">
           <input
             type="checkbox"

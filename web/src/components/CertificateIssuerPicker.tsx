@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Field, PlaceholderBadge } from "./ui";
+import { Select, Field, PlaceholderBadge } from "./ui";
 
 export function CertificateIssuerPicker({
   applicationId,
@@ -41,7 +41,7 @@ export function CertificateIssuerPicker({
       label="Approved certificate issuer"
       hint="Platform administrators own ACME accounts and solver credentials. Only a freshly observed issuer valid for this hostname can be selected."
     >
-      <select
+      <Select
         aria-label="Approved certificate issuer"
         value={value}
         disabled={disabled || !enabled || !scoped || catalog.isPending}
@@ -58,7 +58,7 @@ export function CertificateIssuerPicker({
             {item.name} · {item.environment} · {item.solverTypes.join(" + ")}
           </option>
         ))}
-      </select>
+      </Select>
       {!enabled ? (
         <small>
           {unavailableReason ?? "Certificate issuers are unavailable."}

@@ -13,7 +13,7 @@
     "build": "tsc -b && vite build && pnpm build:api-docs && node scripts/test-api-docs.mjs --built dist/docs",
     "build:api-docs": "node scripts/build-api-docs.mjs",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run && node scripts/test-ui-font.mjs && pnpm test:api-docs",
+    "test": "vitest run && node scripts/test-ui-font.mjs && node scripts/test-ui-select.mjs && pnpm test:api-docs",
     "test:api-docs": "node scripts/test-api-docs.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc -b",

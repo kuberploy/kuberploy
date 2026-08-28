@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { CertificateBindingReference } from "../api/types";
-import { Field, PlaceholderBadge } from "./ui";
+import { Select, Field, PlaceholderBadge } from "./ui";
 
 function referenceKey(reference: CertificateBindingReference) {
   return `${reference.bindingId}@${reference.version}`;
@@ -49,7 +49,7 @@ export function CertificateReferencePicker({
       label="Certificate binding and immutable version"
       hint="Only the reviewed binding identity is stored in Git. Kubernetes Secret names and private keys are never selectable."
     >
-      <select
+      <Select
         aria-label="Certificate binding and immutable version"
         value={selectedKey}
         disabled={disabled || !enabled || bindings.isPending}
@@ -93,7 +93,7 @@ export function CertificateReferencePicker({
             {binding.name} · v{binding.activeVersion}
           </option>
         ))}
-      </select>
+      </Select>
       {!enabled ? (
         <small>
           {unavailableReason ?? "Certificate management is unavailable."}

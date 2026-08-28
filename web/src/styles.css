@@ -333,7 +333,6 @@
 
   button,
   input,
-  select,
   textarea {
     font: inherit;
   }
@@ -370,7 +369,6 @@
     }
   }
   input,
-  select,
   textarea {
     width: 100%;
     min-height: 44px;
@@ -391,13 +389,11 @@
     color: var(--ink-faint);
   }
   input:focus,
-  select:focus,
   textarea:focus {
     border-color: var(--mint);
     box-shadow: 0 0 0 3px var(--focus);
   }
   input:disabled,
-  select:disabled,
   textarea:disabled {
     cursor: not-allowed;
     background: var(--surface-soft);
@@ -426,7 +422,6 @@
   }
 
   :root[data-theme="dark"] input,
-  :root[data-theme="dark"] select,
   :root[data-theme="dark"] textarea {
     color: var(--ink);
     background: var(--surface);

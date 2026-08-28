@@ -12,6 +12,7 @@ import type {
   Project,
 } from "../api/types";
 import {
+  Select,
   Button,
   Dialog,
   DialogContent,
@@ -322,10 +323,13 @@ export function ProjectAccessPanel({
         onSubmit={form.handleSubmit(submitGrant)}
       >
         <Field label="Subject type" required>
-          <select {...form.register("subjectType")}>
+          <Select
+            {...form.register("subjectType")}
+            value={form.watch("subjectType")}
+          >
             <option value="user">User</option>
             <option value="team">Team</option>
-          </select>
+          </Select>
         </Field>
         {form.watch("subjectType") === "user" ? (
           <Field
@@ -347,10 +351,11 @@ export function ProjectAccessPanel({
           </Field>
         ) : (
           <Field label="Team" required>
-            <select
+            <Select
               {...form.register("subjectTeamId", {
                 required: "Select an exact team.",
               })}
+              value={form.watch("subjectTeamId")}
             >
               <option value="">Select team</option>
               {teams.data?.items.map((team) => (
@@ -358,11 +363,11 @@ export function ProjectAccessPanel({
                   {team.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
         )}
         <Field label="Role" required>
-          <select {...form.register("role")}>
+          <Select {...form.register("role")} value={form.watch("role")}>
             {assignableRoles.map((role) => (
               <option key={role} value={role}>
                 {role === "viewer"
@@ -374,16 +379,16 @@ export function ProjectAccessPanel({
                       : "Organization admin"}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Exact scope" required>
-          <select {...form.register("scope")}>
+          <Select {...form.register("scope")} value={form.watch("scope")}>
             {roleScopeOptions.map((scope) => (
               <option key={scope.value} value={scope.value}>
                 {scope.label}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <label className="flex items-center gap-2 col-[1_/_-2] text-ink-soft cursor-pointer text-meta to-640:col-[1] to-640:justify-self-start">
           <input type="checkbox" {...form.register("logsRead")} />

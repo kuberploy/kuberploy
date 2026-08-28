@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -101,11 +102,11 @@ describe("project access management", () => {
       screen.getByRole("textbox", { name: /exact user id/i }),
       grant.subjectUserId!,
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Role" }),
       "viewer",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Exact scope" }),
       `application:${grant.scopeId}`,
     );
@@ -247,15 +248,15 @@ describe("project access management", () => {
       { wrapper: wrapper() },
     );
 
-    await user.selectOptions(
+    await selectOption(
       await screen.findByRole("combobox", { name: "Subject type" }),
       "team",
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Team" }),
       teamGrant.subjectTeamId!,
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Role" }),
       "viewer",
     );
@@ -394,7 +395,7 @@ describe("project access management", () => {
     expect(
       screen.queryByRole("button", { name: "Remove" }),
     ).not.toBeInTheDocument();
-    await user.selectOptions(role, "project-admin");
+    await selectOption(role, "project-admin");
     expect(screen.getByRole("combobox", { name: "Exact scope" })).toHaveValue(
       "project:project-1",
     );

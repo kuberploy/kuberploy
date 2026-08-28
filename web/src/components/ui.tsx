@@ -1,4 +1,9 @@
 import {
+  Children,
+  Fragment,
+  cloneElement,
+  isValidElement,
+  useId,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -24,6 +29,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./shadcn/dialog";
+export { Select } from "./shadcn/select";
 
 /*
  * The dialog primitives are the one piece of vendored shadcn this app still
@@ -574,6 +580,53 @@ export function Skeleton({ lines = 3 }: { lines?: number }) {
   );
 }
 
+type FieldControlProps = {
+  id?: string;
+  children?: ReactNode;
+  "aria-describedby"?: string;
+};
+
+const labelableFieldControls = new Set([
+  "button",
+  "input",
+  "select",
+  "textarea",
+]);
+
+function wireNestedFieldControl(
+  node: ReactNode,
+  controlId: string,
+  descriptionId?: string,
+): { node: ReactNode; wired: boolean } {
+  if (!isValidElement<FieldControlProps>(node)) return { node, wired: false };
+
+  if (typeof node.type === "string" && labelableFieldControls.has(node.type)) {
+    return {
+      node: cloneElement(node, {
+        id: node.props.id ?? controlId,
+        "aria-describedby": node.props["aria-describedby"] ?? descriptionId,
+      }),
+      wired: true,
+    };
+  }
+
+  if (typeof node.type !== "string" && node.type !== Fragment) {
+    return { node, wired: false };
+  }
+
+  let wired = false;
+  const nestedChildren = Children.map(node.props.children, (child) => {
+    if (wired) return child;
+    const result = wireNestedFieldControl(child, controlId, descriptionId);
+    wired = result.wired;
+    return result.node;
+  });
+  return {
+    node: wired ? cloneElement(node, { children: nestedChildren }) : node,
+    wired,
+  };
+}
+
 export function Field({
   label,
   hint,
@@ -586,19 +639,48 @@ export function Field({
   error?: string;
   required?: boolean;
 }>) {
+  const generatedId = useId();
+  const descriptionId = `${generatedId}-description`;
+  const child = isValidElement<FieldControlProps>(children) ? children : null;
+  const controlId = child?.props.id ?? generatedId;
+  const describedBy = error || hint ? descriptionId : undefined;
+  let control: ReactNode = children;
+
+  if (child) {
+    if (typeof child.type !== "string" && child.type !== Fragment) {
+      control = cloneElement(child, {
+        id: controlId,
+        "aria-describedby": child.props["aria-describedby"] ?? describedBy,
+      });
+    } else {
+      const wired = wireNestedFieldControl(child, controlId, describedBy);
+      control = wired.node;
+    }
+  }
+
   return (
-    <label className="flex min-w-0 flex-col gap-2">
-      <span className="text-meta font-medium text-ink">
+    <div className="flex min-w-0 flex-col gap-2">
+      <label className="text-meta font-medium text-ink" htmlFor={controlId}>
         {label}
         {required ? <span aria-hidden="true"> *</span> : null}
-      </span>
-      {children}
+      </label>
+      {control}
       {error ? (
-        <span className="text-xs leading-[1.45] text-tone-bad">{error}</span>
+        <span
+          className="text-xs leading-[1.45] text-tone-bad"
+          id={descriptionId}
+        >
+          {error}
+        </span>
       ) : hint ? (
-        <span className="text-xs leading-[1.45] text-ink-faint">{hint}</span>
+        <span
+          className="text-xs leading-[1.45] text-ink-faint"
+          id={descriptionId}
+        >
+          {hint}
+        </span>
       ) : null}
-    </label>
+    </div>
   );
 }
 

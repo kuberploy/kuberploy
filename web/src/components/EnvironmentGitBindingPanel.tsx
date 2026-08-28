@@ -10,6 +10,7 @@ import {
 } from "../lib/format";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   CardHeader,
   DetailList,
@@ -238,7 +239,7 @@ export function EnvironmentGitBindingPanel({
           onSubmit={submit}
         >
           <Field label="Verified installation" required>
-            <select
+            <Select
               value={installationId}
               onChange={(event) => {
                 setInstallationId(event.target.value);
@@ -252,10 +253,10 @@ export function EnvironmentGitBindingPanel({
                   {installation.accountLogin}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Verified repository" required>
-            <select
+            <Select
               value={repositoryId}
               disabled={!installationId || repositories.isPending}
               onChange={(event) => {
@@ -269,7 +270,7 @@ export function EnvironmentGitBindingPanel({
                   {repository.ownerLogin}/{repository.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field
             label="Target branch"

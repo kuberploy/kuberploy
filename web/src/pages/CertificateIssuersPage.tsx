@@ -7,6 +7,7 @@ import type {
 } from "../api/types";
 import { formatDate, shortId } from "../lib/format";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -266,7 +267,7 @@ export function CertificateIssuersPage() {
             />
           </Field>
           <Field label="Let’s Encrypt environment" required>
-            <select
+            <Select
               value={draft.environment}
               onChange={(event) =>
                 change({
@@ -277,7 +278,7 @@ export function CertificateIssuersPage() {
             >
               <option value="staging">Staging (test certificates)</option>
               <option value="production">Production</option>
-            </select>
+            </Select>
           </Field>
           <Field label="ACME account email" required>
             <input
@@ -305,7 +306,7 @@ export function CertificateIssuersPage() {
             />
           </Field>
           <Field label="Solver" required>
-            <select
+            <Select
               value={draft.solver.type}
               onChange={(event) =>
                 change({
@@ -324,7 +325,7 @@ export function CertificateIssuersPage() {
             >
               <option value="http01">HTTP-01 (Traefik)</option>
               <option value="dns01-cloudflare">DNS-01 (Cloudflare)</option>
-            </select>
+            </Select>
           </Field>
           {dnsSolver ? (
             <>

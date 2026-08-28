@@ -17,6 +17,7 @@ import { formatDate } from "../lib/format";
 import { writeOnlyRequestSignature } from "../lib/writeOnlyRequest";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -681,7 +682,7 @@ export function CertificateBindingsPanel({
           </span>
         </div>
         <Field label="Application environment">
-          <select
+          <Select
             aria-label="Certificate environment"
             value={selectedEnvironment.id}
             onChange={(event) => {
@@ -695,7 +696,7 @@ export function CertificateBindingsPanel({
                 {environment.name} · {environment.namespace}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         {canCreate ? (
           <Button type="button" onClick={() => setCreating((value) => !value)}>

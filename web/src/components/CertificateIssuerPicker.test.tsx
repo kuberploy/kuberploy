@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -46,13 +47,10 @@ describe("certificate issuer picker", () => {
       ],
     });
     const onChange = renderPicker();
-    const option = await screen.findByRole("option", {
-      name: "kuberploy-letsencrypt-production · production · dns01 + http01",
-    });
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Approved certificate issuer" }),
-      option,
+      "kuberploy-letsencrypt-production",
     );
     expect(onChange).toHaveBeenCalledWith("kuberploy-letsencrypt-production");
     expect(api.applicationCertificateIssuers).toHaveBeenCalledWith(
@@ -67,11 +65,14 @@ describe("certificate issuer picker", () => {
       items: [],
     });
     renderPicker("retained-issuer");
+    await openSelect(
+      screen.getByRole("combobox", { name: "Approved certificate issuer" }),
+    );
     expect(
       await screen.findByRole("option", {
         name: "Current YAML issuer: retained-issuer",
       }),
-    ).toBeDisabled();
+    ).toHaveAttribute("data-disabled");
     expect(
       screen.getByRole("combobox", { name: "Approved certificate issuer" }),
     ).toHaveValue("retained-issuer");

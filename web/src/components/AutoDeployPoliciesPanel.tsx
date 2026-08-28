@@ -14,6 +14,7 @@ import {
   hasPotentialAutoDeployManagement,
 } from "../lib/autoDeployAccess";
 import {
+  Select,
   Button,
   Card,
   CardHeader,
@@ -21,7 +22,7 @@ import {
   EmptyState,
   ErrorPanel,
   Eyebrow,
-  FieldLabel,
+  Field,
   FormGrid,
   Skeleton,
   StatusPill,
@@ -365,9 +366,8 @@ export function AutoDeployPoliciesPanel({
       authorizedCandidates.length > 0 &&
       definitions.length > 0 ? (
         <FormGrid>
-          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
-            <FieldLabel>Build definition</FieldLabel>
-            <select
+          <Field label="Build definition">
+            <Select
               value={definitionId}
               onChange={(event) => setDefinitionId(event.target.value)}
             >
@@ -377,11 +377,10 @@ export function AutoDeployPoliciesPanel({
                   {shortId(item.definitionDigest, 12)}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
-            <FieldLabel>Pinned App configuration</FieldLabel>
-            <select
+            </Select>
+          </Field>
+          <Field label="Pinned App configuration">
+            <Select
               value={deploymentId}
               onChange={(event) => setDeploymentId(event.target.value)}
             >
@@ -390,11 +389,10 @@ export function AutoDeployPoliciesPanel({
                   {shortId(item.id, 12)} · {item.environmentId}
                 </option>
               ))}
-            </select>
-          </label>
-          <label className="flex min-w-0 flex-col gap-1.5 gap-2 [&_input]:w-full [&_input]:py-0 [&_input]:px-3 [&_input]:border [&_input]:border-line-strong [&_input]:outline-none [&_input]:text-ink [&_input]:bg-surface [&_input]:transition-[border-color,box-shadow] [&_input]:duration-(--motion-fast) [&_input]:ease-(--ease-standard) [&_input]:min-h-11 [&_input]:rounded-[9px] [&_input]:text-sm [&_select]:w-full [&_select]:py-0 [&_select]:px-3 [&_select]:border [&_select]:border-line-strong [&_select]:outline-none [&_select]:text-ink [&_select]:bg-surface [&_select]:transition-[border-color,box-shadow] [&_select]:duration-(--motion-fast) [&_select]:ease-(--ease-standard) [&_select]:min-h-11 [&_select]:rounded-[9px] [&_select]:text-sm [&_textarea]:w-full [&_textarea]:py-0 [&_textarea]:px-3 [&_textarea]:border [&_textarea]:border-line-strong [&_textarea]:outline-none [&_textarea]:text-ink [&_textarea]:bg-surface [&_textarea]:transition-[border-color,box-shadow] [&_textarea]:duration-(--motion-fast) [&_textarea]:ease-(--ease-standard) [&_textarea]:min-h-11 [&_textarea]:rounded-[9px] [&_textarea]:text-sm">
-            <FieldLabel>Service account (identity only)</FieldLabel>
-            <select
+            </Select>
+          </Field>
+          <Field label="Service account (identity only)">
+            <Select
               value={serviceActorId}
               onChange={(event) => setServiceActorId(event.target.value)}
             >
@@ -403,8 +401,8 @@ export function AutoDeployPoliciesPanel({
                   {item.name} · {item.role}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Field>
           <Button
             onClick={enablePolicy}
             busy={create.isPending}

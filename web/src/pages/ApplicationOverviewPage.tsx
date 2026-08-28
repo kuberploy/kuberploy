@@ -25,6 +25,7 @@ import {
 import { gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
+  Select,
   Button,
   Card,
   ConfirmDialog,
@@ -705,7 +706,7 @@ export function ApplicationOverviewPage() {
               required
               hint="Helm desired state is scoped to this application and one environment."
             >
-              <select
+              <Select
                 value={environmentId}
                 onChange={(event) => setEnvironmentId(event.target.value)}
               >
@@ -715,7 +716,7 @@ export function ApplicationOverviewPage() {
                     {environment.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
           </Card>
           {features?.helmDeployments !== true ? (

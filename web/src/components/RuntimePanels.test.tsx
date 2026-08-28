@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -146,15 +147,15 @@ describe("deployment runtime panel", () => {
     });
     expect(events).toHaveBeenCalledWith(targetWorkload.id, { limit: 50 });
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Pod" }),
       source.podName,
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Revision" }),
       source.revision!,
     );
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Container" }),
       source.container,
     );

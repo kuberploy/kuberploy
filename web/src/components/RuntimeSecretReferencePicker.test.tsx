@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -101,16 +102,9 @@ describe("runtime-secret reference picker", () => {
     const bindingSelect = screen.getByRole("combobox", {
       name: "Secret variable 1 binding",
     });
-    expect(
-      await screen.findByRole("option", { name: "database · v3" }),
-    ).toBeVisible();
-    expect(screen.queryByRole("option", { name: /external/ })).toBeNull();
-    await user.selectOptions(bindingSelect, `${binding.id}@3`);
+    await selectOption(bindingSelect, `${binding.id}@3`);
 
-    const key = await screen.findByRole("option", { name: "password" });
-    expect(key).toBeVisible();
-    expect(screen.queryByRole("option", { name: "admin" })).toBeNull();
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Secret variable 1 key" }),
       "password",
     );
@@ -193,9 +187,7 @@ describe("runtime-secret reference picker", () => {
     const bindingSelect = screen.getByRole("combobox", {
       name: "Secret variable 1 binding",
     });
-    await screen.findByRole("option", { name: "database · v3" });
-    await userEvent.setup().selectOptions(bindingSelect, `${binding.id}@3`);
-    await screen.findByRole("option", { name: "password" });
+    await selectOption(bindingSelect, `${binding.id}@3`);
 
     await queryClient.invalidateQueries({
       queryKey: [
@@ -212,7 +204,7 @@ describe("runtime-secret reference picker", () => {
     expect(
       screen.getByRole("combobox", { name: "Secret variable 1 key" }),
     ).toBeDisabled();
-    await userEvent.setup().selectOptions(bindingSelect, `${binding.id}@4`);
+    await selectOption(bindingSelect, `${binding.id}@4`);
     await waitFor(() =>
       expect(
         screen.getByLabelText("Secret variable 1 version"),

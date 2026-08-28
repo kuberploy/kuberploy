@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -107,6 +108,10 @@ describe("monitoring dashboards", () => {
     expect(
       await screen.findByRole("heading", { name: "Payments / Production" }),
     ).toBeInTheDocument();
+    const selector = screen.getByRole("combobox", {
+      name: "Monitoring scope",
+    });
+    await openSelect(selector);
     expect(
       screen.getByRole("option", {
         name: "Namespace · Payments / Production",
@@ -186,10 +191,11 @@ describe("monitoring dashboards", () => {
     const selector = await screen.findByRole("combobox", {
       name: "Monitoring scope",
     });
+    await openSelect(selector);
     expect(
       screen.getByRole("option", { name: "Global · Platform global" }),
     ).toBeInTheDocument();
-    await user.selectOptions(selector, "global:platform");
+    await selectOption(selector, "global:platform");
 
     expect(
       await screen.findByRole("heading", { name: "Platform global" }),
@@ -227,10 +233,7 @@ describe("monitoring dashboards", () => {
     const selector = await screen.findByRole("combobox", {
       name: "Monitoring scope",
     });
-    await user.selectOptions(
-      selector,
-      "namespace:environment-opaque-restricted",
-    );
+    await selectOption(selector, "namespace:environment-opaque-restricted");
     expect(selector).toHaveValue("namespace:environment-opaque-restricted");
 
     queryClient.setQueryData(["environments"], {

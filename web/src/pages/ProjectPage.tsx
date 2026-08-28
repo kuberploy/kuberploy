@@ -14,6 +14,7 @@ import { Icon } from "../components/Icon";
 import { ProjectAccessPanel } from "../components/ProjectAccessPanel";
 import { ProjectAutomationPanel } from "../components/ProjectAutomationPanel";
 import {
+  Select,
   Button,
   Card,
   ConfirmDialog,
@@ -297,12 +298,15 @@ export function ProjectPage() {
                   />
                 </Field>
                 <Field label="Git publication" required>
-                  <select {...form.register("protectionPolicy")}>
+                  <Select
+                    {...form.register("protectionPolicy")}
+                    value={form.watch("protectionPolicy")}
+                  >
                     <option value="protected">Protected · pull request</option>
                     <option value="development">
                       Development · direct commit
                     </option>
-                  </select>
+                  </Select>
                 </Field>
                 <Button type="submit" busy={createEnvironment.isPending}>
                   Create environment

@@ -10,6 +10,7 @@ import type {
 } from "../api/types";
 import { Icon } from "./Icon";
 import {
+  Select,
   Button,
   ConfirmDialog,
   EmptyState,
@@ -354,7 +355,7 @@ export function GitSSHSourcePanel({
               />
             </Field>
             <Field label="Registry target" required>
-              <select
+              <Select
                 value={registryTargetID}
                 onChange={(event) => setRegistryTargetID(event.target.value)}
               >
@@ -364,7 +365,7 @@ export function GitSSHSourcePanel({
                     {target.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label="Build context" required>
               <input

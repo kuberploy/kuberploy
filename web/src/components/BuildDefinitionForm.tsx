@@ -13,7 +13,7 @@ import type {
 import { hasBuildApplicationCapability } from "../lib/buildAccess";
 import { canonicalBranchRef, gitRefLabel } from "../lib/format";
 import { Icon } from "./Icon";
-import { Button, ErrorPanel, Eyebrow, Field, Notice } from "./ui";
+import { Select, Button, ErrorPanel, Eyebrow, Field, Notice } from "./ui";
 
 type DefinitionForm = {
   installationId: string;
@@ -326,11 +326,12 @@ export function BuildDefinitionForm({
             required
             error={form.formState.errors.installationId?.message}
           >
-            <select
+            <Select
               {...form.register("installationId", {
                 required: "Select a linked installation.",
                 onChange: () => form.setValue("repositoryId", ""),
               })}
+              value={form.watch("installationId")}
             >
               <option value="">Select installation</option>
               {installations.data?.items.map((installation) => (
@@ -338,7 +339,7 @@ export function BuildDefinitionForm({
                   {installation.accountLogin}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field
             label="Repository"
@@ -350,11 +351,12 @@ export function BuildDefinitionForm({
             }
             error={form.formState.errors.repositoryId?.message}
           >
-            <select
+            <Select
               disabled={!installationId || repositories.isPending}
               {...form.register("repositoryId", {
                 required: "Select a verified repository.",
               })}
+              value={form.watch("repositoryId")}
             >
               <option value="">Select repository</option>
               {activeRepositories.map((repository) => (
@@ -362,13 +364,13 @@ export function BuildDefinitionForm({
                   {repository.ownerLogin}/{repository.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Source type" required>
-            <select {...form.register("refType")}>
+            <Select {...form.register("refType")} value={form.watch("refType")}>
               <option value="branch">Branch</option>
               <option value="tag">Tag</option>
-            </select>
+            </Select>
           </Field>
           <Field
             label={form.watch("refType") === "tag" ? "Tag" : "Branch"}
@@ -411,10 +413,11 @@ export function BuildDefinitionForm({
             hint="The built image is pushed here. Runtime pull credentials are configured separately."
             error={form.formState.errors.registryTargetId?.message}
           >
-            <select
+            <Select
               {...form.register("registryTargetId", {
                 required: "Select an accessible registry target.",
               })}
+              value={form.watch("registryTargetId")}
             >
               <option value="">Select target</option>
               {registryTargets.map((target) => (
@@ -422,7 +425,7 @@ export function BuildDefinitionForm({
                   {target.name} · {target.mode}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field
             label="Build context"

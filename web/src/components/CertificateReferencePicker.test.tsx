@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -67,20 +68,15 @@ describe("certificate reference picker", () => {
       ],
     });
     const onChange = renderPicker(null);
-    const ready = await screen.findByRole("option", {
-      name: "public-edge · v3",
-    });
-    expect(
-      screen.queryByRole("option", { name: /pending-edge/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/pending-edge/)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("textbox", { name: /certificate/i }),
     ).not.toBeInTheDocument();
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", {
         name: "Certificate binding and immutable version",
       }),
-      ready,
+      "binding-ready@3",
     );
     expect(onChange).toHaveBeenCalledWith({
       bindingId: "binding-ready",
@@ -96,11 +92,16 @@ describe("certificate reference picker", () => {
       name: "retained-edge",
       version: 2,
     });
+    await openSelect(
+      screen.getByRole("combobox", {
+        name: "Certificate binding and immutable version",
+      }),
+    );
     expect(
       await screen.findByRole("option", {
         name: "Current YAML reference: retained-edge · v2",
       }),
-    ).toBeDisabled();
+    ).toHaveAttribute("data-disabled");
     expect(
       screen.getByRole("combobox", {
         name: "Certificate binding and immutable version",

@@ -14,6 +14,7 @@ import {
 } from "../lib/traefikMiddleware";
 import { TraefikMiddlewareEditor } from "../components/TraefikMiddlewareEditor";
 import {
+  Select,
   Button,
   ButtonRow,
   Card,
@@ -366,7 +367,7 @@ export function MiddlewareProfilesPage() {
       <Card>
         <FormGrid columns={3}>
           <Field label="Environment">
-            <select
+            <Select
               value={environmentId}
               onChange={(event) => {
                 setEnvironmentId(event.target.value);
@@ -380,10 +381,10 @@ export function MiddlewareProfilesPage() {
                   {item.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Application">
-            <select
+            <Select
               value={applicationId}
               disabled={!environment}
               onChange={(event) => {
@@ -399,10 +400,10 @@ export function MiddlewareProfilesPage() {
                     {item.name}
                   </option>
                 ))}
-            </select>
+            </Select>
           </Field>
           <Field label="New profile scope">
-            <select
+            <Select
               value={scope}
               disabled={!targetValid}
               onChange={(event) => setScope(event.target.value as Scope)}
@@ -410,7 +411,7 @@ export function MiddlewareProfilesPage() {
               <option value="application">Application</option>
               <option value="environment">Environment</option>
               <option value="project">Project</option>
-            </select>
+            </Select>
           </Field>
         </FormGrid>
       </Card>

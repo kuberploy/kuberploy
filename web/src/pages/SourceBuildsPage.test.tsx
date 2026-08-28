@@ -1,3 +1,4 @@
+import { openSelect } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -281,6 +282,7 @@ describe("source-build workspace", () => {
     });
 
     expect(await screen.findByText("Attempt history")).toBeInTheDocument();
+    await openSelect(screen.getByRole("combobox", { name: /application/i }));
     expect(
       screen.getByRole("option", { name: "Payments / API" }),
     ).toBeInTheDocument();

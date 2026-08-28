@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -118,14 +119,11 @@ describe("middleware profile management", () => {
       .mockRejectedValueOnce(new Error("profile is still referenced"))
       .mockResolvedValue({} as never);
     renderPage();
-    await user.selectOptions(
+    await selectOption(
       await screen.findByLabelText("Environment"),
       "environment-a",
     );
-    await user.selectOptions(
-      screen.getByLabelText("Application"),
-      "application-a",
-    );
+    await selectOption(screen.getByLabelText("Application"), "application-a");
     await user.click(await screen.findByRole("button", { name: "Deactivate" }));
     expect(
       screen.getByRole("alertdialog", {
@@ -212,14 +210,11 @@ describe("middleware profile management", () => {
       .mockResolvedValueOnce({ items: [] });
     const queryClient = renderPage();
 
-    await user.selectOptions(
+    await selectOption(
       await screen.findByLabelText("Environment"),
       "environment-a",
     );
-    await user.selectOptions(
-      screen.getByLabelText("Application"),
-      "application-a",
-    );
+    await selectOption(screen.getByLabelText("Application"), "application-a");
     await user.click(await screen.findByRole("button", { name: "Revise" }));
     await queryClient.invalidateQueries({
       queryKey: ["middleware-profile-catalog"],
@@ -272,9 +267,9 @@ describe("middleware profile management", () => {
     const user = userEvent.setup();
 
     const environment = await screen.findByLabelText("Environment");
-    await user.selectOptions(environment, "environment-a");
+    await selectOption(environment, "environment-a");
     const application = screen.getByLabelText("Application");
-    await user.selectOptions(application, "application-a");
+    await selectOption(application, "application-a");
     expect(environment).toHaveValue("environment-a");
     expect(application).toHaveValue("application-a");
 

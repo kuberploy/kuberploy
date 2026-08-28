@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -258,7 +259,7 @@ describe("application source overview", () => {
     const environment = await screen.findByRole("combobox", {
       name: /Environment/,
     });
-    await user.selectOptions(environment, "environment-1");
+    await selectOption(environment, "environment-1");
     expect(environment).toHaveValue("environment-1");
 
     client.setQueryData(["environments"], { items: [] });
@@ -362,8 +363,11 @@ describe("application source overview", () => {
     await user.click(screen.getByRole("button", { name: "Source & build" }));
 
     const environment = screen.getByRole("combobox", { name: /Environment/ });
-    expect(environment).toHaveTextContent("Test");
-    expect(environment).not.toHaveTextContent("Production");
+    await openSelect(environment);
+    expect(screen.getByRole("option", { name: "Test" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Production" }),
+    ).not.toBeInTheDocument();
   });
 
   it("rejects an environment-scoped URL when the App is not placed there", async () => {
@@ -391,7 +395,7 @@ describe("application source overview", () => {
 
     await screen.findByRole("heading", { name: "Payments API" });
     await user.click(screen.getByRole("button", { name: "Source & build" }));
-    await user.selectOptions(
+    await selectOption(
       await screen.findByRole("combobox", { name: /Environment/ }),
       "environment-1",
     );

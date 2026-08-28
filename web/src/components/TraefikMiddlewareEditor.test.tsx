@@ -1,4 +1,5 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { openSelect, selectOption } from "../test/selectOption";
+import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,10 +48,11 @@ describe("Traefik middleware Guided editor", () => {
     render(<Harness />);
 
     const family = screen.getByLabelText("New middleware family");
-    expect(within(family).getAllByRole("option")).toHaveLength(
+    await openSelect(family);
+    expect(screen.getAllByRole("option")).toHaveLength(
       traefikMiddlewareKinds.length,
     );
-    await user.selectOptions(family, "redirectRegex");
+    await selectOption(family, "redirectRegex");
     await user.click(screen.getByRole("button", { name: /Add middleware/i }));
 
     expect(

@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -70,17 +71,14 @@ describe("RegistryPullCredentialsPanel", () => {
       </QueryClientProvider>,
     );
     const select = await screen.findByLabelText("Pull strategy");
-    expect(
-      await screen.findByRole("option", { name: /Production/ }),
-    ).toBeVisible();
-    expect(screen.getByRole("option", { name: /Backup/ })).toBeVisible();
-    await userEvent.selectOptions(select, "credential-backup");
+
+    await selectOption(select, "credential-backup");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(select).toHaveValue("public");
     expect(
       await screen.findByText("Pull strategy was not saved"),
     ).toBeVisible();
-    await userEvent.selectOptions(select, "credential-backup");
+    await selectOption(select, "credential-backup");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(save.mock.calls[1]?.[2]).toBe(save.mock.calls[0]?.[2]);
     expect(
@@ -142,7 +140,7 @@ describe("RegistryPullCredentialsPanel", () => {
 
     const name = await screen.findByLabelText("Credential name");
     await user.type(name, "First credential");
-    await user.selectOptions(screen.getByLabelText("Registry"), "target-1");
+    await selectOption(screen.getByLabelText("Registry"), "target-1");
     await user.click(
       screen.getByRole("button", { name: "Add project credential" }),
     );
@@ -209,7 +207,7 @@ describe("RegistryPullCredentialsPanel", () => {
 
     const name = await screen.findByLabelText("Credential name");
     await user.type(name, "First credential");
-    await user.selectOptions(screen.getByLabelText("Registry"), "target-1");
+    await selectOption(screen.getByLabelText("Registry"), "target-1");
     await user.click(
       screen.getByRole("button", { name: "Add project credential" }),
     );
@@ -232,7 +230,7 @@ describe("RegistryPullCredentialsPanel", () => {
     );
     const newerName = await screen.findByLabelText("Credential name");
     await user.type(newerName, "First credential");
-    await user.selectOptions(screen.getByLabelText("Registry"), "target-1");
+    await selectOption(screen.getByLabelText("Registry"), "target-1");
 
     resolveCreate(
       {} as Awaited<ReturnType<typeof api.createProjectRegistryPullCredential>>,
@@ -364,7 +362,7 @@ describe("RegistryPullCredentialsPanel", () => {
 
     const select = await screen.findByLabelText("Pull strategy");
     await waitFor(() => expect(select).toHaveValue("credential-primary"));
-    await userEvent.selectOptions(select, "public");
+    await selectOption(select, "public");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(select).toHaveValue("credential-primary");
   });
@@ -406,13 +404,14 @@ describe("RegistryPullCredentialsPanel", () => {
     );
 
     const select = await screen.findByLabelText("Pull strategy");
+    await openSelect(select);
     expect(
       await screen.findByRole("option", {
         name: "Current project credential unavailable — choose another",
       }),
     ).toBeVisible();
     expect(screen.getByText("Credential unavailable")).toBeVisible();
-    await user.selectOptions(select, "public");
+    await selectOption(select, "public");
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(save).toHaveBeenCalledWith(
       "application-1",

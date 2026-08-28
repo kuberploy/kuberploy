@@ -1,3 +1,4 @@
+import { selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -80,10 +81,10 @@ describe("BuildPromotionPanel", () => {
 
     // Wait for the environment to be listed: the select renders before the
     // environments query resolves.
-    await screen.findByRole("option", { name: /Production/ });
+
     const [environmentSelect] = screen.getAllByRole("combobox");
     if (!environmentSelect) throw new Error("environment select missing");
-    await user.selectOptions(environmentSelect, environment.id);
+    await selectOption(environmentSelect, environment.id);
     await user.click(
       screen.getByRole("button", { name: /Promote verified build/i }),
     );
@@ -105,8 +106,7 @@ describe("BuildPromotionPanel", () => {
     vi.spyOn(api, "environments").mockResolvedValue({ items: [environment] });
     const { queryClient } = renderPanel();
 
-    await screen.findByRole("option", { name: /Production/ });
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Environment" }),
       environment.id,
     );

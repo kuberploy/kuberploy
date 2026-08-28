@@ -21,6 +21,7 @@ import {
   type TraefikMiddlewareKind,
 } from "../lib/traefikMiddleware";
 import {
+  Select,
   Button,
   Field,
   FieldLabel,
@@ -87,7 +88,7 @@ function BooleanSetting({
 }) {
   return (
     <Field label={label} hint="Default leaves the Traefik field unset.">
-      <select
+      <Select
         aria-label={label}
         value={value === undefined ? "" : String(value)}
         onChange={(event) =>
@@ -101,7 +102,7 @@ function BooleanSetting({
         <option value="">Traefik default</option>
         <option value="true">Enabled</option>
         <option value="false">Disabled</option>
-      </select>
+      </Select>
     </Field>
   );
 }
@@ -516,7 +517,7 @@ function MiddlewareFamilyEditor({
             label="Redirect scheme"
             hint="Explicit redirect target scheme, usually https."
           >
-            <select
+            <Select
               aria-label={`${middleware.name} redirect scheme`}
               value={value.scheme}
               onChange={(event) =>
@@ -525,7 +526,7 @@ function MiddlewareFamilyEditor({
             >
               <option value="https">HTTPS</option>
               <option value="http">HTTP</option>
-            </select>
+            </Select>
           </Field>
           <Field
             label="Redirect port"
@@ -1022,7 +1023,7 @@ function ReusableProfileAttacher({
         label="Reusable middleware profile"
         hint="Only exact active revisions assigned to this application and environment are shown."
       >
-        <select
+        <Select
           aria-label="Reusable middleware profile"
           value={selectedProfile}
           disabled={profiles.isPending || Boolean(profiles.error)}
@@ -1037,7 +1038,7 @@ function ReusableProfileAttacher({
               {profile.name} · revision {profile.revision}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       <Button
         type="button"
@@ -1239,7 +1240,7 @@ export function TraefikMiddlewareEditor({
         <legend className="sr-only">Traefik middleware controls</legend>
         <div className="grid grid-cols-[minmax(220px,_360px)_auto] items-end gap-3 [&>[data-slot='button']]:justify-self-start to-760:grid-cols-[1fr]">
           <Field label="Middleware family">
-            <select
+            <Select
               aria-label="New middleware family"
               value={newKind}
               onChange={(event) =>
@@ -1251,7 +1252,7 @@ export function TraefikMiddlewareEditor({
                   {kindLabels[kind]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Button
             type="button"
@@ -1312,7 +1313,7 @@ export function TraefikMiddlewareEditor({
                     />
                   </Field>
                   <Field label="Family">
-                    <select
+                    <Select
                       aria-label={`Middleware ${index + 1} family`}
                       value={middleware.kind}
                       disabled={Boolean(middleware.profileRef)}
@@ -1334,7 +1335,7 @@ export function TraefikMiddlewareEditor({
                           {kindLabels[kind]}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </Field>
                   <div className="flex items-center gap-1.5 pb-1 to-760:justify-self-start">
                     <button
@@ -1474,7 +1475,7 @@ export function TraefikMiddlewareEditor({
                   key={chainKeys.keyAt(index)}
                 >
                   <span>{index + 1}</span>
-                  <select
+                  <Select
                     aria-label={`Route middleware ${index + 1}`}
                     value={ref}
                     onChange={(event) =>
@@ -1496,7 +1497,7 @@ export function TraefikMiddlewareEditor({
                         {name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                   <button
                     type="button"
                     className="focus-visible:outline-[3px] focus-visible:outline-focus focus-visible:outline-offset-[2px] grid w-8 h-8 place-items-center border border-line rounded-lg text-ink-soft bg-surface cursor-pointer transition-[color,border-color,background] duration-(--motion-fast) ease-(--ease-standard) [&_svg]:w-3.5 pointer-coarse:min-w-8 pointer-coarse:min-h-8 [&:hover:not(:disabled)]:text-ink [&:hover:not(:disabled)]:border-line-strong [&:hover:not(:disabled)]:bg-surface-soft [&:active:not(:disabled)]:translate-y-[1px]"

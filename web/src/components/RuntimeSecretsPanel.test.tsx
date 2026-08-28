@@ -1,3 +1,4 @@
+import { openSelect, selectOption } from "../test/selectOption";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -211,6 +212,7 @@ describe("runtime-secret management panel", () => {
       environments: [production, staging, unrelated],
     });
 
+    await openSelect(screen.getByRole("combobox", { name: /environment/i }));
     expect(
       await screen.findByRole("option", {
         name: "Staging · payments-staging",
@@ -575,7 +577,7 @@ describe("runtime-secret management panel", () => {
     await user.click(screen.getByRole("button", { name: "Delete binding" }));
     await waitFor(() => expect(remove).toHaveBeenCalledOnce());
 
-    await user.selectOptions(
+    await selectOption(
       screen.getByRole("combobox", { name: "Runtime secret environment" }),
       staging.id,
     );
@@ -609,7 +611,7 @@ describe("runtime-secret management panel", () => {
       ],
     });
 
-    await user.selectOptions(
+    await selectOption(
       await screen.findByRole("combobox", {
         name: "Runtime secret environment",
       }),
