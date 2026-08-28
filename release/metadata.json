@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Styled frontend selects now stay within mobile Monitoring layouts, with deterministic browser-form regression coverage.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.401"
+  "version": "0.1.0-rc.402"
 }
