@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App start and redeploy send the current protected Git bundle ETag, allowing saved configuration to satisfy the required compare-and-swap precondition.",
+  "summary": "Administrators can deactivate a degraded certificate issuer even when that issuer makes platform readiness unhealthy, restoring the exact cleanup path without weakening protected Git checks.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.394"
+  "version": "0.1.0-rc.395"
 }
