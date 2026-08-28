@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Empty Environments can be deleted after an unpublished foundation publication fails, while previously published foundation manifests still receive exact protected-Git cleanup.",
+  "summary": "Operator-attested public sslip.io endpoints work on single-VM clusters whose LoadBalancer reports only a private address behind floating-IP NAT.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.392"
+  "version": "0.1.0-rc.393"
 }
