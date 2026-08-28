@@ -358,7 +358,10 @@ export function MonitoringPage() {
           action={<PlaceholderBadge>Access not granted</PlaceholderBadge>}
         />
       ) : (
-        <div className="grid gap-5">
+        <div
+          data-slot="monitoring-content"
+          className="grid min-w-0 gap-5 [&>*]:min-w-0"
+        >
           <Card className="flex items-end justify-between gap-6 py-4 px-5 [&>div]:flex [&>div]:items-center [&>div]:gap-3 [&>div_>_svg]:w-[19px] [&>div_>_svg]:text-mint-dark [&_strong]:block [&_strong]:text-[11px] [&_small]:block [&_small]:mt-1 [&_small]:text-ink-faint [&_small]:text-xs [&_label]:grid [&_label]:min-w-[min(420px,_48%)] [&_label]:gap-1.5 [&_label_>_span]:text-ink-soft [&_label_>_span]:text-xs [&_label_>_span]:font-semibold [&_label_>_span]:tracking-[0.06em] [&_label_>_span]:uppercase [&_[role='combobox']]:min-h-[39px] to-820:items-stretch to-820:flex-col to-820:[&_label]:w-full to-820:[&_label]:min-w-0">
             <div>
               <Icon name="metrics" />

@@ -103,7 +103,7 @@ describe("monitoring dashboards", () => {
       .spyOn(api, "metricRange")
       .mockImplementation(async (input) => metricResult(input.metric));
 
-    render(<MonitoringPage />, { wrapper: wrapper() });
+    const { container } = render(<MonitoringPage />, { wrapper: wrapper() });
 
     expect(
       await screen.findByRole("heading", { name: "Payments / Production" }),
@@ -122,6 +122,9 @@ describe("monitoring dashboards", () => {
       screen.queryByRole("option", { name: /Global/ }),
     ).not.toBeInTheDocument();
     expect(await screen.findByText("3.00 cores")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-slot="monitoring-content"]'),
+    ).toHaveClass("min-w-0", "[&>*]:min-w-0");
 
     await waitFor(() => expect(metrics).toHaveBeenCalledTimes(7));
     const inputs = metrics.mock.calls.map(([input]) => input);
