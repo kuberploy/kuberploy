@@ -486,7 +486,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = gitSSHService.Revoke(ctx, gitssh.ScopeApp, serviceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err = store.EnqueueManualAttempt(ctx, gitSSHDefinition.ID, strings.Repeat("f", 40), strings.Repeat("6", 64), gitSSHDefinition.Spec.Execution, failedAt.Add(2*time.Minute)); !errors.Is(err, ErrUnauthorized) {
+	if _, _, err = store.EnqueueManualAttempt(ctx, gitSSHDefinition.ID, strings.Repeat("f", 40), strings.Repeat("6", 64), gitSSHDefinition.Spec.Execution, failedAt.Add(2*time.Minute)); !errors.Is(err, ErrGitSSHKeyInactive) {
 		t.Fatalf("revoked Git SSH key accepted: %v", err)
 	}
 

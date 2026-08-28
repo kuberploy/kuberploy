@@ -112,6 +112,7 @@ type buildHTTPBackend struct {
 	profileCatalog builds.BuildSecretProfileCatalog
 	buildCommit    string
 	buildCalls     int
+	buildErr       error
 	deleteCalls    int
 	deleteReplay   bool
 	deleteErr      error
@@ -180,9 +181,12 @@ func (b *buildHTTPBackend) Retry(_ context.Context, _, _, _, _ string) (builds.B
 }
 func (b *buildHTTPBackend) Build(_ context.Context, _, _, commitSHA, _, _ string) (builds.BuildAttempt, bool, error) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	b.buildCommit = commitSHA
 	b.buildCalls++
-	b.mu.Unlock()
+	if b.buildErr != nil {
+		return builds.BuildAttempt{}, false, b.buildErr
+	}
 	result := b.attempt
 	result.CommitSHA = commitSHA
 	result.State = builds.AttemptQueued
@@ -242,6 +246,15 @@ func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
 	backend.mu.Unlock()
 	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || buildCalls != 1 {
 		t.Fatalf("invalid commit status=%d problem=%#v calls=%d", response.StatusCode, problem, buildCalls)
+	}
+
+	backend.mu.Lock()
+	backend.buildErr = builds.ErrGitSSHKeyInactive
+	backend.mu.Unlock()
+	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-inactive-key", map[string]string{"commitSha": commit})
+	problem = decode[httpapi.Problem](t, response)
+	if response.StatusCode != http.StatusConflict || problem.Code != "GitSSHKeyInactive" || problem.Title != "Git SSH key is inactive" {
+		t.Fatalf("inactive key status=%d problem=%#v", response.StatusCode, problem)
 	}
 }
 

@@ -1412,6 +1412,8 @@ func mappedGitHubBuildError(w http.ResponseWriter, r *http.Request, err error) {
 		writeProblem(w, r, http.StatusBadRequest, "InvalidGitHubHandoff", "GitHub link rejected", "The one-time setup handoff is invalid, expired, or already used.")
 	case errors.Is(err, githubapp.ErrOwnershipMismatch), errors.Is(err, githubapp.ErrScopeMismatch), errors.Is(err, builds.ErrUnauthorized):
 		writeProblem(w, r, http.StatusForbidden, "GitHubOwnershipMismatch", "GitHub authorization rejected", "The authenticated GitHub user, installation, repository, or requested scope does not match.")
+	case errors.Is(err, builds.ErrGitSSHKeyInactive):
+		writeProblem(w, r, http.StatusConflict, "GitSSHKeyInactive", "Git SSH key is inactive", "This Git SSH source references an inactive key. Reconnect it with the active key before building.")
 	case errors.Is(err, builds.ErrNotFound):
 		mappedError(w, r, store.ErrNotFound)
 	case errors.Is(err, builds.ErrConflict), errors.Is(err, builds.ErrTerminal):

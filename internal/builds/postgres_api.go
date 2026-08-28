@@ -321,7 +321,7 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 		return BuildAttempt{}, false, classifyPostgres(err)
 	}
 	if keyStatus != "active" {
-		return BuildAttempt{}, false, ErrUnauthorized
+		return BuildAttempt{}, false, ErrGitSSHKeyInactive
 	}
 	var generation int64
 	if err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`,
