@@ -241,10 +241,11 @@ func (s *Server) deactivatePlatformCertificateIssuer(w http.ResponseWriter, r *h
 		return
 	}
 	if !found {
-		if !s.certificateIssuerMutationsReady(r.Context()) {
-			certificateIssuerAdminUnavailable(w, r)
-			return
-		}
+		// Deactivation is the recovery path for an issuer whose invalid or
+		// unavailable runtime can itself make the platform-root readiness probe
+		// fail. The backend still enforces the exact active revision, retained
+		// references, idempotency, and protected Git deletion. Gating this cleanup
+		// on the affected runtime creates an administrative deadlock.
 		result, err = s.certificateIssuerAdmin.Deactivate(r.Context(), command, ref)
 	}
 	if err != nil {

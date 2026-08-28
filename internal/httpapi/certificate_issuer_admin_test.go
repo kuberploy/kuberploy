@@ -127,16 +127,14 @@ func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *te
 	if blocked.StatusCode != http.StatusServiceUnavailable || blockedProblem.Code != "CertificateIssuerManagementUnavailable" {
 		t.Fatalf("stale-runtime new revise status=%d problem=%#v", blocked.StatusCode, blockedProblem)
 	}
-	readiness.err = nil
-
+	readiness.err = errors.New("issuer made the protected runtime unhealthy")
 	response = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "deactivate-tenant-production", map[string]any{"revision": 2})
 	deactivated := decode[struct {
 		Lifecycle string `json:"lifecycle"`
 	}](t, response)
 	if response.StatusCode != http.StatusOK || deactivated.Lifecycle != "deactivated" {
-		t.Fatalf("unexpected deactivate status=%d body=%#v", response.StatusCode, deactivated)
+		t.Fatalf("stale-runtime recovery deactivate status=%d body=%#v", response.StatusCode, deactivated)
 	}
-	readiness.err = errors.New("stale protected publisher")
 	replay = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "deactivate-tenant-production", map[string]any{"revision": 2})
 	if replay.StatusCode != http.StatusOK || replay.Header.Get("Idempotent-Replay") != "true" {
 		t.Fatalf("stale-runtime deactivate replay status=%d replay=%q", replay.StatusCode, replay.Header.Get("Idempotent-Replay"))
@@ -144,8 +142,8 @@ func TestCertificateIssuerAdminLifecycleIsClosedAndServerDerivesACMEServer(t *te
 	replay.Body.Close()
 	blocked = fixture.request(http.MethodPost, "/v1/platform/certificate-issuers/"+created.ID+"/deactivate", "blocked-deactivate", map[string]any{"revision": 2})
 	blockedProblem = decode[httpapi.Problem](t, blocked)
-	if blocked.StatusCode != http.StatusServiceUnavailable || blockedProblem.Code != "CertificateIssuerManagementUnavailable" {
-		t.Fatalf("stale-runtime new deactivate status=%d problem=%#v", blocked.StatusCode, blockedProblem)
+	if blocked.StatusCode != http.StatusConflict || blockedProblem.Code != "CertificateIssuerConflict" {
+		t.Fatalf("inactive issuer second deactivate status=%d problem=%#v", blocked.StatusCode, blockedProblem)
 	}
 }
 
