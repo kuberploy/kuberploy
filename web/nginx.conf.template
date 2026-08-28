@@ -4,10 +4,12 @@ server {
   absolute_redirect off;
   root /usr/share/nginx/html;
   index index.html;
+  add_header X-Robots-Tag "noindex, nofollow" always;
 
   location = /healthz {
     access_log off;
     add_header Content-Type text/plain;
+    add_header X-Robots-Tag "noindex, nofollow" always;
     return 200 "ok\n";
   }
 
@@ -28,20 +30,24 @@ server {
   location = /docs/index.html {
     try_files $uri =404;
     add_header Cache-Control "no-cache";
+    add_header X-Robots-Tag "noindex, nofollow" always;
   }
 
   location /docs/ {
     try_files $uri $uri/ =404;
     add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Robots-Tag "noindex, nofollow" always;
   }
 
   location /assets/ {
     try_files $uri =404;
     add_header Cache-Control "public, max-age=31536000, immutable";
+    add_header X-Robots-Tag "noindex, nofollow" always;
   }
 
   location / {
     try_files $uri $uri/ /index.html;
     add_header Cache-Control "no-cache";
+    add_header X-Robots-Tag "noindex, nofollow" always;
   }
 }

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM docker.io/library/node:26-alpine
+FROM docker.io/library/node:26.7.0-alpine
 
 WORKDIR /opt/kuberploy/migrations
 

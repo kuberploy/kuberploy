@@ -617,7 +617,7 @@ def main() -> None:
         "docker.io/library/docker:29-dind",
         "docker.io/library/golang:1.26-alpine3.24",
         "docker.io/library/nginx:1.31-alpine",
-        "docker.io/library/node:26-alpine",
+        "docker.io/library/node:26.7.0-alpine",
         "docker.io/library/registry:3",
     }
     for dockerfile_path in dockerfiles:

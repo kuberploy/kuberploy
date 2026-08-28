@@ -110,6 +110,26 @@ async function verifyApiDocs(directory) {
     nginx.includes("absolute_redirect off;"),
     "/docs redirects must remain relative so forwarded host ports are preserved.",
   );
+  const robotsHeader = 'add_header X-Robots-Tag "noindex, nofollow" always;';
+  assert(
+    nginx.includes(robotsHeader),
+    "The production web server must disable search indexing by default.",
+  );
+  for (const location of [
+    "location = /healthz",
+    "location = /docs/index.html",
+    "location /docs/",
+    "location /assets/",
+    "location / {",
+  ]) {
+    const start = nginx.indexOf(location);
+    const end = nginx.indexOf("\n  }", start);
+    assert(start >= 0 && end > start, `Could not find ${location}.`);
+    assert(
+      nginx.slice(start, end).includes(robotsHeader),
+      `${location} overrides response headers without preserving X-Robots-Tag.`,
+    );
+  }
   const proxyResources = nginx.match(
     /location ~ \^\/\(([^)]+)\)\(\/\|\$\)/,
   )?.[1];
