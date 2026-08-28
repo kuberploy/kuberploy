@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Operator-attested public sslip.io endpoints work on single-VM clusters whose LoadBalancer reports only a private address behind floating-IP NAT.",
+  "summary": "App start and redeploy send the current protected Git bundle ETag, allowing saved configuration to satisfy the required compare-and-swap precondition.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.393"
+  "version": "0.1.0-rc.394"
 }
