@@ -26,7 +26,9 @@ const (
 // an IP address or an arbitrary sslip.io hostname. Auto mode selects the first
 // canonical public IPv4 directly reported by Kubernetes. Hostname-based load
 // balancers require an operator-attested stable IPv4 that is re-resolved every
-// poll.
+// poll. A LoadBalancer that reports only private addresses can also use the
+// operator-attested address; this is the normal shape of a single VM behind a
+// floating-IP NAT.
 type SSLIPProfile struct {
 	Mode             SSLIPSelectionMode `json:"mode"`
 	StaticPublicIPv4 string             `json:"staticPublicIPv4,omitempty"`
@@ -192,7 +194,18 @@ func selectSSLIPIngress(
 			return endpoint(profile.StaticPublicIPv4, SSLIPSourceServiceIP), nil
 		}
 	}
+	privateServiceIPsOnly := true
+	for _, ingress := range service.LoadBalancerIngress {
+		if validPublicIPv4String(ingress.IP) {
+			privateServiceIPsOnly = false
+		} else if ingress.IP == "" {
+			privateServiceIPsOnly = false
+		}
+	}
 	if resolver == nil {
+		if privateServiceIPsOnly {
+			return endpoint(profile.StaticPublicIPv4, SSLIPSourceVerifiedStaticIP), nil
+		}
 		return SSLIPIngressEndpoint{}, mismatch("sslip-static-ip-unverified")
 	}
 	hostnames := make([]string, 0, len(service.LoadBalancerIngress))
@@ -203,6 +216,9 @@ func selectSSLIPIngress(
 	}
 	slices.Sort(hostnames)
 	hostnames = slices.Compact(hostnames)
+	if len(hostnames) == 0 && privateServiceIPsOnly {
+		return endpoint(profile.StaticPublicIPv4, SSLIPSourceVerifiedStaticIP), nil
+	}
 	for _, hostname := range hostnames {
 		addresses, err := observeCall(ctx, callTimeout, func(callContext context.Context) ([]netip.Addr, error) {
 			return resolver.LookupNetIP(callContext, "ip4", hostname)

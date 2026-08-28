@@ -78,6 +78,26 @@ func TestTraefikObservationSelectsOnlyApprovedSSLIPIngress(t *testing.T) {
 	if _, err = observer.ObserveTraefik(t.Context(), *config.Profiles.Traefik); !errors.Is(err, ErrObservation) {
 		t.Fatalf("missing static address err=%v", err)
 	}
+	observer.Resolver = nil
+	if _, err = observer.ObserveTraefik(t.Context(), *config.Profiles.Traefik); !errors.Is(err, ErrObservation) {
+		t.Fatalf("unverified hostname err=%v", err)
+	}
+
+	reader = newFakeKubernetesReader(config)
+	service = reader.services[key]
+	service.LoadBalancerIngress = []LoadBalancerIngress{{IP: "10.0.0.10"}}
+	reader.services[key] = service
+	observer = &KubernetesTargetObserver{Reader: reader}
+	receipt, err = observer.ObserveTraefik(t.Context(), *config.Profiles.Traefik)
+	if err != nil || receipt.SSLIP == nil || receipt.SSLIP.PublicIPv4 != "1.1.1.1" || receipt.SSLIP.Source != SSLIPSourceVerifiedStaticIP {
+		t.Fatalf("private NAT receipt=%+v err=%v", receipt, err)
+	}
+
+	service.LoadBalancerIngress = []LoadBalancerIngress{{IP: "8.8.8.8"}}
+	reader.services[key] = service
+	if _, err = observer.ObserveTraefik(t.Context(), *config.Profiles.Traefik); !errors.Is(err, ErrObservation) {
+		t.Fatalf("conflicting public address err=%v", err)
+	}
 }
 
 func TestMemoryStorePersistsFencedSSLIPObservationAndRejectsIdentityDrift(t *testing.T) {
