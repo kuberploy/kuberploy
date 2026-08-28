@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Styled frontend selects now stay within mobile Monitoring layouts, with deterministic browser-form regression coverage.",
+  "summary": "Monitoring transitions, Environment cleanup, middleware deletion, and Git SSH guidance now pass qualification regressions.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.402"
+  "version": "0.1.0-rc.403"
 }
