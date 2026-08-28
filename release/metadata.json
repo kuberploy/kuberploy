@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Monitoring transitions, Environment cleanup, middleware deletion, and Git SSH guidance now pass qualification regressions.",
+  "summary": "GitHub App re-verification now accepts repository-scope changes and reconciles removed repository access.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.403"
+  "version": "0.1.0-rc.404"
 }
