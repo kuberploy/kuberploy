@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Managed Traefik publishes an exact release-owned Deployment identity, allowing the edge observer to verify healthy fresh and upgraded installations across Kubernetes defaulting differences.",
+  "summary": "Production web responses opt out of search indexing by default, and production Node image stages use the repository-pinned runtime for reproducible builds.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.396"
+  "version": "0.1.0-rc.397"
 }
