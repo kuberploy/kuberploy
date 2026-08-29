@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Git settings now manage provider connections only, App pages own editable source and build history, and managed registry garbage collection runs no more than once per hour.",
+  "summary": "GitHub Deploy resolves selected branch heads, Rebuild reuses successful source snapshots, and running App actions use Reload semantics.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.408"
+  "version": "0.1.0-rc.409"
 }
