@@ -589,9 +589,7 @@ describe("new deployment runtime controls", () => {
     expect(
       screen.getByRole("button", { name: /commit & deploy/i }),
     ).toBeDisabled();
-    expect(
-      screen.queryByText(/Image digest resolved/),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Image digest resolved/)).not.toBeInTheDocument();
   });
 
   it("hides a tag-resolution error after the image changes", async () => {

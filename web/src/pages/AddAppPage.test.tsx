@@ -104,9 +104,9 @@ describe("Add App source flow", () => {
       expect.stringContaining("Git SSH"),
       expect.stringContaining("Helm chart"),
     ]);
-    expect(
-      screen.getByRole("radio", { name: /Git SSH/ }),
-    ).toHaveAccessibleName(/No automatic provider webhooks/);
+    expect(screen.getByRole("radio", { name: /Git SSH/ })).toHaveAccessibleName(
+      /No automatic provider webhooks/,
+    );
     expect(screen.queryByRole("textbox", { name: "App name" })).toBeNull();
   });
 

@@ -493,9 +493,7 @@ describe("certificate management panel", () => {
 
     resolveDelete?.();
     await waitFor(() =>
-      expect(
-        screen.getByText("Public attestations"),
-      ).toBeInTheDocument(),
+      expect(screen.getByText("Public attestations")).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /staging-edge/i })).toHaveClass(
       "runtime-secret-binding--active",
@@ -549,8 +547,6 @@ describe("certificate management panel", () => {
     expect(
       screen.queryByRole("button", { name: /staging-edge/i }),
     ).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("Public attestations"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Public attestations")).not.toBeInTheDocument();
   });
 });

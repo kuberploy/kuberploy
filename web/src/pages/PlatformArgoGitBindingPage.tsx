@@ -358,7 +358,7 @@ export function PlatformArgoGitBindingPage() {
               />
               <span>
                 I understand this repository and branch become the protected
-                protected platform Git authority.
+                platform Git authority.
               </span>
             </label>
             {validationError ? (

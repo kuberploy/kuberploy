@@ -32,6 +32,16 @@ type findResult struct {
 	err         error
 }
 
+type verifiedMergeRefresherStub struct {
+	err   error
+	calls []gitpublication.Publication
+}
+
+func (r *verifiedMergeRefresherStub) RefreshVerifiedMerge(_ context.Context, publication gitpublication.Publication) error {
+	r.calls = append(r.calls, publication)
+	return r.err
+}
+
 func (p *providerStub) CreatePullRequest(_ context.Context, request gitpublication.CreatePullRequestRequest) (gitpublication.PullRequestObservation, error) {
 	p.createRequests = append(p.createRequests, request)
 	return p.createObservation, p.createErr
@@ -189,6 +199,40 @@ func TestMergedPullRequestRequiresExactVisibleMerge(t *testing.T) {
 	}
 	if !reflect.DeepEqual(provider.ancestorCalls, [][2]string{{mergeSHA, targetSHA}, {mergeSHA, targetSHA}}) {
 		t.Fatalf("ancestry calls=%#v", provider.ancestorCalls)
+	}
+}
+
+func TestVerifiedMergeRefreshRetriesBeforePublicationBecomesTerminal(t *testing.T) {
+	provider := &providerStub{}
+	service, store, publication, started := readyService(t, provider)
+	merged := observationFor(publication, gitpublication.PullRequestClosed, true, started.Add(90*time.Second))
+	provider.findResults = []findResult{{observation: merged, found: true}}
+	provider.target = gitpublication.TargetHeadObservation{Repository: repository, TargetRef: publication.TargetRef, Revision: targetSHA, ObservedAt: started.Add(100 * time.Second)}
+	service.Now = func() time.Time { return started.Add(2 * time.Minute) }
+
+	if result, err := service.EnsurePullRequest(t.Context(), operationID); !errors.Is(err, gitpublication.ErrMergeNotVisible) || result.State != gitpublication.StateMergePending {
+		t.Fatalf("merge pending publication=%#v err=%v", result, err)
+	}
+	provider.getObservation = merged
+	provider.ancestor = true
+	refreshFailure := errors.New("Argo refresh unavailable")
+	refresher := &verifiedMergeRefresherStub{err: refreshFailure}
+	service.VerifiedMerge = refresher
+	service.Now = func() time.Time { return started.Add(3 * time.Minute) }
+
+	if result, err := service.Observe(t.Context(), operationID); !errors.Is(err, refreshFailure) || result.State != gitpublication.StateMergePending {
+		t.Fatalf("failed refresh publication=%#v err=%v", result, err)
+	}
+	stored, err := store.Publication(t.Context(), operationID)
+	if err != nil || stored.State != gitpublication.StateMergePending || len(refresher.calls) != 1 || refresher.calls[0].State != gitpublication.StateMergeVerified {
+		t.Fatalf("stored=%#v refreshes=%#v err=%v", stored, refresher.calls, err)
+	}
+
+	refresher.err = nil
+	service.Now = func() time.Time { return started.Add(4 * time.Minute) }
+	verified, err := service.Observe(t.Context(), operationID)
+	if err != nil || verified.State != gitpublication.StateMergeVerified || len(refresher.calls) != 2 {
+		t.Fatalf("verified=%#v refreshes=%d err=%v", verified, len(refresher.calls), err)
 	}
 }
 

@@ -420,11 +420,7 @@ export function MiddlewareProfilesPage() {
           <Card>
             <CardHeader>
               <div>
-                <h2>
-                  {editing
-                    ? "Add revision"
-                    : "Create reusable profile"}
-                </h2>
+                <h2>{editing ? "Add revision" : "Create reusable profile"}</h2>
                 <p>
                   Exactly one closed, typed Traefik family is stored per
                   revision.

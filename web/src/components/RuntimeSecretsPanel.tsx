@@ -868,6 +868,7 @@ function SecretBindingDetailPanel({
 export function RuntimeSecretsPanel({
   application,
   environments,
+  preferredEnvironmentId,
   project,
   capabilities,
   featureEnabled,
@@ -875,6 +876,7 @@ export function RuntimeSecretsPanel({
 }: {
   application: Application;
   environments: Environment[];
+  preferredEnvironmentId?: string;
   project?: Project;
   capabilities: Capability[];
   featureEnabled: boolean;
@@ -883,7 +885,9 @@ export function RuntimeSecretsPanel({
   const queryClient = useQueryClient();
   // The picked environment is a preference; the environment actually selected
   // is derived below from the environments readable in this render.
-  const [environmentChoice, setSelectedEnvironmentId] = useState("");
+  const [environmentChoice, setSelectedEnvironmentId] = useState(
+    preferredEnvironmentId ?? "",
+  );
   const [selectedBindingId, setSelectedBindingId] = useState("");
   const [creatingChoice, setCreating] = useState(false);
   const formScopeRef = useRef("");

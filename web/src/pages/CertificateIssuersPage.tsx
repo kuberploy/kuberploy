@@ -242,9 +242,7 @@ export function CertificateIssuersPage() {
       <Card>
         <CardHeader>
           <div>
-            <h2>
-              {editing ? "Add a revision" : "Create an issuer"}
-            </h2>
+            <h2>{editing ? "Add a revision" : "Create an issuer"}</h2>
             <p>
               HTTP-01 uses the protected Traefik solver. DNS-01 currently uses a
               pre-created Cloudflare API-token Secret; credential values are

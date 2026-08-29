@@ -124,9 +124,9 @@ describe("GitHub installation setup UI", () => {
     vi.spyOn(api, "beginGitHubSetup").mockResolvedValue(destination);
     const { navigate } = renderPanel();
 
-    await user.click(
-      await screen.findByRole("button", { name: "Verify link" }),
-    );
+    const verify = await screen.findByRole("button", { name: "Verify link" });
+    expect(verify.parentElement).toHaveTextContent("PrivateVerify link");
+    await user.click(verify);
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith(destination));
     expect(api.beginGitHubSetup).toHaveBeenCalledWith(

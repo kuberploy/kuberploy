@@ -365,7 +365,9 @@ export function RegistryTargetsPage() {
                   required
                   error={errors.mode}
                   hint={
-                    editing ? "Mode cannot be changed after creation." : undefined
+                    editing
+                      ? "Mode cannot be changed after creation."
+                      : undefined
                   }
                 >
                   <Select

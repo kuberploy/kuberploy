@@ -448,7 +448,7 @@ For managed OCI and source-built Apps, the ApplicationSet renders a pinned `kube
 4. `PUT config` repeats the exact candidate or patch with `If-Match`, `Preview-Token` and `Idempotency-Key`; the server rechecks the candidate hash, actor, schema, chart and policy versions.
 5. Development may receive a direct bot commit. Protected environments receive a pull request.
 6. Before entering the ref lane, the preparer incrementally fetches the remote head. Inside the lane, the finalizer performs only a bounded remote-ref OID check, final key/dependency checks, commit creation and a timed normal fast-forward push. If the OID moved and objects or rendering must be refreshed, it releases the lane, fetches/re-prepares and then retries. If only unrelated paths changed, the identical semantic change can be replayed and revalidated; if any bundle/dependency blob or rendered effect changed, it returns a path-level conflict and requires a new preview. Kuberploy never force-pushes.
-7. The operation succeeds when the commit or pull request is created. Argo sync and Deployment rollout health remain later observed phases on the deployment-status resource.
+7. A direct write advances after its verified commit. A protected write remains review-pending until the provider proves the pull request merge is visible on the exact target ref. Before that protected publication becomes terminal, Kuberploy hard-refreshes the fixed root Application, refreshes the exact Environment ApplicationSet, and wakes deployment observation. A failed refresh leaves the publication merge-pending for retry. Argo sync and Deployment rollout health remain observed phases on the deployment-status resource.
 
 Manual Git changes are supported. The indexer rebuilds the UI projection from Git and shows exact target-head, indexed, config, candidate and observed revisions so stale data is visible.
 
@@ -593,7 +593,7 @@ The mirror is a performance cache, not a shared authority. Kuberploy never expos
 
 #### Argo CD reconciliation load
 
-- The Git provider sends verified push webhooks to the Kuberploy indexer; polling remains a repair path. After a provider-verified platform desired-state commit, Kuberploy requests one admission-fenced metadata refresh of the installer-owned root Application so Argo re-reads the branch immediately.
+- The Git provider sends verified push webhooks to the Kuberploy indexer; polling remains a repair path. After a provider-verified direct commit or protected pull-request merge, Kuberploy requests one admission-fenced metadata refresh of the installer-owned root Application so Argo re-reads the branch immediately. Protected publication stays merge-pending until that refresh and the exact Environment ApplicationSet refresh succeed.
 - Each generated Argo Application uses a fully qualified target ref, points at the narrow application directory and carries `argocd.argoproj.io/manifest-generate-paths` for its true dependencies, preventing an unrelated monorepo path from forcing unnecessary manifest generation.
 - New/deleted application directories refresh the owning ApplicationSet; an ordinary edit refreshes the existing Application without regenerating every project.
 - Kuberploy pushes once and lets Argo auto-sync. It never issues `app sync` and never refreshes each workload Application; only the single root Application receives the bounded refresh above. Its status projector consumes Argo/Kubernetes watches rather than polling Argo once per application.

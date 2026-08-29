@@ -150,9 +150,7 @@ describe("build detail log availability", () => {
       attempt.id,
     );
     await user.click(screen.getByRole("button", { name: "Confirm retry" }));
-    expect(
-      await screen.findByText("Retry queued"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Retry queued")).toBeInTheDocument();
 
     routeParams.buildId = secondAttempt.id;
     view.rerender(
@@ -162,9 +160,7 @@ describe("build detail log availability", () => {
     );
 
     await waitFor(() =>
-      expect(
-        screen.queryByText("Retry queued"),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByText("Retry queued")).not.toBeInTheDocument(),
     );
     expect(
       await screen.findByRole("heading", { name: /Build attempt-othe/ }),

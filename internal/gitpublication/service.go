@@ -6,10 +6,18 @@ import (
 	"time"
 )
 
+// VerifiedMergeRefresher completes the provider-to-runtime handoff before a
+// protected publication becomes terminal. Failures leave the publication in
+// merge-pending so the reconciler retries the same idempotent refresh.
+type VerifiedMergeRefresher interface {
+	RefreshVerifiedMerge(context.Context, Publication) error
+}
+
 type Service struct {
-	Store    Store
-	Provider Provider
-	Now      func() time.Time
+	Store         Store
+	Provider      Provider
+	VerifiedMerge VerifiedMergeRefresher
+	Now           func() time.Time
 }
 
 func (s Service) now() time.Time {
@@ -177,6 +185,11 @@ func (s Service) verifyMerge(ctx context.Context, current Publication) (Publicat
 	next, err := current.WithVerifiedMerge(head.Revision, s.now())
 	if err != nil {
 		return current, err
+	}
+	if s.VerifiedMerge != nil {
+		if err = s.VerifiedMerge.RefreshVerifiedMerge(ctx, next); err != nil {
+			return current, err
+		}
 	}
 	if err = s.Store.CompareAndSwapPublication(ctx, current, next); err != nil {
 		return current, err

@@ -416,10 +416,7 @@ export function ProjectPage() {
                     "deployment-config:write",
                     environment.id,
                   ) &&
-                  hasActionAtEnvironment(
-                    "app-sources:write",
-                    environment.id,
-                  )
+                  hasActionAtEnvironment("app-sources:write", environment.id)
                 }
                 onClose={() => setGitEnvironmentId(null)}
               />

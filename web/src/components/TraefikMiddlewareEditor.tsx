@@ -1397,9 +1397,9 @@ export function TraefikMiddlewareEditor({
                     <div>
                       <strong>Reusable exact revision</strong>
                       <p>
-                        Revision {middleware.profileRef.revision} cannot be edited.
-                        Detach it to make an independent inline copy before
-                        editing.
+                        Revision {middleware.profileRef.revision} cannot be
+                        edited. Detach it to make an independent inline copy
+                        before editing.
                       </p>
                     </div>
                     <Button

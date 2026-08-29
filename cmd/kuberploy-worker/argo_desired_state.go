@@ -10,8 +10,68 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/argo"
 	"github.com/kuberploy/kuberploy/internal/githubapp"
+	"github.com/kuberploy/kuberploy/internal/gitprojection"
+	"github.com/kuberploy/kuberploy/internal/gitpublication"
 	"github.com/kuberploy/kuberploy/internal/imagepull"
 )
+
+type verifiedPublicationArgoRefresher struct {
+	bindings argo.DesiredStateBindingStore
+	provider gitprojection.HeadVerifier
+	target   interface {
+		argo.PlatformRootRefresher
+		argo.EnvironmentApplicationSetRefresher
+	}
+	waker    argo.ObservationWaker
+	identity argo.DesiredStateRuntimeIdentity
+}
+
+func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Context, publication gitpublication.Publication) error {
+	if publication.Validate() != nil || publication.State != gitpublication.StateMergeVerified ||
+		r.bindings == nil || r.provider == nil || r.target == nil || r.waker == nil || r.identity.Validate() != nil {
+		return argo.ErrInvalid
+	}
+	environment, err := r.bindings.Binding(ctx, publication.BindingID)
+	if err != nil {
+		return err
+	}
+	if environment.Validate() != nil || environment.Kind != gitprojection.BindingEnvironment ||
+		environment.TargetRef != publication.TargetRef || environment.Repository.InstallationID != publication.Repository.InstallationID ||
+		environment.Repository.RepositoryID != publication.Repository.ID || environment.Repository.Owner != publication.Repository.Owner ||
+		environment.Repository.Name != publication.Repository.Name {
+		return argo.ErrInvalid
+	}
+	platform, err := r.bindings.Binding(ctx, r.identity.PlatformBindingID)
+	if err != nil {
+		return err
+	}
+	head, err := r.provider.VerifyTargetHead(ctx, platform, gitprojection.ObservationWrite)
+	if err != nil {
+		return err
+	}
+	if head.ValidateFor(platform) != nil || head.Commit != publication.TargetRevision ||
+		platform.Repository != environment.Repository || platform.TargetRef != environment.TargetRef {
+		return gitprojection.ErrProviderMismatch
+	}
+	root, err := argo.NewPlatformRootApplicationExpectation(r.identity, platform, head)
+	if err != nil {
+		return err
+	}
+	refreshedAt := head.ObservedAt.UTC()
+	if err = r.target.RefreshPlatformRootApplication(ctx, root, refreshedAt); err != nil {
+		return err
+	}
+	applicationSet := argo.EnvironmentApplicationSetExpectation{
+		Namespace:     r.identity.ArgoNamespace,
+		Name:          argo.ApplicationSetName(environment.EnvironmentID),
+		ProjectID:     environment.ProjectID,
+		EnvironmentID: environment.EnvironmentID,
+	}
+	if err = r.target.RefreshEnvironmentApplicationSet(ctx, applicationSet, refreshedAt); err != nil {
+		return err
+	}
+	return r.waker.WakeObservation(ctx, r.identity.ArgoNamespace, refreshedAt)
+}
 
 type argoDesiredStateRuntime struct {
 	store       *argo.PostgreSQLStore
@@ -100,6 +160,10 @@ func newArgoDesiredStateRuntime(
 		Provider: projection.headVerifier, Manager: projection.writeManager, RootRefresher: kubernetes,
 		ApplicationSets: kubernetes, ObservationWaker: observation.store, Identity: identity,
 		LeaseDuration: 2 * time.Minute, HeartbeatInterval: 30 * time.Second,
+	}
+	projection.publications.Service.VerifiedMerge = verifiedPublicationArgoRefresher{
+		bindings: projection.store, provider: projection.headVerifier, target: kubernetes,
+		waker: observation.store, identity: identity,
 	}
 	worker := &argo.DesiredStateRuntimeWorker{
 		Store: store, Writer: writer,

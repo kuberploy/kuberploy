@@ -100,6 +100,10 @@ describe("guided runtime controls", () => {
     expect(
       screen.getByRole("combobox", { name: "Liveness check" }),
     ).toHaveValue("disabled");
+    expect(
+      screen.getByText(/Empty timing fields use Kubernetes defaults/i)
+        .parentElement,
+    ).toHaveClass("grid-cols-1");
 
     await selectOption(
       screen.getByRole("combobox", { name: "Readiness check" }),

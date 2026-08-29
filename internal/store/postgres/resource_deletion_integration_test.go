@@ -171,6 +171,19 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 		deletedBindingID, project.Value.ID, environment.Value.ID, application.Value.ID, environment.Value.Namespace, actorID, now); err != nil {
 		t.Fatal(err)
 	}
+	deletedVersionID := id.New()
+	if _, err = store.pool.Exec(ctx, `INSERT INTO secret_binding_versions(
+		id,binding_id,version_number,provider,state,fingerprint_key_id,content_fingerprint,staged_at,created_at,updated_at)
+		VALUES($1,$2,1,'sealed-secrets','deleted','resource-delete-test',decode(repeat('00',32),'hex'),$3,$3,$3)`,
+		deletedVersionID, deletedBindingID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.pool.Exec(ctx, `INSERT INTO mutation_receipts(
+		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_fingerprint,secret_binding_id,secret_version_id,created_at)
+		VALUES($1,'secret-binding','create',$2,$3,decode(repeat('11',32),'hex'),$4,$5,$6)`,
+		actorID, application.Value.ID, "deleted-secret-key-"+suffix, deletedBindingID, deletedVersionID, now); err != nil {
+		t.Fatal(err)
+	}
 	installationID, repositoryID, registryID, definitionID := id.New(), id.New(), id.New(), id.New()
 	providerID := now.UnixNano() & 0x3fffffffffffffff
 	if _, err = store.pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,github_app_id,github_account_id,lifecycle,permissions,last_verified_at,created_at,updated_at)
@@ -214,6 +227,10 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	var deletedBindingExists bool
 	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM secret_bindings WHERE id=$1)`, deletedBindingID).Scan(&deletedBindingExists); err != nil || deletedBindingExists {
 		t.Fatalf("deleted secret tombstone remained after App deletion exists=%t err=%v", deletedBindingExists, err)
+	}
+	var retainedReceipt bool
+	if err = store.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mutation_receipts WHERE secret_binding_id=$1 AND secret_version_id=$2)`, deletedBindingID, deletedVersionID).Scan(&retainedReceipt); err != nil || !retainedReceipt {
+		t.Fatalf("immutable secret mutation receipt was not retained exists=%t err=%v", retainedReceipt, err)
 	}
 	if _, err = store.pool.Exec(ctx, `INSERT INTO runtime_registry_pull_artifacts(
 		environment_id,namespace,registry_target_id,pull_credential_ref,profile_name,profile_revision,

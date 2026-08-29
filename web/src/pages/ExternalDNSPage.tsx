@@ -689,11 +689,7 @@ export function ExternalDNSPage() {
                       ))}
                     </Select>
                   </Field>
-                  <Field
-                    label="TXT owner"
-                    required
-                    error={errors.txtOwnerId}
-                  >
+                  <Field label="TXT owner" required error={errors.txtOwnerId}>
                     <input
                       value={draft.txtOwnerId}
                       disabled={Boolean(editing)}

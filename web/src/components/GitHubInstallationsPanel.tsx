@@ -112,26 +112,30 @@ export function GitHubInstallationsPanel({
                 <strong>{installation.repositoryCount}</strong>
                 <small>{installation.repositorySelection} repositories</small>
               </div>
-              <StatusPill
-                value={installation.visibility}
-                label={
-                  installation.visibility === "team" ? "Team shared" : "Private"
-                }
-              />
-              {humanSession && canSetup ? (
-                <Button
-                  variant="secondary"
-                  onClick={() =>
-                    void beginSetup(installation.githubInstallationId)
+              <span className="flex items-center justify-end gap-2 to-760:justify-start">
+                <StatusPill
+                  value={installation.visibility}
+                  label={
+                    installation.visibility === "team"
+                      ? "Team shared"
+                      : "Private"
                   }
-                  busy={
-                    setupPending &&
-                    setupTarget.current === installation.githubInstallationId
-                  }
-                >
-                  Verify link
-                </Button>
-              ) : null}
+                />
+                {humanSession && canSetup ? (
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      void beginSetup(installation.githubInstallationId)
+                    }
+                    busy={
+                      setupPending &&
+                      setupTarget.current === installation.githubInstallationId
+                    }
+                  >
+                    Verify link
+                  </Button>
+                ) : null}
+              </span>
             </article>
           ))}
         </div>

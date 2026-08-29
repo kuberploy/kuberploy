@@ -46,9 +46,7 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
   return (
     <div className="grid gap-4 gap-2">
       <details>
-        <summary>
-          {revisions.data?.items.length ?? 0} saved revisions
-        </summary>
+        <summary>{revisions.data?.items.length ?? 0} saved revisions</summary>
         <ul>
           {(revisions.data?.items ?? []).map((revision) => (
             <li key={revision.revision}>

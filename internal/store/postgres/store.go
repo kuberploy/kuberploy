@@ -955,7 +955,6 @@ func purgeDeletedSecretBindings(ctx context.Context, tx pgx.Tx, scopeColumn, sco
 	}
 	bindingIDs := `SELECT id FROM secret_bindings WHERE ` + scopeColumn + `=$1 AND state='deleted'`
 	for _, statement := range []string{
-		`DELETE FROM mutation_receipts WHERE secret_binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_references WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_runtime_reconciliations WHERE binding_id IN (` + bindingIDs + `)`,
 		`DELETE FROM secret_binding_deliveries WHERE binding_id IN (` + bindingIDs + `)`,

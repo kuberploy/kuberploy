@@ -133,17 +133,11 @@ describe("middleware profile management", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(deactivate).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(
-      screen.getByRole("button", { name: "Delete profile" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Delete profile" }));
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(1));
-    expect(
-      await screen.findByText("Profile was not deleted"),
-    ).toBeVisible();
+    expect(await screen.findByText("Profile was not deleted")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(
-      screen.getByRole("button", { name: "Delete profile" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Delete profile" }));
     await waitFor(() => expect(deactivate).toHaveBeenCalledTimes(2));
     expect(deactivate.mock.calls[1]?.[2]).toBe(deactivate.mock.calls[0]?.[2]);
   });

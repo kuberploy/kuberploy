@@ -42,7 +42,8 @@ is allowed only while that exact projection tuple is active.
 
 The writer never calls the Argo sync API. It accepts only a server-derived
 protected platform GitHub App binding and path. After a provider-verified
-platform commit it performs a metadata-only hard-refresh patch on the exact
+platform commit or protected pull-request merge it performs a metadata-only
+hard-refresh patch on the exact
 installer-owned root Application; narrow RBAC and a fail-closed admission
 policy reject a spec, label, owner, finalizer, unrelated-annotation, namespace,
 or name change. After the root proves the exact provider revision is

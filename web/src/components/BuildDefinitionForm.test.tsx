@@ -138,12 +138,10 @@ function renderForm(
 describe("App source form", () => {
   it("prefills and updates the App source in place", async () => {
     const user = userEvent.setup();
-    const save = vi
-      .spyOn(api, "createBuildDefinition")
-      .mockResolvedValue({
-        ...definition,
-        triggerRef: "refs/heads/release",
-      });
+    const save = vi.spyOn(api, "createBuildDefinition").mockResolvedValue({
+      ...definition,
+      triggerRef: "refs/heads/release",
+    });
     renderForm(true, undefined, "linux/amd64", {
       ...definition,
       buildArgs: [{ name: "API_TOKEN", value: "" }],
@@ -174,12 +172,10 @@ describe("App source form", () => {
       items: [],
     });
     const repositories = vi.mocked(api.githubInstallationRepositories);
-    const save = vi
-      .spyOn(api, "createBuildDefinition")
-      .mockResolvedValue({
-        ...definition,
-        triggerRef: "refs/heads/release",
-      });
+    const save = vi.spyOn(api, "createBuildDefinition").mockResolvedValue({
+      ...definition,
+      triggerRef: "refs/heads/release",
+    });
     renderForm(true, undefined, "linux/amd64", definition);
 
     expect(await screen.findByText("Current GitHub source")).toBeVisible();

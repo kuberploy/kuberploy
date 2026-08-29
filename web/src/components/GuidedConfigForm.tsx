@@ -157,7 +157,7 @@ export function HealthProbeEditor({
     });
 
   return (
-    <div className="mb-4 grid grid-cols-[34px_1fr] items-center gap-3">
+    <div className="mb-4 grid grid-cols-1 gap-3">
       {validationError ? (
         <div
           className="py-2 px-5 text-tone-bad border-b border-b-tone-bad-line bg-tone-bad-surface font-mono text-xs"
@@ -1311,7 +1311,8 @@ export function GuidedConfigForm({
               <p>
                 Enter a partial Kubernetes resource object. Kuberploy merges it
                 after Guided configuration, while retaining resource identity,
-                App selectors, the exact App image digest, and workload isolation.
+                App selectors, the exact App image digest, and workload
+                isolation.
               </p>
             </div>
           </Notice>

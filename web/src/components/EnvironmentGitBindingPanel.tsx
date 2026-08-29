@@ -295,8 +295,8 @@ export function EnvironmentGitBindingPanel({
               onChange={(event) => setConfirmed(event.target.checked)}
             />
             <span>
-              I understand this creates the environment Git authority
-              and cannot be silently rebound.
+              I understand this creates the environment Git authority and cannot
+              be silently rebound.
             </span>
           </label>
           <Button

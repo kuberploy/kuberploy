@@ -8383,22 +8383,6 @@ ALTER TABLE ONLY public.mutation_receipts
 
 
 --
--- Name: mutation_receipts mutation_receipts_secret_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mutation_receipts
-    ADD CONSTRAINT mutation_receipts_secret_binding_id_fkey FOREIGN KEY (secret_binding_id) REFERENCES public.secret_bindings(id) ON DELETE RESTRICT;
-
-
---
--- Name: mutation_receipts mutation_receipts_secret_version_id_secret_binding_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.mutation_receipts
-    ADD CONSTRAINT mutation_receipts_secret_version_id_secret_binding_id_fkey FOREIGN KEY (secret_version_id, secret_binding_id) REFERENCES public.secret_binding_versions(id, binding_id) ON DELETE RESTRICT;
-
-
---
 -- Name: outbox outbox_operation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 

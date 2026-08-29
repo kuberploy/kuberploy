@@ -583,9 +583,10 @@ export function ApplicationPage() {
           ) : null}
           {activeTab === "variables" ? (
             <RuntimeSecretsPanel
-              key={application.data.id}
+              key={`${application.data.id}:${deployment.data.environmentId}`}
               application={application.data}
               environments={environments.data?.items ?? []}
+              preferredEnvironmentId={deployment.data.environmentId}
               project={applicationProject}
               capabilities={effectiveCapabilities}
               featureEnabled={secretFeatureEnabled}

@@ -329,8 +329,8 @@ export function BuildDefinitionForm({
         <div>
           <strong>App source is read-only</strong>
           <p>
-            Your effective application scope does not include
-            permission to manage this App's source.
+            Your effective application scope does not include permission to
+            manage this App's source.
           </p>
         </div>
       </Notice>
@@ -712,8 +712,8 @@ export function BuildDefinitionForm({
             <strong>Current GitHub source</strong>
             <p>
               You can edit this App's branch and build settings. To choose a
-              different installation or repository, connect it in Git
-              Providers first.
+              different installation or repository, connect it in Git Providers
+              first.
             </p>
           </div>
         </Notice>

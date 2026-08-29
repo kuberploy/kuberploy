@@ -119,11 +119,13 @@ function renderPanel({
     capability("secret-bindings:delete"),
   ],
   environments = [production],
+  preferredEnvironmentId,
   featureEnabled = true,
   humanSession = true,
 }: {
   capabilities?: Capability[];
   environments?: Environment[];
+  preferredEnvironmentId?: string;
   featureEnabled?: boolean;
   humanSession?: boolean;
 } = {}) {
@@ -137,6 +139,7 @@ function renderPanel({
     <RuntimeSecretsPanel
       application={application}
       environments={environments}
+      preferredEnvironmentId={preferredEnvironmentId}
       project={project}
       capabilities={capabilities}
       featureEnabled={featureEnabled}
@@ -146,6 +149,30 @@ function renderPanel({
   );
   return { queryClient, rerender: rendered.rerender };
 }
+
+it("opens on the deployment Environment when more than one is readable", async () => {
+  vi.spyOn(api, "runtimeSecretBindings").mockResolvedValue({ items: [] });
+  renderPanel({
+    environments: [production, staging],
+    preferredEnvironmentId: staging.id,
+    capabilities: [
+      capability("secret-bindings:read", project.id, "project"),
+      capability("secret-bindings:create", project.id, "project"),
+      capability("secret-bindings:rotate", project.id, "project"),
+      capability("secret-bindings:delete", project.id, "project"),
+    ],
+  });
+
+  expect(
+    await screen.findByRole("combobox", {
+      name: "Runtime secret environment",
+    }),
+  ).toHaveValue(staging.id);
+  expect(api.runtimeSecretBindings).toHaveBeenCalledWith(
+    application.id,
+    staging.id,
+  );
+});
 
 async function fillCreate(
   user: ReturnType<typeof userEvent.setup>,

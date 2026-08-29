@@ -419,9 +419,10 @@ export function ProjectsPage() {
                 </Select>
               </Field>
               <div className="p-4 border border-dashed border-[var(--line)] rounded-lg text-ink-faint bg-surface-soft text-meta text-center">
-                This policy cannot be changed after creation. Protected environments require a
-                freshly verified branch policy and never deploy a candidate
-                before its pull request is merged and indexed.
+                This policy cannot be changed after creation. Protected
+                environments require a freshly verified branch policy and never
+                deploy a candidate before its pull request is merged and
+                indexed.
               </div>
               <input type="hidden" {...environmentForm.register("slug")} />
               <Button type="submit" busy={createEnvironment.isPending}>
