@@ -140,6 +140,71 @@ func TestNextAcceptedRegistryCleanupUsesUUIDIdempotencyIdentity(t *testing.T) {
 	}
 }
 
+func TestNextAcceptedRegistryCleanupThrottlesNewBlobSweepForOneHour(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	st, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := databaseTime(time.Now().UTC())
+	actorID, targetID, previousPlanID, planID := id.New(), id.New(), id.New(), id.New()
+	if _, err = st.pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject,created_at)
+		VALUES($1,$2,'platform-admin','local',$2,$3)`, actorID, "registry-gc-throttle-"+actorID, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.PutRegistryTarget(ctx, domain.RegistryTarget{
+		ID: targetID, Name: "gc-throttle-" + targetID, Mode: domain.RegistryTargetManaged,
+		Endpoint: "https://registry-gc-throttle.integration.test", RepositoryPrefix: "integration",
+		CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_plans(
+		id,registry_target_id,service_id,snapshot_token,authority_token,plan_digest,state,
+		policy,observations,summary,created_at,completed_at
+	) VALUES
+		($1,$3,'previous-service','previous-snapshot','previous-authority',$4,'succeeded','{}','{}','{}',$6,$7),
+		($2,$3,'current-service','current-snapshot','current-authority',$5,'preview','{}','{}','{}',$8,NULL)`,
+		previousPlanID, planID, targetID, postgresRegistryDigest("a"), postgresRegistryDigest("b"),
+		now.Add(-40*time.Minute), now.Add(-30*time.Minute), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_cleanup_items(
+		plan_id,ordinal,repository,resource_kind,digest,disposition,action,estimated_bytes,reasons,state,updated_at
+	) VALUES($1,0,'*','blob',$2,'delete','garbage-collect-blob',1,'["globally-unreachable"]','planned',$3)`,
+		planID, postgresRegistryDigest("c"), now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO registry_runtime_maintenance_executions(
+		registry_target_id,execution_key,plan_id,candidate_set_digest,state,deployment_uid,original_replicas,
+		checkpoint_revision,checkpoint_digest,checkpoint_observed_at,sweep_job_uid,lease_owner,lease_epoch,
+		lease_until,restored_at,released_at,created_at,updated_at
+	) VALUES($1,$2,$3,$4,'released','registry-uid',1,'checkpoint',$5,$6,'gc-job-uid',
+		'registry-gc-throttle-owner',1,$7,$6,$6,$8,$6)`, targetID, postgresRegistryDigest("d"), previousPlanID,
+		postgresRegistryDigest("e"), postgresRegistryDigest("f"), now.Add(-30*time.Minute),
+		now.Add(-20*time.Minute), now.Add(-40*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.pool.Exec(ctx, `INSERT INTO mutation_receipts(
+		actor_id,receipt_kind,namespace,scope_key,idempotency_key,request_digest,resource_type,resource_id,created_at
+	) VALUES($1,'resource',$2,'global','registry-gc-throttle-key','request-fingerprint','registry-cleanup-plan',$3,$4)`,
+		actorID, "registry-cleanup.execute:"+planID, planID, now); err != nil {
+		t.Fatal(err)
+	}
+	if accepted, nextErr := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(29*time.Minute)); !errors.Is(nextErr, base.ErrNotFound) || accepted != "" {
+		t.Fatalf("sub-hour cleanup accepted=%q err=%v", accepted, nextErr)
+	}
+	accepted, err := st.NextAcceptedRegistryCleanup(ctx, targetID, now.Add(31*time.Minute))
+	if err != nil || accepted != planID {
+		t.Fatalf("post-hour cleanup=%q want=%q err=%v", accepted, planID, err)
+	}
+}
+
 func TestAcquireRegistryMaintenanceAcceptsMatchingUUIDTarget(t *testing.T) {
 	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
 	if databaseURL == "" {

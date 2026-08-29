@@ -124,8 +124,11 @@ registry:
    responses and failures in the audit timeline.
 
 Cleanup runs on a schedule and after successful builds when storage crosses a
-soft watermark. A hard storage watermark rejects new builds with an actionable
-error; it never deletes protected rollback/current images to make room. An
+soft watermark. Expensive target-wide offline blob garbage collection starts no
+more than once per hour; accepted work waits until that interval has elapsed.
+An interrupted sweep resumes immediately instead of waiting behind the
+throttle. A hard storage watermark rejects new builds with an actionable error;
+it never deletes protected rollback/current images to make room. An
 administrator can preview cleanup and pin/unpin releases from the UI, but cannot
 force-delete a currently selected or in-flight digest through the normal API.
 

@@ -7,6 +7,12 @@ import (
 	"github.com/kuberploy/kuberploy/internal/domain"
 )
 
+// MinimumRegistryGarbageCollectionInterval bounds expensive target-wide
+// offline sweeps. Manifest cleanup can be planned at any time, but a new plan
+// that needs blob GC is not dispatched until the previous sweep is at least
+// this old. In-progress and recovery work is never delayed by this throttle.
+const MinimumRegistryGarbageCollectionInterval = time.Hour
+
 // RegistryObservationLease fences a complete registry inventory/catalog
 // publication. Revision is allocated durably and is reused when expired work
 // is reclaimed; Epoch changes on every ownership change.

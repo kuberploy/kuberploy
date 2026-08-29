@@ -289,7 +289,15 @@ func (s *Store) NextAcceptedRegistryCleanup(ctx context.Context, targetID string
 					unsafe.state='deleted' OR unsafe.resource_kind='blob'
 					AND unsafe.action='garbage-collect-blob' AND unsafe.state IN ('deleting','failed')))
 		)
-		ORDER BY CASE p.state WHEN 'executing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,p.created_at,p.id LIMIT 1`, targetID, databaseTime(now)).Scan(&planID)
+		AND (p.state<>'preview'
+			OR NOT EXISTS(SELECT 1 FROM registry_cleanup_items gc
+				WHERE gc.plan_id=p.id AND gc.disposition='delete'
+				AND gc.resource_kind='blob' AND gc.action='garbage-collect-blob')
+			OR NOT EXISTS(SELECT 1 FROM registry_runtime_maintenance_executions recent
+				WHERE recent.registry_target_id=p.registry_target_id AND recent.sweep_job_uid<>''
+				AND recent.updated_at>$3))
+		ORDER BY CASE p.state WHEN 'executing' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,p.created_at,p.id LIMIT 1`,
+		targetID, databaseTime(now), databaseTime(now.Add(-base.MinimumRegistryGarbageCollectionInterval))).Scan(&planID)
 	return planID, classify(err)
 }
 
