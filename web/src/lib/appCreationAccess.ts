@@ -97,14 +97,14 @@ export function canUseAppSource(
     case "github":
       return (
         capabilities?.features?.githubAppSetup === true &&
-        grants(capabilities, ["build-definitions:write"], (capability) =>
+        grants(capabilities, ["app-sources:write"], (capability) =>
           coversProject(capability, project),
         )
       );
     case "git-ssh":
       return (
         capabilities?.features?.gitSSH === true &&
-        grants(capabilities, ["build-definitions:write"], (capability) =>
+        grants(capabilities, ["app-sources:write"], (capability) =>
           coversProject(capability, project),
         )
       );

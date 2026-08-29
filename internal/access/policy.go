@@ -319,9 +319,9 @@ func permissionActions(permission domain.Permission, scope domain.AccessScopeTyp
 	case domain.PermissionCertificatesDelete:
 		return []string{"certificate-bindings:delete"}
 	case domain.PermissionBuildsRead:
-		return []string{"build-definitions:read", "builds:read"}
+		return []string{"app-sources:read", "builds:read"}
 	case domain.PermissionBuildsManage:
-		return []string{"build-definitions:write"}
+		return []string{"app-sources:write"}
 	case domain.PermissionBuildsCancel:
 		return []string{"builds:cancel"}
 	case domain.PermissionBuildsRetry:

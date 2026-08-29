@@ -11,9 +11,11 @@ import (
 	"github.com/kuberploy/kuberploy/internal/variablecompiler"
 )
 
-type BuildDefinitionIdentity struct {
+type BuildSourceIdentity struct {
 	ID, ProjectID, ApplicationID string
 }
+
+type BuildDefinitionIdentity = BuildSourceIdentity
 
 type PolicyCatalog interface {
 	BuildDefinitionIdentity(context.Context, string) (BuildDefinitionIdentity, error)
@@ -96,8 +98,7 @@ type RevisePolicyInput struct {
 
 func (s *PolicyService) Create(ctx context.Context, actor string, input CreatePolicyInput) (Policy, Revision, bool, error) {
 	if s == nil || s.Catalog == nil || s.Store == nil || s.NewID == nil || !uuidRE.MatchString(actor) ||
-		!uuidRE.MatchString(input.ExpectedApplicationID) ||
-		!uuidRE.MatchString(input.BuildDefinitionID) || !uuidRE.MatchString(input.EnvironmentID) ||
+		!uuidRE.MatchString(input.ExpectedApplicationID) || !uuidRE.MatchString(input.EnvironmentID) ||
 		!uuidRE.MatchString(input.TemplateDeploymentID) || !uuidRE.MatchString(input.ServiceActorID) ||
 		input.IdempotencyKey == "" || input.RequestDigest == "" || input.RequestID == "" {
 		return Policy{}, Revision{}, false, ErrInvalid
@@ -105,7 +106,7 @@ func (s *PolicyService) Create(ctx context.Context, actor string, input CreatePo
 	if policy, revision, found, err := s.CommandReplay(ctx, actor, input.IdempotencyKey, "create", input.RequestDigest, input.ExpectedApplicationID, ""); err != nil || found {
 		return policy, revision, found, err
 	}
-	definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.BuildDefinitionID)
+	definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.ExpectedApplicationID)
 	if err != nil {
 		return Policy{}, Revision{}, false, err
 	}
@@ -121,7 +122,7 @@ func (s *PolicyService) Create(ctx context.Context, actor string, input CreatePo
 		return Policy{}, Revision{}, false, ErrInvalid
 	}
 	now := s.now()
-	policy := Policy{ID: policyID, BuildDefinitionID: definition.ID, ProjectID: definition.ProjectID,
+	policy := Policy{ID: policyID, ProjectID: definition.ProjectID,
 		ApplicationID: application.ID, EnvironmentID: environment.ID, CurrentRevision: 1, CreatedBy: actor, CreatedAt: now}
 	revision := Revision{PolicyID: policy.ID, Revision: 1, Enabled: input.Enabled, Template: template,
 		TemplateDigest: TemplateDigest(template), ServiceActorID: input.ServiceActorID, CreatedBy: actor, CreatedAt: now}
@@ -139,8 +140,8 @@ func (s *PolicyService) Revise(ctx context.Context, actor string, input RevisePo
 	if policy, revision, found, err := s.CommandReplay(ctx, actor, input.IdempotencyKey, "revise", input.RequestDigest, input.Policy.ApplicationID, input.Policy.ID); err != nil || found {
 		return policy, revision, found, err
 	}
-	definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.Policy.BuildDefinitionID)
-	if err != nil || definition.ID != input.Policy.BuildDefinitionID || definition.ProjectID != input.Policy.ProjectID || definition.ApplicationID != input.Policy.ApplicationID {
+	definition, err := s.Catalog.BuildDefinitionIdentity(ctx, input.Policy.ApplicationID)
+	if err != nil || definition.ProjectID != input.Policy.ProjectID || definition.ApplicationID != input.Policy.ApplicationID {
 		return Policy{}, Revision{}, false, ErrConflict
 	}
 	_, _, template, err := s.resolveTemplate(ctx, definition, input.Policy.EnvironmentID, input.TemplateDeploymentID, input.ServiceActorID)
@@ -157,7 +158,7 @@ func (s *PolicyService) Revise(ctx context.Context, actor string, input RevisePo
 	return s.Store.RevisePolicy(ctx, input.Policy, revision, input.IdempotencyKey, input.RequestDigest, input.RequestID)
 }
 
-func (s *PolicyService) resolveTemplate(ctx context.Context, definition BuildDefinitionIdentity, environmentID, deploymentID, serviceActorID string) (domain.Environment, domain.Application, Template, error) {
+func (s *PolicyService) resolveTemplate(ctx context.Context, definition BuildSourceIdentity, environmentID, deploymentID, serviceActorID string) (domain.Environment, domain.Application, Template, error) {
 	if !uuidRE.MatchString(definition.ID) || !uuidRE.MatchString(definition.ProjectID) || !uuidRE.MatchString(definition.ApplicationID) {
 		return domain.Environment{}, domain.Application{}, Template{}, ErrConflict
 	}

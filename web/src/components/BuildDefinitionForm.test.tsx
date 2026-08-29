@@ -55,8 +55,8 @@ const definition: BuildDefinition = {
     egress: "registry-and-source",
   },
   maxAttempts: 3,
-  definitionDigest: `sha256:${"a".repeat(64)}`,
-  definitionGeneration: 1,
+  sourceDigest: `sha256:${"a".repeat(64)}`,
+  sourceRevision: 1,
   enabled: true,
   createdAt: "2026-08-09T00:00:00Z",
   updatedAt: "2026-08-09T00:00:00Z",
@@ -111,6 +111,7 @@ function renderForm(
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   }),
   defaultBuildPlatform: "linux/amd64" | "linux/arm64" = "linux/amd64",
+  source?: BuildDefinition,
 ) {
   render(
     <QueryClientProvider client={queryClient}>
@@ -121,19 +122,51 @@ function renderForm(
           {
             scopeType: "project",
             scopeId: project.id,
-            actions: ["build-definitions:write"],
+            actions: ["app-sources:write"],
           },
         ]}
         defaultBuildPlatform={defaultBuildPlatform}
         humanSession={humanSession}
         registryTargets={[target]}
+        source={source}
       />
     </QueryClientProvider>,
   );
   return queryClient;
 }
 
-describe("build definition form", () => {
+describe("App source form", () => {
+  it("prefills and updates the App source in place", async () => {
+    const user = userEvent.setup();
+    const save = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockResolvedValue({
+        ...definition,
+        triggerRef: "refs/heads/release",
+      });
+    renderForm(true, undefined, "linux/amd64", {
+      ...definition,
+      buildArgs: [{ name: "API_TOKEN", value: "" }],
+    });
+
+    expect(await screen.findByLabelText(/^Branch/)).toHaveValue("main");
+    expect(screen.getByLabelText(/^Build context/)).toHaveValue(".");
+    const branch = screen.getByLabelText(/^Branch/);
+    await user.clear(branch);
+    await user.type(branch, "release");
+    await user.click(screen.getByRole("button", { name: "Save App source" }));
+
+    await screen.findByText("App source saved");
+    expect(save).toHaveBeenCalledOnce();
+    expect(save.mock.calls[0]?.[1]).toMatchObject({
+      installationId: definition.installationId,
+      repositoryId: definition.repositoryId,
+      triggerRef: "refs/heads/release",
+      registryTargetId: target.id,
+    });
+    expect(save.mock.calls[0]?.[1]).not.toHaveProperty("buildArgs");
+  });
+
   it("defaults to the installation CPU and keeps multi-platform as opt-in", async () => {
     const user = userEvent.setup();
     renderForm(true, undefined, "linux/arm64");
@@ -169,12 +202,10 @@ describe("build definition form", () => {
       "target-safe",
     );
     await user.click(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Connect App source" }),
     );
 
-    expect(
-      await screen.findByText("Immutable build definition created"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("App source saved")).toBeInTheDocument();
     expect(create).toHaveBeenCalledTimes(1);
     const input = create.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(input.triggerRef).toBe("refs/heads/main");
@@ -216,10 +247,10 @@ describe("build definition form", () => {
       "target-safe",
     );
     await user.click(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Connect App source" }),
     );
 
-    await screen.findByText("Immutable build definition created");
+    await screen.findByText("App source saved");
     const input = create.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(input).toMatchObject({
       secretProfileIds: ["npmrc"],
@@ -278,7 +309,7 @@ describe("build definition form", () => {
     await user.type(tag, "v1.2.3");
     expect(screen.queryByDisplayValue("refs/tags/v1.2.3")).toBeNull();
     await user.click(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Connect App source" }),
     );
 
     expect(create.mock.calls[0]?.[1].triggerRef).toBe("refs/tags/v1.2.3");
@@ -306,12 +337,10 @@ describe("build definition form", () => {
       "API_TOKEN=team-selected-value",
     );
     await user.click(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Connect App source" }),
     );
 
-    expect(
-      await screen.findByText("Immutable build definition created"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("App source saved")).toBeInTheDocument();
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0]?.[1]).toMatchObject({
       buildArgs: [{ name: "API_TOKEN", value: "team-selected-value" }],
@@ -343,7 +372,7 @@ describe("build definition form", () => {
       "target-safe",
     );
     await user.click(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Connect App source" }),
     );
     await waitFor(() => expect(create).toHaveBeenCalledOnce());
 
@@ -353,9 +382,7 @@ describe("build definition form", () => {
     resolveCreate(definition);
 
     await waitFor(() =>
-      expect(
-        screen.queryByText("Immutable build definition created"),
-      ).not.toBeInTheDocument(),
+      expect(screen.queryByText("App source saved")).not.toBeInTheDocument(),
     );
     expect(branch).toHaveValue("release");
   });
@@ -380,10 +407,10 @@ describe("build definition form", () => {
   it("hides every mutation control for a non-human principal", () => {
     renderForm(false);
     expect(
-      screen.getByText("Build-definition changes require a human session"),
+      screen.getByText("App source changes require a human session"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Create immutable definition" }),
+      screen.queryByRole("button", { name: "Connect App source" }),
     ).not.toBeInTheDocument();
     expect(api.githubInstallations).not.toHaveBeenCalled();
   });

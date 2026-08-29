@@ -193,7 +193,7 @@ func (b *buildHTTPBackend) Build(_ context.Context, _, _, commitSHA, _, _ string
 	return result, false, nil
 }
 
-func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
+func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 	backend := &buildHTTPBackend{definition: builds.BuildDefinition{ID: "55555555-5555-4555-8555-555555555555", SourceKind: builds.SourceGitSSH},
 		attempt: builds.BuildAttempt{ID: "66666666-6666-4666-8666-666666666666", DefinitionID: "55555555-5555-4555-8555-555555555555", Generation: 1, MaxAttempts: 3}}
 	f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
@@ -212,8 +212,8 @@ func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
 		"platforms": []string{"linux/amd64"}, "cacheTrustLane": "protected", "cacheImports": 2,
 		"profile": map[string]any{"resource": "standard", "timeoutSeconds": 900, "egress": "registry-and-source"}, "maxAttempts": 3,
 	}
-	response = f.request(http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions", "git-ssh-definition-http", create)
-	if response.StatusCode != http.StatusCreated {
+	response = f.request(http.MethodPut, "/v1/applications/"+application.ID+"/source", "git-ssh-source-http", create)
+	if response.StatusCode != http.StatusOK {
 		problem := decode[httpapi.Problem](t, response)
 		t.Fatalf("definition status=%d problem=%#v", response.StatusCode, problem)
 	}
@@ -226,7 +226,7 @@ func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
 	}
 
 	commit := strings.Repeat("a", 40)
-	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-build", map[string]string{"commitSha": commit})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-build", map[string]string{"commitSha": commit})
 	if response.StatusCode != http.StatusAccepted {
 		problem := decode[httpapi.Problem](t, response)
 		t.Fatalf("build status=%d problem=%#v", response.StatusCode, problem)
@@ -239,7 +239,7 @@ func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
 		t.Fatalf("manual build commit=%q calls=%d", buildCommit, buildCalls)
 	}
 
-	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-bad", map[string]string{"commitSha": "main"})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-bad", map[string]string{"commitSha": "main"})
 	problem := decode[httpapi.Problem](t, response)
 	backend.mu.Lock()
 	buildCalls = backend.buildCalls
@@ -251,7 +251,7 @@ func TestGitSSHDefinitionAndManualBuildHTTP(t *testing.T) {
 	backend.mu.Lock()
 	backend.buildErr = builds.ErrGitSSHKeyInactive
 	backend.mu.Unlock()
-	response = f.request(http.MethodPost, "/v1/build-definitions/"+backend.definition.ID+"/builds", "git-ssh-manual-inactive-key", map[string]string{"commitSha": commit})
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "git-ssh-manual-inactive-key", map[string]string{"commitSha": commit})
 	problem = decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusConflict || problem.Code != "GitSSHKeyInactive" || problem.Title != "Git SSH key is inactive" {
 		t.Fatalf("inactive key status=%d problem=%#v", response.StatusCode, problem)
@@ -731,47 +731,40 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 		LogReference: "k8s://do-not-leak/pods/do-not-leak/containers/agent", CreatedAt: now, UpdatedAt: now}
 	backend.repositories = []builds.Repository{{ID: repositoryID, InstallationID: installation.ID, Identity: githubapp.RepositoryIdentity{ID: 33, OwnerID: 22, OwnerLogin: "example", Name: "api"}, Lifecycle: builds.RepositoryActive, LastVerifiedAt: now, CreatedAt: now, UpdatedAt: now}}
 
-	response = f.request(http.MethodGet, "/v1/applications/"+application.ID+"/build-definitions", "", nil)
-	body, _ = io.ReadAll(response.Body)
+	response = f.request(http.MethodGet, "/v1/applications/"+application.ID+"/source", "", nil)
+	sourceBody, _ := io.ReadAll(response.Body)
 	response.Body.Close()
-	for _, forbidden := range []string{"credentialSecret", "execution", "builderAgentImage", "do-not-leak"} {
-		if bytes.Contains(body, []byte(forbidden)) {
-			t.Fatalf("definition response leaked %q: %s", forbidden, body)
-		}
+	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" || !bytes.Contains(sourceBody, []byte(`"applicationId":"`+application.ID+`"`)) || bytes.Contains(sourceBody, []byte("do-not-leak")) {
+		t.Fatalf("App source status=%d body=%s", response.StatusCode, sourceBody)
 	}
-	if response.StatusCode != http.StatusOK || response.Header.Get("Cache-Control") != "no-store" {
-		t.Fatalf("definition list status=%d cache=%q body=%s", response.StatusCode, response.Header.Get("Cache-Control"), body)
-	}
-	if !bytes.Contains(body, []byte(`"secretFiles":[]`)) || !bytes.Contains(body, []byte(`"sshFiles":[]`)) {
-		t.Fatalf("required empty definition arrays encoded as null or omitted: %s", body)
-	}
-	if !bytes.Contains(body, []byte(`"name":"PUBLIC_MODE","value":""`)) || bytes.Contains(body, []byte(`"value":"production"`)) {
-		t.Fatalf("build argument value was not safely redacted in the schema-compatible response: %s", body)
+	if !bytes.Contains(sourceBody, []byte(`"secretFiles":[]`)) || !bytes.Contains(sourceBody, []byte(`"sshFiles":[]`)) ||
+		!bytes.Contains(sourceBody, []byte(`"name":"PUBLIC_MODE","value":""`)) || bytes.Contains(sourceBody, []byte(`"value":"production"`)) {
+		t.Fatalf("App source response did not preserve safe redaction: %s", sourceBody)
 	}
 
 	create := map[string]any{"installationId": installation.ID, "repositoryId": repositoryID, "registryTargetId": registryID, "triggerRef": "refs/heads/main",
 		"contextPath": ".", "dockerfilePath": "Dockerfile", "platforms": []string{"linux/amd64"}, "cacheTrustLane": "trusted", "cacheImports": 2,
 		"profile": map[string]any{"resource": "small", "timeoutSeconds": 600, "egress": "default"}, "maxAttempts": 3}
-	response = f.request(http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions", "build-http-create-01", create)
+	response = f.request(http.MethodPut, "/v1/applications/"+application.ID+"/source", "build-http-create-01", create)
 	body, _ = io.ReadAll(response.Body)
 	response.Body.Close()
 	backend.mu.Lock()
 	mutation, creates := backend.mutation, backend.creates
 	backend.mu.Unlock()
-	if response.StatusCode != http.StatusCreated || mutation.ApplicationID != application.ID || mutation.ProjectID != project.ID || mutation.ActorID != admin.ID || creates != 1 || bytes.Contains(body, []byte("do-not-leak")) {
+	if response.StatusCode != http.StatusOK || response.Header.Get("Location") != "/v1/applications/"+application.ID+"/source" || mutation.ApplicationID != application.ID || mutation.ProjectID != project.ID || mutation.ActorID != admin.ID || creates != 1 || bytes.Contains(body, []byte("do-not-leak")) {
 		t.Fatalf("create status=%d mutation=%#v creates=%d body=%s", response.StatusCode, mutation, creates, body)
 	}
 
 	delete(create, "platforms")
-	response = f.request(http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions", "build-http-create-default-platform", create)
+	response = f.request(http.MethodPut, "/v1/applications/"+application.ID+"/source", "build-http-create-default-platform", create)
 	response.Body.Close()
 	backend.mu.Lock()
 	mutation, creates = backend.mutation, backend.creates
 	backend.mu.Unlock()
-	if response.StatusCode != http.StatusCreated || !slices.Equal(mutation.Platforms, []string{"linux/arm64"}) || creates != 2 {
+	if response.StatusCode != http.StatusOK || !slices.Equal(mutation.Platforms, []string{"linux/arm64"}) || creates != 2 {
 		t.Fatalf("default platform create status=%d platforms=%v creates=%d", response.StatusCode, mutation.Platforms, creates)
 	}
-	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect", nil)
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/source/"+definitionID, "build-http-disconnect", nil)
 	response.Body.Close()
 	backend.mu.Lock()
 	deleteCalls := backend.deleteCalls
@@ -780,21 +773,21 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 		t.Fatalf("disconnect status=%d calls=%d", response.StatusCode, deleteCalls)
 	}
 	backend.deleteReplay = true
-	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect", nil)
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/source/"+definitionID, "build-http-disconnect", nil)
 	response.Body.Close()
 	if response.StatusCode != http.StatusNoContent || response.Header.Get("Idempotent-Replay") != "true" {
 		t.Fatalf("disconnect replay status=%d header=%q", response.StatusCode, response.Header.Get("Idempotent-Replay"))
 	}
 	backend.deleteReplay, backend.deleteErr = false, builds.ErrDeletionBlocked
-	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/build-definitions/"+definitionID, "build-http-disconnect-blocked", nil)
+	response = f.request(http.MethodDelete, "/v1/applications/"+application.ID+"/source/"+definitionID, "build-http-disconnect-blocked", nil)
 	problem := decode[httpapi.Problem](t, response)
-	if response.StatusCode != http.StatusConflict || problem.Code != "BuildDefinitionDeletionBlocked" {
+	if response.StatusCode != http.StatusConflict || problem.Code != "AppSourceDisconnectBlocked" {
 		t.Fatalf("blocked disconnect status=%d problem=%#v", response.StatusCode, problem)
 	}
 	backend.deleteErr = nil
 
 	duplicate := strings.Replace(string(mustJSONBytes(t, create)), `"resource":"small"`, `"resource":"small","resource":"large"`, 1)
-	request, _ := http.NewRequest(http.MethodPost, f.server.URL+"/v1/applications/"+application.ID+"/build-definitions", strings.NewReader(duplicate))
+	request, _ := http.NewRequest(http.MethodPut, f.server.URL+"/v1/applications/"+application.ID+"/source", strings.NewReader(duplicate))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Idempotency-Key", "build-http-duplicate")
 	request.Header.Set("X-CSRF-Token", f.csrf)
@@ -875,17 +868,17 @@ func TestBuildHTTPServiceAccountRequiresBuildScopeAndTeamSharedInstallation(t *t
 		"dockerfilePath": "Dockerfile", "platforms": []string{"linux/amd64"}, "cacheTrustLane": "trusted", "cacheImports": 2,
 		"profile": map[string]any{"resource": "small", "timeoutSeconds": 600, "egress": "default"}, "maxAttempts": 3}
 	bearerClient := &http.Client{}
-	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions",
+	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodPut, "/v1/applications/"+application.ID+"/source",
 		editToken, "build-bearer-edit-denied", create)
 	problem := decode[httpapi.Problem](t, response)
 	if response.StatusCode != http.StatusForbidden || problem.Code != "InsufficientTokenScope" {
 		t.Fatalf("app.edit escaped build scope: status=%d problem=%#v", response.StatusCode, problem)
 	}
 
-	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodPost, "/v1/applications/"+application.ID+"/build-definitions",
+	response = bearerRequest(t, bearerClient, f.server.URL, http.MethodPut, "/v1/applications/"+application.ID+"/source",
 		buildToken, "build-bearer-create-ok", create)
 	created := decode[map[string]any](t, response)
-	if response.StatusCode != http.StatusCreated || created["applicationId"] != application.ID {
+	if response.StatusCode != http.StatusOK || created["applicationId"] != application.ID {
 		t.Fatalf("build token status=%d body=%#v", response.StatusCode, created)
 	}
 

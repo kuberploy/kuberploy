@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestMemoryDefinitionReplacementKeepsImmutableHistory(t *testing.T) {
+func TestMemorySourceReplacementKeepsOnlyCurrentAppSource(t *testing.T) {
 	ctx := context.Background()
 	store, original := seedMemory(t, RegistryManaged)
 	replacementID := "99999999-9999-4999-8999-999999999999"
@@ -18,17 +18,36 @@ func TestMemoryDefinitionReplacementKeepsImmutableHistory(t *testing.T) {
 	if err := store.PutDefinition(ctx, replacement); err != nil {
 		t.Fatalf("replace definition: %v", err)
 	}
-	gotOriginal, err := store.Definition(ctx, original.ID)
-	if err != nil || gotOriginal.Enabled {
-		t.Fatalf("original definition=%#v err=%v, want disabled history", gotOriginal, err)
+	if _, err := store.Definition(ctx, original.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("replaced source remains addressable: %v", err)
 	}
 	gotReplacement, err := store.Definition(ctx, replacement.ID)
-	if err != nil || !gotReplacement.Enabled {
+	if err != nil || !gotReplacement.Enabled || gotReplacement.DefinitionGeneration != original.DefinitionGeneration+1 || !gotReplacement.CreatedAt.Equal(original.CreatedAt) {
 		t.Fatalf("replacement definition=%#v err=%v, want active", gotReplacement, err)
 	}
 	authorized, err := store.AuthorizePush(ctx, testAppID, testProviderInstall, repositoryFixture(testNow).Identity, "refs/heads/main")
 	if err != nil || len(authorized.Definitions) != 1 || authorized.Definitions[0].ID != replacement.ID {
 		t.Fatalf("authorized definitions=%#v err=%v", authorized.Definitions, err)
+	}
+}
+
+func TestAttemptKeepsAppSourceSnapshotWhileRefreshingRuntime(t *testing.T) {
+	_, source := seedMemory(t, RegistryManaged)
+	refreshed := source.Spec.Execution
+	refreshed.BuilderAgentImage = "registry.test/system/builder-agent@sha256:" + strings.Repeat("9", 64)
+	attempt, err := newAttemptWithExecution(source, refreshed, repositoryFixture(testNow), EnqueuePush{
+		ClaimKey: strings.Repeat("a", 64), CommitSHA: strings.Repeat("b", 40), GitRef: source.TriggerRef, ResolvedAt: testNow,
+	}, 1, nil, testNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.SourceSnapshot.DefinitionDigest != source.DefinitionDigest ||
+		attempt.SourceSnapshot.Spec.Execution.BuilderAgentImage != source.Spec.Execution.BuilderAgentImage ||
+		attempt.PlanRequest.AgentImage != refreshed.BuilderAgentImage {
+		t.Fatalf("source snapshot or refreshed runtime drifted: snapshot=%q plan=%q", attempt.SourceSnapshot.Spec.Execution.BuilderAgentImage, attempt.PlanRequest.AgentImage)
+	}
+	if err = validateStoredAttempt(attempt); err != nil {
+		t.Fatalf("stored attempt rejected: %v", err)
 	}
 }
 
@@ -109,7 +128,7 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	}
 	retry, err := store.Attempt(ctx, retryID)
 	if err != nil || retry.State != AttemptQueued || retry.Generation != 2 || retry.CommitSHA != source.CommitSHA || retry.GitRef != source.GitRef || retry.DefinitionDigest != source.DefinitionDigest {
-		t.Fatalf("retry changed immutable source: %#v err=%v", retry, err)
+		t.Fatalf("retry changed recorded source: %#v err=%v", retry, err)
 	}
 	if retry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage || retry.PlanRequest.AgentImage == source.PlanRequest.AgentImage {
 		t.Fatalf("retry agent image=%q, want refreshed operator runtime %q", retry.PlanRequest.AgentImage, currentExecution.BuilderAgentImage)

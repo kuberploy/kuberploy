@@ -42,15 +42,15 @@ const definition: BuildDefinition = {
     egress: "registry-and-source",
   },
   maxAttempts: 3,
-  definitionDigest: `sha256:${"a".repeat(64)}`,
-  definitionGeneration: 1,
+  sourceDigest: `sha256:${"a".repeat(64)}`,
+  sourceRevision: 1,
   enabled: true,
   createdAt: "2026-08-09T00:00:00Z",
   updatedAt: "2026-08-09T00:00:00Z",
 };
 const attempt: BuildAttempt = {
   id: "attempt-safe",
-  definitionId: definition.id,
+  sourceId: definition.id,
   projectId: definition.projectId,
   applicationId: definition.applicationId,
   commitSha: "b".repeat(40),
@@ -135,8 +135,8 @@ describe("source-build workspace", () => {
           scopeType: "project",
           scopeId: "project-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
           ],
         },
@@ -172,7 +172,7 @@ describe("source-build workspace", () => {
         {
           scopeType: "platform",
           scopeId: "platform",
-          actions: ["build-definitions:read", "builds:read"],
+          actions: ["app-sources:read", "builds:read"],
         },
       ],
     });
@@ -195,8 +195,8 @@ describe("source-build workspace", () => {
           scopeType: "project",
           scopeId: "project-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
           ],
         },
@@ -207,10 +207,10 @@ describe("source-build workspace", () => {
       await screen.findByText("Builder runtime unavailable"),
     ).toBeInTheDocument();
     expect(screen.getByText(/eligible Ready builder node/)).toBeInTheDocument();
-    expect(await screen.findByText("Source connections")).toBeInTheDocument();
+    expect(await screen.findByText("Current App source")).toBeInTheDocument();
     expect(screen.getByText("Attempt history")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Create immutable definition" }),
+      screen.getByRole("button", { name: "Save App source" }),
     ).toBeInTheDocument();
     expect(api.buildDefinitions).toHaveBeenCalledWith("application-safe");
     expect(api.buildAttempts).toHaveBeenCalledWith("application-safe", 50);
@@ -219,8 +219,8 @@ describe("source-build workspace", () => {
   it("does not treat coarse unions or environment grants as build access", async () => {
     renderPage({
       actions: [
-        "build-definitions:read",
-        "build-definitions:write",
+        "app-sources:read",
+        "app-sources:write",
         "builds:read",
         "builds:cancel",
       ],
@@ -230,8 +230,8 @@ describe("source-build workspace", () => {
           scopeType: "environment",
           scopeId: "environment-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
             "builds:cancel",
           ],
@@ -271,8 +271,8 @@ describe("source-build workspace", () => {
           scopeType: "project",
           scopeId: "project-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
             "builds:cancel",
             "builds:retry",
@@ -293,7 +293,7 @@ describe("source-build workspace", () => {
     expect(screen.getByText("Registry cache: hit")).toBeInTheDocument();
     expect(screen.queryByText("refs/heads/main")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Create immutable definition" }),
+      screen.queryByRole("button", { name: "Save App source" }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Cancel build" }),
@@ -343,8 +343,8 @@ describe("source-build workspace", () => {
           scopeType: "project",
           scopeId: "project-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
             "registry:read",
           ],
@@ -384,8 +384,8 @@ describe("source-build workspace", () => {
           scopeType: "project",
           scopeId: "project-safe",
           actions: [
-            "build-definitions:read",
-            "build-definitions:write",
+            "app-sources:read",
+            "app-sources:write",
             "builds:read",
             "registry:read",
           ],
@@ -410,7 +410,7 @@ describe("source-build workspace", () => {
         {
           scopeType: "project",
           scopeId: "project-safe",
-          actions: ["build-definitions:read", "builds:read"],
+          actions: ["app-sources:read", "builds:read"],
         },
       ],
     });
@@ -425,7 +425,7 @@ describe("source-build workspace", () => {
     ).toBeInTheDocument();
 
     await queryClient.invalidateQueries({
-      queryKey: ["build-definitions", "application-safe"],
+      queryKey: ["app-source", "application-safe"],
     });
     await queryClient.invalidateQueries({
       queryKey: ["build-attempts", "application-safe"],

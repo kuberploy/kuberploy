@@ -49,7 +49,6 @@ function registryTarget(mode: RegistryTargetMode): ApplicationRegistryTarget {
       repository: "payments/api",
       keepLastSuccessful: 10,
       minimumSafetyAgeSeconds: 86_400,
-      cacheKeepGenerations: 2,
       cacheUnusedExpirySeconds: 604_800,
       cacheByteQuota: 10_737_418_240,
       createdAt: "2026-08-09T00:00:00Z",

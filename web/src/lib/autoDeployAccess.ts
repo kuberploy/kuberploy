@@ -100,7 +100,7 @@ export function canMutateAutoDeployPolicy(
   if (!humanSession) return false;
   const builds = capabilities.some(
     (capability) =>
-      capability.actions?.includes("build-definitions:write") &&
+      capability.actions?.includes("app-sources:write") &&
       coversApplication(capability, application, project),
   );
   const deployment = capabilities.some(
@@ -123,7 +123,7 @@ export function hasPotentialAutoDeployManagement(
   if (!humanSession || application.projectId !== project.id) return false;
   const builds = capabilities.some(
     (capability) =>
-      capability.actions?.includes("build-definitions:write") &&
+      capability.actions?.includes("app-sources:write") &&
       coversApplication(capability, application, project),
   );
   const grants = capabilities.some(

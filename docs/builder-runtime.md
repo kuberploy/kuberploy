@@ -18,7 +18,7 @@ and Dockerfile paths.
 
 Image and cache references are controller-owned namespaces, not arbitrary user
 strings. The exact registry repository prefix, immutable project/service IDs,
-cache schema, trust lane, platform set, and build-definition digest determine
+cache schema, trust lane, platform set, and App source snapshot digest determine
 the permitted repositories. Destination and cache-export tags are unique to an
 operation/generation; the deployment result contains only the registry-verified
 `repository@sha256:digest` and exact platform set. A late or parallel build
@@ -28,7 +28,7 @@ Plain build arguments with secret-like names are accepted with a prominent
 leakage warning because Dockerfiles commonly use names such as `TOKEN` for
 non-secret frontend build configuration. Kuberploy never treats build
 arguments as a secret transport: their values can be retained in the
-immutable build definition, image history, or cache. Release-push login,
+editable App source, recorded build-attempt snapshot, image history, or cache. Release-push login,
 cache login, source credentials, BuildKit secrets, and SSH files come from
 separate read-only mounts. Their values never enter a command argument or
 environment variable. The agent creates separate private push and cache Docker

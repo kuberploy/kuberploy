@@ -239,7 +239,7 @@ func (r BuildRequest) Validate() error {
 		return err
 	}
 	if r.Cache.Schema != "v1" || !namePattern.MatchString(r.Cache.TrustLane) || !digestPattern.MatchString(r.Cache.BuildDefinition) {
-		return errors.New("cache schema, trust lane, or build definition is invalid")
+		return errors.New("cache schema, trust lane, or build source snapshot is invalid")
 	}
 	if err := validateConfinedAbsolute(RegistryCacheSecretRoot, r.Cache.UsernameFile); err != nil {
 		return fmt.Errorf("cache usernameFile: %w", err)

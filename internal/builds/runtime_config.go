@@ -213,9 +213,9 @@ func profileIDsForFiles(profiles []BuildSecretProfile, files []builder.FileRefer
 	return ids, nil
 }
 
-// ExecutionSettings returns the operator-owned portion copied into an
-// immutable build definition. registryPort is derived from the verified
-// registry target, never from the public build-definition request.
+// ExecutionSettings returns the operator-owned portion copied into an App
+// source and then snapshotted by each accepted attempt. registryPort is derived
+// from the verified registry target, never from the public source request.
 func (c WorkerRuntimeConfig) ExecutionSettings(registryPort int) (ExecutionSettings, error) {
 	return c.ExecutionSettingsForPlatform(registryPort, DefaultBuilderPlatformSettings(c))
 }

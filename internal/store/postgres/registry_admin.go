@@ -279,24 +279,23 @@ func (s *Store) PutServiceRegistryPolicyForActor(ctx context.Context, actor, key
 	}
 	err = tx.QueryRow(ctx, `INSERT INTO service_registry_policies(
 		registry_target_id,service_id,repository,keep_last_successful,
-		minimum_safety_age_seconds,cache_keep_generations,
+		minimum_safety_age_seconds,
 		cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	ON CONFLICT(registry_target_id,service_id) DO UPDATE SET
 		repository=EXCLUDED.repository,keep_last_successful=EXCLUDED.keep_last_successful,
 		minimum_safety_age_seconds=EXCLUDED.minimum_safety_age_seconds,
-		cache_keep_generations=EXCLUDED.cache_keep_generations,
 		cache_unused_expiry_seconds=EXCLUDED.cache_unused_expiry_seconds,
 		cache_byte_quota=EXCLUDED.cache_byte_quota,updated_at=EXCLUDED.updated_at
 	RETURNING registry_target_id,service_id,repository,keep_last_successful,
-		minimum_safety_age_seconds,cache_keep_generations,
+		minimum_safety_age_seconds,
 		cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at`,
 		policy.RegistryTargetID, policy.ServiceID, policy.Repository, policy.KeepLastSuccessful,
-		int64(policy.MinimumSafetyAge/time.Second), policy.CacheKeepGenerations,
+		int64(policy.MinimumSafetyAge/time.Second),
 		int64(policy.CacheUnusedExpiry/time.Second), policy.CacheByteQuota,
 		policy.CreatedAt, policy.UpdatedAt).Scan(&policy.RegistryTargetID, &policy.ServiceID,
 		&policy.Repository, &policy.KeepLastSuccessful, newDurationScanner(&policy.MinimumSafetyAge),
-		&policy.CacheKeepGenerations, newDurationScanner(&policy.CacheUnusedExpiry),
+		newDurationScanner(&policy.CacheUnusedExpiry),
 		&policy.CacheByteQuota, &policy.CreatedAt, &policy.UpdatedAt)
 	if err != nil {
 		return base.Result[domain.ServiceRegistryPolicy]{}, classify(err)
@@ -307,8 +306,8 @@ func (s *Store) PutServiceRegistryPolicyForActor(ctx context.Context, actor, key
 	if err = audit(ctx, tx, actor, "registry-policy.update", "application", applicationID, requestID, map[string]any{
 		"registryTargetId": policy.RegistryTargetID, "repository": policy.Repository,
 		"keepLastSuccessful": policy.KeepLastSuccessful, "minimumSafetyAgeSeconds": int64(policy.MinimumSafetyAge / time.Second),
-		"cacheKeepGenerations": policy.CacheKeepGenerations, "cacheUnusedExpirySeconds": int64(policy.CacheUnusedExpiry / time.Second),
-		"cacheByteQuota": policy.CacheByteQuota,
+		"cacheUnusedExpirySeconds": int64(policy.CacheUnusedExpiry / time.Second),
+		"cacheByteQuota":           policy.CacheByteQuota,
 	}); err != nil {
 		return base.Result[domain.ServiceRegistryPolicy]{}, err
 	}

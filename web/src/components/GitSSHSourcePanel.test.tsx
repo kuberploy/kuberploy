@@ -167,8 +167,8 @@ describe("Git SSH source key scope", () => {
         egress: "registry-and-source",
       },
       maxAttempts: 3,
-      definitionDigest: `sha256:${"a".repeat(64)}`,
-      definitionGeneration: 1,
+      sourceDigest: `sha256:${"a".repeat(64)}`,
+      sourceRevision: 1,
       enabled: true,
       createdAt: "2026-08-23T00:00:00Z",
       updatedAt: "2026-08-23T00:00:00Z",
@@ -184,7 +184,7 @@ describe("Git SSH source key scope", () => {
       .spyOn(api, "createManualBuildAttempt")
       .mockResolvedValue({
         id: "attempt-1",
-        definitionId: activeDefinition.id,
+        sourceId: activeDefinition.id,
         projectId: project.id,
         applicationId: application.id,
         commitSha: "b".repeat(40),
@@ -234,7 +234,7 @@ describe("Git SSH source key scope", () => {
     ).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "linux/arm64" })).toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: "linux/amd64" }));
-    await user.click(screen.getByRole("button", { name: /Replace binding/ }));
+    await user.click(screen.getByRole("button", { name: /Save App source/ }));
     await waitFor(() => expect(createDefinition).toHaveBeenCalled());
     expect(createDefinition.mock.calls[0]?.[1]).toMatchObject({
       sourceKind: "git_ssh",

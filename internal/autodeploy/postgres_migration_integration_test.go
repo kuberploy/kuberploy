@@ -53,17 +53,17 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		{`INSERT INTO projects(id,name,slug,created_at) VALUES($1,'Auto deploy',$2,$3)`, []any{project, "ad-" + project[:8], now}},
 		{`INSERT INTO access_grants(id,subject_user_id,role,scope_type,scope_id,source,created_by,created_at) VALUES($1,$2,'platform-admin','platform','platform','bootstrap',$2,$3),($4,$5,'developer','project',$6,'service-account',$2,$3)`, []any{id.New(), creator, now, id.New(), actor, project}},
 		{`INSERT INTO environments(id,project_id,name,slug,namespace,argo_project,created_at) VALUES($1,$2,'Auto','auto',$3,$3,$4)`, []any{environment, project, "ad-" + environment[:8], now}},
-		{`INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'App','app',$4),($3,$2,'Other','other',$4)`, []any{application, project, otherApplication, now}},
+		{`INSERT INTO applications(id,project_id,name,slug,source_kind,created_at) VALUES($1,$2,'App','app','github',$4),($3,$2,'Other','other','oci',$4)`, []any{application, project, otherApplication, now}},
 		{`INSERT INTO service_accounts(id,project_id,name,role,created_by,created_at) VALUES($1,$2,'Auto deploy','developer',$3,$4)`, []any{actor, project, creator, now}},
 		{`INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,github_app_id,github_account_id,lifecycle,permissions,last_verified_at,created_at,updated_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$5,'active','{"metadata":"read","contents":"read"}'::jsonb,$6,$6,$6)`, []any{installation, seed + 1, creator, seed + 2, seed + 3, now}},
 		{`INSERT INTO github_repositories(id,installation_id,github_repository_id,github_owner_id,owner_login,name,lifecycle,last_verified_at,created_at,updated_at) VALUES($1,$2,$3,$4,'kuberploy','auto-repo','active',$5,$5,$5)`, []any{repository, installation, seed + 4, seed + 3, now}},
 		{`INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,created_at,updated_at) VALUES($1,$2,'managed','registry.test','apps',$3,$3)`, []any{registry, "ad-" + registry[:8], now}},
-		{`INSERT INTO build_definitions(id,project_id,service_id,installation_id,repository_id,registry_target_id,trigger_ref,spec,definition_digest,generation,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main','{}',$7,1,$8,$8)`, []any{definition, project, application, installation, repository, registry, digest, now}},
+		{`UPDATE applications SET build_source_id=$1,build_source_kind='github',build_source_installation_id=$2,build_source_repository_id=$3,build_source_registry_target_id=$4,build_source_trigger_ref='refs/heads/main',build_source_spec='{}',build_source_digest=$5,build_source_revision=1,build_source_created_at=$6,build_source_updated_at=$6 WHERE id=$7`, []any{definition, installation, repository, registry, digest, now, application}},
 		{`INSERT INTO operations(id,kind,status,target_type,target_id,request_id,generation,created_at,updated_at) VALUES($1,'deployment.git-write','succeeded','deployment',$2,'fixture',1,$3,$3)`, []any{operation, deployment, now}},
 		{`INSERT INTO deployments(id,environment_id,application_id,image,replicas,port,environment,state,operation_id,generation,runtime,created_at,updated_at) VALUES($1,$2,$3,$4,1,8080,'{}','ready',$5,1,'{}',$6,$6)`, []any{deployment, environment, application, "registry.test/apps/app@" + digest, operation, now}},
 		{`INSERT INTO github_one_time_claims(kind,claim_key,retain_until,permanent,created_at) VALUES('github-delivery',$1,$2,true,$3)`, []any{claimKey, now.Add(time.Hour), now}},
 		{`INSERT INTO github_webhook_receipts(claim_key,github_app_id,github_installation_id,delivery_id,event,body_sha256,repository_id,git_ref,state,received_at,completed_at,updated_at) VALUES($1,$2,$3,$4,'push',$5,$6,'refs/heads/main','enqueued',$7,$7,$7)`, []any{claimKey, seed + 2, seed + 1, id.New(), "sha256:" + strings.Repeat("d", 64), seed + 4, now}},
-		{`INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,max_attempts,job_namespace,job_name,cache_candidate,result,completed_at,created_at,updated_at) VALUES($1,$2,$3,'github_push',$3,$4,$5,$6,'refs/heads/main',1,$7,'{}','{}',$8,'managed','succeeded',1,'builder','job','cache','{}',$9,$9,$9)`, []any{attempt, definition, claimKey, project, application, strings.Repeat("e", 40), digest, "sha256:" + strings.Repeat("f", 64), now}},
+		{`INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,max_attempts,job_namespace,job_name,cache_candidate,result,completed_at,created_at,updated_at) VALUES($1,$2,$3,'github_push',$3,$4,$5,$6,'refs/heads/main',1,$7,'{}','{}','{}',$8,'managed','succeeded',1,'builder','job','cache','{}',$9,$9,$9)`, []any{attempt, definition, claimKey, project, application, strings.Repeat("e", 40), digest, "sha256:" + strings.Repeat("f", 64), now}},
 		{`INSERT INTO registry_releases(id,registry_target_id,service_id,repository,root_digest,created_at,succeeded_at) VALUES($1,$2,$3,'apps/app',$4,$5,$5)`, []any{attempt, registry, application, digest, now}},
 	}
 	for _, statement := range statements {
@@ -100,10 +100,10 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &autodeploy.PolicyService{Catalog: management, Store: management, NewID: func() (string, error) { return id.New(), nil }}
-	_, _, _, err = service.Create(ctx, creator, autodeploy.CreatePolicyInput{ExpectedApplicationID: otherApplication, BuildDefinitionID: definition,
+	_, _, _, err = service.Create(ctx, creator, autodeploy.CreatePolicyInput{ExpectedApplicationID: otherApplication,
 		EnvironmentID: environment, TemplateDeploymentID: deployment, ServiceActorID: actor, Enabled: true,
 		IdempotencyKey: "cross-application-create", RequestDigest: "sha256:" + strings.Repeat("1", 64), RequestID: "cross-application-create"})
-	if !errors.Is(err, autodeploy.ErrConflict) {
+	if !errors.Is(err, base.ErrNotFound) {
 		t.Fatalf("cross-application path create err=%v", err)
 	}
 	var policiesAfter, commandsAfter, auditsAfter int
@@ -118,7 +118,7 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policies(id,build_definition_id,project_id,application_id,environment_id,current_revision,created_by,created_at) VALUES($1,$2,$3,$4,$5,1,$6,$7)`, policy, definition, project, application, environment, creator, now); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policies(id,project_id,application_id,environment_id,current_revision,created_by,created_at) VALUES($1,$2,$3,$4,1,$5,$6)`, policy, project, application, environment, creator, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policy_revisions(policy_id,revision,enabled,source_deployment_id,source_deployment_generation,source_config_etag,config_intent,template_digest,service_actor_id,created_by,created_at) VALUES($1,1,true,$2,1,$3,$4,$5,$6,$7,$8)`, policy, deployment, etag, []byte(`{}`), digest, actor, creator, now); err != nil {
@@ -235,14 +235,14 @@ func TestAutoDeployMigrationRejectsDirectAuthoritySubstitution(t *testing.T) {
 	}
 	var definitionRows, attemptRows, projectionRows, policyRows, revisionRows, runRows, receiptRows, auditRows int
 	if err = pool.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM build_definitions WHERE id=$1),
+		(SELECT count(*) FROM applications WHERE id=$4 AND build_source_id IS NOT NULL),
 		(SELECT count(*) FROM build_attempts WHERE definition_id=$1),
 		(SELECT count(*) FROM build_release_projections WHERE attempt_id=$2),
-		(SELECT count(*) FROM auto_deploy_policies WHERE build_definition_id=$1),
+		(SELECT count(*) FROM auto_deploy_policies WHERE application_id=$4),
 		(SELECT count(*) FROM auto_deploy_policy_revisions WHERE policy_id=$3),
 		(SELECT count(*) FROM auto_deploy_runs WHERE definition_id=$1),
 		(SELECT count(*) FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy' AND auto_deploy_policy_id=$3),
-		(SELECT count(*) FROM audit_events WHERE action='build-definition.delete' AND target_id=$1)`, definition, attempt, policy).
+		(SELECT count(*) FROM audit_events WHERE action='app-source.disconnect' AND target_id=$4)`, definition, attempt, policy, application).
 		Scan(&definitionRows, &attemptRows, &projectionRows, &policyRows, &revisionRows, &runRows, &receiptRows, &auditRows); err != nil {
 		t.Fatal(err)
 	}

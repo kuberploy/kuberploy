@@ -32,7 +32,7 @@ func ExactRegistryPolicyTx(ctx context.Context, tx pgx.Tx, targetID, application
 		t.id::text,t.name,t.mode,t.endpoint,t.repository_prefix,t.pull_credential_ref,
 		t.push_credential_ref,t.cache_credential_ref,t.created_at,t.updated_at,
 		p.registry_target_id::text,p.service_id::text,p.repository,p.keep_last_successful,
-		p.minimum_safety_age_seconds,p.cache_keep_generations,p.cache_unused_expiry_seconds,
+		p.minimum_safety_age_seconds,p.cache_unused_expiry_seconds,
 		p.cache_byte_quota,p.created_at,p.updated_at
 		FROM registry_targets t
 		JOIN service_registry_policies p ON p.registry_target_id=t.id
@@ -136,7 +136,7 @@ func ResolveReferenceTx(
 		t.id::text,t.name,t.mode,t.endpoint,t.repository_prefix,t.pull_credential_ref,
 		t.push_credential_ref,t.cache_credential_ref,t.created_at,t.updated_at,
 		p.registry_target_id::text,p.service_id::text,p.repository,p.keep_last_successful,
-		p.minimum_safety_age_seconds,p.cache_keep_generations,p.cache_unused_expiry_seconds,
+		p.minimum_safety_age_seconds,p.cache_unused_expiry_seconds,
 		p.cache_byte_quota,p.created_at,p.updated_at
 		FROM service_registry_policies p
 		JOIN registry_targets t ON t.id=p.registry_target_id
@@ -210,7 +210,7 @@ func scanRegistryPullPolicy(row registryPullRowScanner) (domain.RegistryTarget, 
 		&target.ID, &target.Name, &target.Mode, &target.Endpoint, &target.RepositoryPrefix, &target.PullCredentialRef,
 		&target.PushCredentialRef, &target.CacheCredentialRef, &target.CreatedAt, &target.UpdatedAt,
 		&policy.RegistryTargetID, &policy.ServiceID, &policy.Repository, &policy.KeepLastSuccessful,
-		&minimumSafetyAgeSeconds, &policy.CacheKeepGenerations, &cacheUnusedExpirySeconds,
+		&minimumSafetyAgeSeconds, &cacheUnusedExpirySeconds,
 		&policy.CacheByteQuota, &policy.CreatedAt, &policy.UpdatedAt,
 	)
 	policy.MinimumSafetyAge = time.Duration(minimumSafetyAgeSeconds) * time.Second

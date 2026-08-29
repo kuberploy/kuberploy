@@ -181,7 +181,6 @@ type registryPolicyRequest struct {
 	Repository               string `json:"repository"`
 	KeepLastSuccessful       int    `json:"keepLastSuccessful,omitempty"`
 	MinimumSafetyAgeSeconds  int64  `json:"minimumSafetyAgeSeconds,omitempty"`
-	CacheKeepGenerations     int    `json:"cacheKeepGenerations,omitempty"`
 	CacheUnusedExpirySeconds int64  `json:"cacheUnusedExpirySeconds,omitempty"`
 	CacheByteQuota           int64  `json:"cacheByteQuota,omitempty"`
 }
@@ -192,7 +191,6 @@ type registryPolicyView struct {
 	Repository               string    `json:"repository"`
 	KeepLastSuccessful       int       `json:"keepLastSuccessful"`
 	MinimumSafetyAgeSeconds  int64     `json:"minimumSafetyAgeSeconds"`
-	CacheKeepGenerations     int       `json:"cacheKeepGenerations"`
 	CacheUnusedExpirySeconds int64     `json:"cacheUnusedExpirySeconds"`
 	CacheByteQuota           int64     `json:"cacheByteQuota"`
 	CreatedAt                time.Time `json:"createdAt"`
@@ -204,7 +202,6 @@ func safeRegistryPolicy(policy domain.ServiceRegistryPolicy) registryPolicyView 
 		RegistryTargetID: policy.RegistryTargetID, ServiceID: policy.ServiceID,
 		Repository: policy.Repository, KeepLastSuccessful: policy.KeepLastSuccessful,
 		MinimumSafetyAgeSeconds:  int64(policy.MinimumSafetyAge / time.Second),
-		CacheKeepGenerations:     policy.CacheKeepGenerations,
 		CacheUnusedExpirySeconds: int64(policy.CacheUnusedExpiry / time.Second),
 		CacheByteQuota:           policy.CacheByteQuota, CreatedAt: policy.CreatedAt, UpdatedAt: policy.UpdatedAt,
 	}
@@ -214,7 +211,6 @@ func (input registryPolicyRequest) serviceInput() registry.ServicePolicyInput {
 	return registry.ServicePolicyInput{
 		Repository: input.Repository, KeepLastSuccessful: input.KeepLastSuccessful,
 		MinimumSafetyAgeSeconds:  input.MinimumSafetyAgeSeconds,
-		CacheKeepGenerations:     input.CacheKeepGenerations,
 		CacheUnusedExpirySeconds: input.CacheUnusedExpirySeconds,
 		CacheByteQuota:           input.CacheByteQuota,
 	}
@@ -253,7 +249,7 @@ type registryCacheGenerationView struct {
 	PlatformSet         string     `json:"platformSet"`
 	TrustLane           string     `json:"trustLane"`
 	CacheSchema         string     `json:"cacheSchema"`
-	BuildDefinitionHash string     `json:"buildDefinitionHash"`
+	BuildDefinitionHash string     `json:"sourceHash"`
 	Generation          int64      `json:"generation"`
 	RootDigest          string     `json:"rootDigest"`
 	SizeBytes           int64      `json:"sizeBytes"`

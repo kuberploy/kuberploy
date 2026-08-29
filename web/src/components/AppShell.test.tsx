@@ -329,13 +329,13 @@ describe("External DNS navigation", () => {
 describe("Git provider navigation", () => {
   it("ignores coarse actions and environment-only build grants", async () => {
     const response: Capabilities = {
-      actions: ["build-definitions:read", "builds:read"],
+      actions: ["app-sources:read", "builds:read"],
       features: { githubAppSetup: false, builds: true, builder: true },
       capabilities: [
         {
           scopeType: "environment",
           scopeId: "environment-payments",
-          actions: ["build-definitions:read", "builds:read"],
+          actions: ["app-sources:read", "builds:read"],
         },
       ],
     };
@@ -355,7 +355,7 @@ describe("Git provider navigation", () => {
         {
           scopeType: "project",
           scopeId: "project-payments",
-          actions: ["build-definitions:read", "builds:read"],
+          actions: ["app-sources:read", "builds:read"],
         },
       ],
     });

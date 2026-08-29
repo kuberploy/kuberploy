@@ -34,8 +34,11 @@ var (
 const RequiredAutomationScope = domain.AutomationScopeAppEdit
 
 type Policy struct {
-	ID                string    `json:"id"`
-	BuildDefinitionID string    `json:"buildDefinitionId"`
+	ID string `json:"id"`
+	// BuildDefinitionID is retained only for source compatibility with older
+	// in-process callers. App source selection is no longer part of policy
+	// persistence or public JSON.
+	BuildDefinitionID string    `json:"-"`
 	ProjectID         string    `json:"projectId"`
 	ApplicationID     string    `json:"applicationId"`
 	EnvironmentID     string    `json:"environmentId"`
@@ -152,7 +155,7 @@ type SubmissionReceipt struct {
 }
 
 func (p Policy) Validate() error {
-	if !uuidRE.MatchString(p.ID) || !uuidRE.MatchString(p.BuildDefinitionID) || !uuidRE.MatchString(p.ProjectID) ||
+	if !uuidRE.MatchString(p.ID) || !uuidRE.MatchString(p.ProjectID) ||
 		!uuidRE.MatchString(p.ApplicationID) || !uuidRE.MatchString(p.EnvironmentID) || p.CurrentRevision < 1 ||
 		!uuidRE.MatchString(p.CreatedBy) || p.CreatedAt.IsZero() {
 		return ErrInvalid

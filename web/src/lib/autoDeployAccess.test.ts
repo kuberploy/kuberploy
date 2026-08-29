@@ -28,7 +28,7 @@ const exact: Capability[] = [
     scopeType: "application",
     scopeId: application.id,
     role: "project-admin",
-    actions: ["build-definitions:write"],
+    actions: ["app-sources:write"],
   },
   {
     scopeType: "environment",

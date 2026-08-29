@@ -45,7 +45,7 @@ func TestRegistryLifecycleSQLPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.KeepLastSuccessful != 1 || policy.CacheKeepGenerations != 2 || policy.CacheUnusedExpiry != 7*24*time.Hour {
+	if policy.KeepLastSuccessful != 1 || policy.CacheUnusedExpiry != 7*24*time.Hour {
 		t.Fatalf("policy round trip=%#v", policy)
 	}
 	catalog := domain.RegistryCatalogSnapshot{

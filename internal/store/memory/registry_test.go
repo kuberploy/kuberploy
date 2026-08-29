@@ -367,7 +367,7 @@ func TestRegistryPolicyDefaultsAndBounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if policy.KeepLastSuccessful != 10 || policy.CacheKeepGenerations != 2 || policy.CacheUnusedExpiry != 7*24*time.Hour || policy.CacheByteQuota != 10<<30 {
+	if policy.KeepLastSuccessful != 10 || policy.CacheUnusedExpiry != 7*24*time.Hour || policy.CacheByteQuota != 10<<30 {
 		t.Fatalf("defaults=%#v", policy)
 	}
 	policy.KeepLastSuccessful = 101

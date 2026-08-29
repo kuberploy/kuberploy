@@ -113,16 +113,16 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 	}
 
 	expectedBuildScopes := map[string]string{
-		"listApplicationBuildDefinitions":  "app.read",
-		"listApplicationBuildProfiles":     "app.read",
-		"createApplicationBuildDefinition": "build.create",
-		"listApplicationBuilds":            "app.read",
-		"getBuildDefinition":               "app.read",
-		"createManualBuildAttempt":         "build.create",
-		"getBuildAttempt":                  "app.read",
-		"getBuildAttemptLogs":              "logs.read",
-		"cancelBuildAttempt":               "build.create",
-		"retryBuildAttempt":                "build.create",
+		"getApplicationBuildSource":    "app.read",
+		"listApplicationBuildProfiles": "app.read",
+		"putApplicationBuildSource":    "build.create",
+		"listApplicationBuilds":        "app.read",
+		"getAppBuildSource":            "app.read",
+		"createManualBuildAttempt":     "build.create",
+		"getBuildAttempt":              "app.read",
+		"getBuildAttemptLogs":          "logs.read",
+		"cancelBuildAttempt":           "build.create",
+		"retryBuildAttempt":            "build.create",
 	}
 	found := make(map[string]bool, len(expectedBuildScopes))
 	for _, pathItem := range document.Paths {
@@ -142,9 +142,9 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 			t.Fatalf("build operation %q missing", operationID)
 		}
 	}
-	disconnect := document.Paths["/v1/applications/{id}/build-definitions/{definitionId}"]["delete"]
-	if disconnect.OperationID != "disconnectApplicationBuildDefinition" || disconnect.Permission != "builds.manage" ||
-		disconnect.Effect != "build-definition" || disconnect.Idempotency != "required" || disconnect.Confirmation != "dialog" ||
+	disconnect := document.Paths["/v1/applications/{id}/source/{sourceId}"]["delete"]
+	if disconnect.OperationID != "disconnectApplicationBuildSource" || disconnect.Permission != "builds.manage" ||
+		disconnect.Effect != "app-source" || disconnect.Idempotency != "required" || disconnect.Confirmation != "dialog" ||
 		!equalStrings(disconnect.Audience, []string{"human"}) || disconnect.AutomationScope != "" {
 		t.Fatalf("source disconnect contract=%#v", disconnect)
 	}
@@ -152,7 +152,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 		t.Fatalf("source disconnect lacks success response: %#v", disconnect.Responses)
 	}
 	for schemaName, forbidden := range map[string][]string{
-		"BuildDefinition":  {"credentialSecret", "execution", "namespace", "podServiceAccount", "builderAgentImage"},
+		"AppBuildSource":   {"credentialSecret", "execution", "namespace", "podServiceAccount", "builderAgentImage"},
 		"BuildAttempt":     {"planRequest", "checkoutRequest", "deliveryClaimKey", "inputDigest", "jobNamespace", "jobName", "cacheCandidate", "logReference", "token", "credentials"},
 		"BuildLogSource":   {"namespace", "jobName", "podName", "container", "selector", "uid", "logReference"},
 		"BuildLogSnapshot": {"namespace", "jobName", "podName", "container", "selector", "uid", "logReference"},
@@ -170,7 +170,7 @@ func TestGitHubSetupWebhookAndBuildOpenAPIContract(t *testing.T) {
 			t.Fatalf("build profile schema leaks %q", forbidden)
 		}
 	}
-	createProperties := decodeSchemaProperties(t, document.Components.Schemas["CreateBuildDefinition"])
+	createProperties := decodeSchemaProperties(t, document.Components.Schemas["PutAppBuildSource"])
 	for _, forbidden := range []string{"secretFiles", "sshFiles"} {
 		if _, leaked := createProperties[forbidden]; leaked {
 			t.Fatalf("create build schema accepts arbitrary %q", forbidden)
@@ -214,7 +214,7 @@ func TestEveryHighRiskLimitedOperationReferencesStableProblems(t *testing.T) {
 		"registerGitHubInstallationMetadata", "updateGitHubInstallationSharing", "authorizeGitHubAppInstallation", "linkVerifiedGitHubAppInstallation",
 		"createEnvironmentGitBinding", "createPlatformArgoGitBinding",
 		"createProjectAccessGrant", "deleteProjectAccessGrant", "createProjectServiceAccount", "disableServiceAccount", "createServiceAccountToken", "revokeServiceAccountToken",
-		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "createApplicationBuildDefinition", "createManualBuildAttempt", "cancelBuildAttempt", "retryBuildAttempt",
+		"createRuntimeSecretBinding", "rotateRuntimeSecretBinding", "deleteRuntimeSecretBinding", "putApplicationBuildSource", "createManualBuildAttempt", "cancelBuildAttempt", "retryBuildAttempt",
 	} {
 		expected[operationID] = false
 	}

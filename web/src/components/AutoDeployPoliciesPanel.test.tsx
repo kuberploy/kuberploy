@@ -6,7 +6,6 @@ import { api } from "../api/client";
 import type {
   Application,
   AutoDeployPolicy,
-  BuildDefinition,
   Capability,
   Project,
 } from "../api/types";
@@ -22,16 +21,8 @@ const project: Project = {
   name: "Reader project",
   teamId: "team-reader",
 };
-const definition = {
-  id: "definition-reader",
-  applicationId: application.id,
-  projectId: project.id,
-  triggerRef: "refs/heads/main",
-  definitionDigest: `sha256:${"a".repeat(64)}`,
-} as BuildDefinition;
 const policy: AutoDeployPolicy = {
   id: "policy-reader",
-  buildDefinitionId: definition.id,
   projectId: project.id,
   applicationId: application.id,
   environmentId: "environment-reader",
@@ -56,7 +47,7 @@ const readOnlyCapabilities: Capability[] = [
     scopeType: "application",
     scopeId: application.id,
     role: "viewer",
-    actions: ["build-definitions:read", "builds:read"],
+    actions: ["app-sources:read", "builds:read"],
   },
 ];
 
@@ -105,7 +96,7 @@ describe("auto-deploy policy read-only access", () => {
         <AutoDeployPoliciesPanel
           application={application}
           project={project}
-          definitions={[definition]}
+          sourceConnected
           enabled
           humanSession
           capabilities={readOnlyCapabilities}
@@ -191,7 +182,7 @@ describe("auto-deploy policy read-only access", () => {
         <AutoDeployPoliciesPanel
           application={application}
           project={project}
-          definitions={[definition]}
+          sourceConnected
           enabled
           humanSession
           capabilities={[
@@ -199,7 +190,7 @@ describe("auto-deploy policy read-only access", () => {
               scopeType: "application",
               scopeId: application.id,
               role: "project-admin",
-              actions: ["build-definitions:write"],
+              actions: ["app-sources:write"],
             },
             {
               scopeType: "environment",

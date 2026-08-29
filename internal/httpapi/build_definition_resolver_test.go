@@ -90,7 +90,7 @@ func TestServerBuildDefinitionResolverDerivesClosedOperatorSettings(t *testing.T
 	target := domain.RegistryTarget{ID: targetID, Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.example.test:5000", RepositoryPrefix: "tenant/builds", PullCredentialRef: "registry-pull", PushCredentialRef: "registry-push", CacheCredentialRef: "registry-cache"}
 	policy := domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: applicationID,
 		Repository:         "tenant/builds/projects/" + projectID + "/services/" + applicationID + "/image",
-		KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+		KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID}, target: target, policy: policy}
 	platform := builds.DefaultBuilderPlatformSettings(runtime)
 	platform.NodeIsolation = true
@@ -132,7 +132,7 @@ func TestServerBuildDefinitionResolverRequiresExactApplicationPolicy(t *testing.
 	}
 	target := domain.RegistryTarget{ID: targetID, Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: "https://registry.example.test", RepositoryPrefix: "tenant", PullCredentialRef: "pull", PushCredentialRef: "push", CacheCredentialRef: "cache"}
 	catalog := &resolverCatalog{application: domain.Application{ID: applicationID, ProjectID: projectID}, project: domain.Project{ID: projectID}, target: target,
-		policy: domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: applicationID, Repository: "tenant/attacker/image", KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}}
+		policy: domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: applicationID, Repository: "tenant/attacker/image", KeepLastSuccessful: 2, MinimumSafetyAge: time.Hour, CacheUnusedExpiry: 24 * time.Hour, CacheByteQuota: 1 << 30, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}}
 	resolver := &ServerBuildDefinitionResolver{Catalog: catalog, Runtime: runtime}
 	if _, err = resolver.ResolveBuildDefinition(context.Background(), actorID, projectID, applicationID, targetID); !errors.Is(err, builds.ErrInfrastructure) {
 		t.Fatalf("mismatched application policy accepted: %v", err)

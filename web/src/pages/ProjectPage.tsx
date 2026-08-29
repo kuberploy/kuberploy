@@ -417,7 +417,7 @@ export function ProjectPage() {
                     environment.id,
                   ) &&
                   hasActionAtEnvironment(
-                    "build-definitions:write",
+                    "app-sources:write",
                     environment.id,
                   )
                 }

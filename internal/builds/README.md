@@ -32,17 +32,17 @@ receives the handoff.
    together. A crash cannot leave a consumed tombstone without a resumable
    receipt. Once terminal and past its retention deadline, that typed payload
    can be purged while the immutable tombstone remains permanently.
-3. One leased receipt worker checks the persisted installation, repository,
-   and enabled build definition, then re-verifies the installation with GitHub.
+3. One leased receipt worker checks the App's current source, installation, and
+   repository, then re-verifies the installation with GitHub.
    It mints a token scoped to exactly one repository with `metadata:read` and
    `contents:read` and resolves the exact pushed ref. The webhook `after` value
    is never used as build source.
 4. The authoritative 40-hex commit, monotonically allocated service
    generation, closed `builder.JobPlanRequest`, closed checkout request, and
    one durable `build_attempts` row are committed in one transaction.
-   Uniqueness on the delivery plus definition makes replays exactly once;
+   Uniqueness on the delivery plus source revision makes replays exactly once;
    distinct authenticated
-   deliveries that resolve to the same definition/ref/commit reuse that exact
+   deliveries that resolve to the same source/ref/commit reuse that exact
    push attempt. Explicit human retries remain separate generations.
 5. `BuildController` leases the attempt and repeats installation/repository
    authorization immediately before minting a fresh source token. Only the
@@ -59,7 +59,7 @@ receives the handoff.
    and has no registry-cache flags. Both phases share the same private BuildKit
    content store, so successful work is reused without sharing Docker auth.
    The operator-owned `buildKitImage` and `dindImage` are copied into the
-   runtime digest, immutable definition, and closed Job/request plan. BuildKit
+   runtime digest, recorded attempt snapshot, and closed Job/request plan. BuildKit
    accepts the pinned `v0.32.2` tag or a sha256 mirror; DinD accepts a semantic
    version or sha256 mirror. Empty source and registry CIDR lists permit dual-stack
    public access on only HTTPS and the verified registry port while excluding
@@ -72,7 +72,7 @@ receives the handoff.
    `unavailable`, `not-requested`, or `unknown`); raw BuildKit output remains
    private.
 8. A successful attempt atomically enqueues a lease-fenced release projection.
-   The independent worker loop revalidates the immutable definition, registry
+   The independent worker loop revalidates the attempt's recorded source snapshot, registry
    target, service policy, repository scope, image digest and optional cache
    digest before registering rollback and retention roots. Release and cache
    IDs are deterministic, so a crash between either registry write and the
@@ -83,14 +83,14 @@ receives the handoff.
 Managed and external registry targets use the same isolated release-push and
 registry-cache execution paths. Managed retention remains the managed registry
 controller's responsibility; this package never deletes from either target.
-The target catalog, immutable definition, attempt snapshot, Job plan, and
+The target catalog, editable App source, recorded attempt snapshot, Job plan, and
 release projection all preserve two distinct Kubernetes Secret identities.
 
 ## Persisted data boundary
 
 The stable initial schema defines immutable GitHub account
 and repository IDs, suspension/removal state, generic one-time claims,
-permanent delivery tombstones, resumable typed receipts, definitions,
+permanent delivery tombstones, resumable typed receipts, App source settings,
 monotonic service generations, attempts, and a transactional build outbox.
 It stores Kubernetes Secret object names and mounted file paths only. GitHub
 tokens, webhook secrets, App keys, registry passwords, build-secret values,
@@ -125,7 +125,7 @@ caller-supplied Secret authority.
 
 The memory and PostgreSQL implementations share the same `Store` contract.
 The PostgreSQL integration test applies the stable baseline and exercises
-managed and external targets, terminal payload expiry/replay, immutable retry,
+managed and external targets, terminal payload expiry/replay, exact retry,
 cancellation backoff, and successful result persistence. Permanent claim
 deletion is also rejected at the database layer.
 
@@ -155,7 +155,7 @@ auxiliary resources are removed.
 
 ## Production integration
 
-The human UI now owns GitHub App setup, build definitions, logs/history,
+The human UI now owns GitHub App setup, editable App sources, logs/history,
 cancellation/retry, explicit promotion, and immutable per-environment
 auto-deploy policy revisions with run receipts. A verified release enters the
 deployment path only through one exact policy and service-account authority;

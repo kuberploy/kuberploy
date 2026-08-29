@@ -49,7 +49,7 @@ func (s *Store) AuthorizedImageSourcesForActor(ctx context.Context, actor, appli
 		t.id::text,t.name,t.mode,t.endpoint,t.repository_prefix,t.pull_credential_ref,
 		t.push_credential_ref,t.cache_credential_ref,t.created_at,t.updated_at,
 		p.registry_target_id::text,p.service_id::text,p.repository,p.keep_last_successful,
-		p.minimum_safety_age_seconds,p.cache_keep_generations,p.cache_unused_expiry_seconds,
+		p.minimum_safety_age_seconds,p.cache_unused_expiry_seconds,
 		p.cache_byte_quota,p.created_at,p.updated_at
 		FROM service_registry_policies p
 		JOIN registry_targets t ON t.id=p.registry_target_id
@@ -70,7 +70,7 @@ func (s *Store) AuthorizedImageSourcesForActor(ctx context.Context, actor, appli
 			&registryTarget.PullCredentialRef, &registryTarget.PushCredentialRef, &registryTarget.CacheCredentialRef,
 			&registryTarget.CreatedAt, &registryTarget.UpdatedAt,
 			&policy.RegistryTargetID, &policy.ServiceID, &policy.Repository, &policy.KeepLastSuccessful,
-			&minimumSafetyAgeSeconds, &policy.CacheKeepGenerations, &cacheUnusedExpirySeconds,
+			&minimumSafetyAgeSeconds, &cacheUnusedExpirySeconds,
 			&policy.CacheByteQuota, &policy.CreatedAt, &policy.UpdatedAt,
 		)
 		if scanErr != nil {

@@ -27,7 +27,7 @@ var (
 	ErrLeaseHeld         = errors.New("build orchestration lease is held")
 	ErrLeaseLost         = errors.New("build orchestration lease was lost")
 	ErrTerminal          = errors.New("build attempt is terminal")
-	ErrDeletionBlocked   = errors.New("build definition has an active attempt")
+	ErrDeletionBlocked   = errors.New("App source has active work")
 	ErrInvalid           = errors.New("invalid build orchestration input")
 	ErrProviderRetry     = errors.New("GitHub provider operation should be retried")
 	ErrInfrastructure    = errors.New("build infrastructure operation failed")
@@ -107,8 +107,8 @@ const (
 	SourceGitSSH SourceKind = "git_ssh"
 )
 
-// GitSSHSource is the immutable, provider-neutral checkout binding for one
-// build definition. KnownHosts contains public host-key pins; private key
+// GitSSHSource is the provider-neutral checkout binding for one App source.
+// Build attempts snapshot it. KnownHosts contains public host-key pins; private key
 // material remains encrypted in the Git SSH key store.
 type GitSSHSource struct {
 	RepositoryURL string `json:"repositoryUrl"`
@@ -143,8 +143,8 @@ type ExecutionSettings struct {
 	Egress                  []builder.EgressEndpoint   `json:"egress"`
 }
 
-// DefinitionSpec is the complete closed build definition. MaxAttempts is for
-// infrastructure retries of the same immutable operation; it does not change
+// DefinitionSpec is the complete App build-source configuration copied into
+// each accepted attempt. MaxAttempts is for infrastructure retries of the same immutable operation; it does not change
 // the build generation, destination, or cache candidate.
 type DefinitionSpec struct {
 	ContextPath    string                  `json:"contextPath"`
@@ -178,7 +178,7 @@ type BuildDefinition struct {
 	UpdatedAt            time.Time
 }
 
-// AttemptDefinition keeps the authorized immutable user definition separate
+// AttemptDefinition keeps the recorded App source separate
 // from the current operator-owned execution settings snapshotted by a new
 // attempt. This prevents platform upgrades from replaying stale runtime images
 // or placement policy while preserving historical attempts exactly.
@@ -230,17 +230,21 @@ const (
 )
 
 type BuildAttempt struct {
-	ID                string
-	DefinitionID      string
-	DeliveryClaimKey  string
-	TriggerKind       string
-	TriggerKey        string
-	ProjectID         string
-	ServiceID         string
-	CommitSHA         string
-	GitRef            string
-	Generation        int64
-	DefinitionDigest  string
+	ID               string
+	DefinitionID     string
+	DeliveryClaimKey string
+	TriggerKind      string
+	TriggerKey       string
+	ProjectID        string
+	ServiceID        string
+	CommitSHA        string
+	GitRef           string
+	Generation       int64
+	DefinitionDigest string
+	// SourceSnapshot is the exact App source revision used by this attempt.
+	// The App source remains editable; completed and in-flight attempts never
+	// depend on the App's current source row.
+	SourceSnapshot    BuildDefinition
 	PlanRequest       builder.JobPlanRequest
 	CheckoutRequest   builder.CheckoutRequest
 	InputDigest       string
@@ -622,7 +626,7 @@ func registryServer(raw string) (string, error) {
 }
 
 // RegistryServer canonicalizes an operator-owned registry endpoint to the
-// host[:port] form copied into immutable build definitions.
+// host[:port] form copied into App sources and recorded attempt snapshots.
 func RegistryServer(raw string) (string, error) { return registryServer(raw) }
 
 func validGitRef(ref string) bool {

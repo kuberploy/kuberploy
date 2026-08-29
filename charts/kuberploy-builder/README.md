@@ -21,8 +21,8 @@ Empty lists generate dual-stack public rules on only HTTPS and the verified
 registry port; configured API CIDRs are excluded, and no exclusion is required
 when cluster API ranges are not supplied. Nonempty source ranges and exact
 registry hosts optionally narrow those rules. The controller binds the
-normalized result to each run-scoped policy and immutable build definition;
-persisted strict definitions without an `except` field remain replayable.
+normalized result to each run-scoped policy and recorded build-attempt
+snapshot; persisted snapshots without an `except` field remain replayable.
 
 `buildKitImage` is the pinned `v0.32.2` release tag or an immutable `sha256`
 reference for an operator mirror. `dindImage` accepts an explicit semantic

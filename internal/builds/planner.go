@@ -108,7 +108,8 @@ func newAttempt(definition BuildDefinition, repository Repository, delivery Enqu
 		TriggerKind: "github_push", TriggerKey: delivery.ClaimKey,
 		ProjectID: definition.ProjectID, ServiceID: definition.ServiceID, CommitSHA: delivery.CommitSHA, GitRef: delivery.GitRef,
 		Generation: generation, DefinitionDigest: definition.DefinitionDigest,
-		PlanRequest: planRequest, CheckoutRequest: checkout, InputDigest: inputDigest, RegistryMode: definition.Spec.Registry.Mode,
+		SourceSnapshot: definition,
+		PlanRequest:    planRequest, CheckoutRequest: checkout, InputDigest: inputDigest, RegistryMode: definition.Spec.Registry.Mode,
 		State: AttemptQueued, MaxAttempts: definition.Spec.MaxAttempts, AvailableAt: now.UTC(),
 		JobNamespace: definition.Spec.Execution.Namespace, JobName: metadata["name"].(string), CacheCandidate: request.Cache.CandidateExport,
 		CreatedAt: now.UTC(), UpdatedAt: now.UTC(),
@@ -116,8 +117,16 @@ func newAttempt(definition BuildDefinition, repository Repository, delivery Enqu
 }
 
 func newAttemptWithExecution(definition BuildDefinition, execution ExecutionSettings, repository Repository, delivery EnqueuePush, generation int64, imports []string, now time.Time) (BuildAttempt, error) {
+	sourceSnapshot := definition
 	definition.Spec.Execution = execution
-	return newAttempt(definition, repository, delivery, generation, imports, now)
+	attempt, err := newAttempt(definition, repository, delivery, generation, imports, now)
+	if err != nil {
+		return BuildAttempt{}, err
+	}
+	// Runtime settings are refreshed for a new attempt, but the App-owned
+	// source snapshot retains the digest that authorized this build.
+	attempt.SourceSnapshot = sourceSnapshot
+	return attempt, nil
 }
 
 func attemptInputDigest(plan builder.JobPlanRequest, checkout builder.CheckoutRequest) (string, error) {

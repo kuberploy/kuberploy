@@ -94,7 +94,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,created_at) VALUES($1,$2,$3,$4)`, projectID, "Build Test "+suffix, "build-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,created_at) VALUES($1,$2,'Service','service',$3)`, serviceID, projectID, now); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug,source_kind,created_at) VALUES($1,$2,'Service','service','github',$3)`, serviceID, projectID, now); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO github_installations(id,github_installation_id,account_login,account_type,owner_user_id,visibility,repository_selection,repository_count,created_at,updated_at) VALUES($1,$2,'kuberploy','Organization',$3,'private','selected',1,$4,$4)`, installationID, providerInstall, userID, now); err != nil {
@@ -352,7 +352,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		t.Fatalf("durable attempts=%d err=%v", durableAttempts, err)
 	}
 
-	// Exercise the same immutable retry and cancellation transitions used by
+	// Exercise the same exact retry and cancellation transitions used by
 	// the memory contract against row locks and PostgreSQL lease predicates.
 	retryNow := now.Add(2 * time.Hour)
 	retryDigest := sha256.Sum256([]byte("postgres-build-retry-contract\x00" + definitionID))
@@ -528,11 +528,11 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		t.Fatalf("external acquired=%v err=%v", acquired, err)
 	}
 	externalAuthorized, err := store.AuthorizePush(ctx, appID, providerInstall, repository.Identity, event.Ref)
-	if err != nil || len(externalAuthorized.Definitions) != 2 {
+	if err != nil || len(externalAuthorized.Definitions) != 1 {
 		t.Fatalf("external authorized=%#v err=%v", externalAuthorized, err)
 	}
 	externalAttempts, err := store.EnqueuePushBuilds(ctx, EnqueuePush{ClaimKey: externalClaim.ClaimKey, CommitSHA: strings.Repeat("d", 40), GitRef: event.Ref, ResolvedAt: externalNow}, "postgres-contract", storedAttemptDefinitions(externalAuthorized.Definitions), externalNow)
-	if err != nil || len(externalAttempts) != 2 {
+	if err != nil || len(externalAttempts) != 1 {
 		t.Fatalf("external attempts=%#v err=%v", externalAttempts, err)
 	}
 	modes := map[RegistryMode]bool{}
@@ -542,7 +542,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 			t.Fatalf("candidate cache=%#v", candidate.PlanRequest.Build.Cache)
 		}
 	}
-	if !modes[RegistryManaged] || !modes[RegistryExternal] {
+	if modes[RegistryManaged] || !modes[RegistryExternal] {
 		t.Fatalf("registry modes=%v", modes)
 	}
 	var externalRows int
@@ -553,19 +553,18 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 		t.Fatal("database allowed permanent tombstone deletion")
 	}
 
-	// Source changes keep the old definition as immutable history while making
-	// exactly one replacement eligible for a matching push.
+	// Source changes replace the App-owned source while existing build attempts
+	// retain the historical source snapshots they used.
 	replacementID := id.New()
 	replacement := definitionWithIDs(t, now.Add(2*time.Hour), RegistryManaged, replacementID, projectID, serviceID, installationID, repositoryID, registryID)
 	if err = store.PutDefinition(ctx, replacement); err != nil {
 		t.Fatalf("replace definition: %v", err)
 	}
-	original, err := store.Definition(ctx, definitionID)
-	if err != nil || original.Enabled {
-		t.Fatalf("original definition=%#v err=%v, want disabled history", original, err)
+	if original, originalErr := store.Definition(ctx, definitionID); !errors.Is(originalErr, ErrNotFound) {
+		t.Fatalf("replaced source=%#v err=%v, want not found", original, originalErr)
 	}
 	active, err := store.Definition(ctx, replacementID)
-	if err != nil || !active.Enabled {
+	if err != nil || !active.Enabled || active.DefinitionGeneration != 3 {
 		t.Fatalf("replacement definition=%#v err=%v, want active", active, err)
 	}
 	activePush, err := store.AuthorizePush(ctx, appID, providerInstall, repository.Identity, event.Ref)

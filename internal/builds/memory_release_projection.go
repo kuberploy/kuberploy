@@ -47,10 +47,10 @@ func (s *MemoryStore) ClaimNextReleaseProjection(_ context.Context, owner string
 			s.releaseProjections[attemptID] = projection
 			continue
 		}
-		definition, exists := s.definitions[attempt.DefinitionID]
-		if !exists {
+		definition := attempt.SourceSnapshot
+		if definition.validate() != nil || definition.ID != attempt.DefinitionID {
 			completed := now.UTC()
-			projection.state, projection.failureCode, projection.completedAt = ReleaseProjectionFailed, "build-definition-missing", &completed
+			projection.state, projection.failureCode, projection.completedAt = ReleaseProjectionFailed, "build-source-snapshot-invalid", &completed
 			projection.leaseOwner, projection.leaseUntil, projection.updatedAt = "", time.Time{}, completed
 			s.releaseProjections[attemptID] = projection
 			continue

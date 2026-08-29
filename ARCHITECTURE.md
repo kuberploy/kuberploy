@@ -53,7 +53,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 3. Builders create images only. They never deploy workloads and never receive GitOps write credentials.
 4. PostgreSQL stores users, workflow state, integrations, audit events, rebuildable projections, and explicitly stopped Environment-clone drafts. A stopped clone draft cannot create workload or Git state; Git becomes authoritative only when the user explicitly starts it.
 5. Kubernetes and Argo CD are authoritative for observed runtime state.
-6. Kuberploy-managed plaintext secret values never enter Git, Git commit messages, build logs, traces, caches, asynchronous queues, or ordinary database columns. Caller-supplied build arguments remain caller-owned immutable build-definition input and may be retained by the definition, Docker history, or caches; they are not echoed in result projections, and secret-like names produce a non-blocking warning. Base64 is encoding, not protection.
+6. Kuberploy-managed plaintext secret values never enter Git, Git commit messages, build logs, traces, caches, asynchronous queues, or ordinary database columns. Caller-supplied build arguments remain caller-owned App source input, are copied into the exact source snapshot recorded for each build attempt, and may be retained by Docker history or caches; they are not echoed in result projections, and secret-like names produce a non-blocking warning. Base64 is encoding, not protection.
 7. Mutable image tags may be user input, but Kuberploy resolves and deploys an immutable digest.
 8. A successful build is not a successful deployment. The UI displays each stage separately.
 9. Privileged DinD is treated as a node-level trust boundary even though it does not mount the host Docker socket.
@@ -227,7 +227,7 @@ Recommended namespaces:
 - `kuberploy-build-dind`: privileged DinD Jobs. Only the build controller can create workloads here.
 - `kp-<project>-<environment>`: ordinary application workloads with restricted Pod Security, quotas and default-deny networking.
 
-The starter configuration schedules privileged DinD on the installation's current schedulable node so all build features work on one VM. This means a compromised source build can compromise that node. Helm's `builder.nodeIsolation.enabled` value supplies only the revision-zero install default. After bootstrap, platform administrators manage node isolation, maximum concurrent builders, and checkout/DinD/agent requests and limits through **Settings → Source builders**. Kuberploy stores immutable settings revisions in PostgreSQL. Queue concurrency changes apply to pending work; scheduling and resources are copied into each new immutable build attempt. Operators running mutually untrusted source should enable node isolation, provision the exact builder label/taint, and keep control-plane and production workloads off those nodes. A separate installation remains the strongest isolation boundary.
+The starter configuration schedules privileged DinD on the installation's current schedulable node so all build features work on one VM. This means a compromised source build can compromise that node. Helm's `builder.nodeIsolation.enabled` value supplies only the revision-zero install default. After bootstrap, platform administrators manage node isolation, maximum concurrent builders, and checkout/DinD/agent requests and limits through **Settings → Source builders**. Kuberploy stores versioned settings in PostgreSQL. Queue concurrency changes apply to pending work; scheduling and resources are copied into each new build attempt. Operators running mutually untrusted source should enable node isolation, provision the exact builder label/taint, and keep control-plane and production workloads off those nodes. A separate installation remains the strongest isolation boundary.
 
 ## 6. Data authority and domain model
 
@@ -236,7 +236,7 @@ The starter configuration schedules privileged DinD on the installation's curren
 | Data | Authority |
 |---|---|
 | Managed App configuration, selected release, routes and resources | GitOps repository |
-| Helm App source coordinates and values | Immutable PostgreSQL Helm revision history projected to Argo CD |
+| Helm App source coordinates and values | Versioned PostgreSQL Helm settings projected to Argo CD |
 | Application monitoring intent in `runtime.monitoring` | The application's environment GitOps repository |
 | Monitoring stack settings, ingestion profiles, monitor-generation policy, recording rules and alert rules | Protected platform GitOps repository |
 | Generated application monitor-target manifests | Rebuildable protected Git materialization derived from the source application commit plus platform policy; never manually editable |
@@ -269,11 +269,10 @@ The starter configuration schedules privileged DinD on the installation's curren
 | APIServiceAccount | Named automation principal with an owner, scoped grants and independently expiring/revocable token records; unrelated to a Kubernetes workload ServiceAccount |
 | Project | Groups applications and environments |
 | Environment | Binds a project to one administrator-approved namespace, Git path and the project's Argo AppProject; a project gains multiple namespaces by owning multiple environments |
-| Application | Stable logical workload independent of an environment, with one durable source kind: `oci`, `github`, `git-ssh`, or `helm` |
+| Application | Stable logical workload independent of an environment, with one editable source configuration: `oci`, `github`, `git-ssh`, or `helm`; changing source settings updates the App instead of creating a parallel definition record |
 | DeploymentSpec | Configuration of an application in one environment; a cloned stopped draft is local and editable until explicit Start App publication makes Git authoritative |
 | VariableSet | Git-backed project or environment ordinary values and opt-in secret-binding references; application-level values remain in `AppConfig` |
-| BuildDefinition | Source repository, ref rules, context, Dockerfile and builder settings |
-| Build | One immutable build attempt and its execution state |
+| Build | One build attempt, its execution state, and the exact snapshot of the App source used for that attempt |
 | Release | Source SHA, build config hash, image digest or chart revision and provenance |
 | Promotion | Selection of an existing Release for an environment |
 | GitBinding | Repository, branch, base path and credential reference |
@@ -439,7 +438,7 @@ spec:
         redirectHttp: true
 ```
 
-For managed OCI and source-built Apps, the ApplicationSet renders a pinned `kuberploy-runtime` chart from `app.yaml`. Helm Apps use a separate direct Argo CD path: Kuberploy stores the source coordinates and raw values as an immutable revision, then projects one deterministic `Application`. Argo resolves and renders the chart. The installer-owned Helm AppProject and admission policy remain the enforcement boundary.
+For managed OCI and source-built Apps, the ApplicationSet renders a pinned `kuberploy-runtime` chart from `app.yaml`. Helm Apps use a separate direct Argo CD path: Kuberploy stores the current source coordinates and raw values, records each saved revision, then projects one deterministic `Application`. Argo resolves and renders the chart. The installer-owned Helm AppProject and admission policy remain the enforcement boundary.
 
 ### Git write protocol
 
@@ -553,9 +552,9 @@ For API writes on different repository/ref shards, a PostgreSQL `RouteKeyReserva
 
 The PostgreSQL outbox relay/scheduler may use `FOR UPDATE SKIP LOCKED` for parallel fair selection; execution workers use Valkey Streams consumer groups and acknowledge only after durable PostgreSQL progress. Commands on different refs finalize concurrently; commands on one ref serialize only for fetch/recheck/commit/push. Protected-environment candidate branches and pull requests can also be prepared in parallel, while the provider's protected merge or merge queue remains the authority for advancing the target branch.
 
-Push auto-deploy is an explicit, immutable policy rather than an effect of every
-webhook. In the Source Builds UI, a human selects one exact build definition,
-environment deployment snapshot and project service-account identity, and can
+Push auto-deploy is an explicit, revisioned policy rather than an effect of every
+webhook. In the Source Builds UI, a human selects an environment deployment
+snapshot and project service-account identity for the App's current source, and can
 enable, disable or repin the policy while retaining its immutable history. Each
 revision pins the source deployment generation, AppConfig ETag,
 image-independent canonical intent, and
@@ -628,7 +627,7 @@ All build engines accept an immutable input and produce an immutable output.
 Input:
 
 - source repository and exact commit SHA;
-- build-definition revision and hash;
+- App source revision and digest snapshot;
 - context and Dockerfile path;
 - target architecture and stage;
 - caller-supplied build arguments and managed secret references; secret-like
@@ -691,7 +690,7 @@ registry:
     unreferencedGracePeriod: 24h
 ```
 
-`keepLastSuccessful` counts distinct successfully deployed OCI release digests,
+`keepLastSuccessful` counts distinct successfully built OCI release digests,
 not tags or build attempts. Cleanup also protects current Git-selected digests
 across every environment, digests observed in active rollouts, active Operation
 inputs/outputs, manual pins and artifacts inside the grace period. Therefore `N`
@@ -738,7 +737,7 @@ digest.
 
 The cache scope key contains the immutable organization/project/application/
 service IDs, target platform set, builder engine and cache-schema versions,
-build-definition hash, and a trust lane. It deliberately omits the source commit
+App source digest, and a trust lane. It deliberately omits the source commit
 so unchanged Dockerfile layers can be reused across commits. BuildKit's own
 content checks decide whether a layer matches. Fork or untrusted pull-request
 builds may read an approved base-branch cache but write only to an isolated lane;
@@ -757,7 +756,8 @@ output, so cache repositories are private and use credentials distinct from
 release push and runtime pull credentials. Kuberploy-managed Dockerfile secrets
 use BuildKit secret/SSH mounts and are never supplied as build arguments or
 copied into a layer. Caller-supplied build arguments are accepted for
-compatibility, stored as part of the immutable build definition, flagged when
+compatibility, stored as part of the editable App source and copied into each
+build attempt's recorded source snapshot, flagged when
 their names look sensitive, and may be retained by Docker history or cache;
 cache export does not add any Kuberploy credential to the build.
 
@@ -770,8 +770,9 @@ application manifest remains terminal. This matches `ignore-error=true`
 behavior for cache export without hiding the warning from the build timeline.
 
 In managed mode, cache lifecycle is separate from release retention. The
-starting policy keeps two successful cache generations per
-service/platform/trust lane, expires an unused generation after seven days, and
+starting policy protects only the latest successful cache generation per
+service/platform/trust lane across App source edits, expires an unused older
+generation after seven days, and
 applies an administrator-configured byte quota. Active imports/exports receive
 temporary protection. Under storage pressure, eligible cache candidates are
 reclaimed before expired release artifacts; current and retained rollback
@@ -2386,7 +2387,7 @@ repositories or refs instead of sharing one writable platform root.
 - GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
 - One ephemeral privileged DinD Job per source build, never mounting the host Docker socket. It runs on a single starter node by default; optional node isolation requires the exact configured builder pool.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.
-- Registry-backed Buildx cache from the first source-builder release, with two cache generations per service/platform/trust lane, seven-day unused expiry, a byte quota and cold-build fallback when cache import/export is unavailable.
+- Registry-backed Buildx cache from the first source-builder release, protecting the latest cache generation per service/platform/trust lane, with seven-day unused expiry, a byte quota and cold-build fallback when cache import/export is unavailable.
 - GitOps repository bootstrap, exact diff preview, direct development commits and production pull requests.
 - Revisioned PostgreSQL Git projections, verified webhook plus safety-poll indexing, cached bare mirrors with isolated worktrees, path-scoped ETags/key reservations, bounded preview/render workers, concurrent preparation, short fast-forward ref finalization, per-binding backpressure and Argo manifest-path annotations.
 - Argo Application creation, automatic reconciliation, sync/health display and rollback through a new Git commit selecting a retained, registry-verified release.

@@ -32,10 +32,7 @@ func (s *PostgreSQLStore) SuccessfulReleaseProjection(ctx context.Context, attem
 	if attempt.State != AttemptSucceeded || attempt.Result == nil || attempt.CompletedAt == nil || validateStoredAttempt(attempt) != nil {
 		return buildpromotion.ProjectedBuild{}, buildpromotion.ErrNotReady
 	}
-	definition, err := definitionByIDQuery(ctx, tx, attempt.DefinitionID, false)
-	if err != nil {
-		return buildpromotion.ProjectedBuild{}, buildpromotion.ErrConflict
-	}
+	definition := attempt.SourceSnapshot
 	if definition.ID != attempt.DefinitionID || definition.ProjectID != attempt.ProjectID || definition.ServiceID != attempt.ServiceID {
 		return buildpromotion.ProjectedBuild{}, buildpromotion.ErrConflict
 	}
@@ -87,8 +84,8 @@ func (s *MemoryStore) SuccessfulReleaseProjection(_ context.Context, attemptID s
 	if attempt.State != AttemptSucceeded || attempt.Result == nil || attempt.CompletedAt == nil || validateStoredAttempt(attempt) != nil {
 		return buildpromotion.ProjectedBuild{}, buildpromotion.ErrNotReady
 	}
-	definition, ok := s.definitions[attempt.DefinitionID]
-	if !ok || definition.ID != attempt.DefinitionID || definition.ProjectID != attempt.ProjectID || definition.ServiceID != attempt.ServiceID {
+	definition := attempt.SourceSnapshot
+	if definition.validate() != nil || definition.ID != attempt.DefinitionID || definition.ProjectID != attempt.ProjectID || definition.ServiceID != attempt.ServiceID {
 		return buildpromotion.ProjectedBuild{}, buildpromotion.ErrConflict
 	}
 	projection, ok := s.releaseProjections[attemptID]

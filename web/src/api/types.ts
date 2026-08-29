@@ -248,8 +248,8 @@ export type BuildDefinition = {
   cacheImports: number;
   profile: BuildProfile;
   maxAttempts: number;
-  definitionDigest: string;
-  definitionGeneration: number;
+  sourceDigest: string;
+  sourceRevision: number;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -272,7 +272,7 @@ export type BuildImage = {
 
 export type BuildAttempt = {
   id: string;
-  definitionId: string;
+  sourceId: string;
   projectId: string;
   applicationId: string;
   commitSha: string;
@@ -1540,7 +1540,6 @@ export type RegistryPolicy = {
   repository: string;
   keepLastSuccessful: number;
   minimumSafetyAgeSeconds: number;
-  cacheKeepGenerations: number;
   cacheUnusedExpirySeconds: number;
   cacheByteQuota: number;
   createdAt: string;
@@ -1551,7 +1550,6 @@ export type RegistryPolicyInput = {
   repository: string;
   keepLastSuccessful?: number;
   minimumSafetyAgeSeconds?: number;
-  cacheKeepGenerations?: number;
   cacheUnusedExpirySeconds?: number;
   cacheByteQuota?: number;
 };
@@ -1589,7 +1587,7 @@ export type RegistryCacheGeneration = {
   platformSet: string;
   trustLane: string;
   cacheSchema: string;
-  buildDefinitionHash: string;
+  sourceHash: string;
   generation: number;
   rootDigest: string;
   sizeBytes: number;
@@ -1668,7 +1666,6 @@ export type AutoDeployPolicyRevision = {
 
 export type AutoDeployPolicy = {
   id: string;
-  buildDefinitionId: string;
   projectId: string;
   applicationId: string;
   environmentId: string;
@@ -1695,7 +1692,6 @@ export type AutoDeployRun = {
 };
 
 export type CreateAutoDeployPolicy = {
-  buildDefinitionId: string;
   environmentId: string;
   templateDeploymentId: string;
   serviceActorId: string;

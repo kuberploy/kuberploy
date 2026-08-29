@@ -91,14 +91,14 @@ the flow with an empty, CSRF-protected `POST .../link`; handoff bytes are never
 returned to JavaScript.
 
 This switch activates the authenticated setup/callback API, the exact raw-body
-GitHub webhook ingress path, build-definition/history commands, durable worker
+GitHub webhook ingress path, App-source/history commands, durable worker
 receipt/build reconciliation, and post-build registry release/cache projection.
 Empty builder source and registry CIDR lists permit dual-stack public egress on
 only HTTPS and the verified registry port, with configured Kubernetes API CIDRs
 excluded. Optional `builder.networkPolicy.sourceEgressCIDRs` accepts canonical
 bounded provider ranges and `registryEgressCIDRs` accepts exact hosts for
-infrastructure-managed narrowing. The normalized lists remain part of every
-immutable build definition. `builder` and `builds` remain false in `/v1/capabilities` until a
+infrastructure-managed narrowing. The normalized lists are snapshotted on every
+accepted build attempt. `builder` and `builds` remain false in `/v1/capabilities` until a
 worker with the exact matching App ID, namespace, agent digest, explicit
 `builder.buildKitImage` reference, and runtime
 profile has proved its projected App key, configured all three required worker
@@ -371,7 +371,7 @@ name mutation.
 
 `config.helmApplications.enabled` enables direct Argo CD Helm Apps. It requires
 protected Argo desired state so the chart has one exact Argo namespace. The API
-stores immutable source-and-values revisions and reconciles deterministic
+stores current source-and-values settings with revision history and reconciles deterministic
 `kp-h-<application UUID>` Argo `Application` objects. Argo CD resolves, renders,
 syncs, and observes OCI, classic Helm repository, and Git chart sources; the
 control plane has no chart downloader, approval catalog, package cache, or

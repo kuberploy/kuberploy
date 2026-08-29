@@ -36,8 +36,8 @@ const definition: BuildDefinition = {
     egress: "github-registry",
   },
   maxAttempts: 3,
-  definitionDigest: `sha256:${"a".repeat(64)}`,
-  definitionGeneration: 1,
+  sourceDigest: `sha256:${"a".repeat(64)}`,
+  sourceRevision: 1,
   enabled: true,
   createdAt: "2026-08-09T00:00:00Z",
   updatedAt: "2026-08-09T00:00:00Z",
@@ -45,7 +45,7 @@ const definition: BuildDefinition = {
 
 const attempt: BuildAttempt = {
   id: "attempt-safe",
-  definitionId: definition.id,
+  sourceId: definition.id,
   projectId: definition.projectId,
   applicationId: definition.applicationId,
   commitSha: "b".repeat(40),
@@ -178,15 +178,10 @@ describe("GitHub source-build API client", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            items: [
-              {
-                ...definition,
-                registryCredential: "registry-credential-leak",
-                execution: { serviceAccount: "private-builder" },
-                profile: { ...definition.profile, token: "profile-token-leak" },
-              },
-              { ...definition, id: "cross-scope", applicationId: "other-app" },
-            ],
+            ...definition,
+            registryCredential: "registry-credential-leak",
+            execution: { serviceAccount: "private-builder" },
+            profile: { ...definition.profile, token: "profile-token-leak" },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         ),
@@ -219,7 +214,7 @@ describe("GitHub source-build API client", () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/v1/github/installations",
       "/v1/github/installations/installation%2Fid/repositories",
-      "/v1/applications/application%2Fid/build-definitions",
+      "/v1/applications/application%2Fid/source",
       "/v1/applications/application%2Fid/builds?limit=25",
     ]);
     expect(repositories.items).toHaveLength(1);
@@ -361,7 +356,7 @@ describe("GitHub source-build API client", () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/v1/github/installations/authorize",
       "/v1/github/installations/link",
-      "/v1/applications/application%2Fid/build-definitions",
+      "/v1/applications/application%2Fid/source",
       "/v1/builds/attempt%2Fid/cancel",
       "/v1/builds/attempt%2Fid/retry",
     ]);

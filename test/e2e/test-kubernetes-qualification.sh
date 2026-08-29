@@ -406,7 +406,7 @@ elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/metrics/query-range* ]]; 
   printf '%s\n' '{"series":[{"values":[[1,1]]}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/capabilities ]]; then
   kp_git=true; [[ "${KP_DISABLE_GIT_CAPABILITY:-false}" != "true" ]] || kp_git=false
-  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","build-definitions:write","helm-releases:read","helm-releases:deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
+  printf '{"features":{"git":%s,"gitops":true,"argo":true,"argoCD":true,"deploymentRollbacks":true,"builder":true,"builds":true,"autoDeploy":true,"githubAppSetup":true,"helmDeployments":true,"edge":true,"traefik":true,"sslip":true,"externalDNS":true,"externalDNSConfiguration":true,"variableSets":true,"traefikMiddlewares":true,"middlewareProfiles":true,"certManager":true,"customCertificates":true,"certificateIssuerCatalog":true,"registry":true,"managedRegistry":true,"imageTagResolution":true,"logs":true,"monitoring":true,"metrics":true,"secretBindings":true},"actions":["projects:create","environments:create","applications:create","deployments:create","deployments:update","operations:read","builds:read","builds:cancel","builds:retry","app-sources:write","helm-releases:read","helm-releases:deploy","deployment-config:read","deployment-config:preview","deployment-config:write","certificate-bindings:read","certificate-bindings:bind","certificate-bindings:create","registry:read","registry-cleanup:preview","registry-cleanup:execute","logs:read","metrics:read","secret-bindings:read","secret-bindings:bind","secret-bindings:create","secret-bindings:rotate","platform-releases:read"],"capabilities":[],"limits":{}}\n' "${kp_git}" >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/audit-events\?targetType=deployment* ]]; then
   printf '%s\n' '{"items":[{"id":"71717171-7171-4171-8171-717171717171","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-1","createdAt":"2026-08-09T10:02:00Z"},{"id":"72727272-7272-4272-8272-727272727272","actorId":"10101010-1010-4010-8010-101010101010","action":"deployment.config.accepted","targetType":"deployment","targetId":"99999999-9999-4999-8999-999999999999","outcome":"accepted","requestId":"qualification-2","createdAt":"2026-08-09T10:00:00Z"}]}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/meta ]]; then
@@ -496,8 +496,8 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/deployments/*/rollback ]
   kp_count=$((kp_count+1)); printf '%s' "${kp_count}" >"${kp_count_file}"
   if [[ "${kp_count}" -eq 1 ]]; then kp_id=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa; else kp_id=acacacac-acac-4cac-8cac-acacacacacac; fi
   printf '{"id":"%s","status":"queued"}\n' "${kp_id}" >"${kp_output}"; printf '202'
-elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/applications/*/build-definitions ]]; then
-  printf '%s\n' '{"id":"52525252-5252-4252-8252-525252525252","applicationId":"33333333-3333-4333-8333-333333333333","installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151"}' >"${kp_output}"; printf '201'
+elif [[ "${kp_method}" == "PUT" && "${kp_url}" == */v1/applications/*/source ]]; then
+	printf '%s\n' '{"id":"52525252-5252-4252-8252-525252525252","applicationId":"33333333-3333-4333-8333-333333333333","installationId":"50505050-5050-4050-8050-505050505050","repositoryId":"51515151-5151-4151-8151-515151515151"}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/webhooks/github && "${kp_invalid_signature}" == "true" ]]; then
   printf '%s\n' '{"status":401,"code":"Unauthenticated"}' >"${kp_output}"; printf '401'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/webhooks/github ]]; then
@@ -510,29 +510,29 @@ elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/webhooks/github ]]; then
   printf '%s\n' '{"accepted":true}' >"${kp_output}"; printf '202'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/applications/*/builds ]]; then
   printf '%s' '{"items":[' >"${kp_output}"
-  printf '%s' '{"id":"66666666-6666-4666-8666-666666666666","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"running"}' >>"${kp_output}"
+	printf '%s' '{"id":"66666666-6666-4666-8666-666666666666","sourceId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"running"}' >>"${kp_output}"
   if grep -Fq '|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' "${KP_COMMAND_LOG}.github-deliveries" 2>/dev/null; then
-    printf '%s' ',{"id":"65656565-6565-4565-8565-656565656565","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","generation":1,"state":"running"}' >>"${kp_output}"
+		printf '%s' ',{"id":"65656565-6565-4565-8565-656565656565","sourceId":"52525252-5252-4252-8252-525252525252","commitSha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","generation":1,"state":"running"}' >>"${kp_output}"
   fi
   if [[ -f "${KP_COMMAND_LOG}.build-retry" ]]; then
-    printf '%s' ',{"id":"67676767-6767-4767-8767-676767676767","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":2,"state":"succeeded"}' >>"${kp_output}"
+    printf '%s' ',{"id":"67676767-6767-4767-8767-676767676767","sourceId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":2,"state":"succeeded"}' >>"${kp_output}"
   fi
   printf '%s\n' ']}' >>"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/66666666-* ]]; then
-  printf '%s\n' '{"id":"66666666-6666-4666-8666-666666666666","definitionId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"succeeded","image":{"reference":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' >"${kp_output}"; printf '200'
+  printf '%s\n' '{"id":"66666666-6666-4666-8666-666666666666","sourceId":"52525252-5252-4252-8252-525252525252","commitSha":"ffffffffffffffffffffffffffffffffffffffff","generation":1,"state":"succeeded","image":{"reference":"registry.fixture.test/probe@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}' >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/applications/*/auto-deploy-policies ]]; then
   printf '%s\n' '{"id":"73737373-7373-4373-8373-737373737373","buildDefinitionId":"52525252-5252-4252-8252-525252525252","projectId":"11111111-1111-4111-8111-111111111111","applicationId":"33333333-3333-4333-8333-333333333333","environmentId":"22222222-2222-4222-8222-222222222221","currentRevision":1,"current":{"enabled":true}}' >"${kp_output}"; printf '201'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/66666666-*/retry ]]; then
   printf '%s\n' '{"id":"65656565-6565-4565-8565-656565656565","generation":2,"state":"queued"}' >"${kp_output}"; printf '202'
 elif [[ "${kp_method}" == "GET" && "${kp_url}" == */v1/builds/65656565-* ]]; then
   if [[ -f "${KP_COMMAND_LOG}.build-cancelled" ]]; then kp_state=cancelled; else kp_state=running; fi
-  printf '{"id":"65656565-6565-4565-8565-656565656565","definitionId":"52525252-5252-4252-8252-525252525252","generation":2,"state":"%s"}\n' "${kp_state}" >"${kp_output}"; printf '200'
+  printf '{"id":"65656565-6565-4565-8565-656565656565","sourceId":"52525252-5252-4252-8252-525252525252","generation":2,"state":"%s"}\n' "${kp_state}" >"${kp_output}"; printf '200'
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/65656565-*/cancel ]]; then
   if [[ "${kp_cookie_header}" != "true" || "${kp_csrf_header}" != "true" || "${kp_idempotency_header}" != "true" ]]; then
     printf '%s\n' '{"status":403,"code":"CancellationHeadersMissing"}' >"${kp_output}"; printf '403'
   else
     : >"${KP_COMMAND_LOG}.build-cancelled"
-    printf '%s\n' '{"id":"65656565-6565-4565-8565-656565656565","definitionId":"52525252-5252-4252-8252-525252525252","generation":2,"state":"cancelling"}' >"${kp_output}"; printf '202'
+    printf '%s\n' '{"id":"65656565-6565-4565-8565-656565656565","sourceId":"52525252-5252-4252-8252-525252525252","generation":2,"state":"cancelling"}' >"${kp_output}"; printf '202'
   fi
 elif [[ "${kp_method}" == "POST" && "${kp_url}" == */v1/builds/65656565-*/retry ]]; then
   kp_retry_count_file="${KP_COMMAND_LOG}.build-retry-count"; kp_retry_count=0
@@ -869,7 +869,7 @@ for kp_required_mutation in \
   'curl|POST|https://api.fixture.test/v1/applications' \
   'curl|POST|https://api.fixture.test/v1/deployments' \
   'curl|POST|https://api.fixture.test/v1/deployments/99999999-9999-4999-8999-999999999999/rollback' \
-  'curl|POST|https://api.fixture.test/v1/applications/33333333-3333-4333-8333-333333333333/build-definitions' \
+	'curl|PUT|https://api.fixture.test/v1/applications/33333333-3333-4333-8333-333333333333/source' \
   'curl|POST|https://api.fixture.test/v1/webhooks/github' \
   'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/cancel' \
   'curl|POST|https://api.fixture.test/v1/builds/65656565-6565-4565-8565-656565656565/retry' \

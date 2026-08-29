@@ -58,7 +58,7 @@ func (s *Store) CreatePolicy(_ context.Context, policy autodeploy.Policy, revisi
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict
 	}
 	for _, current := range s.autoDeployPolicies {
-		if current.BuildDefinitionID == policy.BuildDefinitionID && current.EnvironmentID == policy.EnvironmentID {
+		if current.ApplicationID == policy.ApplicationID && current.EnvironmentID == policy.EnvironmentID {
 			return autodeploy.Policy{}, autodeploy.Revision{}, false, base.ErrConflict
 		}
 	}

@@ -186,6 +186,9 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 		if !errors.Is(getErr, builds.ErrNotFound) {
 			return builds.BuildDefinition{}, false, getErr
 		}
+		// App source is editable and keeps only its current revision. Replaying an
+		// older save after a later edit must not roll the App back implicitly.
+		return builds.BuildDefinition{}, false, builds.ErrConflict
 	}
 	resolution, err := b.resolver.ResolveBuildDefinition(ctx, input.ActorID, input.ProjectID, input.ApplicationID, input.RegistryTargetID)
 	if err != nil {
@@ -208,6 +211,21 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	}
 	if input.SourceKind == "" {
 		input.SourceKind = builds.SourceGitHub
+	}
+	// Build-argument values are write-only in API responses. When an App source
+	// is edited without a buildArgs field, preserve the current values instead
+	// of replacing the redacted values with empty strings.
+	if input.BuildArgs == nil {
+		current, currentErr := b.store.DefinitionsForService(ctx, input.ApplicationID)
+		if currentErr != nil {
+			return builds.BuildDefinition{}, false, currentErr
+		}
+		if len(current) > 1 {
+			return builds.BuildDefinition{}, false, builds.ErrConflict
+		}
+		if len(current) == 1 {
+			input.BuildArgs = append([]builder.BuildArg(nil), current[0].Spec.BuildArgs...)
+		}
 	}
 	var gitSSHSource *builds.GitSSHSource
 	if input.SourceKind == builds.SourceGitHub {
@@ -271,7 +289,11 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	if err = b.store.PutDefinition(ctx, definition); err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
-	return definition, replay, nil
+	stored, err := b.store.Definition(ctx, definition.ID)
+	if err != nil {
+		return builds.BuildDefinition{}, false, err
+	}
+	return stored, replay, nil
 }
 
 func (b *buildBackend) Definitions(ctx context.Context, applicationID string) ([]builds.BuildDefinition, error) {
@@ -811,8 +833,8 @@ type buildDefinitionView struct {
 	CacheImports         int                     `json:"cacheImports"`
 	Profile              builder.BuildProfile    `json:"profile"`
 	MaxAttempts          int                     `json:"maxAttempts"`
-	DefinitionDigest     string                  `json:"definitionDigest"`
-	DefinitionGeneration int64                   `json:"definitionGeneration"`
+	DefinitionDigest     string                  `json:"sourceDigest"`
+	DefinitionGeneration int64                   `json:"sourceRevision"`
 	Enabled              bool                    `json:"enabled"`
 	CreatedAt            time.Time               `json:"createdAt"`
 	UpdatedAt            time.Time               `json:"updatedAt"`
@@ -830,7 +852,7 @@ type buildSecretProfileCatalogView struct {
 
 type buildAttemptView struct {
 	ID                string              `json:"id"`
-	DefinitionID      string              `json:"definitionId"`
+	DefinitionID      string              `json:"sourceId"`
 	ProjectID         string              `json:"projectId"`
 	ApplicationID     string              `json:"applicationId"`
 	CommitSHA         string              `json:"commitSha"`
@@ -851,30 +873,13 @@ type buildAttemptView struct {
 	UpdatedAt         time.Time           `json:"updatedAt"`
 }
 
-func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) putApplicationBuildSource(w http.ResponseWriter, r *http.Request) {
 	application, ok := s.authorizedBuildApplication(w, r, domain.PermissionBuildsRead)
 	if !ok {
 		return
 	}
 	if s.builds == nil {
 		githubBuildUnavailable(w, r, "Source builds are not configured.")
-		return
-	}
-	if r.Method == http.MethodGet {
-		definitions, err := s.builds.Definitions(r.Context(), application.ID)
-		if err != nil {
-			mappedGitHubBuildError(w, r, err)
-			return
-		}
-		views := make([]buildDefinitionView, 0, len(definitions))
-		for _, definition := range definitions {
-			if definition.ServiceID != application.ID || definition.ProjectID != application.ProjectID {
-				mappedError(w, r, store.ErrNotFound)
-				return
-			}
-			views = append(views, safeBuildDefinition(definition))
-		}
-		collection(w, views)
 		return
 	}
 	if err := s.store.Authorize(r.Context(), currentUser(r.Context()).ID, domain.PermissionBuildsManage, domain.AccessTarget{Type: "application", ID: application.ID}); err != nil {
@@ -918,8 +923,33 @@ func (s *Server) applicationBuildDefinitions(w http.ResponseWriter, r *http.Requ
 	if replay {
 		w.Header().Set("Idempotent-Replay", "true")
 	}
-	w.Header().Set("Location", "/v1/applications/"+application.ID+"/build-definitions/"+definition.ID)
-	writeJSON(w, http.StatusCreated, safeBuildDefinition(definition))
+	w.Header().Set("Location", "/v1/applications/"+application.ID+"/source")
+	writeJSON(w, http.StatusOK, safeBuildDefinition(definition))
+}
+
+func (s *Server) applicationBuildSource(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPut {
+		s.putApplicationBuildSource(w, r)
+		return
+	}
+	application, ok := s.authorizedBuildApplication(w, r, domain.PermissionBuildsRead)
+	if !ok {
+		return
+	}
+	if s.builds == nil {
+		githubBuildUnavailable(w, r, "Source builds are not configured.")
+		return
+	}
+	definitions, err := s.builds.Definitions(r.Context(), application.ID)
+	if err != nil {
+		mappedGitHubBuildError(w, r, err)
+		return
+	}
+	if len(definitions) != 1 || definitions[0].ServiceID != application.ID || definitions[0].ProjectID != application.ProjectID {
+		mappedError(w, r, store.ErrNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, safeBuildDefinition(definitions[0]))
 }
 
 func (s *Server) deleteApplicationBuildDefinition(w http.ResponseWriter, r *http.Request) {
@@ -931,9 +961,9 @@ func (s *Server) deleteApplicationBuildDefinition(w http.ResponseWriter, r *http
 		githubBuildUnavailable(w, r, "Source builds are not configured.")
 		return
 	}
-	definitionID := strings.TrimSpace(r.PathValue("definitionId"))
+	definitionID := strings.TrimSpace(r.PathValue("sourceId"))
 	if !validUUID(definitionID) {
-		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The build definition identifier is invalid.")
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The App source identifier is invalid.")
 		return
 	}
 	key, ok := githubBuildIdempotencyKey(w, r)
@@ -1417,9 +1447,9 @@ func mappedGitHubBuildError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, builds.ErrNotFound):
 		mappedError(w, r, store.ErrNotFound)
 	case errors.Is(err, builds.ErrConflict), errors.Is(err, builds.ErrTerminal):
-		writeProblem(w, r, http.StatusConflict, "BuildConflict", "Build conflict", "The build definition or attempt is not in a state that permits this command.")
+		writeProblem(w, r, http.StatusConflict, "BuildConflict", "Build conflict", "The App source or build attempt is not in a state that permits this command.")
 	case errors.Is(err, builds.ErrDeletionBlocked):
-		writeProblem(w, r, http.StatusConflict, "BuildDefinitionDeletionBlocked", "Source disconnect blocked", "Wait for active builds to finish or cancel them before disconnecting this source.")
+		writeProblem(w, r, http.StatusConflict, "AppSourceDisconnectBlocked", "Source disconnect blocked", "Wait for active builds to finish or cancel them before disconnecting this source.")
 	case errors.Is(err, builds.ErrInvalid), errors.Is(err, githubapp.ErrInvalidTokenRequest):
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "The GitHub or build request is invalid.")
 	case errors.Is(err, store.ErrIdempotencyConflict):

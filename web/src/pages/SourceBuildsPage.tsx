@@ -186,11 +186,12 @@ export function SourceBuildsPage() {
         )
       : [];
   const definitions = useQuery({
-    queryKey: ["build-definitions", selectedApplicationId],
+    queryKey: ["app-source", selectedApplicationId],
     queryFn: () => api.buildDefinitions(selectedApplicationId),
     enabled: buildsConfigured && Boolean(selectedApplication),
     retry: false,
   });
+  const activeSource = definitions.data?.items.find((item) => item.enabled);
   const attempts = useQuery({
     queryKey: ["build-attempts", selectedApplicationId],
     queryFn: () => api.buildAttempts(selectedApplicationId, 50),
@@ -217,7 +218,7 @@ export function SourceBuildsPage() {
     humanSession &&
     hasBuildApplicationCapability(
       effectiveCapabilities,
-      "build-definitions:write",
+      "app-sources:write",
       selectedApplication,
       selectedProject,
     ),
@@ -253,7 +254,7 @@ export function SourceBuildsPage() {
       <PageHeader
         eyebrow="Delivery"
         title="GitHub source builds"
-        description="Create immutable, repository-scoped definitions and follow isolated multi-platform builds from verified webhooks to registry digests."
+        description="Connect an editable GitHub source to an App and follow its multi-platform builds from verified webhooks to registry images."
         actions={
           buildsConfigured && selectedApplication ? (
             <Button
@@ -376,7 +377,7 @@ export function SourceBuildsPage() {
               key={`${selectedProject.id}:${selectedApplication.id}`}
               application={selectedApplication}
               project={selectedProject}
-              definitions={definitions.data?.items ?? []}
+              sourceConnected={Boolean(activeSource)}
               enabled={autoDeployEnabled}
               humanSession={Boolean(humanSession)}
               capabilities={effectiveCapabilities}
@@ -388,11 +389,15 @@ export function SourceBuildsPage() {
               <Card className="mb-5">
                 <CardHeader>
                   <div>
-                    <Eyebrow>Definition</Eyebrow>
-                    <h2>Create from verified source</h2>
+                    <Eyebrow>App source</Eyebrow>
+                    <h2>
+                      {activeSource
+                        ? "Edit GitHub source"
+                        : "Connect GitHub source"}
+                    </h2>
                     <p>
-                      Definitions are immutable. To change source, platforms,
-                      registry, or cache behavior, create a new definition.
+                      Repository, ref, platforms, registry, and build settings
+                      belong directly to this App and can be changed here.
                     </p>
                   </div>
                   <StatusPill
@@ -410,78 +415,75 @@ export function SourceBuildsPage() {
                   }
                   humanSession={humanSession}
                   registryTargets={registryTargets}
+                  source={activeSource}
                 />
               </Card>
 
               <Card className="mb-5">
                 <CardHeader>
                   <div>
-                    <Eyebrow>Definitions</Eyebrow>
-                    <h2>Source connections</h2>
+                    <Eyebrow>Connection</Eyebrow>
+                    <h2>Current App source</h2>
                   </div>
                   <span className="inline-flex w-max min-h-[22px] items-center py-0 px-2 border border-line rounded-md text-ink-soft bg-surface-soft text-xs font-semibold whitespace-nowrap">
-                    {definitions.data?.items.length ?? 0} definitions
+                    {activeSource ? "Connected" : "Not connected"}
                   </span>
                 </CardHeader>
                 {definitions.isPending ? (
                   <Skeleton lines={5} />
-                ) : definitions.data?.items.length ? (
+                ) : activeSource ? (
                   <div className="overflow-hidden border border-line rounded-[11px]">
-                    {definitions.data.items.map((definition) => (
-                      <article
-                        className="last:border-b-0 [&_small]:text-ink-faint [&_small]:text-xs grid grid-cols-[minmax(0,_1fr)_auto] gap-3 p-4 border-b border-b-line [&>div:first-child]:flex [&>div:first-child]:min-w-0 [&>div:first-child]:items-center [&>div:first-child]:justify-between [&>div:first-child]:gap-3 [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_code]:text-ink-faint [&_code]:text-xs [&>small]:self-center [&>small]:text-right"
-                        key={definition.id}
-                      >
+                    <article
+                      className="last:border-b-0 [&_small]:text-ink-faint [&_small]:text-xs grid grid-cols-[minmax(0,_1fr)_auto] gap-3 p-4 border-b border-b-line [&>div:first-child]:flex [&>div:first-child]:min-w-0 [&>div:first-child]:items-center [&>div:first-child]:justify-between [&>div:first-child]:gap-3 [&_strong]:overflow-hidden [&_strong]:text-meta [&_strong]:text-ellipsis [&_strong]:whitespace-nowrap [&_code]:text-ink-faint [&_code]:text-xs [&>small]:self-center [&>small]:text-right"
+                      key={activeSource.id}
+                    >
+                      <div>
+                        <strong>{gitRefLabel(activeSource.triggerRef)}</strong>
+                        <code>
+                          {shortId(activeSource.sourceDigest, 12)}
+                        </code>
+                      </div>
+                      <dl className="grid col-[1_/_-1] grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 m-0 [&>div]:min-w-0 [&>div]:py-2 [&>div]:px-3 [&>div]:rounded-lg [&>div]:bg-surface-soft [&_dt]:text-ink-faint [&_dt]:text-[11px] [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-xs [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap to-520:grid-cols-[1fr]">
                         <div>
-                          <strong>{gitRefLabel(definition.triggerRef)}</strong>
-                          <code>
-                            {shortId(definition.definitionDigest, 12)}
-                          </code>
+                          <dt>Platforms</dt>
+                          <dd>{activeSource.platforms.join(", ")}</dd>
                         </div>
-                        <dl className="grid col-[1_/_-1] grid-cols-[repeat(3,_minmax(0,_1fr))] gap-3 m-0 [&>div]:min-w-0 [&>div]:py-2 [&>div]:px-3 [&>div]:rounded-lg [&>div]:bg-surface-soft [&_dt]:text-ink-faint [&_dt]:text-[11px] [&_dd]:mt-1 [&_dd]:mx-0 [&_dd]:mb-0 [&_dd]:overflow-hidden [&_dd]:text-xs [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap to-520:grid-cols-[1fr]">
-                          <div>
-                            <dt>Platforms</dt>
-                            <dd>{definition.platforms.join(", ")}</dd>
-                          </div>
-                          <div>
-                            <dt>Registry</dt>
-                            <dd>{definition.registry.server}</dd>
-                          </div>
-                          <div>
-                            <dt>Cache</dt>
-                            <dd>
-                              {definition.cacheTrustLane} ·{" "}
-                              {definition.cacheImports} imports
-                            </dd>
-                          </div>
-                        </dl>
-                        <StatusPill
-                          value={definition.enabled ? "active" : "disabled"}
-                        />
-                        <small>
-                          Created {formatDate(definition.createdAt)}
-                        </small>
-                        {canCreateDefinition ? (
-                          <Button
-                            className="justify-self-end"
-                            variant="danger"
-                            onClick={() => {
-                              disconnectSource.reset();
-                              disconnectAttempt.current = null;
-                              setDisconnectDefinition(definition);
-                            }}
-                          >
-                            <Icon name="close" /> Disconnect source
-                          </Button>
-                        ) : null}
-                      </article>
-                    ))}
+                        <div>
+                          <dt>Registry</dt>
+                          <dd>{activeSource.registry.server}</dd>
+                        </div>
+                        <div>
+                          <dt>Cache</dt>
+                          <dd>
+                            {activeSource.cacheTrustLane} ·{" "}
+                            {activeSource.cacheImports} imports
+                          </dd>
+                        </div>
+                      </dl>
+                      <StatusPill value="active" />
+                      <small>
+                        Updated {formatDate(activeSource.updatedAt)}
+                      </small>
+                      {canCreateDefinition ? (
+                        <Button
+                          className="justify-self-end"
+                          variant="danger"
+                          onClick={() => {
+                            disconnectSource.reset();
+                            disconnectAttempt.current = null;
+                            setDisconnectDefinition(activeSource);
+                          }}
+                        >
+                          <Icon name="close" /> Disconnect source
+                        </Button>
+                      ) : null}
+                    </article>
                   </div>
                 ) : (
                   <EmptyState
                     icon="git"
-                    title="No build definition"
-                    description="Create the first immutable definition. A verified matching push will create an attempt."
+                    title="No App source"
+                    description="Connect a GitHub source. A verified matching push will create a build attempt."
                     compact
                   />
                 )}
@@ -524,7 +526,7 @@ export function SourceBuildsPage() {
                 <EmptyState
                   icon="terminal"
                   title="No build attempt"
-                  description="Attempts appear after GitHub delivers a verified push matching an enabled immutable definition."
+                  description="Attempts appear after GitHub delivers a verified push matching the App source."
                   compact
                 />
               )}

@@ -226,7 +226,7 @@ describe("application source overview", () => {
         {
           scopeType: "application",
           scopeId: "application-1",
-          actions: ["build-definitions:read", "build-definitions:write"],
+          actions: ["app-sources:read", "app-sources:write"],
         },
       ],
     });
@@ -422,7 +422,7 @@ describe("application source overview", () => {
           role: "developer",
           scopeType: "project",
           scopeId: "project-1",
-          actions: ["build-definitions:read"],
+          actions: ["app-sources:read"],
         },
       ],
     });
@@ -456,8 +456,8 @@ describe("application source overview", () => {
             egress: "registry-and-source",
           },
           maxAttempts: 3,
-          definitionDigest: `sha256:${"b".repeat(64)}`,
-          definitionGeneration: 1,
+          sourceDigest: `sha256:${"b".repeat(64)}`,
+          sourceRevision: 1,
           enabled: true,
           createdAt: "2026-08-12T00:00:00Z",
           updatedAt: "2026-08-12T00:00:00Z",
@@ -474,7 +474,7 @@ describe("application source overview", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows active immutable source before starting a replacement definition", async () => {
+  it("shows the current App source before editing it", async () => {
     const user = userEvent.setup();
     vi.mocked(api.capabilities).mockResolvedValue({
       features: { builds: true, builder: true },
@@ -483,7 +483,7 @@ describe("application source overview", () => {
           role: "developer",
           scopeType: "project",
           scopeId: "project-1",
-          actions: ["build-definitions:read", "build-definitions:write"],
+          actions: ["app-sources:read", "app-sources:write"],
         },
       ],
     });
@@ -517,8 +517,8 @@ describe("application source overview", () => {
             egress: "registry-and-source",
           },
           maxAttempts: 3,
-          definitionDigest: `sha256:${"c".repeat(64)}`,
-          definitionGeneration: 2,
+          sourceDigest: `sha256:${"c".repeat(64)}`,
+          sourceRevision: 2,
           enabled: true,
           createdAt: "2026-08-12T00:00:00Z",
           updatedAt: "2026-08-12T00:00:00Z",
@@ -532,13 +532,13 @@ describe("application source overview", () => {
     await user.click(screen.getByRole("button", { name: "Source & build" }));
 
     expect(
-      await screen.findByText("Active immutable definition"),
+      await screen.findByText("Connected GitHub source"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("GitHub / v1.2.3 · deploy/Dockerfile"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Form below starts a new immutable definition/),
+      screen.getByText(/Edit and save the App source below/),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Disconnect source" }));
     await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");

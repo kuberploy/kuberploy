@@ -9,7 +9,7 @@ import (
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-// AuditBuildLogAccess freshly resolves the immutable build-attempt ownership
+// AuditBuildLogAccess freshly resolves the recorded build-attempt ownership
 // chain, reauthorizes both build visibility and logs.read, and writes the audit
 // event in one transaction before Kubernetes is contacted.
 func (s *Store) AuditBuildLogAccess(ctx context.Context, actor, attemptID, action, requestID string) error {

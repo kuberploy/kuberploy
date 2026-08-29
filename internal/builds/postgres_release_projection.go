@@ -51,10 +51,7 @@ func (s *PostgreSQLStore) ClaimNextReleaseProjection(ctx context.Context, owner 
 	if err != nil {
 		return ReleaseProjectionWork{}, err
 	}
-	definition, err := definitionByIDQuery(ctx, tx, attempt.DefinitionID, false)
-	if err != nil {
-		return ReleaseProjectionWork{}, err
-	}
+	definition := attempt.SourceSnapshot
 	if err = tx.Commit(ctx); err != nil {
 		return ReleaseProjectionWork{}, err
 	}

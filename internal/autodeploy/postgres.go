@@ -86,13 +86,13 @@ func scanWork(ctx context.Context, q queryer, attemptID, policyID string, lease 
 	var w Work
 	w.Lease = lease
 	var completed *time.Time
-	err := q.QueryRow(ctx, `SELECT p.id::text,p.build_definition_id::text,p.project_id::text,p.application_id::text,p.environment_id::text,p.current_revision,p.created_by::text,p.created_at,
+	err := q.QueryRow(ctx, `SELECT p.id::text,p.project_id::text,p.application_id::text,p.environment_id::text,p.current_revision,p.created_by::text,p.created_at,
 		r.policy_id::text,r.revision,r.enabled,r.source_deployment_id::text,r.source_deployment_generation,r.source_config_etag,r.config_intent,r.template_digest,r.service_actor_id::text,r.created_by::text,r.created_at,
 		x.attempt_id::text,x.policy_id::text,x.policy_revision,x.definition_id::text,x.definition_digest,x.release_id::text,x.template_digest,
 		x.source_deployment_id::text,x.source_deployment_generation,x.source_config_etag,x.idempotency_key,x.state,x.attempts,x.available_at,COALESCE(x.operation_id::text,''),COALESCE(x.deployment_id::text,''),x.failure_code,x.created_at,x.updated_at,x.completed_at
 		FROM auto_deploy_runs x JOIN auto_deploy_policies p ON p.id=x.policy_id JOIN auto_deploy_policy_revisions r ON r.policy_id=x.policy_id AND r.revision=x.policy_revision
 		WHERE x.attempt_id=$1 AND x.policy_id=$2`, attemptID, policyID).Scan(
-		&w.Policy.ID, &w.Policy.BuildDefinitionID, &w.Policy.ProjectID, &w.Policy.ApplicationID, &w.Policy.EnvironmentID, &w.Policy.CurrentRevision, &w.Policy.CreatedBy, &w.Policy.CreatedAt,
+		&w.Policy.ID, &w.Policy.ProjectID, &w.Policy.ApplicationID, &w.Policy.EnvironmentID, &w.Policy.CurrentRevision, &w.Policy.CreatedBy, &w.Policy.CreatedAt,
 		&w.Revision.PolicyID, &w.Revision.Revision, &w.Revision.Enabled, &w.Revision.Template.SourceDeploymentID, &w.Revision.Template.SourceDeploymentGeneration, &w.Revision.Template.SourceConfigETag, &w.Revision.Template.ConfigIntent, &w.Revision.TemplateDigest, &w.Revision.ServiceActorID, &w.Revision.CreatedBy, &w.Revision.CreatedAt,
 		&w.Run.AttemptID, &w.Run.PolicyID, &w.Run.PolicyRevision, &w.Run.DefinitionID, &w.Run.DefinitionDigest, &w.Run.ReleaseID, &w.Run.TemplateDigest,
 		&w.Run.SourceDeploymentID, &w.Run.SourceDeploymentGeneration, &w.Run.SourceConfigETag, &w.Run.IdempotencyKey, &w.Run.State, &w.Run.Attempts, &w.Run.AvailableAt, &w.Run.OperationID, &w.Run.DeploymentID, &w.Run.FailureCode, &w.Run.CreatedAt, &w.Run.UpdatedAt, &completed)

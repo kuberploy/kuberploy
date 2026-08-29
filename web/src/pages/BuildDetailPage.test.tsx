@@ -24,7 +24,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 const attempt: BuildAttempt = {
   id: "attempt-safe",
-  definitionId: "definition-safe",
+  sourceId: "source-safe",
   projectId: "project-safe",
   applicationId: "application-safe",
   commitSha: "b".repeat(40),
@@ -151,7 +151,7 @@ describe("build detail log availability", () => {
     );
     await user.click(screen.getByRole("button", { name: "Confirm retry" }));
     expect(
-      await screen.findByText("Immutable retry queued"),
+      await screen.findByText("Retry queued"),
     ).toBeInTheDocument();
 
     routeParams.buildId = secondAttempt.id;
@@ -163,7 +163,7 @@ describe("build detail log availability", () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByText("Immutable retry queued"),
+        screen.queryByText("Retry queued"),
       ).not.toBeInTheDocument(),
     );
     expect(

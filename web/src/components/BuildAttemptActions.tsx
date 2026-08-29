@@ -120,7 +120,7 @@ export function BuildAttemptActions({
             <strong>
               {command.kind === "cancel"
                 ? "Cancel this build?"
-                : "Create an immutable retry?"}
+                : "Retry this build?"}
             </strong>
             <p>
               Type the exact build ID. A retry preserves the authoritative

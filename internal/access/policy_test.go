@@ -239,8 +239,8 @@ func TestBuildPermissionsAreClosedAndIndependentlyAddressable(t *testing.T) {
 		}
 	}
 	for permission, want := range map[domain.Permission][]string{
-		domain.PermissionBuildsRead:   {"build-definitions:read", "builds:read"},
-		domain.PermissionBuildsManage: {"build-definitions:write"},
+		domain.PermissionBuildsRead:   {"app-sources:read", "builds:read"},
+		domain.PermissionBuildsManage: {"app-sources:write"},
 		domain.PermissionBuildsCancel: {"builds:cancel"},
 		domain.PermissionBuildsRetry:  {"builds:retry"},
 	} {

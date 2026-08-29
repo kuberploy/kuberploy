@@ -184,12 +184,11 @@ func TestPostgreSQLApplicationAndEnvironmentDeletion(t *testing.T) {
 	if _, err = store.pool.Exec(ctx, `INSERT INTO registry_targets(id,name,mode,endpoint,repository_prefix,pull_credential_ref,created_at,updated_at) VALUES($1,$2,'managed','registry.test','apps','registry-auth',$3,$3)`, registryID, "delete-"+suffix, now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.pool.Exec(ctx, `INSERT INTO build_definitions(id,project_id,service_id,installation_id,repository_id,registry_target_id,trigger_ref,spec,definition_digest,generation,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,'refs/heads/main','{}',$7,1,$8,$8)`, definitionID, project.Value.ID, application.Value.ID, installationID, repositoryID, registryID, "sha256:"+strings.Repeat("9", 64), now); err != nil {
+	if _, err = store.pool.Exec(ctx, `UPDATE applications SET source_kind='github',build_source_id=$1,build_source_kind='github',build_source_installation_id=$2,
+		build_source_repository_id=$3,build_source_registry_target_id=$4,build_source_trigger_ref='refs/heads/main',build_source_spec='{}',
+		build_source_digest=$5,build_source_revision=1,build_source_created_at=$6,build_source_updated_at=$6 WHERE id=$7`,
+		definitionID, installationID, repositoryID, registryID, "sha256:"+strings.Repeat("9", 64), now, application.Value.ID); err != nil {
 		t.Fatal(err)
-	}
-	if _, err = store.DeleteApplication(ctx, actorID, application.Value.ID, application.Value.Name, "delete-app-build-blocked-"+suffix, "delete-app-build-blocked", "request-app-build-blocked-"+suffix); !errors.Is(err, base.ErrApplicationDeletionBlocked) {
-		t.Fatalf("source-configured App deletion err=%v", err)
 	}
 	buildStore, err := builds.NewPostgreSQLStore(store.pool)
 	if err != nil {

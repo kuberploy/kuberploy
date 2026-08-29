@@ -58,8 +58,11 @@ func (s *PostgreSQLStore) DefinitionsForService(ctx context.Context, serviceID s
 	if !uuidRE.MatchString(serviceID) {
 		return nil, ErrInvalid
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text,project_id::text,service_id::text,source_kind,COALESCE(installation_id::text,''),COALESCE(repository_id::text,''),git_ssh_source,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at
-		FROM build_definitions WHERE service_id=$1 ORDER BY updated_at DESC,id`, serviceID)
+	rows, err := s.pool.Query(ctx, `SELECT build_source_id::text,project_id::text,id::text,build_source_kind,
+		COALESCE(build_source_installation_id::text,''),COALESCE(build_source_repository_id::text,''),build_source_git_ssh,
+		build_source_trigger_ref,build_source_spec,build_source_digest,build_source_revision,true,
+		build_source_created_at,build_source_updated_at
+		FROM applications WHERE id=$1 AND build_source_id IS NOT NULL`, serviceID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,11 +208,8 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if source.State != AttemptFailed && source.State != AttemptCancelled {
 		return BuildAttempt{}, false, ErrConflict
 	}
-	definition, err := definitionByIDQuery(ctx, tx, source.DefinitionID, true)
-	if err != nil {
-		return BuildAttempt{}, false, err
-	}
-	if !definition.Enabled || definition.DefinitionDigest != source.DefinitionDigest {
+	definition := source.SourceSnapshot
+	if !definition.Enabled || definition.DefinitionDigest != source.DefinitionDigest || definition.validate() != nil {
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
 	var installation Installation
@@ -276,10 +276,11 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	}
 	planJSON, _ := json.Marshal(attempt.PlanRequest)
 	checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
-	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued',0,$16,$17,$18,$19,$20,$21,$21)`,
+	sourceJSON, _ := json.Marshal(attempt.SourceSnapshot)
+	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',0,$17,$18,$19,$20,$21,$22,$22)`,
 		attempt.ID, attempt.DefinitionID, nullableUUID(attempt.DeliveryClaimKey), attempt.TriggerKind, attempt.TriggerKey, attempt.ProjectID, attempt.ServiceID,
-		attempt.CommitSHA, attempt.GitRef, attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
+		attempt.CommitSHA, attempt.GitRef, attempt.Generation, attempt.DefinitionDigest, sourceJSON, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
 		attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)
@@ -345,10 +346,11 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 	}
 	planJSON, _ := json.Marshal(attempt.PlanRequest)
 	checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
-	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
-		VALUES($1,$2,NULL,'manual',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'queued',0,$14,$15,$16,$17,$18,$19,$19)`,
+	sourceJSON, _ := json.Marshal(attempt.SourceSnapshot)
+	_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
+		VALUES($1,$2,NULL,'manual',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'queued',0,$15,$16,$17,$18,$19,$20,$20)`,
 		attempt.ID, attempt.DefinitionID, attempt.TriggerKey, attempt.ProjectID, attempt.ServiceID, attempt.CommitSHA, attempt.GitRef,
-		attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
+		attempt.Generation, attempt.DefinitionDigest, sourceJSON, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
 		attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
 	if err != nil {
 		return BuildAttempt{}, false, classifyPostgres(err)

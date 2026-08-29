@@ -106,7 +106,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"listDeploymentRollbackSources": "app.read", "rollbackDeployment": "app.edit",
 		"validateDeploymentConfig": "app.read", "listOperations": "app.read", "getOperation": "app.read", "listApplicationWorkloads": "app.read",
 		"listEnvironmentExternalDNSIntegrations": "app.read", "listApplicationExternalDNSIntegrations": "app.read",
-		"listApplicationBuildDefinitions": "app.read", "listApplicationBuildProfiles": "app.read", "listApplicationBuilds": "app.read", "getBuildDefinition": "app.read", "getBuildAttempt": "app.read",
+		"getApplicationBuildSource": "app.read", "listApplicationBuildProfiles": "app.read", "listApplicationBuilds": "app.read", "getAppBuildSource": "app.read", "getBuildAttempt": "app.read",
 		"listApplicationAutoDeployPolicies": "app.read", "getAutoDeployPolicy": "app.read",
 		"listAutoDeployPolicyRevisions": "app.read", "listAutoDeployPolicyRuns": "app.read",
 		"getBuildAttemptLogs":             "logs.read",
@@ -116,7 +116,7 @@ func TestAgentProfileIsDeterministicAndFailClosed(t *testing.T) {
 		"upsertDesiredHelmRelease": "app.edit", "retryDesiredHelmRelease": "app.edit",
 		"disableDesiredHelmRelease": "app.edit", "rollbackDesiredHelmRelease": "app.edit",
 		"previewDeploymentConfig": "app.edit", "saveDeploymentConfig": "app.edit",
-		"createApplicationBuildDefinition": "build.create", "createManualBuildAttempt": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create",
+		"putApplicationBuildSource": "build.create", "createManualBuildAttempt": "build.create", "cancelBuildAttempt": "build.create", "retryBuildAttempt": "build.create",
 	}
 	if len(operationScopes) != len(expectedScopes) {
 		t.Fatalf("agent operation set drifted: got=%d expected=%d", len(operationScopes), len(expectedScopes))

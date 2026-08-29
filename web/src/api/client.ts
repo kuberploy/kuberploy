@@ -803,8 +803,8 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
     cacheImports: definition.cacheImports,
     profile: safeBuildProfile(definition.profile),
     maxAttempts: definition.maxAttempts,
-    definitionDigest: definition.definitionDigest,
-    definitionGeneration: definition.definitionGeneration,
+    sourceDigest: definition.sourceDigest,
+    sourceRevision: definition.sourceRevision,
     enabled: definition.enabled,
     createdAt: definition.createdAt,
     updatedAt: definition.updatedAt,
@@ -814,7 +814,7 @@ function safeBuildDefinition(definition: BuildDefinition): BuildDefinition {
 function safeBuildAttempt(attempt: BuildAttempt): BuildAttempt {
   return {
     id: attempt.id,
-    definitionId: attempt.definitionId,
+    sourceId: attempt.sourceId,
     projectId: attempt.projectId,
     applicationId: attempt.applicationId,
     commitSha: attempt.commitSha,
@@ -1436,7 +1436,6 @@ function safeRegistryPolicy(policy: RegistryPolicy): RegistryPolicy {
     repository: policy.repository,
     keepLastSuccessful: policy.keepLastSuccessful,
     minimumSafetyAgeSeconds: policy.minimumSafetyAgeSeconds,
-    cacheKeepGenerations: policy.cacheKeepGenerations,
     cacheUnusedExpirySeconds: policy.cacheUnusedExpirySeconds,
     cacheByteQuota: policy.cacheByteQuota,
     createdAt: policy.createdAt,
@@ -1478,7 +1477,7 @@ function safeRegistryCacheGeneration(
     platformSet: generation.platformSet,
     trustLane: generation.trustLane,
     cacheSchema: generation.cacheSchema,
-    buildDefinitionHash: generation.buildDefinitionHash,
+    sourceHash: generation.sourceHash,
     generation: generation.generation,
     rootDigest: generation.rootDigest,
     sizeBytes: generation.sizeBytes,
@@ -2267,18 +2266,25 @@ export const api = {
       idempotencyKey,
     ),
   buildDefinitions: (applicationId: string) =>
-    request<Collection<BuildDefinition> | BuildDefinition[]>(
-      `/v1/applications/${encodeURIComponent(applicationId)}/build-definitions`,
-    ).then((response) => {
-      const collection = asCollection(response);
-      return {
-        items: collection.items
-          .slice(0, 1_000)
-          .map(safeBuildDefinition)
-          .filter((definition) => definition.applicationId === applicationId),
-        nextCursor: collection.nextCursor,
-      };
-    }),
+    request<BuildDefinition>(
+      `/v1/applications/${encodeURIComponent(applicationId)}/source`,
+    )
+      .then((response) => {
+        const collection = asCollection([response]);
+        return {
+          items: collection.items
+            .slice(0, 1_000)
+            .map(safeBuildDefinition)
+            .filter((definition) => definition.applicationId === applicationId),
+          nextCursor: collection.nextCursor,
+        };
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 404) {
+          return { items: [] as BuildDefinition[], nextCursor: undefined };
+        }
+        throw error;
+      }),
   buildSecretProfiles: (applicationId: string) =>
     request<BuildSecretProfileCatalog>(
       `/v1/applications/${encodeURIComponent(applicationId)}/build-secret-profiles`,
@@ -2330,9 +2336,9 @@ export const api = {
     idempotencyKey: string,
   ) =>
     request<BuildDefinition>(
-      `/v1/applications/${encodeURIComponent(applicationId)}/build-definitions`,
+      `/v1/applications/${encodeURIComponent(applicationId)}/source`,
       {
-        method: "POST",
+        method: "PUT",
         headers: { "Idempotency-Key": idempotencyKey },
         body: safeCreateBuildDefinition(input),
       },
@@ -2343,7 +2349,7 @@ export const api = {
     idempotencyKey: string = crypto.randomUUID(),
   ) =>
     request<void>(
-      `/v1/applications/${encodeURIComponent(applicationId)}/build-definitions/${encodeURIComponent(definitionId)}`,
+      `/v1/applications/${encodeURIComponent(applicationId)}/source/${encodeURIComponent(definitionId)}`,
       {
         method: "DELETE",
         headers: { "Idempotency-Key": idempotencyKey },
@@ -2351,7 +2357,7 @@ export const api = {
     ),
   buildDefinition: (definitionId: string) =>
     request<BuildDefinition>(
-      `/v1/build-definitions/${encodeURIComponent(definitionId)}`,
+      `/v1/app-sources/${encodeURIComponent(definitionId)}`,
     ).then(safeBuildDefinition),
   createManualBuildAttempt: (
     definitionId: string,
@@ -2359,7 +2365,7 @@ export const api = {
     idempotencyKey: string,
   ) =>
     request<BuildAttempt>(
-      `/v1/build-definitions/${encodeURIComponent(definitionId)}/builds`,
+      `/v1/app-sources/${encodeURIComponent(definitionId)}/builds`,
       {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },

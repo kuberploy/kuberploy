@@ -13,9 +13,9 @@ import (
 	base "github.com/kuberploy/kuberploy/internal/store"
 )
 
-func (s *Store) BuildDefinitionIdentity(ctx context.Context, definitionID string) (autodeploy.BuildDefinitionIdentity, error) {
+func (s *Store) BuildDefinitionIdentity(ctx context.Context, applicationID string) (autodeploy.BuildDefinitionIdentity, error) {
 	var identity autodeploy.BuildDefinitionIdentity
-	err := s.pool.QueryRow(ctx, `SELECT id::text,project_id::text,service_id::text FROM build_definitions WHERE id=$1`, definitionID).
+	err := s.pool.QueryRow(ctx, `SELECT build_source_id::text,project_id::text,id::text FROM applications WHERE id=$1 AND build_source_id IS NOT NULL`, applicationID).
 		Scan(&identity.ID, &identity.ProjectID, &identity.ApplicationID)
 	return identity, classify(err)
 }
@@ -51,8 +51,8 @@ func (s *Store) CreatePolicy(ctx context.Context, policy autodeploy.Policy, revi
 	if err = authorizeAutoDeployPolicyMutation(ctx, tx, policy.CreatedBy, policy.ProjectID, policy.EnvironmentID, policy.ApplicationID, revision.ServiceActorID); err != nil {
 		return autodeploy.Policy{}, autodeploy.Revision{}, false, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policies(id,build_definition_id,project_id,application_id,environment_id,current_revision,created_by,created_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, policy.ID, policy.BuildDefinitionID, policy.ProjectID, policy.ApplicationID,
+	_, err = tx.Exec(ctx, `INSERT INTO auto_deploy_policies(id,project_id,application_id,environment_id,current_revision,created_by,created_at)
+		VALUES($1,$2,$3,$4,$5,$6,$7)`, policy.ID, policy.ProjectID, policy.ApplicationID,
 		policy.EnvironmentID, policy.CurrentRevision, policy.CreatedBy, policy.CreatedAt.UTC())
 	if err == nil {
 		err = insertAutoDeployRevision(ctx, tx, revision)
@@ -281,8 +281,7 @@ func (s *Store) ResolveVerifiedRelease(ctx context.Context, attemptID string) (a
 		p.release_id::text,a.result->'image'->>'reference',a.result->'image'->>'digest',a.commit_sha,a.completed_at,rr.root_digest
 		FROM build_attempts a
 		JOIN build_release_projections p ON p.attempt_id=a.id AND p.state='succeeded' AND p.completed_at IS NOT NULL
-		JOIN build_definitions d ON d.id=a.definition_id AND d.project_id=a.project_id AND d.service_id=a.service_id
-		JOIN registry_releases rr ON rr.id=p.release_id AND rr.id=a.id AND rr.registry_target_id=d.registry_target_id
+		JOIN registry_releases rr ON rr.id=p.release_id AND rr.id=a.id
 			AND rr.service_id=a.service_id::text AND rr.succeeded_at IS NOT NULL AND rr.availability='present'
 		WHERE a.id=$1 AND a.state='succeeded' AND a.completed_at IS NOT NULL`, attemptID).Scan(&release.AttemptID,
 		&release.DefinitionID, &release.DefinitionDigest, &release.ProjectID, &release.ApplicationID, &release.ReleaseID,
@@ -343,7 +342,7 @@ func autoDeployPolicyReplay(ctx context.Context, q accessQuerier, actorID, key, 
 	return policy, stored, err == nil, err
 }
 
-const autoDeployPolicySelect = `SELECT p.id::text,p.build_definition_id::text,p.project_id::text,p.application_id::text,p.environment_id::text,
+const autoDeployPolicySelect = `SELECT p.id::text,p.project_id::text,p.application_id::text,p.environment_id::text,
 	p.current_revision,p.created_by::text,p.created_at,r.policy_id::text,r.revision,r.enabled,r.source_deployment_id::text,
 	r.source_deployment_generation,r.source_config_etag,r.config_intent,r.template_digest,r.service_actor_id::text,r.created_by::text,r.created_at
 	FROM auto_deploy_policies p JOIN auto_deploy_policy_revisions r ON r.policy_id=p.id AND r.revision=p.current_revision`
@@ -361,7 +360,7 @@ func autoDeployPolicyByID(ctx context.Context, q rowQuerier, policyID string, lo
 func scanAutoDeployPolicy(scanner autoDeployScanner) (autodeploy.Policy, autodeploy.Revision, error) {
 	var policy autodeploy.Policy
 	var revision autodeploy.Revision
-	err := scanner.Scan(&policy.ID, &policy.BuildDefinitionID, &policy.ProjectID, &policy.ApplicationID, &policy.EnvironmentID,
+	err := scanner.Scan(&policy.ID, &policy.ProjectID, &policy.ApplicationID, &policy.EnvironmentID,
 		&policy.CurrentRevision, &policy.CreatedBy, &policy.CreatedAt, &revision.PolicyID, &revision.Revision, &revision.Enabled,
 		&revision.Template.SourceDeploymentID, &revision.Template.SourceDeploymentGeneration, &revision.Template.SourceConfigETag,
 		&revision.Template.ConfigIntent, &revision.TemplateDigest, &revision.ServiceActorID, &revision.CreatedBy, &revision.CreatedAt)

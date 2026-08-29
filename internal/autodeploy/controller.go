@@ -68,7 +68,7 @@ func (c *Controller) ReconcileNext(ctx context.Context) (bool, error) {
 	if err != nil {
 		return true, c.handle(ctx, work, "auto-deploy-release-unavailable", err)
 	}
-	if release.Validate() != nil || release.AttemptID != work.Run.AttemptID || release.DefinitionID != work.Policy.BuildDefinitionID ||
+	if release.Validate() != nil || release.AttemptID != work.Run.AttemptID ||
 		release.DefinitionID != work.Run.DefinitionID || release.DefinitionDigest != work.Run.DefinitionDigest || release.ProjectID != work.Policy.ProjectID ||
 		release.ApplicationID != work.Policy.ApplicationID || release.ReleaseID != work.Run.ReleaseID {
 		return true, c.Store.FailRun(ctx, work.Lease, "auto-deploy-release-mismatch", c.now())

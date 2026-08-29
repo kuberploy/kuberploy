@@ -50,10 +50,23 @@ model applications {
   registry_pull_updated_by            String?   @db.Uuid
   registry_pull_updated_at            DateTime? @db.Timestamptz(6)
   build_generation                    BigInt    @default(0)
+  build_source_id                     String?   @unique @db.Uuid
+  build_source_kind                   String?
+  build_source_installation_id        String?   @db.Uuid
+  build_source_repository_id          String?   @db.Uuid
+  build_source_git_ssh                Json?
+  build_source_registry_target_id     String?   @db.Uuid
+  build_source_trigger_ref            String?
+  build_source_spec                   Json?
+  build_source_digest                 String?
+  build_source_revision               BigInt?
+  build_source_created_at             DateTime? @db.Timestamptz(6)
+  build_source_updated_at             DateTime? @db.Timestamptz(6)
   created_at                          DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([id, project_id], map: "applications_id_project_unique")
   @@unique([project_id, slug])
+  @@index([build_source_installation_id, build_source_repository_id, build_source_trigger_ref], map: "applications_build_source_push_idx", where: raw("(build_source_kind = 'github'::text)"))
 }
 
 /// Project-owned App placement metadata. Draft/stopped rows contain no workload
@@ -268,16 +281,15 @@ model audit_events {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model auto_deploy_policies {
-  id                  String   @id @db.Uuid
-  build_definition_id String   @db.Uuid
-  project_id          String   @db.Uuid
-  application_id      String   @db.Uuid
-  environment_id      String   @db.Uuid
-  current_revision    BigInt
-  created_by          String   @db.Uuid
-  created_at          DateTime @db.Timestamptz(6)
+  id               String   @id @db.Uuid
+  project_id       String   @db.Uuid
+  application_id   String   @db.Uuid
+  environment_id   String   @db.Uuid
+  current_revision BigInt
+  created_by       String   @db.Uuid
+  created_at       DateTime @db.Timestamptz(6)
 
-  @@unique([build_definition_id, environment_id])
+  @@unique([application_id, environment_id])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -340,6 +352,7 @@ model build_attempts {
   git_ref             String
   generation          BigInt
   definition_digest   String
+  source_snapshot     Json
   plan_request        Json
   checkout_request    Json
   input_digest        String
@@ -371,28 +384,6 @@ model build_attempts {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model build_definitions {
-  id                 String   @id @db.Uuid
-  project_id         String   @db.Uuid
-  service_id         String   @db.Uuid
-  source_kind        String   @default("github")
-  installation_id    String?  @db.Uuid
-  repository_id      String?  @db.Uuid
-  git_ssh_source     Json?
-  registry_target_id String   @db.Uuid
-  trigger_ref        String
-  spec               Json
-  definition_digest  String
-  generation         BigInt
-  enabled            Boolean  @default(true)
-  created_at         DateTime @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime @default(now()) @db.Timestamptz(6)
-
-  @@unique([project_id, service_id, repository_id, trigger_ref], map: "build_definitions_active_ref_idx", where: raw("((enabled = true) AND (source_kind = 'github'::text))"))
-  @@unique([project_id, service_id, trigger_ref], map: "build_definitions_active_git_ssh_ref_idx", where: raw("((enabled = true) AND (source_kind = 'git_ssh'::text))"))
-  @@index([installation_id, repository_id, trigger_ref], map: "build_definitions_push_idx", where: raw("((enabled = true) AND (source_kind = 'github'::text))"))
-}
-
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model build_release_projections {
   attempt_id          String    @id @db.Uuid
@@ -1670,7 +1661,6 @@ model service_registry_policies {
   repository                  String
   keep_last_successful        Int      @default(10)
   minimum_safety_age_seconds  BigInt   @default(86400)
-  cache_keep_generations      Int      @default(2)
   cache_unused_expiry_seconds BigInt   @default(604800)
   cache_byte_quota            BigInt   @default(10737418240)
   created_at                  DateTime @default(now()) @db.Timestamptz(6)

@@ -70,7 +70,7 @@ func (s *MemoryStore) DefinitionsForService(_ context.Context, serviceID string)
 	defer s.mu.Unlock()
 	result := make([]BuildDefinition, 0)
 	for _, definition := range s.definitions {
-		if definition.ServiceID == serviceID {
+		if definition.ServiceID == serviceID && definition.Enabled {
 			result = append(result, cloneDefinition(definition))
 		}
 	}

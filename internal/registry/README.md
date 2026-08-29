@@ -49,8 +49,9 @@ active operations, and the minimum safety age. Protection traverses OCI index
 children and shared layers.
 
 Build cache identity includes service, platform set, trust lane, cache schema,
-and build-definition hash. Managed defaults retain two generations, expire a
-root after seven unused days, and enforce a 10 GiB per-service quota. Multiple
+and App source digest. Managed defaults protect the latest generation per
+service/platform/trust lane, expire an older root after seven unused days, and
+enforce a 10 GiB per-service quota. Multiple
 generation rows that resolve to one repository/digest count once for physical
 quota; any active or retained alias protects the shared root. External cache
 lifecycle remains operator-owned.

@@ -23,7 +23,7 @@ const application: Application = {
 };
 const attempt: BuildAttempt = {
   id: "attempt-safe",
-  definitionId: "definition-safe",
+  sourceId: "source-safe",
   projectId: project.id,
   applicationId: application.id,
   commitSha: "a".repeat(40),

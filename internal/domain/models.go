@@ -431,13 +431,12 @@ const (
 )
 
 const (
-	DefaultKeepLastSuccessful   = 10
-	MinimumKeepLastSuccessful   = 1
-	MaximumKeepLastSuccessful   = 100
-	DefaultRegistrySafetyAge    = 24 * time.Hour
-	DefaultCacheKeepGenerations = 2
-	DefaultCacheUnusedExpiry    = 7 * 24 * time.Hour
-	DefaultCacheByteQuota       = int64(10 << 30)
+	DefaultKeepLastSuccessful = 10
+	MinimumKeepLastSuccessful = 1
+	MaximumKeepLastSuccessful = 100
+	DefaultRegistrySafetyAge  = 24 * time.Hour
+	DefaultCacheUnusedExpiry  = 7 * 24 * time.Hour
+	DefaultCacheByteQuota     = int64(10 << 30)
 )
 
 type RegistryTarget struct {
@@ -457,16 +456,15 @@ type RegistryTarget struct {
 // retention fields are only enforced for managed targets; on external targets
 // they are returned as operator-managed metadata and never drive cleanup.
 type ServiceRegistryPolicy struct {
-	RegistryTargetID     string        `json:"registryTargetId"`
-	ServiceID            string        `json:"serviceId"`
-	Repository           string        `json:"repository"`
-	KeepLastSuccessful   int           `json:"keepLastSuccessful"`
-	MinimumSafetyAge     time.Duration `json:"minimumSafetyAge"`
-	CacheKeepGenerations int           `json:"cacheKeepGenerations"`
-	CacheUnusedExpiry    time.Duration `json:"cacheUnusedExpiry"`
-	CacheByteQuota       int64         `json:"cacheByteQuota"`
-	CreatedAt            time.Time     `json:"createdAt"`
-	UpdatedAt            time.Time     `json:"updatedAt"`
+	RegistryTargetID   string        `json:"registryTargetId"`
+	ServiceID          string        `json:"serviceId"`
+	Repository         string        `json:"repository"`
+	KeepLastSuccessful int           `json:"keepLastSuccessful"`
+	MinimumSafetyAge   time.Duration `json:"minimumSafetyAge"`
+	CacheUnusedExpiry  time.Duration `json:"cacheUnusedExpiry"`
+	CacheByteQuota     int64         `json:"cacheByteQuota"`
+	CreatedAt          time.Time     `json:"createdAt"`
+	UpdatedAt          time.Time     `json:"updatedAt"`
 }
 
 type RegistryManifestKind string
@@ -630,7 +628,7 @@ type RegistryCacheGeneration struct {
 	PlatformSet         string     `json:"platformSet"`
 	TrustLane           string     `json:"trustLane"`
 	CacheSchema         string     `json:"cacheSchema"`
-	BuildDefinitionHash string     `json:"buildDefinitionHash"`
+	BuildDefinitionHash string     `json:"sourceHash"`
 	Generation          int64      `json:"generation"`
 	RootDigest          string     `json:"rootDigest"`
 	SizeBytes           int64      `json:"sizeBytes"`

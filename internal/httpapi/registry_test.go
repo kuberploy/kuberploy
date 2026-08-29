@@ -307,13 +307,12 @@ func TestRegistryHTTPManagedLifecycleIsMetadataOnlyBoundedAndReplaySafe(t *testi
 	var defaultPolicy struct {
 		KeepLastSuccessful       int   `json:"keepLastSuccessful"`
 		MinimumSafetyAgeSeconds  int64 `json:"minimumSafetyAgeSeconds"`
-		CacheKeepGenerations     int   `json:"cacheKeepGenerations"`
 		CacheUnusedExpirySeconds int64 `json:"cacheUnusedExpirySeconds"`
 	}
 	if err := json.Unmarshal(policyBody, &defaultPolicy); err != nil {
 		t.Fatal(err)
 	}
-	if defaultPolicy.KeepLastSuccessful != 10 || defaultPolicy.MinimumSafetyAgeSeconds != 86400 || defaultPolicy.CacheKeepGenerations != 2 || defaultPolicy.CacheUnusedExpirySeconds != 604800 {
+	if defaultPolicy.KeepLastSuccessful != 10 || defaultPolicy.MinimumSafetyAgeSeconds != 86400 || defaultPolicy.CacheUnusedExpirySeconds != 604800 {
 		t.Fatalf("defaults=%#v", defaultPolicy)
 	}
 	f.putPolicy(target.ID, "registry-policy-retain-one", 1)

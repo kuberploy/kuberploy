@@ -11,7 +11,7 @@ readonly KP_QUALIFICATION_ARTIFACT_PREFIX="kuberploy-qualification-"
 
 kp_qualification_stage_catalog() {
   cat <<'EOF'
-10-one-chart-install|true|installer-single-entrypoint,independent-applications-created,immutable-source-revision,package-digests-attested,bootstrap-job-auth,recurring-login,invitation-login,sole-owner-denial,github-installation-sharing,contract-identities
+10-one-chart-install|true|installer-single-entrypoint,independent-applications-created,app-sources-recorded,package-digests-attested,bootstrap-job-auth,recurring-login,invitation-login,sole-owner-denial,github-installation-sharing,contract-identities
 20-postgresql-valkey|true|postgresql-durable,reset-recovery,multi-scope-grants,service-account-token-lifecycle
 25-config-edge|true|variables-inherited-configmap,guided-yaml-rendered-diff,direct-scheduling-podspec,sslip-canonical-public-ip,external-dns-rfc2136
 30-git-argo|true|git-direct-projection,git-protected-pr,rollback-new-intent
@@ -218,7 +218,7 @@ kp_qualification_expected_probe() {
   case "${1:?assertion required}" in
     installer-single-entrypoint) printf '%s\n' helm-install ;;
     browser-ui-workflow) printf '%s\n' browser-proof ;;
-    independent-applications-created|immutable-source-revision|package-digests-attested|bootstrap-job-auth|recurring-login|invitation-login|sole-owner-denial|github-installation-sharing|contract-identities) printf '%s\n' installer-proof ;;
+    independent-applications-created|app-sources-recorded|package-digests-attested|bootstrap-job-auth|recurring-login|invitation-login|sole-owner-denial|github-installation-sharing|contract-identities) printf '%s\n' installer-proof ;;
     postgresql-durable|reset-recovery|multi-scope-grants|service-account-token-lifecycle|variables-inherited-configmap|guided-yaml-rendered-diff|direct-scheduling-podspec|sslip-canonical-public-ip|external-dns-rfc2136|git-direct-projection|git-protected-pr|argo-synced-healthy|rollback-new-intent|rollback-immutable-input|github-webhook-delivery|webhook-safety-poll|build-job-isolation|build-cancel-job-deleted|second-build-cache-hit|cache-cold-degrade|push-failure-terminal|auto-deploy-receipt|source-build-digest-promotion|direct-helm-oci|runtime-chart|traefik-route|middleware|local-acme-certificate|local-acme-renewal|no-public-acme|current-protected|rollback-set-protected|existing-image-tag-resolution|retention-removes-only-eligible|logs-authorized|events-authorized|prometheus-query|tenant-filtered|namespace-rbac|admission-deny|resource-quota|network-isolation|secret-nondisclosure|cross-tenant-deny|audit-timeline|ordered-upgrade|health-gate|rollback-intent|rollback-result) printf '%s\n' workflow-proof ;;
     http-route) printf '%s\n' http ;;
     custom-certificate|public-acme) printf '%s\n' tls ;;
@@ -425,16 +425,16 @@ kp_qualification_validate_semantic_proof() {
     [[ -f "${kp_installer}" && ! -L "${kp_installer}" ]] || \
       kp_die "stage ${kp_stage} is missing repository installer proof"
     jq -e '
-      (keys | sort) == ["adminRecurringLogin","adminUserId","applicationCount",
-        "bootstrapTokenJobConsumed","contractsExact","deletedUserLoginDenied","deletionReplayExact",
+      (keys | sort) == ["adminRecurringLogin","adminUserId","appSourcesRecorded",
+        "applicationCount","bootstrapTokenJobConsumed","contractsExact","deletedUserLoginDenied","deletionReplayExact",
         "developerRecurringLogin","developerUserId","githubMetadataTeamShared",
-        "immutableSourceRevisions","independentApplicationsCreated","installationId",
+        "independentApplicationsCreated","installationId",
         "invitationAccepted","logoutInvalidatedSession","mutation","packageDigestsAttested",
         "secretsExcludedFromEvidence","soleOwnerDenied","teamDeleted","teamId","userDeleted"] and
       .mutation == "installer-render-and-release" and
       (.applicationCount | type == "number" and . >= 2 and floor == .) and
       .independentApplicationsCreated == true and
-      .immutableSourceRevisions == true and
+      .appSourcesRecorded == true and
       .packageDigestsAttested == true and .bootstrapTokenJobConsumed == true and
       .logoutInvalidatedSession == true and .adminRecurringLogin == true and
       .invitationAccepted == true and .developerRecurringLogin == true and

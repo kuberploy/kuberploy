@@ -49,7 +49,7 @@ workloads, and PostgreSQL holds durable operations and recovery state.
    monitoring integrations are used only when an administrator enables them.
 
 The builder never deploys workloads and never receives runtime environment
-values. Docker build arguments belong to the immutable build definition;
+values. Docker build arguments belong to the App's editable build source;
 runtime environment values belong to the GitOps application configuration.
 
 Each project can keep multiple named image pull credentials backed by

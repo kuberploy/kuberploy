@@ -155,7 +155,6 @@ type ServicePolicyInput struct {
 	Repository               string
 	KeepLastSuccessful       int
 	MinimumSafetyAgeSeconds  int64
-	CacheKeepGenerations     int
 	CacheUnusedExpirySeconds int64
 	CacheByteQuota           int64
 }
@@ -176,7 +175,7 @@ func (s *Management) PutPolicy(ctx context.Context, actor, key, fingerprint, req
 	policy := domain.ServiceRegistryPolicy{
 		RegistryTargetID: strings.TrimSpace(targetID), ServiceID: applicationID,
 		Repository: strings.TrimSpace(input.Repository), KeepLastSuccessful: input.KeepLastSuccessful,
-		MinimumSafetyAge: minimumSafetyAge, CacheKeepGenerations: input.CacheKeepGenerations,
+		MinimumSafetyAge:  minimumSafetyAge,
 		CacheUnusedExpiry: cacheUnusedExpiry, CacheByteQuota: input.CacheByteQuota,
 	}
 	return s.store.PutServiceRegistryPolicyForActor(ctx, actor, key, fingerprint, requestID, applicationID, policy)

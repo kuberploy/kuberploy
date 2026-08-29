@@ -206,19 +206,12 @@ func (s *MemoryStore) PutDefinition(_ context.Context, definition BuildDefinitio
 		}
 	}
 	for id, current := range s.definitions {
-		sameSource := current.SourceKind == definition.SourceKind && (definition.SourceKind == SourceGitSSH || current.RepositoryID == definition.RepositoryID)
-		if id == definition.ID || current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID || !sameSource || current.TriggerRef != definition.TriggerRef {
+		if id == definition.ID || current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID {
 			continue
 		}
-		if !current.Enabled {
-			continue
-		}
-		if !definition.Enabled {
-			return ErrConflict
-		}
-		current.Enabled = false
-		current.UpdatedAt = definition.UpdatedAt
-		s.definitions[id] = cloneDefinition(current)
+		definition.DefinitionGeneration = current.DefinitionGeneration + 1
+		definition.CreatedAt = current.CreatedAt
+		delete(s.definitions, id)
 	}
 	s.definitions[definition.ID] = cloneDefinition(definition)
 	return nil

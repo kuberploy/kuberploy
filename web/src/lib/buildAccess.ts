@@ -7,8 +7,8 @@ import type {
 } from "../api/types";
 
 export type BuildApplicationAction =
-  | "build-definitions:read"
-  | "build-definitions:write"
+  | "app-sources:read"
+  | "app-sources:write"
   | "builds:read"
   | "builds:cancel"
   | "builds:retry"
@@ -28,7 +28,7 @@ export function hasPotentialBuildAccess(capabilities: Capability[]) {
       (capability.scopeType !== "platform" ||
         capability.scopeId === "platform") &&
       Boolean(capability.scopeId) &&
-      (capability.actions?.includes("build-definitions:read") === true ||
+      (capability.actions?.includes("app-sources:read") === true ||
         capability.actions?.includes("builds:read") === true),
   );
 }
@@ -72,7 +72,7 @@ export function buildReadableApplications(
     return (
       hasBuildApplicationCapability(
         capabilities,
-        "build-definitions:read",
+        "app-sources:read",
         application,
         project,
       ) &&

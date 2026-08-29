@@ -24,7 +24,7 @@ afterEach(() => {
 
 const attempt: BuildAttempt = {
   id: "attempt-safe",
-  definitionId: "definition-safe",
+  sourceId: "source-safe",
   projectId: "project-safe",
   applicationId: "application-safe",
   commitSha: "a".repeat(40),

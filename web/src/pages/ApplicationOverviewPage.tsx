@@ -178,7 +178,7 @@ export function ApplicationOverviewPage() {
     project &&
     hasBuildApplicationCapability(
       effectiveCapabilities,
-      "build-definitions:read",
+      "app-sources:read",
       application.data,
       project,
     ),
@@ -189,13 +189,13 @@ export function ApplicationOverviewPage() {
     humanSession &&
     hasBuildApplicationCapability(
       effectiveCapabilities,
-      "build-definitions:write",
+      "app-sources:write",
       application.data,
       project,
     ),
   );
   const buildDefinitions = useQuery({
-    queryKey: ["build-definitions", applicationId],
+    queryKey: ["app-source", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
     enabled: buildsConfigured && canReadBuildDefinitions,
     retry: false,
@@ -297,7 +297,7 @@ export function ApplicationOverviewPage() {
         .filter((definition) => definition.enabled)
         .sort(
           (left, right) =>
-            right.definitionGeneration - left.definitionGeneration,
+            right.sourceRevision - left.sourceRevision,
         )[0],
     [buildDefinitions.data?.items],
   );
@@ -314,7 +314,7 @@ export function ApplicationOverviewPage() {
       setDisconnectOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["build-definitions", applicationId],
+          queryKey: ["app-source", applicationId],
         }),
         queryClient.invalidateQueries({
           queryKey: ["auto-deploy-policies", applicationId],
@@ -570,7 +570,7 @@ export function ApplicationOverviewPage() {
               <EmptyState
                 icon="git"
                 title="Source builds are disabled"
-                description="The installation must configure the Source Builds API before a build definition can be created."
+                description="The installation must configure the Source Builds API before a GitHub source can be connected."
               />
             ) : (
               <>
@@ -590,7 +590,7 @@ export function ApplicationOverviewPage() {
                 {activeBuildDefinition ? (
                   <Notice tone="info">
                     <div>
-                      <strong>Active immutable definition</strong>
+                      <strong>Connected GitHub source</strong>
                       <p>
                         GitHub / {gitRefLabel(activeBuildDefinition.triggerRef)}
                         {" · "}
@@ -599,12 +599,11 @@ export function ApplicationOverviewPage() {
                       <small>
                         {activeBuildDefinition.platforms.join(", ")} ·{" "}
                         {activeBuildDefinition.registry.server} ·{" "}
-                        {shortId(activeBuildDefinition.definitionDigest, 12)}
+                        {shortId(activeBuildDefinition.sourceDigest, 12)}
                       </small>
                       <p>
-                        Form below starts a new immutable definition. Existing
-                        definition stays in history until its replacement is
-                        verified.
+                        Edit and save the App source below. Existing build
+                        attempts keep their exact source snapshot.
                       </p>
                       {canManageBuildDefinitions ? (
                         <Button
@@ -630,6 +629,7 @@ export function ApplicationOverviewPage() {
                     capabilities.data?.defaults?.buildPlatform ?? "linux/amd64"
                   }
                   humanSession={humanSession}
+                  source={activeBuildDefinition}
                   registryTargets={compatibleBuildRegistryTargets(
                     registry.data?.items ?? [],
                     project.id,
@@ -681,7 +681,7 @@ export function ApplicationOverviewPage() {
               humanSession &&
               hasBuildApplicationCapability(
                 effectiveCapabilities,
-                "build-definitions:write",
+                "app-sources:write",
                 application.data,
                 project,
               ),

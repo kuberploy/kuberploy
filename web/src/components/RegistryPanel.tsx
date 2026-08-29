@@ -70,7 +70,6 @@ const defaultPolicy: PolicyDraft = {
   repository: "",
   keepLastSuccessful: 10,
   minimumSafetyAgeSeconds: 86_400,
-  cacheKeepGenerations: 2,
   cacheUnusedExpirySeconds: 604_800,
   cacheByteQuota: 10_737_418_240,
 };
@@ -84,7 +83,6 @@ function policyDraft(
     repository: policy.repository,
     keepLastSuccessful: policy.keepLastSuccessful,
     minimumSafetyAgeSeconds: policy.minimumSafetyAgeSeconds,
-    cacheKeepGenerations: policy.cacheKeepGenerations,
     cacheUnusedExpirySeconds: policy.cacheUnusedExpirySeconds,
     cacheByteQuota: policy.cacheByteQuota,
   };
@@ -98,18 +96,12 @@ function validatePolicy(draft: PolicyDraft) {
     draft.keepLastSuccessful < 1 ||
     draft.keepLastSuccessful > 100
   )
-    errors.keepLastSuccessful = "Keep between 1 and 100 successful releases.";
+    errors.keepLastSuccessful = "Keep between 1 and 100 successful builds.";
   if (
     !Number.isInteger(draft.minimumSafetyAgeSeconds) ||
     draft.minimumSafetyAgeSeconds < 60
   )
     errors.minimumSafetyAgeSeconds = "Use at least 60 seconds.";
-  if (
-    !Number.isInteger(draft.cacheKeepGenerations) ||
-    draft.cacheKeepGenerations < 1 ||
-    draft.cacheKeepGenerations > 20
-  )
-    errors.cacheKeepGenerations = "Keep between 1 and 20 cache generations.";
   if (
     !Number.isInteger(draft.cacheUnusedExpirySeconds) ||
     draft.cacheUnusedExpirySeconds < 60
@@ -261,20 +253,13 @@ function PolicyEditor({
       <div className="grid grid-cols-[repeat(2,_minmax(0,_1fr))] gap-4 to-900:grid-cols-[1fr]">
         {numberField(
           "keepLastSuccessful",
-          "Keep successful releases",
+          "Keep successful builds",
           "Default: 10; allowed: 1–100.",
         )}
         {numberField(
           "minimumSafetyAgeSeconds",
           "Minimum safety age (seconds)",
           "Artifacts newer than this remain protected.",
-        )}
-        {numberField(
-          "cacheKeepGenerations",
-          "Cache generations",
-          target.mode === "external"
-            ? "Operator-managed metadata on this external target."
-            : "Default: 2; allowed: 1–20.",
         )}
         {numberField(
           "cacheUnusedExpirySeconds",
@@ -682,7 +667,7 @@ function RegistryTargetCard({
       </CardHeader>
       <dl className="grid grid-cols-[repeat(3,_minmax(0,_1fr))] gap-px m-0 overflow-hidden border border-line rounded-panel bg-line [&>div]:grid [&>div]:gap-1.5 [&>div]:min-w-0 [&>div]:py-4 [&>div]:px-4 [&>div]:bg-surface [&_dt]:text-[0.76rem] [&_dd]:m-0 [&_dd]:font-semibold [&_dd]:break-words to-900:grid-cols-[repeat(2,_minmax(0,_1fr))] to-580:grid-cols-[1fr]">
         <div>
-          <dt>Successful releases retained</dt>
+          <dt>Successful builds retained</dt>
           <dd>{item.policy.keepLastSuccessful}</dd>
         </div>
         <div>
@@ -690,8 +675,8 @@ function RegistryTargetCard({
           <dd>{item.policy.minimumSafetyAgeSeconds}s</dd>
         </div>
         <div>
-          <dt>Cache generations</dt>
-          <dd>{item.policy.cacheKeepGenerations}</dd>
+          <dt>Build cache</dt>
+          <dd>Latest per platform</dd>
         </div>
         <div>
           <dt>Cache quota</dt>

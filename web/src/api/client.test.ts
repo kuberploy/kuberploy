@@ -84,7 +84,7 @@ describe("typed API client", () => {
     ).toBe("delete-env-key");
   });
 
-  it("disconnects one exact source-build definition with stable idempotency", async () => {
+  it("disconnects one exact App source with stable idempotency", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 204 }));
@@ -97,7 +97,7 @@ describe("typed API client", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v1/applications/app%2Fid/build-definitions/definition%2Fid",
+      "/v1/applications/app%2Fid/source/definition%2Fid",
       expect.objectContaining({ method: "DELETE" }),
     );
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;

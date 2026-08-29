@@ -75,7 +75,7 @@ beforeEach(() => {
         actions: [
           "applications:create",
           "deployments:create",
-          "build-definitions:write",
+          "app-sources:write",
           "helm-releases:deploy",
           "helm-releases:disable",
         ],
@@ -260,7 +260,7 @@ describe("Add App source flow", () => {
           role: "project-admin",
           scopeType: "project",
           scopeId: "project-payments",
-          actions: ["applications:create", "build-definitions:write"],
+          actions: ["applications:create", "app-sources:write"],
         },
       ],
     });

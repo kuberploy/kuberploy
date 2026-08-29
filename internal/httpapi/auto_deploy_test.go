@@ -104,7 +104,7 @@ func TestAutoDeployPolicyReplayPrecedesReadinessAndMutableCatalog(t *testing.T) 
 		Template: autodeploy.Template{SourceDeploymentID: "44444444-4444-4444-8444-444444444444", SourceDeploymentGeneration: 1,
 			SourceConfigETag: `"sha256:` + strings.Repeat("a", 64) + `"`}, TemplateDigest: "sha256:" + strings.Repeat("b", 64),
 		ServiceActorID: "55555555-5555-4555-8555-555555555555", CreatedBy: admin.ID, CreatedAt: now}
-	body := map[string]any{"buildDefinitionId": replays.policy.BuildDefinitionID, "environmentId": replays.policy.EnvironmentID,
+	body := map[string]any{"environmentId": replays.policy.EnvironmentID,
 		"templateDeploymentId": replays.revision.Template.SourceDeploymentID, "serviceActorId": replays.revision.ServiceActorID, "enabled": true}
 	response := f.request(http.MethodPost, "/v1/applications/"+application.Value.ID+"/auto-deploy-policies", "accepted-create-0001", body)
 	view := decode[map[string]any](t, response)

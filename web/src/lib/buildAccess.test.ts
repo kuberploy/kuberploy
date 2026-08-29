@@ -31,7 +31,7 @@ describe("source-build access", () => {
   it("requires an exact resource ancestry and never trusts coarse unions", () => {
     const grants = [
       capability("team", "different-team", ["builds:read"]),
-      capability("project", "different-project", ["build-definitions:read"]),
+      capability("project", "different-project", ["app-sources:read"]),
       capability("application", "different-application", ["builds:read"]),
     ];
 
@@ -52,8 +52,8 @@ describe("source-build access", () => {
     for (const scopeType of ["environment", "namespace"] as const) {
       const grants = [
         capability(scopeType, "opaque-runtime-scope", [
-          "build-definitions:read",
-          "build-definitions:write",
+          "app-sources:read",
+          "app-sources:write",
           "builds:read",
           "builds:cancel",
           "builds:retry",
@@ -62,7 +62,7 @@ describe("source-build access", () => {
       expect(
         hasBuildApplicationCapability(
           grants,
-          "build-definitions:write",
+          "app-sources:write",
           application,
           project,
         ),
@@ -72,7 +72,7 @@ describe("source-build access", () => {
   });
 
   it("accepts exact platform, team, project, and application coverage", () => {
-    const actions = ["build-definitions:read", "builds:read"];
+    const actions = ["app-sources:read", "builds:read"];
     const grants = [
       capability("team", project.teamId ?? "", actions),
       capability("project", project.id, actions),
@@ -123,7 +123,6 @@ describe("source-build access", () => {
         repository,
         keepLastSuccessful: 10,
         minimumSafetyAgeSeconds: 86_400,
-        cacheKeepGenerations: 2,
         cacheUnusedExpirySeconds: 604_800,
         cacheByteQuota: 10_737_418_240,
         createdAt: "2026-08-09T00:00:00Z",

@@ -49,8 +49,8 @@ digests. A platform administrator may set a bounded per-service override from 1
 through 100. Setting 1 is allowed but the UI warns that no historical rollback
 slot is guaranteed.
 
-The latest `N` means the latest successfully deployed Release digests for the
-stable service ID, not the latest tags, layers, upload timestamps or build
+The latest `N` means the latest successfully built Release digests for the
+stable App, not the latest tags, layers, upload timestamps or build
 attempts. A multi-platform OCI index counts as one release and protects its
 referenced platform manifests. Releases are ordered by their durable creation
 time and ID rather than a provider upload timestamp; redeploying the same digest
@@ -69,9 +69,9 @@ cap. A service can temporarily retain more than `N` images when production is on
 an older release, an operation is active, or a release is pinned. Shared layers
 also remain on disk while any protected manifest references them.
 
-Successful builds that were never deployed, failed uploads and superseded build
-artifacts become eligible after the grace period. Build cache has a separate
-size/age policy and never counts as a rollback image.
+Successful builds older than the latest `N` that were never deployed, failed
+uploads, and superseded build artifacts become eligible after the grace period.
+Build cache has a separate size/age policy and never counts as a rollback image.
 
 ### Registry-backed build cache
 
@@ -82,15 +82,15 @@ equivalent to the `cache-from`/`cache-to` options commonly used with
 directly.
 
 Cache identity is scoped by immutable service ID, platform set, builder/cache
-schema, build-definition hash and trust lane. Protected-branch and untrusted
+schema, App source digest and trust lane. Protected-branch and untrusted
 pull-request writes never share a lane. Cache credentials cannot push release
 images and runtime pull credentials cannot read cache repositories. Because
 `mode=max` may contain intermediate source-derived layers, cache repositories
 are treated as private build data.
 
 An export uses a unique build candidate before a short leased alias update. In
-managed mode, the starting lifecycle keeps two successful generations per
-service/platform/trust lane, expires unused generations after seven days and
+managed mode, the starting lifecycle protects the latest successful generation
+per service/platform/trust lane across App source edits, expires unused older generations after seven days and
 applies an administrator byte quota. Active cache imports and exports are
 protected. Cache manifests and their unreachable blobs are garbage-collected
 independently from the service's last-`N` release window. External mode uses the

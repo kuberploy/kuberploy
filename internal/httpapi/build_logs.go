@@ -18,7 +18,7 @@ import (
 	"github.com/kuberploy/kuberploy/internal/store"
 )
 
-// NewBuildLogService joins the immutable build-attempt catalog to the central
+// NewBuildLogService joins the recorded build-attempt catalog to the central
 // application/project authorization store and the narrow Kubernetes reader.
 // Callers can only address an opaque build attempt ID.
 func NewBuildLogService(st store.Store, attempts buildlogs.AttemptCatalog, client buildlogs.KubernetesClient) (BuildLogService, error) {

@@ -140,16 +140,15 @@ func (s *Service) Finish(ctx context.Context, planID, owner string, succeeded bo
 // persist the result rather than relying on UI or database implicit defaults.
 func DefaultPolicy(targetID, serviceID, repository string, now time.Time) domain.ServiceRegistryPolicy {
 	return domain.ServiceRegistryPolicy{
-		RegistryTargetID:     targetID,
-		ServiceID:            serviceID,
-		Repository:           repository,
-		KeepLastSuccessful:   domain.DefaultKeepLastSuccessful,
-		MinimumSafetyAge:     domain.DefaultRegistrySafetyAge,
-		CacheKeepGenerations: domain.DefaultCacheKeepGenerations,
-		CacheUnusedExpiry:    domain.DefaultCacheUnusedExpiry,
-		CacheByteQuota:       domain.DefaultCacheByteQuota,
-		CreatedAt:            now.UTC(),
-		UpdatedAt:            now.UTC(),
+		RegistryTargetID:   targetID,
+		ServiceID:          serviceID,
+		Repository:         repository,
+		KeepLastSuccessful: domain.DefaultKeepLastSuccessful,
+		MinimumSafetyAge:   domain.DefaultRegistrySafetyAge,
+		CacheUnusedExpiry:  domain.DefaultCacheUnusedExpiry,
+		CacheByteQuota:     domain.DefaultCacheByteQuota,
+		CreatedAt:          now.UTC(),
+		UpdatedAt:          now.UTC(),
 	}
 }
 
@@ -194,9 +193,6 @@ func NormalizePolicy(policy domain.ServiceRegistryPolicy, now time.Time) domain.
 	if policy.MinimumSafetyAge == 0 {
 		policy.MinimumSafetyAge = domain.DefaultRegistrySafetyAge
 	}
-	if policy.CacheKeepGenerations == 0 {
-		policy.CacheKeepGenerations = domain.DefaultCacheKeepGenerations
-	}
 	if policy.CacheUnusedExpiry == 0 {
 		policy.CacheUnusedExpiry = domain.DefaultCacheUnusedExpiry
 	}
@@ -220,8 +216,8 @@ func ValidatePolicy(policy domain.ServiceRegistryPolicy) error {
 	if policy.MinimumSafetyAge < time.Minute || policy.CacheUnusedExpiry < time.Minute {
 		return fmt.Errorf("%w: lifecycle ages must be at least one minute", store.ErrRegistryPolicyInvalid)
 	}
-	if policy.CacheKeepGenerations < 1 || policy.CacheKeepGenerations > 20 || policy.CacheByteQuota <= 0 {
-		return fmt.Errorf("%w: invalid cache generation or quota policy", store.ErrRegistryPolicyInvalid)
+	if policy.CacheByteQuota <= 0 {
+		return fmt.Errorf("%w: managed cache retention keeps exactly the latest generation", store.ErrRegistryPolicyInvalid)
 	}
 	return nil
 }
@@ -701,7 +697,10 @@ func decideCaches(snapshot domain.RegistryLifecycleSnapshot, now time.Time) (map
 			root.id = generation.ID
 		}
 		roots[key] = root
-		group := strings.Join([]string{generation.PlatformSet, generation.TrustLane, generation.CacheSchema, generation.BuildDefinitionHash}, "\x00")
+		// A source edit must not preserve another cache generation forever. The
+		// source digest still separates cache storage/import safety, while
+		// retention keeps only the newest successful cache for each runtime lane.
+		group := strings.Join([]string{generation.PlatformSet, generation.TrustLane, generation.CacheSchema}, "\x00")
 		groups[group] = append(groups[group], generation)
 	}
 	var before int64
@@ -723,7 +722,7 @@ func decideCaches(snapshot domain.RegistryLifecycleSnapshot, now time.Time) (map
 				addReason(fixed, key, ReasonCacheActive)
 				continue
 			}
-			if generation.State == "succeeded" && kept < snapshot.Policy.CacheKeepGenerations {
+			if generation.State == "succeeded" && kept < 1 {
 				addReason(fixed, key, ReasonCacheRetained)
 				kept++
 				continue

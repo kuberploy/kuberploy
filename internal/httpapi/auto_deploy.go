@@ -14,7 +14,6 @@ import (
 )
 
 type createAutoDeployPolicyRequest struct {
-	BuildDefinitionID    string `json:"buildDefinitionId,omitempty"`
 	EnvironmentID        string `json:"environmentId,omitempty"`
 	TemplateDeploymentID string `json:"templateDeploymentId"`
 	ServiceActorID       string `json:"serviceActorId"`
@@ -41,16 +40,15 @@ type autoDeployRevisionView struct {
 }
 
 type autoDeployPolicyView struct {
-	ID                string                 `json:"id"`
-	BuildDefinitionID string                 `json:"buildDefinitionId"`
-	ProjectID         string                 `json:"projectId"`
-	ApplicationID     string                 `json:"applicationId"`
-	EnvironmentID     string                 `json:"environmentId"`
-	CurrentRevision   int64                  `json:"currentRevision"`
-	Current           autoDeployRevisionView `json:"current"`
-	CreatedBy         string                 `json:"createdBy"`
-	CreatedAt         time.Time              `json:"createdAt"`
-	UpdateSemantics   string                 `json:"updateSemantics"`
+	ID              string                 `json:"id"`
+	ProjectID       string                 `json:"projectId"`
+	ApplicationID   string                 `json:"applicationId"`
+	EnvironmentID   string                 `json:"environmentId"`
+	CurrentRevision int64                  `json:"currentRevision"`
+	Current         autoDeployRevisionView `json:"current"`
+	CreatedBy       string                 `json:"createdBy"`
+	CreatedAt       time.Time              `json:"createdAt"`
+	UpdateSemantics string                 `json:"updateSemantics"`
 }
 
 type autoDeployRunView struct {
@@ -106,7 +104,6 @@ func (s *Server) applicationAutoDeployPolicies(w http.ResponseWriter, r *http.Re
 	if !decodeGitHubBuildJSON(w, r, &input) {
 		return
 	}
-	input.BuildDefinitionID = strings.TrimSpace(input.BuildDefinitionID)
 	input.EnvironmentID = strings.TrimSpace(input.EnvironmentID)
 	input.TemplateDeploymentID = strings.TrimSpace(input.TemplateDeploymentID)
 	input.ServiceActorID = strings.TrimSpace(input.ServiceActorID)
@@ -128,7 +125,7 @@ func (s *Server) applicationAutoDeployPolicies(w http.ResponseWriter, r *http.Re
 		return
 	}
 	policy, revision, replay, err := s.autoDeployService.Create(r.Context(), actor.ID, autodeploy.CreatePolicyInput{
-		ExpectedApplicationID: application.ID, BuildDefinitionID: input.BuildDefinitionID, EnvironmentID: input.EnvironmentID, TemplateDeploymentID: input.TemplateDeploymentID,
+		ExpectedApplicationID: application.ID, EnvironmentID: input.EnvironmentID, TemplateDeploymentID: input.TemplateDeploymentID,
 		ServiceActorID: input.ServiceActorID, Enabled: input.Enabled, IdempotencyKey: key, RequestDigest: requestDigest, RequestID: requestID(r.Context()),
 	})
 	if err != nil {
@@ -283,7 +280,7 @@ func autoDeployLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 
 func safeAutoDeployPolicy(status autodeploy.PolicyStatus) autoDeployPolicyView {
 	policy := status.Policy
-	return autoDeployPolicyView{ID: policy.ID, BuildDefinitionID: policy.BuildDefinitionID, ProjectID: policy.ProjectID,
+	return autoDeployPolicyView{ID: policy.ID, ProjectID: policy.ProjectID,
 		ApplicationID: policy.ApplicationID, EnvironmentID: policy.EnvironmentID, CurrentRevision: policy.CurrentRevision,
 		Current: safeAutoDeployRevision(status.CurrentRevision), CreatedBy: policy.CreatedBy, CreatedAt: policy.CreatedAt,
 		UpdateSemantics: autoDeployUpdateSemantics}
@@ -299,7 +296,7 @@ func safeAutoDeployRevision(revision autodeploy.Revision) autoDeployRevisionView
 func mappedAutoDeployError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, autodeploy.ErrInvalid):
-		writeProblem(w, r, http.StatusUnprocessableEntity, "AutoDeployInvalid", "Auto-deploy policy is invalid", "Select one exact build definition, environment, deployment/config ETag, and enabled same-project service account.")
+		writeProblem(w, r, http.StatusUnprocessableEntity, "AutoDeployInvalid", "Auto-deploy policy is invalid", "Connect the App source, then select an environment, deployment snapshot, and enabled same-project service account.")
 	case errors.Is(err, autodeploy.ErrConflict):
 		writeProblem(w, r, http.StatusConflict, "AutoDeployConflict", "Auto-deploy policy conflict", "The pinned resource relationship or immutable revision changed; refresh and create a new revision.")
 	case errors.Is(err, autodeploy.ErrUnauthorized):

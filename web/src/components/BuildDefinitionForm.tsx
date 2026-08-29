@@ -5,6 +5,7 @@ import { ApiError, api } from "../api/client";
 import type {
   Application,
   BuildArgument,
+  BuildDefinition,
   Capability,
   CreateBuildDefinition,
   Project,
@@ -40,7 +41,33 @@ type StableAttempt = { signature: string; key: string };
 
 function defaultDefinitionValues(
   platform: "linux/amd64" | "linux/arm64",
+  source?: BuildDefinition,
 ): DefinitionForm {
+  if (source?.sourceKind === "github") {
+    const tag = source.triggerRef.startsWith("refs/tags/");
+    return {
+      installationId: source.installationId ?? "",
+      repositoryId: source.repositoryId ?? "",
+      registryTargetId: source.registry.targetId,
+      refType: tag ? "tag" : "branch",
+      triggerRef: gitRefLabel(source.triggerRef),
+      contextPath: source.contextPath,
+      dockerfilePath: source.dockerfilePath,
+      amd64: source.platforms.includes("linux/amd64"),
+      arm64: source.platforms.includes("linux/arm64"),
+      buildArgs: source.buildArgs
+        .map((argument) => `${argument.name}=${argument.value}`)
+        .join("\n"),
+      cacheTrustLane: source.cacheTrustLane,
+      cacheImports: source.cacheImports,
+      profileResource: source.profile.resource,
+      timeoutSeconds: source.profile.timeoutSeconds,
+      profileEgress: source.profile.egress,
+      maxAttempts: source.maxAttempts,
+      secretProfileIds: source.secretFiles.map((file) => file.id),
+      sshProfileIds: source.sshFiles.map((file) => file.id),
+    };
+  }
   return {
     installationId: "",
     repositoryId: "",
@@ -108,6 +135,7 @@ export function BuildDefinitionForm({
   defaultBuildPlatform,
   humanSession,
   registryTargets,
+  source,
 }: {
   application: Application;
   project: Project;
@@ -115,20 +143,19 @@ export function BuildDefinitionForm({
   defaultBuildPlatform: "linux/amd64" | "linux/arm64";
   humanSession: boolean;
   registryTargets: RegistryTarget[];
+  source?: BuildDefinition;
 }) {
   const queryClient = useQueryClient();
   const stableAttempt = useRef<StableAttempt | null>(null);
   const scopeRef = useRef(application.id);
   scopeRef.current = application.id;
-  const resetFormRef = useRef<() => void>(() => undefined);
-  const resetCreateRef = useRef<() => void>(() => undefined);
   const [parseError, setParseError] = useState<unknown>();
-  const [createdDefinitionId, setCreatedDefinitionId] = useState("");
+  const [savedSourceId, setSavedSourceId] = useState("");
   const canCreate =
     humanSession &&
     hasBuildApplicationCapability(
       capabilities,
-      "build-definitions:write",
+      "app-sources:write",
       application,
       project,
     );
@@ -145,8 +172,13 @@ export function BuildDefinitionForm({
     retry: false,
   });
   const form = useForm<DefinitionForm>({
-    defaultValues: defaultDefinitionValues(defaultBuildPlatform),
+    defaultValues: defaultDefinitionValues(defaultBuildPlatform, source),
   });
+  useEffect(() => {
+    form.reset(defaultDefinitionValues(defaultBuildPlatform, source));
+    setSavedSourceId("");
+    setParseError(undefined);
+  }, [application.id, defaultBuildPlatform, form, source]);
   useEffect(() => {
     if (!secretProfiles.isSuccess || !secretProfiles.data) return;
     const buildIDs = new Set(
@@ -205,11 +237,11 @@ export function BuildDefinitionForm({
           stableAttempt.current = null;
         }
         setParseError(undefined);
-        setCreatedDefinitionId(definition.id);
+        setSavedSourceId(definition.id);
       }
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: ["build-definitions", input.applicationId],
+          queryKey: ["app-source", input.applicationId],
         }),
         queryClient.invalidateQueries({
           queryKey: ["build-attempts", input.applicationId],
@@ -217,13 +249,9 @@ export function BuildDefinitionForm({
       ]);
     },
   });
-  resetFormRef.current = () =>
-    form.reset(defaultDefinitionValues(defaultBuildPlatform));
-  resetCreateRef.current = create.reset;
-
   const submit = (value: DefinitionForm) => {
     setParseError(undefined);
-    setCreatedDefinitionId("");
+    setSavedSourceId("");
     try {
       const platforms: CreateBuildDefinition["platforms"] = [];
       if (value.amd64) platforms.push("linux/amd64");
@@ -243,7 +271,9 @@ export function BuildDefinitionForm({
         contextPath: value.contextPath.trim(),
         dockerfilePath: value.dockerfilePath.trim(),
         platforms,
-        buildArgs: parseBuildArgs(value.buildArgs),
+        ...(source && !form.formState.dirtyFields.buildArgs
+          ? {}
+          : { buildArgs: parseBuildArgs(value.buildArgs) }),
         cacheTrustLane: value.cacheTrustLane.trim(),
         cacheImports: value.cacheImports,
         profile: {
@@ -280,7 +310,7 @@ export function BuildDefinitionForm({
     return (
       <Notice tone="warning">
         <div>
-          <strong>Build-definition changes require a human session</strong>
+          <strong>App source changes require a human session</strong>
           <p>This web form is hidden for service-account authentication.</p>
         </div>
       </Notice>
@@ -290,10 +320,10 @@ export function BuildDefinitionForm({
     return (
       <Notice>
         <div>
-          <strong>Build definitions are read-only</strong>
+          <strong>App source is read-only</strong>
           <p>
             Your effective application scope does not include
-            build-definitions:write.
+            permission to manage this App's source.
           </p>
         </div>
       </Notice>
@@ -658,23 +688,20 @@ export function BuildDefinitionForm({
       ) : null}
       {parseError ? (
         <ErrorPanel
-          title="Definition is not safe to submit"
+          title="App source is not safe to submit"
           error={parseError}
         />
       ) : null}
       {create.error ? (
-        <ErrorPanel
-          title="Could not create build definition"
-          error={create.error}
-        />
+        <ErrorPanel title="Could not save App source" error={create.error} />
       ) : null}
-      {createdDefinitionId ? (
+      {savedSourceId ? (
         <Notice tone="success" role="status">
           <div>
-            <strong>Immutable build definition created</strong>
+            <strong>App source saved</strong>
             <p>
-              Push the matching ref to start a build. Definition{" "}
-              {createdDefinitionId} remains available in history.
+              Push the matching ref to start a build. Existing attempts retain
+              the exact source snapshot they used.
             </p>
           </div>
         </Notice>
@@ -685,7 +712,8 @@ export function BuildDefinitionForm({
           busy={create.isPending}
           disabled={noInstallations || noTargets}
         >
-          <Icon name="plus" /> Create immutable definition
+          <Icon name="git" />{" "}
+          {source ? "Save App source" : "Connect App source"}
         </Button>
       </div>
     </form>

@@ -84,6 +84,11 @@ func TestAutoDeployPolicyStoreAuthorizesBeforeSideEffectsAndReplaysBeforeMutable
 	}
 	replayPolicy := policy
 	replayPolicy.ID, replayPolicy.BuildDefinitionID, replayPolicy.CreatedBy = "44444444-4444-4444-8444-444444444444", "55555555-5555-4555-8555-555555555555", replayActor.ID
+	replayEnvironment, err := store.CreateEnvironment(ctx, admin.ID, "ad-replay-environment", "ad-replay-environment", domain.CreateEnvironment{ProjectID: projectResult.Value.ID, Name: "Replay", Slug: "replay"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayPolicy.EnvironmentID = replayEnvironment.Value.ID
 	replayRevision := revision
 	replayAccount, err := store.CreateServiceAccount(ctx, admin.ID, "ad-replay-account", "ad-replay-account", "request",
 		domain.CreateServiceAccount{ProjectID: projectResult.Value.ID, Name: "Replay actor", Role: domain.RoleDeveloper})

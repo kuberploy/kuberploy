@@ -357,7 +357,7 @@ kp_probe_helm_install() {
     --argjson revisions "${kp_revision_count}" --argjson digests "${kp_digest_count}" '
     {mutation:"installer-render-and-release",applicationCount:$applications,
      independentApplicationsCreated:($applications >= 2),
-     immutableSourceRevisions:($revisions == $applications),
+     appSourcesRecorded:($revisions == $applications),
      packageDigestsAttested:($digests == $applications)} + $auth[0]
   ' --slurpfile auth "${KUBERPLOY_E2E_STAGE_DIR}/evidence/auth-contract-proof.json" >"${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-proof.json"
   chmod 600 "${KUBERPLOY_E2E_STAGE_DIR}/evidence/installer-proof.json"
@@ -1333,7 +1333,7 @@ kp_require_stage_capabilities() {
       kp_actions='["environments:create","deployments:create","deployments:update","operations:read"]' ;;
     40-source-build)
       kp_features='["builder","builds","autoDeploy","git","gitops","argo","argoCD","helmDeployments","githubAppSetup"]'
-      kp_actions='["builds:read","builds:cancel","builds:retry","build-definitions:write","deployments:create","operations:read","helm-releases:read","helm-releases:deploy"]' ;;
+      kp_actions='["builds:read","builds:cancel","builds:retry","app-sources:write","deployments:create","operations:read","helm-releases:read","helm-releases:deploy"]' ;;
     50-runtime-edge)
       kp_features='["git","gitops","argo","argoCD","edge","traefik","traefikMiddlewares","middlewareProfiles"]'
       kp_actions='["deployment-config:read","deployment-config:preview","deployment-config:write","operations:read"]' ;;

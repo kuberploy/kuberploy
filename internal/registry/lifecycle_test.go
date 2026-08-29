@@ -87,7 +87,7 @@ func fixtureSnapshot(now time.Time) domain.RegistryLifecycleSnapshot {
 	completed := now.Add(-29 * 24 * time.Hour)
 	snapshot := domain.RegistryLifecycleSnapshot{
 		Target:    domain.RegistryTarget{ID: targetID, Name: "managed", Mode: domain.RegistryTargetManaged, Endpoint: "registry.test", RepositoryPrefix: "owned", CreatedAt: old, UpdatedAt: old},
-		Policy:    domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, KeepLastSuccessful: 2, MinimumSafetyAge: 24 * time.Hour, CacheKeepGenerations: 2, CacheUnusedExpiry: 7 * 24 * time.Hour, CacheByteQuota: 250, CreatedAt: old, UpdatedAt: old},
+		Policy:    domain.ServiceRegistryPolicy{RegistryTargetID: targetID, ServiceID: serviceID, Repository: releaseRepo, KeepLastSuccessful: 2, MinimumSafetyAge: 24 * time.Hour, CacheUnusedExpiry: 7 * 24 * time.Hour, CacheByteQuota: 250, CreatedAt: old, UpdatedAt: old},
 		Inventory: domain.RegistryInventoryObservation{RegistryTargetID: targetID, Revision: "inventory-1", Complete: true, Repositories: []string{releaseRepo, cacheRepo, otherRepo}, ObservedAt: now},
 		AuthorityObservations: []domain.RegistryAuthorityObservation{
 			{RegistryTargetID: targetID, ServiceID: serviceID, Authority: domain.RegistryAuthorityGitIntent, Revision: "git-1", Complete: true, ObservedAt: now},
@@ -107,7 +107,7 @@ func fixtureSnapshot(now time.Time) domain.RegistryLifecycleSnapshot {
 		},
 		CacheGenerations: []domain.RegistryCacheGeneration{
 			{ID: "cache-3", RegistryTargetID: targetID, ServiceID: serviceID, Repository: cacheRepo, PlatformSet: "linux/amd64", TrustLane: "protected", CacheSchema: "v1", BuildDefinitionHash: "definition", Generation: 3, RootDigest: digest("f"), SizeBytes: 100, State: "succeeded", CreatedAt: old, CompletedAt: &completed, LastUsedAt: now.Add(-24 * time.Hour)},
-			{ID: "cache-2", RegistryTargetID: targetID, ServiceID: serviceID, Repository: cacheRepo, PlatformSet: "linux/amd64", TrustLane: "protected", CacheSchema: "v1", BuildDefinitionHash: "definition", Generation: 2, RootDigest: digest("0"), SizeBytes: 100, State: "succeeded", CreatedAt: old, CompletedAt: &completed, LastUsedAt: now.Add(-48 * time.Hour)},
+			{ID: "cache-2", RegistryTargetID: targetID, ServiceID: serviceID, Repository: cacheRepo, PlatformSet: "linux/amd64", TrustLane: "protected", CacheSchema: "v1", BuildDefinitionHash: "previous-source", Generation: 2, RootDigest: digest("0"), SizeBytes: 100, State: "succeeded", CreatedAt: old, CompletedAt: &completed, LastUsedAt: now.Add(-10 * 24 * time.Hour)},
 			{ID: "cache-1", RegistryTargetID: targetID, ServiceID: serviceID, Repository: cacheRepo, PlatformSet: "linux/amd64", TrustLane: "protected", CacheSchema: "v1", BuildDefinitionHash: "definition", Generation: 1, RootDigest: digest("1"), SizeBytes: 100, State: "succeeded", CreatedAt: old, CompletedAt: &completed, LastUsedAt: now.Add(-10 * 24 * time.Hour)},
 		},
 		Manifests: manifests,
@@ -170,13 +170,16 @@ func TestBuildCleanupPlanProtectsEveryAuthorityAndOCIReachability(t *testing.T) 
 	if item := findItem(t, plan, "owned/cache/service/trusted", digest("1")); item.Disposition != domain.RegistryCleanupDelete || !slices.Contains(item.Reasons, ReasonCacheExpired) {
 		t.Fatalf("cache=%#v", item)
 	}
+	if item := findItem(t, plan, "owned/cache/service/trusted", digest("0")); item.Disposition != domain.RegistryCleanupDelete {
+		t.Fatalf("cache from previous source=%#v", item)
+	}
 	if item := findItem(t, plan, "*", digest("5")); item.Disposition != domain.RegistryCleanupProtect || !slices.Contains(item.Reasons, ReasonReachableBlob) {
 		t.Fatalf("cross-repository shared blob=%#v", item)
 	}
 	if item := findItem(t, plan, "*", digest("9")); item.Disposition != domain.RegistryCleanupDelete || !slices.Contains(item.Reasons, ReasonUnreachableBlob) {
 		t.Fatalf("unreachable cache blob=%#v", item)
 	}
-	if !plan.Summary.CacheQuotaSatisfied || plan.Summary.CacheBytesBefore != 300 || plan.Summary.CacheBytesAfter != 200 {
+	if !plan.Summary.CacheQuotaSatisfied || plan.Summary.CacheBytesBefore != 300 || plan.Summary.CacheBytesAfter != 100 {
 		t.Fatalf("summary=%#v", plan.Summary)
 	}
 }
@@ -242,7 +245,7 @@ func TestCacheQuotaCountsDuplicateRootOnceAndNeverDeletesRetainedRoot(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Summary.CacheBytesBefore != 200 || plan.Summary.CacheBytesAfter != 200 {
+	if plan.Summary.CacheBytesBefore != 200 || plan.Summary.CacheBytesAfter != 100 {
 		t.Fatalf("duplicate root counted more than once: %#v", plan.Summary)
 	}
 	item := findItem(t, plan, "owned/cache/service/trusted", digest("f"))

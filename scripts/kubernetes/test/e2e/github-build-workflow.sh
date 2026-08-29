@@ -124,8 +124,8 @@ kp_run_github_build_workflow() {
   ' "${kp_dir}/workflow-github-repositories.json" >/dev/null || kp_die "exact active GitHub repository is unavailable"
 
   kp_body="$(jq -c '.workflow.sourceBuild.definition' "${kp_scenario}")"
-  kp_human_post create-build-definition "/v1/applications/${kp_application}/build-definitions" \
-    "${kp_body}" 201 "${kp_dir}/workflow-build-definition.json"
+	kp_human_put save-app-source "/v1/applications/${kp_application}/source" \
+		"${kp_body}" 200 "${kp_dir}/workflow-build-definition.json"
   kp_definition="$(jq -er --arg application "${kp_application}" --arg installation "${kp_installation}" \
     --arg repository "${kp_repository}" '
     select(.applicationId == $application and .installationId == $installation and
@@ -153,7 +153,7 @@ kp_run_github_build_workflow() {
     "${kp_dir}/workflow-github-valid.json"
   kp_wait_build_for_commit "${kp_application}" "${kp_commit}" "${kp_dir}/workflow-builds-after-push.json"
   jq -e --arg commit "${kp_commit}" --arg definition "${kp_definition}" '
-    [.items[] | select(.commitSha == $commit and .definitionId == $definition)] | length == 1
+    [.items[] | select(.commitSha == $commit and .sourceId == $definition)] | length == 1
   ' "${kp_dir}/workflow-builds-after-push.json" >/dev/null
   kp_build="$(jq -er --arg commit "${kp_commit}" '.items[] | select(.commitSha == $commit) | .id' \
     "${kp_dir}/workflow-builds-after-push.json")"
@@ -167,7 +167,7 @@ kp_run_github_build_workflow() {
   kp_inspect_live_build_job "${kp_dir}/workflow-build-attempt.json" \
     "${kp_dir}/workflow-live-build-job.json"
   kp_poll_build "${kp_build}" "${kp_dir}/workflow-build-terminal.json"
-  jq -e --arg definition "${kp_definition}" '.state == "succeeded" and .definitionId == $definition and
+  jq -e --arg definition "${kp_definition}" '.state == "succeeded" and .sourceId == $definition and
     (.image.reference | test("@sha256:[a-f0-9]{64}$")) and
     .image.digest == (.image.reference | split("@") | .[1])' \
     "${kp_dir}/workflow-build-terminal.json" >/dev/null

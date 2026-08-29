@@ -26,8 +26,6 @@ const (
 func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[string]any) {
 	t.Helper()
 	server, prefix := "registry.example.test", "kuberploy"
-	definition := "sha256:" + strings.Repeat("a", 64)
-	cacheRepository := server + "/" + prefix + "/projects/" + testProjectID + "/services/" + testApplicationID + "/cache/v1/trusted/amd64/" + strings.Repeat("a", 64)
 	request := builder.BuildRequest{
 		APIVersion: builder.ProtocolVersion, OperationID: testAttemptID, Generation: 2,
 		ProjectID: testProjectID, ServiceID: testApplicationID, Commit: strings.Repeat("b", 40),
@@ -38,8 +36,7 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 			Reference:  "candidate-11111111111141118111111111111111-g2-bbbbbbbbbbbb",
 		},
 		Registry: builder.RegistryCredentials{Server: server, RepositoryPrefix: prefix, UsernameFile: builder.RegistryPushSecretRoot + "/username", PasswordFile: builder.RegistryPushSecretRoot + "/password"},
-		Cache: builder.CachePolicy{Schema: "v1", TrustLane: "trusted", BuildDefinition: definition,
-			Imports: []string{cacheRepository + ":generation-1"}, CandidateExport: cacheRepository + ":candidate-11111111111141118111111111111111-g2",
+		Cache: builder.CachePolicy{Schema: "v1", TrustLane: "trusted",
 			UsernameFile: builder.RegistryCacheSecretRoot + "/username", PasswordFile: builder.RegistryCacheSecretRoot + "/password"},
 		Profile: builder.BuildProfile{Resource: "standard", TimeoutSeconds: 900, Egress: "registry-and-source"},
 	}
@@ -57,6 +54,38 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 		ActiveDeadlineSeconds: 1800, TTLSecondsAfterFinished: 3600,
 		Egress: []builder.EgressEndpoint{{CIDR: "192.0.2.10/32", Ports: []int{443}}},
 	}
+	source, err := builds.PrepareDefinition(builds.BuildDefinition{
+		ID: "77777777-7777-4777-8777-777777777777", ProjectID: testProjectID, ServiceID: testApplicationID,
+		SourceKind: builds.SourceGitHub, InstallationID: "88888888-8888-4888-8888-888888888888",
+		RepositoryID: "99999999-9999-4999-8999-999999999999", TriggerRef: "refs/heads/main", Enabled: true,
+		Spec: builds.DefinitionSpec{
+			ContextPath: request.ContextPath, DockerfilePath: request.DockerfilePath, Platforms: request.Platforms,
+			Registry: builds.RegistryBinding{
+				TargetID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab", Mode: builds.RegistryManaged,
+				Server: server, RepositoryPrefix: prefix, PushCredentialSecret: planRequest.RegistryPushCredentialSecret,
+				CacheCredentialSecret: planRequest.RegistryCacheCredentialSecret,
+			},
+			CacheTrustLane: request.Cache.TrustLane, CacheImports: 1, Profile: request.Profile, MaxAttempts: 2,
+			Execution: builds.ExecutionSettings{
+				Namespace: planRequest.Namespace, PodServiceAccount: planRequest.PodServiceAccount,
+				BuilderAgentImage: planRequest.AgentImage, BuildKitImage: request.BuildKitImage,
+				NodeSelector: planRequest.NodeSelector, Toleration: planRequest.Toleration,
+				CheckoutResources: planRequest.CheckoutResources, DinDResources: planRequest.DinDResources,
+				AgentResources: planRequest.AgentResources, WorkspaceSizeLimit: planRequest.WorkspaceSizeLimit,
+				SocketSizeLimit: planRequest.SocketSizeLimit, ResultSizeLimit: planRequest.ResultSizeLimit,
+				DockerDataSizeLimit: planRequest.DockerDataSizeLimit, ActiveDeadlineSeconds: planRequest.ActiveDeadlineSeconds,
+				TTLSecondsAfterFinished: planRequest.TTLSecondsAfterFinished, Egress: planRequest.Egress,
+			},
+		},
+	}, time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRepository := server + "/" + prefix + "/projects/" + testProjectID + "/services/" + testApplicationID + "/cache/v1/trusted/amd64/" + strings.TrimPrefix(source.DefinitionDigest, "sha256:")
+	request.Cache.BuildDefinition = source.DefinitionDigest
+	request.Cache.Imports = []string{cacheRepository + ":generation-1"}
+	request.Cache.CandidateExport = cacheRepository + ":candidate-11111111111141118111111111111111-g2"
+	planRequest.Build = request
 	plan, err := builder.PlanJob(planRequest)
 	if err != nil {
 		t.Fatal(err)
@@ -77,10 +106,10 @@ func buildLogFixture(t *testing.T) (AuthorizedAttempt, map[string]any, map[strin
 	digest := sha256.Sum256(encoded)
 	now := time.Date(2026, 8, 9, 11, 0, 0, 0, time.UTC)
 	attempt := builds.BuildAttempt{
-		ID: testAttemptID, DefinitionID: "77777777-7777-4777-8777-777777777777", DeliveryClaimKey: strings.Repeat("d", 64),
+		ID: testAttemptID, DefinitionID: source.ID, DeliveryClaimKey: strings.Repeat("d", 64),
 		TriggerKind: "github_push", TriggerKey: strings.Repeat("d", 64),
 		ProjectID: testProjectID, ServiceID: testApplicationID, CommitSHA: request.Commit, GitRef: "refs/heads/main", Generation: 2,
-		DefinitionDigest: definition, PlanRequest: planRequest, CheckoutRequest: checkout, InputDigest: "sha256:" + hex.EncodeToString(digest[:]),
+		DefinitionDigest: source.DefinitionDigest, SourceSnapshot: source, PlanRequest: planRequest, CheckoutRequest: checkout, InputDigest: "sha256:" + hex.EncodeToString(digest[:]),
 		RegistryMode: builds.RegistryManaged, State: builds.AttemptRunning, ExecutionAttempts: 1, MaxAttempts: 2, AvailableAt: now,
 		JobNamespace: planRequest.Namespace, JobName: jobName, CacheCandidate: request.Cache.CandidateExport, CreatedAt: now, UpdatedAt: now,
 		LogReference: "k8s://attacker/pods/attacker/containers/agent",

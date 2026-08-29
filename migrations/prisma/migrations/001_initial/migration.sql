@@ -193,7 +193,10 @@ BEGIN
         'auto-deploy/'||p.id::text||'/'||p.current_revision::text||'/'||a.id::text,
         NEW.completed_at,NEW.completed_at,NEW.completed_at
     FROM build_attempts a
-    JOIN auto_deploy_policies p ON p.build_definition_id=a.definition_id
+    JOIN applications app ON app.id=a.service_id
+      AND app.build_source_id=a.definition_id
+      AND app.build_source_digest=a.definition_digest
+    JOIN auto_deploy_policies p ON p.application_id=a.service_id
     JOIN auto_deploy_policy_revisions r ON r.policy_id=p.id AND r.revision=p.current_revision AND r.enabled
     WHERE a.id=NEW.attempt_id
     ON CONFLICT(attempt_id,policy_id) DO NOTHING;
@@ -285,8 +288,8 @@ $$;
 CREATE FUNCTION public.protect_auto_deploy_policy() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ BEGIN
-    IF NEW.id<>OLD.id OR NEW.build_definition_id<>OLD.build_definition_id OR NEW.project_id<>OLD.project_id OR
-       NEW.application_id<>OLD.application_id OR NEW.environment_id<>OLD.environment_id OR NEW.created_by<>OLD.created_by OR
+    IF NEW.id<>OLD.id OR NEW.project_id<>OLD.project_id OR NEW.application_id<>OLD.application_id OR
+       NEW.environment_id<>OLD.environment_id OR NEW.created_by<>OLD.created_by OR
        NEW.created_at<>OLD.created_at OR NEW.current_revision<>OLD.current_revision+1 THEN
         RAISE EXCEPTION 'invalid auto-deploy policy transition' USING ERRCODE='23514';
     END IF;
@@ -1704,14 +1707,13 @@ DECLARE policy_row auto_deploy_policies%ROWTYPE;
 BEGIN
     SELECT * INTO STRICT policy_row FROM auto_deploy_policies WHERE id=NEW.policy_id;
     IF NOT EXISTS (
-        SELECT 1 FROM build_definitions b
-        JOIN applications a ON a.id=b.service_id AND a.project_id=b.project_id
-        JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=b.project_id
+        SELECT 1 FROM applications a
+        JOIN environments e ON e.id=policy_row.environment_id AND e.project_id=a.project_id
         JOIN deployments d ON d.id=NEW.source_deployment_id
              AND d.application_id=a.id AND d.environment_id=e.id AND d.generation=NEW.source_deployment_generation
-        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=b.project_id AND sa.disabled_at IS NULL
-        WHERE b.id=policy_row.build_definition_id AND b.project_id=policy_row.project_id
-          AND b.service_id=policy_row.application_id
+        JOIN service_accounts sa ON sa.id=NEW.service_actor_id AND sa.project_id=a.project_id AND sa.disabled_at IS NULL
+        WHERE a.id=policy_row.application_id AND a.project_id=policy_row.project_id
+          AND a.build_source_id IS NOT NULL
     ) THEN
         RAISE EXCEPTION 'auto-deploy policy resource binding mismatch' USING ERRCODE='23503';
     END IF;
@@ -2486,8 +2488,22 @@ CREATE TABLE public.applications (
     registry_pull_updated_by uuid,
     registry_pull_updated_at timestamp with time zone,
     build_generation bigint DEFAULT 0 NOT NULL,
+    build_source_id uuid,
+    build_source_kind text,
+    build_source_installation_id uuid,
+    build_source_repository_id uuid,
+    build_source_git_ssh jsonb,
+    build_source_registry_target_id uuid,
+    build_source_trigger_ref text,
+    build_source_spec jsonb,
+    build_source_digest text,
+    build_source_revision bigint,
+    build_source_created_at timestamp with time zone,
+    build_source_updated_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT applications_build_generation_check CHECK ((build_generation >= 0)),
+    CONSTRAINT applications_build_source_check CHECK (((build_source_id IS NULL) AND (build_source_kind IS NULL) AND (build_source_installation_id IS NULL) AND (build_source_repository_id IS NULL) AND (build_source_git_ssh IS NULL) AND (build_source_registry_target_id IS NULL) AND (build_source_trigger_ref IS NULL) AND (build_source_spec IS NULL) AND (build_source_digest IS NULL) AND (build_source_revision IS NULL) AND (build_source_created_at IS NULL) AND (build_source_updated_at IS NULL)) OR ((build_source_id IS NOT NULL) AND (build_source_kind IS NOT NULL) AND (build_source_registry_target_id IS NOT NULL) AND (build_source_trigger_ref IS NOT NULL) AND (build_source_spec IS NOT NULL) AND (build_source_digest IS NOT NULL) AND (build_source_revision IS NOT NULL) AND (build_source_created_at IS NOT NULL) AND (build_source_updated_at IS NOT NULL) AND (jsonb_typeof(build_source_spec) = 'object'::text) AND (build_source_digest ~ '^sha256:[0-9a-f]{64}$'::text) AND (build_source_revision > 0) AND (build_source_updated_at >= build_source_created_at) AND (((build_source_kind = 'github'::text) AND (source_kind = 'github'::text) AND (build_source_installation_id IS NOT NULL) AND (build_source_repository_id IS NOT NULL) AND (build_source_git_ssh IS NULL)) OR ((build_source_kind = 'git_ssh'::text) AND (source_kind = 'git-ssh'::text) AND (build_source_installation_id IS NULL) AND (build_source_repository_id IS NULL) AND (jsonb_typeof(build_source_git_ssh) = 'object'::text))))),
+    CONSTRAINT applications_build_source_kind_check CHECK ((build_source_kind = ANY (ARRAY['github'::text, 'git_ssh'::text]))),
     CONSTRAINT applications_source_kind_check CHECK ((source_kind = ANY (ARRAY['oci'::text, 'github'::text, 'git-ssh'::text, 'helm'::text]))),
     CONSTRAINT applications_registry_pull_check CHECK ((((registry_pull_mode IS NULL) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NULL) AND (registry_pull_updated_at IS NULL)) OR ((registry_pull_mode = 'public'::text) AND (registry_pull_project_credential_id IS NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)) OR ((registry_pull_mode = 'project-credential'::text) AND (registry_pull_project_credential_id IS NOT NULL) AND (registry_pull_updated_by IS NOT NULL) AND (registry_pull_updated_at IS NOT NULL)))),
     CONSTRAINT applications_registry_pull_mode_check CHECK ((registry_pull_mode = ANY (ARRAY['public'::text, 'project-credential'::text]))),
@@ -2756,7 +2772,6 @@ CREATE TABLE public.audit_events (
 
 CREATE TABLE public.auto_deploy_policies (
     id uuid NOT NULL,
-    build_definition_id uuid NOT NULL,
     project_id uuid NOT NULL,
     application_id uuid NOT NULL,
     environment_id uuid NOT NULL,
@@ -2855,6 +2870,7 @@ CREATE TABLE public.build_attempts (
     git_ref text NOT NULL,
     generation bigint NOT NULL,
     definition_digest text NOT NULL,
+    source_snapshot jsonb NOT NULL,
     plan_request jsonb NOT NULL,
     checkout_request jsonb NOT NULL,
     input_digest text NOT NULL,
@@ -2877,7 +2893,7 @@ CREATE TABLE public.build_attempts (
     completed_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT build_attempts_check CHECK (((jsonb_typeof(plan_request) = 'object'::text) AND (jsonb_typeof(checkout_request) = 'object'::text))),
+    CONSTRAINT build_attempts_check CHECK (((jsonb_typeof(source_snapshot) = 'object'::text) AND (jsonb_typeof(plan_request) = 'object'::text) AND (jsonb_typeof(checkout_request) = 'object'::text))),
     CONSTRAINT build_attempts_check1 CHECK (((lease_owner IS NULL) = (lease_until IS NULL))),
     CONSTRAINT build_attempts_check2 CHECK ((((state = ANY (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text])) AND (completed_at IS NOT NULL) AND (lease_owner IS NULL) AND (lease_until IS NULL)) OR ((state <> ALL (ARRAY['succeeded'::text, 'failed'::text, 'cancelled'::text])) AND (completed_at IS NULL)))),
     CONSTRAINT build_attempts_check3 CHECK ((((state = 'succeeded'::text) AND (result IS NOT NULL) AND (failure_code = ''::text)) OR (state <> 'succeeded'::text))),
@@ -2891,34 +2907,6 @@ CREATE TABLE public.build_attempts (
     CONSTRAINT build_attempts_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'preparing'::text, 'running'::text, 'cancelling'::text, 'succeeded'::text, 'failed'::text, 'cancelled'::text]))),
     CONSTRAINT build_attempts_trigger_check CHECK ((((trigger_kind = 'github_push'::text) AND (delivery_claim_key IS NOT NULL) AND (trigger_key = delivery_claim_key)) OR ((trigger_kind = ANY (ARRAY['manual'::text, 'retry'::text])) AND (trigger_key <> ''::text)))),
     CONSTRAINT build_attempts_trigger_kind_check CHECK ((trigger_kind = ANY (ARRAY['github_push'::text, 'manual'::text, 'retry'::text])))
-);
-
-
---
--- Name: build_definitions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.build_definitions (
-    id uuid NOT NULL,
-    project_id uuid NOT NULL,
-    service_id uuid NOT NULL,
-    source_kind text DEFAULT 'github'::text NOT NULL,
-    installation_id uuid,
-    repository_id uuid,
-    git_ssh_source jsonb,
-    registry_target_id uuid NOT NULL,
-    trigger_ref text NOT NULL,
-    spec jsonb NOT NULL,
-    definition_digest text NOT NULL,
-    generation bigint NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT build_definitions_definition_digest_check CHECK ((definition_digest ~ '^sha256:[0-9a-f]{64}$'::text)),
-    CONSTRAINT build_definitions_generation_check CHECK ((generation > 0)),
-    CONSTRAINT build_definitions_source_check CHECK ((((source_kind = 'github'::text) AND (installation_id IS NOT NULL) AND (repository_id IS NOT NULL) AND (git_ssh_source IS NULL)) OR ((source_kind = 'git_ssh'::text) AND (installation_id IS NULL) AND (repository_id IS NULL) AND (jsonb_typeof(git_ssh_source) = 'object'::text)))),
-    CONSTRAINT build_definitions_source_kind_check CHECK ((source_kind = ANY (ARRAY['github'::text, 'git_ssh'::text]))),
-    CONSTRAINT build_definitions_spec_check CHECK ((jsonb_typeof(spec) = 'object'::text))
 );
 
 
@@ -4814,13 +4802,11 @@ CREATE TABLE public.service_registry_policies (
     repository text NOT NULL,
     keep_last_successful integer DEFAULT 10 NOT NULL,
     minimum_safety_age_seconds bigint DEFAULT 86400 NOT NULL,
-    cache_keep_generations integer DEFAULT 2 NOT NULL,
     cache_unused_expiry_seconds bigint DEFAULT 604800 NOT NULL,
     cache_byte_quota bigint DEFAULT '10737418240'::bigint NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT service_registry_policies_cache_byte_quota_check CHECK ((cache_byte_quota > 0)),
-    CONSTRAINT service_registry_policies_cache_keep_generations_check CHECK (((cache_keep_generations >= 1) AND (cache_keep_generations <= 20))),
     CONSTRAINT service_registry_policies_cache_unused_expiry_seconds_check CHECK ((cache_unused_expiry_seconds >= 60)),
     CONSTRAINT service_registry_policies_keep_last_successful_check CHECK (((keep_last_successful >= 1) AND (keep_last_successful <= 100))),
     CONSTRAINT service_registry_policies_minimum_safety_age_seconds_check CHECK ((minimum_safety_age_seconds >= 60)),
@@ -5095,11 +5081,11 @@ ALTER TABLE ONLY public.audit_events
 
 
 --
--- Name: auto_deploy_policies auto_deploy_policies_build_definition_id_environment_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+-- Name: auto_deploy_policies auto_deploy_policies_application_id_environment_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.auto_deploy_policies
-    ADD CONSTRAINT auto_deploy_policies_build_definition_id_environment_id_key UNIQUE (build_definition_id, environment_id);
+    ADD CONSTRAINT auto_deploy_policies_application_id_environment_id_key UNIQUE (application_id, environment_id);
 
 
 --
@@ -5164,14 +5150,6 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_attempts
     ADD CONSTRAINT build_attempts_trigger_kind_trigger_key_definition_id_key UNIQUE (trigger_kind, trigger_key, definition_id);
-
-
---
--- Name: build_definitions build_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_pkey PRIMARY KEY (id);
 
 
 --
@@ -6335,24 +6313,18 @@ CREATE INDEX build_attempts_work_idx ON public.build_attempts USING btree (state
 
 
 --
--- Name: build_definitions_active_git_ssh_ref_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: applications_build_source_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
-CREATE UNIQUE INDEX build_definitions_active_git_ssh_ref_idx ON public.build_definitions USING btree (project_id, service_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'git_ssh'::text));
-
-
---
--- Name: build_definitions_active_ref_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE UNIQUE INDEX build_definitions_active_ref_idx ON public.build_definitions USING btree (project_id, service_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_build_source_id_key UNIQUE (build_source_id);
 
 
 --
--- Name: build_definitions_push_idx; Type: INDEX; Schema: public; Owner: -
+-- Name: applications_build_source_push_idx; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX build_definitions_push_idx ON public.build_definitions USING btree (installation_id, repository_id, trigger_ref) WHERE ((enabled = true) AND (source_kind = 'github'::text));
+CREATE INDEX applications_build_source_push_idx ON public.applications USING btree (build_source_installation_id, build_source_repository_id, build_source_trigger_ref) WHERE (build_source_kind = 'github'::text);
 
 
 --
@@ -7452,6 +7424,30 @@ ALTER TABLE ONLY public.applications
 
 
 --
+-- Name: applications applications_build_source_installation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_build_source_installation_id_fkey FOREIGN KEY (build_source_installation_id) REFERENCES public.github_installations(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: applications applications_build_source_registry_target_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_build_source_registry_target_id_fkey FOREIGN KEY (build_source_registry_target_id) REFERENCES public.registry_targets(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: applications applications_build_source_repository_installation_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.applications
+    ADD CONSTRAINT applications_build_source_repository_installation_fkey FOREIGN KEY (build_source_repository_id, build_source_installation_id) REFERENCES public.github_repositories(id, installation_id) ON DELETE RESTRICT;
+
+
+--
 -- Name: applications applications_registry_pull_project_credential_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7692,14 +7688,6 @@ ALTER TABLE ONLY public.auto_deploy_policies
 
 
 --
--- Name: auto_deploy_policies auto_deploy_policies_build_definition_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.auto_deploy_policies
-    ADD CONSTRAINT auto_deploy_policies_build_definition_id_fkey FOREIGN KEY (build_definition_id) REFERENCES public.build_definitions(id) ON DELETE RESTRICT;
-
-
---
 -- Name: auto_deploy_policies auto_deploy_policies_created_by_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7772,14 +7760,6 @@ ALTER TABLE ONLY public.auto_deploy_runs
 
 
 --
--- Name: auto_deploy_runs auto_deploy_runs_definition_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.auto_deploy_runs
-    ADD CONSTRAINT auto_deploy_runs_definition_id_fkey FOREIGN KEY (definition_id) REFERENCES public.build_definitions(id) ON DELETE RESTRICT;
-
-
---
 -- Name: auto_deploy_runs auto_deploy_runs_deployment_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7828,14 +7808,6 @@ ALTER TABLE ONLY public.auto_deploy_runs
 
 
 --
--- Name: build_attempts build_attempts_definition_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_attempts
-    ADD CONSTRAINT build_attempts_definition_id_fkey FOREIGN KEY (definition_id) REFERENCES public.build_definitions(id) ON DELETE RESTRICT;
-
-
---
 -- Name: build_attempts build_attempts_delivery_claim_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -7857,46 +7829,6 @@ ALTER TABLE ONLY public.build_attempts
 
 ALTER TABLE ONLY public.build_attempts
     ADD CONSTRAINT build_attempts_service_id_project_id_fkey FOREIGN KEY (service_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE RESTRICT;
-
-
---
--- Name: build_definitions build_definitions_installation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_installation_id_fkey FOREIGN KEY (installation_id) REFERENCES public.github_installations(id) ON DELETE RESTRICT;
-
-
---
--- Name: build_definitions build_definitions_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE RESTRICT;
-
-
---
--- Name: build_definitions build_definitions_registry_target_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_registry_target_id_fkey FOREIGN KEY (registry_target_id) REFERENCES public.registry_targets(id) ON DELETE RESTRICT;
-
-
---
--- Name: build_definitions build_definitions_repository_id_installation_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_repository_id_installation_id_fkey FOREIGN KEY (repository_id, installation_id) REFERENCES public.github_repositories(id, installation_id) ON DELETE RESTRICT;
-
-
---
--- Name: build_definitions build_definitions_service_id_project_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.build_definitions
-    ADD CONSTRAINT build_definitions_service_id_project_id_fkey FOREIGN KEY (service_id, project_id) REFERENCES public.applications(id, project_id) ON DELETE RESTRICT;
 
 
 --

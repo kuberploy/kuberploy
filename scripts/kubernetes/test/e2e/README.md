@@ -13,7 +13,7 @@ also fails.
 | Stage | Required proof |
 |---|---|
 | `00-preflight` | Explicit target, supported version/APIs/nodes/storage, dependency inventory, and exact ready NetworkPolicy-provider identity |
-| `10-one-chart-install` | One installer entrypoint, independent Applications, immutable source and package digests |
+| `10-one-chart-install` | One installer entrypoint, independent Applications, recorded App sources, and package digests |
 | `20-postgresql-valkey` | PostgreSQL restart durability plus exact managed-Valkey PVC dataset deletion, durable outbox reconstruction, exactly-once operation convergence, and Deployment restoration |
 | `30-git-argo` | Direct projection, protected PR, and a new rollback intent |
 | `40-source-build` | Signed/deduplicated delivery, safety-poll mode, isolated credential lanes, live build cancellation with exact Job deletion and successful retry, actual second-build cache hit, cache-only cold degradation, terminal push-only failure, durable auto-deploy receipt, immutable promotion, and direct Argo CD Helm OCI |

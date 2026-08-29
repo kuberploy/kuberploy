@@ -48,8 +48,8 @@ small and consistent:
   current tenant, project, namespace, and integration scope;
 - keep Kuberploy-managed plaintext secrets and reusable credentials out of Git,
   logs, ordinary database fields, and read APIs; caller-supplied build
-  arguments remain caller-owned immutable build-definition input, may be
-  retained by the definition, Docker history, or caches, and receive a
+  arguments remain caller-owned App source input, are copied into the exact
+  source snapshot recorded for each build attempt, may be retained by Docker history or caches, and receive a
   non-blocking warning when their names look sensitive;
 - send credentials only to the configured HTTPS host and never across an
   unapproved host or scheme redirect;
@@ -103,8 +103,8 @@ access does not delete or stop an already deployed immutable workload.
 - Plaintext application secrets, GitHub App private keys, webhook secrets,
   registry credentials, and installation tokens managed by Kuberploy never
   enter Git, ordinary database columns, Valkey, release metadata, traces, or
-  logs. Caller-supplied build-argument values may be retained in the immutable
-  build definition, Dockerfile history, or caches; Kuberploy does not echo
+  logs. Caller-supplied build-argument values may be retained in the editable
+  App source, recorded build-attempt snapshot, Dockerfile history, or caches; Kuberploy does not echo
   them in warnings or result projections, and names that look sensitive
   produce a `SensitiveBuildArg` warning. Base64 encoding alone is not
   protection.

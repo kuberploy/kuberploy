@@ -108,26 +108,25 @@ func (s *Store) PutServiceRegistryPolicy(ctx context.Context, policy domain.Serv
 	err = tx.QueryRow(ctx, `
 		INSERT INTO service_registry_policies(
 			registry_target_id,service_id,repository,keep_last_successful,
-			minimum_safety_age_seconds,cache_keep_generations,
+			minimum_safety_age_seconds,
 			cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at
-		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT(registry_target_id,service_id) DO UPDATE SET
 			repository=EXCLUDED.repository,
 			keep_last_successful=EXCLUDED.keep_last_successful,
 			minimum_safety_age_seconds=EXCLUDED.minimum_safety_age_seconds,
-			cache_keep_generations=EXCLUDED.cache_keep_generations,
 			cache_unused_expiry_seconds=EXCLUDED.cache_unused_expiry_seconds,
 			cache_byte_quota=EXCLUDED.cache_byte_quota,
 			updated_at=EXCLUDED.updated_at
 		RETURNING registry_target_id,service_id,repository,keep_last_successful,
-			minimum_safety_age_seconds,cache_keep_generations,
+			minimum_safety_age_seconds,
 			cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at`,
 		policy.RegistryTargetID, policy.ServiceID, policy.Repository, policy.KeepLastSuccessful,
-		int64(policy.MinimumSafetyAge/time.Second), policy.CacheKeepGenerations,
+		int64(policy.MinimumSafetyAge/time.Second),
 		int64(policy.CacheUnusedExpiry/time.Second), policy.CacheByteQuota,
 		policy.CreatedAt, policy.UpdatedAt,
 	).Scan(&policy.RegistryTargetID, &policy.ServiceID, &policy.Repository, &policy.KeepLastSuccessful,
-		newDurationScanner(&policy.MinimumSafetyAge), &policy.CacheKeepGenerations,
+		newDurationScanner(&policy.MinimumSafetyAge),
 		newDurationScanner(&policy.CacheUnusedExpiry), &policy.CacheByteQuota,
 		&policy.CreatedAt, &policy.UpdatedAt)
 	if err != nil {
@@ -167,11 +166,11 @@ func serviceRegistryPolicy(ctx context.Context, q registryDB, targetID, serviceI
 	var policy domain.ServiceRegistryPolicy
 	var minimumSafetyAge, cacheUnusedExpiry int64
 	err := q.QueryRow(ctx, `SELECT registry_target_id,service_id,repository,
-		keep_last_successful,minimum_safety_age_seconds,cache_keep_generations,
+		keep_last_successful,minimum_safety_age_seconds,
 		cache_unused_expiry_seconds,cache_byte_quota,created_at,updated_at
 		FROM service_registry_policies WHERE registry_target_id=$1 AND service_id=$2`, targetID, serviceID).
 		Scan(&policy.RegistryTargetID, &policy.ServiceID, &policy.Repository,
-			&policy.KeepLastSuccessful, &minimumSafetyAge, &policy.CacheKeepGenerations,
+			&policy.KeepLastSuccessful, &minimumSafetyAge,
 			&cacheUnusedExpiry, &policy.CacheByteQuota, &policy.CreatedAt, &policy.UpdatedAt)
 	policy.MinimumSafetyAge = time.Duration(minimumSafetyAge) * time.Second
 	policy.CacheUnusedExpiry = time.Duration(cacheUnusedExpiry) * time.Second

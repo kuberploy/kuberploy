@@ -84,7 +84,7 @@ export function GitSSHSourcePanel({
     [selectedQuery.data?.items],
   );
   const definitions = useQuery({
-    queryKey: ["build-definitions", application.id],
+    queryKey: ["app-source", application.id],
     queryFn: () => api.buildDefinitions(application.id),
     enabled: enabled && buildConfigured,
     retry: false,
@@ -153,7 +153,7 @@ export function GitSSHSourcePanel({
     onSuccess: async () => {
       setFormError("");
       await client.invalidateQueries({
-        queryKey: ["build-definitions", application.id],
+        queryKey: ["app-source", application.id],
       });
     },
   });
@@ -421,7 +421,7 @@ export function GitSSHSourcePanel({
             onClick={submitDefinition}
           >
             <Icon name="plus" />{" "}
-            {activeDefinition ? "Replace binding" : "Create binding"}
+            {activeDefinition ? "Save App source" : "Connect App source"}
           </Button>
         </section>
       ) : null}
@@ -467,7 +467,7 @@ export function GitSSHSourcePanel({
       {createDefinition.error ? (
         <ErrorPanel
           error={createDefinition.error}
-          title="Git SSH binding failed"
+          title="Could not save Git SSH source"
         />
       ) : null}
       {createBuild.error ? (

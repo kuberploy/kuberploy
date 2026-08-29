@@ -206,10 +206,10 @@ export function BuildDetailPage() {
       {retriedAttempt ? (
         <Notice tone="success" role="status">
           <div>
-            <strong>Immutable retry queued</strong>
+            <strong>Retry queued</strong>
             <p>
-              A new attempt was created without changing source, definition,
-              registry, or cache authority.
+              A new attempt was created from the same recorded source,
+              registry, and cache settings.
             </p>
           </div>
           <Link
@@ -249,7 +249,7 @@ export function BuildDetailPage() {
             <div>
               <dt>Definition</dt>
               <dd>
-                <code>{currentAttempt.definitionId}</code>
+                <code>{currentAttempt.sourceId}</code>
               </dd>
             </div>
             <div>

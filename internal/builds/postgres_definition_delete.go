@@ -35,7 +35,7 @@ func (s *PostgreSQLStore) DeleteDefinition(ctx context.Context, actorID, service
 		return false, classifyPostgres(err)
 	}
 	var ownerService string
-	if err = tx.QueryRow(ctx, `SELECT service_id::text FROM build_definitions WHERE id=$1 FOR UPDATE`, definitionID).Scan(&ownerService); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT id::text FROM applications WHERE build_source_id=$1 FOR UPDATE`, definitionID).Scan(&ownerService); err != nil {
 		return false, classifyPostgres(err)
 	}
 	if ownerService != serviceID {
@@ -60,17 +60,23 @@ func (s *PostgreSQLStore) DeleteDefinition(ctx context.Context, actorID, service
 			return false, ErrDeletionBlocked
 		}
 	}
-	statements := []string{
-		`DELETE FROM auto_deploy_runs WHERE definition_id=$1`,
-		`DELETE FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy' AND auto_deploy_policy_id IN (SELECT id FROM auto_deploy_policies WHERE build_definition_id=$1)`,
-		`DELETE FROM auto_deploy_policy_revisions WHERE policy_id IN (SELECT id FROM auto_deploy_policies WHERE build_definition_id=$1)`,
-		`DELETE FROM auto_deploy_policies WHERE build_definition_id=$1`,
-		`DELETE FROM build_release_projections WHERE attempt_id IN (SELECT id FROM build_attempts WHERE definition_id=$1)`,
-		`DELETE FROM build_attempts WHERE definition_id=$1`,
-		`DELETE FROM build_definitions WHERE id=$1`,
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{`DELETE FROM auto_deploy_runs WHERE policy_id IN (SELECT id FROM auto_deploy_policies WHERE application_id=$1)`, []any{serviceID}},
+		{`DELETE FROM mutation_receipts WHERE receipt_kind='auto-deploy-policy' AND auto_deploy_policy_id IN (SELECT id FROM auto_deploy_policies WHERE application_id=$1)`, []any{serviceID}},
+		{`DELETE FROM auto_deploy_policy_revisions WHERE policy_id IN (SELECT id FROM auto_deploy_policies WHERE application_id=$1)`, []any{serviceID}},
+		{`DELETE FROM auto_deploy_policies WHERE application_id=$1`, []any{serviceID}},
+		{`DELETE FROM build_release_projections WHERE attempt_id IN (SELECT id FROM build_attempts WHERE definition_id=$1 AND service_id=$2)`, []any{definitionID, serviceID}},
+		{`DELETE FROM build_attempts WHERE definition_id=$1 AND service_id=$2`, []any{definitionID, serviceID}},
+		{`UPDATE applications SET build_source_id=NULL,build_source_kind=NULL,build_source_installation_id=NULL,
+			build_source_repository_id=NULL,build_source_git_ssh=NULL,build_source_registry_target_id=NULL,
+			build_source_trigger_ref=NULL,build_source_spec=NULL,build_source_digest=NULL,build_source_revision=NULL,
+			build_source_created_at=NULL,build_source_updated_at=NULL WHERE id=$2 AND build_source_id=$1`, []any{definitionID, serviceID}},
 	}
 	for _, statement := range statements {
-		if _, err = tx.Exec(ctx, statement, definitionID); err != nil {
+		if _, err = tx.Exec(ctx, statement.query, statement.args...); err != nil {
 			return false, classifyPostgres(err)
 		}
 	}
@@ -79,7 +85,7 @@ func (s *PostgreSQLStore) DeleteDefinition(ctx context.Context, actorID, service
 		return false, classifyPostgres(err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,actor_id,action,target_type,target_id,request_id,detail)
-		VALUES($1,$2,'build-definition.delete','build-definition',$3,$4,jsonb_build_object('applicationId',$5::text))`, id.New(), actorID, definitionID, requestID, serviceID); err != nil {
+		VALUES($1,$2,'app-source.disconnect','application',$3,$4,'{}'::jsonb)`, id.New(), actorID, serviceID, requestID); err != nil {
 		return false, classifyPostgres(err)
 	}
 	return false, tx.Commit(ctx)

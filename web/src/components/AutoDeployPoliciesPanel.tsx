@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorMessage } from "../api/client";
 import type {
   Application,
   AutoDeployPolicy,
-  BuildDefinition,
   Capability,
   Project,
 } from "../api/types";
-import { formatDate, gitRefLabel, shortId } from "../lib/format";
+import { formatDate, shortId } from "../lib/format";
 import {
   canMutateAutoDeployPolicy,
   hasPotentialAutoDeployManagement,
@@ -87,14 +86,14 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
 export function AutoDeployPoliciesPanel({
   application,
   project,
-  definitions,
+  sourceConnected,
   enabled,
   humanSession,
   capabilities,
 }: {
   application: Application;
   project: Project;
-  definitions: BuildDefinition[];
+  sourceConnected: boolean;
   enabled: boolean;
   humanSession: boolean;
   capabilities: Capability[];
@@ -161,12 +160,8 @@ export function AutoDeployPoliciesPanel({
   // picked. What is actually selected is derived here, so a list that loses the
   // picked entry falls back within the same render instead of painting an
   // invalid selection and correcting it in an effect on the next one.
-  const [definitionChoice, setDefinitionId] = useState("");
   const [deploymentChoice, setDeploymentId] = useState("");
   const [serviceActorChoice, setServiceActorId] = useState("");
-  const definitionId = definitions.some((item) => item.id === definitionChoice)
-    ? definitionChoice
-    : (definitions[0]?.id ?? "");
   const serviceActorId = serviceAccounts.some(
     (item) => item.id === serviceActorChoice,
   )
@@ -204,7 +199,6 @@ export function AutoDeployPoliciesPanel({
   const create = useMutation({
     mutationFn: (input: {
       applicationId: string;
-      buildDefinitionId: string;
       environmentId: string;
       templateDeploymentId: string;
       serviceActorId: string;
@@ -212,7 +206,6 @@ export function AutoDeployPoliciesPanel({
     }) => {
       if (
         !input.applicationId ||
-        !input.buildDefinitionId ||
         !input.environmentId ||
         !input.templateDeploymentId ||
         !input.serviceActorId
@@ -221,7 +214,6 @@ export function AutoDeployPoliciesPanel({
       return api.createAutoDeployPolicy(
         input.applicationId,
         {
-          buildDefinitionId: input.buildDefinitionId,
           environmentId: input.environmentId,
           templateDeploymentId: input.templateDeploymentId,
           serviceActorId: input.serviceActorId,
@@ -278,7 +270,6 @@ export function AutoDeployPoliciesPanel({
     );
     const signature = JSON.stringify({
       applicationId,
-      definitionId,
       deploymentId,
       serviceActorId,
     });
@@ -289,7 +280,6 @@ export function AutoDeployPoliciesPanel({
     createAttempt.current = { signature, key };
     create.mutate({
       applicationId,
-      buildDefinitionId: definitionId,
       environmentId: deployment?.environmentId ?? "",
       templateDeploymentId: deployment?.id ?? "",
       serviceActorId,
@@ -364,21 +354,8 @@ export function AutoDeployPoliciesPanel({
       !mutationCatalogError &&
       serviceAccounts.length > 0 &&
       authorizedCandidates.length > 0 &&
-      definitions.length > 0 ? (
+      sourceConnected ? (
         <FormGrid>
-          <Field label="Build definition">
-            <Select
-              value={definitionId}
-              onChange={(event) => setDefinitionId(event.target.value)}
-            >
-              {definitions.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {gitRefLabel(item.triggerRef)} ·{" "}
-                  {shortId(item.definitionDigest, 12)}
-                </option>
-              ))}
-            </Select>
-          </Field>
           <Field label="Pinned App configuration">
             <Select
               value={deploymentId}
@@ -406,7 +383,7 @@ export function AutoDeployPoliciesPanel({
           <Button
             onClick={enablePolicy}
             busy={create.isPending}
-            disabled={!definitionId || !deploymentId || !serviceActorId}
+            disabled={!deploymentId || !serviceActorId}
           >
             Enable pinned policy
           </Button>
@@ -430,7 +407,7 @@ export function AutoDeployPoliciesPanel({
                 <StatusPill
                   value={policy.current.enabled ? "enabled" : "disabled"}
                 />
-                <strong>{shortId(policy.buildDefinitionId, 12)}</strong>
+                <strong>App source</strong>
                 <small>
                   Revision {policy.currentRevision} · runtime{" "}
                   {shortId(policy.current.sourceDeploymentId, 12)}
@@ -485,7 +462,7 @@ export function AutoDeployPoliciesPanel({
       ) : (
         <EmptyState
           title="No auto-deploy policies"
-          description="Pin a verified build definition to an existing App configuration."
+          description="Enable delivery from this App source to an existing App configuration."
         />
       )}
       {revise.error ? (

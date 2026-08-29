@@ -165,8 +165,12 @@ func (s *PostgreSQLStore) PutDefinition(ctx context.Context, definition BuildDef
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	var applicationProject string
-	if err = tx.QueryRow(ctx, `SELECT project_id::text FROM applications WHERE id=$1 FOR SHARE`, definition.ServiceID).Scan(&applicationProject); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT project_id::text FROM applications WHERE id=$1 FOR UPDATE`, definition.ServiceID).Scan(&applicationProject); err != nil {
 		return classifyPostgres(err)
+	}
+	expectedSourceKind := string(definition.SourceKind)
+	if definition.SourceKind == SourceGitSSH {
+		expectedSourceKind = "git-ssh"
 	}
 	if applicationProject != definition.ProjectID {
 		return ErrUnauthorized
@@ -200,27 +204,23 @@ func (s *PostgreSQLStore) PutDefinition(ctx context.Context, definition BuildDef
 		pushCredential != definition.Spec.Registry.PushCredentialSecret || cacheCredential != definition.Spec.Registry.CacheCredentialSecret {
 		return ErrUnauthorized
 	}
-	if definition.Enabled {
-		if _, err = tx.Exec(ctx, `UPDATE build_definitions SET enabled=false,updated_at=$1
-			WHERE project_id=$2 AND service_id=$3 AND source_kind=$4 AND trigger_ref=$5 AND id<>$6 AND enabled=true
-			AND ($4='git_ssh' OR repository_id=$7)`, definition.UpdatedAt, definition.ProjectID, definition.ServiceID,
-			definition.SourceKind, definition.TriggerRef, definition.ID, nullableUUID(definition.RepositoryID)); err != nil {
-			return classifyPostgres(err)
-		}
+	if !definition.Enabled {
+		return ErrInvalid
 	}
 	spec, _ := json.Marshal(definition.Spec)
 	var gitSSHSource any
 	if definition.GitSSH != nil {
 		gitSSHSource, _ = json.Marshal(definition.GitSSH)
 	}
-	command, err := tx.Exec(ctx, `INSERT INTO build_definitions(id,project_id,service_id,source_kind,installation_id,repository_id,git_ssh_source,registry_target_id,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-		ON CONFLICT(id) DO UPDATE SET trigger_ref=EXCLUDED.trigger_ref,spec=EXCLUDED.spec,definition_digest=EXCLUDED.definition_digest,generation=EXCLUDED.generation,enabled=EXCLUDED.enabled,updated_at=EXCLUDED.updated_at
-		WHERE build_definitions.project_id=EXCLUDED.project_id AND build_definitions.service_id=EXCLUDED.service_id AND build_definitions.source_kind=EXCLUDED.source_kind
-		AND build_definitions.installation_id IS NOT DISTINCT FROM EXCLUDED.installation_id AND build_definitions.repository_id IS NOT DISTINCT FROM EXCLUDED.repository_id
-		AND build_definitions.git_ssh_source IS NOT DISTINCT FROM EXCLUDED.git_ssh_source AND build_definitions.registry_target_id=EXCLUDED.registry_target_id`,
-		definition.ID, definition.ProjectID, definition.ServiceID, definition.SourceKind, nullableUUID(definition.InstallationID), nullableUUID(definition.RepositoryID), gitSSHSource,
-		definition.Spec.Registry.TargetID, definition.TriggerRef, spec, definition.DefinitionDigest, definition.DefinitionGeneration, definition.Enabled, definition.CreatedAt, definition.UpdatedAt)
+	command, err := tx.Exec(ctx, `UPDATE applications SET source_kind=$15,
+		build_source_id=$3,build_source_kind=$4,build_source_installation_id=$5,build_source_repository_id=$6,
+		build_source_git_ssh=$7,build_source_registry_target_id=$8,build_source_trigger_ref=$9,build_source_spec=$10,
+		build_source_digest=$11,build_source_revision=GREATEST(COALESCE(build_source_revision,0)+1,$12),
+		build_source_created_at=COALESCE(build_source_created_at,$13),build_source_updated_at=$14
+		WHERE id=$1 AND project_id=$2`, definition.ServiceID, definition.ProjectID, definition.ID, definition.SourceKind,
+		nullableUUID(definition.InstallationID), nullableUUID(definition.RepositoryID), gitSSHSource, definition.Spec.Registry.TargetID,
+		definition.TriggerRef, spec, definition.DefinitionDigest, definition.DefinitionGeneration, definition.CreatedAt, definition.UpdatedAt,
+		expectedSourceKind)
 	if err != nil {
 		return classifyPostgres(err)
 	}
@@ -473,7 +473,12 @@ func (s *PostgreSQLStore) AuthorizePush(ctx context.Context, appID, providerInst
 	if repository.Lifecycle != RepositoryActive || repository.Identity.OwnerID != identity.OwnerID || repository.Identity.Name != identity.Name || !strings.EqualFold(repository.Identity.OwnerLogin, identity.OwnerLogin) {
 		return AuthorizedPush{}, ErrUnauthorized
 	}
-	rows, err := tx.Query(ctx, `SELECT id::text,project_id::text,service_id::text,source_kind,COALESCE(installation_id::text,''),COALESCE(repository_id::text,''),git_ssh_source,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at FROM build_definitions WHERE source_kind='github' AND installation_id=$1 AND repository_id=$2 AND trigger_ref=$3 AND enabled=true ORDER BY id`, installation.ID, repository.ID, ref)
+	rows, err := tx.Query(ctx, `SELECT build_source_id::text,project_id::text,id::text,build_source_kind,
+		COALESCE(build_source_installation_id::text,''),COALESCE(build_source_repository_id::text,''),build_source_git_ssh,
+		build_source_trigger_ref,build_source_spec,build_source_digest,build_source_revision,true,
+		build_source_created_at,build_source_updated_at
+		FROM applications WHERE build_source_kind='github' AND build_source_installation_id=$1
+		AND build_source_repository_id=$2 AND build_source_trigger_ref=$3 ORDER BY id`, installation.ID, repository.ID, ref)
 	if err != nil {
 		return AuthorizedPush{}, err
 	}
@@ -573,10 +578,11 @@ func (s *PostgreSQLStore) EnqueuePushBuilds(ctx context.Context, input EnqueuePu
 		}
 		planJSON, _ := json.Marshal(attempt.PlanRequest)
 		checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
-		_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'queued',0,$16,$17,$18,$19,$20,$21,$21)`,
+		sourceJSON, _ := json.Marshal(attempt.SourceSnapshot)
+		_, err = tx.Exec(ctx, `INSERT INTO build_attempts(id,definition_id,delivery_claim_key,trigger_kind,trigger_key,project_id,service_id,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,job_namespace,job_name,cache_candidate,created_at,updated_at)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'queued',0,$17,$18,$19,$20,$21,$22,$22)`,
 			attempt.ID, attempt.DefinitionID, attempt.DeliveryClaimKey, attempt.TriggerKind, attempt.TriggerKey, attempt.ProjectID, attempt.ServiceID,
-			attempt.CommitSHA, attempt.GitRef, attempt.Generation, attempt.DefinitionDigest, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
+			attempt.CommitSHA, attempt.GitRef, attempt.Generation, attempt.DefinitionDigest, sourceJSON, planJSON, checkoutJSON, attempt.InputDigest, attempt.RegistryMode,
 			attempt.MaxAttempts, attempt.AvailableAt, attempt.JobNamespace, attempt.JobName, attempt.CacheCandidate, attempt.CreatedAt)
 		if err != nil {
 			return nil, classifyPostgres(err)
@@ -605,21 +611,23 @@ func (s *PostgreSQLStore) HistoricalAttempt(ctx context.Context, attemptID strin
 }
 
 func (s *PostgreSQLStore) AttemptAuthorization(ctx context.Context, attemptID string) (Installation, Repository, error) {
-	var installationID, repositoryID, attemptDigest, definitionDigest string
-	var enabled bool
-	err := s.pool.QueryRow(ctx, `SELECT d.installation_id::text,d.repository_id::text,a.definition_digest,d.definition_digest,d.enabled FROM build_attempts a JOIN build_definitions d ON d.id=a.definition_id WHERE a.id=$1`, attemptID).Scan(&installationID, &repositoryID, &attemptDigest, &definitionDigest, &enabled)
-	if err != nil {
-		return Installation{}, Repository{}, classifyPostgres(err)
-	}
-	installation, err := installationByIDQuery(ctx, s.pool, installationID)
+	attempt, err := attemptByIDQuery(ctx, s.pool, attemptID, false)
 	if err != nil {
 		return Installation{}, Repository{}, err
 	}
-	repository, err := repositoryByIDQuery(ctx, s.pool, repositoryID)
+	definition := attempt.SourceSnapshot
+	if definition.SourceKind != SourceGitHub || definition.DefinitionDigest != attempt.DefinitionDigest {
+		return Installation{}, Repository{}, ErrUnauthorized
+	}
+	installation, err := installationByIDQuery(ctx, s.pool, definition.InstallationID)
 	if err != nil {
 		return Installation{}, Repository{}, err
 	}
-	if !enabled || attemptDigest != definitionDigest || installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive || repository.InstallationID != installation.ID {
+	repository, err := repositoryByIDQuery(ctx, s.pool, definition.RepositoryID)
+	if err != nil {
+		return Installation{}, Repository{}, err
+	}
+	if installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive || repository.InstallationID != installation.ID {
 		return Installation{}, Repository{}, ErrUnauthorized
 	}
 	return installation, repository, nil
@@ -905,7 +913,10 @@ func definitionByIDQuery(ctx context.Context, query rowQuery, definitionID strin
 	if forUpdate {
 		suffix = " FOR SHARE"
 	}
-	return scanDefinition(query.QueryRow(ctx, `SELECT id::text,project_id::text,service_id::text,source_kind,COALESCE(installation_id::text,''),COALESCE(repository_id::text,''),git_ssh_source,trigger_ref,spec,definition_digest,generation,enabled,created_at,updated_at FROM build_definitions WHERE id=$1`+suffix, definitionID))
+	return scanDefinition(query.QueryRow(ctx, `SELECT build_source_id::text,project_id::text,id::text,build_source_kind,
+		COALESCE(build_source_installation_id::text,''),COALESCE(build_source_repository_id::text,''),build_source_git_ssh,
+		build_source_trigger_ref,build_source_spec,build_source_digest,build_source_revision,true,
+		build_source_created_at,build_source_updated_at FROM applications WHERE build_source_id=$1`+suffix, definitionID))
 }
 
 type scanner interface{ Scan(...any) error }
@@ -942,7 +953,7 @@ func attemptByIDQuery(ctx context.Context, query rowQuery, attemptID string, for
 	if forUpdate {
 		suffix = " FOR UPDATE"
 	}
-	return scanAttempt(query.QueryRow(ctx, `SELECT id::text,definition_id::text,COALESCE(delivery_claim_key,''),trigger_kind,trigger_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE id=$1`+suffix, attemptID))
+	return scanAttempt(query.QueryRow(ctx, `SELECT id::text,definition_id::text,COALESCE(delivery_claim_key,''),trigger_kind,trigger_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE id=$1`+suffix, attemptID))
 }
 
 func historicalAttemptByIDQuery(ctx context.Context, query rowQuery, attemptID string) (BuildAttempt, error) {
@@ -950,7 +961,7 @@ func historicalAttemptByIDQuery(ctx context.Context, query rowQuery, attemptID s
 }
 
 func pushAttemptBySourceQuery(ctx context.Context, query rowQuery, definitionID, commitSHA, gitRef string) (BuildAttempt, error) {
-	return scanAttempt(query.QueryRow(ctx, `SELECT a.id::text,a.definition_id::text,COALESCE(a.delivery_claim_key,''),a.trigger_kind,a.trigger_key,a.project_id::text,a.service_id::text,a.commit_sha,a.git_ref,a.generation,a.definition_digest,a.plan_request,a.checkout_request,a.input_digest,a.registry_mode,a.state,a.execution_attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until,a.job_namespace,a.job_name,a.cache_candidate,a.cache_reference,a.result,a.log_reference,a.failure_code,a.cancel_requested_at,a.started_at,a.completed_at,a.created_at,a.updated_at
+	return scanAttempt(query.QueryRow(ctx, `SELECT a.id::text,a.definition_id::text,COALESCE(a.delivery_claim_key,''),a.trigger_kind,a.trigger_key,a.project_id::text,a.service_id::text,a.commit_sha,a.git_ref,a.generation,a.definition_digest,a.source_snapshot,a.plan_request,a.checkout_request,a.input_digest,a.registry_mode,a.state,a.execution_attempts,a.max_attempts,a.available_at,a.lease_owner,a.lease_until,a.job_namespace,a.job_name,a.cache_candidate,a.cache_reference,a.result,a.log_reference,a.failure_code,a.cancel_requested_at,a.started_at,a.completed_at,a.created_at,a.updated_at
 		FROM build_attempts a JOIN github_webhook_receipts r ON r.claim_key=a.delivery_claim_key
 		WHERE a.definition_id=$1 AND a.commit_sha=$2 AND a.git_ref=$3 AND r.typed_event IS NOT NULL
 		ORDER BY a.generation,a.id LIMIT 1`, definitionID, commitSHA, gitRef))
@@ -958,12 +969,12 @@ func pushAttemptBySourceQuery(ctx context.Context, query rowQuery, definitionID,
 
 func scanAttempt(row scanner) (BuildAttempt, error) {
 	var attempt BuildAttempt
-	var planJSON, checkoutJSON []byte
+	var sourceJSON, planJSON, checkoutJSON []byte
 	var resultJSON []byte
 	var leaseOwner *string
 	var leaseUntil *time.Time
 	err := row.Scan(&attempt.ID, &attempt.DefinitionID, &attempt.DeliveryClaimKey, &attempt.TriggerKind, &attempt.TriggerKey, &attempt.ProjectID, &attempt.ServiceID, &attempt.CommitSHA, &attempt.GitRef,
-		&attempt.Generation, &attempt.DefinitionDigest, &planJSON, &checkoutJSON, &attempt.InputDigest, &attempt.RegistryMode, &attempt.State,
+		&attempt.Generation, &attempt.DefinitionDigest, &sourceJSON, &planJSON, &checkoutJSON, &attempt.InputDigest, &attempt.RegistryMode, &attempt.State,
 		&attempt.ExecutionAttempts, &attempt.MaxAttempts, &attempt.AvailableAt, &leaseOwner, &leaseUntil, &attempt.JobNamespace, &attempt.JobName,
 		&attempt.CacheCandidate, &attempt.CacheReference, &resultJSON, &attempt.LogReference, &attempt.FailureCode, &attempt.CancelRequestedAt,
 		&attempt.StartedAt, &attempt.CompletedAt, &attempt.CreatedAt, &attempt.UpdatedAt)
@@ -975,6 +986,9 @@ func scanAttempt(row scanner) (BuildAttempt, error) {
 	}
 	if leaseUntil != nil {
 		attempt.LeaseUntil = *leaseUntil
+	}
+	if err = decodeClosedJSON(sourceJSON, &attempt.SourceSnapshot); err != nil {
+		return BuildAttempt{}, ErrInvalid
 	}
 	if err = decodeClosedJSON(planJSON, &attempt.PlanRequest); err != nil {
 		return BuildAttempt{}, ErrInvalid
@@ -1004,6 +1018,11 @@ func validateStoredAttempt(attempt BuildAttempt) error {
 		attempt.MaxAttempts < 1 || attempt.MaxAttempts > 5 || !kubeNameRE.MatchString(attempt.JobNamespace) || !kubeNameRE.MatchString(attempt.JobName) ||
 		attempt.CreatedAt.IsZero() || attempt.UpdatedAt.IsZero() || attempt.PlanRequest.Build.OperationID != attempt.ID || attempt.CheckoutRequest.OperationID != attempt.ID ||
 		attempt.PlanRequest.Build.Generation != attempt.Generation || attempt.CheckoutRequest.Generation != attempt.Generation {
+		return ErrInvalid
+	}
+	if attempt.SourceSnapshot.validate() != nil || attempt.SourceSnapshot.ID != attempt.DefinitionID ||
+		attempt.SourceSnapshot.ProjectID != attempt.ProjectID || attempt.SourceSnapshot.ServiceID != attempt.ServiceID ||
+		attempt.SourceSnapshot.DefinitionDigest != attempt.DefinitionDigest {
 		return ErrInvalid
 	}
 	inputDigest, err := attemptInputDigest(attempt.PlanRequest, attempt.CheckoutRequest)
@@ -1036,7 +1055,7 @@ func validAttemptTrigger(attempt BuildAttempt) bool {
 }
 
 func attemptsForDeliveryQuery(ctx context.Context, query rowsQuery, claimKey string) ([]BuildAttempt, error) {
-	rows, err := query.Query(ctx, `SELECT id::text,definition_id::text,COALESCE(delivery_claim_key,''),trigger_kind,trigger_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE delivery_claim_key=$1 ORDER BY id`, claimKey)
+	rows, err := query.Query(ctx, `SELECT id::text,definition_id::text,COALESCE(delivery_claim_key,''),trigger_kind,trigger_key,project_id::text,service_id::text,commit_sha,git_ref,generation,definition_digest,source_snapshot,plan_request,checkout_request,input_digest,registry_mode,state,execution_attempts,max_attempts,available_at,lease_owner,lease_until,job_namespace,job_name,cache_candidate,cache_reference,result,log_reference,failure_code,cancel_requested_at,started_at,completed_at,created_at,updated_at FROM build_attempts WHERE delivery_claim_key=$1 ORDER BY id`, claimKey)
 	if err != nil {
 		return nil, err
 	}

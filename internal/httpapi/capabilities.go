@@ -239,13 +239,13 @@ func filterAutomationActions(actions []string, scopes []domain.AutomationScope) 
 	for _, action := range actions {
 		allowed := false
 		switch action {
-		case "applications:read", "deployments:read", "environments:read", "projects:read", "deployment-config:read", "deployment-config:validate", "operations:read", "metrics:read", "secret-bindings:read", "build-definitions:read", "builds:read", "external-dns-integrations:read", "helm-releases:read":
+		case "applications:read", "deployments:read", "environments:read", "projects:read", "deployment-config:read", "deployment-config:validate", "operations:read", "metrics:read", "secret-bindings:read", "app-sources:read", "builds:read", "external-dns-integrations:read", "helm-releases:read":
 			allowed = automation.Allows(scopes, domain.AutomationScopeAppRead)
 		case "applications:create", "applications:delete", "deployments:create", "deployments:update", "environments:create", "environments:delete", "projects:create", "projects:delete", "deployment-config:preview", "deployment-config:write", "helm-releases:deploy", "helm-releases:disable", "helm-releases:retry", "helm-releases:rollback":
 			allowed = automation.Allows(scopes, domain.AutomationScopeAppEdit)
 		case "logs:read":
 			allowed = automation.Allows(scopes, domain.AutomationScopeLogsRead)
-		case "build-definitions:write", "builds:cancel", "builds:retry":
+		case "app-sources:write", "builds:cancel", "builds:retry":
 			allowed = automation.Allows(scopes, domain.AutomationScopeBuildCreate)
 		}
 		if allowed {
