@@ -75,6 +75,29 @@ func TestProjectedSecretReaderAcceptsOnlyConfinedKubeletStyleSymlink(t *testing.
 	}
 }
 
+func TestProjectedSecretReaderAcceptsKubeletNestedItemDirectorySymlink(t *testing.T) {
+	reader, root := testProjectedReader(t, 4096)
+	ref := SecretRef{Name: "runtime", Key: "private-key.pem"}
+	dataDirectory := filepath.Join(root, "..2026_08_30")
+	if err := os.MkdirAll(filepath.Join(dataDirectory, ref.Name), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDirectory, ref.Name, ref.Key), []byte("projected-value"), 0o440); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Base(dataDirectory), filepath.Join(root, "..data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..data", ref.Name), filepath.Join(root, ref.Name)); err != nil {
+		t.Fatal(err)
+	}
+
+	value, err := reader.ReadSecret(t.Context(), ref)
+	if err != nil || string(value) != "projected-value" {
+		t.Fatalf("nested projected read=%q err=%v", value, err)
+	}
+}
+
 func TestProjectedSecretReaderRejectsEscapesSpecialFilesAndOversize(t *testing.T) {
 	ref := SecretRef{Name: "github-app", Key: "state"}
 	for name, setup := range map[string]func(*testing.T, string, *ProjectedSecretReader){

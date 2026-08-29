@@ -17,7 +17,6 @@ import (
 
 type verifiedPublicationArgoRefresher struct {
 	bindings argo.DesiredStateBindingStore
-	provider gitprojection.HeadVerifier
 	target   interface {
 		argo.PlatformRootRefresher
 		argo.EnvironmentApplicationSetRefresher
@@ -26,9 +25,10 @@ type verifiedPublicationArgoRefresher struct {
 	identity argo.DesiredStateRuntimeIdentity
 }
 
-func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Context, publication gitpublication.Publication) error {
+func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Context, publication gitpublication.Publication, observation gitpublication.TargetHeadObservation) error {
 	if publication.Validate() != nil || publication.State != gitpublication.StateMergeVerified ||
-		r.bindings == nil || r.provider == nil || r.target == nil || r.waker == nil || r.identity.Validate() != nil {
+		observation.ValidateFor(publication) != nil || observation.Revision != publication.TargetRevision ||
+		r.bindings == nil || r.target == nil || r.waker == nil || r.identity.Validate() != nil {
 		return argo.ErrInvalid
 	}
 	environment, err := r.bindings.Binding(ctx, publication.BindingID)
@@ -45,12 +45,15 @@ func (r verifiedPublicationArgoRefresher) RefreshVerifiedMerge(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	head, err := r.provider.VerifyTargetHead(ctx, platform, gitprojection.ObservationWrite)
-	if err != nil {
-		return err
+	if platform.Repository != environment.Repository || platform.TargetRef != environment.TargetRef {
+		return gitprojection.ErrProviderMismatch
 	}
-	if head.ValidateFor(platform) != nil || head.Commit != publication.TargetRevision ||
-		platform.Repository != environment.Repository || platform.TargetRef != environment.TargetRef {
+	head := gitprojection.VerifiedHead{
+		BindingID: platform.ID, Repository: platform.Repository, TargetRef: platform.TargetRef,
+		Commit: observation.Revision, Source: gitprojection.ObservationWrite,
+		ProviderRequest: "publication-" + publication.OperationID, ObservedAt: observation.ObservedAt.UTC(),
+	}
+	if head.ValidateFor(platform) != nil {
 		return gitprojection.ErrProviderMismatch
 	}
 	root, err := argo.NewPlatformRootApplicationExpectation(r.identity, platform, head)
@@ -162,7 +165,7 @@ func newArgoDesiredStateRuntime(
 		LeaseDuration: 2 * time.Minute, HeartbeatInterval: 30 * time.Second,
 	}
 	projection.publications.Service.VerifiedMerge = verifiedPublicationArgoRefresher{
-		bindings: projection.store, provider: projection.headVerifier, target: kubernetes,
+		bindings: projection.store, target: kubernetes,
 		waker: observation.store, identity: identity,
 	}
 	worker := &argo.DesiredStateRuntimeWorker{

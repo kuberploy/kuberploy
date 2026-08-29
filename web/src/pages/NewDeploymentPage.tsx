@@ -226,6 +226,11 @@ export function NewDeploymentPage() {
     enabled: Boolean(existingDeployment?.id),
     retry: false,
   });
+  const existingGitMutationETag =
+    existingGitBundle.data?.etag &&
+    /^"sha256:[0-9a-f]{64}"$/.test(existingGitBundle.data.etag)
+      ? existingGitBundle.data.etag
+      : undefined;
   useEffect(() => {
     if (lastDeploymentProject.current !== projectId) {
       if (lastDeploymentProject.current) {
@@ -723,7 +728,7 @@ export function NewDeploymentPage() {
                 : undefined,
         },
         idempotencyKey,
-        existingGitBundle.data?.etag,
+        existingGitMutationETag,
       );
     },
     onSuccess: async (operation, input) => {

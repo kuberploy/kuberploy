@@ -33,12 +33,14 @@ type findResult struct {
 }
 
 type verifiedMergeRefresherStub struct {
-	err   error
-	calls []gitpublication.Publication
+	err          error
+	calls        []gitpublication.Publication
+	observations []gitpublication.TargetHeadObservation
 }
 
-func (r *verifiedMergeRefresherStub) RefreshVerifiedMerge(_ context.Context, publication gitpublication.Publication) error {
+func (r *verifiedMergeRefresherStub) RefreshVerifiedMerge(_ context.Context, publication gitpublication.Publication, observation gitpublication.TargetHeadObservation) error {
 	r.calls = append(r.calls, publication)
+	r.observations = append(r.observations, observation)
 	return r.err
 }
 
@@ -233,6 +235,9 @@ func TestVerifiedMergeRefreshRetriesBeforePublicationBecomesTerminal(t *testing.
 	verified, err := service.Observe(t.Context(), operationID)
 	if err != nil || verified.State != gitpublication.StateMergeVerified || len(refresher.calls) != 2 {
 		t.Fatalf("verified=%#v refreshes=%d err=%v", verified, len(refresher.calls), err)
+	}
+	if len(refresher.observations) != 2 || refresher.observations[0] != provider.target || refresher.observations[1] != provider.target {
+		t.Fatalf("verified target observations=%#v want %#v", refresher.observations, provider.target)
 	}
 }
 

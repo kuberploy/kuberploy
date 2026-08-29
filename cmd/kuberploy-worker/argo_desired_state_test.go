@@ -21,14 +21,6 @@ func (s verifiedMergeBindingStore) Binding(_ context.Context, bindingID string) 
 	return binding, nil
 }
 
-type verifiedMergeHeadVerifier struct {
-	head gitprojection.VerifiedHead
-}
-
-func (v verifiedMergeHeadVerifier) VerifyTargetHead(_ context.Context, _ gitprojection.Binding, _ gitprojection.ObservationSource) (gitprojection.VerifiedHead, error) {
-	return v.head, nil
-}
-
 type verifiedMergeRefreshTarget struct {
 	root            argo.PlatformRootApplicationExpectation
 	applicationSet  argo.EnvironmentApplicationSetExpectation
@@ -125,18 +117,17 @@ func TestVerifiedPublicationRefreshesExactArgoResourcesAndWakesObservation(t *te
 		MergeRevision: targetRevision, TargetRevision: targetRevision, State: gitpublication.StateMergeVerified, ProviderObservedAt: &providerObservedAt,
 		CreatedAt: now.Add(-time.Minute), UpdatedAt: now, Version: 7,
 	}
-	head := gitprojection.VerifiedHead{
-		BindingID: platform.ID, Repository: repository, TargetRef: targetRef, Commit: targetRevision,
-		Source: gitprojection.ObservationWrite, ProviderRequest: "request-rc413", ObservedAt: now,
-	}
 	target := &verifiedMergeRefreshTarget{}
 	waker := &verifiedMergeObservationWaker{}
 	refresher := verifiedPublicationArgoRefresher{
 		bindings: verifiedMergeBindingStore{platform.ID: platform, environment.ID: environment},
-		provider: verifiedMergeHeadVerifier{head: head}, target: target, waker: waker, identity: identity,
+		target:   target, waker: waker, identity: identity,
 	}
 
-	if err = refresher.RefreshVerifiedMerge(t.Context(), publication); err != nil {
+	observation := gitpublication.TargetHeadObservation{
+		Repository: publication.Repository, TargetRef: targetRef, Revision: targetRevision, ObservedAt: now,
+	}
+	if err = refresher.RefreshVerifiedMerge(t.Context(), publication, observation); err != nil {
 		t.Fatal(err)
 	}
 	if target.root.ExpectedGitRevision != targetRevision || target.root.Name != identity.RootApplicationName || target.rootRefreshedAt != now {

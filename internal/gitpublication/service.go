@@ -10,7 +10,7 @@ import (
 // protected publication becomes terminal. Failures leave the publication in
 // merge-pending so the reconciler retries the same idempotent refresh.
 type VerifiedMergeRefresher interface {
-	RefreshVerifiedMerge(context.Context, Publication) error
+	RefreshVerifiedMerge(context.Context, Publication, TargetHeadObservation) error
 }
 
 type Service struct {
@@ -187,7 +187,7 @@ func (s Service) verifyMerge(ctx context.Context, current Publication) (Publicat
 		return current, err
 	}
 	if s.VerifiedMerge != nil {
-		if err = s.VerifiedMerge.RefreshVerifiedMerge(ctx, next); err != nil {
+		if err = s.VerifiedMerge.RefreshVerifiedMerge(ctx, next, head); err != nil {
 			return current, err
 		}
 	}
