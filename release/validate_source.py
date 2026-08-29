@@ -388,7 +388,7 @@ def main() -> None:
         ".immutable == true",
         "kp_source_date_epoch=",
         "Reject an existing GitHub release",
-        "Verify qualified immutable release candidate",
+        "Verify qualified release candidate",
         "python3 release/validate_promotion.py",
         "release/qualifications/${kp_version}.json",
         '${kp_candidate_state}" == "${CANDIDATE_TAG},false,true,true',
@@ -396,7 +396,7 @@ def main() -> None:
         "Assemble and verify image indexes",
         "Package and validate release artifacts",
         "Publish or verify readable image tags",
-        "Publish or verify immutable chart set",
+        "Publish or verify exact chart set",
         "Repair readable image tags",
         "cmp --silent",
         'if [[ "${VERSION}" == *-* ]]',
@@ -530,7 +530,7 @@ def main() -> None:
     )
     missing_repair = [control for control in repair_controls if control not in repair_job]
     if missing_repair:
-        raise SystemExit(f"image tag repair lacks immutable-release controls: {', '.join(missing_repair)}")
+        raise SystemExit(f"image tag repair lacks locked-release controls: {', '.join(missing_repair)}")
 
     def release_step(name: str) -> tuple[int, str]:
         step = re.search(
@@ -554,7 +554,7 @@ def main() -> None:
     assembly_position, _ = release_step("Assemble and verify image indexes")
     local_position, local_body = release_step("Package and validate release artifacts")
     image_tag_position, image_tag_body = release_step("Publish or verify readable image tags")
-    publish_position, publish_body = release_step("Publish or verify immutable chart set")
+    publish_position, publish_body = release_step("Publish or verify exact chart set")
     github_position, _ = release_step("Create draft and publish GitHub Release")
     if not preflight_position < build_position < assembly_position < local_position < image_tag_position < publish_position < github_position:
         raise SystemExit("release gate, native builds, index assembly, local validation, and publication are out of order")
@@ -644,7 +644,7 @@ def main() -> None:
     if yaml_scalar(values, ("builder", "builderAgentImage")) != "":
         raise SystemExit("source chart must not carry an unpublished builder-agent reference")
     if re.search(r"(?m)^dependencies:\s*", chart):
-        raise SystemExit("builder dependency must be added only to the immutable release chart")
+        raise SystemExit("builder dependency must be added only to the exact release chart")
 
     print(version)
 

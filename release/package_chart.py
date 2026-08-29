@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a release-only chart with immutable images and a disabled builder boundary."""
+"""Create a release-only chart with digest-pinned images and a disabled builder boundary."""
 
 from __future__ import annotations
 

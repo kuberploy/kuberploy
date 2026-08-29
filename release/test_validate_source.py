@@ -432,12 +432,12 @@ def main() -> None:
                     "- name: temporary chart publication marker",
                     1,
                 ).replace(
-                    "- name: Publish or verify immutable chart set",
+                    "- name: Publish or verify exact chart set",
                     "- name: Package and validate release artifacts",
                     1,
                 ).replace(
                     "- name: temporary chart publication marker",
-                    "- name: Publish or verify immutable chart set",
+                    "- name: Publish or verify exact chart set",
                     1,
                 ),
                 "out of order",

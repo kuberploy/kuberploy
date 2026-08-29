@@ -31,7 +31,7 @@ verify the setting through the repository settings or an administrator-scoped
 API credential. The workflow's `GITHUB_TOKEN` intentionally has no
 repository Administration permission, so the workflow does not make the
 impossible settings preflight itself. After publication it still requires the
-release API to report `immutable: true`; otherwise the job fails closed. GitHub
+release API to report the lock flag `.immutable == true`; otherwise the job fails closed. GitHub
 applies the repository setting only to future releases. Release publication
 does not wait for a protected environment approval.
 

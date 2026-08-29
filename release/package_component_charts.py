@@ -293,7 +293,7 @@ def main() -> None:
     if not SEMVER.fullmatch(args.version):
         raise SystemExit("component chart release version must be semantic version text")
     if not DIGEST_REFERENCE.fullmatch(args.builder_agent_image) or ":latest" in args.builder_agent_image.lower():
-        raise SystemExit("builder agent image must be an immutable digest reference")
+        raise SystemExit("builder agent image must be an exact digest reference")
     if args.source_date_epoch < 0:
         raise SystemExit("source-date-epoch must be non-negative")
     if args.destination.exists():
