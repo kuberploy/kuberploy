@@ -19,6 +19,12 @@ type fixedHighRiskLimiter struct {
 	err      error
 }
 
+func TestLoginRateLimitPolicy(t *testing.T) {
+	if loginLimit.bucket != "auth-login" || loginLimit.limit != 30 || loginLimit.window != 15*time.Minute {
+		t.Fatalf("login policy=%#v", loginLimit)
+	}
+}
+
 func (f *fixedHighRiskLimiter) Allow(_ context.Context, request ratelimit.Request) (ratelimit.Decision, error) {
 	f.requests = append(f.requests, request)
 	return f.decision, f.err

@@ -23,7 +23,7 @@ type highRiskPolicy struct {
 
 var (
 	bootstrapLimit           = highRiskPolicy{bucket: "auth-bootstrap", limit: 5, window: 15 * time.Minute}
-	loginLimit               = highRiskPolicy{bucket: "auth-login", limit: 5, window: 15 * time.Minute}
+	loginLimit               = highRiskPolicy{bucket: "auth-login", limit: 30, window: 15 * time.Minute}
 	invitationAcceptLimit    = highRiskPolicy{bucket: "auth-invitation-accept", limit: 30, window: 15 * time.Minute}
 	invitationIssueLimit     = highRiskPolicy{bucket: "auth-invitation-issue", limit: 20, window: time.Hour}
 	accessControlLimit       = highRiskPolicy{bucket: "access-control", limit: 100, window: time.Hour}
