@@ -167,6 +167,44 @@ describe("App source form", () => {
     expect(save.mock.calls[0]?.[1]).not.toHaveProperty("buildArgs");
   });
 
+  it("edits the current source without separate provider catalog access", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.githubInstallations).mockResolvedValue({
+      nextCursor: undefined,
+      items: [],
+    });
+    const repositories = vi.mocked(api.githubInstallationRepositories);
+    const save = vi
+      .spyOn(api, "createBuildDefinition")
+      .mockResolvedValue({
+        ...definition,
+        triggerRef: "refs/heads/release",
+      });
+    renderForm(true, undefined, "linux/amd64", definition);
+
+    expect(await screen.findByText("Current GitHub source")).toBeVisible();
+    expect(screen.queryByText("Link a GitHub installation first")).toBeNull();
+    expect(screen.getByLabelText(/^GitHub installation/)).toHaveValue(
+      definition.installationId,
+    );
+    expect(screen.getByLabelText(/^Repository/)).toHaveValue(
+      definition.repositoryId,
+    );
+    expect(repositories).not.toHaveBeenCalled();
+
+    const branch = screen.getByLabelText(/^Branch/);
+    await user.clear(branch);
+    await user.type(branch, "release");
+    await user.click(screen.getByRole("button", { name: "Save App source" }));
+
+    await screen.findByText("App source saved");
+    expect(save.mock.calls[0]?.[1]).toMatchObject({
+      installationId: definition.installationId,
+      repositoryId: definition.repositoryId,
+      triggerRef: "refs/heads/release",
+    });
+  });
+
   it("defaults to the installation CPU and keeps multi-platform as opt-in", async () => {
     const user = userEvent.setup();
     renderForm(true, undefined, "linux/arm64");

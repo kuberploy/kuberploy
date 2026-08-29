@@ -967,9 +967,13 @@ func (s *Server) putApplicationBuildSource(w http.ResponseWriter, r *http.Reques
 		input.Platforms = []string{s.defaultBuildPlatform}
 	}
 	if input.SourceKind == builds.SourceGitHub {
-		if err := s.store.AuthorizeGitHubInstallationForProject(r.Context(), currentUser(r.Context()).ID, strings.TrimSpace(input.InstallationID), application.ProjectID); err != nil {
-			mappedError(w, r, err)
-			return
+		installationID := strings.TrimSpace(input.InstallationID)
+		repositoryID := strings.TrimSpace(input.RepositoryID)
+		if err := s.store.AuthorizeGitHubInstallationForProject(r.Context(), currentUser(r.Context()).ID, installationID, application.ProjectID); err != nil {
+			if !errors.Is(err, store.ErrNotFound) || !s.reusesCurrentGitHubSource(r.Context(), application.ID, installationID, repositoryID) {
+				mappedError(w, r, err)
+				return
+			}
 		}
 	}
 	mutation := BuildDefinitionMutation{ApplicationID: application.ID, ProjectID: application.ProjectID, InstallationID: strings.TrimSpace(input.InstallationID),
@@ -991,6 +995,22 @@ func (s *Server) putApplicationBuildSource(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Location", "/v1/applications/"+application.ID+"/source")
 	writeJSON(w, http.StatusOK, safeBuildDefinition(definition))
+}
+
+// A user who can manage an App may continue using the GitHub installation and
+// repository already bound to that App. This does not grant provider catalog
+// access or permit switching repositories; selecting a different provider
+// identity still requires its normal owner, Team, or platform-admin access.
+func (s *Server) reusesCurrentGitHubSource(ctx context.Context, applicationID, installationID, repositoryID string) bool {
+	definitions, err := s.builds.Definitions(ctx, applicationID)
+	if err != nil || len(definitions) != 1 {
+		return false
+	}
+	current := definitions[0]
+	return current.ServiceID == applicationID &&
+		current.SourceKind == builds.SourceGitHub &&
+		current.InstallationID == installationID &&
+		current.RepositoryID == repositoryID
 }
 
 func (s *Server) applicationBuildSource(w http.ResponseWriter, r *http.Request) {

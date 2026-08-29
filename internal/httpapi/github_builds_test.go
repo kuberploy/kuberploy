@@ -844,6 +844,107 @@ func TestBuildHTTPUsesServerScopeAndReturnsOnlySafeMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildHTTPProjectAdminCanEditCurrentGitHubSourceWithoutCatalogAccess(t *testing.T) {
+	now := time.Now().UTC()
+	backend := &buildHTTPBackend{}
+	f := newGitHubBuildHTTP(t, nil, nil, backend, ratelimit.NewMemoryLimiter(10_000))
+	f.bootstrap()
+	response := f.request(http.MethodPost, "/v1/projects", "current-source-project", map[string]string{"name": "Current source"})
+	project := decode[domain.Project](t, response)
+	response = f.request(http.MethodPost, "/v1/applications", "current-source-app", map[string]string{"projectId": project.ID, "name": "API", "sourceKind": "github"})
+	application := decode[domain.Application](t, response)
+	response = f.request(http.MethodPost, "/v1/github/installations", "current-source-install", map[string]any{
+		"githubInstallationId": 4242, "accountLogin": "example", "accountType": "Organization", "repositorySelection": "selected", "repositoryCount": 1,
+	})
+	installation := decode[domain.GitHubInstallation](t, response)
+
+	repositoryID := "33333333-3333-4333-8333-333333333333"
+	registryID := "44444444-4444-4444-8444-444444444444"
+	backend.definition = builds.BuildDefinition{
+		ID: "55555555-5555-4555-8555-555555555555", ProjectID: project.ID, ServiceID: application.ID, SourceKind: builds.SourceGitHub,
+		InstallationID: installation.ID, RepositoryID: repositoryID, TriggerRef: "refs/heads/main", DefinitionDigest: "sha256:" + strings.Repeat("d", 64),
+		DefinitionGeneration: 1, Enabled: true, CreatedAt: now, UpdatedAt: now,
+		Spec: builds.DefinitionSpec{ContextPath: ".", DockerfilePath: "Dockerfile", Platforms: []string{"linux/amd64"},
+			Registry:       builds.RegistryBinding{TargetID: registryID, Mode: builds.RegistryManaged, Server: "registry.example.test", RepositoryPrefix: "apps"},
+			CacheTrustLane: "trusted", CacheImports: 2, Profile: builder.BuildProfile{Resource: "small", TimeoutSeconds: 600, Egress: "default"}, MaxAttempts: 3},
+	}
+
+	response = f.request(http.MethodPost, "/v1/users/invitations", "current-source-invite", map[string]string{"email": "source-admin@example.test"})
+	invitation := decode[domain.UserInvitation](t, response)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	const developerPassword = "source admin correct horse battery staple"
+	accepted := cloneRequestAs(t, client, f.server.URL, http.MethodPost, "/v1/auth/invitations/accept", "", map[string]string{
+		"token": invitation.Token, "displayName": "Source admin", "password": developerPassword,
+	})
+	developerCSRF := accepted.Header.Get("X-CSRF-Token")
+	developer := decode[domain.User](t, accepted)
+	if accepted.StatusCode != http.StatusCreated || developerCSRF == "" {
+		t.Fatalf("accept status=%d csrf=%t", accepted.StatusCode, developerCSRF != "")
+	}
+	response = f.request(http.MethodPost, "/v1/projects/"+project.ID+"/grants", "current-source-grant", map[string]any{
+		"subjectUserId": developer.ID, "role": "project-admin", "scopeType": "project", "scopeId": project.ID,
+	})
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("grant status=%d", response.StatusCode)
+	}
+	response.Body.Close()
+	login := cloneRequestAs(t, client, f.server.URL, http.MethodPost, "/v1/auth/login", "", map[string]string{
+		"email": developer.Email, "password": developerPassword,
+	})
+	developerCSRF = login.Header.Get("X-CSRF-Token")
+	if login.StatusCode != http.StatusOK || developerCSRF == "" {
+		t.Fatalf("login status=%d csrf=%t", login.StatusCode, developerCSRF != "")
+	}
+	login.Body.Close()
+
+	requestAsDeveloper := func(key string, body map[string]any) *http.Response {
+		t.Helper()
+		payload, marshalErr := json.Marshal(body)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		request, requestErr := http.NewRequest(http.MethodPut, f.server.URL+"/v1/applications/"+application.ID+"/source", bytes.NewReader(payload))
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("X-CSRF-Token", developerCSRF)
+		request.Header.Set("Idempotency-Key", key)
+		result, requestErr := client.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		return result
+	}
+	input := map[string]any{
+		"installationId": installation.ID, "repositoryId": repositoryID, "registryTargetId": registryID, "triggerRef": "refs/heads/release",
+		"contextPath": ".", "dockerfilePath": "Dockerfile", "platforms": []string{"linux/amd64"}, "cacheTrustLane": "trusted", "cacheImports": 2,
+		"profile": map[string]any{"resource": "small", "timeoutSeconds": 600, "egress": "default"}, "maxAttempts": 3,
+	}
+	response = requestAsDeveloper("current-source-edit", input)
+	response.Body.Close()
+	backend.mu.Lock()
+	mutation, creates := backend.mutation, backend.creates
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusOK || creates != 1 || mutation.ActorID != developer.ID || mutation.TriggerRef != "refs/heads/release" {
+		t.Fatalf("current source edit status=%d creates=%d mutation=%#v", response.StatusCode, creates, mutation)
+	}
+
+	input["repositoryId"] = "66666666-6666-4666-8666-666666666666"
+	response = requestAsDeveloper("current-source-pivot-denied", input)
+	problem := decode[httpapi.Problem](t, response)
+	backend.mu.Lock()
+	creates = backend.creates
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusNotFound || problem.Code != "NotFound" || creates != 1 {
+		t.Fatalf("provider pivot status=%d problem=%#v creates=%d", response.StatusCode, problem, creates)
+	}
+}
+
 func TestBuildHTTPServiceAccountRequiresBuildScopeAndTeamSharedInstallation(t *testing.T) {
 	now := time.Now().UTC()
 	setup := &githubSetupHTTPBackend{}

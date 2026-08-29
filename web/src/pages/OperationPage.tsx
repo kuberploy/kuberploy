@@ -62,9 +62,9 @@ export function OperationPage() {
       <PageHeader
         eyebrow="Durable operation"
         title={
-          operation.data ? titleCase(operation.data.kind) : "App operation"
+          operation.data ? operationTitle(operation.data.kind) : "App operation"
         }
-        description="Acceptance, Git mutation, Argo reconciliation, and rollout are separate stages. This page never calls a queued operation complete early."
+        description="Kuberploy records the requested change, saves desired state, synchronizes it through Argo CD, and waits for the running result."
         actions={
           operation.data ? <StatusPill value={operation.data.state} /> : null
         }
@@ -108,7 +108,7 @@ export function OperationPage() {
             <CardHeader>
               <div>
                 <Eyebrow>Progress</Eyebrow>
-                <h2>Release stages</h2>
+                <h2>Change progress</h2>
               </div>
             </CardHeader>
             <ol className="m-0 p-0 list-none">
@@ -139,7 +139,7 @@ export function OperationPage() {
                     )}
                   </span>
                   <div>
-                    <strong>{step.name}</strong>
+                    <strong>{operationStageTitle(step.name)}</strong>
                     <p>{step.message ?? stageDescription(step.name)}</p>
                   </div>
                   <StatusPill value={step.state} />
@@ -176,6 +176,30 @@ export function OperationPage() {
       ) : null}
     </Page>
   );
+}
+
+export function operationTitle(kind: string): string {
+  switch (kind) {
+    case "deployment.git-write":
+      return "Apply App change";
+    case "deployment.config-draft-save":
+      return "Save App draft";
+    case "deployment.clone-draft":
+      return "Clone App draft";
+    case "variable-set.git-write":
+      return "Apply variable changes";
+    default:
+      return titleCase(kind);
+  }
+}
+
+export function operationStageTitle(name: string): string {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("git")) return "Save desired state";
+  if (normalized.includes("reconcil")) return "Synchronize App";
+  if (normalized.includes("health")) return "Verify App health";
+  if (normalized.includes("request")) return "Record request";
+  return titleCase(name);
 }
 
 function fallbackSteps(state: string): OperationStep[] {

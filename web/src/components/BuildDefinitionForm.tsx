@@ -202,10 +202,17 @@ export function BuildDefinitionForm({
     }
   }, [form, secretProfiles.data, secretProfiles.isSuccess]);
   const installationId = form.watch("installationId");
+  const installationCatalogHasSelection = Boolean(
+    installationId &&
+    installations.data?.items.some(
+      (installation) => installation.id === installationId,
+    ),
+  );
   const repositories = useQuery({
     queryKey: ["github-installation-repositories", installationId],
     queryFn: () => api.githubInstallationRepositories(installationId),
-    enabled: canCreate && Boolean(installationId),
+    enabled:
+      canCreate && installations.isSuccess && installationCatalogHasSelection,
     retry: false,
   });
   const activeRepositories = useMemo(
@@ -331,8 +338,25 @@ export function BuildDefinitionForm({
   }
 
   const noInstallations =
-    !installations.isPending && !installations.data?.items.length;
+    !installations.isPending &&
+    !installations.data?.items.length &&
+    !source?.installationId;
   const noTargets = registryTargets.length === 0;
+  const currentInstallationIsFallback = Boolean(
+    source?.installationId &&
+    !installations.data?.items.some(
+      (installation) => installation.id === source.installationId,
+    ),
+  );
+  const currentRepositoryIsFallback = Boolean(
+    source?.repositoryId &&
+    installationId === source.installationId &&
+    !activeRepositories.some(
+      (repository) => repository.id === source.repositoryId,
+    ),
+  );
+  const usesCurrentSourceFallback =
+    currentInstallationIsFallback || currentRepositoryIsFallback;
 
   return (
     <form
@@ -369,6 +393,11 @@ export function BuildDefinitionForm({
                   {installation.accountLogin}
                 </option>
               ))}
+              {currentInstallationIsFallback && source?.installationId ? (
+                <option value={source.installationId}>
+                  Current linked installation
+                </option>
+              ) : null}
             </Select>
           </Field>
           <Field
@@ -382,7 +411,10 @@ export function BuildDefinitionForm({
             error={form.formState.errors.repositoryId?.message}
           >
             <Select
-              disabled={!installationId || repositories.isPending}
+              disabled={
+                !installationId ||
+                (installationCatalogHasSelection && repositories.isPending)
+              }
               {...form.register("repositoryId", {
                 required: "Select a verified repository.",
               })}
@@ -394,6 +426,11 @@ export function BuildDefinitionForm({
                   {repository.ownerLogin}/{repository.name}
                 </option>
               ))}
+              {currentRepositoryIsFallback && source?.repositoryId ? (
+                <option value={source.repositoryId}>
+                  Current linked repository
+                </option>
+              ) : null}
             </Select>
           </Field>
           <Field label="Source type" required>
@@ -663,8 +700,24 @@ export function BuildDefinitionForm({
         </div>
       </details>
 
-      {installations.error ? <ErrorPanel error={installations.error} /> : null}
-      {repositories.error ? <ErrorPanel error={repositories.error} /> : null}
+      {installations.error && !source?.installationId ? (
+        <ErrorPanel error={installations.error} />
+      ) : null}
+      {repositories.error && !currentRepositoryIsFallback ? (
+        <ErrorPanel error={repositories.error} />
+      ) : null}
+      {usesCurrentSourceFallback ? (
+        <Notice>
+          <div>
+            <strong>Current GitHub source</strong>
+            <p>
+              You can edit this App's branch and build settings. To choose a
+              different installation or repository, connect it in Git
+              Providers first.
+            </p>
+          </div>
+        </Notice>
+      ) : null}
       {noInstallations ? (
         <Notice tone="warning">
           <div>
