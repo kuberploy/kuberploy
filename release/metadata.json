@@ -2,5 +2,5 @@
   "breakingChanges": true,
   "summary": "Apps now use one editable source, build attempts record exact source snapshots, and managed registry retention keeps the configured latest successful builds plus one latest cache per platform.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.406"
+  "version": "0.1.0-rc.407"
 }
