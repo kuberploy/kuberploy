@@ -26,6 +26,7 @@ const (
 	SourceSSHPrivateKeyFile = SourceCredentialRoot + "/ssh-private-key"
 	SourceSSHKnownHostsFile = SourceCredentialRoot + "/known_hosts"
 	DefaultBuildKitImage    = "docker.io/moby/buildkit:v0.32.2"
+	DefaultBinfmtImage      = "docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0"
 	DefaultDockerSocket     = "unix:///run/kuberploy/docker/docker.sock"
 	DefaultBuildResult      = "/result/result.json"
 	DefaultCheckoutResult   = "/result/checkout.json"

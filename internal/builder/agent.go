@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type Agent struct {
 	Executor              CommandExecutor
 	DockerBinary          string
 	DockerSocket          string
+	NativeArchitecture    string
 	CheckoutRoot          string
 	RuntimeRoot           string
 	WaitInterval          time.Duration
@@ -38,6 +40,7 @@ func NewAgent(executor CommandExecutor) *Agent {
 		Executor:              executor,
 		DockerBinary:          "docker",
 		DockerSocket:          DefaultDockerSocket,
+		NativeArchitecture:    runtime.GOARCH,
 		CheckoutRoot:          DefaultCheckoutRoot,
 		RuntimeRoot:           "/result",
 		WaitInterval:          250 * time.Millisecond,
@@ -96,6 +99,13 @@ func (a *Agent) Run(ctx context.Context, request BuildRequest) (BuildResult, err
 		return BuildResult{}, err
 	}
 	a.reportProgress("Isolated Docker daemon ready.")
+	emulationConfigured, err := a.configurePlatformEmulation(ctx, pushDockerConfig, request.Platforms)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	if emulationConfigured {
+		a.reportProgress("Cross-platform CPU emulation ready.")
+	}
 	builderName := deterministicBuilderName(request.OperationID, request.Generation)
 	if err := a.createBuilder(ctx, pushDockerConfig, builderName, request.BuildKitImage); err != nil {
 		return BuildResult{}, err
@@ -267,6 +277,31 @@ func (a *Agent) waitForDaemon(ctx context.Context, configDirectory string) error
 		case <-timer.C:
 		}
 	}
+}
+
+func (a *Agent) configurePlatformEmulation(ctx context.Context, configDirectory string, platforms []string) (bool, error) {
+	nativeArchitecture := a.NativeArchitecture
+	if nativeArchitecture == "" {
+		nativeArchitecture = runtime.GOARCH
+	}
+	foreignArchitectures := make([]string, 0, len(platforms))
+	for _, platform := range canonicalPlatforms(platforms) {
+		architecture := strings.TrimPrefix(platform, "linux/")
+		if architecture != nativeArchitecture {
+			foreignArchitectures = append(foreignArchitectures, architecture)
+		}
+	}
+	if len(foreignArchitectures) == 0 {
+		return false, nil
+	}
+	invocation := Invocation{Argv: a.dockerArgs(configDirectory,
+		"run", "--privileged", "--rm", DefaultBinfmtImage,
+		"--install", strings.Join(foreignArchitectures, ","),
+	), Env: dockerEnvironment(configDirectory)}
+	if _, err := a.Executor.Execute(ctx, invocation); err != nil {
+		return false, commandError("configure cross-platform CPU emulation", err)
+	}
+	return true, nil
 }
 
 func (a *Agent) createBuilder(ctx context.Context, configDirectory, name, buildKitImage string) error {

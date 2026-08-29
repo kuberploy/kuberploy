@@ -10,6 +10,7 @@ import (
 
 	"github.com/kuberploy/kuberploy/internal/testdb"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/kuberploy/kuberploy/internal/id"
@@ -101,6 +102,89 @@ func TestPostgresAdminFenceImmutabilityAndReadyCatalog(t *testing.T) {
 	}
 	if err = storepostgres.VerifySchema(ctx, pool); err != nil {
 		t.Fatalf("verify Prisma migration history: %v", err)
+	}
+}
+
+func TestPostgresReferencedIssuerCanBeRevisedButNotDeactivated(t *testing.T) {
+	databaseURL := os.Getenv("KUBERPLOY_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set KUBERPLOY_TEST_DATABASE_URL for PostgreSQL integration test")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if err = testdb.ApplyMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	actor, team, project, environment, application, binding := id.New(), id.New(), id.New(), id.New(), id.New(), id.New()
+	suffix := actor[:8]
+	if _, err = pool.Exec(ctx, `INSERT INTO users(id,display_name,role,issuer,subject) VALUES($1,$2,'platform-admin','test',$3)`, actor, "issuer-revision-"+suffix, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO teams(id,name,slug,created_by) VALUES($1,$2,$3,$4)`, team, "Issuer revision team "+suffix, "issuer-revision-"+suffix, actor); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO projects(id,name,slug,team_id) VALUES($1,$2,$3,$4)`, project, "Issuer revision project "+suffix, "issuer-revision-"+suffix, team); err != nil {
+		t.Fatal(err)
+	}
+	namespace := "issuer-revision-" + environment[:8]
+	if _, err = pool.Exec(ctx, `INSERT INTO environments(id,project_id,name,slug,namespace,argo_project) VALUES($1,$2,'Production','production',$3,$3)`, environment, project, namespace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO applications(id,project_id,name,slug) VALUES($1,$2,'API','api')`, application, project); err != nil {
+		t.Fatal(err)
+	}
+	prefix := "tenants/" + project + "/environments/" + environment
+	if _, err = pool.Exec(ctx, `INSERT INTO git_repository_bindings(id,kind,scope_id,project_id,environment_id,provider,installation_id,repository_id,repository_owner,repository_name,target_ref,path_prefix,credential_secret_name,state,target_head_revision,indexed_revision,projection_generation,parser_version,target_head_observed_at,indexed_at,created_at,updated_at)
+		VALUES($1,'environment',$2,$3,$2,'github',91,92,'kuberploy','issuer-revisions','refs/heads/main',$4,'git-credentials','ready',$5,$5,1,'appconfig-v1',$6,$6,$6,$6)`, binding, environment, project, prefix, strings.Repeat("a", 40), now); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewPostgresStore(pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "issuer-" + suffix
+	created, err := store.Create(ctx, Command{ActorID: actor, IdempotencyKey: "issuer-revision-create-" + actor, RequestID: "request-issuer-revision-create", Now: now}, name, dnsSpec("example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observedAt := now.Add(time.Second)
+	if err = store.RecordObservation(ctx, Observation{ProfileID: created.Profile.ID, Revision: 1, State: Ready, ObservedSpecDigest: created.Revision.SpecDigest, ObservedGeneration: 1, ObservedAt: &observedAt, UpdatedAt: observedAt}); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := prefix + "/apps/" + application + "/app.yaml"
+	matched, err := store.ReconcileReferencesTx(ctx, tx, application, environment, path, []Selection{{Hostname: "api.example.com", IssuerName: name}}, observedAt, 5*time.Minute)
+	if err != nil || !matched {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("reference matched=%t err=%v", matched, err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	revisedSpec := dnsSpec("example.com")
+	revisedSpec.ACME.Email = "revised@example.com"
+	revised, err := store.Revise(ctx, Command{ActorID: actor, IdempotencyKey: "issuer-revision-revise-" + actor, RequestID: "request-issuer-revision-revise", Now: now.Add(2 * time.Second)}, Ref{ProfileID: created.Profile.ID, Revision: 1}, revisedSpec)
+	if err != nil || revised.Profile.CurrentRevision != 2 || revised.Revision.Revision != 2 {
+		t.Fatalf("revised=%+v err=%v", revised, err)
+	}
+	var retainedRevision int64
+	if err = pool.QueryRow(ctx, `SELECT revision FROM cert_manager_issuer_references WHERE profile_id=$1 AND git_path=$2`, created.Profile.ID, path).Scan(&retainedRevision); err != nil || retainedRevision != 1 {
+		t.Fatalf("retained revision=%d err=%v", retainedRevision, err)
+	}
+	_, err = store.Deactivate(ctx, Command{ActorID: actor, IdempotencyKey: "issuer-revision-deactivate-" + actor, RequestID: "request-issuer-revision-deactivate", Now: now.Add(3 * time.Second)}, Ref{ProfileID: created.Profile.ID, Revision: 2})
+	if !errors.Is(err, ErrReferenced) {
+		t.Fatalf("referenced issuer deactivation err=%v", err)
 	}
 }
 

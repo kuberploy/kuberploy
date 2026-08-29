@@ -382,10 +382,9 @@ BEGIN
              AND NEW.deactivated_by IS NOT NULL AND NEW.deactivated_at IS NOT NULL)) THEN
         RAISE EXCEPTION 'invalid configuration profile transition' USING ERRCODE='23514';
     END IF;
-    IF NEW.kind='certificate-issuer' AND
-       (NEW.lifecycle='deactivated' OR NEW.current_revision<>OLD.current_revision) AND
+    IF NEW.kind='certificate-issuer' AND NEW.lifecycle='deactivated' AND
        EXISTS (SELECT 1 FROM cert_manager_issuer_references WHERE profile_id=OLD.id) THEN
-        RAISE EXCEPTION 'referenced certificate issuer profile cannot change' USING ERRCODE='23503';
+        RAISE EXCEPTION 'referenced certificate issuer profile cannot be deactivated' USING ERRCODE='23503';
     END IF;
     IF NEW.kind='middleware' AND NEW.lifecycle='deactivated' AND
        EXISTS (SELECT 1 FROM middleware_profile_references WHERE profile_id=OLD.id) THEN

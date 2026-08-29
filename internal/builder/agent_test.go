@@ -48,6 +48,55 @@ func TestBuildKitDaemonSharesOnlyTheIsolatedDinDPodNetwork(t *testing.T) {
 	}
 }
 
+func TestPlatformEmulationInstallsOnlyForeignArchitecture(t *testing.T) {
+	executor := &recordingExecutor{}
+	agent := NewAgent(executor)
+	agent.NativeArchitecture = "amd64"
+	configured, err := agent.configurePlatformEmulation(context.Background(), "/result/push-auth", []string{"linux/amd64", "linux/arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !configured || len(executor.invocations) != 1 {
+		t.Fatalf("configured=%t invocations=%d, want true/1", configured, len(executor.invocations))
+	}
+	want := []string{
+		"docker", "--host", DefaultDockerSocket, "--config", "/result/push-auth",
+		"run", "--privileged", "--rm", DefaultBinfmtImage, "--install", "arm64",
+	}
+	if !reflect.DeepEqual(executor.invocations[0].Argv, want) {
+		t.Fatalf("emulation invocation=%#v, want %#v", executor.invocations[0].Argv, want)
+	}
+	if got := environmentValue(executor.invocations[0].Env, "BUILDX_CONFIG"); got != "/result/buildx" {
+		t.Fatalf("BUILDX_CONFIG=%q", got)
+	}
+}
+
+func TestPlatformEmulationSkipsNativeOnlyBuild(t *testing.T) {
+	executor := &recordingExecutor{}
+	agent := NewAgent(executor)
+	agent.NativeArchitecture = "arm64"
+	configured, err := agent.configurePlatformEmulation(context.Background(), "/result/push-auth", []string{"linux/arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured || len(executor.invocations) != 0 {
+		t.Fatalf("configured=%t invocations=%d, want false/0", configured, len(executor.invocations))
+	}
+}
+
+func TestPlatformEmulationFailureStopsBeforeBuildKit(t *testing.T) {
+	executor := &sequenceExecutor{errors: []error{errors.New("exit status 1")}}
+	agent := NewAgent(executor)
+	agent.NativeArchitecture = "arm64"
+	configured, err := agent.configurePlatformEmulation(context.Background(), "/result/push-auth", []string{"linux/amd64"})
+	if configured || err == nil || !strings.Contains(err.Error(), "configure cross-platform CPU emulation failed") {
+		t.Fatalf("configured=%t err=%v", configured, err)
+	}
+	if len(executor.invocations) != 1 || !slices.Contains(executor.invocations[0].Argv, "amd64") {
+		t.Fatalf("unexpected invocations: %#v", executor.invocations)
+	}
+}
+
 func TestRegistryTransportFailureRetriesInsideTheSamePod(t *testing.T) {
 	executor := &sequenceExecutor{
 		results: []CommandResult{{Output: `failed to push registry.example.test/app:tag: failed to do request: dial tcp 10.0.0.10:443: connect: connection refused`}, {Output: "push complete"}},
