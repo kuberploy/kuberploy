@@ -6,7 +6,6 @@ import { api } from "../api/client";
 import { hasMonitoringNavigationAccess } from "../lib/monitoringAccess";
 import { hasRegistryPlatformCapability } from "../lib/registryAccess";
 import { hasExternalDNSPlatformCapability } from "../lib/externalDNSAccess";
-import { hasPotentialBuildAccess } from "../lib/buildAccess";
 import { hasPlatformReleaseCapability } from "../lib/releaseAccess";
 import {
   applyThemePreference,
@@ -127,9 +126,7 @@ export function AppShell({ user }: { user: Principal }) {
       "registry-targets:read",
     );
   const gitProviderNavigationVisible =
-    capabilities.data?.features?.githubAppSetup === true ||
-    (capabilities.data?.features?.builds === true &&
-      hasPotentialBuildAccess(capabilities.data?.capabilities ?? []));
+    capabilities.data?.features?.githubAppSetup === true;
   const settingsActive =
     pathname === "/" ||
     pathname === "/teams" ||

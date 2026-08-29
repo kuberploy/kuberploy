@@ -483,7 +483,7 @@ describe("application source overview", () => {
           role: "developer",
           scopeType: "project",
           scopeId: "project-1",
-          actions: ["app-sources:read", "app-sources:write"],
+          actions: ["app-sources:read", "app-sources:write", "builds:read"],
         },
       ],
     });
@@ -526,6 +526,25 @@ describe("application source overview", () => {
       ],
       nextCursor: null,
     });
+    vi.spyOn(api, "buildAttempts").mockResolvedValue({
+      items: [
+        {
+          id: "attempt-1",
+          sourceId: "definition-1",
+          projectId: "project-1",
+          applicationId: "application-1",
+          commitSha: "d".repeat(40),
+          gitRef: "refs/tags/v1.2.3",
+          generation: 2,
+          state: "succeeded",
+          executionAttempts: 1,
+          maxAttempts: 3,
+          createdAt: "2026-08-12T00:00:00Z",
+          updatedAt: "2026-08-12T00:05:00Z",
+        },
+      ],
+      nextCursor: null,
+    });
 
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
     await screen.findByRole("heading", { name: "Payments API" });
@@ -540,6 +559,8 @@ describe("application source overview", () => {
     expect(
       screen.getByText(/Edit and save the App source below/),
     ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Build history" })).toBeVisible();
+    expect(screen.getByText("Generation 2")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Disconnect source" }));
     await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
     await user.click(

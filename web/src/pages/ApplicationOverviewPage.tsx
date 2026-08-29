@@ -13,6 +13,8 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import { BuildDefinitionForm } from "../components/BuildDefinitionForm";
+import { BuildAttemptActions } from "../components/BuildAttemptActions";
+import { AutoDeployPoliciesPanel } from "../components/AutoDeployPoliciesPanel";
 import { HelmApplicationsPanel } from "../components/HelmApplicationsPanel";
 import { RegistryPullCredentialsPanel } from "../components/RegistryPullCredentialsPanel";
 import { GitSSHSourcePanel } from "../components/GitSSHSourcePanel";
@@ -22,7 +24,7 @@ import {
   compatibleBuildRegistryTargets,
   hasBuildApplicationCapability,
 } from "../lib/buildAccess";
-import { gitRefLabel, shortId } from "../lib/format";
+import { formatDate, gitRefLabel, shortId } from "../lib/format";
 import { hasRegistryApplicationCapability } from "../lib/registryAccess";
 import {
   Select,
@@ -45,6 +47,13 @@ import { canDeleteApplication } from "../lib/appCreationAccess";
 
 type SourceKind = "build" | "image" | "ssh" | "helm";
 type WorkspaceTab = "overview" | "source" | "runtime";
+
+const activeBuildStates = new Set([
+  "queued",
+  "preparing",
+  "running",
+  "cancelling",
+]);
 
 function compactImageReference(image?: string) {
   if (!image) return "Image pending";
@@ -194,11 +203,33 @@ export function ApplicationOverviewPage() {
       project,
     ),
   );
+  const canReadBuildAttempts = Boolean(
+    application.data &&
+    project &&
+    hasBuildApplicationCapability(
+      effectiveCapabilities,
+      "builds:read",
+      application.data,
+      project,
+    ),
+  );
   const buildDefinitions = useQuery({
     queryKey: ["app-source", applicationId],
     queryFn: () => api.buildDefinitions(applicationId),
     enabled: buildsConfigured && canReadBuildDefinitions,
     retry: false,
+  });
+  const buildAttempts = useQuery({
+    queryKey: ["build-attempts", applicationId],
+    queryFn: () => api.buildAttempts(applicationId, 50),
+    enabled: buildsConfigured && canReadBuildAttempts,
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((attempt) =>
+        activeBuildStates.has(attempt.state),
+      )
+        ? 5_000
+        : false,
   });
   const registry = useQuery({
     queryKey: ["application-registry", applicationId],
@@ -295,10 +326,7 @@ export function ApplicationOverviewPage() {
     () =>
       (buildDefinitions.data?.items ?? [])
         .filter((definition) => definition.enabled)
-        .sort(
-          (left, right) =>
-            right.sourceRevision - left.sourceRevision,
-        )[0],
+        .sort((left, right) => right.sourceRevision - left.sourceRevision)[0],
     [buildDefinitions.data?.items],
   );
   const disconnectSource = useMutation({
@@ -639,6 +667,86 @@ export function ApplicationOverviewPage() {
               </>
             )}
           </Card>
+          {activeBuildDefinition ? (
+            <AutoDeployPoliciesPanel
+              application={application.data}
+              project={project}
+              sourceConnected
+              enabled={features?.autoDeploy === true}
+              humanSession={Boolean(humanSession)}
+              capabilities={effectiveCapabilities}
+            />
+          ) : null}
+          {canReadBuildAttempts ? (
+            <Card>
+              <div className="mb-4">
+                <Eyebrow>Builds</Eyebrow>
+                <h2>Build history</h2>
+                <p className="text-meta text-ink-soft">
+                  Builds belong to this App. Open one for logs, cancellation,
+                  retry, image, and cache details.
+                </p>
+              </div>
+              {buildAttempts.isPending ? (
+                <Skeleton lines={5} />
+              ) : buildAttempts.error ? (
+                <ErrorPanel
+                  error={buildAttempts.error}
+                  onRetry={() => void buildAttempts.refetch()}
+                />
+              ) : buildAttempts.data?.items.length ? (
+                <div className="overflow-hidden rounded-[11px] border border-line">
+                  {buildAttempts.data.items.map((attempt) => (
+                    <article
+                      key={attempt.id}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-4 border-b border-line p-4 last:border-b-0 to-760:grid-cols-[1fr]"
+                    >
+                      <div className="grid gap-1">
+                        <StatusPill value={attempt.state} />
+                        <small className="text-ink-faint">
+                          Generation {attempt.generation}
+                        </small>
+                      </div>
+                      <div className="grid min-w-0 gap-1">
+                        <strong className="truncate">
+                          {attempt.image?.reference ??
+                            attempt.failureCode ??
+                            gitRefLabel(attempt.gitRef)}
+                        </strong>
+                        <small className="text-ink-faint">
+                          {shortId(attempt.commitSha, 12)} ·{" "}
+                          {formatDate(attempt.updatedAt)}
+                        </small>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          className={buttonVariants({ variant: "secondary" })}
+                          to="/builds/$buildId"
+                          params={{ buildId: attempt.id }}
+                        >
+                          Details <Icon name="arrow" />
+                        </Link>
+                        <BuildAttemptActions
+                          attempt={attempt}
+                          application={application.data}
+                          project={project}
+                          capabilities={effectiveCapabilities}
+                          humanSession={Boolean(humanSession && buildsReady)}
+                        />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  compact
+                  icon="terminal"
+                  title="No build yet"
+                  description="A verified push matching this App source creates its first build."
+                />
+              )}
+            </Card>
+          ) : null}
         </PageStack>
       ) : null}
 

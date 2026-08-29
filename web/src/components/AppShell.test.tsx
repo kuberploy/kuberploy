@@ -348,7 +348,7 @@ describe("Git provider navigation", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("appears for exact build-read access or separately enabled setup", async () => {
+  it("stays hidden for App build access and appears for provider setup", async () => {
     renderShell({
       features: { githubAppSetup: false, builds: true, builder: true },
       capabilities: [
@@ -359,9 +359,11 @@ describe("Git provider navigation", () => {
         },
       ],
     });
-    expect(
-      await screen.findByRole("link", { name: "Git Providers" }),
-    ).toHaveAttribute("href", "/builds");
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("link", { name: "Git Providers" }),
+      ).not.toBeInTheDocument(),
+    );
 
     cleanup();
     renderShell({
