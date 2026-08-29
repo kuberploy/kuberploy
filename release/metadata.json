@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Protected App changes refresh Argo immediately, and deleted secrets no longer block App or Environment cleanup.",
+  "summary": "Stopped Apps restart through protected Git changes, and verified publications refresh Argo immediately.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.413"
+  "version": "0.1.0-rc.414"
 }
