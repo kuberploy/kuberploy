@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Apps now use one editable source, build attempts record exact source snapshots, and managed registry retention keeps the configured latest successful builds plus one latest cache per platform.",
+  "summary": "Git settings now manage provider connections only, App pages own editable source and build history, and managed registry garbage collection runs no more than once per hour.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.407"
+  "version": "0.1.0-rc.408"
 }
