@@ -40,7 +40,7 @@ function renderPicker(
 }
 
 describe("certificate reference picker", () => {
-  it("offers only ready active immutable versions and emits the typed reference", async () => {
+  it("offers only ready active versions and emits the typed reference", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "certificateBindings").mockResolvedValue({
       items: [
@@ -74,7 +74,7 @@ describe("certificate reference picker", () => {
     ).not.toBeInTheDocument();
     await selectOption(
       screen.getByRole("combobox", {
-        name: "Certificate binding and immutable version",
+        name: "Certificate binding and version",
       }),
       "binding-ready@3",
     );
@@ -94,7 +94,7 @@ describe("certificate reference picker", () => {
     });
     await openSelect(
       screen.getByRole("combobox", {
-        name: "Certificate binding and immutable version",
+        name: "Certificate binding and version",
       }),
     );
     expect(
@@ -104,7 +104,7 @@ describe("certificate reference picker", () => {
     ).toHaveAttribute("data-disabled");
     expect(
       screen.getByRole("combobox", {
-        name: "Certificate binding and immutable version",
+        name: "Certificate binding and version",
       }),
     ).toHaveValue("binding-retained@2");
   });

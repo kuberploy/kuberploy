@@ -1307,7 +1307,7 @@ function safeCreateDeploymentInput(input: CreateDeployment): CreateDeployment {
     (tagged && !isCanonicalImmutableImage(input.expectedImmutableImage ?? ""))
   ) {
     throw new Error(
-      "A tag requires its previewed immutable-image precondition, while an immutable image forbids it.",
+      "A tag requires its previewed digest precondition, while an exact digest forbids it.",
     );
   }
   return {

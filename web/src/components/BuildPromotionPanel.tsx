@@ -155,7 +155,7 @@ export function BuildPromotionPanel({
       <EmptyState
         icon="deploy"
         title="Promotion waits for a verified release"
-        description="This command appears only after the exact build succeeds and its immutable registry result is available."
+        description="This command appears only after the exact build succeeds and its verified registry result is available."
         compact
       />
     );
@@ -186,7 +186,7 @@ export function BuildPromotionPanel({
         <div>
           <strong>Promotion accepted</strong>
           <p>
-            The server derived the application and immutable image from this
+            The server derived the application and exact image digest from this
             exact build.
           </p>
         </div>

@@ -460,7 +460,7 @@ describe("application runtime-secret navigation", () => {
     });
 
     await waitFor(() =>
-      expect(screen.getByText("Immutable artifact")).toBeVisible(),
+      expect(screen.getByText("Release artifact")).toBeVisible(),
     );
     expect(screen.queryByText("Secret metadata access not granted")).toBeNull();
   });

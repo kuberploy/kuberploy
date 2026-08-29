@@ -17,7 +17,7 @@ symlink in the checkout root, any intermediate component, or the final context
 and Dockerfile paths.
 
 Image and cache references are controller-owned namespaces, not arbitrary user
-strings. The exact registry repository prefix, immutable project/service IDs,
+strings. The exact registry repository prefix, stable project/service IDs,
 cache schema, trust lane, platform set, and App source snapshot digest determine
 the permitted repositories. Destination and cache-export tags are unique to an
 operation/generation; the deployment result contains only the registry-verified

@@ -272,7 +272,7 @@ describe("project access management", () => {
     });
   });
 
-  it("requires typing the immutable grant ID before revocation", async () => {
+  it("requires typing the stable grant ID before revocation", async () => {
     vi.spyOn(api, "projectAccessGrants").mockResolvedValue({ items: [grant] });
     vi.spyOn(api, "teams").mockResolvedValue({ items: [] });
     const remove = vi

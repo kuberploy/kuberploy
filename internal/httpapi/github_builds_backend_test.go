@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kuberploy/kuberploy/internal/builder"
 	"github.com/kuberploy/kuberploy/internal/builds"
+	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
 type retryExecutionStore struct {
@@ -105,5 +107,78 @@ func TestBuildBackendReadsHistoricalAttemptProjection(t *testing.T) {
 	}
 	if attempt.ID != store.source.ID || store.historicalReads != 1 {
 		t.Fatalf("attempt=%#v historicalReads=%d", attempt, store.historicalReads)
+	}
+}
+
+func TestBuildBackendEditsOneStableAppSource(t *testing.T) {
+	now := time.Date(2026, 8, 29, 1, 2, 3, 0, time.UTC)
+	actorID := "11111111-1111-4111-8111-111111111111"
+	projectID := "22222222-2222-4222-8222-222222222222"
+	applicationID := "33333333-3333-4333-8333-333333333333"
+	installationID := "44444444-4444-4444-8444-444444444444"
+	repositoryID := "55555555-5555-4555-8555-555555555555"
+	registryID := "66666666-6666-4666-8666-666666666666"
+	sourceID := "77777777-7777-4777-8777-777777777777"
+	resources := builder.ContainerResources{CPURequest: "100m", MemoryRequest: "128Mi", EphemeralStorageRequest: "256Mi",
+		CPULimit: "1", MemoryLimit: "1Gi", EphemeralStorageLimit: "2Gi"}
+	execution := builds.ExecutionSettings{
+		Namespace: "kuberploy-build-dind", PodServiceAccount: "kuberploy-build-pod",
+		BuilderAgentImage: "registry.test/system/builder-agent@sha256:" + strings.Repeat("1", 64), BuildKitImage: builder.DefaultBuildKitImage,
+		NodeSelector: map[string]string{}, CheckoutResources: resources, DinDResources: resources, AgentResources: resources,
+		WorkspaceSizeLimit: "10Gi", SocketSizeLimit: "16Mi", ResultSizeLimit: "1Mi", DockerDataSizeLimit: "20Gi",
+		ActiveDeadlineSeconds: 1800, TTLSecondsAfterFinished: 3600,
+		Egress: []builder.EgressEndpoint{{CIDR: "192.0.2.10/32", Ports: []int{443}}},
+	}
+	registry := builds.RegistryBinding{TargetID: registryID, Mode: builds.RegistryManaged, Server: "registry.test", RepositoryPrefix: "kuberploy",
+		PushCredentialSecret: "registry-push", CacheCredentialSecret: "registry-cache"}
+	original, err := builds.PrepareDefinition(builds.BuildDefinition{
+		ID: sourceID, ProjectID: projectID, ServiceID: applicationID, SourceKind: builds.SourceGitHub,
+		InstallationID: installationID, RepositoryID: repositoryID, TriggerRef: "refs/heads/main", Enabled: true,
+		Spec: builds.DefinitionSpec{ContextPath: ".", DockerfilePath: "Dockerfile", Platforms: []string{"linux/amd64"}, Registry: registry,
+			BuildArgs: []builder.BuildArg{{Name: "APP_ENV", Value: "production"}}, CacheTrustLane: "trusted", CacheImports: 1,
+			Profile: builder.BuildProfile{Resource: "standard", TimeoutSeconds: 900, Egress: "registry-and-source"}, Execution: execution, MaxAttempts: 3},
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := builds.NewMemoryStore()
+	installation := builds.Installation{ID: installationID, AppID: 12, GitHubInstallationID: 34,
+		Account: githubapp.AccountIdentity{ID: 56, Login: "kuberploy", Type: "Organization"}, RepositorySelection: "selected",
+		Permissions: githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead},
+		Lifecycle:   builds.InstallationActive, LastVerifiedAt: now, UpdatedAt: now}
+	repository := builds.Repository{ID: repositoryID, InstallationID: installationID,
+		Identity:  githubapp.RepositoryIdentity{ID: 78, OwnerID: 56, OwnerLogin: "kuberploy", Name: "fixture"},
+		Lifecycle: builds.RepositoryActive, LastVerifiedAt: now, CreatedAt: now, UpdatedAt: now}
+	if err = store.PutInstallation(t.Context(), installation); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutRepository(t.Context(), repository); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.PutDefinition(t.Context(), original); err != nil {
+		t.Fatal(err)
+	}
+	resolver := &retryExecutionResolver{resolution: BuildDefinitionResolution{Registry: registry, Execution: execution}}
+	backend, err := NewBuildBackendWithClock(store, resolver, func() time.Time { return now.Add(time.Minute) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation := BuildDefinitionMutation{ApplicationID: applicationID, ProjectID: projectID, InstallationID: installationID,
+		RepositoryID: repositoryID, RegistryTargetID: registryID, TriggerRef: "refs/heads/main", ContextPath: ".", DockerfilePath: "Dockerfile.prod",
+		Platforms: []string{"linux/amd64"}, CacheTrustLane: "trusted", CacheImports: 1,
+		Profile: builder.BuildProfile{Resource: "standard", TimeoutSeconds: 900, Egress: "registry-and-source"}, MaxAttempts: 3,
+		ActorID: actorID, IdempotencyKey: "edit-app-source-01", Fingerprint: "sha256:" + strings.Repeat("a", 64)}
+	edited, replay, err := backend.CreateDefinition(t.Context(), mutation)
+	if err != nil || replay || edited.ID != sourceID || edited.DefinitionGeneration != 2 || edited.Spec.DockerfilePath != "Dockerfile.prod" ||
+		len(edited.Spec.BuildArgs) != 1 || edited.Spec.BuildArgs[0].Value != "production" {
+		t.Fatalf("edited=%#v replay=%v err=%v", edited, replay, err)
+	}
+	sources, err := store.DefinitionsForService(t.Context(), applicationID)
+	if err != nil || len(sources) != 1 || sources[0].ID != sourceID {
+		t.Fatalf("sources=%#v err=%v", sources, err)
+	}
+	replayed, replay, err := backend.CreateDefinition(t.Context(), mutation)
+	if err != nil || !replay || replayed.ID != sourceID || replayed.DefinitionGeneration != 2 {
+		t.Fatalf("replayed=%#v replay=%v err=%v", replayed, replay, err)
 	}
 }

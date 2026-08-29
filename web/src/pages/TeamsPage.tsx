@@ -778,7 +778,7 @@ export function TeamsPage() {
               <Eyebrow>Platform administrator</Eyebrow>
               <h2>Users</h2>
               <p>
-                Delete login access while preserving immutable audit history.
+                Delete login access while preserving audit history.
               </p>
             </div>
             <span className="grid min-w-[27px] min-h-[27px] place-items-center py-0 px-2 border border-line rounded-full text-ink-soft bg-surface-soft text-meta font-semibold">

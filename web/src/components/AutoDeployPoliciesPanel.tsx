@@ -47,7 +47,7 @@ function PolicyHistory({ policy }: { policy: AutoDeployPolicy }) {
     <div className="grid gap-4 gap-2">
       <details>
         <summary>
-          {revisions.data?.items.length ?? 0} immutable revisions
+          {revisions.data?.items.length ?? 0} saved revisions
         </summary>
         <ul>
           {(revisions.data?.items ?? []).map((revision) => (

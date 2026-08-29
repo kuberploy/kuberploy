@@ -5,7 +5,7 @@
 
 ## Context
 
-Source builds push immutable images to a private managed registry. Earlier
+Source builds push content-addressed images to a private managed registry. Earlier
 runtime-pull configuration accepted only exact namespaces rendered during a
 Helm upgrade. Environments are created later through the product, so a fresh
 single-VM installation could build and push an image but could not deploy it
@@ -27,7 +27,7 @@ control-plane chart grants the exact worker ServiceAccount:
 
 A fail-closed admission policy selects only foundation-labeled managed
 Environment namespaces. It rejects every non-reserved Secret creation by the
-worker and requires the exact immutable pull-Secret name, labels, annotation,
+worker and requires the exact versioned pull-Secret name, labels, annotation,
 type, and bounded data shape. Updates and deletions of reserved pull Secrets
 remain denied. The configured Argo namespace and, when enabled, the configured
 builder namespace are exempt because their existing dedicated admission
@@ -40,7 +40,7 @@ delete, or arbitrary Secret-read permission is granted.
 - A newly created Environment can deploy a private image without a Helm
   upgrade.
 - Exact namespace mode remains available for operator-managed namespaces.
-- Rotating a profile revision creates a new immutable Secret name in each used
+- Rotating a profile revision creates a new versioned Secret name in each used
   namespace.
 - The worker receives cluster-scoped create authority only inside the
   admission-enforced managed namespace boundary; arbitrary Secret creation and

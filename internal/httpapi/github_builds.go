@@ -170,8 +170,19 @@ var _ GitBindingRepositoryResolver = (*buildBackend)(nil)
 
 func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefinitionMutation) (builds.BuildDefinition, bool, error) {
 	now := b.clock()
+	current, err := b.store.DefinitionsForService(ctx, input.ApplicationID)
+	if err != nil {
+		return builds.BuildDefinition{}, false, err
+	}
+	if len(current) > 1 {
+		return builds.BuildDefinition{}, false, builds.ErrConflict
+	}
+	resourceID := id.New()
+	if len(current) == 1 {
+		resourceID = current[0].ID
+	}
 	resourceID, replay, err := b.store.ClaimAPICommand(ctx, input.ActorID, builds.APICommandDefinitionCreate, input.ApplicationID,
-		input.IdempotencyKey, input.Fingerprint, id.New(), now)
+		input.IdempotencyKey, input.Fingerprint, resourceID, now)
 	if err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
@@ -215,17 +226,8 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	// Build-argument values are write-only in API responses. When an App source
 	// is edited without a buildArgs field, preserve the current values instead
 	// of replacing the redacted values with empty strings.
-	if input.BuildArgs == nil {
-		current, currentErr := b.store.DefinitionsForService(ctx, input.ApplicationID)
-		if currentErr != nil {
-			return builds.BuildDefinition{}, false, currentErr
-		}
-		if len(current) > 1 {
-			return builds.BuildDefinition{}, false, builds.ErrConflict
-		}
-		if len(current) == 1 {
-			input.BuildArgs = append([]builder.BuildArg(nil), current[0].Spec.BuildArgs...)
-		}
+	if input.BuildArgs == nil && len(current) == 1 {
+		input.BuildArgs = append([]builder.BuildArg(nil), current[0].Spec.BuildArgs...)
 	}
 	var gitSSHSource *builds.GitSSHSource
 	if input.SourceKind == builds.SourceGitHub {
@@ -289,11 +291,14 @@ func (b *buildBackend) CreateDefinition(ctx context.Context, input BuildDefiniti
 	if err = b.store.PutDefinition(ctx, definition); err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
-	stored, err := b.store.Definition(ctx, definition.ID)
+	stored, err := b.store.DefinitionsForService(ctx, input.ApplicationID)
 	if err != nil {
 		return builds.BuildDefinition{}, false, err
 	}
-	return stored, replay, nil
+	if len(stored) != 1 || stored[0].ProjectID != input.ProjectID {
+		return builds.BuildDefinition{}, false, builds.ErrConflict
+	}
+	return stored[0], replay, nil
 }
 
 func (b *buildBackend) Definitions(ctx context.Context, applicationID string) ([]builds.BuildDefinition, error) {

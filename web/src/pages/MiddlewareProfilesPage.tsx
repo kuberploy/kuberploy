@@ -362,7 +362,7 @@ export function MiddlewareProfilesPage() {
       <PageHeader
         eyebrow="Application policy"
         title="Middleware profiles"
-        description="Manage immutable reusable Traefik HTTP middleware revisions. The catalog is filtered to exact scopes you can administer."
+        description="Manage versioned reusable Traefik HTTP middleware profiles. The catalog is filtered to exact scopes you can administer."
       />
       <Card>
         <FormGrid columns={3}>
@@ -422,7 +422,7 @@ export function MiddlewareProfilesPage() {
               <div>
                 <h2>
                   {editing
-                    ? "Append immutable revision"
+                    ? "Add revision"
                     : "Create reusable profile"}
                 </h2>
                 <p>

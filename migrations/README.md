@@ -5,7 +5,7 @@ The backend remains Go with `pgx`; Prisma Client is neither generated nor
 shipped.
 
 `prisma/schema.prisma` is the readable declarative source for tables, columns,
-scalar types, primary keys, unique constraints, and indexes. The immutable
+scalar types, primary keys, unique constraints, and indexes. The append-only
 post-stable deployment history is SQL under
 `prisma/migrations/<NNN_name>/migration.sql`. PostgreSQL foreign-key authority
 fences, functions, triggers, CHECK and deferred constraints, expression
@@ -16,7 +16,7 @@ checks.
 For a schema change:
 
 1. Edit `prisma/schema.prisma` for the declarative part of the change.
-2. Add the next immutable three-digit migration directory and review its SQL.
+2. Add the next ordered three-digit migration directory and review its SQL.
    Add the native PostgreSQL authority SQL that Prisma cannot express.
 3. Apply it to a fresh disposable PostgreSQL 18 database with
    `npm run deploy`.
@@ -34,7 +34,7 @@ baseline from the current authoritative schema instead of adding incremental
 release-candidate migrations. Remove `pg_dump`'s psql-only `\\restrict` /
 `\\unrestrict` transport lines and its empty `search_path` session directive;
 Prisma executes migration SQL directly and owns `_prisma_migrations`.
-After `0.1.0` is stable, this checksum and history are immutable and every
+After `0.1.0` is stable, this checksum and history cannot be rewritten and every
 schema change must use a new ordered migration.
 
 The baseline separates presentation `display_name` from local-auth `email`.

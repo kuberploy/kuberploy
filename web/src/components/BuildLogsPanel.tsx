@@ -171,7 +171,7 @@ export function BuildLogsPanel({ attemptId }: { attemptId: string }) {
         <PlaceholderBadge>{displayState}</PlaceholderBadge>
       </CardHeader>
       <p className="mt-[-12px] mx-0 mb-5 text-ink-faint text-meta">
-        Live and snapshot reads use the immutable attempt identity. Kubernetes
+        Live and snapshot reads use the exact attempt identity. Kubernetes
         names, selectors, containers, UIDs, and stored log references remain
         server-owned.
       </p>

@@ -424,7 +424,7 @@ export function HelmApplicationsPanel({
                 ? "Retry this Helm App?"
                 : `Roll back to generation ${confirmAction.revision.generation}?`
           }
-          description="Kuberploy will create a new immutable revision and reconcile the owned Argo CD Application."
+          description="Kuberploy will create a new revision and reconcile the owned Argo CD Application."
           confirmLabel={
             confirmAction.kind === "disable"
               ? "Disable App"

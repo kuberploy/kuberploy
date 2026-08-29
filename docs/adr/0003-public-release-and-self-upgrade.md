@@ -5,7 +5,7 @@ Status: accepted, replacing the pre-stable child self-upgrade design.
 ## Decision
 
 The public `kuberploy/kuberploy` GitHub repository is the canonical release
-channel. Kuberploy may fetch and display an immutable published release only
+channel. Kuberploy may fetch and display a locked published release only
 after validating its exact tag, manifest bytes, source commit, OCI artifacts,
 compatibility window, and digests.
 
@@ -24,7 +24,7 @@ entry reports:
 - `Synced`; and
 - `Healthy`.
 
-The immutable inventory and exact-name Role prevent an enabled child from being
+The content-addressed inventory and exact-name Role prevent an enabled child from being
 silently omitted from the health decision.
 
 ## Rejected design

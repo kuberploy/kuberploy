@@ -335,7 +335,7 @@ export function BuildDetailPage() {
           <h2>Promote to an environment</h2>
           <p>
             Select only the intended App target. Application, project,
-            namespace, registry release, and immutable image are derived by the
+            namespace, registry release, and exact image digest are derived by the
             server.
           </p>
         </div>

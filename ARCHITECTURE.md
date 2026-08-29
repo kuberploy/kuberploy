@@ -8,9 +8,9 @@ Kuberploy is a self-hosted, Kubernetes-native PaaS with a Dokploy-like developer
 
 The platform supports four App source modes:
 
-1. GitHub App: build an installed GitHub repository on Kubernetes, push the resulting OCI image, commit its immutable digest to Git, and let Argo CD deploy it; verified webhooks can trigger builds.
+1. GitHub App: build an installed GitHub repository on Kubernetes, push the resulting OCI image, commit its exact digest to Git, and let Argo CD deploy it; verified webhooks can trigger builds.
 2. Git SSH: clone any supported Git provider with a generated App- or Project-scoped deploy key, then run the same build pipeline through manual or API triggers.
-3. OCI image: resolve an existing registry image to an immutable digest, commit it to Git, and let Argo CD deploy it.
+3. OCI image: resolve an existing registry image to an exact digest, commit it to Git, and let Argo CD deploy it.
 4. Helm chart: pass a chart source from OCI, a Helm repository, or Git plus one values document directly to Argo CD.
 
 Kuberploy also installs or adopts Traefik so an application can be exposed by entering a domain and port in the UI. cert-manager supplies automatic TLS, and an optional managed external-dns integration can create DNS records per route.
@@ -30,7 +30,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 | Ordinary app packaging | Versioned, platform-owned `kuberploy-runtime` Helm chart |
 | Advanced app packaging | External Helm/OCI chart with policy restrictions |
 | Managed runtime authoring | Guided forms plus bounded Deployment, Service, Ingress and ServiceAccount YAML overrides over one canonical `AppConfig` draft |
-| Runtime settings | Ordinary values render to versioned immutable ConfigMaps; sensitive values use write-only, versioned secret bindings |
+| Runtime settings | Ordinary values render to versioned content-addressed ConfigMaps; sensitive values use write-only, versioned secret bindings |
 | Runtime secret backends | Strict namespace/name-bound Sealed Secrets first; External Secrets remains unavailable until an audited concrete remote material writer exists |
 | Source builds | Privileged DinD with BuildKit/buildx; runs on one schedulable node by default, with optional dedicated-node isolation |
 | Build orchestration | Ephemeral Kubernetes Jobs created by the build controller |
@@ -44,7 +44,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 | Dependency versions | Newest mutually compatible stable releases at each Kuberploy release cut, then exact version and digest locks; floating `latest` references are forbidden |
 | MVP process model | Modular monolith deployed as API and worker Deployments |
 | Release identity | Source commit + image digest/chart revision + GitOps commit |
-| Rollback | New Git commit selecting a previous immutable release whose artifact is still retained |
+| Rollback | New Git commit selecting a previous retained release |
 
 ## 3. Core invariants
 
@@ -54,7 +54,7 @@ Kuberploy also installs or adopts Traefik so an application can be exposed by en
 4. PostgreSQL stores users, workflow state, integrations, audit events, rebuildable projections, and explicitly stopped Environment-clone drafts. A stopped clone draft cannot create workload or Git state; Git becomes authoritative only when the user explicitly starts it.
 5. Kubernetes and Argo CD are authoritative for observed runtime state.
 6. Kuberploy-managed plaintext secret values never enter Git, Git commit messages, build logs, traces, caches, asynchronous queues, or ordinary database columns. Caller-supplied build arguments remain caller-owned App source input, are copied into the exact source snapshot recorded for each build attempt, and may be retained by Docker history or caches; they are not echoed in result projections, and secret-like names produce a non-blocking warning. Base64 is encoding, not protection.
-7. Mutable image tags may be user input, but Kuberploy resolves and deploys an immutable digest.
+7. Mutable image tags may be user input, but Kuberploy resolves and deploys an exact digest.
 8. A successful build is not a successful deployment. The UI displays each stage separately.
 9. Privileged DinD is treated as a node-level trust boundary even though it does not mount the host Docker socket.
 10. Form mode and YAML mode are two editors for the same versioned Git object. Neither creates hidden overrides or bypasses rendering, policy or Argo CD.
@@ -277,7 +277,7 @@ The starter configuration schedules privileged DinD on the installation's curren
 | Promotion | Selection of an existing Release for an environment |
 | GitBinding | Repository, branch, base path and credential reference |
 | Registry | Managed/external mode, OCI endpoints, owned repository prefix, storage policy and credential references |
-| RegistryArtifact | Observed repository, immutable manifest/index digest, size, platforms, owning service, Release relationship, protection reasons and lifecycle state; never the authority for image bytes |
+| RegistryArtifact | Observed repository, exact manifest/index digest, size, platforms, owning service, Release relationship, protection reasons and lifecycle state; never the authority for image bytes |
 | ArtifactRetentionPolicy | Managed-registry platform default plus bounded per-service override for retained successful releases, unreferenced grace age and administrator pins; not applied to external registries |
 | DNSIntegration | DNS provider, allowed zones/domains, credential reference, ownership ID and reconciliation policy |
 | Domain | Hostname, path, target port, TLS policy and manual/automatic DNS policy |
@@ -285,7 +285,7 @@ The starter configuration schedules privileged DinD on the installation's curren
 | CertificateBinding | Scoped reference to a custom TLS certificate or cert-manager issuer plus non-secret expiry/SAN metadata |
 | SecretStoreIntegration | Platform-admin-owned external-store or Sealed Secrets configuration, health, allowed organization paths and destination namespaces; provider credentials are not fields on this object |
 | SecretBinding | Scoped logical secret name and allowed keys, store reference, delivery policy and authorized target namespaces; it contains no readable secret values |
-| SecretVersion | Immutable opaque version identity plus creation/rotation metadata and materialization status; the value is never returned or stored in ordinary PostgreSQL |
+| SecretVersion | Opaque version identity plus creation/rotation metadata and materialization status; the value is never returned or stored in ordinary PostgreSQL |
 | MiddlewareProfile | Reusable, scoped Traefik middleware configuration that is materialized into application namespaces |
 | MonitoringIntegration | Managed, existing or disabled Prometheus mode plus Git-stored retention, storage, scrape and feature settings; credentials remain secret references |
 | MetricsIngestionProfile | Platform-admin policy for allowed application metric families/labels and body, sample and active-series budgets |
@@ -302,7 +302,7 @@ Application identity is separate from release identity. The same digest is promo
 The schema is organized by lifecycle, not by UI screen. Core product rows
 (`users`, `teams`, `projects`, `environments`, `applications`) own current
 identity and simple one-to-one settings. Durable commands, leases, outbox rows,
-immutable revisions, provider receipts and rebuildable projections remain
+append-only revisions, provider receipts and rebuildable projections remain
 separate because they have independent retention, retry, concurrency or audit
 semantics. They must not be folded into mutable product rows merely to reduce
 the table count.
@@ -555,7 +555,7 @@ The PostgreSQL outbox relay/scheduler may use `FOR UPDATE SKIP LOCKED` for paral
 Push auto-deploy is an explicit, revisioned policy rather than an effect of every
 webhook. In the Source Builds UI, a human selects an environment deployment
 snapshot and project service-account identity for the App's current source, and can
-enable, disable or repin the policy while retaining its immutable history. Each
+enable, disable or repin the policy while retaining its revision history. Each
 revision pins the source deployment generation, AppConfig ETag,
 image-independent canonical intent, and
 ordered project/environment VariableSet provenance. Only a successful verified
@@ -564,12 +564,12 @@ revision. The controller reauthorizes the enabled service account with exact
 project/environment/application `app.edit` scope on every attempt, without
 creating or storing a bearer token.
 
-The controller changes only the verified immutable image and then re-enters the
+The controller changes only the verified image digest and then re-enters the
 canonical deployment path, which freshly resolves scheduling and middleware
 profiles, secret references, private pulls, edge/`sslip.io`/TLS policy, and the
 environment's direct-or-pull-request Git publication plus Argo readiness. A
 human AppConfig or parent VariableSet change pauses the policy until a human
-saves a new immutable revision; a prior image-only auto-deploy does not count as
+saves a new revision; a prior image-only auto-deploy does not count as
 drift. Runs, attempts, retry/failure state and accepted Operation/deployment
 receipts are durable and idempotent. Epoch-fenced leases are heartbeated during
 submission, and a lease-loss retry converges through the deterministic command
@@ -584,7 +584,7 @@ Git-projection, foundation and protected-Argo runtime identities;
 - The scheduling/serialization unit is a repository/ref, while the conflict unit is the declared path/dependency set. Sustained queue wait, repository size, Git-provider throttling, Argo manifest-generation time and webhook fan-out are measured before adding shards.
 - Shard assignment is stored explicitly in `GitBinding`. Rebalancing is an audited migration that freezes the affected environment, copies and verifies the target commit, changes Argo references and resumes writes; it is never an implicit hash change that moves authority unexpectedly.
 - High-churn trusted generated resources, such as monitoring targets, may move from the low-churn platform-config repository into protected generated-target shards. Each generated object records the source application commit so retries and repair remain deterministic.
-- Each writer shard keeps a disposable bare mirror and creates a unique detached temporary worktree for a command, sharing immutable Git objects instead of recloning full history. One shard owns a mirror at a time; another worker may discard and rebuild it after failover.
+- Each writer shard keeps a disposable bare mirror and creates a unique detached temporary worktree for a command, sharing content-addressed Git objects instead of recloning full history. One shard owns a mirror at a time; another worker may discard and rebuild it after failover.
 - Credentials are injected only for fetch/push and are not embedded in mirror remotes. Worktrees are removed after the Operation, stale worktrees are pruned and cache garbage collection runs under bounded maintenance concurrency.
 - GitOps repositories contain compact configuration plus small protected policy/materialization manifests only. Source trees, image layers, build caches, chart archives, log files, bulk rendered workload output, submodules, Git LFS objects and large binaries are rejected. File count, individual document size and total reachable repository size have warnings and administrator limits.
 - P0 uses full incremental fetches for predictable compatibility because the repositories are intentionally small. Partial clone/sparse features are optional later optimizations only after every configured Git provider and recovery path passes compatibility tests.
@@ -622,7 +622,7 @@ Track projection lag, oldest index/write/preview queue age, preview saturation/c
 
 ### Builder contract
 
-All build engines accept an immutable input and produce an immutable output.
+Every accepted build attempt snapshots its source and produces a content-addressed output.
 
 Input:
 
@@ -670,14 +670,14 @@ operation, not a hidden side effect of deployment.
 
 An existing-image tag is previewed through a server-owned authorized registry
 target and credential profile, but the server freshly resolves it again before
-persistence. Git stores only the resulting immutable digest. When a caller
+persistence. Git stores only the resulting exact digest. When a caller
 supplies the previewed expected digest and the tag moved before submission, the
 request fails with `ImageTagMoved` instead of silently deploying different
 bytes.
 
-Repositories are partitioned by immutable project, application and service IDs.
+Repositories are partitioned by stable project, application and service IDs.
 P0 has one stable `main` service per application. Builders push a unique
-human-friendly tag but return and deploy only the immutable OCI digest; tags do
+human-friendly tag but return and deploy only the exact OCI digest; tags do
 not determine rollback eligibility.
 
 Retention is configured by platform default with a bounded per-service override:
@@ -732,10 +732,10 @@ This is the same registry exporter/importer model used by
 instead of requiring a GitHub Actions runner. A second invocation has no cache
 flags and pushes the final application image using a distinct release-push
 Docker configuration. Both invocations reuse the same private BuildKit content
-store, not registry credentials. The result is selected only by its immutable
+store, not registry credentials. The result is selected only by its exact
 digest.
 
-The cache scope key contains the immutable organization/project/application/
+The cache scope key contains the stable organization/project/application/
 service IDs, target platform set, builder engine and cache-schema versions,
 App source digest, and a trust lane. It deliberately omits the source commit
 so unchanged Dockerfile layers can be reused across commits. BuildKit's own
@@ -800,7 +800,7 @@ sequenceDiagram
     API->>Worker: Build exact commit SHA
     Worker->>Job: Create ephemeral Job with scoped credentials
     Job->>Registry: Build and push image
-    Registry-->>Job: Return immutable digest
+    Registry-->>Job: Return exact digest
     Job-->>Worker: Result metadata and digest
     Worker->>Registry: Verify digest exists
     Worker->>Config: Commit digest or open promotion PR
@@ -845,7 +845,7 @@ Requirements and controls:
 - `activeDeadlineSeconds`, explicit attempt count and `ttlSecondsAfterFinished`.
 - Docker daemon listens on the Unix socket only.
 - The trusted agent controls the exact `docker buildx build --push` invocation. Repository-defined arbitrary host-side build scripts are not an MVP feature.
-- Registry cache is scoped by immutable service/platform/trust-lane identity; no shared host directory or cross-tenant Docker data volume.
+- Registry cache is scoped by stable service/platform/trust-lane identity; no shared host directory or cross-tenant Docker data volume.
 - Source-read, registry-push, GitOps-write and runtime-pull credentials are all separate.
 
 The Docker CLI container being non-root does not make the Pod unprivileged. Control of the socket means control of the privileged DinD daemon. With default single-node scheduling, the installation accepts node compromise as an explicit availability/usability tradeoff; optional node isolation reduces the blast radius.
@@ -866,7 +866,7 @@ The Docker CLI container being non-root does not make the Pod unprivileged. Cont
 
 For a private runtime image, protected AppConfig contains only locked
 `delivery.registryPull` target/profile/revision metadata. The runtime chart
-derives the namespace-local immutable `imagePullSecret` name from the exact
+derives the namespace-local versioned `imagePullSecret` name from the exact
 target and profile revision; Kubernetes namespace scope keeps each copy local,
 and callers never submit a Secret name
 or credential reference. A worker reads one operator-projected, single-origin
@@ -894,7 +894,7 @@ The API authenticates to the registry, resolves a tag to its manifest digest, va
 
 The App UI accepts one of three Argo CD source forms: OCI registry, classic
 HTTPS Helm repository, or Git repository plus chart path. It also exposes one
-raw `values.yaml` editor. Kuberploy validates and stores an immutable desired
+raw `values.yaml` editor. Kuberploy validates and stores a versioned desired
 revision, then creates or updates one deterministic Argo CD `Application`.
 Argo CD owns provider access, chart resolution, rendering, synchronization,
 health, and drift repair. Kuberploy does not download or repackage charts and
@@ -966,7 +966,7 @@ Each route selects exactly one TLS mode:
 |---|---|---|
 | `httpOnly` | Serve through Traefik's port 80 entrypoint with no TLS Secret and no HTTPS redirect | None |
 | `letsencrypt` | Create a cert-manager `Certificate` using an admin-approved Issuer/ClusterIssuer, then serve HTTPS and optionally redirect HTTP | cert-manager |
-| `customCertificate` | Select an immutable scoped certificate version or upload a PEM certificate/private key; strict Sealed Secrets materializes a versioned `kubernetes.io/tls` Secret in the route namespace | User rotation through Kuberploy |
+| `customCertificate` | Select an exact scoped certificate version or upload a PEM certificate/private key; strict Sealed Secrets materializes a versioned `kubernetes.io/tls` Secret in the route namespace | User rotation through Kuberploy |
 
 Recommended route schema:
 
@@ -1006,7 +1006,7 @@ The certificate UI supports both selecting an existing scoped certificate and up
 - warn about hostname mismatch and approaching expiry;
 - treat the private key as write-only and never return it after upload;
 - send material only to the strict Sealed Secrets provider, never Git, ordinary PostgreSQL fields, a generic Kubernetes Secret API or an External Secrets profile;
-- persist only the platform-keyed content identity, immutable provider artifact digests and public certificate metadata (SANs, validity and fingerprints);
+- persist only the platform-keyed content identity, exact provider artifact digests and public certificate metadata (SANs, validity and fingerprints);
 - store only `{bindingId,name,version}` in Git and derive the namespace-local Secret name identically in policy and Helm;
 - continuously observe the exact SealedSecret without reading the generated Secret or its data; deletion, drift, expiry, scope mismatch or a stale worker makes new desired state ineligible while existing traffic remains unchanged.
 
@@ -1172,7 +1172,7 @@ The versioned `kuberploy-runtime` Helm chart renders:
 - cert-manager Certificate or custom TLS Secret reference according to the selected TLS mode;
 - namespaced Traefik Middleware resources and ordered Ingress middleware annotations;
 - ServiceAccount with no permissions by default;
-- versioned immutable ConfigMaps plus versioned secret-binding references;
+- versioned content-addressed ConfigMaps plus versioned secret-binding references;
 - startup, readiness and liveness probes;
 - resource requests and limits;
 - replicas and optional HPA;
@@ -1318,10 +1318,10 @@ Cloudflare proxy control on the Ingress without requiring a new form field.
 
 The expert resource editors are not `extraObjects` or a cluster-wide manifest
 escape hatch. They cannot change apiVersion, kind, name, namespace,
-Kuberploy-owned labels/annotations, generated selectors, the primary immutable
+Kuberploy-owned labels/annotations, generated selectors, the primary exact
 App image, the App ServiceAccount identity, host isolation, HostPath, host
 ports, added Linux capabilities or privileged container settings. Advanced
-sidecar/init-container images remain immutable. Deployment overrides are
+sidecar/init-container images remain pinned by digest. Deployment overrides are
 unavailable for StatefulSet Apps. The same schema, semantic validator, pinned
 Helm render and policy checks run before Git publication.
 
@@ -1377,9 +1377,9 @@ Kuberploy exposes one Variables editor but keeps ordinary and sensitive values a
 
 | Input | Git representation | Rendered object | Workload delivery |
 |---|---|---|---|
-| Ordinary environment variable | Plain value in the effective `AppConfig` hierarchy | Versioned immutable ConfigMap | Explicit `configMapKeyRef` |
-| Secret environment variable | Binding, key and immutable version only | Versioned immutable namespace-local Secret | Explicit `secretKeyRef` with `optional: false` |
-| Secret file | Binding, key, version, target path and mode only | Versioned immutable namespace-local Secret | Read-only projected volume for only the selected container/key |
+| Ordinary environment variable | Plain value in the effective `AppConfig` hierarchy | Versioned content-addressed ConfigMap | Explicit `configMapKeyRef` |
+| Secret environment variable | Binding, key and exact version only | Versioned namespace-local Secret | Explicit `secretKeyRef` with `optional: false` |
+| Secret file | Binding, key, version, target path and mode only | Versioned namespace-local Secret | Read-only projected volume for only the selected container/key |
 
 A Kubernetes Secret is the correct workload API object, but its `data` field is only base64-encoded. Base64 is reversible encoding, not encryption, so Kuberploy never commits an ordinary Secret manifest containing user input to Git. There is no "base64 secure mode."
 
@@ -1448,7 +1448,7 @@ flowchart LR
     REF --> ARGO["Argo CD"]
     CIPHER --> ARGO
     ARGO --> CTRL["External Secrets or Sealed Secrets controller"]
-    CTRL --> KSECRET["Immutable Secret in target namespace"]
+    CTRL --> KSECRET["Versioned Secret in target namespace"]
     APP["AppConfig: binding, key and version"] --> CHART["Pinned runtime chart"]
     CHART --> DEPLOY["Deployment secretKeyRef or projected file"]
     KSECRET --> DEPLOY
@@ -1458,7 +1458,7 @@ The platform-generated names are stable and versioned, for example `kp-payments-
 
 ### Write, rotation and rollout protocol
 
-Secret creation and editing are write-only operations. "Edit" always means create a new immutable version; Kuberploy cannot reveal, copy or patch an existing value.
+Secret creation and editing are write-only operations. "Edit" always means create a new version; Kuberploy cannot reveal, copy or patch an existing value.
 
 1. The API authorizes `secret.create` or `secret.rotate`, validates the binding/key/target scope, and accepts the value only over the authenticated TLS endpoint. Request-body capture, access-log bodies, tracing attributes and error echoing are disabled for this operation.
 2. The broker writes plaintext synchronously to the external store using a deterministic operation/version identity, or encrypts it in memory for every strict Sealed Secret destination. Plaintext is never put in PostgreSQL, the transactional outbox or a worker queue. Only an HMAC request fingerprint, opaque version metadata or ciphertext may become durable.
@@ -1648,7 +1648,7 @@ Operations use at-least-once execution with idempotency:
 | A locked chart, image or tool digest is missing or does not match | Fail the install or upgrade before mutation; never fall back to a mutable tag or an unverified artifact |
 | Duplicate or out-of-order webhook | Deduplicate by delivery ID and key builds to the exact SHA |
 | Older build finishes after a newer build | Keep the artifact, but block automatic promotion with a generation check |
-| No node matching the configured builder scheduling mode is Ready and schedulable | Report the builder capability unavailable, retain immutable history for reads and fail an accepted attempt as `builder-capacity-unavailable` after exact attempt-resource cleanup |
+| No node matching the configured builder scheduling mode is Ready and schedulable | Report the builder capability unavailable, retain build history for reads and fail an accepted attempt as `builder-capacity-unavailable` after exact attempt-resource cleanup |
 | DinD does not become ready | Fail the attempt after startup/deadline thresholds and create a clean retry Job |
 | Node eviction | Retry as a new attempt using registry cache |
 | Registry push succeeds but Git update fails | Preserve verified digest and retry `ConfigPending` idempotently |
@@ -1722,7 +1722,7 @@ The public `/v1` API is a supported product surface, not a reverse-engineered UI
 
 | Path | Audience and behavior |
 |---|---|
-| `/openapi.json` | Bundled, self-contained OpenAPI contract for agents, generators and contract tests; served with an immutable release ETag |
+| `/openapi.json` | Bundled, self-contained OpenAPI contract for agents, generators and contract tests; served with a content-based release ETag |
 | `/openapi.yaml` | Semantically identical YAML representation for source review and human download |
 | `/openapi-agent.json` | Generated compact profile containing supported tenant automation operations and agent-safety metadata; it is never maintained separately and is not an authorization boundary |
 | `/arazzo.yaml` | Machine-readable workflows for multi-step outcomes such as configure, preview, deploy, wait, expose and roll back |
@@ -1781,10 +1781,10 @@ The Arazzo document and matching human guides define at least these bounded work
 1. Discover identity capabilities and list visible projects/environments.
 2. Create a logical App inside an Environment, then configure an existing image, GitHub, Git SSH, or direct Argo CD Helm source.
 3. Read config -> validate -> preview -> conditionally save -> poll the Operation and projection revision -> inspect Argo sync and rollout health.
-4. Start a source build -> poll build and operation -> verify the immutable release -> deploy or promote it.
+4. Start a source build -> poll build and operation -> verify the exact release -> deploy or promote it.
 5. Add a route with manual or automatic DNS and HTTP-only, Let's Encrypt or custom-certificate TLS.
 6. Inspect application health, bounded metrics, events and log snapshots without requesting arbitrary namespaces or selectors.
-7. Preview and perform a rollback to a retained, registry-verified immutable release.
+7. Preview and perform a rollback to a retained, registry-verified release.
 8. Clone an Environment, edit its copied stopped App drafts, then explicitly start only the Apps that should publish to Git and run.
 
 Each workflow declares inputs, success criteria, terminal failure branches, polling limits, cleanup and where explicit confirmation is required. The compact agent contract omits inbound webhooks, installer/bootstrap operations, raw secret material and streaming-only endpoints when a bounded snapshot alternative exists. This reduces tool ambiguity but does not confer permission; the server still authorizes every request.
@@ -2182,7 +2182,7 @@ Persist the audit timeline in PostgreSQL. P0 streams bounded build and Pod logs 
 
 1. At an update/release cut, automation discovers the newest non-prerelease upstream releases from official sources, using the newest production LTS line where the upstream maintains one. Alpha, beta, release-candidate, nightly and mutable edge channels are excluded.
 2. CI solves the stack as a compatibility set, not as unrelated maximum version numbers. Direct components use their newest mutually compatible stable release. A parent chart's locked transitive components remain the upstream-tested set unless a security exception is explicitly patched and the whole matrix is rerun.
-3. Every accepted version is committed exactly. OCI images and charts are resolved to immutable `sha256` digests; GitHub Actions are pinned to explicit major-version tags; Go modules, frontend packages and Helm dependencies retain their native checksum/lock files. Neither manifests nor installers uses a floating `latest`, broad semver range or an unpinned default tag.
+3. Every accepted version is committed exactly. OCI images and charts are resolved to exact `sha256` digests; GitHub Actions are pinned to explicit major-version tags; Go modules, frontend packages and Helm dependencies retain their native checksum/lock files. Neither manifests nor installers uses a floating `latest`, broad semver range or an unpinned default tag.
 4. The dependency-update bot opens small reviewable pull requests. CI verifies upstream provenance/checksums, licenses and vulnerability policy, rebuilds the SBOM, renders every installation profile, tests fresh install and ordered upgrade, and runs Kubernetes-version, Argo, ingress, certificate, DNS, secret, build and observability smoke tests. A failed cell blocks the update while the previous lock remains supported.
 5. A critical security update may be expedited, but it still receives an explicit lock change and the risk-proportionate compatibility tests. The platform never downloads an unreviewed newest version into a live cluster.
 6. An adopted external component is not forced to the bundled version. Preflight checks its reported version and required capabilities against the release's tested range and classifies it as `Supported`, `SupportedWithWarning` or `Unsupported`; an unknown newer major fails closed for mutations that depend on it.
@@ -2235,7 +2235,7 @@ All bundled dependencies must be independently disableable so operators can use 
 ### Public release channel and installer lifecycle
 
 The public `kuberploy/kuberploy` GitHub repository is the single default release
-channel. A platform administrator can inspect an immutable stable release from
+channel. A platform administrator can inspect a verified stable release from
 the UI. The release response binds its source commit, OCI chart
 digest, control-plane image digests, Kubernetes range and database compatibility
 window; it is advisory and never grants the application a reusable cluster-wide
@@ -2244,7 +2244,7 @@ Helm credential.
 The operator upgrades or rolls back the `kuberploy-installer` Helm release with
 the same explicit values and cluster credentials used for installation. The
 installer owns the root desired-state revision for all enabled component
-Applications. Its lifecycle hooks first reconcile that exact immutable
+Applications. Its lifecycle hooks first reconcile that exact
 inventory, then require every enabled Application to report the requested
 target revision, `Synced`, and `Healthy`. The hook Role can only get/watch the
 exact enabled Application names.
@@ -2317,12 +2317,12 @@ Create project and environment
 | Dokploy-style capability | Kuberploy MVP | Scope decision |
 |---|---:|---|
 | Projects, environments and applications | Yes | Core navigation and ownership model |
-| GitHub integration and push auto-deploy | Yes | GitHub App only; immutable human-managed policy revisions, exact service-account authority, verified build releases and durable run receipts |
+| GitHub integration and push auto-deploy | Yes | GitHub App only; append-only human-managed policy revisions, exact service-account authority, verified build releases and durable run receipts |
 | Dockerfile source build | Yes | Privileged ARC-style DinD with BuildKit/buildx; single-node scheduling by default and optional dedicated-node isolation |
-| Existing registry image | Yes | Resolve and deploy an immutable digest |
+| Existing registry image | Yes | Resolve and deploy an exact digest |
 | Managed local OCI registry | Yes | Optional bundled registry with persistent storage, scoped credentials, per-service last-`N` successful-release retention, dry-run preview and safe garbage collection; external registries are push/pull targets whose lifecycle remains operator-managed |
 | Registry-backed Docker build cache | Yes | Buildx registry `cache-from`/`cache-to` with `mode=max`, OCI media types, service/platform/trust-lane isolation and best-effort fallback; Kuberploy applies cache retention only to managed mode |
-| Environment variables | Yes | Human-managed project/environment VariableSets plus application values in Git, with exact diff/preview and environment-governed direct-or-PR publication; rendered as explicit references to an immutable content-addressed ConfigMap |
+| Environment variables | Yes | Human-managed project/environment VariableSets plus application values in Git, with exact diff/preview and environment-governed direct-or-PR publication; rendered as explicit references to a content-addressed ConfigMap |
 | Secret variables | Yes | Write-only versioned strict Sealed Secret bindings; explicit environment/file delivery, readiness-gated rotation and never plaintext/base64 Git. External Secrets remain fail-closed until a concrete audited remote writer exists |
 | Deployment queue, live build logs and history | Yes | Include cancellation and retry of Kubernetes Jobs |
 | Application logs and Kubernetes events | Yes | Audited Pod/container snapshots and follow plus a Deployment-wide merged stream through the scoped API |
@@ -2377,14 +2377,14 @@ repositories or refs instead of sharing one writable platform root.
   Team deletion, and private/team sharing of verified GitHub App installations.
   Platform administrators can delete a human login after exact email
   confirmation. Credentials, sessions, memberships, and direct grants are
-  removed; the immutable user ID remains as an anonymized tombstone so audit
+  removed; the stable user ID remains as an anonymized tombstone so audit
   and foreign-key history stay valid, and the email can be invited again.
 - Four App sources selected inside a Project Environment: existing OCI image,
   GitHub App Dockerfile build, provider-neutral Git SSH Dockerfile build, and
   Helm. Helm Apps pass OCI, classic HTTPS Helm repository, or Git chart source
   coordinates plus values directly to a deterministic Argo CD Application.
 - Environment clone with target-bound editable App configurations stored as stopped drafts; clone itself deploys nothing, and each App requires an explicit Start App action.
-- GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with immutable revisions/run history and fresh runtime readiness.
+- GitHub App installation, verified webhook, exact projection wake plus safety-poll repair, automatic build on push, and durable image-only auto-deploy policies with append-only revisions/run history and fresh runtime readiness.
 - One ephemeral privileged DinD Job per source build, never mounting the host Docker socket. It runs on a single starter node by default; optional node isolation requires the exact configured builder pool.
 - Managed local or external OCI registry with separate build-push and runtime-pull credentials. Managed mode also has an isolated lifecycle credential and defaults to the latest 10 successful release digests per service plus current/running/in-flight/pinned artifacts; external retention and garbage collection remain entirely operator-managed.
 - Registry-backed Buildx cache from the first source-builder release, protecting the latest cache generation per service/platform/trust lane, with seven-day unused expiry, a byte quota and cold-build fallback when cache import/export is unavailable.
@@ -2396,7 +2396,7 @@ repositories or refs instead of sharing one writable platform root.
 - Guided Deployment/Service forms plus an Advanced AppConfig YAML editor sharing one draft, validation pipeline and Git diff.
 - External Helm Apps receive source controls and one raw values YAML editor;
   Argo CD reports synchronization, health, and rendered workload state.
-- Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned immutable ConfigMaps, plus container port, replicas, CPU/memory and health probes.
+- Human-managed Git-backed project/environment VariableSets with exact diff/preview, idempotent direct-or-protected-PR publication and inherited ordinary values rendered through versioned content-addressed ConfigMaps, plus container port, replicas, CPU/memory and health probes.
 - Per-App resource requests/limits (new primary containers default to explicit `50m` CPU and `100Mi` memory requests) and direct policy-safe scheduling UI for selectors, affinity/anti-affinity, topology spread, tolerations and PriorityClass. No platform scheduling-profile catalog is required.
 - Write-only versioned runtime-secret creation/rotation with strict Sealed Secrets, exact binding/application scope, environment/file delivery, readiness-gated rollout and metadata-only UI/API reads; External Secrets remains unavailable until an audited concrete remote material writer exists.
 - Managed or adopted Traefik with generated/custom domains, server-derived `sslip.io` convenience hostnames, and explicit HTTP-only, Let's Encrypt, or custom-certificate mode per route.

@@ -213,7 +213,7 @@ func (s *PostgreSQLStore) PutDefinition(ctx context.Context, definition BuildDef
 		gitSSHSource, _ = json.Marshal(definition.GitSSH)
 	}
 	command, err := tx.Exec(ctx, `UPDATE applications SET source_kind=$15,
-		build_source_id=$3,build_source_kind=$4,build_source_installation_id=$5,build_source_repository_id=$6,
+		build_source_id=COALESCE(build_source_id,$3),build_source_kind=$4,build_source_installation_id=$5,build_source_repository_id=$6,
 		build_source_git_ssh=$7,build_source_registry_target_id=$8,build_source_trigger_ref=$9,build_source_spec=$10,
 		build_source_digest=$11,build_source_revision=GREATEST(COALESCE(build_source_revision,0)+1,$12),
 		build_source_created_at=COALESCE(build_source_created_at,$13),build_source_updated_at=$14

@@ -40,7 +40,7 @@ The API/auth component may read session/bootstrap material. A credential-broker 
 
 ### Canonical application contract
 
-`apps/<app-id>/app.yaml` is the only editable application-scoped managed-runtime document. It is a versioned `AppConfig` with immutable opaque IDs and mutable display names. Namespace, Argo Application, Helm release, Deployment and Service names derive from immutable IDs, not display names. Optional project and environment `variables.yaml` documents provide inherited ordinary values without becoming application-owned overrides.
+`apps/<app-id>/app.yaml` is the only editable application-scoped managed-runtime document. It is a versioned `AppConfig` with stable opaque IDs and mutable display names. Namespace, Argo Application, Helm release, Deployment and Service names derive from stable IDs, not display names. Optional project and environment `variables.yaml` documents provide inherited ordinary values without becoming application-owned overrides.
 
 The protected Application/ApplicationSet passes exactly three ordered value-file paths to the pinned `kuberploy-runtime` chart: project variables, environment variables, then the mandatory application document. Missing parent VariableSets are empty scopes. Operator-owned expected-identity Helm parameters ensure that the chart rejects a missing or substituted application document. There is no separately editable generated application values file. Both the API compiler and Argo render the same chart/version and schema.
 
@@ -48,7 +48,7 @@ The protected Application/ApplicationSet passes exactly three ordered value-file
 
 The MVP was implemented through these durable boundaries:
 
-1. A minimal AppConfig in Git deploys a public image digest through Argo and `kuberploy-runtime`, exposes HTTP through Traefik on an explicitly selected conforming test cluster, and rolls back by creating a new protected Git intent selecting an eligible prior immutable deployment input.
+1. A minimal AppConfig in Git deploys a public image digest through Argo and `kuberploy-runtime`, exposes HTTP through Traefik on an explicitly selected conforming test cluster, and rolls back by creating a new protected Git intent selecting an eligible prior deployment input.
 2. The API records an idempotent Deployment command, Operation, audit event and PostgreSQL outbox row; the relay signals a Valkey Stream; a worker writes the Git commit; the projection and status APIs converge on Argo health.
 3. Signed GitHub webhook replay triggers an isolated DinD/Buildx build, pushes to a local test registry and commits the resulting digest.
 4. Secret backends, TLS/DNS, external Helm, metrics/logs and broader RBAC follow on the proven command/Git/reconcile seam.

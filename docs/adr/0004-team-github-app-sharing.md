@@ -40,7 +40,7 @@ after acceptance.
 
 Revoking sharing blocks new source access and queued work. It does not delete
 Git state, images, Argo Applications, or running tenant workloads. Already
-deployed immutable images continue running, matching the control-plane
+deployed content-addressed images continue running, matching the control-plane
 availability and upgrade isolation promises.
 
 GitHub App private keys, webhook secrets, installation access tokens, and user
@@ -59,7 +59,7 @@ The public OpenAPI contract includes:
 - accessible GitHub App installations;
 - a sharing mutation with `private` or `team` visibility;
 - repository listing and source-command inputs that identify an installation
-  and repository by immutable internal IDs.
+  and repository by stable internal IDs.
 
 Every mutation is authenticated, CSRF-protected where a browser session is
 used, idempotent where retry is expected, and audited. Repository lists are

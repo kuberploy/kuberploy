@@ -212,7 +212,7 @@ export function AuthScreen({
             Reconcile from Git.
           </h1>
           <p>
-            A self-hosted control plane for immutable releases, explicit routes,
+            A self-hosted control plane for content-addressed releases, explicit routes,
             and an honest view of what Argo CD is doing.
           </p>
           <div

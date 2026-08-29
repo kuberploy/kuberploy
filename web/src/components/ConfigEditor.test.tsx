@@ -477,7 +477,7 @@ spec:
     expect(screen.getByText(/External DNS revision is ready/i)).toBeVisible();
   });
 
-  it("keeps Guided and Advanced YAML inspectable but immutable without scoped config write", async () => {
+  it("keeps Guided and Advanced YAML read-only without scoped config write", async () => {
     const user = userEvent.setup();
     const deployment: Deployment = {
       id: "deployment-readonly",

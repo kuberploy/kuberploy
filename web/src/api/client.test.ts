@@ -143,7 +143,7 @@ describe("typed API client", () => {
     );
   });
 
-  it("sends an immutable-image deployment with idempotency and supported HTTP route", async () => {
+  it("sends an exact-digest deployment with idempotency and supported HTTP route", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -382,7 +382,7 @@ describe("typed API client", () => {
     expect(body.route).not.toHaveProperty("ip");
   });
 
-  it("binds a tagged deployment to the previewed immutable image", async () => {
+  it("binds a tagged deployment to the previewed digest", async () => {
     const expectedImmutableImage = `registry.example.test/payments/api@sha256:${"e".repeat(64)}`;
     const fetchMock = vi
       .fn()
@@ -430,7 +430,7 @@ describe("typed API client", () => {
         image: "registry.example.test/payments/api:release",
         runtime,
       }),
-    ).toThrow("tag requires its previewed immutable-image precondition");
+    ).toThrow("tag requires its previewed digest precondition");
     expect(() =>
       api.createDeployment({
         applicationId: "app_1",
@@ -439,7 +439,7 @@ describe("typed API client", () => {
         expectedImmutableImage: `registry.example.test/payments/api@sha256:${"f".repeat(64)}`,
         runtime,
       }),
-    ).toThrow("immutable image forbids it");
+    ).toThrow("exact digest forbids it");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

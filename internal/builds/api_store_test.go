@@ -18,15 +18,18 @@ func TestMemorySourceReplacementKeepsOnlyCurrentAppSource(t *testing.T) {
 	if err := store.PutDefinition(ctx, replacement); err != nil {
 		t.Fatalf("replace definition: %v", err)
 	}
-	if _, err := store.Definition(ctx, original.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("replaced source remains addressable: %v", err)
+	gotOriginal, err := store.Definition(ctx, original.ID)
+	if err != nil {
+		t.Fatalf("current source disappeared: %v", err)
 	}
-	gotReplacement, err := store.Definition(ctx, replacement.ID)
-	if err != nil || !gotReplacement.Enabled || gotReplacement.DefinitionGeneration != original.DefinitionGeneration+1 || !gotReplacement.CreatedAt.Equal(original.CreatedAt) {
-		t.Fatalf("replacement definition=%#v err=%v, want active", gotReplacement, err)
+	if _, err = store.Definition(ctx, replacement.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("edit minted another source identity: %v", err)
+	}
+	if !gotOriginal.Enabled || gotOriginal.DefinitionGeneration != original.DefinitionGeneration+1 || !gotOriginal.CreatedAt.Equal(original.CreatedAt) || gotOriginal.Spec.Registry.TargetID != replacement.Spec.Registry.TargetID {
+		t.Fatalf("edited definition=%#v, want current source identity", gotOriginal)
 	}
 	authorized, err := store.AuthorizePush(ctx, testAppID, testProviderInstall, repositoryFixture(testNow).Identity, "refs/heads/main")
-	if err != nil || len(authorized.Definitions) != 1 || authorized.Definitions[0].ID != replacement.ID {
+	if err != nil || len(authorized.Definitions) != 1 || authorized.Definitions[0].ID != original.ID {
 		t.Fatalf("authorized definitions=%#v err=%v", authorized.Definitions, err)
 	}
 }

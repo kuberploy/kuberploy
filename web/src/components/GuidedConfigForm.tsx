@@ -1311,7 +1311,7 @@ export function GuidedConfigForm({
               <p>
                 Enter a partial Kubernetes resource object. Kuberploy merges it
                 after Guided configuration, while retaining resource identity,
-                App selectors, the immutable App image, and workload isolation.
+                App selectors, the exact App image digest, and workload isolation.
               </p>
             </div>
           </Notice>

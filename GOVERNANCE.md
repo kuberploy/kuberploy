@@ -25,7 +25,7 @@ losing attribution for their work.
 ## Releases
 
 Only repository workflows may build official images and charts. Stable releases
-use semantic version tags, immutable GitHub Releases, and exact OCI digests.
+use semantic version tags, locked GitHub Releases, and exact OCI digests.
 Provenance attestations become a release control only when clients verify them.
 At least one maintainer other than the change author
 should approve a stable release once the project has more than one active

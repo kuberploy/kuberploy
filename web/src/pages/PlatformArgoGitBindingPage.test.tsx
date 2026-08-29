@@ -93,10 +93,10 @@ describe("platform Argo Git authority page", () => {
     renderPage();
 
     const confirmation = await screen.findByRole("checkbox", {
-      name: /immutable protected platform Git authority/i,
+      name: /protected platform Git authority/i,
     });
     const submit = screen.getByRole("button", {
-      name: /Create immutable authority/i,
+      name: /Create Git authority/i,
     });
     expect(submit).toBeDisabled();
     await waitFor(() => expect(confirmation).toBeEnabled());

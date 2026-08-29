@@ -154,7 +154,7 @@ function exactGuidedSecretReference(value: Record<string, unknown>): {
     version < 1
   ) {
     throw new Error(
-      "Secret references require an immutable binding UUID, reviewed binding name, key, and positive integer active version. Legacy string versions are not accepted.",
+      "Secret references require an exact binding UUID, reviewed binding name, key, and positive integer active version. Legacy string versions are not accepted.",
     );
   }
   return { bindingId, bindingName: name, key, version };
@@ -165,7 +165,7 @@ function exactGuidedCertificateReference(
 ): CertificateBindingReference {
   if (!isObject(value)) {
     throw new Error(
-      "Custom certificates require an exact immutable bindingId, name, and positive integer version. Legacy string Secret names are not accepted; use Advanced YAML to inspect the original value.",
+      "Custom certificates require an exact bindingId, name, and positive integer version. Legacy string Secret names are not accepted; use Advanced YAML to inspect the original value.",
     );
   }
   const bindingId = value.bindingId;
@@ -182,7 +182,7 @@ function exactGuidedCertificateReference(
     version < 1
   ) {
     throw new Error(
-      "Custom certificates require an exact immutable binding UUID, reviewed DNS-label name, and positive integer version. Caller-selected Kubernetes Secret names are not accepted.",
+      "Custom certificates require an exact binding UUID, reviewed DNS-label name, and positive integer version. Caller-selected Kubernetes Secret names are not accepted.",
     );
   }
   return { bindingId, name, version };
@@ -765,7 +765,7 @@ export function guidedConfigFromYaml(rawYaml: string): GuidedConfig {
         !isObject(valueFrom.secretBindingRef)
       ) {
         throw new Error(
-          "Secret references require an environment variable name and an exact immutable binding reference.",
+          "Secret references require an environment variable name and an exact binding reference.",
         );
       }
       const ref = exactGuidedSecretReference(valueFrom.secretBindingRef);
@@ -1002,7 +1002,7 @@ export function applyGuidedConfig(
     if (values.tlsMode === "customCertificate") {
       if (!values.certificateRef) {
         throw new Error(
-          "Choose one exact ready certificate binding and immutable active version before saving custom TLS.",
+          "Choose one exact ready certificate binding and active version before saving custom TLS.",
         );
       }
       tls.secretRef = exactGuidedCertificateReference(values.certificateRef);
@@ -1047,7 +1047,7 @@ spec:
     mode: image
     release:
       repository: ${repository || "registry.example.com/team/application"}
-      digest: ${digest || "sha256:replace-with-an-immutable-digest"}
+      digest: ${digest || "sha256:replace-with-an-exact-digest"}
   runtime:
     replicas: ${input.replicas ?? 1}
     ports:

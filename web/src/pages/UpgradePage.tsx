@@ -72,7 +72,7 @@ export function UpgradePage() {
       <PageHeader
         eyebrow="Platform settings"
         title="Kuberploy releases"
-        description="Inspect the verified immutable public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
+        description="Inspect the verified public release and compatibility envelope. Upgrade or rollback the installer Helm release with operator credentials; Kuberploy never mutates an Argo-owned child release."
         actions={
           canReadReleases ? (
             <Button
@@ -232,7 +232,7 @@ export function UpgradePage() {
             <Card className="p-6">
               <CardHeader>
                 <div>
-                  <Eyebrow>Immutable release identity</Eyebrow>
+                  <Eyebrow>Release identity</Eyebrow>
                   <h2>{release.tag}</h2>
                 </div>
                 <a
@@ -306,7 +306,7 @@ export function UpgradePage() {
               />
             </div>
             <details className="mt-3 border border-line rounded-lg [&_summary]:py-3 [&_summary]:px-3 [&_summary]:cursor-pointer [&_summary]:text-ink-soft [&_summary]:text-meta [&_summary]:font-semibold [&_dl]:m-0 [&_dl]:pt-0 [&_dl]:px-3 [&_dl]:pb-3 [&_dl_>_div]:grid [&_dl_>_div]:grid-cols-[70px_minmax(0,_1fr)] [&_dl_>_div]:gap-3 [&_dl_>_div]:py-2 [&_dl_>_div]:px-0 [&_dl_>_div]:border-t [&_dl_>_div]:border-t-line [&_dt]:text-ink-faint [&_dt]:text-xs [&_dt]:capitalize [&_dd]:min-w-0 [&_dd]:m-0 [&_dd]:overflow-hidden [&_dd]:text-ellipsis [&_dd]:whitespace-nowrap [&_code]:text-xs">
-              <summary>Show immutable control-plane images</summary>
+              <summary>Show exact control-plane images</summary>
               <dl>
                 {release.manifest.artifacts.images.map((image) => (
                   <div key={image.component}>

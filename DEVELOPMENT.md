@@ -68,7 +68,7 @@ the ignored locations intended for local work:
 
 Public examples must use reserved example domains and synthetic identifiers.
 Operator-facing releases use readable semantic versions. Cryptographic digests
-remain valid only where they prove content integrity or immutable OCI content;
+remain valid only where they prove content integrity or exact OCI content;
 they are not presented as product versions.
 
 ## Kubernetes testing

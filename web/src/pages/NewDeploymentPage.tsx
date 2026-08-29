@@ -596,7 +596,7 @@ export function NewDeploymentPage() {
           !imageResolutionIsCurrent)
       ) {
         throw new Error(
-          "A current server-resolved immutable digest preview is required for this image tag.",
+          "A current server-resolved digest preview is required for this image tag.",
         );
       }
       // Application identity is created explicitly before this mutation. That
@@ -775,7 +775,7 @@ export function NewDeploymentPage() {
       <PageHeader
         eyebrow="App"
         title="Add App from OCI image"
-        description="Deploy an exact OCI digest, or resolve an authorized existing-image tag. Kuberploy commits only immutable desired state to Git."
+        description="Deploy an exact OCI digest, or resolve an authorized existing-image tag. Kuberploy commits exact desired state to Git."
       />
 
       {loadError ? (
@@ -1194,7 +1194,7 @@ export function NewDeploymentPage() {
                   <p>
                     Tag resolution requires an existing application so the
                     server can enforce its exact registry policy. Create the
-                    application first, or use an immutable digest.
+                    application first, or use an exact digest.
                   </p>
                 ) : !imageTagResolutionEnabled ? (
                   <p>
@@ -1233,7 +1233,7 @@ export function NewDeploymentPage() {
             ) : null}
             {imageResolutionIsCurrent && imageResolution.data ? (
               <Notice tone="success" role="status">
-                <strong>Immutable image resolved</strong>
+                <strong>Image digest resolved</strong>
                 <p>
                   <code>{imageResolution.data.requestedImage}</code>
                   {" → "}
@@ -1447,7 +1447,7 @@ export function NewDeploymentPage() {
                 <h2>Runtime environment values</h2>
                 <p>
                   Used only by the deployed App. Visible in Git and rendered
-                  through an immutable ConfigMap; never passed to the image
+                  through a versioned ConfigMap; never passed to the image
                   builder. Never place secrets here.
                 </p>
               </div>

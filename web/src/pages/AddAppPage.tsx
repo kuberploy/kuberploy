@@ -35,7 +35,7 @@ const sources: Array<{
     title: "OCI image",
     description:
       "Run an existing image from a public or authenticated registry.",
-    detail: "Resolve tags to immutable digests before GitOps publication.",
+    detail: "Resolve tags to exact digests before GitOps publication.",
     icon: "deploy",
   },
   {

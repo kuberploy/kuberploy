@@ -23,7 +23,7 @@ workloads, and PostgreSQL holds durable operations and recovery state.
   application.
 - Direct Git publication for development and protected pull-request publication
   for reviewed environments.
-- Immutable image resolution, rollback, direct per-application scheduling, reusable Traefik
+- Exact image-digest resolution, rollback, direct per-application scheduling, reusable Traefik
   middleware, VariableSet inheritance, runtime secrets, TLS, and DNS workflows.
 - Email-based local sign-in with a separate presentation display name; future
   SSO providers can attach to the stable issuer/subject identity seam.
@@ -40,7 +40,7 @@ workloads, and PostgreSQL holds durable operations and recovery state.
    permissions, operations, and recovery state; Valkey only accelerates queued
    work and selected status reads.
 2. Kuberploy can deploy an existing image, publish a Helm release, or build a
-   GitHub repository and push the immutable image to your registry.
+   GitHub repository and push the content-addressed image to your registry.
 3. Kuberploy writes the application’s non-secret desired state to the GitOps
    repository—directly for development environments or through a pull request
    for protected environments.

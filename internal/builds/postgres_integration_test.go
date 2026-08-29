@@ -469,6 +469,11 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.PutDefinition(ctx, gitSSHDefinition); err != nil {
 		t.Fatal(err)
 	}
+	currentSources, err := store.DefinitionsForService(ctx, serviceID)
+	if err != nil || len(currentSources) != 1 {
+		t.Fatalf("current Git SSH source=%#v err=%v", currentSources, err)
+	}
+	gitSSHDefinition = currentSources[0]
 	gitSSHIdempotencyKey := "postgres-git-ssh-build-01"
 	gitSSHClaim := APICommandClaimKey(userID, APICommandDefinitionBuild, gitSSHDefinition.ID, gitSSHIdempotencyKey)
 	gitSSHAttemptID := ManualAttemptID(gitSSHClaim, gitSSHDefinition.ID)
@@ -560,12 +565,12 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if err = store.PutDefinition(ctx, replacement); err != nil {
 		t.Fatalf("replace definition: %v", err)
 	}
-	if original, originalErr := store.Definition(ctx, definitionID); !errors.Is(originalErr, ErrNotFound) {
-		t.Fatalf("replaced source=%#v err=%v, want not found", original, originalErr)
-	}
-	active, err := store.Definition(ctx, replacementID)
+	active, err := store.Definition(ctx, definitionID)
 	if err != nil || !active.Enabled || active.DefinitionGeneration != 3 {
-		t.Fatalf("replacement definition=%#v err=%v, want active", active, err)
+		t.Fatalf("edited definition=%#v err=%v, want active", active, err)
+	}
+	if replacementSource, replacementErr := store.Definition(ctx, replacementID); !errors.Is(replacementErr, ErrNotFound) {
+		t.Fatalf("edit minted source=%#v err=%v", replacementSource, replacementErr)
 	}
 	activePush, err := store.AuthorizePush(ctx, appID, providerInstall, repository.Identity, event.Ref)
 	if err != nil || len(activePush.Definitions) != 2 {
@@ -575,7 +580,7 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	for _, candidate := range activePush.Definitions {
 		activeIDs[candidate.ID] = candidate.Enabled
 	}
-	if !activeIDs[replacementID] || activeIDs[definitionID] {
+	if !activeIDs[definitionID] || activeIDs[replacementID] {
 		t.Fatalf("replacement active IDs=%v", activeIDs)
 	}
 }

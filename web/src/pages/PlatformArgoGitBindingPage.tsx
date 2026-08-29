@@ -139,7 +139,7 @@ export function PlatformArgoGitBindingPage() {
     }
     if (!confirmed) {
       setValidationError(
-        "Confirm the immutable Git authority before creating it.",
+        "Confirm the protected Git authority before creating it.",
       );
       return;
     }
@@ -193,7 +193,7 @@ export function PlatformArgoGitBindingPage() {
         <Card>
           <CardHeader bar>
             <div>
-              <Eyebrow>Immutable authority</Eyebrow>
+              <Eyebrow>Git authority</Eyebrow>
               <h2>
                 {binding.data.repository.owner}/{binding.data.repository.name}
               </h2>
@@ -357,7 +357,7 @@ export function PlatformArgoGitBindingPage() {
                 disabled={!repositoryId || create.isPending}
               />
               <span>
-                I understand this repository and branch become the immutable
+                I understand this repository and branch become the protected
                 protected platform Git authority.
               </span>
             </label>
@@ -381,7 +381,7 @@ export function PlatformArgoGitBindingPage() {
                 repositories.isPending
               }
             >
-              <Icon name="route" /> Create immutable authority
+              <Icon name="route" /> Create Git authority
             </Button>
           </FormGrid>
         </FormCard>

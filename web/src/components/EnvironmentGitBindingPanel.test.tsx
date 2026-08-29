@@ -111,7 +111,7 @@ describe("environment Git authority panel", () => {
     renderPanel();
 
     const confirmation = await screen.findByRole("checkbox", {
-      name: /immutable environment Git authority/i,
+      name: /environment Git authority/i,
     });
     const submit = screen.getByRole("button", {
       name: /create Git authority/i,

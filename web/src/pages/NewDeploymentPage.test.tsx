@@ -590,7 +590,7 @@ describe("new deployment runtime controls", () => {
       screen.getByRole("button", { name: /commit & deploy/i }),
     ).toBeDisabled();
     expect(
-      screen.queryByText(/Immutable image resolved/),
+      screen.queryByText(/Image digest resolved/),
     ).not.toBeInTheDocument();
   });
 

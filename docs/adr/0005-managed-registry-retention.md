@@ -10,7 +10,7 @@ pull from. Requiring every small self-hosted installation to provide an external
 registry weakens the intended PaaS experience, while retaining every successful,
 failed and superseded build forever makes local storage consumption unbounded.
 
-Git records immutable image digests but does not store image bytes. Consequently,
+Git records exact image digests but does not store image bytes. Consequently,
 Git history alone cannot promise that an arbitrarily old revision remains
 deployable after registry retention runs. Kuberploy needs an explicit rollback
 window and a lifecycle algorithm that cannot delete an image still required by a
@@ -36,7 +36,7 @@ window. Existing-image deployments remain in their source registry unless a
 user starts an explicit copy/promotion operation into a Kuberploy-owned managed
 repository.
 
-Every application service receives a repository derived from immutable IDs, for
+Every application service receives a repository derived from stable IDs, for
 example `<owned-prefix>/<project-id>/<application-id>/<service-id>`. Display-name
 changes therefore do not move artifacts, and one service's retention rule cannot
 select another service's manifests. The P0 single-service runtime uses the stable
@@ -81,7 +81,7 @@ equivalent to the `cache-from`/`cache-to` options commonly used with
 `docker/build-push-action`, but the trusted Kuberploy build agent invokes Buildx
 directly.
 
-Cache identity is scoped by immutable service ID, platform set, builder/cache
+Cache identity is scoped by stable service ID, platform set, builder/cache
 schema, App source digest and trust lane. Protected-branch and untrusted
 pull-request writes never share a lane. Cache credentials cannot push release
 images and runtime pull credentials cannot read cache repositories. Because

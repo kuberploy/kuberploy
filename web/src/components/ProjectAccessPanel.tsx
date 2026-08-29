@@ -335,7 +335,7 @@ export function ProjectAccessPanel({
           <Field
             label="Exact user ID"
             required
-            hint="Use the immutable user ID; names are display-only and can change."
+            hint="Use the stable user ID; names are display-only and can change."
             error={form.formState.errors.subjectUserId?.message}
           >
             <input

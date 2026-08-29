@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 describe("runtime-secret reference picker", () => {
-  it("emits only server-selected immutable identity and authorized delivery keys", async () => {
+  it("emits only server-selected identity and authorized delivery keys", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "runtimeSecretBindings").mockResolvedValue({
       items: [

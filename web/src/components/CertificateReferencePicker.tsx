@@ -46,11 +46,11 @@ export function CertificateReferencePicker({
 
   return (
     <Field
-      label="Certificate binding and immutable version"
+      label="Certificate binding and version"
       hint="Only the reviewed binding identity is stored in Git. Kubernetes Secret names and private keys are never selectable."
     >
       <Select
-        aria-label="Certificate binding and immutable version"
+        aria-label="Certificate binding and version"
         value={selectedKey}
         disabled={disabled || !enabled || bindings.isPending}
         onChange={(event) => {

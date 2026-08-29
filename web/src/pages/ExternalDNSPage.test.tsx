@@ -368,10 +368,10 @@ describe("External DNS platform management", () => {
     });
 
     await screen.findByText("Authorized integration catalog");
-    await user.type(screen.getByLabelText(/^Immutable slug/), "new-dns");
+    await user.type(screen.getByLabelText(/^DNS slug/), "new-dns");
     await user.type(screen.getByLabelText(/^Display name/), "New DNS");
     await user.type(
-      screen.getByLabelText(/^Immutable TXT owner/),
+      screen.getByLabelText(/^TXT owner/),
       "kuberploy.new",
     );
     await user.type(

@@ -182,11 +182,11 @@ describe("shared AppConfig draft", () => {
       "",
     );
     expect(() => guidedConfigFromYaml(missingIdentity)).toThrow(
-      /immutable binding UUID/i,
+      /binding UUID/i,
     );
   });
 
-  it("round-trips only the exact immutable custom-certificate reference", () => {
+  it("round-trips only the exact custom-certificate reference", () => {
     const guided = guidedConfigFromYaml(source);
     const configured = applyGuidedConfig(source, {
       ...guided,

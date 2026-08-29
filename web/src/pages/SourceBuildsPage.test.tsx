@@ -186,7 +186,7 @@ describe("source-build workspace", () => {
     expect(api.buildAttempts).not.toHaveBeenCalled();
   });
 
-  it("keeps immutable history readable when builder capacity is unavailable", async () => {
+  it("keeps build history readable when builder capacity is unavailable", async () => {
     renderPage({
       features: { githubAppSetup: false, builds: false, builder: false },
       featureStates: { builds: "unavailable", builder: "unavailable" },

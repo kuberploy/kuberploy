@@ -205,13 +205,21 @@ func (s *MemoryStore) PutDefinition(_ context.Context, definition BuildDefinitio
 			return ErrUnauthorized
 		}
 	}
-	for id, current := range s.definitions {
-		if id == definition.ID || current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID {
+	var currentDefinition BuildDefinition
+	foundCurrent := false
+	for _, current := range s.definitions {
+		if current.ProjectID != definition.ProjectID || current.ServiceID != definition.ServiceID {
 			continue
 		}
-		definition.DefinitionGeneration = current.DefinitionGeneration + 1
-		definition.CreatedAt = current.CreatedAt
-		delete(s.definitions, id)
+		if foundCurrent && current.ID != currentDefinition.ID {
+			return ErrConflict
+		}
+		currentDefinition, foundCurrent = current, true
+	}
+	if foundCurrent {
+		definition.ID = currentDefinition.ID
+		definition.DefinitionGeneration = currentDefinition.DefinitionGeneration + 1
+		definition.CreatedAt = currentDefinition.CreatedAt
 	}
 	s.definitions[definition.ID] = cloneDefinition(definition)
 	return nil

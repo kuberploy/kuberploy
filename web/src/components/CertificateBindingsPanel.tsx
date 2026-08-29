@@ -225,7 +225,7 @@ function CreateCertificateForm({
           <Eyebrow>{environment.name}</Eyebrow>
           <h3>New custom certificate</h3>
           <p>
-            The platform validates the key pair and derives its immutable
+            The platform validates the key pair and derives its public
             Kubernetes TLS Secret identity.
           </p>
         </div>
@@ -424,7 +424,7 @@ function CertificateDetail({
       <section className="p-5">
         <div className="flex items-start justify-between gap-4 mb-3 [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55]">
           <div>
-            <h4>Immutable public attestations</h4>
+            <h4>Public attestations</h4>
             <p>Private keys and raw certificate bytes are never returned.</p>
           </div>
         </div>
@@ -811,7 +811,7 @@ export function CertificateBindingsPanel({
               <EmptyState
                 icon="route"
                 title="Select a certificate"
-                description="Choose safe metadata to inspect immutable public certificate attestations."
+                description="Choose safe metadata to inspect public certificate attestations."
                 compact
               />
             )}

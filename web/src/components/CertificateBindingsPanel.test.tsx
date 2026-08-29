@@ -290,7 +290,7 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /public-edge/i }),
     );
-    await screen.findByText("Immutable public attestations");
+    await screen.findByText("Public attestations");
     await user.type(
       screen.getByRole("textbox", {
         name: "Rotate certificate certificate chain PEM",
@@ -395,7 +395,7 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /public-edge/i }),
     );
-    await screen.findByText("Immutable public attestations");
+    await screen.findByText("Public attestations");
     await user.type(
       screen.getByRole("textbox", {
         name: "Rotate certificate certificate chain PEM",
@@ -472,7 +472,7 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /public-edge/i }),
     );
-    await screen.findByText("Immutable public attestations");
+    await screen.findByText("Public attestations");
     const confirmation = screen.getByRole("textbox", {
       name: "Exact certificate binding name confirmation",
     });
@@ -489,12 +489,12 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /staging-edge/i }),
     );
-    await screen.findByText("Immutable public attestations");
+    await screen.findByText("Public attestations");
 
     resolveDelete?.();
     await waitFor(() =>
       expect(
-        screen.getByText("Immutable public attestations"),
+        screen.getByText("Public attestations"),
       ).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: /staging-edge/i })).toHaveClass(
@@ -525,7 +525,7 @@ describe("certificate management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /staging-edge/i }),
     );
-    await screen.findByText("Immutable public attestations");
+    await screen.findByText("Public attestations");
 
     rerender(
       <CertificateBindingsPanel
@@ -550,7 +550,7 @@ describe("certificate management panel", () => {
       screen.queryByRole("button", { name: /staging-edge/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Immutable public attestations"),
+      screen.queryByText("Public attestations"),
     ).not.toBeInTheDocument();
   });
 });

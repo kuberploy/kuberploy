@@ -84,7 +84,7 @@ layers, not authorization or desired-state authorities.
 The control plane, tenant workloads, release migration hook Jobs, and any
 future build Jobs are separate trust zones. GitHub installation access must be checked both
 when work is accepted and immediately before a token is minted. Revoking source
-access does not delete or stop an already deployed immutable workload.
+access does not delete or stop an already deployed workload.
 
 ## Security Invariants
 
@@ -121,7 +121,7 @@ access does not delete or stop an already deployed immutable workload.
   authority over privileged Jobs or credential Secrets ships its fail-closed
   admission boundary as part of the enabled feature. Kuberploy upgrades must
   not own, prune, or mutate tenant workload resources.
-- Release and deployment artifacts are selected by immutable digest. Published
+- Release and deployment artifacts are selected by exact digest. Published
   release metadata, charts, dependency locks, and updater inputs must agree, and
   upgrade eligibility is validated before mutation.
 - PostgreSQL records an accepted durable operation before Valkey dispatch.
@@ -191,7 +191,7 @@ managed OCI registry, and in-cluster source builds are implemented default-off
 capabilities.
 
 The current slice reports unavailable capabilities explicitly and relies on
-namespace-scoped service accounts, immutable release artifacts, write-only
+namespace-scoped service accounts, content-addressed release artifacts, write-only
 invitation/token handling, server-side team and installation authorization,
 PostgreSQL-backed durable operations, and a namespaced updater that does not own
 tenant workloads. NetworkPolicies, provider CIDR narrowing, and stricter image
@@ -205,4 +205,4 @@ workload.
 Platform-admin builder settings are revisioned in PostgreSQL. They can change
 queue concurrency, scheduling mode, and per-container requests/limits for new
 attempts; they cannot weaken the fixed admission shape, images, ServiceAccount,
-network policy, credential mounts, or immutable running Jobs.
+network policy, credential mounts, or already-running Jobs.

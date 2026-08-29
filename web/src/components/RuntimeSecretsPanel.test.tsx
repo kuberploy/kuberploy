@@ -412,7 +412,7 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /database-credentials/i }),
     );
-    await screen.findByText("Immutable versions");
+    await screen.findByText("Versions");
     await user.click(screen.getByRole("button", { name: "Rotate" }));
     await user.type(
       screen.getByRole("textbox", { name: "Rotate secret key 1" }),
@@ -480,7 +480,7 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /database-credentials/i }),
     );
-    await screen.findByText("Immutable versions");
+    await screen.findByText("Versions");
     await user.click(screen.getByRole("button", { name: "Rotate" }));
     await user.type(
       screen.getByRole("textbox", { name: "Rotate secret key 1" }),
@@ -569,7 +569,7 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /database-credentials/i }),
     );
-    await screen.findByText("Immutable versions");
+    await screen.findByText("Versions");
     const confirmation = screen.getByRole("textbox", {
       name: "Exact runtime secret binding name confirmation",
     });
@@ -584,11 +584,11 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /staging-credentials/i }),
     );
-    await screen.findByText("Immutable versions");
+    await screen.findByText("Versions");
 
     resolveDelete?.();
     await waitFor(() =>
-      expect(screen.getByText("Immutable versions")).toBeInTheDocument(),
+      expect(screen.getByText("Versions")).toBeInTheDocument(),
     );
     expect(
       screen.getByRole("button", { name: /staging-credentials/i }),
@@ -620,7 +620,7 @@ describe("runtime-secret management panel", () => {
     await user.click(
       await screen.findByRole("button", { name: /staging-credentials/i }),
     );
-    await screen.findByText("Immutable versions");
+    await screen.findByText("Versions");
 
     rerender(
       <RuntimeSecretsPanel
@@ -644,7 +644,7 @@ describe("runtime-secret management panel", () => {
     expect(
       screen.queryByRole("button", { name: /staging-credentials/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByText("Immutable versions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Versions")).not.toBeInTheDocument();
   });
 
   it("keeps a service-account session metadata-only despite mutation actions", async () => {

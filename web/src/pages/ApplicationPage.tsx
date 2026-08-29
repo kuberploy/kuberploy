@@ -286,7 +286,7 @@ export function ApplicationPage() {
         description={
           deployment.data
             ? `${deployment.data.image ?? deployment.data.source?.reference ?? "Image resolving"} · runtime ${shortId(deployment.data.id)}`
-            : "Loading immutable release identity…"
+            : "Loading release identity…"
         }
         actions={
           <>
@@ -470,7 +470,7 @@ export function ApplicationPage() {
                   <CardHeader>
                     <div>
                       <Eyebrow>Release</Eyebrow>
-                      <h2>Immutable artifact</h2>
+                      <h2>Release artifact</h2>
                     </div>
                   </CardHeader>
                   <DetailList>

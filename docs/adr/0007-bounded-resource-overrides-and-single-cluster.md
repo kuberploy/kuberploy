@@ -35,7 +35,7 @@ protected:
 - host namespace sharing, HostPath, host ports, added Linux capabilities and
   privileged or host-equivalent container settings.
 
-Additional container images must be immutable digest references. A Deployment
+Additional container images must use exact digest references. A Deployment
 override is rejected when the App renders a StatefulSet. Overrides pass the
 same JSON Schema, semantic validation, pinned Helm render, policy and diff flow
 as Guided edits. Helm-source Apps continue to use chart `values.yaml`; this

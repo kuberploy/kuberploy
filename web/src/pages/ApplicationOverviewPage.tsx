@@ -648,7 +648,7 @@ export function ApplicationOverviewPage() {
             <EmptyState
               icon="deploy"
               title="Deploy an existing image"
-              description="Use a public image or select a Project pull credential, then configure the App runtime. Image tags are resolved to an immutable digest before saving."
+              description="Use a public image or select a Project pull credential, then configure the App runtime. Image tags are resolved to an exact digest before saving."
               action={
                 <Link
                   to="/deploy"

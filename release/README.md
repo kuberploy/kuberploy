@@ -4,7 +4,7 @@ Kuberploy publishes semantic release tags (`vMAJOR.MINOR.PATCH` and explicit
 release-candidate tags such as `vMAJOR.MINOR.PATCH-rc.N`). A trusted tag
 builds each of six images natively on amd64 and arm64 GitHub-hosted runners,
 assembles and verifies one two-platform OCI image index per component, records
-the index digests, packages an immutable Helm chart, validates the release
+the index digests, packages a content-addressed Helm chart, validates the release
 manifest twice, and creates a draft GitHub Release before making it public.
 Versions with a prerelease suffix publish as GitHub prereleases; only stable
 versions may become the repository's latest release.
@@ -14,7 +14,7 @@ A stable tag is additionally fail-closed behind a reviewed receipt at
 final RC on the same version line, its protected commit, the checksum and UTC
 completion time of the qualification report, and successful qualification and
 teardown states. The release gate independently proves that the named RC tag
-still resolves to that commit and that its GitHub prerelease is immutable.
+still resolves to that commit and that its GitHub prerelease is locked.
 Release candidates do not require this receipt. This keeps ordinary RC work
 moving while making an accidental stable tag unable to publish.
 
@@ -26,7 +26,7 @@ only in their validated fields. Any unrelated source, mode, metadata, or file
 set change rejects the promotion before images or charts are built.
 
 Repository release immutability is an externally verified prerequisite. Before
-a tag is pushed, a repository administrator must enable immutable releases and
+a tag is pushed, a repository administrator must enable locked releases and
 verify the setting through the repository settings or an administrator-scoped
 API credential. The workflow's `GITHUB_TOKEN` intentionally has no
 repository Administration permission, so the workflow does not make the
@@ -39,11 +39,11 @@ Before the first tag, an administrator must complete and independently verify
 all of these repository prerequisites:
 
 - make the repository public, or use an organization plan that supports the
-  same protected-tag rulesets and immutable-release controls for private
+  same protected-tag rulesets and locked-release controls for private
   repositories;
 - create a ruleset that protects `refs/tags/v*`, restricts creation and update
   to the release maintainers, and forbids deletion and non-fast-forward change;
-- enable immutable releases before any release object is created; and
+- enable locked releases before any release object is created; and
 - allow the release workflow's narrowly scoped `GITHUB_TOKEN` to write package
   and release artifacts, without granting repository Administration access.
 
@@ -58,10 +58,10 @@ The source chart intentionally uses explicit release-candidate tags. Release pac
 copies it to a temporary directory, enables `global.requireImageDigest`, and
 injects the API, worker, web, migration, and builder-agent `image@sha256`
 references. The published OCI chart and `.tgz` therefore render the same
-immutable images.
+exact image digests.
 
 Release-manifest schema v2 removes the historical `upgrader` image. Readers
-continue accepting immutable schema-v1 manifests, but new releases publish only
+continue accepting content-addressed schema-v1 manifests, but new releases publish only
 the images that the platform deploys. Platform changes are performed only by a
 cluster administrator upgrading the installer Helm release.
 

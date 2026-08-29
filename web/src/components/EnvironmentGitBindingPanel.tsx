@@ -137,7 +137,7 @@ export function EnvironmentGitBindingPanel({
     }
     if (!confirmed) {
       setValidationError(
-        "Confirm the immutable environment Git authority before creating it.",
+        "Confirm the environment Git authority before creating it.",
       );
       return;
     }
@@ -179,7 +179,7 @@ export function EnvironmentGitBindingPanel({
         <div>
           <CardHeader>
             <div>
-              <Eyebrow>Immutable authority</Eyebrow>
+              <Eyebrow>Git authority</Eyebrow>
               <h3>
                 {binding.data.repository.owner}/{binding.data.repository.name}
               </h3>
@@ -295,7 +295,7 @@ export function EnvironmentGitBindingPanel({
               onChange={(event) => setConfirmed(event.target.checked)}
             />
             <span>
-              I understand this creates the immutable environment Git authority
+              I understand this creates the environment Git authority
               and cannot be silently rebound.
             </span>
           </label>

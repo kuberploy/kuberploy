@@ -46,7 +46,7 @@ cluster-facing test.
 4. Update an ADR when a trust boundary or durable contract changes.
 5. Do not commit credentials, kubeconfigs, private keys, registry auth, local
    `.env` files, generated cluster state, or mutable image tags.
-6. Use readable semantic versions for operator-facing releases. Use immutable
+6. Use readable semantic versions for operator-facing releases. Use exact
    digests only for content-integrity and OCI immutability checks.
 
 Commit signing is encouraged. A contributor certifies that they are entitled
@@ -70,5 +70,5 @@ separate contributor license agreement.
 
 Maintainers review correctness, tests, compatibility, security boundaries, and
 operational impact. Merging does not guarantee immediate release. Releases are
-cut from reviewed tags by the repository workflow, published with immutable
-digests, and announced through immutable GitHub Releases.
+cut from reviewed tags by the repository workflow, published with exact
+digests, and announced through locked GitHub Releases.

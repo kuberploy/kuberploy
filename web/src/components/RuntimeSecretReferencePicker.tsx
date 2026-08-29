@@ -186,7 +186,7 @@ function ActiveReferencePicker({
     : bindings.isPending
       ? "Loading authorized ready bindings…"
       : choices.length
-        ? "The immutable ID and current active version come from runtime-secret metadata."
+        ? "The stable ID and current active version come from runtime-secret metadata."
         : "No ready Sealed Secret binding is available in this application and environment.";
   const keyHint = !environmentName.trim()
     ? "Enter the environment variable name before choosing its authorized key."

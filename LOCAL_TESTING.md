@@ -42,7 +42,7 @@ the in-cluster builder:
   to push the final image is terminal.
 
 Any image used by the Kubernetes integration lane must be pushed and deployed
-by immutable digest through a registry reachable by that cluster. Direct local
+by exact digest through a registry reachable by that cluster. Direct local
 engine image sharing is never part of the integration proof.
 
 ## Explicit Kubernetes integration target
@@ -176,7 +176,7 @@ explicitly includes that external write.
    callbacks/webhooks, public tunnels, or provider settings without explicit
    approval for that external effect.
 6. Development image tags are unique and never `latest`; deployment resolves
-   them to immutable digests before GitOps commit.
+   them to exact digests before GitOps commit.
 7. Failed tests leave an inventory and exact cleanup command. They do not hide
    partial Helm releases, finalizers, PVCs, or cluster-scoped objects.
 
@@ -220,7 +220,7 @@ enable it. The target integration matrix covers:
 - Argo CD Applications, AppProjects, ApplicationSets, sync, health, and rollback;
 - PostgreSQL restart durability plus exact managed-Valkey Deployment/PVC dataset deletion, PostgreSQL outbox reconstruction into the empty dataset, exactly-once operation convergence, and restoration of both scaled Deployments;
 - Git projection/index/write concurrency and normal fast-forward CAS;
-- source-build retry, immutable image digest observation, and promotion (cache
+- source-build retry, exact image digest observation, and promotion (cache
   cold-start and split push-credential fault injection require a separate live
   workflow and are not claimed by this harness);
 - Traefik Ingress and Middleware CRDs plus HTTP/custom/local-ACME TLS paths;

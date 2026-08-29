@@ -111,7 +111,7 @@ function validateDraft(draft: IntegrationDraft) {
   )
     errors.name = "Enter a display name of 1–100 characters.";
   if (!ownerPattern.test(draft.txtOwnerId))
-    errors.txtOwnerId = "Use a safe immutable TXT owner identifier.";
+    errors.txtOwnerId = "Use a safe stable TXT owner identifier.";
   if (
     suffixes.length === 0 ||
     suffixes.length > 64 ||
@@ -626,7 +626,7 @@ export function ExternalDNSPage() {
                       available. Reload the catalog before saving it.
                     </Notice>
                   ) : null}
-                  <Field label="Immutable slug" required error={errors.slug}>
+                  <Field label="DNS slug" required error={errors.slug}>
                     <input
                       value={draft.slug}
                       disabled={Boolean(editing)}
@@ -690,7 +690,7 @@ export function ExternalDNSPage() {
                     </Select>
                   </Field>
                   <Field
-                    label="Immutable TXT owner"
+                    label="TXT owner"
                     required
                     error={errors.txtOwnerId}
                   >

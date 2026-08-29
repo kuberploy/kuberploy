@@ -669,7 +669,7 @@ function SecretBindingDetailPanel({
       setRotateRetry(undefined);
       setRotateFeedback({
         tone: "success",
-        message: "A new immutable version was accepted for provider staging.",
+        message: "A new version was accepted for provider staging.",
       });
     } catch {
       setRotateRetry({ key: idempotencyKey, expectedActiveVersion, signature });
@@ -750,7 +750,7 @@ function SecretBindingDetailPanel({
       <section className="p-5">
         <div className="flex items-start justify-between gap-4 mb-3 [&_h4]:m-0 [&_h4]:text-[11px] [&_p]:mt-1 [&_p]:mx-0 [&_p]:mb-0 [&_p]:text-ink-soft [&_p]:text-xs [&_p]:leading-[1.55]">
           <div>
-            <h4>Immutable versions</h4>
+            <h4>Versions</h4>
             <p>Only lifecycle and delivery descriptors are available.</p>
           </div>
           {canRotate && binding.activeVersion ? (
@@ -1170,7 +1170,7 @@ export function RuntimeSecretsPanel({
               <EmptyState
                 icon="code"
                 title="Select a binding"
-                description="Choose safe metadata to inspect immutable version and delivery status."
+                description="Choose safe metadata to inspect version and delivery status."
                 compact
               />
             )}

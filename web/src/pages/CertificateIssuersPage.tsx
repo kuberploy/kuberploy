@@ -232,7 +232,7 @@ export function CertificateIssuersPage() {
         title="Certificate issuers"
         description={
           <>
-            Manage immutable Let&apos;s Encrypt ClusterIssuer profiles. Tenant
+            Manage versioned Let&apos;s Encrypt ClusterIssuer profiles. Tenant
             workloads can only select a ready approved issuer; they never see
             ACME email, DNS zones, or Secret references.
           </>
@@ -243,7 +243,7 @@ export function CertificateIssuersPage() {
         <CardHeader>
           <div>
             <h2>
-              {editing ? "Append an immutable revision" : "Create an issuer"}
+              {editing ? "Add a revision" : "Create an issuer"}
             </h2>
             <p>
               HTTP-01 uses the protected Traefik solver. DNS-01 currently uses a
