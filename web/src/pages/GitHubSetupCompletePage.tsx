@@ -112,15 +112,12 @@ export function GitHubSetupCompletePage() {
             </Button>
           ) : null}
           {state === "linked" ? (
-            <Link
-              className={buttonVariants({ variant: "primary" })}
-              to="/builds"
-            >
-              Continue to source builds <Icon name="arrow" />
+            <Link className={buttonVariants({ variant: "primary" })} to="/git">
+              Continue to Git providers <Icon name="arrow" />
             </Link>
           ) : null}
-          <Link className={buttonVariants({ variant: "ghost" })} to="/builds">
-            Back to source builds
+          <Link className={buttonVariants({ variant: "ghost" })} to="/git">
+            Back to Git providers
           </Link>
         </div>
       </Card>

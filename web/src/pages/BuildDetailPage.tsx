@@ -196,9 +196,11 @@ export function BuildDetailPage() {
         actions={
           <Link
             className={buttonVariants({ variant: "secondary" })}
-            to="/builds"
+            to="/applications/$applicationId"
+            params={{ applicationId: application.data.id }}
+            search={{ tab: "source" }}
           >
-            <Icon name="chevron" /> Back to builds
+            <Icon name="chevron" /> Back to App builds
           </Link>
         }
       />
@@ -208,8 +210,8 @@ export function BuildDetailPage() {
           <div>
             <strong>Retry queued</strong>
             <p>
-              A new attempt was created from the same recorded source,
-              registry, and cache settings.
+              A new attempt was created from the same recorded source, registry,
+              and cache settings.
             </p>
           </div>
           <Link
@@ -335,8 +337,8 @@ export function BuildDetailPage() {
           <h2>Promote to an environment</h2>
           <p>
             Select only the intended App target. Application, project,
-            namespace, registry release, and exact image digest are derived by the
-            server.
+            namespace, registry release, and exact image digest are derived by
+            the server.
           </p>
         </div>
         <BuildPromotionPanel

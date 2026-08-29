@@ -176,9 +176,9 @@ const externalDNSRoute = createRoute({
   path: "/external-dns",
   component: ExternalDNSPage,
 });
-const buildsRoute = createRoute({
+const gitProvidersRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/builds",
+  path: "/git",
   component: SourceBuildsPage,
 });
 const buildDetailRoute = createRoute({
@@ -239,6 +239,9 @@ const builderSettingsRoute = createRoute({
 export function LegacySettingsRedirect() {
   return <Navigate to="/setup" replace />;
 }
+export function LegacyBuildsRedirect() {
+  return <Navigate to="/git" replace />;
+}
 const legacySettingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
@@ -248,6 +251,11 @@ const legacyIntegrationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/integrations",
   component: LegacySettingsRedirect,
+});
+const legacyBuildsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/builds",
+  component: LegacyBuildsRedirect,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -264,7 +272,8 @@ const routeTree = rootRoute.addChildren([
   auditRoute,
   registryRoute,
   externalDNSRoute,
-  buildsRoute,
+  gitProvidersRoute,
+  legacyBuildsRoute,
   buildDetailRoute,
   githubSetupCompleteRoute,
   applicationOverviewRoute,

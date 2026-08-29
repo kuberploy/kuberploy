@@ -372,7 +372,7 @@ describe("Git provider navigation", () => {
     });
     expect(
       await screen.findByRole("link", { name: "Git Providers" }),
-    ).toHaveAttribute("href", "/builds");
+    ).toHaveAttribute("href", "/git");
   });
 });
 

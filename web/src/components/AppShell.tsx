@@ -200,7 +200,7 @@ export function AppShell({ user }: { user: Principal }) {
             ) : null}
             {gitProviderNavigationVisible ? (
               <Link
-                to="/builds"
+                to="/git"
                 activeProps={{ className: navLinkActive }}
                 inactiveProps={{ className: navLink }}
                 onClick={() => setMobileOpen(false)}

@@ -10,7 +10,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
   Navigate: navigateComponent,
 }));
 
-import { LegacySettingsRedirect } from "./router";
+import { LegacyBuildsRedirect, LegacySettingsRedirect } from "./router";
 
 afterEach(() => vi.clearAllMocks());
 
@@ -20,6 +20,15 @@ describe("legacy settings routes", () => {
 
     expect(navigateComponent).toHaveBeenCalledWith(
       expect.objectContaining({ to: "/setup", replace: true }),
+      undefined,
+    );
+  });
+
+  it("moves the former global builds workspace to Git providers", () => {
+    render(<LegacyBuildsRedirect />);
+
+    expect(navigateComponent).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "/git", replace: true }),
       undefined,
     );
   });
