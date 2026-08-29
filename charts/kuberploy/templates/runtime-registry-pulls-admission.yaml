@@ -42,7 +42,8 @@ spec:
         (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.size() == 0) &&
         (!has(object.metadata.finalizers) || object.metadata.finalizers.size() == 0) &&
         !has(object.metadata.deletionTimestamp))) :
-        !oldObject.metadata.name.startsWith('kuberploy-pull-')
+        ((request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp)) ||
+        !oldObject.metadata.name.startsWith('kuberploy-pull-'))
       message: reserved runtime image-pull Secrets may only be created by the exact Kuberploy worker and are immutable lifecycle artifacts
     - expression: >-
         request.operation != 'CREATE' || !object.metadata.name.startsWith('kuberploy-pull-') ||
@@ -134,7 +135,8 @@ spec:
         (!has(object.metadata.ownerReferences) || object.metadata.ownerReferences.size() == 0) &&
         (!has(object.metadata.finalizers) || object.metadata.finalizers.size() == 0) &&
         !has(object.metadata.deletionTimestamp))) :
-        !oldObject.metadata.name.startsWith('kuberploy-pull-')
+        ((request.operation == 'DELETE' && has(namespaceObject.metadata.deletionTimestamp)) ||
+        !oldObject.metadata.name.startsWith('kuberploy-pull-'))
       message: reserved runtime image-pull Secrets may only be created by the exact Kuberploy worker and are immutable lifecycle artifacts
     - expression: >-
         request.operation != 'CREATE' || !object.metadata.name.startsWith('kuberploy-pull-') ||
