@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "GitHub Deploy resolves selected branch heads, Rebuild reuses successful source snapshots, and running App actions use Reload semantics.",
+  "summary": "Project administrators can edit an App's current GitHub source without broader provider catalog access, and App progress pages use user-facing labels.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.409"
+  "version": "0.1.0-rc.410"
 }
