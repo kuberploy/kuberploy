@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Source builds can publish requested foreign CPU platforms, and referenced certificate issuers can advance safely to new revisions.",
+  "summary": "Protected App changes refresh Argo immediately, and deleted secrets no longer block App or Environment cleanup.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.412"
+  "version": "0.1.0-rc.413"
 }
