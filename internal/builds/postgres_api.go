@@ -2,10 +2,9 @@ package builds
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -205,7 +204,7 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}
-	if source.State != AttemptFailed && source.State != AttemptCancelled {
+	if source.State != AttemptSucceeded && source.State != AttemptFailed && source.State != AttemptCancelled {
 		return BuildAttempt{}, false, ErrConflict
 	}
 	definition := source.SourceSnapshot
@@ -253,26 +252,10 @@ func (s *PostgreSQLStore) RetryAttempt(ctx context.Context, sourceAttemptID, ret
 	if err != nil || attempt.ID != retryAttemptID {
 		return BuildAttempt{}, false, ErrInvalid
 	}
-	if definition.SourceKind == SourceGitHub {
-		claimRetainUntil := now.UTC().Add(24 * time.Hour)
-		_, err = tx.Exec(ctx, `INSERT INTO github_one_time_claims(kind,claim_key,retain_until,permanent) VALUES('github-delivery',$1,$2,true)`, claimKey, claimRetainUntil)
-		if err != nil {
-			return BuildAttempt{}, false, classifyPostgres(err)
-		}
-		bodyDigest := sha256.Sum256([]byte("kuberploy-manual-build-retry-v1\x00" + sourceAttemptID))
-		deliveryID := deterministicUUID("build-retry-delivery-v1", claimKey)
-		_, err = tx.Exec(ctx, `INSERT INTO github_webhook_receipts(claim_key,github_app_id,github_installation_id,delivery_id,event,body_sha256,typed_event,repository_id,git_ref,state,available_at,received_at,completed_at,updated_at)
-			VALUES($1,$2,$3,$4,'push',$5,NULL,$6,$7,'enqueued',$8,$8,$8,$8)`, claimKey, installation.AppID, installation.GitHubInstallationID,
-			deliveryID, "sha256:"+hex.EncodeToString(bodyDigest[:]), repository.Identity.ID, source.GitRef, now.UTC())
-		if err != nil {
-			return BuildAttempt{}, false, classifyPostgres(err)
-		}
-	} else {
-		attempt.DeliveryClaimKey = ""
-		attempt.TriggerKind, attempt.TriggerKey = "retry", claimKey
-		if err = validateStoredAttempt(attempt); err != nil {
-			return BuildAttempt{}, false, err
-		}
+	attempt.DeliveryClaimKey = ""
+	attempt.TriggerKind, attempt.TriggerKey = "retry", claimKey
+	if err = validateStoredAttempt(attempt); err != nil {
+		return BuildAttempt{}, false, err
 	}
 	planJSON, _ := json.Marshal(attempt.PlanRequest)
 	checkoutJSON, _ := json.Marshal(attempt.CheckoutRequest)
@@ -313,16 +296,39 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}
-	if definition.SourceKind != SourceGitSSH || definition.GitSSH == nil || !definition.Enabled {
+	if !definition.Enabled {
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
-	var keyStatus string
-	if err = tx.QueryRow(ctx, `SELECT status FROM git_ssh_key_revisions WHERE scope=$1 AND owner_id=$2 AND revision=$3 FOR SHARE`,
-		definition.GitSSH.KeyScope, definition.GitSSH.KeyOwnerID, definition.GitSSH.KeyRevision).Scan(&keyStatus); err != nil {
-		return BuildAttempt{}, false, classifyPostgres(err)
-	}
-	if keyStatus != "active" {
-		return BuildAttempt{}, false, ErrGitSSHKeyInactive
+	repository := Repository{}
+	switch definition.SourceKind {
+	case SourceGitHub:
+		installation, installationErr := installationByIDQuery(ctx, tx, definition.InstallationID)
+		if installationErr != nil {
+			return BuildAttempt{}, false, installationErr
+		}
+		repository, err = repositoryByIDQuery(ctx, tx, definition.RepositoryID)
+		if err != nil {
+			return BuildAttempt{}, false, err
+		}
+		if installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive ||
+			repository.InstallationID != installation.ID || repository.Identity.OwnerID != installation.Account.ID ||
+			!strings.EqualFold(repository.Identity.OwnerLogin, installation.Account.Login) {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+	case SourceGitSSH:
+		if definition.GitSSH == nil {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+		var keyStatus string
+		if err = tx.QueryRow(ctx, `SELECT status FROM git_ssh_key_revisions WHERE scope=$1 AND owner_id=$2 AND revision=$3 FOR SHARE`,
+			definition.GitSSH.KeyScope, definition.GitSSH.KeyOwnerID, definition.GitSSH.KeyRevision).Scan(&keyStatus); err != nil {
+			return BuildAttempt{}, false, classifyPostgres(err)
+		}
+		if keyStatus != "active" {
+			return BuildAttempt{}, false, ErrGitSSHKeyInactive
+		}
+	default:
+		return BuildAttempt{}, false, ErrUnauthorized
 	}
 	var generation int64
 	if err = tx.QueryRow(ctx, `UPDATE applications SET build_generation=build_generation+1 WHERE project_id=$1 AND id=$2 RETURNING build_generation`,
@@ -333,7 +339,7 @@ func (s *PostgreSQLStore) EnqueueManualAttempt(ctx context.Context, definitionID
 	if err != nil {
 		return BuildAttempt{}, false, err
 	}
-	attempt, err := newAttemptWithExecution(definition, execution, Repository{}, EnqueuePush{
+	attempt, err := newAttemptWithExecution(definition, execution, repository, EnqueuePush{
 		ClaimKey: claimKey, CommitSHA: commitSHA, GitRef: definition.TriggerRef, ResolvedAt: now.UTC(),
 	}, generation, imports, now)
 	if err != nil || attempt.ID != attemptID {

@@ -10,6 +10,47 @@ import type { OperationWire } from "./types";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("typed API client", () => {
+  it("omits commitSha for GitHub Deploy and sends it for Git SSH Deploy", async () => {
+    const attempt = {
+      id: "attempt-1",
+      sourceId: "source-1",
+      projectId: "project-1",
+      applicationId: "application-1",
+      commitSha: "a".repeat(40),
+      gitRef: "refs/heads/main",
+      generation: 1,
+      state: "queued",
+      executionAttempts: 0,
+      maxAttempts: 3,
+      createdAt: "2026-08-29T00:00:00Z",
+      updatedAt: "2026-08-29T00:00:00Z",
+    };
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(attempt), {
+          status: 202,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.createManualBuildAttempt("source-1", undefined, "github-key");
+    await api.createManualBuildAttempt(
+      "source-1",
+      "b".repeat(40),
+      "git-ssh-key",
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/v1/app-sources/source-1/builds",
+    );
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBe("{}");
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).body).toBe(
+      JSON.stringify({ commitSha: "b".repeat(40) }),
+    );
+  });
+
   it("accepts a caller-stable idempotency key when reserving an application", async () => {
     const fetchMock = vi
       .fn()

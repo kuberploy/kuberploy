@@ -97,7 +97,7 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	completed := now.Add(time.Minute)
-	source.State, source.FailureCode, source.CompletedAt, source.UpdatedAt = AttemptFailed, "build-failed", &completed, completed
+	source.State, source.CompletedAt, source.UpdatedAt = AttemptSucceeded, &completed, completed
 	store.mu.Lock()
 	store.attempts[source.ID] = cloneAttempt(source)
 	store.serviceGeneration[serviceKey(definition.ProjectID, definition.ServiceID)] = source.Generation
@@ -114,7 +114,7 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			attempt, replay, retryErr := store.RetryAttempt(ctx, source.ID, retryID, retryClaim, currentExecution, completed.Add(time.Minute))
-			if retryErr != nil || attempt.ID != retryID || attempt.DeliveryClaimKey != retryClaim {
+			if retryErr != nil || attempt.ID != retryID || attempt.DeliveryClaimKey != "" || attempt.TriggerKind != "retry" {
 				t.Errorf("retry attempt=%#v replay=%v err=%v", attempt, replay, retryErr)
 				return
 			}
@@ -138,10 +138,10 @@ func TestMemoryAPICommandAndRetryAreConcurrentAndFailClosed(t *testing.T) {
 	}
 	store.mu.Lock()
 	_, claimOK := store.claims[claimMapKey("github-delivery", retryClaim)]
-	receipt, receiptOK := store.deliveries[retryClaim]
+	_, receiptOK := store.deliveries[retryClaim]
 	store.mu.Unlock()
-	if !claimOK || !receiptOK || receipt.State != DeliveryEnqueued {
-		t.Fatalf("retry durability claim=%v receipt=%#v", claimOK, receipt)
+	if claimOK || receiptOK {
+		t.Fatalf("manual rebuild created synthetic GitHub delivery: claim=%v receipt=%v", claimOK, receiptOK)
 	}
 	if _, _, err = store.RetryAttempt(ctx, source.ID, retryID, strings.Repeat("d", 64), currentExecution, completed.Add(2*time.Minute)); !errors.Is(err, ErrConflict) {
 		t.Fatalf("existing retry rebound to a different durable claim: %v", err)

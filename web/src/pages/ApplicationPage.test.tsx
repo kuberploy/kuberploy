@@ -140,7 +140,7 @@ describe("application stop lifecycle", () => {
 
   it.each([
     ["stopped", "Start App", "START"],
-    ["healthy", "Redeploy App", "REDEPLOY"],
+    ["healthy", "Reload App", "RELOAD"],
   ] as const)(
     "uses the saved config to %s the App",
     async (state, actionLabel, confirmation) => {

@@ -256,6 +256,34 @@ func TestGitSSHAppSourceAndManualBuildHTTP(t *testing.T) {
 	if response.StatusCode != http.StatusConflict || problem.Code != "GitSSHKeyInactive" || problem.Title != "Git SSH key is inactive" {
 		t.Fatalf("inactive key status=%d problem=%#v", response.StatusCode, problem)
 	}
+
+	backend.mu.Lock()
+	backend.definition.SourceKind = builds.SourceGitHub
+	backend.buildErr = nil
+	backend.buildCommit = "unset"
+	backend.buildCalls = 0
+	backend.mu.Unlock()
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "github-deploy-head", map[string]string{})
+	if response.StatusCode != http.StatusAccepted {
+		problem = decode[httpapi.Problem](t, response)
+		t.Fatalf("GitHub Deploy status=%d problem=%#v", response.StatusCode, problem)
+	}
+	response.Body.Close()
+	backend.mu.Lock()
+	buildCommit, buildCalls = backend.buildCommit, backend.buildCalls
+	backend.mu.Unlock()
+	if buildCommit != "" || buildCalls != 1 {
+		t.Fatalf("GitHub Deploy commit=%q calls=%d, want provider-resolved head", buildCommit, buildCalls)
+	}
+
+	response = f.request(http.MethodPost, "/v1/app-sources/"+backend.definition.ID+"/builds", "github-deploy-forged-commit", map[string]string{"commitSha": commit})
+	problem = decode[httpapi.Problem](t, response)
+	backend.mu.Lock()
+	buildCalls = backend.buildCalls
+	backend.mu.Unlock()
+	if response.StatusCode != http.StatusUnprocessableEntity || problem.Code != "ValidationFailed" || buildCalls != 1 {
+		t.Fatalf("GitHub forged commit status=%d problem=%#v calls=%d", response.StatusCode, problem, buildCalls)
+	}
 }
 
 func newGitHubBuildHTTP(t *testing.T, setup httpapi.GitHubSetupBackend, webhook httpapi.GitHubWebhookBackend, build httpapi.BuildBackend, limiter ratelimit.Limiter) *apiFixture {

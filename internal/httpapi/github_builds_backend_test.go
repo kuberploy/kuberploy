@@ -59,6 +59,38 @@ type retryExecutionResolver struct {
 	calls      int
 }
 
+type githubBuildRefProviderStub struct {
+	resolved     githubapp.ResolvedRef
+	verifyCalls  int
+	tokenCalls   int
+	resolveCalls int
+	requestedRef string
+	repositoryID int64
+	installation int64
+}
+
+func (p *githubBuildRefProviderStub) VerifyInstallation(_ context.Context, installationID int64, _ githubapp.AccountIdentity, _ githubapp.Permissions) (githubapp.Installation, error) {
+	p.verifyCalls++
+	p.installation = installationID
+	return githubapp.Installation{}, nil
+}
+
+func (p *githubBuildRefProviderStub) MintInstallationToken(_ context.Context, request githubapp.TokenRequest) (githubapp.InstallationToken, error) {
+	p.tokenCalls++
+	p.installation = request.InstallationID
+	if len(request.Repositories) == 1 {
+		p.repositoryID = request.Repositories[0].ID
+	}
+	return githubapp.InstallationToken{}, nil
+}
+
+func (p *githubBuildRefProviderStub) ResolveRemoteRef(_ context.Context, _ githubapp.InstallationToken, repository githubapp.RepositoryIdentity, ref string) (githubapp.ResolvedRef, error) {
+	p.resolveCalls++
+	p.repositoryID = repository.ID
+	p.requestedRef = ref
+	return p.resolved, nil
+}
+
 func (r *retryExecutionResolver) ResolveBuildDefinition(context.Context, string, string, string, string) (BuildDefinitionResolution, error) {
 	r.calls++
 	return r.resolution, r.err
@@ -180,5 +212,26 @@ func TestBuildBackendEditsOneStableAppSource(t *testing.T) {
 	replayed, replay, err := backend.CreateDefinition(t.Context(), mutation)
 	if err != nil || !replay || replayed.ID != sourceID || replayed.DefinitionGeneration != 2 {
 		t.Fatalf("replayed=%#v replay=%v err=%v", replayed, replay, err)
+	}
+
+	provider := &githubBuildRefProviderStub{resolved: githubapp.ResolvedRef{
+		Ref: "refs/heads/main", CommitSHA: strings.Repeat("b", 40), ResolvedAt: now.Add(2 * time.Minute),
+	}}
+	deployBackend, err := NewBuildBackendWithProvider(store, resolver, provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployed, replay, err := deployBackend.Build(t.Context(), actorID, sourceID, "", "deploy-selected-head-01", "sha256:"+strings.Repeat("c", 64))
+	if err != nil || replay || deployed.TriggerKind != "manual" || deployed.CommitSHA != provider.resolved.CommitSHA ||
+		deployed.GitRef != "refs/heads/main" || provider.requestedRef != "refs/heads/main" || provider.installation != 34 || provider.repositoryID != 78 {
+		t.Fatalf("deployed=%#v replay=%v provider=%#v err=%v", deployed, replay, provider, err)
+	}
+	replayedDeploy, replay, err := deployBackend.Build(t.Context(), actorID, sourceID, "", "deploy-selected-head-01", "sha256:"+strings.Repeat("c", 64))
+	if err != nil || !replay || replayedDeploy.ID != deployed.ID || provider.verifyCalls != 1 || provider.tokenCalls != 1 || provider.resolveCalls != 1 {
+		t.Fatalf("replayed deploy=%#v replay=%v provider=%#v err=%v", replayedDeploy, replay, provider, err)
+	}
+	provider.resolved.Ref = "refs/heads/other"
+	if _, _, err = deployBackend.Build(t.Context(), actorID, sourceID, "", "deploy-wrong-ref-01", "sha256:"+strings.Repeat("d", 64)); !errors.Is(err, builds.ErrUnauthorized) {
+		t.Fatalf("provider substituted configured ref: %v", err)
 	}
 }

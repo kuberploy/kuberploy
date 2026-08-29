@@ -436,6 +436,17 @@ func TestPostgreSQLBuildOrchestrationParity(t *testing.T) {
 	if replayedRetry, replay, retryErr := store.RetryAttempt(ctx, cancelled.ID, manualRetryID, manualClaimKey, definition.Spec.Execution, cancelRetryAt.Add(2*time.Minute)); retryErr != nil || !replay || replayedRetry.ID != manualRetry.ID || replayedRetry.PlanRequest.AgentImage != currentExecution.BuilderAgentImage {
 		t.Fatalf("manual retry replay=%#v replay=%v err=%v", replayedRetry, replay, retryErr)
 	}
+	successfulRebuildClaim := APICommandClaimKey(userID, APICommandAttemptRetry, attempt.ID, "postgres-successful-rebuild-01")
+	successfulRebuildID := RetryAttemptID(successfulRebuildClaim, attempt.DefinitionID)
+	successfulRebuild, replay, err := store.RetryAttempt(ctx, attempt.ID, successfulRebuildID, successfulRebuildClaim, currentExecution, cancelRetryAt.Add(3*time.Minute))
+	if err != nil || replay || successfulRebuild.TriggerKind != "retry" || successfulRebuild.DeliveryClaimKey != "" ||
+		successfulRebuild.CommitSHA != attempt.CommitSHA || successfulRebuild.GitRef != attempt.GitRef {
+		t.Fatalf("successful rebuild=%#v replay=%v err=%v", successfulRebuild, replay, err)
+	}
+	var syntheticRebuildReceipts int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM github_webhook_receipts WHERE claim_key=$1`, successfulRebuildClaim).Scan(&syntheticRebuildReceipts); err != nil || syntheticRebuildReceipts != 0 {
+		t.Fatalf("successful rebuild synthetic GitHub receipts=%d err=%v", syntheticRebuildReceipts, err)
+	}
 
 	gitSSHRepository, err := gitssh.NewPostgresRepository(pool)
 	if err != nil {

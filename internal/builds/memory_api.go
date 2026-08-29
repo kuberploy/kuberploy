@@ -2,12 +2,9 @@ package builds
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"sort"
+	"strings"
 	"time"
-
-	"github.com/kuberploy/kuberploy/internal/githubapp"
 )
 
 func (s *MemoryStore) Installation(_ context.Context, installationID string) (Installation, error) {
@@ -183,7 +180,7 @@ func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAtte
 	if !ok {
 		return BuildAttempt{}, false, ErrNotFound
 	}
-	if source.State != AttemptFailed && source.State != AttemptCancelled {
+	if source.State != AttemptSucceeded && source.State != AttemptFailed && source.State != AttemptCancelled {
 		return BuildAttempt{}, false, ErrConflict
 	}
 	definition, ok := s.definitions[source.DefinitionID]
@@ -212,21 +209,10 @@ func (s *MemoryStore) RetryAttempt(_ context.Context, sourceAttemptID, retryAtte
 	if attempt.ID != retryAttemptID {
 		return BuildAttempt{}, false, ErrInvalid
 	}
-	if definition.SourceKind == SourceGitHub {
-		bodyDigest := sha256.Sum256([]byte("kuberploy-manual-build-retry-v1\x00" + sourceAttemptID))
-		deliveryID := deterministicUUID("build-retry-delivery-v1", claimKey)
-		completed := now.UTC()
-		claim := githubapp.OneTimeClaim{Kind: "github-delivery", ClaimKey: claimKey, RetainUntil: now.UTC().Add(24 * time.Hour), Permanent: true}
-		s.claims[claimMapKey(claim.Kind, claim.ClaimKey)] = memoryClaim{claim: claim, createdAt: now.UTC()}
-		s.deliveries[claimKey] = DeliveryReceipt{ClaimKey: claimKey, AppID: installation.AppID, GitHubInstallationID: installation.GitHubInstallationID,
-			DeliveryID: deliveryID, Event: "push", BodySHA256: "sha256:" + hex.EncodeToString(bodyDigest[:]), RepositoryID: repository.Identity.ID,
-			GitRef: source.GitRef, State: DeliveryEnqueued, AvailableAt: now.UTC(), ReceivedAt: now.UTC(), CompletedAt: &completed, UpdatedAt: now.UTC()}
-	} else {
-		attempt.DeliveryClaimKey = ""
-		attempt.TriggerKind, attempt.TriggerKey = "retry", claimKey
-		if err = validateStoredAttempt(attempt); err != nil {
-			return BuildAttempt{}, false, err
-		}
+	attempt.DeliveryClaimKey = ""
+	attempt.TriggerKind, attempt.TriggerKey = "retry", claimKey
+	if err = validateStoredAttempt(attempt); err != nil {
+		return BuildAttempt{}, false, err
 	}
 	s.serviceGeneration[generationKey] = generation
 	s.attempts[attempt.ID] = cloneAttempt(attempt)
@@ -250,13 +236,31 @@ func (s *MemoryStore) EnqueueManualAttempt(_ context.Context, definitionID, comm
 	if !ok {
 		return BuildAttempt{}, false, ErrNotFound
 	}
-	if definition.SourceKind != SourceGitSSH || definition.GitSSH == nil || !definition.Enabled {
+	if !definition.Enabled {
+		return BuildAttempt{}, false, ErrUnauthorized
+	}
+	repository := Repository{}
+	switch definition.SourceKind {
+	case SourceGitHub:
+		installation, installationOK := s.installations[definition.InstallationID]
+		var repositoryOK bool
+		repository, repositoryOK = s.repositories[definition.RepositoryID]
+		if !installationOK || !repositoryOK || installation.Lifecycle != InstallationActive || repository.Lifecycle != RepositoryActive ||
+			repository.InstallationID != installation.ID || repository.Identity.OwnerID != installation.Account.ID ||
+			!strings.EqualFold(repository.Identity.OwnerLogin, installation.Account.Login) {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+	case SourceGitSSH:
+		if definition.GitSSH == nil {
+			return BuildAttempt{}, false, ErrUnauthorized
+		}
+	default:
 		return BuildAttempt{}, false, ErrUnauthorized
 	}
 	generationKey := serviceKey(definition.ProjectID, definition.ServiceID)
 	generation := s.serviceGeneration[generationKey] + 1
 	imports := s.cacheImportsLocked(definition, generation)
-	attempt, err := newAttemptWithExecution(definition, execution, Repository{}, EnqueuePush{
+	attempt, err := newAttemptWithExecution(definition, execution, repository, EnqueuePush{
 		ClaimKey: claimKey, CommitSHA: commitSHA, GitRef: definition.TriggerRef, ResolvedAt: now.UTC(),
 	}, generation, imports, now)
 	if err != nil || attempt.ID != attemptID {

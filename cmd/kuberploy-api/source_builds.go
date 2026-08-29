@@ -68,7 +68,7 @@ func newSourceBuildAPI(ctx context.Context, databaseURL, publicURL, appSlug stri
 	}
 	settings := &builds.BuilderPlatformSettingsService{Store: buildStore, Defaults: builds.DefaultBuilderPlatformSettings(config)}
 	resolver := &httpapi.ServerBuildDefinitionResolver{Catalog: catalog, Runtime: config, Settings: settings}
-	backend, err := httpapi.NewBuildBackend(buildStore, resolver)
+	backend, err := httpapi.NewBuildBackendWithProvider(buildStore, resolver, client)
 	if err != nil {
 		buildStore.Close()
 		return nil, err

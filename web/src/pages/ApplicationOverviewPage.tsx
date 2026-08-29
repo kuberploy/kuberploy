@@ -107,6 +107,8 @@ export function ApplicationOverviewPage() {
   const deleteAttempt = useRef<string | null>(null);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const disconnectAttempt = useRef<string | null>(null);
+  const deployBuildKey = useRef<string | null>(null);
+  const rebuildBuildKey = useRef<string | null>(null);
   const search = useSearch({ strict: false }) as {
     tab?: string;
     source?: string;
@@ -329,6 +331,60 @@ export function ApplicationOverviewPage() {
         .sort((left, right) => right.sourceRevision - left.sourceRevision)[0],
     [buildDefinitions.data?.items],
   );
+  const latestSuccessfulBuild = useMemo(
+    () =>
+      (buildAttempts.data?.items ?? [])
+        .filter((attempt) => attempt.state === "succeeded")
+        .sort((left, right) => right.generation - left.generation)[0],
+    [buildAttempts.data?.items],
+  );
+  const canDeployBuild = Boolean(
+    activeBuildDefinition &&
+    activeBuildDefinition.sourceKind === "github" &&
+    buildsReady &&
+    canManageBuildDefinitions,
+  );
+  const canRebuildBuild = Boolean(
+    latestSuccessfulBuild &&
+    buildsReady &&
+    application.data &&
+    project &&
+    humanSession &&
+    hasBuildApplicationCapability(
+      effectiveCapabilities,
+      "builds:retry",
+      application.data,
+      project,
+    ),
+  );
+  const deployBuild = useMutation({
+    mutationFn: ({ sourceId, key }: { sourceId: string; key: string }) =>
+      api.createManualBuildAttempt(sourceId, undefined, key),
+    onSuccess: async (attempt) => {
+      deployBuildKey.current = null;
+      await queryClient.invalidateQueries({
+        queryKey: ["build-attempts", applicationId],
+      });
+      await navigate({
+        to: "/builds/$buildId",
+        params: { buildId: attempt.id },
+      });
+    },
+  });
+  const rebuildBuild = useMutation({
+    mutationFn: ({ attemptId, key }: { attemptId: string; key: string }) =>
+      api.retryBuildAttempt(attemptId, key),
+    onSuccess: async (attempt) => {
+      rebuildBuildKey.current = null;
+      await queryClient.invalidateQueries({
+        queryKey: ["build-attempts", applicationId],
+      });
+      await navigate({
+        to: "/builds/$buildId",
+        params: { buildId: attempt.id },
+      });
+    },
+  });
   const disconnectSource = useMutation({
     mutationFn: ({
       definitionId,
@@ -668,14 +724,76 @@ export function ApplicationOverviewPage() {
             )}
           </Card>
           {activeBuildDefinition ? (
-            <AutoDeployPoliciesPanel
-              application={application.data}
-              project={project}
-              sourceConnected
-              enabled={features?.autoDeploy === true}
-              humanSession={Boolean(humanSession)}
-              capabilities={effectiveCapabilities}
-            />
+            <>
+              <Card>
+                <div className="mb-4">
+                  <Eyebrow>Deploy settings</Eyebrow>
+                  <h2>Build actions</h2>
+                  <p className="text-meta text-ink-soft">
+                    Deploy fetches the configured GitHub branch head. Rebuild
+                    uses the latest successful build's recorded source without
+                    fetching a newer commit.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canDeployBuild ? (
+                    <Button
+                      variant="primary"
+                      busy={deployBuild.isPending}
+                      disabled={rebuildBuild.isPending}
+                      title="Fetch the configured GitHub branch, build it, and deploy the resulting image"
+                      onClick={() => {
+                        const key =
+                          deployBuildKey.current ?? crypto.randomUUID();
+                        deployBuildKey.current = key;
+                        deployBuild.mutate({
+                          sourceId: activeBuildDefinition.id,
+                          key,
+                        });
+                      }}
+                    >
+                      <Icon name="deploy" /> Deploy
+                    </Button>
+                  ) : null}
+                  {canRebuildBuild && latestSuccessfulBuild ? (
+                    <Button
+                      variant="secondary"
+                      busy={rebuildBuild.isPending}
+                      disabled={deployBuild.isPending}
+                      title="Rebuild the latest successful source snapshot without fetching newer code"
+                      onClick={() => {
+                        const key =
+                          rebuildBuildKey.current ?? crypto.randomUUID();
+                        rebuildBuildKey.current = key;
+                        rebuildBuild.mutate({
+                          attemptId: latestSuccessfulBuild.id,
+                          key,
+                        });
+                      }}
+                    >
+                      <Icon name="refresh" /> Rebuild
+                    </Button>
+                  ) : null}
+                </div>
+                {deployBuild.error ? (
+                  <ErrorPanel error={deployBuild.error} title="Deploy failed" />
+                ) : null}
+                {rebuildBuild.error ? (
+                  <ErrorPanel
+                    error={rebuildBuild.error}
+                    title="Rebuild failed"
+                  />
+                ) : null}
+              </Card>
+              <AutoDeployPoliciesPanel
+                application={application.data}
+                project={project}
+                sourceConnected
+                enabled={features?.autoDeploy === true}
+                humanSession={Boolean(humanSession)}
+                capabilities={effectiveCapabilities}
+              />
+            </>
           ) : null}
           {canReadBuildAttempts ? (
             <Card>

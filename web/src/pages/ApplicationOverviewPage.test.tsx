@@ -483,7 +483,12 @@ describe("application source overview", () => {
           role: "developer",
           scopeType: "project",
           scopeId: "project-1",
-          actions: ["app-sources:read", "app-sources:write", "builds:read"],
+          actions: [
+            "app-sources:read",
+            "app-sources:write",
+            "builds:read",
+            "builds:retry",
+          ],
         },
       ],
     });
@@ -545,6 +550,34 @@ describe("application source overview", () => {
       ],
       nextCursor: null,
     });
+    const deploy = vi.spyOn(api, "createManualBuildAttempt").mockResolvedValue({
+      id: "attempt-deploy",
+      sourceId: "definition-1",
+      projectId: "project-1",
+      applicationId: "application-1",
+      commitSha: "e".repeat(40),
+      gitRef: "refs/tags/v1.2.3",
+      generation: 3,
+      state: "queued",
+      executionAttempts: 0,
+      maxAttempts: 3,
+      createdAt: "2026-08-12T00:06:00Z",
+      updatedAt: "2026-08-12T00:06:00Z",
+    });
+    const rebuild = vi.spyOn(api, "retryBuildAttempt").mockResolvedValue({
+      id: "attempt-rebuild",
+      sourceId: "definition-1",
+      projectId: "project-1",
+      applicationId: "application-1",
+      commitSha: "d".repeat(40),
+      gitRef: "refs/tags/v1.2.3",
+      generation: 4,
+      state: "queued",
+      executionAttempts: 0,
+      maxAttempts: 3,
+      createdAt: "2026-08-12T00:07:00Z",
+      updatedAt: "2026-08-12T00:07:00Z",
+    });
 
     render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
     await screen.findByRole("heading", { name: "Payments API" });
@@ -559,8 +592,22 @@ describe("application source overview", () => {
     expect(
       screen.getByText(/Edit and save the App source below/),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Build history" })).toBeVisible();
+    expect(
+      screen.getByRole("heading", { name: "Build history" }),
+    ).toBeVisible();
     expect(screen.getByText("Generation 2")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() =>
+      expect(deploy).toHaveBeenCalledWith(
+        "definition-1",
+        undefined,
+        expect.any(String),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Rebuild" }));
+    await waitFor(() =>
+      expect(rebuild).toHaveBeenCalledWith("attempt-1", expect.any(String)),
+    );
     await user.click(screen.getByRole("button", { name: "Disconnect source" }));
     await user.type(screen.getByLabelText("Confirm deletion"), "DISCONNECT");
     await user.click(

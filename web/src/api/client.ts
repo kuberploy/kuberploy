@@ -2361,7 +2361,7 @@ export const api = {
     ).then(safeBuildDefinition),
   createManualBuildAttempt: (
     definitionId: string,
-    commitSha: string,
+    commitSha: string | undefined,
     idempotencyKey: string,
   ) =>
     request<BuildAttempt>(
@@ -2369,7 +2369,7 @@ export const api = {
       {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
-        body: { commitSha },
+        body: commitSha ? { commitSha } : {},
       },
     ).then(safeBuildAttempt),
   buildAttempts: (applicationId: string, requestedLimit = 50) => {

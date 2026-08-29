@@ -296,7 +296,7 @@ export function ApplicationPage() {
                 <Icon name="deploy" />
                 {deployment.data?.state === "stopped"
                   ? "Start App"
-                  : "Redeploy App"}
+                  : "Reload App"}
               </Button>
             ) : null}
             {canStop ? (
@@ -338,17 +338,17 @@ export function ApplicationPage() {
       ) : null}
       {deployOpen ? (
         <ConfirmDialog
-          title={`${deployment.data?.state === "stopped" ? "Start" : "Redeploy"} ${application.data?.name ?? "App"}?`}
+          title={`${deployment.data?.state === "stopped" ? "Start" : "Reload"} ${application.data?.name ?? "App"}?`}
           description={
             deployment.data?.state === "stopped"
               ? "Publish this Environment's saved App configuration. Argo CD will create the workload after the Git change is accepted."
               : "Publish the same saved App configuration again and let Argo CD reconcile a fresh rollout."
           }
           confirmLabel={
-            deployment.data?.state === "stopped" ? "Start App" : "Redeploy App"
+            deployment.data?.state === "stopped" ? "Start App" : "Reload App"
           }
           confirmation={
-            deployment.data?.state === "stopped" ? "START" : "REDEPLOY"
+            deployment.data?.state === "stopped" ? "START" : "RELOAD"
           }
           confirmationLabel="Confirm App action"
           busy={redeployDeployment.isPending}

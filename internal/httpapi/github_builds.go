@@ -105,6 +105,12 @@ type BuildBackend interface {
 	Build(context.Context, string, string, string, string, string) (builds.BuildAttempt, bool, error)
 }
 
+type GitHubBuildRefProvider interface {
+	VerifyInstallation(context.Context, int64, githubapp.AccountIdentity, githubapp.Permissions) (githubapp.Installation, error)
+	MintInstallationToken(context.Context, githubapp.TokenRequest) (githubapp.InstallationToken, error)
+	ResolveRemoteRef(context.Context, githubapp.InstallationToken, githubapp.RepositoryIdentity, string) (githubapp.ResolvedRef, error)
+}
+
 func (b *buildBackend) DeleteDefinition(ctx context.Context, actorID, applicationID, definitionID, key, fingerprint, requestID string) (bool, error) {
 	return b.store.DeleteDefinition(ctx, actorID, applicationID, definitionID, key, fingerprint, requestID, b.clock())
 }
@@ -125,21 +131,30 @@ type GitBindingRepositoryResolver interface {
 type buildBackend struct {
 	store    builds.APIStore
 	resolver BuildDefinitionResolver
+	provider GitHubBuildRefProvider
 	now      func() time.Time
 }
 
 func NewBuildBackend(store builds.APIStore, resolver BuildDefinitionResolver) (BuildBackend, error) {
+	return newBuildBackend(store, resolver, nil, nil)
+}
+
+func NewBuildBackendWithProvider(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider) (BuildBackend, error) {
+	return newBuildBackend(store, resolver, provider, nil)
+}
+
+func newBuildBackend(store builds.APIStore, resolver BuildDefinitionResolver, provider GitHubBuildRefProvider, now func() time.Time) (BuildBackend, error) {
 	if store == nil || resolver == nil {
 		return nil, builds.ErrInvalid
 	}
-	return &buildBackend{store: store, resolver: resolver}, nil
+	return &buildBackend{store: store, resolver: resolver, provider: provider, now: now}, nil
 }
 
 func NewBuildBackendWithClock(store builds.APIStore, resolver BuildDefinitionResolver, now func() time.Time) (BuildBackend, error) {
-	if store == nil || resolver == nil || now == nil {
+	if now == nil {
 		return nil, builds.ErrInvalid
 	}
-	return &buildBackend{store: store, resolver: resolver, now: now}, nil
+	return newBuildBackend(store, resolver, nil, now)
 }
 
 func (b *buildBackend) ResolveGitBindingRepository(ctx context.Context, installationID, repositoryID string) (GitBindingRepositoryResolution, error) {
@@ -397,7 +412,7 @@ func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitS
 	if err != nil {
 		return builds.BuildAttempt{}, false, err
 	}
-	if definition.SourceKind != builds.SourceGitSSH || definition.GitSSH == nil {
+	if definition.SourceKind != builds.SourceGitHub && (definition.SourceKind != builds.SourceGitSSH || definition.GitSSH == nil) {
 		return builds.BuildAttempt{}, false, builds.ErrInvalid
 	}
 	claimKey := builds.APICommandClaimKey(actorID, builds.APICommandDefinitionBuild, definitionID, key)
@@ -412,7 +427,8 @@ func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitS
 	}
 	if commandReplay {
 		if existing, getErr := b.store.Attempt(ctx, attemptID); getErr == nil {
-			if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID || existing.CommitSHA != commitSHA {
+			if existing.TriggerKind != "manual" || existing.TriggerKey != claimKey || existing.DefinitionID != definitionID ||
+				(definition.SourceKind == builds.SourceGitSSH && existing.CommitSHA != commitSHA) {
 				return builds.BuildAttempt{}, false, builds.ErrConflict
 			}
 			return existing, true, nil
@@ -438,9 +454,54 @@ func (b *buildBackend) Build(ctx context.Context, actorID, definitionID, commitS
 		}
 		resolution.Execution.BuildSecret, resolution.Execution.SSHSecret = selection.BuildSecret, selection.SSHSecret
 	}
-	resolution.Execution, err = executionForGitSSHSource(resolution.Execution, definition.GitSSH)
-	if err != nil {
-		return builds.BuildAttempt{}, false, err
+	if definition.SourceKind == builds.SourceGitHub {
+		if commitSHA != "" {
+			return builds.BuildAttempt{}, false, builds.ErrInvalid
+		}
+		if b.provider == nil {
+			return builds.BuildAttempt{}, false, builds.ErrInfrastructure
+		}
+		installation, installationErr := b.store.Installation(ctx, definition.InstallationID)
+		if installationErr != nil {
+			return builds.BuildAttempt{}, false, installationErr
+		}
+		repository, repositoryErr := b.store.Repository(ctx, definition.RepositoryID)
+		if repositoryErr != nil {
+			return builds.BuildAttempt{}, false, repositoryErr
+		}
+		if installation.Lifecycle != builds.InstallationActive || repository.Lifecycle != builds.RepositoryActive ||
+			repository.InstallationID != installation.ID || repository.Identity.OwnerID != installation.Account.ID ||
+			!strings.EqualFold(repository.Identity.OwnerLogin, installation.Account.Login) || installation.AppID <= 0 ||
+			installation.GitHubInstallationID <= 0 || repository.Identity.ID <= 0 {
+			return builds.BuildAttempt{}, false, builds.ErrUnauthorized
+		}
+		required := githubapp.Permissions{"metadata": githubapp.PermissionRead, "contents": githubapp.PermissionRead}
+		if _, err = b.provider.VerifyInstallation(ctx, installation.GitHubInstallationID, installation.Account, required); err != nil {
+			return builds.BuildAttempt{}, false, err
+		}
+		token, tokenErr := b.provider.MintInstallationToken(ctx, githubapp.TokenRequest{
+			InstallationID: installation.GitHubInstallationID, Account: installation.Account,
+			Repositories: []githubapp.RepositoryIdentity{repository.Identity}, Permissions: required,
+		})
+		if tokenErr != nil {
+			return builds.BuildAttempt{}, false, tokenErr
+		}
+		resolved, resolveErr := b.provider.ResolveRemoteRef(ctx, token, repository.Identity, definition.TriggerRef)
+		if resolveErr != nil {
+			return builds.BuildAttempt{}, false, resolveErr
+		}
+		if resolved.Ref != definition.TriggerRef || !manualBuildCommitRE.MatchString(resolved.CommitSHA) || resolved.ResolvedAt.IsZero() {
+			return builds.BuildAttempt{}, false, builds.ErrUnauthorized
+		}
+		commitSHA = resolved.CommitSHA
+	} else {
+		if !manualBuildCommitRE.MatchString(commitSHA) {
+			return builds.BuildAttempt{}, false, builds.ErrInvalid
+		}
+		resolution.Execution, err = executionForGitSSHSource(resolution.Execution, definition.GitSSH)
+		if err != nil {
+			return builds.BuildAttempt{}, false, err
+		}
 	}
 	attempt, replay, err := b.store.EnqueueManualAttempt(ctx, definitionID, commitSHA, claimKey, resolution.Execution, now)
 	return attempt, commandReplay || replay, err
@@ -1102,8 +1163,12 @@ func (s *Server) buildDefinitionBuild(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	input.CommitSHA = strings.TrimSpace(input.CommitSHA)
-	if !manualBuildCommitRE.MatchString(input.CommitSHA) {
+	if definition.SourceKind == builds.SourceGitSSH && !manualBuildCommitRE.MatchString(input.CommitSHA) {
 		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "commitSha must be an exact lowercase 40-hex Git commit ID.")
+		return
+	}
+	if definition.SourceKind == builds.SourceGitHub && input.CommitSHA != "" {
+		writeProblem(w, r, http.StatusUnprocessableEntity, "ValidationFailed", "Validation failed", "GitHub Deploy resolves the configured branch head; omit commitSha.")
 		return
 	}
 	attempt, replay, err := s.builds.Build(r.Context(), currentUser(r.Context()).ID, definition.ID, input.CommitSHA, key, "sha256:"+fingerprint(input))
