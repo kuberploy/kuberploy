@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Project administrators can edit an App's current GitHub source without broader provider catalog access, and App progress pages use user-facing labels.",
+  "summary": "Terminating Environment namespaces can remove Kuberploy-managed registry pull Secrets without weakening ordinary pull-secret lifecycle controls.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.410"
+  "version": "0.1.0-rc.411"
 }
