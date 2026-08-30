@@ -292,6 +292,27 @@ describe("typed API client", () => {
     expect(headers.get("Idempotency-Key")).toBe("redeploy-attempt-1");
   });
 
+  it("omits If-Match when redeploying a stopped App draft", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "op_redeploy",
+          kind: "deploy",
+          state: "queued",
+        }),
+        { status: 202, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.redeployDeployment("deployment-1", "redeploy-attempt-2");
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const headers = new Headers(init.headers);
+    expect(headers.has("If-Match")).toBe(false);
+    expect(headers.get("Idempotency-Key")).toBe("redeploy-attempt-2");
+  });
+
   it("sends the current Git bundle ETag for a rollback intent", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(

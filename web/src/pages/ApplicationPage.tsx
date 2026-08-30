@@ -226,7 +226,10 @@ export function ApplicationPage() {
   const redeployDeployment = useMutation({
     mutationFn: async (idempotencyKey: string) => {
       const config = await api.deploymentConfig(deploymentId);
-      return api.redeployDeployment(deploymentId, idempotencyKey, config.etag);
+      const gitETag = /^"sha256:[0-9a-f]{64}"$/.test(config.etag)
+        ? config.etag
+        : undefined;
+      return api.redeployDeployment(deploymentId, idempotencyKey, gitETag);
     },
     onSuccess: async (operation) => {
       deployAttempt.current = null;

@@ -139,15 +139,36 @@ describe("application stop lifecycle", () => {
   });
 
   it.each([
-    ["stopped", "Start App", "START"],
-    ["healthy", "Reload App", "RELOAD"],
+    [
+      "stopped",
+      "Start App",
+      "START",
+      `"cfg-sha256-${"c".repeat(64)}"`,
+      undefined,
+    ],
+    [
+      "healthy",
+      "Reload App",
+      "RELOAD",
+      `"sha256:${"d".repeat(64)}"`,
+      `"sha256:${"d".repeat(64)}"`,
+    ],
   ] as const)(
     "uses the saved config to %s the App",
-    async (state, actionLabel, confirmation) => {
+    async (state, actionLabel, confirmation, configETag, expectedGitETag) => {
       const user = userEvent.setup();
       vi.mocked(api.deployment).mockResolvedValue({
         ...(await api.deployment("deployment-production")),
         state,
+      });
+      vi.mocked(api.deploymentConfig).mockResolvedValue({
+        kind: "ConfigBundle",
+        etag: configETag,
+        targetHeadRevision: state === "stopped" ? "" : "a".repeat(40),
+        indexedRevision: state === "stopped" ? "" : "a".repeat(40),
+        configRevision: configETag,
+        freshness: state === "stopped" ? "projection-only" : "fresh",
+        documents: [],
       });
       vi.spyOn(api, "redeployDeployment").mockResolvedValue({
         id: "44444444-4444-4444-8444-444444444444",
@@ -191,7 +212,7 @@ describe("application stop lifecycle", () => {
       expect(api.redeployDeployment).toHaveBeenCalledWith(
         "deployment-production",
         expect.any(String),
-        `"sha256:${"c".repeat(64)}"`,
+        expectedGitETag,
       );
       expect(api.deploymentConfig).toHaveBeenCalledWith(
         "deployment-production",
