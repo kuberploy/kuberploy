@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "App section tabs wrap cleanly on mobile screens.",
+  "summary": "Styled selectors preserve dependent form state when reopened.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.425"
+  "version": "0.1.0-rc.426"
 }
