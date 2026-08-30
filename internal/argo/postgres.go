@@ -63,6 +63,11 @@ func (s *PostgreSQLStore) PutObservation(ctx context.Context, value Observation)
 }
 
 func putObservationTx(ctx context.Context, tx pgx.Tx, value Observation) error {
+	var err error
+	value, err = recoverVerifiedDesiredRevisionTx(ctx, tx, value)
+	if err != nil {
+		return err
+	}
 	resourceValues := value.Resources
 	if resourceValues == nil {
 		resourceValues = []ResourceIdentity{}
@@ -93,6 +98,43 @@ func putObservationTx(ctx context.Context, tx pgx.Tx, value Observation) error {
 		return classifyPostgres(err)
 	}
 	return nil
+}
+
+// recoverVerifiedDesiredRevisionTx repairs deployments left behind by the
+// pre-RC419 projection-activation race. A healthy live Application can only
+// restore the App revision when that exact AppConfig revision belongs to the
+// newest provider-verified desired-state command. This keeps manual Argo drift
+// from redefining Kuberploy's desired state while making upgrades self-heal.
+func recoverVerifiedDesiredRevisionTx(ctx context.Context, tx pgx.Tx, value Observation) (Observation, error) {
+	if value.Sync != SyncSynced || value.Health != HealthHealthy || value.DesiredRevision == value.ObservedRevision {
+		return value, nil
+	}
+	result, err := tx.Exec(ctx, `UPDATE deployments deployment SET desired_revision=$2,updated_at=$3
+		FROM applications application
+		WHERE deployment.id=$1 AND deployment.application_id=$4 AND deployment.environment_id=$5
+		AND application.id=deployment.application_id AND application.project_id=$6
+		AND deployment.desired_revision=$7
+		AND EXISTS(
+			SELECT 1 FROM argo_desired_state_commands command
+			JOIN git_projected_documents document
+			  ON document.binding_id=command.environment_binding_id
+			 AND document.generation=command.environment_generation
+			WHERE command.project_id=$6 AND command.environment_id=$5 AND command.state='verified'
+			AND document.application_id=$4 AND document.valid AND document.config_revision=$2
+			AND NOT EXISTS(
+				SELECT 1 FROM argo_desired_state_commands later
+				WHERE later.project_id=command.project_id AND later.environment_id=command.environment_id
+				AND later.state='verified' AND later.generation>command.generation
+			)
+		)`, value.DeploymentID, value.ObservedRevision, value.UpdatedAt.UTC(), value.ApplicationID,
+		value.EnvironmentID, value.ProjectID, value.DesiredRevision)
+	if err != nil {
+		return Observation{}, classifyPostgres(err)
+	}
+	if result.RowsAffected() == 1 {
+		value.DesiredRevision = value.ObservedRevision
+	}
+	return value, nil
 }
 
 func (s *PostgreSQLStore) Observation(ctx context.Context, deploymentID string) (Observation, error) {

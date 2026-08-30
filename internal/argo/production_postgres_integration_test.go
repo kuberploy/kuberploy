@@ -356,6 +356,25 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if deploymentDesiredRevision != document.ConfigRevision {
 		t.Fatalf("verified Argo desired state left deployment revision=%q want=%q", deploymentDesiredRevision, document.ConfigRevision)
 	}
+	staleDesiredRevision := strings.Repeat("9", 40)
+	if _, err = pool.Exec(ctx, `UPDATE deployments SET desired_revision=$2 WHERE id=$1`, deploymentID, staleDesiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	staleObservation := Observation{DeploymentID: deploymentID, ApplicationID: applicationID, ProjectID: projectID,
+		EnvironmentID: environmentID, ArgoUID: "89111111-1111-4111-8111-111111111111", ArgoNamespace: "argocd",
+		ArgoName: ApplicationName(deploymentID), DestinationNamespace: environment.Namespace,
+		DesiredRevision: staleDesiredRevision, ObservedRevision: document.ConfigRevision, Sync: SyncSynced, Health: HealthHealthy,
+		OperationPhase: "succeeded", Resources: []ResourceIdentity{}, ObservedAt: receiptAt.Add(3 * time.Second), UpdatedAt: receiptAt.Add(3 * time.Second)}
+	if err = argoStore.PutObservation(ctx, staleObservation); err != nil {
+		t.Fatalf("verified desired revision recovery failed: %v", err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT desired_revision FROM deployments WHERE id=$1`, deploymentID).Scan(&deploymentDesiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	storedObservation, err := argoStore.Observation(ctx, deploymentID)
+	if err != nil || deploymentDesiredRevision != document.ConfigRevision || !storedObservation.Reconciled() {
+		t.Fatalf("stale desired revision was not repaired: deployment=%q observation=%#v err=%v", deploymentDesiredRevision, storedObservation, err)
+	}
 	if _, err = pool.Exec(ctx, `INSERT INTO git_projected_documents(binding_id,generation,path,application_id,source_revision,config_revision,blob_id,content_sha256,raw,parsed,valid,diagnostics,schema_version,parser_version,indexed_at)
 		VALUES($1,2,$2,$3,$4,$4,$5,$6,$7,$8,true,$9,$10,$11,$12)`, binding.ID, document.Path, applicationID,
 		advancedRevision, strings.Repeat("4", 40), document.ContentSHA256, document.Raw, parsedJSON,
