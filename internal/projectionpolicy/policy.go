@@ -253,7 +253,11 @@ func (v *Validator) ValidateAppConfigsTx(ctx context.Context, tx pgx.Tx, input g
 		if _, present := currentPaths[previous.Path]; present {
 			continue
 		}
-		scope, err := resolveDocumentScopeTx(ctx, tx, input.Binding, previous.ApplicationID, previous.Path, input.Generation.HeadRevision, previous.ConfigRevision, previous.ContentSHA256)
+		// App deletion may remove the catalog row before the provider deletion
+		// reaches this activation fence. The previous projected document already
+		// proves the App belonged to this exact binding, so deleted-reference
+		// cleanup must not require the now-absent App row.
+		scope, err := resolveDeletedDocumentScopeTx(ctx, tx, input.Binding, previous.ApplicationID, previous.Path, input.Generation.HeadRevision, previous.ConfigRevision, previous.ContentSHA256)
 		if err != nil {
 			return gitprojection.AppConfigPolicyValidation{}, err
 		}
@@ -304,6 +308,32 @@ func resolveDocumentScopeTx(ctx context.Context, tx pgx.Tx, binding gitprojectio
 		WHERE b.id=$1 AND b.kind='environment' AND b.project_id=$3 AND b.environment_id=$4
 		AND b.target_ref=$5 AND b.path_prefix=$6 AND b.target_head_revision=$7
 		FOR SHARE OF b,p,e,a`, binding.ID, applicationID, binding.ProjectID, binding.EnvironmentID,
+		binding.TargetRef, binding.Prefix, sourceRevision).Scan(&organizationID, &namespace)
+	if err != nil {
+		return DocumentScope{}, err
+	}
+	scope := DocumentScope{Binding: binding, Namespace: namespace, ApplicationID: applicationID, Path: documentPath,
+		SourceRevision: sourceRevision, ConfigRevision: configRevision, ContentSHA256: contentSHA256}
+	if organizationID != nil {
+		scope.OrganizationID = *organizationID
+	}
+	if binding.Validate() != nil || binding.Kind != gitprojection.BindingEnvironment || !namespaceRE.MatchString(scope.Namespace) ||
+		scope.ApplicationID == "" || scope.Path == "" || scope.SourceRevision == "" || scope.ConfigRevision == "" {
+		return DocumentScope{}, gitprojection.ErrInvalid
+	}
+	return scope, nil
+}
+
+func resolveDeletedDocumentScopeTx(ctx context.Context, tx pgx.Tx, binding gitprojection.Binding, applicationID, documentPath, sourceRevision, configRevision, contentSHA256 string) (DocumentScope, error) {
+	var organizationID *string
+	var namespace string
+	err := tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
+		FROM git_repository_bindings b
+		JOIN projects p ON p.id=b.project_id
+		JOIN environments e ON e.id=b.environment_id AND e.project_id=p.id
+		WHERE b.id=$1 AND b.kind='environment' AND b.project_id=$2 AND b.environment_id=$3
+		AND b.target_ref=$4 AND b.path_prefix=$5 AND b.target_head_revision=$6
+		FOR SHARE OF b,p,e`, binding.ID, binding.ProjectID, binding.EnvironmentID,
 		binding.TargetRef, binding.Prefix, sourceRevision).Scan(&organizationID, &namespace)
 	if err != nil {
 		return DocumentScope{}, err

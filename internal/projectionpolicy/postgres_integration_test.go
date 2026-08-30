@@ -364,6 +364,12 @@ func TestPostgreSQLPolicyPlatformOwnedProjectNoRefsAndSemanticSecretDiagnostic(t
 	if err != nil || secretProjected.Valid || len(secretProjected.Diagnostics) != 1 || secretProjected.Diagnostics[0].Code != "RuntimeSecretReferenceUnresolved" {
 		t.Fatalf("platform-owned reference was not a stable semantic diagnostic: %#v err=%v", secretProjected, err)
 	}
+	// User deletion removes the App catalog row before the asynchronous Git
+	// deletion is indexed. Empty-generation activation must still reconcile the
+	// previous document and return the binding to ready.
+	if _, err = pool.Exec(ctx, `DELETE FROM applications WHERE id=$1`, applicationID); err != nil {
+		t.Fatal(err)
+	}
 	deleted, _ := stage(2, nil, false)
 	if deleted.State != gitprojection.BindingReady || deleted.IndexedRevision != strings.Repeat("c", 40) {
 		t.Fatalf("platform-owned deleted path with no Git-current guards did not activate: %#v", deleted)

@@ -81,7 +81,7 @@ func (p *RuntimeSecretReferencePolicy) ReconcileDeletedTx(ctx context.Context, t
 	if err := p.validateDocumentIdentity(tx, scope, now); err != nil {
 		return err
 	}
-	secretScope, err := p.validateScope(ctx, tx, scope, now)
+	secretScope, err := p.validateDeletedScope(ctx, tx, scope, now)
 	if err != nil {
 		return err
 	}
@@ -104,6 +104,43 @@ func (p *RuntimeSecretReferencePolicy) validateScope(ctx context.Context, tx pgx
 		JOIN applications a ON a.id=$3 AND a.project_id=p.id
 		WHERE p.id=$1
 		FOR SHARE OF p,e,a`, scope.Binding.ProjectID, scope.Binding.EnvironmentID, scope.ApplicationID).
+		Scan(&durableOrganizationID, &durableNamespace)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return secrets.Scope{}, gitprojection.ErrInvalid
+	}
+	if err != nil {
+		return secrets.Scope{}, err
+	}
+	expectedOrganizationID := ""
+	if durableOrganizationID != nil {
+		expectedOrganizationID = *durableOrganizationID
+	}
+	if scope.OrganizationID != expectedOrganizationID || scope.Namespace != durableNamespace {
+		return secrets.Scope{}, gitprojection.ErrInvalid
+	}
+	secretScope := secrets.Scope{OrganizationID: scope.OrganizationID, ProjectID: scope.Binding.ProjectID,
+		EnvironmentID: scope.Binding.EnvironmentID, ApplicationID: scope.ApplicationID, Namespace: scope.Namespace}
+	if secretScope.Validate() != nil {
+		return secrets.Scope{}, gitprojection.ErrInvalid
+	}
+	return secretScope, nil
+}
+
+func (p *RuntimeSecretReferencePolicy) validateDeletedScope(ctx context.Context, tx pgx.Tx, scope DocumentScope, now time.Time) (secrets.Scope, error) {
+	if err := p.validateDocumentIdentity(tx, scope, now); err != nil {
+		return secrets.Scope{}, err
+	}
+	// App deletion may precede asynchronous Git projection activation. The
+	// previous indexed document and exact binding still authorize removal of
+	// that path's Git-current guards, so only durable project/environment
+	// ownership remains available for this deletion check.
+	var durableOrganizationID *string
+	var durableNamespace string
+	err := tx.QueryRow(ctx, `SELECT p.team_id::text,e.namespace
+		FROM projects p
+		JOIN environments e ON e.id=$2 AND e.project_id=p.id
+		WHERE p.id=$1
+		FOR SHARE OF p,e`, scope.Binding.ProjectID, scope.Binding.EnvironmentID).
 		Scan(&durableOrganizationID, &durableNamespace)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return secrets.Scope{}, gitprojection.ErrInvalid
