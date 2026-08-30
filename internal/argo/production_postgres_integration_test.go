@@ -272,8 +272,32 @@ func TestPostgreSQLProductionProjectionMaterializerAndClaimGate(t *testing.T) {
 	if err = gate.ValidateDesiredStateClaim(ctx, work.Command, DesiredStateClaimActive); err != nil {
 		t.Fatalf("replacement active claim rejected: %v", err)
 	}
+	staleBaseAt := supersededAt.Add(3 * time.Second)
+	staleBase, err := argoStore.BindDesiredStateWriteBase(ctx, work.Lease, platform.TargetHeadRevision, staleBaseAt, staleBaseAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedStaleBase, err := argoStore.FailDesiredState(ctx, *staleBase.Lease, "stale-git-base", staleBaseAt.Add(time.Second))
+	if err != nil || failedStaleBase.State != DesiredStateFailed || failedStaleBase.WriteBaseRevision == "" {
+		t.Fatalf("stale-base command was not retired: command=%#v err=%v", failedStaleBase, err)
+	}
+	materializer.newID = func() string { return "8e666666-6666-4666-8666-666666666666" }
+	if created, err = materializer.MaterializeDesiredStateOnce(ctx, staleBaseAt.Add(2*time.Second)); err != nil || !created {
+		t.Fatalf("same-revision stale-base command was not rematerialized: created=%v err=%v", created, err)
+	}
+	replacement, err = argoStore.LatestDesiredState(ctx, projectID, environmentID)
+	if err != nil || replacement.CommandID == failedStaleBase.ID || replacement.Generation != failedStaleBase.Generation+1 ||
+		replacement.State != DesiredStatePending || replacement.EnvironmentRevision != failedStaleBase.EnvironmentRevision ||
+		replacement.ContentSHA256 != failedStaleBase.ContentSHA256 {
+		t.Fatalf("stale-base replacement status=%#v failed=%#v err=%v", replacement, failedStaleBase.Status(), err)
+	}
+	work, err = argoStore.ClaimDesiredState(ctx, "production-argo-worker", identity.DesiredStateWorkerIdentity,
+		staleBaseAt.Add(3*time.Second), minimumDesiredStateLease)
+	if err != nil || work.Command.ID != replacement.CommandID {
+		t.Fatalf("stale-base replacement work=%#v status=%#v err=%v", work, replacement, err)
+	}
 
-	receiptAt := activatedAt.Add(8 * time.Second)
+	receiptAt := activatedAt.Add(15 * time.Second)
 	bound, err := argoStore.BindDesiredStateWriteBase(ctx, work.Lease, platform.TargetHeadRevision, receiptAt, receiptAt)
 	if err != nil {
 		t.Fatal(err)

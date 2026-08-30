@@ -82,7 +82,8 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	LEFT JOIN LATERAL (
 		SELECT command.id,command.state,command.environment_revision,command.environment_generation,
 		       command.chart_repository,command.chart_name,command.chart_version,command.chart_digest,
-		       command.renderer_image,command.chart_digest_enforcement,command.argo_project,command.write_base_revision
+		       command.renderer_image,command.chart_digest_enforcement,command.argo_project,command.write_base_revision,
+		       command.last_failure_code
 		FROM argo_desired_state_commands command
 		WHERE command.environment_id=b.environment_id
 		ORDER BY command.generation DESC LIMIT 1
@@ -122,6 +123,7 @@ func (m *PostgreSQLDesiredStateMaterializer) MaterializeDesiredStateOnce(ctx con
 	    WHERE live.environment_id=b.environment_id AND live.state IN ('pending','claimed','git-committed'))
 	  AND (latest.id IS NULL OR latest.state='verified' OR
 	    (latest.state='superseded' AND latest.write_base_revision='') OR
+	    (latest.state='failed' AND latest.write_base_revision<>'' AND latest.last_failure_code='stale-git-base') OR
 	    (latest.state IN ('failed','superseded') AND
 	      (latest.environment_revision<>b.indexed_revision OR latest.environment_generation<>b.projection_generation OR
 	       latest.chart_repository<>$1 OR latest.chart_name<>$2 OR latest.chart_version<>$3 OR
