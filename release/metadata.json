@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Stopped Apps restart through protected Git changes, and verified publications refresh Argo immediately.",
+  "summary": "Stopped Apps restart from the runtime page without confusing AppConfig and Git concurrency tokens.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.414"
+  "version": "0.1.0-rc.415"
 }
