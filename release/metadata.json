@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Upgrades recover healthy Apps from previously stale rollout revisions.",
+  "summary": "Healthy existing certificate issuers stay available while protected Git updates retry.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.420"
+  "version": "0.1.0-rc.421"
 }
