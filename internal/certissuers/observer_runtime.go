@@ -63,6 +63,18 @@ func (r *ObserverRuntime) Run(ctx context.Context) error {
 // name must be in the immutable runtime allowlist; Kubernetes is then contacted
 // with one exact named GET per active entry.
 func (r *ObserverRuntime) RunOnce(ctx context.Context) error {
+	return r.runOnce(ctx, false)
+}
+
+// RefreshPreviouslyReadyOnce keeps already-proven issuer observations fresh
+// while protected Git publication retries an unrelated ref conflict. It never
+// promotes a pending, revised, or previously degraded issuer: those revisions
+// still require a successful publication cycle before normal observation.
+func (r *ObserverRuntime) RefreshPreviouslyReadyOnce(ctx context.Context) error {
+	return r.runOnce(ctx, true)
+}
+
+func (r *ObserverRuntime) runOnce(ctx context.Context, requirePreviouslyReady bool) error {
 	if ctx == nil || r.Validate() != nil {
 		return ErrObservationUnavailable
 	}
@@ -73,6 +85,17 @@ func (r *ObserverRuntime) RunOnce(ctx context.Context) error {
 	now := r.Now()
 	if now.IsZero() || now.Location() != time.UTC || now.Before(r.StartedAt) {
 		return ErrObservationUnavailable
+	}
+	if requirePreviouslyReady {
+		for _, entry := range entries {
+			observation, observationErr := r.Store.Observation(ctx, entry.Profile.ID, entry.Revision.Revision)
+			if observationErr != nil || observation.State != Ready || observation.ObservedSpecDigest != entry.Revision.SpecDigest ||
+				observation.ObservedGeneration < 1 || observation.ObservedAt == nil || observation.ObservedAt.Location() != time.UTC ||
+				observation.ObservedAt.After(now) || observation.UpdatedAt.IsZero() || observation.UpdatedAt.Location() != time.UTC ||
+				observation.UpdatedAt.Before(*observation.ObservedAt) || observation.UpdatedAt.After(now) {
+				return ErrObservationUnavailable
+			}
+		}
 	}
 	var failures []error
 	for _, entry := range entries {

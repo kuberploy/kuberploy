@@ -14,9 +14,19 @@ const maximumCertificateIssuerProviderWait = 7 * 24 * time.Hour
 
 type certificateIssuerRuntime struct {
 	store      *certissuers.PostgresStore
-	controller *certissuers.ProtectedController
-	observer   *certissuers.ObserverRuntime
+	controller certificateIssuerController
+	observer   certificateIssuerObserver
 	poll       time.Duration
+}
+
+type certificateIssuerController interface {
+	Reconcile(context.Context, int) (certissuers.ProtectedControllerResult, error)
+}
+
+type certificateIssuerObserver interface {
+	Validate() error
+	RunOnce(context.Context) error
+	RefreshPreviouslyReadyOnce(context.Context) error
 }
 
 func openCertificateIssuerWorkerStore(ctx context.Context, databaseURL string, config certissuers.ObserverConfig) (*certissuers.PostgresStore, error) {
@@ -69,25 +79,35 @@ func newCertificateIssuerRuntime(config certissuers.ObserverConfig, host string,
 		observer: observer, poll: config.PollInterval}, nil
 }
 
-// Run sequences publication before live observation. Therefore the durable
-// observer lease is refreshed only after both protected Git publication and
-// exact live ClusterIssuer verification succeed for the current target set.
+// Run publishes before normal observation. If publication conflicts, only
+// previously ready exact revisions may refresh; pending or revised issuers
+// still wait for successful protected Git publication.
 func (r *certificateIssuerRuntime) Run(ctx context.Context) error {
 	if r == nil || r.store == nil || r.controller == nil || r.observer == nil || r.observer.Validate() != nil || r.poll <= 0 {
 		return certissuers.ErrObservationUnavailable
 	}
 	for {
-		next := r.poll
-		if _, err := r.controller.Reconcile(ctx, certissuers.MaximumObservedIssuers); err != nil {
-			slog.Warn("certificate issuer protected publication failed", "error", err)
-			next = certificateIssuerProviderDelay(err, time.Now().UTC(), r.poll)
-		} else if err = r.observer.RunOnce(ctx); err != nil {
-			slog.Warn("certificate issuer live observation failed", "error", err)
-		}
+		next := r.runCycle(ctx, time.Now().UTC())
 		if err := waitCertificateIssuerCycle(ctx, next); err != nil {
 			return err
 		}
 	}
+}
+
+func (r *certificateIssuerRuntime) runCycle(ctx context.Context, now time.Time) time.Duration {
+	next := r.poll
+	if _, err := r.controller.Reconcile(ctx, certissuers.MaximumObservedIssuers); err != nil {
+		slog.Warn("certificate issuer protected publication failed", "error", err)
+		next = certificateIssuerProviderDelay(err, now, r.poll)
+		if observeErr := r.observer.RefreshPreviouslyReadyOnce(ctx); observeErr != nil {
+			slog.Warn("certificate issuer retained observation refresh failed", "error", observeErr)
+		}
+		return next
+	}
+	if err := r.observer.RunOnce(ctx); err != nil {
+		slog.Warn("certificate issuer live observation failed", "error", err)
+	}
+	return next
 }
 
 func certificateIssuerProviderDelay(err error, now time.Time, poll time.Duration) time.Duration {

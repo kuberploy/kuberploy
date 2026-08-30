@@ -298,6 +298,50 @@ func TestObserverRuntimeRecordsExactReadinessAndFailsClosedOnDrift(t *testing.T)
 	}
 }
 
+func TestObserverRuntimeRefreshesOnlyPreviouslyReadyIssuers(t *testing.T) {
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0).UTC()
+	store := NewMemoryStore()
+	created, err := store.Create(ctx, command("observer-retained-refresh", now), "letsencrypt-production-http", httpSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := testObserverConfig()
+	identity, _ := ObserverIdentityForConfig(config)
+	reader := &fixedClusterIssuerReader{snapshot: ClusterIssuerSnapshot{Name: created.Profile.Name, UID: observerTestUID, ResourceVersion: "7",
+		AnnotatedSpecDigest: created.Revision.SpecDigest, AnnotatedRevision: 1, Generation: 2, ReadyObservedGeneration: 2,
+		Ready: true, SpecDigest: created.Revision.SpecDigest, Solver: created.Revision.Solver, Spec: created.Revision.Spec}}
+	current := now.Add(time.Second)
+	runtime := &ObserverRuntime{Store: store, ReadinessStore: NewMemoryObserverReadinessStore(), Reader: reader, Config: config,
+		Identity: identity, WorkerID: "issuer-observer:retained-refresh", StartedAt: now, Now: func() time.Time { return current }}
+	if err = runtime.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	current = now.Add(config.MaximumAge + 2*time.Second)
+	if err = runtime.Probe(ctx); !errors.Is(err, ErrObservationUnavailable) {
+		t.Fatalf("expired observation accepted before refresh: %v", err)
+	}
+	if err = runtime.RefreshPreviouslyReadyOnce(ctx); err != nil {
+		t.Fatalf("previously ready observation was not refreshed: %v", err)
+	}
+	if err = runtime.Probe(ctx); err != nil {
+		t.Fatalf("refreshed exact observation not ready: %v", err)
+	}
+	revised, err := store.Revise(ctx, command("observer-retained-revise", current.Add(time.Second)),
+		Ref{ProfileID: created.Profile.ID, Revision: 1}, httpSpec())
+	if err != nil || revised.Revision.Revision != 2 {
+		t.Fatalf("revise=%#v err=%v", revised, err)
+	}
+	reader.snapshot.AnnotatedRevision = 2
+	if err = runtime.RefreshPreviouslyReadyOnce(ctx); !errors.Is(err, ErrObservationUnavailable) {
+		t.Fatalf("pending revised issuer refreshed before publication: %v", err)
+	}
+	observation, observationErr := store.Observation(ctx, created.Profile.ID, 2)
+	if observationErr != nil || observation.State != Pending {
+		t.Fatalf("pending revision changed during retained refresh: %#v err=%v", observation, observationErr)
+	}
+}
+
 func TestObserverRuntimeRecordsDegradedForLiveSubstitution(t *testing.T) {
 	ctx := context.Background()
 	now := time.Unix(1_700_000_000, 0).UTC()
