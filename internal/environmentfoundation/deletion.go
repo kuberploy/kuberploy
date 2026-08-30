@@ -112,7 +112,7 @@ func (c *DeletionController) Reconcile(ctx context.Context) (bool, error) {
 	}
 	receipt, publishErr := c.Deleter.Delete(ctx, lease)
 	if publishErr != nil {
-		permanent := errors.Is(publishErr, ErrConflict) || errors.Is(publishErr, ErrInvalid)
+		permanent := errors.Is(publishErr, ErrInvalid)
 		code := "protected-git-unavailable"
 		if permanent {
 			code = "protected-git-rejected"

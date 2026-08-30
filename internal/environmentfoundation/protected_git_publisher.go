@@ -114,7 +114,7 @@ func (p *ProtectedGitPublisher) Publish(ctx context.Context, lease Lease, reques
 		return p.verifyReceipt(ctx, binding, head.Commit, request, mutation.BaseRevision, found)
 	}
 	if head.Commit != mutation.BaseRevision {
-		return PublicationReceipt{}, fmt.Errorf("%w: durable foundation write base advanced without the exact operation", ErrConflict)
+		return PublicationReceipt{}, fmt.Errorf("%w: durable foundation write base advanced without the exact operation: %w", ErrConflict, errRebaseRequired)
 	}
 	if err = prepared.VerifyProtectedMutationPrecondition(ctx, mutation); err != nil {
 		return PublicationReceipt{}, classifyFoundationGit(err)

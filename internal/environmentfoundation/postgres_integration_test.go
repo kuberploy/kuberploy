@@ -156,4 +156,21 @@ func TestPostgresFoundationFencingAndExactReadiness(t *testing.T) {
 	if err != nil || !found || expected != ready.ManifestDigest {
 		t.Fatalf("exact PostgreSQL foundation preimage was not retained: digest=%q found=%v err=%v", expected, found, err)
 	}
+	changedDigest, _ := changed.Digest()
+	replacementLease, found, err := store.ClaimIntent(ctx, testWorker1, changedDigest, changed.PublisherConfigDigest, first.Until.Add(4*time.Minute), MinimumLease)
+	if err != nil || !found || replacementLease.Intent.ID != replacement.ID {
+		t.Fatalf("replacement claim: %#v found=%v err=%v", replacementLease, found, err)
+	}
+	if _, err = store.RecordRetry(ctx, replacementLease, "protected-git-rejected", true, first.Until.Add(5*time.Minute), first.Until.Add(4*time.Minute+time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	recoveryID := deterministicRecoveryIntentID(replacement.ID)
+	recovery, err := store.EnsureIntent(ctx, EnsureRequest{recoveryID, testEnvironmentID, changed, first.Until.Add(5 * time.Minute)})
+	if err != nil || recovery.ID != recoveryID || recovery.State != StatePending || !recovery.Active {
+		t.Fatalf("PostgreSQL did not create an active recovery intent: %#v err=%v", recovery, err)
+	}
+	failed, err := store.Intent(ctx, replacement.ID)
+	if err != nil || failed.State != StateFailed || failed.Active {
+		t.Fatalf("PostgreSQL did not retain failed audit intent: %#v err=%v", failed, err)
+	}
 }

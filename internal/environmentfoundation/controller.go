@@ -63,8 +63,11 @@ func (c *Controller) Reconcile(ctx context.Context) (bool, error) {
 	}
 	latest.Intent = current
 	if publishErr != nil {
-		if errors.Is(publishErr, ErrConflict) || errors.Is(publishErr, ErrInvalid) {
-			return c.fail(ctx, latest, "protected-git-rejected", true)
+		if errors.Is(publishErr, ErrInvalid) {
+			return c.fail(ctx, latest, "publisher-request-invalid", true)
+		}
+		if errors.Is(publishErr, errRebaseRequired) {
+			return c.fail(ctx, latest, "protected-git-rebase", true)
 		}
 		return c.fail(ctx, latest, "protected-git-unavailable", false)
 	}

@@ -333,3 +333,74 @@ func TestControllerPublishesOnlyImmutableRequest(t *testing.T) {
 		t.Fatalf("publisher escaped immutable intent: request=%#v state=%#v", publisher.request, got)
 	}
 }
+
+func TestControllerRetriesProtectedGitConflict(t *testing.T) {
+	now := time.Date(2026, 8, 12, 9, 0, 0, 0, time.UTC)
+	store, _ := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	profile := testProfile()
+	intent, err := store.EnsureIntent(context.Background(), EnsureRequest{testIntentID, testEnvironmentID, profile, now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{identity: PublisherIdentity{PublisherContract, ProtectedGitPolicy, profile.PublisherConfigDigest}, store: store, err: ErrConflict, now: now.Add(time.Second)}
+	controllerNow := now.Add(time.Second)
+	controller := Controller{Store: store, Publisher: publisher, Profile: profile, WorkerID: testWorker1, WorkerEpoch: 1,
+		WorkLease: time.Minute, MinimumBackoff: time.Second, MaximumBackoff: time.Minute, Now: func() time.Time { return controllerNow }}
+	if didWork, reconcileErr := controller.Reconcile(context.Background()); !didWork || !errors.Is(reconcileErr, ErrUnavailable) {
+		t.Fatalf("conflict was not retryable: didWork=%v err=%v", didWork, reconcileErr)
+	}
+	pending, err := store.Intent(context.Background(), intent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.State != StatePending || !pending.Active || pending.LastFailureCode != "protected-git-unavailable" {
+		t.Fatalf("conflict became terminal: %#v", pending)
+	}
+	controllerNow = now.Add(2 * time.Second)
+	publisher.now = controllerNow
+	publisher.err = nil
+	if didWork, reconcileErr := controller.Reconcile(context.Background()); !didWork || reconcileErr != nil {
+		t.Fatalf("retry did not publish: didWork=%v err=%v", didWork, reconcileErr)
+	}
+	ready, err := store.Intent(context.Background(), intent.ID)
+	if err != nil || ready.State != StateReady {
+		t.Fatalf("retry did not become ready: %#v err=%v", ready, err)
+	}
+}
+
+func TestControllerRotatesStaleDurableGitBase(t *testing.T) {
+	now := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	config := foundationRuntimeConfig(t)
+	store, _ := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	profileDigest, err := config.Profile.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalID := deterministicIntentID(testEnvironmentID, profileDigest, config.Profile.PublisherConfigDigest)
+	if _, err = store.EnsureIntent(context.Background(), EnsureRequest{originalID, testEnvironmentID, config.Profile, now}); err != nil {
+		t.Fatal(err)
+	}
+	publisher := &fakePublisher{identity: config.Publisher, store: store, err: errors.Join(ErrConflict, errRebaseRequired), now: now.Add(time.Second)}
+	controllerNow := now.Add(time.Second)
+	controller := &Controller{Store: store, Publisher: publisher, Profile: config.Profile, WorkerID: testWorker1, WorkerEpoch: 1,
+		WorkLease: time.Minute, MinimumBackoff: time.Second, MaximumBackoff: time.Minute, Now: func() time.Time { return controllerNow }}
+	if didWork, reconcileErr := controller.Reconcile(context.Background()); !didWork || reconcileErr != nil {
+		t.Fatalf("stale base was not finalized for rotation: didWork=%v err=%v", didWork, reconcileErr)
+	}
+	failed, err := store.Intent(context.Background(), originalID)
+	if err != nil || failed.State != StateFailed || failed.Active || failed.LastFailureCode != "protected-git-rebase" {
+		t.Fatalf("stale base did not retain failed audit record: %#v err=%v", failed, err)
+	}
+	controllerNow = now.Add(2 * time.Second)
+	publisher.now = controllerNow
+	publisher.err = nil
+	runtime := &Runtime{Store: store, Catalog: memoryEnvironmentCatalog{[]string{testEnvironmentID}}, Controller: controller,
+		Config: config, WorkerEpoch: 1, StartedAt: now, Now: func() time.Time { return controllerNow }}
+	if err = runtime.RunOnce(context.Background()); err != nil {
+		t.Fatalf("replacement intent did not restore readiness: %v", err)
+	}
+	recovery, err := store.Intent(context.Background(), deterministicRecoveryIntentID(originalID))
+	if err != nil || recovery.State != StateReady || !recovery.Active {
+		t.Fatalf("replacement intent was not ready: %#v err=%v", recovery, err)
+	}
+}

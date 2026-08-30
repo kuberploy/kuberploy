@@ -309,6 +309,27 @@ func TestProtectedGitPublisherPersistsBaseBeforePushAndRecovers(t *testing.T) {
 		}
 	})
 
+	t.Run("unrelated commit after write base requests a fresh intent", func(t *testing.T) {
+		fixture := newPublisherFixture(t)
+		crashing := &crashAfterBindStore{Store: fixture.store, crash: true}
+		fixture.publisher.Store = crashing
+		if _, err := fixture.publisher.Publish(context.Background(), fixture.lease, fixture.request); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("expected injected crash, got %v", err)
+		}
+		current, err := fixture.store.Intent(context.Background(), fixture.request.IntentID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.lease.Intent = current
+		fixture.publisher.Store = fixture.store
+		fixture.verifier.now = fixture.now.Add(7 * time.Second)
+		fixture.publisher.Now = func() time.Time { return fixture.now.Add(8 * time.Second) }
+		appendFoundationRemote(t, fixture.verifier.remote, "operator-note.txt", []byte("unrelated change\n"))
+		if _, err = fixture.publisher.Publish(context.Background(), fixture.lease, fixture.request); !errors.Is(err, ErrConflict) || !errors.Is(err, errRebaseRequired) {
+			t.Fatalf("advanced durable base did not request intent rotation: %v", err)
+		}
+	})
+
 	t.Run("push before database receipt", func(t *testing.T) {
 		fixture := newPublisherFixture(t)
 		fixture.verifier.failAt = 2

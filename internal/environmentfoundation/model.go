@@ -28,11 +28,12 @@ const (
 )
 
 var (
-	ErrInvalid     = errors.New("environment foundation value is invalid")
-	ErrNotFound    = errors.New("environment foundation was not found")
-	ErrConflict    = errors.New("environment foundation conflicts with durable state")
-	ErrLeaseLost   = errors.New("environment foundation lease was lost")
-	ErrUnavailable = errors.New("environment foundation runtime is unavailable")
+	ErrInvalid        = errors.New("environment foundation value is invalid")
+	ErrNotFound       = errors.New("environment foundation was not found")
+	ErrConflict       = errors.New("environment foundation conflicts with durable state")
+	ErrLeaseLost      = errors.New("environment foundation lease was lost")
+	ErrUnavailable    = errors.New("environment foundation runtime is unavailable")
+	errRebaseRequired = errors.New("environment foundation publication requires a fresh Git base")
 
 	uuidRE       = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	dnsLabelRE   = regexp.MustCompile(`^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$`)

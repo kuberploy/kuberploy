@@ -215,3 +215,40 @@ func TestRuntimeReportsRetryableReconciliationFailure(t *testing.T) {
 		t.Fatal("retryable reconciliation failure was not reported")
 	}
 }
+
+func TestRuntimeRecoversLegacyPermanentGitConflict(t *testing.T) {
+	now := time.Date(2026, 8, 12, 11, 0, 0, 0, time.UTC)
+	config := foundationRuntimeConfig(t)
+	store, err := NewMemoryStore([]AuthorityRecord{{testIdentity(), testAuthority()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, err := config.Profile.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalID := deterministicIntentID(testEnvironmentID, profileDigest, config.Profile.PublisherConfigDigest)
+	if _, err = store.EnsureIntent(context.Background(), EnsureRequest{originalID, testEnvironmentID, config.Profile, now}); err != nil {
+		t.Fatal(err)
+	}
+	lease, found, err := store.ClaimIntent(context.Background(), testWorker1, profileDigest, config.Profile.PublisherConfigDigest, now.Add(time.Second), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim legacy intent: found=%v err=%v", found, err)
+	}
+	if _, err = store.RecordRetry(context.Background(), lease, "protected-git-rejected", true, now.Add(3*time.Second), now.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	runtimeNow := now.Add(4 * time.Second)
+	publisher := &fakePublisher{identity: config.Publisher, store: store, now: runtimeNow}
+	controller := &Controller{Store: store, Publisher: publisher, Profile: config.Profile, WorkerID: testWorker1, WorkerEpoch: 1,
+		WorkLease: time.Minute, MinimumBackoff: time.Second, MaximumBackoff: time.Minute, Now: func() time.Time { return runtimeNow }}
+	runtime := &Runtime{Store: store, Catalog: memoryEnvironmentCatalog{[]string{testEnvironmentID}}, Controller: controller,
+		Config: config, WorkerEpoch: 1, StartedAt: now, Now: func() time.Time { return runtimeNow }}
+	if err = runtime.RunOnce(context.Background()); err != nil {
+		t.Fatalf("legacy failed intent did not recover: %v", err)
+	}
+	recovery, err := store.Intent(context.Background(), deterministicRecoveryIntentID(originalID))
+	if err != nil || recovery.State != StateReady || !recovery.Active {
+		t.Fatalf("legacy replacement was not ready: %#v err=%v", recovery, err)
+	}
+}

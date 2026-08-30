@@ -85,7 +85,7 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 	}
 	for _, environmentID := range ids {
 		intentID := deterministicIntentID(environmentID, profileDigest, r.Config.Profile.PublisherConfigDigest)
-		if _, err = r.Store.EnsureIntent(ctx, EnsureRequest{IntentID: intentID, EnvironmentID: environmentID, Profile: r.Config.Profile, Now: now}); err != nil {
+		if err = r.ensureCurrentIntent(ctx, intentID, environmentID, now); err != nil {
 			// A newly enabled runtime can legitimately observe environments before
 			// the exact platform Git binding has reached its first ready revision.
 			// Keep the worker alive and retry; readiness remains unavailable.
@@ -104,6 +104,21 @@ func (r *Runtime) RunOnce(ctx context.Context) error {
 		return err
 	}
 	return r.Store.ExactReady(ctx, profileDigest, r.Config.Publisher.ConfigDigest, len(ids), now)
+}
+
+func (r *Runtime) ensureCurrentIntent(ctx context.Context, intentID, environmentID string, now time.Time) error {
+	for depth := 0; depth < MaximumAttempts; depth++ {
+		intent, err := r.Store.EnsureIntent(ctx, EnsureRequest{IntentID: intentID, EnvironmentID: environmentID, Profile: r.Config.Profile, Now: now})
+		if err != nil {
+			return err
+		}
+		if intent.State != StateFailed || (intent.LastFailureCode != "protected-git-rejected" &&
+			intent.LastFailureCode != "protected-git-rebase" && intent.LastFailureCode != "protected-git-unavailable") {
+			return nil
+		}
+		intentID = deterministicRecoveryIntentID(intent.ID)
+	}
+	return ErrConflict
 }
 
 type RuntimeReadinessProbe struct {
@@ -149,6 +164,15 @@ func exactEnvironmentIDs(ctx context.Context, catalog EnvironmentCatalog) ([]str
 
 func deterministicIntentID(environmentID, profileDigest, publisherDigest string) string {
 	sum := sha256.Sum256([]byte(Contract + "\x00" + environmentID + "\x00" + profileDigest + "\x00" + publisherDigest))
+	return uuidFromDigest(sum)
+}
+
+func deterministicRecoveryIntentID(failedIntentID string) string {
+	sum := sha256.Sum256([]byte(Contract + "\x00recovery\x00" + failedIntentID))
+	return uuidFromDigest(sum)
+}
+
+func uuidFromDigest(sum [sha256.Size]byte) string {
 	value := append([]byte(nil), sum[:16]...)
 	value[6] = value[6]&0x0f | 0x50
 	value[8] = value[8]&0x3f | 0x80
