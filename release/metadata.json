@@ -1,6 +1,6 @@
 {
   "breakingChanges": true,
-  "summary": "Stopped Apps restart from the runtime page without confusing AppConfig and Git concurrency tokens.",
+  "summary": "Managed registry cleanup recognizes Helm OCI manifests that omit a top-level media type.",
   "supportedUpgradeFrom": ">=0.1.0 <0.2.0",
-  "version": "0.1.0-rc.415"
+  "version": "0.1.0-rc.416"
 }
