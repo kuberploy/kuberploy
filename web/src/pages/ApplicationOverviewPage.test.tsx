@@ -118,6 +118,16 @@ afterEach(() => {
 });
 
 describe("application source overview", () => {
+  it("wraps every App overview section at narrow viewports", async () => {
+    render(<ApplicationOverviewPage />, { wrapper: wrapper().Wrapper });
+
+    const sections = await screen.findByRole("navigation", {
+      name: "App sections",
+    });
+    expect(sections).toHaveClass("to-580:flex-wrap");
+    expect(sections).not.toHaveClass("to-580:overflow-x-auto");
+  });
+
   it("deletes an unused App through typed confirmation", async () => {
     vi.mocked(api.capabilities).mockResolvedValue({
       features: { builds: false, builder: false, helmDeployments: false },

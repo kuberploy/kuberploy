@@ -96,6 +96,16 @@ beforeEach(() => {
 });
 
 describe("application stop lifecycle", () => {
+  it("wraps every App section at narrow viewports", async () => {
+    renderApplication({ features: {}, capabilities: [] });
+
+    const sections = await screen.findByRole("navigation", {
+      name: "App sections",
+    });
+    expect(sections).toHaveClass("to-580:flex-wrap");
+    expect(sections).not.toHaveClass("to-580:overflow-x-auto");
+  });
+
   it("stops a deployed App after exact environment confirmation", async () => {
     const user = userEvent.setup();
     vi.spyOn(api, "stopDeployment").mockResolvedValue({
